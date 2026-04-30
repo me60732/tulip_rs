@@ -1,0 +1,340 @@
+[package]
+name = "tulip_rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0.225", features = ["derive"] }
+serde_json = "1.0.145"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+
+[features]
+default = ["portable_simd", "simd_options", "simd_assets"]
+portable_simd = []
+simd_options = ["portable_simd"]
+simd_assets = ["portable_simd"]
+
+[dev-dependencies]
+criterion = "0.4"
+
+[profile.bench]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+
+# For benches specifically
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"  
+
+[build]
+rustflags = ["-C", "target-cpu=native"]  # Use all CPU features
+
+[[example]]
+name = "ti_dpo_example"
+path = "examples/indicators/ti_dpo_example.rs"
+
+[[example]]
+name = "ti_sma_example"
+path = "examples/indicators/ti_sma_example.rs"
+
+[[example]]
+name = "ti_cci_example"
+path = "examples/indicators/ti_cci_example.rs"
+
+[[example]]
+name = "ti_hma_example"
+path = "examples/indicators/ti_hma_example.rs"
+
+[[example]]
+name = "ti_dx_example"
+path = "examples/indicators/ti_dx_example.rs"
+
+[[example]]
+name = "ti_vosc_example"
+path = "examples/indicators/ti_vosc_example.rs"
+
+[[example]]
+name = "ti_dema_example"
+path = "examples/indicators/ti_dema_example.rs"
+
+[[example]]
+name = "ti_tr_example"
+path = "examples/indicators/ti_tr_example.rs"
+
+[[example]]
+name = "ti_cvi_example"
+path = "examples/indicators/ti_cvi_example.rs"
+
+[[example]]
+name = "ti_max_example"
+path = "examples/indicators/ti_max_example.rs"
+
+[[example]]
+name = "ti_rsi_example"
+path = "examples/indicators/ti_rsi_example.rs"
+
+[[example]]
+name = "ti_tsf_example"
+path = "examples/indicators/ti_tsf_example.rs"
+
+[[example]]
+name = "ti_zlema_example"
+path = "examples/indicators/ti_zlema_example.rs"
+
+[[example]]
+name = "ti_mass_example"
+path = "examples/indicators/ti_mass_example.rs"
+
+[[example]]
+name = "ti_wcprice_example"
+path = "examples/indicators/ti_wcprice_example.rs"
+
+[[example]]
+name = "ti_pivotpoint_example"
+path = "examples/indicators/ti_pivotpoint_example.rs"
+
+[[example]]
+name = "ti_range_example"
+path = "examples/indicators/ti_range_example.rs"
+
+[[example]]
+name = "ti_wma_example"
+path = "examples/indicators/ti_wma_example.rs"
+
+[[example]]
+name = "ti_vidya_example"
+path = "examples/indicators/ti_vidya_example.rs"
+
+[[example]]
+name = "ti_linreg_example"
+path = "examples/indicators/ti_linreg_example.rs"
+
+[[example]]
+name = "ti_emv_example"
+path = "examples/indicators/ti_emv_example.rs"
+
+[[example]]
+name = "ti_min_example"
+path = "examples/indicators/ti_min_example.rs"
+
+[[example]]
+name = "ti_di_example"
+path = "examples/indicators/ti_di_example.rs"
+
+[[example]]
+name = "ti_qstick_example"
+path = "examples/indicators/ti_qstick_example.rs"
+
+[[example]]
+name = "ti_nvi_example"
+path = "examples/indicators/ti_nvi_example.rs"
+
+[[example]]
+name = "ti_rema_example"
+path = "examples/indicators/ti_rema_example.rs"
+
+[[example]]
+name = "ti_atr_example"
+path = "examples/indicators/ti_atr_example.rs"
+
+[[example]]
+name = "ti_ema_example"
+path = "examples/indicators/ti_ema_example.rs"
+
+[[example]]
+name = "ti_natr_example"
+path = "examples/indicators/ti_natr_example.rs"
+
+[[example]]
+name = "ti_kvo_example"
+path = "examples/indicators/ti_kvo_example.rs"
+
+[[example]]
+name = "ti_tema_example"
+path = "examples/indicators/ti_tema_example.rs"
+
+[[example]]
+name = "ti_trix_example"
+path = "examples/indicators/ti_trix_example.rs"
+
+[[example]]
+name = "ti_marketfi_example"
+path = "examples/indicators/ti_marketfi_example.rs"
+
+[[example]]
+name = "ti_mom_example"
+path = "examples/indicators/ti_mom_example.rs"
+
+[[example]]
+name = "ti_psar_example"
+path = "examples/indicators/ti_psar_example.rs"
+
+[[example]]
+name = "ti_macd_example"
+path = "examples/indicators/ti_macd_example.rs"
+
+[[example]]
+name = "ti_adx_example"
+path = "examples/indicators/ti_adx_example.rs"
+
+[[example]]
+name = "ti_trima_example"
+path = "examples/indicators/ti_trima_example.rs"
+
+[[example]]
+name = "ti_stddev_example"
+path = "examples/indicators/ti_stddev_example.rs"
+
+[[example]]
+name = "ti_roc_example"
+path = "examples/indicators/ti_roc_example.rs"
+
+[[example]]
+name = "ti_cmo_example"
+path = "examples/indicators/ti_cmo_example.rs"
+
+[[example]]
+name = "ti_pvi_example"
+path = "examples/indicators/ti_pvi_example.rs"
+
+[[example]]
+name = "ti_ultosc_example"
+path = "examples/indicators/ti_ultosc_example.rs"
+
+[[example]]
+name = "ti_dm_example"
+path = "examples/indicators/ti_dm_example.rs"
+
+[[example]]
+name = "ti_apo_example"
+path = "examples/indicators/ti_apo_example.rs"
+
+[[example]]
+name = "ti_aroon_example"
+path = "examples/indicators/ti_aroon_example.rs"
+
+[[example]]
+name = "ti_crossover_example"
+path = "examples/indicators/ti_crossover_example.rs"
+
+[[example]]
+name = "ti_wad_example"
+path = "examples/indicators/ti_wad_example.rs"
+
+[[example]]
+name = "ti_fosc_example"
+path = "examples/indicators/ti_fosc_example.rs"
+
+[[example]]
+name = "ti_vhf_example"
+path = "examples/indicators/ti_vhf_example.rs"
+
+[[example]]
+name = "ti_avgprice_example"
+path = "examples/indicators/ti_avgprice_example.rs"
+
+[[example]]
+name = "ti_typprice_example"
+path = "examples/indicators/ti_typprice_example.rs"
+
+[[example]]
+name = "ti_ad_example"
+path = "examples/indicators/ti_ad_example.rs"
+
+[[example]]
+name = "ti_stoch_example"
+path = "examples/indicators/ti_stoch_example.rs"
+
+[[example]]
+name = "ti_stochrsi_example"
+path = "examples/indicators/ti_stochrsi_example.rs"
+
+[[example]]
+name = "ti_willr_example"
+path = "examples/indicators/ti_willr_example.rs"
+
+[[example]]
+name = "ti_volatility_example"
+path = "examples/indicators/ti_volatility_example.rs"
+
+[[example]]
+name = "ti_obv_example"
+path = "examples/indicators/ti_obv_example.rs"
+
+[[example]]
+name = "ti_ao_example"
+path = "examples/indicators/ti_ao_example.rs"
+
+[[example]]
+name = "ti_vwma_example"
+path = "examples/indicators/ti_vwma_example.rs"
+
+[[example]]
+name = "ti_medprice_example"
+path = "examples/indicators/ti_medprice_example.rs"
+
+[[example]]
+name = "ti_kama_example"
+path = "examples/indicators/ti_kama_example.rs"
+
+[[example]]
+name = "ti_mfi_example"
+path = "examples/indicators/ti_mfi_example.rs"
+
+[[example]]
+name = "ti_wilders_example"
+path = "examples/indicators/ti_wilders_example.rs"
+
+[[example]]
+name = "ti_rocr_example"
+path = "examples/indicators/ti_rocr_example.rs"
+
+[[example]]
+name = "ti_bop_example"
+path = "examples/indicators/ti_bop_example.rs"
+
+[[example]]
+name = "ti_adxr_example"
+path = "examples/indicators/ti_adxr_example.rs"
+
+[[example]]
+name = "ti_bbands_example"
+path = "examples/indicators/ti_bbands_example.rs"
+
+[[example]]
+name = "ti_md_example"
+path = "examples/indicators/ti_md_example.rs"
+
+[[example]]
+name = "ti_crossany_example"
+path = "examples/indicators/ti_crossany_example.rs"
+
+[[example]]
+name = "ti_adosc_example"
+path = "examples/indicators/ti_adosc_example.rs"
+
+[[example]]
+name = "ti_ppo_example"
+path = "examples/indicators/ti_ppo_example.rs"
+
+[[example]]
+name = "ti_msw_example"
+path = "examples/indicators/ti_msw_example.rs"
+
+[[example]]
+name = "ti_aroonosc_example"
+path = "examples/indicators/ti_aroonosc_example.rs"
+
+[[example]]
+name = "ti_fisher_example"
+path = "examples/indicators/ti_fisher_example.rs"
+
+[[example]]
+name = "ti_ao_medprice_example"
+path = "examples/indicators/ti_ao_medprice_example.rs"

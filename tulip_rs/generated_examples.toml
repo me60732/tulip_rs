@@ -1,0 +1,572 @@
+
+[[example]]
+name = "ti_cdlbearishtasukiline_example"
+path = "examples/candle/twobar/ti_cdlbearishtasukiline_example.rs"
+
+[[example]]
+name = "ti_cdlinvertedhammer_example"
+path = "examples/candle/twobar/ti_cdlinvertedhammer_example.rs"
+
+[[example]]
+name = "ti_cdlonneck_example"
+path = "examples/candle/twobar/ti_cdlonneck_example.rs"
+
+[[example]]
+name = "ti_cdlhomingpigeon_example"
+path = "examples/candle/twobar/ti_cdlhomingpigeon_example.rs"
+
+[[example]]
+name = "ti_cdlfallingwindow_example"
+path = "examples/candle/twobar/ti_cdlfallingwindow_example.rs"
+
+[[example]]
+name = "ti_cdlbearishmeetinglines_example"
+path = "examples/candle/twobar/ti_cdlbearishmeetinglines_example.rs"
+
+[[example]]
+name = "ti_cdl2candleshootingstar_example"
+path = "examples/candle/twobar/ti_cdl2candleshootingstar_example.rs"
+
+[[example]]
+name = "ti_cdlmatchinglow_example"
+path = "examples/candle/twobar/ti_cdlmatchinglow_example.rs"
+
+[[example]]
+name = "ti_cdlbearishdojistar_example"
+path = "examples/candle/twobar/ti_cdlbearishdojistar_example.rs"
+
+[[example]]
+name = "ti_cdlbearishharamicross_example"
+path = "examples/candle/twobar/ti_cdlbearishharamicross_example.rs"
+
+[[example]]
+name = "ti_cdlbullishdojistar_example"
+path = "examples/candle/twobar/ti_cdlbullishdojistar_example.rs"
+
+[[example]]
+name = "ti_cdl2blackgappingcandles_example"
+path = "examples/candle/twobar/ti_cdl2blackgappingcandles_example.rs"
+
+[[example]]
+name = "ti_cdldarkcloudcover_example"
+path = "examples/candle/twobar/ti_cdldarkcloudcover_example.rs"
+
+[[example]]
+name = "ti_cdldescendinghawk_example"
+path = "examples/candle/twobar/ti_cdldescendinghawk_example.rs"
+
+[[example]]
+name = "ti_cdlbullishengulfing_example"
+path = "examples/candle/twobar/ti_cdlbullishengulfing_example.rs"
+
+[[example]]
+name = "ti_cdlpiercing_example"
+path = "examples/candle/twobar/ti_cdlpiercing_example.rs"
+
+[[example]]
+name = "ti_cdlthrusting_example"
+path = "examples/candle/twobar/ti_cdlthrusting_example.rs"
+
+[[example]]
+name = "ti_cdlbullishharamicross_example"
+path = "examples/candle/twobar/ti_cdlbullishharamicross_example.rs"
+
+[[example]]
+name = "ti_cdlbullishharami_example"
+path = "examples/candle/twobar/ti_cdlbullishharami_example.rs"
+
+[[example]]
+name = "ti_cdlkickingdown_example"
+path = "examples/candle/twobar/ti_cdlkickingdown_example.rs"
+
+[[example]]
+name = "ti_cdlbearishseparatinglines_example"
+path = "examples/candle/twobar/ti_cdlbearishseparatinglines_example.rs"
+
+[[example]]
+name = "ti_cdlbullishtasukiline_example"
+path = "examples/candle/twobar/ti_cdlbullishtasukiline_example.rs"
+
+[[example]]
+name = "ti_cdlbullishmeetinglines_example"
+path = "examples/candle/twobar/ti_cdlbullishmeetinglines_example.rs"
+
+[[example]]
+name = "ti_cdlbearishengulfing_example"
+path = "examples/candle/twobar/ti_cdlbearishengulfing_example.rs"
+
+[[example]]
+name = "ti_cdlinneck_example"
+path = "examples/candle/twobar/ti_cdlinneck_example.rs"
+
+[[example]]
+name = "ti_cdlbullishseparatinglines_example"
+path = "examples/candle/twobar/ti_cdlbullishseparatinglines_example.rs"
+
+[[example]]
+name = "ti_cdlmatchinghigh_example"
+path = "examples/candle/twobar/ti_cdlmatchinghigh_example.rs"
+
+[[example]]
+name = "ti_cdlbearishharami_example"
+path = "examples/candle/twobar/ti_cdlbearishharami_example.rs"
+
+[[example]]
+name = "ti_cdlbearishthreelinestrike_example"
+path = "examples/candle/fourbar/ti_cdlbearishthreelinestrike_example.rs"
+
+[[example]]
+name = "ti_cdlbullishthreelinestrike_example"
+path = "examples/candle/fourbar/ti_cdlbullishthreelinestrike_example.rs"
+
+[[example]]
+name = "ti_cdlconcealingbabyswallow_example"
+path = "examples/candle/fourbar/ti_cdlconcealingbabyswallow_example.rs"
+
+[[example]]
+name = "ti_cdl3starsinthesouth_example"
+path = "examples/candle/threebar/ti_cdl3starsinthesouth_example.rs"
+
+[[example]]
+name = "ti_cdlbearishtristar_example"
+path = "examples/candle/threebar/ti_cdlbearishtristar_example.rs"
+
+[[example]]
+name = "ti_cdl3whitesoldiers_example"
+path = "examples/candle/threebar/ti_cdl3whitesoldiers_example.rs"
+
+[[example]]
+name = "ti_cdldownsidegapthreemethods_example"
+path = "examples/candle/threebar/ti_cdldownsidegapthreemethods_example.rs"
+
+[[example]]
+name = "ti_cdleveningstar_example"
+path = "examples/candle/threebar/ti_cdleveningstar_example.rs"
+
+[[example]]
+name = "ti_cdlbearabandonedbaby_example"
+path = "examples/candle/threebar/ti_cdlbearabandonedbaby_example.rs"
+
+[[example]]
+name = "ti_cdladvanceblock_example"
+path = "examples/candle/threebar/ti_cdladvanceblock_example.rs"
+
+[[example]]
+name = "ti_cdl3insideup_example"
+path = "examples/candle/threebar/ti_cdl3insideup_example.rs"
+
+[[example]]
+name = "ti_cdlmorningdojistar_example"
+path = "examples/candle/threebar/ti_cdlmorningdojistar_example.rs"
+
+[[example]]
+name = "ti_cdlupsidetasukigap_example"
+path = "examples/candle/threebar/ti_cdlupsidetasukigap_example.rs"
+
+[[example]]
+name = "ti_cdlidentical3crows_example"
+path = "examples/candle/threebar/ti_cdlidentical3crows_example.rs"
+
+[[example]]
+name = "ti_cdldownsidetasukigap_example"
+path = "examples/candle/threebar/ti_cdldownsidetasukigap_example.rs"
+
+[[example]]
+name = "ti_cdleveningdojistar_example"
+path = "examples/candle/threebar/ti_cdleveningdojistar_example.rs"
+
+[[example]]
+name = "ti_cdlbullishabandonedbaby_example"
+path = "examples/candle/threebar/ti_cdlbullishabandonedbaby_example.rs"
+
+[[example]]
+name = "ti_cdl3blackcrows_example"
+path = "examples/candle/threebar/ti_cdl3blackcrows_example.rs"
+
+[[example]]
+name = "ti_cdlupsidegap2crows_example"
+path = "examples/candle/threebar/ti_cdlupsidegap2crows_example.rs"
+
+[[example]]
+name = "ti_cdlbullishtristar_example"
+path = "examples/candle/threebar/ti_cdlbullishtristar_example.rs"
+
+[[example]]
+name = "ti_cdldeliberation_example"
+path = "examples/candle/threebar/ti_cdldeliberation_example.rs"
+
+[[example]]
+name = "ti_cdl3outsidedown_example"
+path = "examples/candle/threebar/ti_cdl3outsidedown_example.rs"
+
+[[example]]
+name = "ti_cdlmorningstar_example"
+path = "examples/candle/threebar/ti_cdlmorningstar_example.rs"
+
+[[example]]
+name = "ti_cdlupsidegapthreemethods_example"
+path = "examples/candle/threebar/ti_cdlupsidegapthreemethods_example.rs"
+
+[[example]]
+name = "ti_cdlbullsidebysidewhitelines_example"
+path = "examples/candle/threebar/ti_cdlbullsidebysidewhitelines_example.rs"
+
+[[example]]
+name = "ti_cdl2crows_example"
+path = "examples/candle/threebar/ti_cdl2crows_example.rs"
+
+[[example]]
+name = "ti_cdl3insidedown_example"
+path = "examples/candle/threebar/ti_cdl3insidedown_example.rs"
+
+[[example]]
+name = "ti_cdlbearsidebysidewhitelines_example"
+path = "examples/candle/threebar/ti_cdlbearsidebysidewhitelines_example.rs"
+
+[[example]]
+name = "ti_cdlunique3riverbottom_example"
+path = "examples/candle/threebar/ti_cdlunique3riverbottom_example.rs"
+
+[[example]]
+name = "ti_cdl3outsideup_example"
+path = "examples/candle/threebar/ti_cdl3outsideup_example.rs"
+
+[[example]]
+name = "ti_cdlgappingupdoji_example"
+path = "examples/candle/onebar/ti_cdlgappingupdoji_example.rs"
+
+[[example]]
+name = "ti_cdlhammer_example"
+path = "examples/candle/onebar/ti_cdlhammer_example.rs"
+
+[[example]]
+name = "ti_cdlonecandleshootingstar_example"
+path = "examples/candle/onebar/ti_cdlonecandleshootingstar_example.rs"
+
+[[example]]
+name = "ti_cdlnortherndoji_example"
+path = "examples/candle/onebar/ti_cdlnortherndoji_example.rs"
+
+[[example]]
+name = "ti_cdlbullishbelthold_example"
+path = "examples/candle/onebar/ti_cdlbullishbelthold_example.rs"
+
+[[example]]
+name = "ti_cdlgappingdowndoji_example"
+path = "examples/candle/onebar/ti_cdlgappingdowndoji_example.rs"
+
+[[example]]
+name = "ti_cdlhangingman_example"
+path = "examples/candle/onebar/ti_cdlhangingman_example.rs"
+
+[[example]]
+name = "ti_cdlbearishstrongline_example"
+path = "examples/candle/onebar/ti_cdlbearishstrongline_example.rs"
+
+[[example]]
+name = "ti_cdlbearishbelthold_example"
+path = "examples/candle/onebar/ti_cdlbearishbelthold_example.rs"
+
+[[example]]
+name = "ti_cdlsoutherndoji_example"
+path = "examples/candle/onebar/ti_cdlsoutherndoji_example.rs"
+
+[[example]]
+name = "ti_cdltakuriline_example"
+path = "examples/candle/onebar/ti_cdltakuriline_example.rs"
+
+[[example]]
+name = "ti_dpo_example"
+path = "examples/indicators/ti_dpo_example.rs"
+
+[[example]]
+name = "ti_sma_example"
+path = "examples/indicators/ti_sma_example.rs"
+
+[[example]]
+name = "ti_cci_example"
+path = "examples/indicators/ti_cci_example.rs"
+
+[[example]]
+name = "ti_hma_example"
+path = "examples/indicators/ti_hma_example.rs"
+
+[[example]]
+name = "ti_dx_example"
+path = "examples/indicators/ti_dx_example.rs"
+
+[[example]]
+name = "ti_vosc_example"
+path = "examples/indicators/ti_vosc_example.rs"
+
+[[example]]
+name = "ti_dema_example"
+path = "examples/indicators/ti_dema_example.rs"
+
+[[example]]
+name = "ti_tr_example"
+path = "examples/indicators/ti_tr_example.rs"
+
+[[example]]
+name = "ti_cvi_example"
+path = "examples/indicators/ti_cvi_example.rs"
+
+[[example]]
+name = "ti_max_example"
+path = "examples/indicators/ti_max_example.rs"
+
+[[example]]
+name = "ti_rsi_example"
+path = "examples/indicators/ti_rsi_example.rs"
+
+[[example]]
+name = "ti_tsf_example"
+path = "examples/indicators/ti_tsf_example.rs"
+
+[[example]]
+name = "ti_zlema_example"
+path = "examples/indicators/ti_zlema_example.rs"
+
+[[example]]
+name = "ti_mass_example"
+path = "examples/indicators/ti_mass_example.rs"
+
+[[example]]
+name = "ti_wcprice_example"
+path = "examples/indicators/ti_wcprice_example.rs"
+
+[[example]]
+name = "ti_pivotpoint_example"
+path = "examples/indicators/ti_pivotpoint_example.rs"
+
+[[example]]
+name = "ti_range_example"
+path = "examples/indicators/ti_range_example.rs"
+
+[[example]]
+name = "ti_wma_example"
+path = "examples/indicators/ti_wma_example.rs"
+
+[[example]]
+name = "ti_vidya_example"
+path = "examples/indicators/ti_vidya_example.rs"
+
+[[example]]
+name = "ti_linreg_example"
+path = "examples/indicators/ti_linreg_example.rs"
+
+[[example]]
+name = "ti_emv_example"
+path = "examples/indicators/ti_emv_example.rs"
+
+[[example]]
+name = "ti_min_example"
+path = "examples/indicators/ti_min_example.rs"
+
+[[example]]
+name = "ti_di_example"
+path = "examples/indicators/ti_di_example.rs"
+
+[[example]]
+name = "ti_qstick_example"
+path = "examples/indicators/ti_qstick_example.rs"
+
+[[example]]
+name = "ti_nvi_example"
+path = "examples/indicators/ti_nvi_example.rs"
+
+[[example]]
+name = "ti_rema_example"
+path = "examples/indicators/ti_rema_example.rs"
+
+[[example]]
+name = "ti_atr_example"
+path = "examples/indicators/ti_atr_example.rs"
+
+[[example]]
+name = "ti_ema_example"
+path = "examples/indicators/ti_ema_example.rs"
+
+[[example]]
+name = "ti_natr_example"
+path = "examples/indicators/ti_natr_example.rs"
+
+[[example]]
+name = "ti_kvo_example"
+path = "examples/indicators/ti_kvo_example.rs"
+
+[[example]]
+name = "ti_tema_example"
+path = "examples/indicators/ti_tema_example.rs"
+
+[[example]]
+name = "ti_trix_example"
+path = "examples/indicators/ti_trix_example.rs"
+
+[[example]]
+name = "ti_marketfi_example"
+path = "examples/indicators/ti_marketfi_example.rs"
+
+[[example]]
+name = "ti_mom_example"
+path = "examples/indicators/ti_mom_example.rs"
+
+[[example]]
+name = "ti_psar_example"
+path = "examples/indicators/ti_psar_example.rs"
+
+[[example]]
+name = "ti_macd_example"
+path = "examples/indicators/ti_macd_example.rs"
+
+[[example]]
+name = "ti_adx_example"
+path = "examples/indicators/ti_adx_example.rs"
+
+[[example]]
+name = "ti_trima_example"
+path = "examples/indicators/ti_trima_example.rs"
+
+[[example]]
+name = "ti_stddev_example"
+path = "examples/indicators/ti_stddev_example.rs"
+
+[[example]]
+name = "ti_roc_example"
+path = "examples/indicators/ti_roc_example.rs"
+
+[[example]]
+name = "ti_cmo_example"
+path = "examples/indicators/ti_cmo_example.rs"
+
+[[example]]
+name = "ti_pvi_example"
+path = "examples/indicators/ti_pvi_example.rs"
+
+[[example]]
+name = "ti_ultosc_example"
+path = "examples/indicators/ti_ultosc_example.rs"
+
+[[example]]
+name = "ti_dm_example"
+path = "examples/indicators/ti_dm_example.rs"
+
+[[example]]
+name = "ti_apo_example"
+path = "examples/indicators/ti_apo_example.rs"
+
+[[example]]
+name = "ti_aroon_example"
+path = "examples/indicators/ti_aroon_example.rs"
+
+[[example]]
+name = "ti_crossover_example"
+path = "examples/indicators/ti_crossover_example.rs"
+
+[[example]]
+name = "ti_wad_example"
+path = "examples/indicators/ti_wad_example.rs"
+
+[[example]]
+name = "ti_fosc_example"
+path = "examples/indicators/ti_fosc_example.rs"
+
+[[example]]
+name = "ti_vhf_example"
+path = "examples/indicators/ti_vhf_example.rs"
+
+[[example]]
+name = "ti_avgprice_example"
+path = "examples/indicators/ti_avgprice_example.rs"
+
+[[example]]
+name = "ti_typprice_example"
+path = "examples/indicators/ti_typprice_example.rs"
+
+[[example]]
+name = "ti_ad_example"
+path = "examples/indicators/ti_ad_example.rs"
+
+[[example]]
+name = "ti_stoch_example"
+path = "examples/indicators/ti_stoch_example.rs"
+
+[[example]]
+name = "ti_stochrsi_example"
+path = "examples/indicators/ti_stochrsi_example.rs"
+
+[[example]]
+name = "ti_willr_example"
+path = "examples/indicators/ti_willr_example.rs"
+
+[[example]]
+name = "ti_volatility_example"
+path = "examples/indicators/ti_volatility_example.rs"
+
+[[example]]
+name = "ti_obv_example"
+path = "examples/indicators/ti_obv_example.rs"
+
+[[example]]
+name = "ti_ao_example"
+path = "examples/indicators/ti_ao_example.rs"
+
+[[example]]
+name = "ti_vwma_example"
+path = "examples/indicators/ti_vwma_example.rs"
+
+[[example]]
+name = "ti_medprice_example"
+path = "examples/indicators/ti_medprice_example.rs"
+
+[[example]]
+name = "ti_kama_example"
+path = "examples/indicators/ti_kama_example.rs"
+
+[[example]]
+name = "ti_mfi_example"
+path = "examples/indicators/ti_mfi_example.rs"
+
+[[example]]
+name = "ti_wilders_example"
+path = "examples/indicators/ti_wilders_example.rs"
+
+[[example]]
+name = "ti_rocr_example"
+path = "examples/indicators/ti_rocr_example.rs"
+
+[[example]]
+name = "ti_bop_example"
+path = "examples/indicators/ti_bop_example.rs"
+
+[[example]]
+name = "ti_adxr_example"
+path = "examples/indicators/ti_adxr_example.rs"
+
+[[example]]
+name = "ti_bbands_example"
+path = "examples/indicators/ti_bbands_example.rs"
+
+[[example]]
+name = "ti_md_example"
+path = "examples/indicators/ti_md_example.rs"
+
+[[example]]
+name = "ti_crossany_example"
+path = "examples/indicators/ti_crossany_example.rs"
+
+[[example]]
+name = "ti_adosc_example"
+path = "examples/indicators/ti_adosc_example.rs"
+
+[[example]]
+name = "ti_ppo_example"
+path = "examples/indicators/ti_ppo_example.rs"
+
+[[example]]
+name = "ti_msw_example"
+path = "examples/indicators/ti_msw_example.rs"
+
+[[example]]
+name = "ti_aroonosc_example"
+path = "examples/indicators/ti_aroonosc_example.rs"

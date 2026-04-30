@@ -1,0 +1,2185 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "cargo clean",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "clean"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
+        },
+        {
+            "label": "cargo build",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo clean"
+        },
+        {
+            "label": "cargo build ti_fisher_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_fisher_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo build ti_sma_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_sma_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo build ti_macd_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_macd_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo build ti_ad_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_ad_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo build ti_adosc_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_adosc_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_sma_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_sma_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_sma_example"
+        },
+        {
+            "label": "cargo build ti_ema_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_ema_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_ema_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_ema_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_ema_example"
+        },
+        {
+            "label": "cargo run ti_macd_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_macd_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_macd_example"
+        },
+        {
+            "label": "cargo run ti_ad_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_ad_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_ad_example"
+        },
+        {
+            "label": "cargo run ti_adosc_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_adosc_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_adosc_example"
+        },
+        {
+            "label": "cargo build ti_dm_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_dm_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_dm_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_dm_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_dm_example"
+        },
+        {
+            "label": "cargo build ti_tr_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_tr_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_tr_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_tr_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_tr_example"
+        },
+        {
+            "label": "cargo build ti_wilders_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_wilders_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_wilders_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_wilders_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_wilders_example"
+        },
+        {
+            "label": "cargo build ti_atr_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_atr_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_atr_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_atr_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_atr_example"
+        },
+        {
+            "label": "cargo build ti_di_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_di_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_di_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_di_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_di_example"
+        },
+        {
+            "label": "cargo build ti_dx_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_dx_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_dx_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_dx_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_dx_example"
+        },
+        {
+            "label": "cargo build ti_adx_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_adx_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_adx_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_adx_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_adx_example"
+        },
+        {
+            "label": "cargo build ti_adxr_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_adxr_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_adxr_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_adxr_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_adxr_example"
+        },
+        {
+            "label": "cargo build ti_medprice_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_medprice_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_medprice_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_medprice_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_medprice_example"
+        },
+        {
+            "label": "cargo build ti_ao_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_ao_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_ao_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_ao_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_ao_example"
+        },
+        {
+            "label": "cargo build ti_apo_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_apo_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_apo_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_apo_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_apo_example"
+        },
+        {
+            "label": "cargo build ti_aroon_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_aroon_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_aroon_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_aroon_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_aroon_example"
+        },
+        {
+            "label": "cargo build ti_avgprice_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_avgprice_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_avgprice_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_avgprice_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_avgprice_example"
+        },
+        {
+            "label": "cargo build ti_bbands_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_bbands_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_bbands_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_bbands_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_bbands_example"
+        },
+        {
+            "label": "cargo build ti_bop_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_bop_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_bop_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_bop_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_bop_example"
+        },
+        {
+            "label": "cargo build ti_typprice_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_typprice_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_typprice_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_typprice_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_typprice_example"
+        },
+        {
+            "label": "cargo build ti_md_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_md_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_md_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_md_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_md_example"
+        },
+        {
+            "label": "cargo build ti_cci_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_cci_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_cci_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_cci_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_cci_example"
+        },
+        {
+            "label": "cargo build ti_stddev_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_stddev_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_stddev_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_stddev_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_stddev_example"
+        },
+        {
+            "label": "cargo build ti_cmo_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_cmo_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_cmo_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_cmo_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_cmo_example"
+        },
+        {
+            "label": "cargo build ti_rsi_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_rsi_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_rsi_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_rsi_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_rsi_example"
+        },
+        {
+            "label": "cargo build ti_cvi_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_cvi_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_cvi_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_cvi_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_cvi_example"
+        },
+        {
+            "label": "cargo build ti_dema_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_dema_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_dema_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_dema_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_dema_example"
+        },
+        {
+            "label": "cargo build ti_tema_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_tema_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_tema_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_tema_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_tema_example"
+        },
+        {
+            "label": "cargo build ti_dpo_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_dpo_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_dpo_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_dpo_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_dpo_example"
+        },
+        {
+            "label": "cargo build ti_emv_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_emv_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_emv_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_emv_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_emv_example"
+        },
+        {
+            "label": "cargo build ti_linreg_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_linreg_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_linreg_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_linreg_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_linreg_example"
+        },
+        {
+            "label": "cargo build ti_tsf_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_tsf_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_tsf_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_tsf_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_tsf_example"
+        },
+        {
+            "label": "cargo build ti_fosc_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_fosc_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_fosc_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_fosc_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_fosc_example"
+        },
+        {
+            "label": "cargo build ti_wma_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_wma_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_wma_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_wma_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_wma_example"
+        },
+        {
+            "label": "cargo build ti_hma_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_hma_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_hma_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_hma_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_hma_example"
+        },
+        {
+            "label": "cargo build ti_kama_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_kama_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_kama_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_kama_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_kama_example"
+        },
+        {
+            "label": "cargo build ti_kvo_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_kvo_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_kvo_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_kvo_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_kvo_example"
+        },
+        {
+            "label": "cargo build ti_marketfi_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_marketfi_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_marketfi_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_marketfi_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_marketfi_example"
+        },
+        {
+            "label": "cargo build ti_mass_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_mass_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_mass_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_mass_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_mass_example"
+        },
+        {
+            "label": "cargo build ti_mfi_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_mfi_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_mfi_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_mfi_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_mfi_example"
+        },
+        {
+            "label": "cargo build ti_mom_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_mom_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_mom_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_mom_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_mom_example"
+        },
+        {
+            "label": "cargo build ti_roc_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_roc_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_roc_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_roc_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_roc_example"
+        },
+        {
+            "label": "cargo build ti_rocr_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_rocr_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_rocr_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_rocr_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_rocr_example"
+        },
+        {
+            "label": "cargo build ti_msw_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_msw_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_msw_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_msw_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_msw_example"
+        },
+        {
+            "label": "cargo build ti_natr_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_natr_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_natr_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_natr_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_natr_example"
+        },
+        {
+            "label": "cargo build ti_nvi_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_nvi_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_nvi_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_nvi_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_nvi_example"
+        },
+        {
+            "label": "cargo build ti_pvi_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_pvi_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_pvi_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_pvi_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_pvi_example"
+        },
+        {
+            "label": "cargo build ti_obv_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_obv_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_obv_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_obv_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_obv_example"
+        },
+        {
+            "label": "cargo build ti_ppo_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_ppo_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_ppo_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_ppo_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_ppo_example"
+        },
+        {
+            "label": "cargo build ti_psar_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_psar_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_psar_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_psar_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_psar_example"
+        },
+        {
+            "label": "cargo build ti_qstick_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_qstick_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_qstick_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_qstick_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_qstick_example"
+        },
+        {
+            "label": "cargo build ti_max_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_max_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_max_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_max_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_max_example"
+        },
+        {
+            "label": "cargo build ti_min_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_min_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_min_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_min_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_min_example"
+        },
+        {
+            "label": "cargo build ti_aroonosc_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_aroonosc_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_aroonosc_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_aroonosc_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_aroonosc_example"
+        },
+        {
+            "label": "cargo build ti_stoch_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_stoch_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_stoch_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_stoch_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_stoch_example"
+        },
+        {
+            "label": "cargo build ti_stochrsi_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_stochrsi_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_stochrsi_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_stochrsi_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_stochrsi_example"
+        },
+        {
+            "label": "cargo build ti_trima_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_trima_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_trima_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_trima_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_trima_example"
+        },
+        {
+            "label": "cargo build ti_trix_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_trix_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_trix_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_trix_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_trix_example"
+        },
+        {
+            "label": "cargo build ti_ultosc_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_ultosc_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_ultosc_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_ultosc_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_ultosc_example"
+        },
+        {
+            "label": "cargo build ti_vhf_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_vhf_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_vhf_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_vhf_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_vhf_example"
+        },
+        {
+            "label": "cargo build ti_vidya_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_vidya_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_vidya_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_vidya_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_vidya_example"
+        },
+        {
+            "label": "cargo build ti_volatility_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_volatility_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_volatility_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_volatility_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_volatility_example"
+        },
+        {
+            "label": "cargo build ti_vosc_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_vosc_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_vosc_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_vosc_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_vosc_example"
+        },
+        {
+            "label": "cargo build ti_vwma_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_vwma_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_vwma_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_vwma_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_vwma_example"
+        },
+        {
+            "label": "cargo build ti_wad_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_wad_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_wad_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_wad_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_wad_example"
+        },
+        {
+            "label": "cargo build ti_wcprice_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_wcprice_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_wcprice_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_wad_eti_wcprice_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_wcprice_example"
+        },
+        {
+            "label": "cargo build ti_willr_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_willr_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_willr_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_willr_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_willr_example"
+        },
+        {
+            "label": "cargo build ti_zlema_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--example",
+                "ti_zlema_example"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo run ti_zlema_example",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "run",
+                "--example",
+                "ti_zlema_example"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
+            "problemMatcher": ["$rustc"],
+            "dependsOn": "cargo build ti_zlema_example"
+        }
+    ]
+}

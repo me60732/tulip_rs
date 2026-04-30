@@ -1,0 +1,14 @@
+{
+    "github.copilot.chat.agent.terminal.allowList": {
+        "npm run": true,
+        "cargo run*": true,
+        "cargo check*": true,
+        "cargo test*": true,
+        "cargo clippy": true,
+        "cargo build*": true,
+    },
+    "github.copilot.chat.agent.terminal.denyList": {
+        "cargo fmt": true
+    },
+    "chat.tools.autoApprove": true
+}

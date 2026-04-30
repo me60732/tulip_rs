@@ -1,0 +1,1685 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+          "name": "Debug ti_fisher_example",
+          "type": "cppdbg",
+          "request": "launch",
+          "program": "${workspaceFolder}/target/debug/examples/ti_fisher_example",
+          "args": [],
+          "stopAtEntry": false,
+          "cwd": "${workspaceFolder}",
+          "environment": [],
+          "externalConsole": false,
+          "MIMode": "gdb",
+          "setupCommands": [
+              {
+                  "description": "Enable pretty-printing for gdb",
+                  "text": "-enable-pretty-printing",
+                  "ignoreFailures": true
+              }
+          ],
+          "preLaunchTask": "cargo build ti_fisher_example",
+          "miDebuggerPath": "/usr/bin/gdb",
+          "logging": {
+              "engineLogging": true
+          }
+      },
+      {
+          "name": "Debug ti_sma_example",
+          "type": "cppdbg",
+          "request": "launch",
+          "program": "${workspaceFolder}/target/debug/examples/ti_sma_example",
+          "args": [],
+          "stopAtEntry": false,
+          "cwd": "${workspaceFolder}",
+          "environment": [],
+          "externalConsole": false,
+          "MIMode": "gdb",
+          "setupCommands": [
+              {
+                  "description": "Enable pretty-printing for gdb",
+                  "text": "-enable-pretty-printing",
+                  "ignoreFailures": true
+              }
+          ],
+          "preLaunchTask": "cargo build ti_sma_example",
+          "miDebuggerPath": "/usr/bin/gdb",
+          "logging": {
+              "engineLogging": true
+          }
+      },
+      {
+          "name": "Debug ti_macd_example",
+          "type": "cppdbg",
+          "request": "launch",
+          "program": "${workspaceFolder}/target/debug/examples/ti_macd_example",
+          "args": [],
+          "stopAtEntry": false,
+          "cwd": "${workspaceFolder}",
+          "environment": [],
+          "externalConsole": false,
+          "MIMode": "gdb",
+          "setupCommands": [
+              {
+                  "description": "Enable pretty-printing for gdb",
+                  "text": "-enable-pretty-printing",
+                  "ignoreFailures": true
+              }
+          ],
+          "preLaunchTask": "cargo build ti_macd_example",
+          "miDebuggerPath": "/usr/bin/gdb",
+          "logging": {
+              "engineLogging": true
+          }
+      },
+      {
+          "name": "Debug ti_ad_example",
+          "type": "cppdbg",
+          "request": "launch",
+          "program": "${workspaceFolder}/target/debug/examples/ti_ad_example",
+          "args": [],
+          "stopAtEntry": false,
+          "cwd": "${workspaceFolder}",
+          "environment": [],
+          "externalConsole": false,
+          "MIMode": "gdb",
+          "setupCommands": [
+              {
+                  "description": "Enable pretty-printing for gdb",
+                  "text": "-enable-pretty-printing",
+                  "ignoreFailures": true
+              }
+          ],
+          "preLaunchTask": "cargo build ti_ad_example",
+          "miDebuggerPath": "/usr/bin/gdb",
+          "logging": {
+              "engineLogging": true
+          }
+      },
+      {
+        "name": "Debug ti_adosc_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_adosc_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_adosc_example",
+        "miDebuggerPath": "/usr/bin/gdb",
+        "logging": {
+            "engineLogging": true
+        }
+    },
+      {
+        "name": "Debug ti_ema_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_ema_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_ema_example",
+        "miDebuggerPath": "/usr/bin/gdb",
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_dm_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_dm_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_dm_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_tr_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_tr_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_tr_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_wilders_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_wilders_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_wilders_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_atr_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_atr_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_atr_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_di_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_di_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_di_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_dx_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_dx_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_dx_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_adx_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_adx_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_adx_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_adxr_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_adxr_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_adxr_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_medprice_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_medprice_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_medprice_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_ao_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_ao_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_ao_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_apo_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_apo_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_apo_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_aroon_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_aroon_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_aroon_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_avgprice_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_avgprice_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_avgprice_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_bbands_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_bbands_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_bbands_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_bop_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_bop_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_bop_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_typprice_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_typprice_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_typprice_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_md_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_md_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_md_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_cci_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_cci_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_cci_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_stddev_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_stddev_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_stddev_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_cmo_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_cmo_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_cmo_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_rsi_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_rsi_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_rsi_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_cvi_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_cvi_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_cvi_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_dema_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_dema_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_dema_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_tema_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_tema_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_tema_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_dpo_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_dpo_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_dpo_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_emv_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_emv_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_emv_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_linreg_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_linreg_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_linreg_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_tsf_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_tsf_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_tsf_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_fosc_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_fosc_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_fosc_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_wma_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_wma_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_wma_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_hma_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_hma_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_hma_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_kama_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_kama_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_kama_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_kvo_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_kvo_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_kvo_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_marketfi_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_marketfi_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_marketfi_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_mass_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_mass_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_mass_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_mfi_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_mfi_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_mfi_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_mom_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_mom_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_mom_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_roc_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_roc_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_roc_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_rocr_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_rocr_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_rocr_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_msw_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_msw_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_msw_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_natr_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_natr_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_natr_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_nvi_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_nvi_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_nvi_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_pvi_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_pvi_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_pvi_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_obv_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_obv_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_obv_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_ppo_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_ppo_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_ppo_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_psar_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_psar_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_psar_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_qstick_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_qstick_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_qstick_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_max_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_max_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_max_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_min_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_min_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_min_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_aroonosc_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_aroonosc_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_aroonosc_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_stoch_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_stoch_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_stoch_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_stochrsi_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_stochrsi_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_stochrsi_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_trima_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_trima_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_trima_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_trix_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_trix_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_trix_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_ultosc_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_ultosc_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_ultosc_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_vhf_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_vhf_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_vhf_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_vidya_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_vidya_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_vidya_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_volatility_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_volatility_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_volatility_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_vosc_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_vosc_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_vosc_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_vwma_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_vwma_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_vwma_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_wad_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_wad_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_wad_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_wcprice_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_wcprice_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_wcprice_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_willr_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_willr_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_willr_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    },
+    {
+        "name": "Debug ti_zlema_example",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/target/debug/examples/ti_zlema_example",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "externalConsole": false,
+        "MIMode": "gdb",
+        "setupCommands": [
+            {
+                "description": "Enable pretty-printing for gdb",
+                "text": "-enable-pretty-printing",
+                "ignoreFailures": true
+            }
+        ],
+        "preLaunchTask": "cargo build ti_zlema_example",
+        "miDebuggerPath": "/usr/bin/gdb", // Replace with the correct path to gdb
+        "logging": {
+            "engineLogging": true
+        }
+    }
+  ]
+}

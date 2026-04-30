@@ -1,0 +1,2 @@
+[build]
+#rustflags = ["-C", "profile-use=/home/mark/Insync/me60732@gmail.com/OneDrive/Development/tulip_rs_base_clean/profiledata/merged.profdata"]

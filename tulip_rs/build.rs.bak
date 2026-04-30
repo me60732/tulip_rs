@@ -1,0 +1,55 @@
+use std::fs::{self, File};
+use std::io::Write;
+use std::path::Path;
+
+/// Recursively visits directories starting at `dir` (with `root` as the examples/ root)
+/// and appends example entries for any .rs file that is NOT directly in the root.
+fn visit_dir(dir: &Path, root: &Path, entries: &mut String) {
+    if let Ok(dir_iter) = fs::read_dir(dir) {
+        for entry in dir_iter.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                // Recurse into subdirectories.
+                visit_dir(&path, root, entries);
+            } else if let Some(ext) = path.extension() {
+                if ext == "rs" {
+                    // Only process files that are not in the root of examples/
+                    if path.parent().map(|p| p != root).unwrap_or(true) {
+                        // Get the file stem as the example name.
+                        if let Some(name_os) = path.file_stem() {
+                            if let Some(name) = name_os.to_str() {
+                                // Get the relative path as string (replace backslashes for Windows)
+                                let rel_path = path.to_str().unwrap().replace("\\", "/");
+                                entries.push_str(&format!(
+                                    "\n[[example]]\nname = \"{}\"\npath = \"{}\"\n",
+                                    name, rel_path
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn main() {
+    let root = Path::new("examples");
+    let mut toml_entries = String::new();
+
+    if root.exists() {
+        // Start the recursive traversal from the root.
+        visit_dir(root, root, &mut toml_entries);
+    } else {
+        println!("cargo:warning=No examples/ directory found!");
+    }
+
+    let out_file = Path::new("generated_examples.toml");
+    let mut file = File::create(out_file)
+        .expect("Unable to create generated_examples.toml file");
+    file.write_all(toml_entries.as_bytes())
+        .expect("Unable to write data to generated_examples.toml");
+        
+    // Print the generated entries so you can verify them in the build output.
+    println!("cargo:warning=Generated examples TOML:{}", toml_entries);
+}
