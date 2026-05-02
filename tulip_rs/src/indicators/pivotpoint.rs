@@ -12,7 +12,7 @@ pub const OPTIONS_WIDTH: usize = 1;
 pub fn info() -> Info<'static> {
     Info {
         name: "pivitpoint",
-        full_name: "Pivit Point",
+        full_name: "Pivot Point",
         indicator_type: IndicatorType::Trend,
         display_type: DisplayType::Overlay,
         inputs: &["high", "low", "close"],
