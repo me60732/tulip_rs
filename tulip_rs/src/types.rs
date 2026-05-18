@@ -20,6 +20,7 @@ pub enum IndicatorType {
     Volatility,
     Price,
     Cycle,
+    CandleStick,
     Other,
 }
 impl fmt::Display for IndicatorType {

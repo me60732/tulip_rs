@@ -1,98 +1,76 @@
-use tulip_rs::candle_indicators::bullishmeetinglines::{indicator, indicator_from_state, info};
+use tulip_rs::indicators::candlestick::{indicator, ForcastType};
 
 fn main() {
     // Example input data: open, high, low, and close prices
-    let open = vec![
+    let mut open = vec![
         81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25, 84.03, 85.45, 86.18,
-        88.00, 87.60,
-    ]; // Open prices
-    let high = vec![
+        88.00, 87.30,
+    ];
+    let mut high = vec![
         82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98,
-        88.00, 87.87,
-    ]; // High prices
-    let low = vec![
+        88.00, 87.31,
+    ];
+    let mut low = vec![
         81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76,
-        87.17, 87.01,
-    ]; // Low prices
-    let close = vec![
+        87.17, 87.20,
+    ];
+    let mut close = vec![
         81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89,
         87.77, 87.29,
-    ]; // Close prices
+    ];
 
-    let options = [7.0, 5.0, 70.0, 0.5, 3.0];
-    let info = info();
-
-    // Pattern data that creates a bullish meeting lines pattern
     let pattern_open = vec![87.30, 85.30];
     let pattern_high = vec![88.0, 86.55];
     let pattern_low = vec![86.0, 85.10];
     let pattern_close = vec![86.30, 86.30];
+    
+    open.extend(pattern_open);
+    high.extend(pattern_high);
+    low.extend(pattern_low);
+    close.extend(pattern_close);
+    
+    let options = [5.0, 1.0, 2.0];
 
-    /////////////////////////////////////////////////// Calculating the Full Bullish Meeting Lines Pattern
+    // Step 1: Full calculation
     let inputs = [
         open.as_slice(),
         high.as_slice(),
         low.as_slice(),
         close.as_slice(),
     ];
-    let result = match indicator(&inputs, &options, None) {
+    let (result, _) = match indicator(&inputs, &options, None) { 
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
-    println!(
-        "Full {} ({}): {:?}",
-        info.full_name, info.japanese_name, result.indicators[0]
-    );
+    println!("Result: {:?}", result);
 
-    /////////////////////////////////////////////////// Calculating the partial Bullish Meeting Lines Pattern
-    let partial_len = open.len() - 5;
-    let partial_open = &open[..partial_len];
-    let partial_high = &high[..partial_len];
-    let partial_low = &low[..partial_len];
-    let partial_close = &close[..partial_len];
+    if let Some(patterns) = result.last().and_then(|opt| opt.as_ref()) {
+        println!("Forecast type None - Patterns found:");
+        for pattern in patterns {
+            let pattern_info = pattern.get_info();
+            println!("  - {} ({}), Bars: {}",
+                pattern_info.full_name,
+                pattern_info.japanese_name,
+                pattern_info.bars);
+        }
+    }
 
-    let partial_inputs = [partial_open, partial_high, partial_low, partial_close];
-    let partial_result = match indicator(&partial_inputs, &options, None) {
+    let (result, _) = match indicator(&inputs, &options, Some(ForcastType::BullishReversal)) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
-    println!(
-        "Partial {} ({}): {:?}",
-        info.full_name, info.japanese_name, partial_result.indicators[0]
-    );
+    println!("\n\nResult: {:?}", result);
 
-    /////////////////////////////////////////////////// Calculating the Bullish Meeting Lines Pattern from state
-    let remaining_open = &open[partial_len..];
-    let remaining_high = &high[partial_len..];
-    let remaining_low = &low[partial_len..];
-    let remaining_close = &close[partial_len..];
+    if let Some(patterns) = result.last().and_then(|opt| opt.as_ref()) {
+        println!("Forecast type Specified - Patterns found:");
+        for pattern in patterns {
+            let pattern_info = pattern.get_info();
+            println!("  - {} ({}), Bars: {}",
+                pattern_info.full_name,
+                pattern_info.japanese_name,
+                pattern_info.bars);
+        }
+    }
 
-    // Extend with pattern data to create bullish meeting lines
-    let mut new_open = remaining_open.to_vec();
-    let mut new_high = remaining_high.to_vec();
-    let mut new_low = remaining_low.to_vec();
-    let mut new_close = remaining_close.to_vec();
-
-    new_open.extend(pattern_open.iter());
-    new_high.extend(pattern_high.iter());
-    new_low.extend(pattern_low.iter());
-    new_close.extend(pattern_close.iter());
-
-    let new_inputs = [
-        new_open.as_slice(),
-        new_high.as_slice(),
-        new_low.as_slice(),
-        new_close.as_slice(),
-    ];
-
-    let final_result =
-        match indicator_from_state(&new_inputs, &options, &partial_result.state, None) {
-            Ok(r) => r,
-            Err(e) => panic!("Error: {}", e),
-        };
-
-    println!(
-        "Final {} ({}): {:?}",
-        info.full_name, info.japanese_name, final_result.indicators[0]
-    );
+    
 }

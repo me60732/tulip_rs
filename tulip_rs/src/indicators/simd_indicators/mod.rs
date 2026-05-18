@@ -72,7 +72,6 @@ pub mod willr_simd;
 pub mod wma_simd;
 pub mod zlema_simd;
 
-
 #[cfg(feature = "simd_assets")]
 pub mod by_asset;
 #[cfg(feature = "simd_options")]

@@ -1,0 +1,41 @@
+#[allow(dead_code)]
+pub(super) const BAR_COUNT: usize = 2;
+
+pub(super) const PREV: usize = 0;
+pub(super) const FIRST: usize = 1;
+pub(super) const SECOND: usize = 2;
+
+pub mod bearishdojistar;
+pub mod bearishengulfing;
+pub mod bearishharami;
+pub mod bearishharamicross;
+pub mod bearishmeetinglines;
+pub mod bearishseparatinglines;
+pub mod bearishtasukiline;
+pub mod bullishdojistar;
+pub mod bullishengulfing;
+pub mod bullishharami;
+pub mod bullishharamicross;
+pub mod bullishmeetinglines;
+pub mod bullishseparatinglines;
+pub mod bullishtasukiline;
+pub mod darkcloudcover;
+pub mod descendinghawk;
+pub mod fallingwindow;
+pub mod homingpigeon;
+pub mod inneck;
+pub mod invertedhammer;
+pub mod kickingdown;
+pub mod kickingup;
+pub mod matchinghigh;
+pub mod matchinglow;
+pub mod onneck;
+pub mod piercing;
+pub mod risingwindow;
+pub mod thrusting;
+pub mod turndown;
+pub mod turnup;
+pub mod tweezersbottom;
+pub mod tweezerstop;
+pub mod twoblackgappingcandles;
+pub mod twocandleshootingstar;

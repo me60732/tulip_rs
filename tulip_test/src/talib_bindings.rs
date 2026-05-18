@@ -1,5 +1,6 @@
 #![allow(non_camel_case_types)]
 #![allow(dead_code)]
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
 
 pub type TA_Integer = i32;
 pub type TA_Real = f64;

@@ -1,0 +1,7 @@
+[package]
+name = "tulip_rs_shared"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# No dependencies - this is a pure constants/helper crate

@@ -24,6 +24,12 @@ gethostname = "0.4"
 criterion = { version = "0.4.0", features = ["html_reports"] }
 bincode = { version = "2.0.1", features = ["serde"] }
 
+[features]
+perf-stats = ["tulip_rs/perf-stats"]
+
+[[bench]]
+name = "benchmark_candle_stick_indicators"
+harness = false
 
 [[bench]]
 name = "benchmark_macd"

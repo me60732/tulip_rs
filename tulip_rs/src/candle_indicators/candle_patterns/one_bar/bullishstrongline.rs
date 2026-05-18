@@ -1,0 +1,72 @@
+use crate::candle_indicators::registry::CandleBits;
+use crate::candle_indicators::{
+    common::cdl_body_greater,
+    pattern_test::EmaState,
+    types::{CandleInfo, ForcastType},
+};
+use tulip_rs_macros::pattern_template;
+use super::FIRST;
+
+
+pub fn info() -> CandleInfo {
+    CandleInfo {
+        name: "bullishstrongline",
+        full_name: "Bullish Strong Line",
+        forcast: ForcastType::BullishReversalOrContinuation,
+        extended_pattern: None,
+        bars: 1,
+        japanese_name: "Yorikiri Sen",
+    }
+}
+/// Advanced pattern calculation with additional constraints
+///
+/// This performs checks beyond the basic pattern matching:
+/// - Each bar opens within the previous bar's body
+/// - Bodies get progressively smaller
+/// - Upper shadows get progressively longer
+///
+/// The registry handles basic filtering (trend, bar count, colours, fills).
+/// This function handles the complex relational checks between bars.
+///
+/// # Arguments
+/// * `open` - Open prices array
+/// * `high` - High prices array
+/// * `low` - Low prices array
+/// * `close` - Close prices array
+/// * `i` - Current index in the arrays
+/// * `_state` - EMA state for volatility calculations (unused here)
+///
+/// # Returns
+/// `true` if all advanced conditions are met, `false` otherwise
+#[pattern_template(
+    name = "BullishStrongLine",
+    forecast = "BullishReversalOrContinuation",
+    bar(
+        fill = "HALLOW",
+        line_height = "LONG",
+        candle_type = "Basic(LongWhiteCandle) Marubozu(OpeningWhiteMarubozu | ClosingWhiteMarubozu | WhiteMarubozu)"
+    )
+)]
+
+pub fn calc(
+    inputs: (&[f64], &[f64], &[f64], &[f64]),
+    state: &EmaState,
+    _bars: &[CandleBits],
+) -> bool {
+    let (open, _, _, close) = inputs;
+    // === Additional Constraints Beyond Basic Pattern Match ===
+    if !cdl_body_greater((open[FIRST], close[FIRST]), state.ema_body, 3.0) {
+        return false;
+    }
+    // All conditions met
+    true
+}
+
+/// Default compute_bits - this pattern doesn't use lazy bits
+pub fn compute_bits(
+    _inputs: (&[f64], &[f64], &[f64], &[f64]),
+    _state: &EmaState,
+    _bars: &mut [CandleBits],
+) {
+    // No lazy bits needed for this pattern
+}

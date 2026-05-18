@@ -1,5 +1,11 @@
-use crate::ring_buffer::{single_buffer::generic_buffer::{Buffer, BufferElement, get_by_periods}, buffer::period_to_idx};
-use crate::indicators::{min::{State as MinState, find_min_scalar, find_min_simd}, max::{State as MaxState, find_max_scalar, find_max_simd}};
+use crate::indicators::{
+    max::{find_max_scalar, find_max_simd, State as MaxState},
+    min::{find_min_scalar, find_min_simd, State as MinState},
+};
+use crate::ring_buffer::{
+    buffer::period_to_idx,
+    single_buffer::generic_buffer::{get_by_periods, Buffer, BufferElement},
+};
 pub trait MirrorBuffer<T: BufferElement = f64> {
     fn new(capacity: usize) -> Self;
     unsafe fn push_unchecked(&mut self, value: T);
@@ -7,6 +13,7 @@ pub trait MirrorBuffer<T: BufferElement = f64> {
     fn push_with_info(&mut self, value: T) -> Option<T>;
     unsafe fn push_with_info_unchecked(&mut self, value: T) -> T;
     fn get_slice(&self) -> &[T];
+    fn get_slice_mut(&mut self) -> &mut [T]; // Add mutable version
     fn window_index_to_bars_ago(&self, idx: usize) -> usize;
     fn get_slice_by_period(&self, period: usize) -> &[T];
     fn from_non_mirror(buffer: &Buffer<T>) -> Self;
@@ -15,7 +22,8 @@ pub trait MirrorBuffer<T: BufferElement = f64> {
         value: T,
         periods: [usize; N],
     ) -> [T; N];
-    fn to_non_mirrors_by_periods<const N: usize>(&self,  periods: [usize; N]) -> [Buffer<T>; N];
+    fn to_non_mirrors_by_periods<const N: usize>(&self, periods: [usize; N]) -> [Buffer<T>; N];
+    fn sync_mirrors(&mut self);
 }
 #[cfg(feature = "portable_simd")]
 
@@ -38,16 +46,20 @@ impl<T: BufferElement> MirrorBuffer<T> for Buffer<T> {
             index: buffer.index,
             prev_idx: buffer.prev_idx,
             capacity: buffer.capacity,
-            count: buffer.count
+            count: buffer.count,
         }
     }
     fn to_non_mirrors_by_periods<const N: usize>(&self, periods: [usize; N]) -> [Buffer<T>; N] {
         std::array::from_fn(|i| Buffer {
-            vals: if self.capacity == periods[i] { self.get_slice().to_vec() } else { self.get_slice_by_period(periods[i]).to_vec()},
+            vals: if self.capacity == periods[i] {
+                self.get_slice().to_vec()
+            } else {
+                self.get_slice_by_period(periods[i]).to_vec()
+            },
             index: 0,
             prev_idx: periods[i] - 1,
             capacity: periods[i],
-            count: periods[i]
+            count: periods[i],
         })
     }
     #[inline(always)]
@@ -70,8 +82,9 @@ impl<T: BufferElement> MirrorBuffer<T> for Buffer<T> {
     #[inline(always)]
     fn push_with_info(&mut self, value: T) -> Option<T> {
         if self.count == self.capacity {
-            let replaced = unsafe { <Self as MirrorBuffer<T>>::push_with_info_unchecked(self, value) };
-            return Some(replaced)
+            let replaced =
+                unsafe { <Self as MirrorBuffer<T>>::push_with_info_unchecked(self, value) };
+            return Some(replaced);
         }
         unsafe { *self.vals.get_unchecked_mut(self.index) = value };
         unsafe { *self.vals.get_unchecked_mut(self.index + self.capacity) = value };
@@ -104,13 +117,44 @@ impl<T: BufferElement> MirrorBuffer<T> for Buffer<T> {
         if self.count == 0 {
             return &[];
         }
-        
+
         if self.count == self.capacity {
             // Buffer full - window is all data starting at oldest position, uses mirror for contiguity
             //&self.vals[self.index..self.index + self.count]
-            return unsafe { self.vals.get_unchecked(self.index..self.index + self.count) }
+            return unsafe { self.vals.get_unchecked(self.index..self.index + self.count) };
         }
         unsafe { self.vals.get_unchecked(0..self.count) }
+    }
+    #[inline(always)]
+    fn get_slice_mut(&mut self) -> &mut [T] {
+        if self.count == 0 {
+            return &mut [];
+        }
+
+        if self.count == self.capacity {
+            // Buffer full - window is all data starting at oldest position, uses mirror for contiguity
+            return unsafe {
+                self.vals
+                    .get_unchecked_mut(self.index..self.index + self.count)
+            };
+        }
+        unsafe { self.vals.get_unchecked_mut(0..self.count) }
+    }
+    fn sync_mirrors(&mut self) {
+        if self.count != self.capacity {
+            return;
+        }
+        for i in 0..self.capacity {
+            let canonical = self.index + i;
+            let other = if canonical < self.capacity {
+                canonical + self.capacity
+            } else {
+                canonical - self.capacity
+            };
+            unsafe {
+                *self.vals.get_unchecked_mut(other) = *self.vals.get_unchecked(canonical);
+            }
+        }
     }
     #[inline(always)]
     fn get_slice_by_period(&self, period: usize) -> &[T] {
@@ -140,16 +184,31 @@ impl<T: BufferElement> MirrorBuffer<T> for Buffer<T> {
     }
 }
 
-pub trait MinMaxBuffer : MirrorBuffer<f64>{
-    fn max<const CHUNK_SIZE: usize>(&self, state: &mut MaxState, bar: f64, period: usize) -> (f64, usize);
-    fn min<const CHUNK_SIZE: usize>(&self, state: &mut MinState, bar: f64, period: usize) -> (f64, usize);
+pub trait MinMaxBuffer: MirrorBuffer<f64> {
+    fn max<const CHUNK_SIZE: usize>(
+        &self,
+        state: &mut MaxState,
+        bar: f64,
+        period: usize,
+    ) -> (f64, usize);
+    fn min<const CHUNK_SIZE: usize>(
+        &self,
+        state: &mut MinState,
+        bar: f64,
+        period: usize,
+    ) -> (f64, usize);
 }
 impl MinMaxBuffer for Buffer<f64> {
-    fn max<const CHUNK_SIZE: usize>(&self, state: &mut MaxState, bar: f64, period: usize) -> (f64, usize) {
+    fn max<const CHUNK_SIZE: usize>(
+        &self,
+        state: &mut MaxState,
+        bar: f64,
+        period: usize,
+    ) -> (f64, usize) {
         let (mut max, mut trail) = (state.max, state.trail);
         trail += 1;
         if period <= trail {
-            (max, trail) = if CHUNK_SIZE == 1 { 
+            (max, trail) = if CHUNK_SIZE == 1 {
                 find_max_scalar(self.get_slice())
             } else {
                 find_max_simd::<CHUNK_SIZE>(self.get_slice())
@@ -162,11 +221,16 @@ impl MinMaxBuffer for Buffer<f64> {
         (state.max, state.trail) = (max, trail);
         (max, trail)
     }
-    fn min<const CHUNK_SIZE: usize>(&self, state: &mut MinState, bar: f64, period: usize) -> (f64, usize) {
+    fn min<const CHUNK_SIZE: usize>(
+        &self,
+        state: &mut MinState,
+        bar: f64,
+        period: usize,
+    ) -> (f64, usize) {
         let (mut min, mut trail) = (state.min, state.trail);
         trail += 1;
         if period <= trail {
-            (min, trail) = if CHUNK_SIZE == 1 { 
+            (min, trail) = if CHUNK_SIZE == 1 {
                 find_min_scalar(self.get_slice())
             } else {
                 find_min_simd::<CHUNK_SIZE>(self.get_slice())
@@ -174,7 +238,7 @@ impl MinMaxBuffer for Buffer<f64> {
             trail = self.window_index_to_bars_ago(trail);
         } else if bar <= min {
             min = bar;
-            trail = 0; 
+            trail = 0;
         }
         (state.min, state.trail) = (min, trail);
         (min, trail)

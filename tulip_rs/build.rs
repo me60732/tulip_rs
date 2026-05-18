@@ -1,0 +1,718 @@
+//! Build script for candlestick pattern registry generation
+//!
+//! This script scans all pattern module files for `#[pattern_template]` attributes
+//! and generates a complete const PATTERN_REGISTRY with all patterns wired up.
+//!
+//! # Generated Registry Structure
+//!
+//! ## 1. Pattern Definitions (PatternDefinitionRegister)
+//! Organizes patterns by bar count (1-5 bars). Patterns within each bar-count
+//! array are sorted by (group, trend, forecast_order, name), where:
+//!   group: 0=Basic, 1=Doji, 2=Marubozu, 3=SpinningTop  (final bar's candle type)
+//!   trend: 0=DOWN, 1=UP  (prev_bar's trend bit)
+//! Patterns spanning multiple (group,trend) pairs are duplicated.
+//!
+//! ## 2. Group-Trend Dispatch (GroupTrendDispatch)
+//! One GroupTrendDispatch per forecast type (indexed by ForcastType as usize) plus
+//! GLOBAL_GROUP_TREND_DISPATCH for the no-forecast path.
+//! Each holds per-bar-count [(start,end); 8] arrays keyed by group*2+trend.
+
+use std::collections::HashMap;
+use std::env;
+use std::fs;
+use std::path::Path;
+
+/// Pattern metadata extracted from source files
+#[derive(Debug, Clone)]
+struct PatternInfo {
+    name: String,
+    forecast: String,
+    bar_count: usize,
+    has_prev_bar: bool,
+    lazy_bits_mask: String,
+    module_path: String,
+    /// Groups (0=Basic,1=Doji,2=Marubozu,3=SpinningTop) the final bar can match.
+    final_bar_groups: Vec<usize>,
+}
+
+fn main() {
+    println!("cargo:rerun-if-changed=src/candle_indicators/candle_patterns");
+
+    let out_dir = env::var("OUT_DIR").unwrap();
+    let patterns_dir = Path::new("src/candle_indicators/candle_patterns");
+
+    let patterns = scan_pattern_modules(patterns_dir);
+    let patterns_by_bars = organize_patterns(&patterns);
+    let registry_code = generate_registry_code(&patterns, &patterns_by_bars);
+
+    let dest_path = Path::new(&out_dir).join("generated_registry.rs");
+    fs::write(&dest_path, registry_code).expect("Failed to write generated registry");
+
+    println!(
+        "cargo:warning=Generated pattern registry with {} patterns",
+        patterns.len()
+    );
+}
+
+/// Scan all .rs files in the patterns directory for #[pattern_template] attributes
+fn scan_pattern_modules(base_dir: &Path) -> Vec<PatternInfo> {
+    let mut patterns = Vec::new();
+
+    for bar_dir in &["one_bar", "two_bar", "three_bar", "four_bar", "five_bar"] {
+        let dir_path = base_dir.join(bar_dir);
+
+        if !dir_path.exists() {
+            continue;
+        }
+
+        if let Ok(entries) = fs::read_dir(&dir_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+
+                if path.extension().and_then(|s| s.to_str()) == Some("rs") {
+                    if let Some(file_name) = path.file_stem().and_then(|s| s.to_str()) {
+                        if file_name == "mod" {
+                            continue;
+                        }
+
+                        if let Some(pattern) = extract_pattern_info(&path, bar_dir, file_name) {
+                            patterns.push(pattern);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    patterns
+}
+
+/// Extract pattern metadata from a source file by parsing #[pattern_template] attributes
+fn extract_pattern_info(path: &Path, bar_dir: &str, file_name: &str) -> Option<PatternInfo> {
+    let content = fs::read_to_string(path).ok()?;
+
+    let mut in_attribute = false;
+    let mut attribute_content = String::new();
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with("#[pattern_template(") {
+            in_attribute = true;
+            attribute_content.push_str(trimmed);
+            attribute_content.push(' ');
+        } else if in_attribute {
+            attribute_content.push_str(trimmed);
+            attribute_content.push(' ');
+
+            if trimmed.contains(")]") {
+                if let Some(info) = parse_attribute_content(&attribute_content, bar_dir, file_name)
+                {
+                    return Some(info);
+                }
+                in_attribute = false;
+                attribute_content.clear();
+            }
+        }
+    }
+
+    None
+}
+
+/// Return the forecast ordering used for sort and array indexing.
+/// Must match the `ForcastType` enum discriminant order.
+fn forecast_order(f: &str) -> usize {
+    match f {
+        "BearishReversal" => 0,
+        "BullishReversal" => 1,
+        "BearishContinuation" => 2,
+        "BullishContinuation" => 3,
+        "BearishReversalOrContinuation" => 4,
+        "BullishReversalOrContinuation" => 5,
+        _ => 999,
+    }
+}
+
+/// Map a forecast type to the set of trend bucket indices (0=DOWN, 1=UP)
+/// that the prev_bar can be in for this forecast to apply.
+fn forecast_trend_buckets(forecast: &str) -> Vec<usize> {
+    match forecast {
+        "BearishReversal" => vec![1], // uptrend prev_bar
+        "BullishReversal" => vec![0], // downtrend prev_bar
+        "BearishContinuation" => vec![0],
+        "BullishContinuation" => vec![1],
+        "BearishReversalOrContinuation" => vec![0, 1],
+        "BullishReversalOrContinuation" => vec![0, 1],
+        _ => vec![0, 1], // fallback: both
+    }
+}
+
+/// Extract a balanced-parentheses block from `s`, where `s[0]` is the opening `(`.
+/// Returns the slice `s[0..=close_pos]` including both parens.
+fn extract_balanced_parens(s: &str) -> &str {
+    let bytes = s.as_bytes();
+    let mut depth: i32 = 0;
+    for (i, &b) in bytes.iter().enumerate() {
+        match b {
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return &s[..=i];
+                }
+            }
+            _ => {}
+        }
+    }
+    s // fallback for unbalanced input
+}
+
+/// Given a candle_type string and a group name (e.g. "Doji"), extract all variants
+/// listed inside `!GroupName(...)` negation blocks for that group.
+fn extract_negated_variants(ct: &str, group_name: &str) -> Vec<String> {
+    let needle = format!("!{}(", group_name);
+    let mut variants = Vec::new();
+    let mut search = ct;
+    while let Some(pos) = search.find(&needle) {
+        let rest = &search[pos + needle.len() - 1..]; // start at the '('
+        let block = extract_balanced_parens(rest);
+        // Strip outer parens
+        let inner = &block[1..block.len().saturating_sub(1)];
+        for v in inner.split('|') {
+            let v = v.trim();
+            if !v.is_empty() {
+                variants.push(v.to_string());
+            }
+        }
+        search = &search[pos + needle.len()..];
+    }
+    variants
+}
+
+/// Parse the candle_type string from the final bar block and return the set of
+/// candle-type group indices (0=Basic, 1=Doji, 2=Marubozu, 3=SpinningTop) that the
+/// pattern can match.
+fn parse_candle_type_groups(candle_type_str: &str) -> Vec<usize> {
+    let ct = candle_type_str.trim();
+
+    // All variants per group (for checking if a negation covers the full group)
+    let all_basic: &[&str] = &[
+        "ShortWhiteCandle",
+        "WhiteCandle",
+        "LongWhiteCandle",
+        "ShortBlackCandle",
+        "BlackCandle",
+        "LongBlackCandle",
+    ];
+    let all_doji: &[&str] = &[
+        "Doji",
+        "LongLeggedDoji",
+        "DragonflyDoji",
+        "GravestoneDoji",
+        "FourPriceDoji",
+    ];
+    let all_marubozu: &[&str] = &[
+        "WhiteMarubozu",
+        "OpeningWhiteMarubozu",
+        "ClosingWhiteMarubozu",
+        "BlackMarubozu",
+        "OpeningBlackMarubozu",
+        "ClosingBlackMarubozu",
+    ];
+    let all_spinning_top: &[&str] = &["WhiteSpinningTop", "BlackSpinningTop", "HighWave"];
+
+    if ct.is_empty() {
+        // No candle_type constraint — matches all groups
+        return vec![0, 1, 2, 3];
+    }
+
+    // Check whether any negation `!GroupName(...)` exists
+    let has_negation = ct.contains('!');
+
+    if has_negation {
+        // Start with all 4 groups, then exclude any group whose ALL variants are negated
+        let mut groups = vec![0usize, 1, 2, 3];
+
+        let group_data: &[(&str, usize, &[&str])] = &[
+            ("Basic", 0, all_basic),
+            ("Doji", 1, all_doji),
+            ("Marubozu", 2, all_marubozu),
+            ("SpinningTop", 3, all_spinning_top),
+        ];
+
+        for &(group_name, group_idx, all_variants) in group_data {
+            let negated = extract_negated_variants(ct, group_name);
+            if negated.is_empty() {
+                continue;
+            }
+            // Check if ALL variants of this group are covered by the negation
+            let all_negated = all_variants.iter().all(|v| negated.iter().any(|n| n == v));
+            if all_negated {
+                groups.retain(|&g| g != group_idx);
+            }
+        }
+
+        groups
+    } else {
+        // Positive specification: only include explicitly mentioned groups
+        let mut groups = Vec::new();
+
+        if ct.contains("Basic(") {
+            groups.push(0);
+        }
+        if ct.contains("Doji(") {
+            groups.push(1);
+        }
+        if ct.contains("Marubozu(") {
+            groups.push(2);
+        }
+        if ct.contains("SpinningTop(") {
+            groups.push(3);
+        }
+
+        // If nothing matched, fall back to all groups (shouldn't happen with valid patterns)
+        if groups.is_empty() {
+            groups = vec![0, 1, 2, 3];
+        }
+
+        groups
+    }
+}
+
+/// Parse the pattern_template attribute content.
+/// Extracts: name, forecast, bar_count, has_prev_bar, lazy_bits_mask, final_bar_groups.
+fn parse_attribute_content(content: &str, bar_dir: &str, file_name: &str) -> Option<PatternInfo> {
+    let mut name = None;
+    let mut forecast = None;
+
+    // Extract name
+    if let Some(start) = content.find("name = \"") {
+        let rest = &content[start + 8..];
+        if let Some(end) = rest.find('"') {
+            name = Some(rest[..end].to_string());
+        }
+    }
+
+    // Extract forecast
+    if let Some(start) = content.find("forecast = \"") {
+        let rest = &content[start + 12..];
+        if let Some(end) = rest.find('"') {
+            forecast = Some(rest[..end].to_string());
+        }
+    }
+
+    // Count bar(...) occurrences (excluding prev_bar)
+    let bar_count = content.matches("bar(").count() - content.matches("prev_bar(").count();
+
+    // Check if prev_bar is present
+    let has_prev_bar = content.contains("prev_bar(");
+
+    // Find the last occurrence of "bar(" that is NOT "prev_bar("
+    let mut last_bar_paren: Option<usize> = None;
+    let mut search_pos = 0;
+    while search_pos < content.len() {
+        if let Some(rel) = content[search_pos..].find("bar(") {
+            let abs = search_pos + rel;
+            // Check whether this "bar(" is actually "prev_bar("
+            let is_prev = abs >= 5 && &content[abs - 5..abs] == "prev_";
+            if !is_prev {
+                last_bar_paren = Some(abs + 3); // index of the '('
+            }
+            search_pos = abs + 4;
+        } else {
+            break;
+        }
+    }
+
+    // Extract candle_type from the last bar block and compute group indices
+    let final_bar_groups = if let Some(paren_pos) = last_bar_paren {
+        let block = extract_balanced_parens(&content[paren_pos..]);
+        let candle_type_str = if let Some(start) = block.find("candle_type = \"") {
+            let rest = &block[start + 15..];
+            if let Some(end) = rest.find('"') {
+                &rest[..end]
+            } else {
+                ""
+            }
+        } else {
+            ""
+        };
+        parse_candle_type_groups(candle_type_str)
+    } else {
+        vec![0, 1, 2, 3]
+    };
+
+    if let (Some(name), Some(forecast)) = (name, forecast) {
+        let module_path = format!("candle_patterns::{}::{}", bar_dir, file_name);
+        let lazy_bits_mask = format!("PATTERN_LAZY_BITS_{}", name.to_uppercase());
+        Some(PatternInfo {
+            name,
+            forecast,
+            bar_count,
+            has_prev_bar,
+            lazy_bits_mask,
+            module_path,
+            final_bar_groups,
+        })
+    } else {
+        None
+    }
+}
+
+/// Organize patterns into (group, trend) entries sorted by (group, trend, forecast_order, name).
+/// Patterns spanning multiple (group, trend) pairs are duplicated — one entry per pair.
+fn organize_patterns(
+    patterns: &[PatternInfo],
+) -> HashMap<usize, Vec<(usize, usize, &PatternInfo)>> {
+    let mut by_bars: HashMap<usize, Vec<(usize, usize, &PatternInfo)>> = HashMap::new();
+
+    for pattern in patterns {
+        let trends = forecast_trend_buckets(&pattern.forecast);
+        let entries = by_bars.entry(pattern.bar_count).or_default();
+        for &g in &pattern.final_bar_groups {
+            for &t in &trends {
+                entries.push((g, t, pattern));
+            }
+        }
+    }
+
+    for entries in by_bars.values_mut() {
+        entries.sort_by(|a, b| {
+            a.0.cmp(&b.0) // group
+                .then_with(|| a.1.cmp(&b.1)) // trend
+                .then_with(|| {
+                    forecast_order(&a.2.forecast).cmp(&forecast_order(&b.2.forecast))
+                })
+                .then_with(|| a.2.name.cmp(&b.2.name))
+        });
+    }
+
+    by_bars
+}
+
+/// Compute the [(start, end); 8] dispatch array for all patterns in `entries`.
+/// Entries must be sorted by (group, trend, ...).
+fn compute_gt_dispatch(entries: &[(usize, usize, &PatternInfo)]) -> [(usize, usize); 8] {
+    let mut dispatch = [(0usize, 0usize); 8];
+    for g in 0..4usize {
+        for t in 0..2usize {
+            let key = g * 2 + t;
+            let start = entries.partition_point(|e| e.0 * 2 + e.1 < key);
+            let end = entries.partition_point(|e| e.0 * 2 + e.1 <= key);
+            dispatch[key] = (start, end);
+        }
+    }
+    dispatch
+}
+
+/// Compute the [(start, end); 8] dispatch array for a specific forecast type.
+/// Within each (group, trend) block the range covers only entries whose forecast
+/// matches `forecast_str`.
+fn compute_forecast_gt_dispatch(
+    entries: &[(usize, usize, &PatternInfo)],
+    forecast_str: &str,
+) -> [(usize, usize); 8] {
+    let f_order = forecast_order(forecast_str);
+    let mut dispatch = [(0usize, 0usize); 8];
+    for g in 0..4usize {
+        for t in 0..2usize {
+            let key = g * 2 + t;
+            let block_start = entries.partition_point(|e| e.0 * 2 + e.1 < key);
+            let block_end = entries.partition_point(|e| e.0 * 2 + e.1 <= key);
+            let block = &entries[block_start..block_end];
+            let fc_start =
+                block_start + block.partition_point(|e| forecast_order(&e.2.forecast) < f_order);
+            let fc_end =
+                block_start + block.partition_point(|e| forecast_order(&e.2.forecast) <= f_order);
+            dispatch[key] = (fc_start, fc_end);
+        }
+    }
+    dispatch
+}
+
+/// Format a [(usize, usize); 8] dispatch array as a Rust literal.
+fn emit_gt_array(d: [(usize, usize); 8]) -> String {
+    format!(
+        "[({},{}),({},{}),({},{}),({},{}),({},{}),({},{}),({},{}),({},{})]",
+        d[0].0,
+        d[0].1,
+        d[1].0,
+        d[1].1,
+        d[2].0,
+        d[2].1,
+        d[3].0,
+        d[3].1,
+        d[4].0,
+        d[4].1,
+        d[5].0,
+        d[5].1,
+        d[6].0,
+        d[6].1,
+        d[7].0,
+        d[7].1,
+    )
+}
+
+/// Generate the complete registry code
+fn generate_registry_code(
+    patterns: &[PatternInfo],
+    patterns_by_bars: &HashMap<usize, Vec<(usize, usize, &PatternInfo)>>,
+) -> String {
+    let mut code = String::new();
+
+    // Header
+    code.push_str("// AUTO-GENERATED by build.rs - DO NOT EDIT\n");
+    code.push_str("// This file is generated at build time by scanning pattern modules\n\n");
+
+    // Imports
+    code.push_str("use crate::candle_indicators::{\n");
+    code.push_str("    registry::*,\n");
+    code.push_str("    types::ForcastType,\n");
+    code.push_str("    pattern_test::EmaState,\n");
+    code.push_str("    types::CandleInfo,\n");
+    for pattern in patterns {
+        code.push_str(&format!("    {},\n", pattern.module_path));
+    }
+    code.push_str("};\n\n");
+
+    // CandlePattern enum
+    code.push_str("/// Candlestick pattern enum - auto-generated from pattern modules\n");
+    code.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]\n");
+    code.push_str("pub enum CandlePattern {\n");
+    for pattern in patterns {
+        code.push_str(&format!("    {},\n", pattern.name));
+    }
+    code.push_str("}\n\n");
+
+    // CandlePattern dispatch impls
+    code.push_str("impl CandlePattern {\n");
+
+    // calc()
+    code.push_str("    pub fn calc(\n");
+    code.push_str("        &self,\n");
+    code.push_str("        inputs: (&[f64], &[f64], &[f64], &[f64]),\n");
+    code.push_str("        i: usize,\n");
+    code.push_str("        state: &EmaState,\n");
+    code.push_str("        bars: &[CandleBits],\n");
+    code.push_str("    ) -> bool {\n");
+    code.push_str("        let (open, high, low, close) = inputs;\n");
+    code.push_str("        match self {\n");
+    for pattern in patterns {
+        let module = pattern.module_path.split("::").last().unwrap();
+        let slice_start = format!("i-{}", pattern.bar_count);
+        code.push_str(&format!(
+            "            CandlePattern::{} => {}::calc((&open[{}..=i], &high[{}..=i], &low[{}..=i], &close[{}..=i]), state, &bars[..]),\n",
+            pattern.name, module, slice_start, slice_start, slice_start, slice_start
+        ));
+    }
+    code.push_str("        }\n");
+    code.push_str("    }\n\n");
+
+    // compute_bits()
+    code.push_str("    pub fn compute_bits(\n");
+    code.push_str("        &self,\n");
+    code.push_str("        inputs: (&[f64], &[f64], &[f64], &[f64]),\n");
+    code.push_str("        i: usize,\n");
+    code.push_str("        state: &EmaState,\n");
+    code.push_str("        bars: &mut [CandleBits],\n");
+    code.push_str("    ) {\n");
+    code.push_str("        let (open, high, low, close) = inputs;\n");
+    code.push_str("        match self {\n");
+    for pattern in patterns {
+        let module = pattern.module_path.split("::").last().unwrap();
+        let slice_start = format!("i-{}", pattern.bar_count);
+        code.push_str(&format!(
+            "            CandlePattern::{} => {}::compute_bits((&open[{}..=i], &high[{}..=i], &low[{}..=i], &close[{}..=i]), state, bars),\n",
+            pattern.name, module, slice_start, slice_start, slice_start, slice_start
+        ));
+    }
+    code.push_str("        }\n");
+    code.push_str("    }\n\n");
+
+    // get_info()
+    code.push_str("    pub fn get_info(&self) -> CandleInfo {\n");
+    code.push_str("        match self {\n");
+    for pattern in patterns {
+        let module = pattern.module_path.split("::").last().unwrap();
+        code.push_str(&format!(
+            "            CandlePattern::{} => {}::info(),\n",
+            pattern.name, module
+        ));
+    }
+    code.push_str("        }\n");
+    code.push_str("    }\n");
+    code.push_str("}\n\n");
+
+    // PatternDefinition constants (one per pattern)
+    code.push_str("// Pattern definition constants\n");
+    for pattern in patterns {
+        let module = pattern.module_path.split("::").last().unwrap();
+        let const_name = format!("PATTERN_DEF_{}", pattern.name.to_uppercase());
+        let masks_name = format!("PATTERN_MASKS_{}", pattern.name.to_uppercase());
+        let total_masks = pattern.bar_count + 1;
+
+        code.push_str(&format!("/// Pattern definition for {}\n", pattern.name));
+        code.push_str(&format!(
+            "pub const {}: PatternDefinition<{}> = PatternDefinition::new(\n",
+            const_name, total_masks
+        ));
+        code.push_str(&format!("    CandlePattern::{},\n", pattern.name));
+        code.push_str(&format!("    ForcastType::{},\n", pattern.forecast));
+        code.push_str(&format!("    {}::{},\n", module, masks_name));
+        code.push_str(&format!("    {},\n", pattern.has_prev_bar));
+        code.push_str(&format!("    {}::{},\n", module, pattern.lazy_bits_mask));
+        code.push_str(");\n\n");
+    }
+
+    // -------------------------------------------------------------------------
+    // Organize entries into (group, trend) order with duplication
+    // -------------------------------------------------------------------------
+    let entries1 = if let Some(v) = patterns_by_bars.get(&1) {
+        v.as_slice()
+    } else {
+        &[]
+    };
+    let entries2 = if let Some(v) = patterns_by_bars.get(&2) {
+        v.as_slice()
+    } else {
+        &[]
+    };
+    let entries3 = if let Some(v) = patterns_by_bars.get(&3) {
+        v.as_slice()
+    } else {
+        &[]
+    };
+    let entries4 = if let Some(v) = patterns_by_bars.get(&4) {
+        v.as_slice()
+    } else {
+        &[]
+    };
+    let entries5 = if let Some(v) = patterns_by_bars.get(&5) {
+        v.as_slice()
+    } else {
+        &[]
+    };
+
+    let total1 = entries1.len();
+    let total2 = entries2.len();
+    let total3 = entries3.len();
+    let total4 = entries4.len();
+    let total5 = entries5.len();
+
+    // Diagnostic: report per-key counts for two_bar
+    {
+        let mut key_counts = [0usize; 8];
+        for e in entries2 {
+            key_counts[e.0 * 2 + e.1] += 1;
+        }
+        let group_names = ["Basic", "Doji", "Marubozu", "SpinTop"];
+        let trend_names = ["DOWN", "UP"];
+        for g in 0..4 {
+            for t in 0..2 {
+                let k = g * 2 + t;
+                println!(
+                    "cargo:warning=two_bar [{} {}] key={} count={}",
+                    group_names[g], trend_names[t], k, key_counts[k]
+                );
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // PATTERN_DEFINITIONS — arrays in (group, trend, forecast_order, name) order
+    // -------------------------------------------------------------------------
+    code.push_str("/// Pattern definitions organized by bar count\n");
+    code.push_str(&format!(
+        "pub const PATTERN_DEFINITIONS: PatternDefinitionRegister<{}, {}, {}, {}, {}> = PatternDefinitionRegister {{\n",
+        total1, total2, total3, total4, total5
+    ));
+
+    for (field_name, entries) in &[
+        ("one_bar", entries1),
+        ("two_bar", entries2),
+        ("three_bar", entries3),
+        ("four_bar", entries4),
+        ("five_bar", entries5),
+    ] {
+        code.push_str(&format!("    {}: [", field_name));
+        for (_, _, p) in entries.iter() {
+            code.push_str(&format!("PATTERN_DEF_{}, ", p.name.to_uppercase()));
+        }
+        code.push_str("],\n");
+    }
+    code.push_str("};\n\n");
+
+    // -------------------------------------------------------------------------
+    // GroupTrendDispatch constants — one per forecast type + global
+    // -------------------------------------------------------------------------
+    let all_forecast_types: [&str; 6] = [
+        "BearishReversal",
+        "BullishReversal",
+        "BearishContinuation",
+        "BullishContinuation",
+        "BearishReversalOrContinuation",
+        "BullishReversalOrContinuation",
+    ];
+
+    code.push_str("// Group-trend dispatch constants per forecast type\n");
+    for &fc in &all_forecast_types {
+        let d1 = compute_forecast_gt_dispatch(entries1, fc);
+        let d2 = compute_forecast_gt_dispatch(entries2, fc);
+        let d3 = compute_forecast_gt_dispatch(entries3, fc);
+        let d4 = compute_forecast_gt_dispatch(entries4, fc);
+        let d5 = compute_forecast_gt_dispatch(entries5, fc);
+        code.push_str(&format!(
+            "const FORECAST_GTD_{}: GroupTrendDispatch = GroupTrendDispatch::new(\n    {},\n    {},\n    {},\n    {},\n    {}\n);\n\n",
+            fc.to_uppercase(),
+            emit_gt_array(d1),
+            emit_gt_array(d2),
+            emit_gt_array(d3),
+            emit_gt_array(d4),
+            emit_gt_array(d5),
+        ));
+    }
+
+    // Global dispatch
+    let gd1 = compute_gt_dispatch(entries1);
+    let gd2 = compute_gt_dispatch(entries2);
+    let gd3 = compute_gt_dispatch(entries3);
+    let gd4 = compute_gt_dispatch(entries4);
+    let gd5 = compute_gt_dispatch(entries5);
+    code.push_str(&format!(
+        "const GLOBAL_GROUP_TREND_DISPATCH: GroupTrendDispatch = GroupTrendDispatch::new(\n    {},\n    {},\n    {},\n    {},\n    {}\n);\n\n",
+        emit_gt_array(gd1),
+        emit_gt_array(gd2),
+        emit_gt_array(gd3),
+        emit_gt_array(gd4),
+        emit_gt_array(gd5),
+    ));
+
+    // FORECAST_DISPATCHES array
+    code.push_str("pub const FORECAST_DISPATCHES: [GroupTrendDispatch; 6] = [\n");
+    for &fc in &all_forecast_types {
+        code.push_str(&format!("    FORECAST_GTD_{},\n", fc.to_uppercase()));
+    }
+    code.push_str("];\n\n");
+
+    // PATTERN_REGISTRY
+    code.push_str("/// The global pattern registry - fully populated at compile time\n");
+    code.push_str(&format!(
+        "pub const PATTERN_REGISTRY: PatternRegister<{}, {}, {}, {}, {}> = PatternRegister::new(\n",
+        total1, total2, total3, total4, total5
+    ));
+    code.push_str("    PATTERN_DEFINITIONS,\n");
+    code.push_str("    FORECAST_DISPATCHES,\n");
+    code.push_str("    GLOBAL_GROUP_TREND_DISPATCH,\n");
+    code.push_str(");\n\n");
+
+    // get_global_registry helper
+    code.push_str("/// Get the global pattern registry\n");
+    code.push_str(&format!(
+        "pub const fn get_global_registry() -> &'static PatternRegister<{}, {}, {}, {}, {}> {{\n",
+        total1, total2, total3, total4, total5
+    ));
+    code.push_str("    &PATTERN_REGISTRY\n");
+    code.push_str("}\n");
+
+    code
+}

@@ -2,20 +2,30 @@
 name = "tulip_rs"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
+
+[build-dependencies]
+# No dependencies needed for the simple file scanning build script
 
 [dependencies]
 serde = { version = "1.0.225", features = ["derive"] }
 serde_json = "1.0.145"
+tulip_rs_macros = { path = "../tulip_rs_macros" }
+tulip_rs_shared = { path = "../tulip_rs_shared" }
+
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 
 [features]
-default = ["portable_simd", "simd_options", "simd_assets"]
+default = ["portable_simd", "simd_options", "simd_assets"] #, "candle_deep_analysis"]
 portable_simd = []
 simd_options = ["portable_simd"]
 simd_assets = ["portable_simd"]
+perf-stats = []
+# TODO figure out how to do a deep analysis to eliminate pattern clashes and pull out only one match, would be a cool feature 
+# candle_deep_analysis = []
 
 [dev-dependencies]
 criterion = "0.4"
@@ -30,7 +40,7 @@ codegen-units = 1
 opt-level = 3
 lto = "fat"
 codegen-units = 1
-panic = "abort"  
+panic = "abort"
 
 [build]
 rustflags = ["-C", "target-cpu=native"]  # Use all CPU features
@@ -338,3 +348,315 @@ path = "examples/indicators/ti_fisher_example.rs"
 [[example]]
 name = "ti_ao_medprice_example"
 path = "examples/indicators/ti_ao_medprice_example.rs"
+
+#------------------------ Candle Stick 1 bar ----------------------------------------
+[[example]]
+name = "ti_cdlbearishbelthold_example"
+path = "examples/candle/onebar/ti_cdlbearishbelthold_example.rs"
+
+[[example]]
+name = "ti_cdlbearishstrongline_example"
+path = "examples/candle/onebar/ti_cdlbearishstrongline_example.rs"
+
+[[example]]
+name = "ti_cdlbullishbelthold_example"
+path = "examples/candle/onebar/ti_cdlbullishbelthold_example.rs"
+
+[[example]]
+name = "ti_cdlbullishstrongline_example"
+path = "examples/candle/onebar/ti_cdlbullishstrongline_example.rs"
+
+[[example]]
+name = "ti_cdlgappingdowndoji_example"
+path = "examples/candle/onebar/ti_cdlgappingdowndoji_example.rs"
+
+[[example]]
+name = "ti_cdlgappingupdoji_example"
+path = "examples/candle/onebar/ti_cdlgappingupdoji_example.rs"
+
+[[example]]
+name = "ti_cdlhammer_example"
+path = "examples/candle/onebar/ti_cdlhammer_example.rs"
+
+[[example]]
+name = "ti_cdlhangingman_example"
+path = "examples/candle/onebar/ti_cdlhangingman_example.rs"
+
+[[example]]
+name = "ti_cdlnortherndoji_example"
+path = "examples/candle/onebar/ti_cdlnortherndoji_example.rs"
+
+[[example]]
+name = "ti_cdlonecandleshootingstar_example"
+path = "examples/candle/onebar/ti_cdlonecandleshootingstar_example.rs"
+
+[[example]]
+name = "ti_cdlsoutherndoji_example"
+path = "examples/candle/onebar/ti_cdlsoutherndoji_example.rs"
+
+[[example]]
+name = "ti_cdltakuriline_example"
+path = "examples/candle/onebar/ti_cdltakuriline_example.rs"
+
+#------------------------ Candle Stick 2 bar ----------------------------------------
+[[example]]
+name = "ti_cdlbearishdojistar_example"
+path = "examples/candle/twobar/ti_cdlbearishdojistar_example.rs"
+
+[[example]]
+name = "ti_cdlbearishengulfing_example"
+path = "examples/candle/twobar/ti_cdlbearishengulfing_example.rs"
+
+[[example]]
+name = "ti_cdl2candleshootingstar_example"
+path = "examples/candle/twobar/ti_cdl2candleshootingstar_example.rs"
+
+[[example]]
+name = "ti_cdlbearishharami_example"
+path = "examples/candle/twobar/ti_cdlbearishharami_example.rs"
+
+[[example]]
+name = "ti_cdlbearishharamicross_example"
+path = "examples/candle/twobar/ti_cdlbearishharamicross_example.rs"
+
+[[example]]
+name = "ti_cdlbearishmeetinglines_example"
+path = "examples/candle/twobar/ti_cdlbearishmeetinglines_example.rs"
+
+[[example]]
+name = "ti_cdlbearishseparatinglines_example"
+path = "examples/candle/twobar/ti_cdlbearishseparatinglines_example.rs"
+
+[[example]]
+name = "ti_cdlbearishtasukiline_example"
+path = "examples/candle/twobar/ti_cdlbearishtasukiline_example.rs"
+
+[[example]]
+name = "ti_cdlbullishdojistar_example"
+path = "examples/candle/twobar/ti_cdlbullishdojistar_example.rs"
+
+[[example]]
+name = "ti_cdlbullishengulfing_example"
+path = "examples/candle/twobar/ti_cdlbullishengulfing_example.rs"
+
+[[example]]
+name = "ti_cdlbullishharami_example"
+path = "examples/candle/twobar/ti_cdlbullishharami_example.rs"
+
+[[example]]
+name = "ti_cdlbullishharamicross_example"
+path = "examples/candle/twobar/ti_cdlbullishharamicross_example.rs"
+
+[[example]]
+name = "ti_cdlbullishmeetinglines_example"
+path = "examples/candle/twobar/ti_cdlbullishmeetinglines_example.rs"
+
+[[example]]
+name = "ti_cdlbullishseparatinglines_example"
+path = "examples/candle/twobar/ti_cdlbullishseparatinglines_example.rs"
+
+[[example]]
+name = "ti_cdlbullishtasukiline_example"
+path = "examples/candle/twobar/ti_cdlbullishtasukiline_example.rs"
+
+[[example]]
+name = "ti_cdldarkcloudcover_example"
+path = "examples/candle/twobar/ti_cdldarkcloudcover_example.rs"
+
+[[example]]
+name = "ti_cdldescendinghawk_example"
+path = "examples/candle/twobar/ti_cdldescendinghawk_example.rs"
+
+[[example]]
+name = "ti_cdlfallingwindow_example"
+path = "examples/candle/twobar/ti_cdlfallingwindow_example.rs"
+
+[[example]]
+name = "ti_cdlhomingpigeon_example"
+path = "examples/candle/twobar/ti_cdlhomingpigeon_example.rs"
+
+[[example]]
+name = "ti_cdlinneck_example"
+path = "examples/candle/twobar/ti_cdlinneck_example.rs"
+
+[[example]]
+name = "ti_cdlinvertedhammer_example"
+path = "examples/candle/twobar/ti_cdlinvertedhammer_example.rs"
+
+[[example]]
+name = "ti_cdlkickingdown_example"
+path = "examples/candle/twobar/ti_cdlkickingdown_example.rs"
+
+[[example]]
+name = "ti_cdlkickingup_example"
+path = "examples/candle/twobar/ti_cdlkickingup_example.rs"
+
+[[example]]
+name = "ti_cdlmatchinghigh_example"
+path = "examples/candle/twobar/ti_cdlmatchinghigh_example.rs"
+
+[[example]]
+name = "ti_cdlmatchinglow_example"
+path = "examples/candle/twobar/ti_cdlmatchinglow_example.rs"
+
+[[example]]
+name = "ti_cdlonneck_example"
+path = "examples/candle/twobar/ti_cdlonneck_example.rs"
+
+[[example]]
+name = "ti_cdlpiercing_example"
+path = "examples/candle/twobar/ti_cdlpiercing_example.rs"
+
+[[example]]
+name = "ti_cdlrisingwindow_example"
+path = "examples/candle/twobar/ti_cdlrisingwindow_example.rs"
+
+[[example]]
+name = "ti_cdlthrusting_example"
+path = "examples/candle/twobar/ti_cdlthrusting_example.rs"
+
+[[example]]
+name = "ti_cdlturndown_example"
+path = "examples/candle/twobar/ti_cdlturndown_example.rs"
+
+[[example]]
+name = "ti_cdlturnup_example"
+path = "examples/candle/twobar/ti_cdlturnup_example.rs"
+
+[[example]]
+name = "ti_cdltweezersbottom_example"
+path = "examples/candle/twobar/ti_cdltweezersbottom_example.rs"
+
+[[example]]
+name = "ti_cdltweezerstop_example"
+path = "examples/candle/twobar/ti_cdltweezerstop_example.rs"
+
+[[example]]
+name = "ti_cdl2blackgappingcandles_example"
+path = "examples/candle/twobar/ti_cdl2blackgappingcandles_example.rs"
+
+#------------------------ Candle Stick 3 bar ----------------------------------------
+[[example]]
+name = "ti_cdladvanceblock_example"
+path = "examples/candle/threebar/ti_cdladvanceblock_example.rs"
+
+[[example]]
+name = "ti_cdlbearabandonedbaby_example"
+path = "examples/candle/threebar/ti_cdlbearabandonedbaby_example.rs"
+
+[[example]]
+name = "ti_cdlbearishtristar_example"
+path = "examples/candle/threebar/ti_cdlbearishtristar_example.rs"
+
+[[example]]
+name = "ti_cdlbearsidebysidewhitelines_example"
+path = "examples/candle/threebar/ti_cdlbearsidebysidewhitelines_example.rs"
+
+[[example]]
+name = "ti_cdlbullishabandonedbaby_example"
+path = "examples/candle/threebar/ti_cdlbullishabandonedbaby_example.rs"
+
+[[example]]
+name = "ti_cdlbullishtristar_example"
+path = "examples/candle/threebar/ti_cdlbullishtristar_example.rs"
+
+[[example]]
+name = "ti_cdlbullsidebysidewhitelines_example"
+path = "examples/candle/threebar/ti_cdlbullsidebysidewhitelines_example.rs"
+
+[[example]]
+name = "ti_cdlcollapsingdojistar_example"
+path = "examples/candle/threebar/ti_cdlcollapsingdojistar_example.rs"
+
+[[example]]
+name = "ti_cdldeliberation_example"
+path = "examples/candle/threebar/ti_cdldeliberation_example.rs"
+
+[[example]]
+name = "ti_cdldownsidegapthreemethods_example"
+path = "examples/candle/threebar/ti_cdldownsidegapthreemethods_example.rs"
+
+[[example]]
+name = "ti_cdldownsidetasukigap_example"
+path = "examples/candle/threebar/ti_cdldownsidetasukigap_example.rs"
+
+[[example]]
+name = "ti_cdleveningdojistar_example"
+path = "examples/candle/threebar/ti_cdleveningdojistar_example.rs"
+
+[[example]]
+name = "ti_cdleveningstar_example"
+path = "examples/candle/threebar/ti_cdleveningstar_example.rs"
+
+[[example]]
+name = "ti_cdlidentical3crows_example"
+path = "examples/candle/threebar/ti_cdlidentical3crows_example.rs"
+
+[[example]]
+name = "ti_cdlmorningdojistar_example"
+path = "examples/candle/threebar/ti_cdlmorningdojistar_example.rs"
+
+[[example]]
+name = "ti_cdlmorningstar_example"
+path = "examples/candle/threebar/ti_cdlmorningstar_example.rs"
+
+[[example]]
+name = "ti_cdl3blackcrows_example"
+path = "examples/candle/threebar/ti_cdl3blackcrows_example.rs"
+
+[[example]]
+name = "ti_cdl3insidedown_example"
+path = "examples/candle/threebar/ti_cdl3insidedown_example.rs"
+
+[[example]]
+name = "ti_cdl3insideup_example"
+path = "examples/candle/threebar/ti_cdl3insideup_example.rs"
+
+[[example]]
+name = "ti_cdl3outsidedown_example"
+path = "examples/candle/threebar/ti_cdl3outsidedown_example.rs"
+
+[[example]]
+name = "ti_cdl3outsideup_example"
+path = "examples/candle/threebar/ti_cdl3outsideup_example.rs"
+
+[[example]]
+name = "ti_cdl3starsinthesouth_example"
+path = "examples/candle/threebar/ti_cdl3starsinthesouth_example.rs"
+
+[[example]]
+name = "ti_cdl3whitesoldiers_example"
+path = "examples/candle/threebar/ti_cdl3whitesoldiers_example.rs"
+
+[[example]]
+name = "ti_cdl2crows_example"
+path = "examples/candle/threebar/ti_cdl2crows_example.rs"
+
+[[example]]
+name = "ti_cdlunique3riverbottom_example"
+path = "examples/candle/threebar/ti_cdlunique3riverbottom_example.rs"
+
+[[example]]
+name = "ti_cdlupsidegapthreemethods_example"
+path = "examples/candle/threebar/ti_cdlupsidegapthreemethods_example.rs"
+
+[[example]]
+name = "ti_cdlupsidetasukigap_example"
+path = "examples/candle/threebar/ti_cdlupsidetasukigap_example.rs"
+
+[[example]]
+name = "ti_cdlupsidegap2crows_example"
+path = "examples/candle/threebar/ti_cdlupsidegap2crows_example.rs"
+
+#------------------------------------------------------ 4 bar ------------------------------
+[[example]]
+name = "ti_cdlbullishthreelinestrike_example"
+path = "examples/candle/fourbar/ti_cdlbullishthreelinestrike_example.rs"
+
+[[example]]
+name = "ti_cdlbearishthreelinestrike_example"
+path = "examples/candle/fourbar/ti_cdlbearishthreelinestrike_example.rs"
+
+[[example]]
+name = "ti_cdlconcealingbabyswallow_example"
+path = "examples/candle/fourbar/ti_cdlconcealingbabyswallow_example.rs"
