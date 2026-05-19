@@ -1,7 +1,3 @@
-///TODO create new pattern test bitmask following simular PatternMask defination line 89 and candlebits
-/// create advancedblock pattern using new bitmask pattern
-/// create new proc macros to register patterns
-///
 /// ## Using Body Height and Line Height in Patterns
 ///
 /// Height attributes allow filtering patterns based on candle size:
@@ -198,107 +194,10 @@ impl CandleBits {
     pub const WICK_GAP_UP: u64 = tulip_rs_shared::WICK_GAP_UP;
     pub const WICK_GAP_DOWN: u64 = tulip_rs_shared::WICK_GAP_DOWN;
 
-    /// Create a new CandleBits from candle type, colour, fill, trend, heights, and gaps
-    ///
-    /// This is the "full" constructor that computes all attributes immediately.
-    /// For lazy evaluation, use `new_minimal()` instead.
-    #[inline(always)]
-    pub fn new(
-        candle_type: &CandleTypes,
-        colour: bool,
-        fill: bool,
-        trend: bool,
-        body_height: bool,
-        line_height: bool,
-        body_gap: Option<bool>, // None = no gap, Some(false) = gap up, Some(true) = gap down
-        wick_gap: Option<bool>, // None = no gap, Some(false) = gap up, Some(true) = gap down
-    ) -> Self {
-        let mut bits = 0u64;
-        let mut computed_bits = 0u64;
-
-        // Set candle type bits using tulip_rs_shared encoding functions
-        // Use discriminant() to get the variant index (0, 1, 2, ...) which the encoding functions expect
-        match candle_type {
-            CandleTypes::Basic(variant) => {
-                bits |= tulip_rs_shared::encode_basic_variant(variant.discriminant() as u64);
-            }
-            CandleTypes::Doji(variant) => {
-                bits |= tulip_rs_shared::encode_doji_variant(variant.discriminant() as u64);
-            }
-            CandleTypes::Marubozu(variant) => {
-                bits |= tulip_rs_shared::encode_marubozu_variant(variant.discriminant() as u64);
-            }
-            CandleTypes::SpinningTop(variant) => {
-                bits |= tulip_rs_shared::encode_spinning_top_variant(variant.discriminant() as u64);
-            }
-            CandleTypes::Other => {
-                bits |= 1 << Self::OTHER_BIT;
-            }
-        }
-        computed_bits |= tulip_rs_shared::CANDLE_TYPE_MASKS;
-
-        // Set colour bit (GREEN=1, RED=0)
-        if colour {
-            bits |= 1 << Self::COLOUR_BIT;
-        }
-        computed_bits |= 1 << Self::COLOUR_BIT;
-
-        // Set fill bit (HALLOW=1, FILL=0)
-        if fill {
-            bits |= 1 << Self::FILL_BIT;
-        }
-        computed_bits |= 1 << Self::FILL_BIT;
-
-        // Set trend bit (UP_TREND=1, DOWN_TREND=0)
-        if trend {
-            bits |= 1 << Self::TREND_BIT;
-        }
-        computed_bits |= 1 << Self::TREND_BIT;
-
-        // Set body height bit (LONG=1, SHORT=0)
-        if body_height {
-            bits |= 1 << Self::BODY_HEIGHT_BIT;
-        }
-        computed_bits |= 1 << Self::BODY_HEIGHT_BIT;
-
-        // Set line height bit (LONG=1, SHORT=0)
-        if line_height {
-            bits |= 1 << Self::LINE_HEIGHT_BIT;
-        }
-        computed_bits |= 1 << Self::LINE_HEIGHT_BIT;
-
-        // Set body gap bits if present (2 bits: present + direction)
-        if let Some(gap_down) = body_gap {
-            bits |= 1 << Self::BODY_GAP_PRESENT_BIT; // Gap exists
-            if gap_down {
-                bits |= 1 << Self::BODY_GAP_DIRECTION_BIT; // Gap down
-            }
-            computed_bits |=
-                (1 << Self::BODY_GAP_PRESENT_BIT) | (1 << Self::BODY_GAP_DIRECTION_BIT);
-        }
-
-        // Set wick gap bits if present (2 bits: present + direction)
-        if let Some(gap_down) = wick_gap {
-            bits |= 1 << Self::WICK_GAP_PRESENT_BIT; // Gap exists
-            if gap_down {
-                bits |= 1 << Self::WICK_GAP_DIRECTION_BIT; // Gap down
-            }
-            computed_bits |=
-                (1 << Self::WICK_GAP_PRESENT_BIT) | (1 << Self::WICK_GAP_DIRECTION_BIT);
-        }
-
-        CandleBits {
-            value: bits,
-            computed: computed_bits,
-        }
-    }
-
-    /// Create a new CandleBits with only compulsory attributes computed
-    ///
-    /// This constructor is for lazy evaluation - it sets only the bits that are
-    /// always needed (candle_type, colour, fill, trend, line_height) and marks
-    /// them as computed. Optional attributes (body_height, body_gap, wick_gap)
-    /// can be set later using the set_* methods.
+    /// Sets candle type, colour, fill, trend, and line_height immediately and
+    /// marks them as computed.  The lazy attributes (body_height, body_gap,
+    /// wick_gap) are left unset and computed on-demand via the `set_*` methods
+    /// when a pattern actually requires them.
     ///
     /// Compulsory bits:
     /// - Candle type (bits 0-28)
@@ -307,7 +206,7 @@ impl CandleBits {
     /// - Trend (bit 31)
     /// - Line height (bit 33)
     #[inline(always)]
-    pub fn new_minimal(
+    pub fn new(
         candle_type: &CandleTypes,
         colour: bool,
         fill: bool,
@@ -1078,44 +977,6 @@ impl<const N: usize> PatternDefinition<N> {
         N
     }
 
-    /// Check if this pattern has lazy bits that haven't been computed yet
-    ///
-    /// Returns true if:
-    /// - The pattern uses lazy bits (lazy_bits_mask != 0), AND
-    /// - Any bar in the slice is missing at least one lazy bit the pattern needs
-    ///
-    /// This method is used to determine when to call compute_bits() before matching.
-    ///
-    /// # Example
-    /// ```ignore
-    /// // Before matching, check if we need to compute lazy bits
-    /// if pattern_def.has_uncomputed_lazy_bits(&bars) {
-    ///     // Compute missing lazy bits for all bars
-    ///     for bar in bars.iter_mut() {
-    ///         bar.compute_bits(open, high, low, close, i, state);
-    ///     }
-    /// }
-    /// // Now safe to match the pattern
-    /// let matches = pattern_def.matches(&bars, is_uptrend);
-    /// ```
-    #[deprecated(
-        note = "Do not use in hot paths. Use lazy_bits_mask != 0 check + unconditional compute_bits() instead."
-    )]
-    pub fn has_uncomputed_lazy_bits(&self, bars: &[CandleBits]) -> bool {
-        if self.lazy_bits_mask == 0 {
-            return false; // Pattern doesn't use lazy bits at all
-        }
-
-        // Check if any bar is missing lazy bits that the pattern needs
-        bars.iter().any(|bar| {
-            // Which lazy bits does the pattern need?
-            let needed = self.lazy_bits_mask;
-            // Which of those needed bits are NOT computed?
-            let missing = needed & !bar.computed;
-            missing != 0
-        })
-    }
-
     /// Check if this pattern matches the given bars (oldest to newest)
     /// Does NOT check trend - caller must verify trend separately
     #[inline(always)]
@@ -1217,8 +1078,6 @@ macro_rules! check_bar_group {
                     $matched
                         .get_or_insert_with(|| Vec::with_capacity(1))
                         .push(pattern_def.pattern);
-                    
-                    //break;
                 }
             }
         }

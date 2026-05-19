@@ -39,10 +39,10 @@ pub fn info() -> CandleInfo {
 pub fn calc(
     inputs: (&[f64], &[f64], &[f64], &[f64]),
     _state: &EmaState,
-    bars: &[CandleBits],
+    _bars: &[CandleBits],
 ) -> bool {
 
-    let (open, _, low, close) = inputs;
+    let (open, _, _, close) = inputs;
 
     if !cdl_bar_engulf_bar((open[FIRST], close[FIRST]), (open[SECOND], close[SECOND])) {
         return false;

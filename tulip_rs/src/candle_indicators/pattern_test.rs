@@ -65,7 +65,7 @@ impl PatternTest {
         // Create CandleBits with only compulsory attributes
         // Lazy attributes (body_height, body_gap, wick_gap) will be computed on-demand
         // when patterns actually need them
-        self.bars.push(CandleBits::new_minimal(
+        self.bars.push(CandleBits::new(
             &candle_type,
             colour,
             fill,
