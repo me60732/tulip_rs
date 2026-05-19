@@ -6,23 +6,27 @@ use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::types::CandleTypes;
 use crate::candle_indicators::types::ForcastType;
 use crate::indicators::ema::calc as ema_calc;
-use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, BufferElement, MirrorBuffer};
+use crate::ring_buffer::buffer::BufferElement;
+use crate::ring_buffer::fixed_single_buffer::FixedMirrorBuffer;
 use serde::{Deserialize, Serialize};
+
 pub(crate) const MAX_PATTERN_LENGTH: usize = 4;
+pub(crate) const PATTERN_BAR_WINDOW: usize = MAX_PATTERN_LENGTH + 1;
+
 impl BufferElement for CandleBits {}
 /// Pattern test - the complete pattern of bars
 ///
 /// Note: Trend is now stored in each CandleBits (bit 31), not as a separate field
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PatternTest {
-    pub bars: Buffer<CandleBits>, // The actual bars being tested (trend stored in each bar)
-    last_trend: bool,             // Cache of last calculated trend for when ema == ema_signal
+    pub bars: FixedMirrorBuffer<CandleBits, PATTERN_BAR_WINDOW>,
+    last_trend: bool, // Cache of last calculated trend for when ema == ema_signal
 }
 
 impl PatternTest {
     pub fn new() -> Self {
         Self {
-            bars: Buffer::new(MAX_PATTERN_LENGTH + 1),
+            bars: FixedMirrorBuffer::new(),
             last_trend: false,
         }
     }
@@ -208,8 +212,6 @@ impl State {
         //update the ema state with the current bar
         self.ema_state
             .calc_candle_ema(open[i], high[i], low[i], close[i], candle_multipliers);
-        // Sync mirrors to ensure pattern test bars are up-to-date TODO figure out how to only do this if old bits have changed
-        self.pattern_test.bars.sync_mirrors();
         ret
     }
 }
