@@ -78,12 +78,12 @@ pub fn compute_bits(
     let (_, high, low, _) = inputs;
 
     
-    if (bars[3].computed & (1 << CandleBits::WICK_GAP_PRESENT_BIT)) == 0 {
+    if (bars[3].lazy_computed & (1 << CandleBits::WICK_GAP_PRESENT_BIT)) == 0 {
         let gap = cdl_gap::<false>((high[SECOND], low[SECOND]), (high[THIRD], low[THIRD]));
         bars[3].set_wick_gap(gap);
     }
     
-    if (bars[2].computed & (1 << CandleBits::WICK_GAP_PRESENT_BIT)) == 0 {
+    if (bars[2].lazy_computed & (1 << CandleBits::WICK_GAP_PRESENT_BIT)) == 0 {
         let gap = cdl_gap::<false>((high[FIRST], low[FIRST]), (high[SECOND], low[SECOND]));
         bars[2].set_wick_gap(gap);
     }

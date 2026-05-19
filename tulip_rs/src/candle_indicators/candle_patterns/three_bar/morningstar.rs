@@ -91,11 +91,11 @@ pub fn compute_bits(
     bars: &mut [CandleBits],
 ) {
     let (open, _, _, close) = inputs;
-    if (bars[THIRD].computed & (1 << CandleBits::BODY_GAP_PRESENT_BIT)) == 0 {
+    if (bars[THIRD].lazy_computed & (1 << CandleBits::BODY_GAP_PRESENT_BIT)) == 0 {
         let gap = cdl_gap::<true>((open[SECOND], close[SECOND]), (open[THIRD], close[THIRD]));
         bars[THIRD].set_body_gap(gap);
     }
-    if (bars[SECOND].computed & (1 << CandleBits::BODY_GAP_PRESENT_BIT)) == 0 {
+    if (bars[SECOND].lazy_computed & (1 << CandleBits::BODY_GAP_PRESENT_BIT)) == 0 {
         let gap = cdl_gap::<true>((open[FIRST], close[FIRST]), (open[SECOND], close[SECOND]));
         bars[SECOND].set_body_gap(gap);
     }

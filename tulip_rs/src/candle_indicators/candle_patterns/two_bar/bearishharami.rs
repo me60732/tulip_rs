@@ -46,7 +46,7 @@ pub fn calc(
     }
     // Fast bit check: if current bar is any Doji type (FourPriceDoji already filtered by template)
     // Check for any doji variant using the public constants
-    let second_bar = bars[SECOND].value;
+    let second_bar = bars[SECOND].mandatory;
     let is_doji = (second_bar & CandleBits::DOJI) != 0
         || (second_bar & CandleBits::LONG_LEGGED_DOJI) != 0
         || (second_bar & CandleBits::DRAGONFLY_DOJI) != 0

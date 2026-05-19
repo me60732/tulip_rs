@@ -68,7 +68,7 @@ pub fn compute_bits(
 
     let first_bar = &mut bars[1];
     // Ensure body_gap is computed (needed by pattern template filter)
-    if (first_bar.computed & (1 << CandleBits::BODY_GAP_PRESENT_BIT)) == 0 {
+    if (first_bar.lazy_computed & (1 << CandleBits::BODY_GAP_PRESENT_BIT)) == 0 {
         let gap = cdl_gap::<true>((open[PREV], close[PREV]), (open[FIRST], close[FIRST]));
         first_bar.set_body_gap(gap);
     }

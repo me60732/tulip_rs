@@ -98,7 +98,7 @@ pub fn compute_bits(
 
     let second_bar = &mut bars[2];
     
-    if (second_bar.computed & (1 << CandleBits::WICK_GAP_PRESENT_BIT)) == 0 {
+    if (second_bar.lazy_computed & (1 << CandleBits::WICK_GAP_PRESENT_BIT)) == 0 {
         let gap = cdl_gap::<false>((high[FIRST], low[FIRST]), (high[SECOND], low[SECOND]));
         second_bar.set_wick_gap(gap);
     }

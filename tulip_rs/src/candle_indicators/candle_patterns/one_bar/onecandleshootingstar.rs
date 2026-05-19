@@ -68,13 +68,13 @@ pub fn compute_bits(
     let (open, _, _, close) = inputs;
     let first_bar = &mut bars[FIRST];
     
-    if (first_bar.computed & (1 << CandleBits::BODY_HEIGHT_BIT)) == 0 {
+    if (first_bar.lazy_computed & (1 << CandleBits::BODY_HEIGHT_BIT)) == 0 {
         let body_height = cdl_height((open[FIRST], close[FIRST]), state.ema_body);
         first_bar.set_body_height(body_height);
 
     }
     
-    if (first_bar.computed & (1 << CandleBits::BODY_GAP_PRESENT_BIT)) == 0 {
+    if (first_bar.lazy_computed & (1 << CandleBits::BODY_GAP_PRESENT_BIT)) == 0 {
         let gap = cdl_gap::<true>((open[PREV], close[PREV]), (open[FIRST], close[FIRST]));
         first_bar.set_body_gap(gap);
     }

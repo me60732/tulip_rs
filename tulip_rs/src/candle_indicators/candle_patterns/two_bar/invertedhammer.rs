@@ -48,7 +48,7 @@ pub fn calc(
     }
 
     // Fast bit check: if current bar is a HighWave, require longer upper wick
-    if bars[SECOND].value & CandleBits::HIGH_WAVE != 0 {
+    if bars[SECOND].mandatory & CandleBits::HIGH_WAVE != 0 {
         if cdl_wick_length((open[SECOND], close[SECOND]), high[SECOND], Some(2.5)) == SHORT {
             return false;
         }
@@ -72,7 +72,7 @@ pub fn compute_bits(
 
     let second_bar = &mut bars[SECOND];
     
-    if (second_bar.computed & (1 << CandleBits::BODY_HEIGHT_BIT)) == 0 {
+    if (second_bar.lazy_computed & (1 << CandleBits::BODY_HEIGHT_BIT)) == 0 {
         let body_height = cdl_height((open[SECOND], close[SECOND]), state.ema_body);
         second_bar.set_body_height(body_height);
     }

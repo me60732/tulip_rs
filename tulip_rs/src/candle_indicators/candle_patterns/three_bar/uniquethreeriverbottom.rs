@@ -83,7 +83,7 @@ pub fn compute_bits(
     let (open, _, _, close) = inputs;
     let third_bar = &mut bars[THIRD];
 
-    if (third_bar.computed & (1 << CandleBits::BODY_GAP_PRESENT_BIT)) == 0 {
+    if (third_bar.lazy_computed & (1 << CandleBits::BODY_GAP_PRESENT_BIT)) == 0 {
         let gap = cdl_gap::<true>((open[SECOND], close[SECOND]), (open[THIRD], close[THIRD]));
         third_bar.set_body_gap(gap);
     }

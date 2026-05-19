@@ -54,7 +54,7 @@ pub fn calc(
     let second_bar = bars[SECOND];
 
     // Check first bar - use bit masking to detect BlackSpinningTop
-    if (first_bar.value & CandleBits::BLACK_SPINNING_TOP) != 0 {
+    if (first_bar.mandatory & CandleBits::BLACK_SPINNING_TOP) != 0 {
         let body_length = (open[FIRST] - close[FIRST]).abs();
         let top_wick = high[FIRST] - open[FIRST];
         let bottom_wick = close[FIRST] - low[FIRST];
@@ -65,7 +65,7 @@ pub fn calc(
     }
 
     // Check second bar - use bit masking to detect BlackSpinningTop
-    if (second_bar.value & CandleBits::BLACK_SPINNING_TOP) != 0 {
+    if (second_bar.mandatory & CandleBits::BLACK_SPINNING_TOP) != 0 {
         let body_length = (open[SECOND] - close[SECOND]).abs();
         let top_wick = high[SECOND] - open[SECOND];
         let bottom_wick = close[SECOND] - low[SECOND];
@@ -87,7 +87,7 @@ pub fn compute_bits(
     let (open, _, _, close) = inputs;
     let first_bar = &mut bars[FIRST];
 
-    if (first_bar.computed & (1 << CandleBits::BODY_GAP_PRESENT_BIT)) == 0 {
+    if (first_bar.lazy_computed & (1 << CandleBits::BODY_GAP_PRESENT_BIT)) == 0 {
         let gap = cdl_gap::<true>((open[PREV], close[PREV]), (open[FIRST], close[FIRST]));
         first_bar.set_body_gap(gap);
     }

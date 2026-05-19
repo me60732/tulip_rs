@@ -62,66 +62,81 @@ use serde::{Deserialize, Serialize};
 /// - This represents the trend going INTO the pattern
 /// - Patterns requiring specific entry trend should use `prev_bar(trend = "UP")` or `prev_bar(trend = "DOWN")`
 ///
-/// Bit layout (u64):
-/// - Bits 0-7:   Basic candle variant bits (CDLBasic)
-/// - Bits 8-15:  Doji candle variant bits (CDLDoji)
-/// - Bits 16-23: Marubozu candle variant bits (CDLMarubozu)
-/// - Bits 24-27: SpinningTop candle variant bits (CDLSpinningTop)
-/// - Bit 28:     Other candle type
-/// - Bit 29:     Colour (GREEN=1, RED=0)
-/// - Bit 30:     Fill (HALLOW=1, FILL=0)
-/// - Bit 31:     Trend (UP_TREND=1, DOWN_TREND=0)
-/// - Bit 32:     Body Height (LONG=1, SHORT=0) - LAZY: calculated from EMA body on demand
-/// - Bit 33:     Line Height (LONG=1, SHORT=0) - COMPULSORY: calculated at bar creation
-/// - Bits 34-35: Body Gap (present + direction) - LAZY: calculated on demand
-/// - Bits 36-37: Wick Gap (present + direction) - LAZY: calculated on demand
-/// - Bits 38-63: Reserved for future pattern attributes
+/// Split into two fields (8 bytes total: mandatory: u32 + lazy_value: u16 + lazy_computed: u16):
+///
+/// **`mandatory: u32`** — always computed at bar creation (25 bits used, tight-packed):
+/// ```text
+///   Bits  0– 5   Basic variants      (6 types, 1-hot)
+///   Bits  6–10   Doji variants       (5 types, 1-hot)
+///   Bits 11–16   Marubozu variants   (6 types, 1-hot)
+///   Bits 17–19   SpinningTop variants(3 types, 1-hot)
+///   Bit  20      OTHER
+///   Bit  21      COLOUR   (GREEN=1, RED=0)
+///   Bit  22      FILL     (HOLLOW=1, FILLED=0)
+///   Bit  23      TREND    (UP=1, DOWN=0)
+///   Bit  24      LINE_HEIGHT (LONG=1, SHORT=0)
+///   Bits 25–31   7 spare
+/// ```
+///
+/// **`lazy_value / lazy_computed: u16`** — computed on demand (5 bits used):
+/// ```text
+///   Bit  0   BODY_HEIGHT       (LONG=1, SHORT=0)
+///   Bit  1   BODY_GAP_PRESENT
+///   Bit  2   BODY_GAP_DIRECTION (DOWN=1, UP=0)
+///   Bit  3   WICK_GAP_PRESENT
+///   Bit  4   WICK_GAP_DIRECTION (DOWN=1, UP=0)
+///   Bits 5–15  11 spare for future lazy attributes
+/// ```
 ///
 /// ## Compulsory vs Lazy Bits
 ///
-/// **Compulsory bits** (always computed at bar creation):
-/// - Candle type (bits 0-28)
-/// - Colour (bit 29)
-/// - Fill (bit 30)
-/// - Trend (bit 31)
-/// - Line height (bit 33)
+/// **Compulsory bits** (always computed at bar creation, stored in `mandatory`):
+/// - Candle type (bits 0–20)
+/// - Colour (bit 21)
+/// - Fill (bit 22)
+/// - Trend (bit 23)
+/// - Line height (bit 24)
 ///
-/// **Lazy bits** (computed on-demand):
-/// - Body height (bit 32)
-/// - Body gap (bits 34-35)
-/// - Wick gap (bits 36-37)
+/// **Lazy bits** (computed on-demand, stored in `lazy_value` / tracked in `lazy_computed`):
+/// - Body height (lazy bit 0)
+/// - Body gap (lazy bits 1–2)
+/// - Wick gap (lazy bits 3–4)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct CandleBits {
-    pub value: u64,    // The actual bit values
-    pub computed: u64, // Which bits have been computed (1 = computed, 0 = not computed yet)
+    pub mandatory: u32,     // Compulsory bits (always computed at bar creation)
+    pub lazy_value: u16,    // Lazy bit values (computed on demand)
+    pub lazy_computed: u16, // Which lazy bits have been computed
 }
 
 impl CandleBits {
     // Re-export bit position constants from tulip_rs_shared for single source of truth
-    pub const BASIC_OFFSET: u64 = tulip_rs_shared::BASIC_OFFSET;
-    pub const DOJI_OFFSET: u64 = tulip_rs_shared::DOJI_OFFSET;
-    pub const MARUBOZU_OFFSET: u64 = tulip_rs_shared::MARUBOZU_OFFSET;
-    pub const SPINNING_TOP_OFFSET: u64 = tulip_rs_shared::SPINNING_TOP_OFFSET;
-    pub const OTHER_BIT: u64 = tulip_rs_shared::OTHER_BIT;
-    pub const COLOUR_BIT: u64 = tulip_rs_shared::COLOUR_BIT;
-    pub const FILL_BIT: u64 = tulip_rs_shared::FILL_BIT;
-    pub const TREND_BIT: u64 = tulip_rs_shared::TREND_BIT;
-    pub const BODY_HEIGHT_BIT: u64 = tulip_rs_shared::BODY_HEIGHT_BIT;
-    pub const LINE_HEIGHT_BIT: u64 = tulip_rs_shared::LINE_HEIGHT_BIT;
-    pub const BODY_GAP_PRESENT_BIT: u64 = tulip_rs_shared::BODY_GAP_PRESENT_BIT;
-    pub const BODY_GAP_DIRECTION_BIT: u64 = tulip_rs_shared::BODY_GAP_DIRECTION_BIT;
-    pub const WICK_GAP_PRESENT_BIT: u64 = tulip_rs_shared::WICK_GAP_PRESENT_BIT;
-    pub const WICK_GAP_DIRECTION_BIT: u64 = tulip_rs_shared::WICK_GAP_DIRECTION_BIT;
+    // Mandatory bit positions (shift amounts into `mandatory: u32`)
+    pub const BASIC_OFFSET: u32 = tulip_rs_shared::BASIC_OFFSET;
+    pub const DOJI_OFFSET: u32 = tulip_rs_shared::DOJI_OFFSET;
+    pub const MARUBOZU_OFFSET: u32 = tulip_rs_shared::MARUBOZU_OFFSET;
+    pub const SPINNING_TOP_OFFSET: u32 = tulip_rs_shared::SPINNING_TOP_OFFSET;
+    pub const OTHER_BIT: u32 = tulip_rs_shared::OTHER_BIT;
+    pub const COLOUR_BIT: u32 = tulip_rs_shared::COLOUR_BIT;
+    pub const FILL_BIT: u32 = tulip_rs_shared::FILL_BIT;
+    pub const TREND_BIT: u32 = tulip_rs_shared::TREND_BIT;
+    pub const LINE_HEIGHT_BIT: u32 = tulip_rs_shared::LINE_HEIGHT_BIT;
+    // Lazy bit positions (shift amounts into `lazy_value / lazy_computed: u16`)
+    pub const BODY_HEIGHT_BIT: u32 = tulip_rs_shared::BODY_HEIGHT_BIT;
+    pub const BODY_GAP_PRESENT_BIT: u32 = tulip_rs_shared::BODY_GAP_PRESENT_BIT;
+    pub const BODY_GAP_DIRECTION_BIT: u32 = tulip_rs_shared::BODY_GAP_DIRECTION_BIT;
+    pub const WICK_GAP_PRESENT_BIT: u32 = tulip_rs_shared::WICK_GAP_PRESENT_BIT;
+    pub const WICK_GAP_DIRECTION_BIT: u32 = tulip_rs_shared::WICK_GAP_DIRECTION_BIT;
 
     // Re-export masks from tulip_rs_shared
-    pub const BASIC_MASK: u64 = tulip_rs_shared::BASIC_MASK;
-    pub const DOJI_MASK: u64 = tulip_rs_shared::DOJI_MASK;
-    pub const MARUBOZU_MASK: u64 = tulip_rs_shared::MARUBOZU_MASK;
-    pub const SPINNING_TOP_MASK: u64 = tulip_rs_shared::SPINNING_TOP_MASK;
+    pub const BASIC_MASK: u32 = tulip_rs_shared::BASIC_MASK;
+    pub const DOJI_MASK: u32 = tulip_rs_shared::DOJI_MASK;
+    pub const MARUBOZU_MASK: u32 = tulip_rs_shared::MARUBOZU_MASK;
+    pub const SPINNING_TOP_MASK: u32 = tulip_rs_shared::SPINNING_TOP_MASK;
 
     // Re-export masks for compulsory and lazy bits
-    pub const COMPULSORY_MASK: u64 = tulip_rs_shared::COMPULSORY_MASK;
-    pub const LAZY_MASK: u64 = tulip_rs_shared::LAZY_MASK;
+    pub const CANDLE_TYPE_MASK: u32 = tulip_rs_shared::CANDLE_TYPE_MASK;
+    pub const COMPULSORY_MASK: u32 = tulip_rs_shared::COMPULSORY_MASK;
+    pub const LAZY_MASK: u16 = tulip_rs_shared::LAZY_MASK;
 
     // ========================================================================
     // PUBLIC BIT CONSTANTS FOR FAST PATTERN MATCHING
@@ -130,81 +145,81 @@ impl CandleBits {
     // for maximum performance. Use these instead of get_candle_type() in hot paths.
     //
     // Example usage:
-    //     if bars[i].value & CandleBits::HIGH_WAVE != 0 { ... }
-    //     if bars[i].value & CandleBits::GREEN != 0 { ... }
+    //     if bars[i].mandatory & CandleBits::HIGH_WAVE != 0 { ... }
+    //     if bars[i].mandatory & CandleBits::COLOUR_GREEN != 0 { ... }
 
-    // === Basic Candle Types (bits 0-7) ===
-    pub const SHORT_WHITE_CANDLE: u64 = tulip_rs_shared::SHORT_WHITE_CANDLE;
-    pub const WHITE_CANDLE: u64 = tulip_rs_shared::WHITE_CANDLE;
-    pub const LONG_WHITE_CANDLE: u64 = tulip_rs_shared::LONG_WHITE_CANDLE;
-    pub const SHORT_BLACK_CANDLE: u64 = tulip_rs_shared::SHORT_BLACK_CANDLE;
-    pub const BLACK_CANDLE: u64 = tulip_rs_shared::BLACK_CANDLE;
-    pub const LONG_BLACK_CANDLE: u64 = tulip_rs_shared::LONG_BLACK_CANDLE;
+    // === Basic Candle Types (bits 0–5) ===
+    pub const SHORT_WHITE_CANDLE: u32 = tulip_rs_shared::SHORT_WHITE_CANDLE;
+    pub const WHITE_CANDLE: u32 = tulip_rs_shared::WHITE_CANDLE;
+    pub const LONG_WHITE_CANDLE: u32 = tulip_rs_shared::LONG_WHITE_CANDLE;
+    pub const SHORT_BLACK_CANDLE: u32 = tulip_rs_shared::SHORT_BLACK_CANDLE;
+    pub const BLACK_CANDLE: u32 = tulip_rs_shared::BLACK_CANDLE;
+    pub const LONG_BLACK_CANDLE: u32 = tulip_rs_shared::LONG_BLACK_CANDLE;
 
-    // === Doji Types (bits 8-15) ===
-    pub const DOJI: u64 = tulip_rs_shared::DOJI;
-    pub const LONG_LEGGED_DOJI: u64 = tulip_rs_shared::LONG_LEGGED_DOJI;
-    pub const DRAGONFLY_DOJI: u64 = tulip_rs_shared::DRAGONFLY_DOJI;
-    pub const GRAVESTONE_DOJI: u64 = tulip_rs_shared::GRAVESTONE_DOJI;
-    pub const FOUR_PRICE_DOJI: u64 = tulip_rs_shared::FOUR_PRICE_DOJI;
+    // === Doji Types (bits 6–10) ===
+    pub const DOJI: u32 = tulip_rs_shared::DOJI;
+    pub const LONG_LEGGED_DOJI: u32 = tulip_rs_shared::LONG_LEGGED_DOJI;
+    pub const DRAGONFLY_DOJI: u32 = tulip_rs_shared::DRAGONFLY_DOJI;
+    pub const GRAVESTONE_DOJI: u32 = tulip_rs_shared::GRAVESTONE_DOJI;
+    pub const FOUR_PRICE_DOJI: u32 = tulip_rs_shared::FOUR_PRICE_DOJI;
 
-    // === Marubozu Types (bits 16-23) ===
-    pub const WHITE_MARUBOZU: u64 = tulip_rs_shared::WHITE_MARUBOZU;
-    pub const OPENING_WHITE_MARUBOZU: u64 = tulip_rs_shared::OPENING_WHITE_MARUBOZU;
-    pub const CLOSING_WHITE_MARUBOZU: u64 = tulip_rs_shared::CLOSING_WHITE_MARUBOZU;
-    pub const BLACK_MARUBOZU: u64 = tulip_rs_shared::BLACK_MARUBOZU;
-    pub const OPENING_BLACK_MARUBOZU: u64 = tulip_rs_shared::OPENING_BLACK_MARUBOZU;
-    pub const CLOSING_BLACK_MARUBOZU: u64 = tulip_rs_shared::CLOSING_BLACK_MARUBOZU;
+    // === Marubozu Types (bits 11–16) ===
+    pub const WHITE_MARUBOZU: u32 = tulip_rs_shared::WHITE_MARUBOZU;
+    pub const OPENING_WHITE_MARUBOZU: u32 = tulip_rs_shared::OPENING_WHITE_MARUBOZU;
+    pub const CLOSING_WHITE_MARUBOZU: u32 = tulip_rs_shared::CLOSING_WHITE_MARUBOZU;
+    pub const BLACK_MARUBOZU: u32 = tulip_rs_shared::BLACK_MARUBOZU;
+    pub const OPENING_BLACK_MARUBOZU: u32 = tulip_rs_shared::OPENING_BLACK_MARUBOZU;
+    pub const CLOSING_BLACK_MARUBOZU: u32 = tulip_rs_shared::CLOSING_BLACK_MARUBOZU;
 
-    // === SpinningTop Types (bits 24-27) ===
-    pub const WHITE_SPINNING_TOP: u64 = tulip_rs_shared::WHITE_SPINNING_TOP;
-    pub const BLACK_SPINNING_TOP: u64 = tulip_rs_shared::BLACK_SPINNING_TOP;
-    pub const HIGH_WAVE: u64 = tulip_rs_shared::HIGH_WAVE;
+    // === SpinningTop Types (bits 17–19) ===
+    pub const WHITE_SPINNING_TOP: u32 = tulip_rs_shared::WHITE_SPINNING_TOP;
+    pub const BLACK_SPINNING_TOP: u32 = tulip_rs_shared::BLACK_SPINNING_TOP;
+    pub const HIGH_WAVE: u32 = tulip_rs_shared::HIGH_WAVE;
 
-    // === Other Type (bit 28) ===
-    pub const OTHER: u64 = tulip_rs_shared::OTHER;
+    // === Other Type (bit 20) ===
+    pub const OTHER: u32 = tulip_rs_shared::OTHER;
 
-    // === Colour (bit 29) ===
-    pub const COLOUR_GREEN: u64 = tulip_rs_shared::COLOUR_GREEN;
-    pub const COLOUR_RED: u64 = tulip_rs_shared::COLOUR_RED;
+    // === Colour (bit 21) ===
+    pub const COLOUR_GREEN: u32 = tulip_rs_shared::COLOUR_GREEN;
+    pub const COLOUR_RED: u32 = tulip_rs_shared::COLOUR_RED;
 
-    // === Fill (bit 30) ===
-    pub const FILL_HALLOW: u64 = tulip_rs_shared::FILL_HOLLOW; // Note: shared uses HOLLOW spelling
-    pub const FILL_FILLED: u64 = tulip_rs_shared::FILL_FILLED;
+    // === Fill (bit 22) ===
+    pub const FILL_HALLOW: u32 = tulip_rs_shared::FILL_HOLLOW; // Note: shared uses HOLLOW spelling
+    pub const FILL_FILLED: u32 = tulip_rs_shared::FILL_FILLED;
 
-    // === Trend (bit 31) ===
-    pub const TREND_UP: u64 = tulip_rs_shared::TREND_UP;
-    pub const TREND_DOWN: u64 = tulip_rs_shared::TREND_DOWN;
+    // === Trend (bit 23) ===
+    pub const TREND_UP: u32 = tulip_rs_shared::TREND_UP;
+    pub const TREND_DOWN: u32 = tulip_rs_shared::TREND_DOWN;
 
-    // === Body Height (bit 32) ===
-    pub const BODY_HEIGHT_LONG: u64 = tulip_rs_shared::BODY_HEIGHT_LONG;
-    pub const BODY_HEIGHT_SHORT: u64 = tulip_rs_shared::BODY_HEIGHT_SHORT;
+    // === Body Height (lazy bit 0) ===
+    pub const BODY_HEIGHT_LONG: u16 = tulip_rs_shared::BODY_HEIGHT_LONG;
+    pub const BODY_HEIGHT_SHORT: u16 = tulip_rs_shared::BODY_HEIGHT_SHORT;
 
-    // === Line Height (bit 33) ===
-    pub const LINE_HEIGHT_LONG: u64 = tulip_rs_shared::LINE_HEIGHT_LONG;
-    pub const LINE_HEIGHT_SHORT: u64 = tulip_rs_shared::LINE_HEIGHT_SHORT;
+    // === Line Height (bit 24) ===
+    pub const LINE_HEIGHT_LONG: u32 = tulip_rs_shared::LINE_HEIGHT_LONG;
+    pub const LINE_HEIGHT_SHORT: u32 = tulip_rs_shared::LINE_HEIGHT_SHORT;
 
-    // === Body Gap (bits 34-35) ===
-    pub const BODY_GAP_PRESENT: u64 = tulip_rs_shared::BODY_GAP_PRESENT;
-    pub const BODY_GAP_UP: u64 = tulip_rs_shared::BODY_GAP_UP;
-    pub const BODY_GAP_DOWN: u64 = tulip_rs_shared::BODY_GAP_DOWN;
+    // === Body Gap (lazy bits 1–2) ===
+    pub const BODY_GAP_PRESENT: u16 = tulip_rs_shared::BODY_GAP_PRESENT;
+    pub const BODY_GAP_UP: u16 = tulip_rs_shared::BODY_GAP_UP;
+    pub const BODY_GAP_DOWN: u16 = tulip_rs_shared::BODY_GAP_DOWN;
 
-    // === Wick Gap (bits 36-37) ===
-    pub const WICK_GAP_PRESENT: u64 = tulip_rs_shared::WICK_GAP_PRESENT;
-    pub const WICK_GAP_UP: u64 = tulip_rs_shared::WICK_GAP_UP;
-    pub const WICK_GAP_DOWN: u64 = tulip_rs_shared::WICK_GAP_DOWN;
+    // === Wick Gap (lazy bits 3–4) ===
+    pub const WICK_GAP_PRESENT: u16 = tulip_rs_shared::WICK_GAP_PRESENT;
+    pub const WICK_GAP_UP: u16 = tulip_rs_shared::WICK_GAP_UP;
+    pub const WICK_GAP_DOWN: u16 = tulip_rs_shared::WICK_GAP_DOWN;
 
     /// Sets candle type, colour, fill, trend, and line_height immediately and
     /// marks them as computed.  The lazy attributes (body_height, body_gap,
     /// wick_gap) are left unset and computed on-demand via the `set_*` methods
     /// when a pattern actually requires them.
     ///
-    /// Compulsory bits:
-    /// - Candle type (bits 0-28)
-    /// - Colour (bit 29)
-    /// - Fill (bit 30)
-    /// - Trend (bit 31)
-    /// - Line height (bit 33)
+    /// Compulsory bits (stored in `mandatory: u32`):
+    /// - Candle type (bits 0–20)
+    /// - Colour (bit 21)
+    /// - Fill (bit 22)
+    /// - Trend (bit 23)
+    /// - Line height (bit 24)
     #[inline(always)]
     pub fn new(
         candle_type: &CandleTypes,
@@ -213,51 +228,54 @@ impl CandleBits {
         trend: bool,
         line_height: bool,
     ) -> Self {
-        let mut bits = 0u64;
+        let mut mandatory: u32 = 0;
 
         // Set candle type bits using tulip_rs_shared encoding functions
         // Use discriminant() to get the variant index (0, 1, 2, ...) which the encoding functions expect
         match candle_type {
             CandleTypes::Basic(variant) => {
-                bits |= tulip_rs_shared::encode_basic_variant(variant.discriminant() as u64);
+                mandatory |= tulip_rs_shared::encode_basic_variant(variant.discriminant() as u32);
             }
             CandleTypes::Doji(variant) => {
-                bits |= tulip_rs_shared::encode_doji_variant(variant.discriminant() as u64);
+                mandatory |= tulip_rs_shared::encode_doji_variant(variant.discriminant() as u32);
             }
             CandleTypes::Marubozu(variant) => {
-                bits |= tulip_rs_shared::encode_marubozu_variant(variant.discriminant() as u64);
+                mandatory |=
+                    tulip_rs_shared::encode_marubozu_variant(variant.discriminant() as u32);
             }
             CandleTypes::SpinningTop(variant) => {
-                bits |= tulip_rs_shared::encode_spinning_top_variant(variant.discriminant() as u64);
+                mandatory |=
+                    tulip_rs_shared::encode_spinning_top_variant(variant.discriminant() as u32);
             }
             CandleTypes::Other => {
-                bits |= 1 << Self::OTHER_BIT;
+                mandatory |= 1u32 << Self::OTHER_BIT;
             }
         }
 
         // Set colour bit (GREEN=1, RED=0)
         if colour {
-            bits |= 1 << Self::COLOUR_BIT;
+            mandatory |= 1u32 << Self::COLOUR_BIT;
         }
 
         // Set fill bit (HALLOW=1, FILL=0)
         if fill {
-            bits |= 1 << Self::FILL_BIT;
+            mandatory |= 1u32 << Self::FILL_BIT;
         }
 
         // Set trend bit (UP_TREND=1, DOWN_TREND=0)
         if trend {
-            bits |= 1 << Self::TREND_BIT;
+            mandatory |= 1u32 << Self::TREND_BIT;
         }
 
         // Set line height bit (LONG=1, SHORT=0)
         if line_height {
-            bits |= 1 << Self::LINE_HEIGHT_BIT;
+            mandatory |= 1u32 << Self::LINE_HEIGHT_BIT;
         }
 
         CandleBits {
-            value: bits,
-            computed: Self::COMPULSORY_MASK,
+            mandatory,
+            lazy_value: 0,
+            lazy_computed: 0,
         }
     }
 
@@ -271,11 +289,11 @@ impl CandleBits {
     #[inline(always)]
     pub fn set_body_height(&mut self, is_long: bool) {
         if is_long {
-            self.value |= 1 << Self::BODY_HEIGHT_BIT;
+            self.lazy_value |= 1u16 << Self::BODY_HEIGHT_BIT;
         } else {
-            self.value &= !(1 << Self::BODY_HEIGHT_BIT);
+            self.lazy_value &= !(1u16 << Self::BODY_HEIGHT_BIT);
         }
-        self.computed |= 1 << Self::BODY_HEIGHT_BIT;
+        self.lazy_computed |= 1u16 << Self::BODY_HEIGHT_BIT;
     }
 
     /// Set the body gap attribute (lazy evaluation)
@@ -289,21 +307,23 @@ impl CandleBits {
     #[inline(always)]
     pub fn set_body_gap(&mut self, gap: Option<bool>) {
         // Clear both gap bits first
-        self.value &= !((1 << Self::BODY_GAP_PRESENT_BIT) | (1 << Self::BODY_GAP_DIRECTION_BIT));
+        self.lazy_value &=
+            !((1u16 << Self::BODY_GAP_PRESENT_BIT) | (1u16 << Self::BODY_GAP_DIRECTION_BIT));
 
         if let Some(gap_up) = gap {
-            self.value |= 1 << Self::BODY_GAP_PRESENT_BIT; // Gap exists
-                                                           // Note: gap_up = true means GAP_UP, gap_up = false means GAP_DOWN
-                                                           // BODY_GAP_DIRECTION_BIT set means DOWN, unset means UP
+            self.lazy_value |= 1u16 << Self::BODY_GAP_PRESENT_BIT; // Gap exists
+                                                                   // Note: gap_up = true means GAP_UP, gap_up = false means GAP_DOWN
+                                                                   // BODY_GAP_DIRECTION_BIT set means DOWN, unset means UP
             if !gap_up {
                 // If gap is DOWN (false), set the direction bit
-                self.value |= 1 << Self::BODY_GAP_DIRECTION_BIT; // Gap down
+                self.lazy_value |= 1u16 << Self::BODY_GAP_DIRECTION_BIT; // Gap down
             }
             // If gap_up is true (GAP_UP), direction bit stays unset
         }
 
         // Mark both bits as computed
-        self.computed |= (1 << Self::BODY_GAP_PRESENT_BIT) | (1 << Self::BODY_GAP_DIRECTION_BIT);
+        self.lazy_computed |=
+            (1u16 << Self::BODY_GAP_PRESENT_BIT) | (1u16 << Self::BODY_GAP_DIRECTION_BIT);
     }
 
     /// Set the wick gap attribute (lazy evaluation)
@@ -317,28 +337,31 @@ impl CandleBits {
     #[inline(always)]
     pub fn set_wick_gap(&mut self, gap: Option<bool>) {
         // Clear both gap bits first
-        self.value &= !((1 << Self::WICK_GAP_PRESENT_BIT) | (1 << Self::WICK_GAP_DIRECTION_BIT));
+        self.lazy_value &=
+            !((1u16 << Self::WICK_GAP_PRESENT_BIT) | (1u16 << Self::WICK_GAP_DIRECTION_BIT));
 
         if let Some(gap_up) = gap {
-            self.value |= 1 << Self::WICK_GAP_PRESENT_BIT; // Gap exists
-                                                           // Note: gap_up = true means GAP_UP, gap_up = false means GAP_DOWN
-                                                           // WICK_GAP_DIRECTION_BIT set means DOWN, unset means UP
+            self.lazy_value |= 1u16 << Self::WICK_GAP_PRESENT_BIT; // Gap exists
+                                                                   // Note: gap_up = true means GAP_UP, gap_up = false means GAP_DOWN
+                                                                   // WICK_GAP_DIRECTION_BIT set means DOWN, unset means UP
             if !gap_up {
                 // If gap is DOWN (false), set the direction bit
-                self.value |= 1 << Self::WICK_GAP_DIRECTION_BIT; // Gap down
+                self.lazy_value |= 1u16 << Self::WICK_GAP_DIRECTION_BIT; // Gap down
             }
             // If gap_up is true (GAP_UP), direction bit stays unset
         }
 
         // Mark both bits as computed
-        self.computed |= (1 << Self::WICK_GAP_PRESENT_BIT) | (1 << Self::WICK_GAP_DIRECTION_BIT);
+        self.lazy_computed |=
+            (1u16 << Self::WICK_GAP_PRESENT_BIT) | (1u16 << Self::WICK_GAP_DIRECTION_BIT);
     }
 
     /// Create a wildcard (all bits set to match any value)
     pub const fn wildcard() -> Self {
         CandleBits {
-            value: 0,
-            computed: 0,
+            mandatory: 0,
+            lazy_value: 0,
+            lazy_computed: 0,
         }
     }
 
@@ -348,33 +371,33 @@ impl CandleBits {
     /// CandleTypes enum variant. Checks categories in priority order:
     /// DOJI -> BASIC -> MARUBOZU -> SPINNING_TOP -> OTHER
     pub fn get_candle_type(&self) -> CandleTypes {
-        // Check DOJI first (bits 8-15)
-        let doji_bits = ((self.value & Self::DOJI_MASK) >> Self::DOJI_OFFSET) as u8;
+        // Check DOJI first (bits 6–10)
+        let doji_bits = ((self.mandatory & Self::DOJI_MASK) >> Self::DOJI_OFFSET) as u8;
         if let Some(doji) = CDLDoji::from_bit(doji_bits) {
             return CandleTypes::Doji(doji);
         }
 
-        // Check BASIC (bits 0-7)
-        let basic_bits = ((self.value & Self::BASIC_MASK) >> Self::BASIC_OFFSET) as u8;
+        // Check BASIC (bits 0–5)
+        let basic_bits = ((self.mandatory & Self::BASIC_MASK) >> Self::BASIC_OFFSET) as u8;
         if let Some(basic) = CDLBasic::from_bit(basic_bits) {
             return CandleTypes::Basic(basic);
         }
 
-        // Check MARUBOZU (bits 16-23)
-        let marubozu_bits = ((self.value & Self::MARUBOZU_MASK) >> Self::MARUBOZU_OFFSET) as u8;
+        // Check MARUBOZU (bits 11–16)
+        let marubozu_bits = ((self.mandatory & Self::MARUBOZU_MASK) >> Self::MARUBOZU_OFFSET) as u8;
         if let Some(marubozu) = CDLMarubozu::from_bit(marubozu_bits) {
             return CandleTypes::Marubozu(marubozu);
         }
 
-        // Check SPINNING_TOP (bits 24-27)
+        // Check SPINNING_TOP (bits 17–19)
         let spinning_top_bits =
-            ((self.value & Self::SPINNING_TOP_MASK) >> Self::SPINNING_TOP_OFFSET) as u8;
+            ((self.mandatory & Self::SPINNING_TOP_MASK) >> Self::SPINNING_TOP_OFFSET) as u8;
         if let Some(spinning_top) = CDLSpinningTop::from_bit(spinning_top_bits) {
             return CandleTypes::SpinningTop(spinning_top);
         }
 
-        // Check OTHER (bit 28)
-        if self.value & (1 << Self::OTHER_BIT) != 0 {
+        // Check OTHER (bit 20)
+        if self.mandatory & (1u32 << Self::OTHER_BIT) != 0 {
             return CandleTypes::Other;
         }
 
@@ -389,7 +412,7 @@ impl CandleBits {
     #[inline(always)]
     pub fn get_colour(&self) -> bool {
         use crate::candle_indicators::common::{GREEN, RED};
-        if self.value & Self::COLOUR_GREEN != 0 {
+        if self.mandatory & Self::COLOUR_GREEN != 0 {
             GREEN
         } else {
             RED
@@ -403,7 +426,7 @@ impl CandleBits {
     #[inline(always)]
     pub fn get_fill(&self) -> bool {
         use crate::candle_indicators::common::{FILL, HALLOW};
-        if self.value & Self::FILL_HALLOW != 0 {
+        if self.mandatory & Self::FILL_HALLOW != 0 {
             HALLOW
         } else {
             FILL
@@ -416,7 +439,7 @@ impl CandleBits {
     #[inline(always)]
     pub fn get_trend(&self) -> bool {
         use crate::candle_indicators::common::{DOWN_TREND, UP_TREND};
-        if self.value & Self::TREND_UP != 0 {
+        if self.mandatory & Self::TREND_UP != 0 {
             UP_TREND
         } else {
             DOWN_TREND
@@ -430,7 +453,7 @@ impl CandleBits {
     #[inline(always)]
     pub fn get_body_height(&self) -> bool {
         use crate::candle_indicators::common::{LONG, SHORT};
-        if self.value & Self::BODY_HEIGHT_LONG != 0 {
+        if self.lazy_value & Self::BODY_HEIGHT_LONG != 0 {
             LONG
         } else {
             SHORT
@@ -444,7 +467,7 @@ impl CandleBits {
     #[inline(always)]
     pub fn get_line_height(&self) -> bool {
         use crate::candle_indicators::common::{LONG, SHORT};
-        if self.value & Self::LINE_HEIGHT_LONG != 0 {
+        if self.mandatory & Self::LINE_HEIGHT_LONG != 0 {
             LONG
         } else {
             SHORT
@@ -460,10 +483,10 @@ impl CandleBits {
     #[inline(always)]
     pub fn get_body_gap(&self) -> Option<bool> {
         use crate::candle_indicators::common::{GAP_DOWN, GAP_UP};
-        let gap_present = self.value & Self::BODY_GAP_PRESENT != 0;
+        let gap_present = self.lazy_value & Self::BODY_GAP_PRESENT != 0;
         if gap_present {
-            // Check the direction bit (bit 35)
-            let gap_down = self.value & (1 << Self::BODY_GAP_DIRECTION_BIT) != 0;
+            // Check the direction bit
+            let gap_down = self.lazy_value & (1u16 << Self::BODY_GAP_DIRECTION_BIT) != 0;
             Some(if gap_down { GAP_DOWN } else { GAP_UP })
         } else {
             None
@@ -479,10 +502,10 @@ impl CandleBits {
     #[inline(always)]
     pub fn get_wick_gap(&self) -> Option<bool> {
         use crate::candle_indicators::common::{GAP_DOWN, GAP_UP};
-        let gap_present = self.value & Self::WICK_GAP_PRESENT != 0;
+        let gap_present = self.lazy_value & Self::WICK_GAP_PRESENT != 0;
         if gap_present {
-            // Check the direction bit (bit 37)
-            let gap_down = self.value & (1 << Self::WICK_GAP_DIRECTION_BIT) != 0;
+            // Check the direction bit
+            let gap_down = self.lazy_value & (1u16 << Self::WICK_GAP_DIRECTION_BIT) != 0;
             Some(if gap_down { GAP_DOWN } else { GAP_UP })
         } else {
             None
@@ -493,67 +516,48 @@ impl CandleBits {
     /// Only checks bits that have been computed (are set in self.computed)
     #[inline(always)]
     pub fn matches_compulsory_only(&self, pattern: &PatternMask) -> bool {
-        // For candle type fields (BASIC, DOJI, MARUBOZU, SPINNING_TOP, OTHER):
-        // Check if ANY of the specified type bits match
-        const CANDLE_TYPE_MASKS: u64 = CandleBits::BASIC_MASK
-            | CandleBits::DOJI_MASK
-            | CandleBits::MARUBOZU_MASK
-            | CandleBits::SPINNING_TOP_MASK
-            | CandleBits::OTHER;
-
-        let candle_type_part = pattern.mask & CANDLE_TYPE_MASKS;
-        let candle_value_part = pattern.value & CANDLE_TYPE_MASKS;
-
-        // For other fields: only check compulsory bits (ignore lazy bits)
-        let other_part = pattern.mask & !CANDLE_TYPE_MASKS & Self::COMPULSORY_MASK;
+        let candle_type_part = pattern.mandatory_mask & CandleBits::CANDLE_TYPE_MASK;
 
         // For candle types: match if ANY bit matches (OR logic)
         let candle_match = if candle_type_part != 0 {
-            (self.value & candle_type_part & candle_value_part) != 0
+            (self.mandatory & candle_type_part & pattern.mandatory_value) != 0
         } else {
             true // No candle type requirement
         };
 
         // For other compulsory fields: exact match (AND logic)
-        let other_match = (self.value & other_part) == (pattern.value & other_part);
-        candle_match && other_match
+        let other_part = pattern.mandatory_mask & !CandleBits::CANDLE_TYPE_MASK;
+        let mandatory_match =
+            (self.mandatory & other_part) == (pattern.mandatory_value & other_part);
+        candle_match && mandatory_match
     }
 
     pub fn matches(&self, pattern: &PatternMask) -> bool {
         PERF_COUNTERS.record_bit_match_call();
 
-        // For candle type fields (BASIC, DOJI, MARUBOZU, SPINNING_TOP, OTHER):
-        // Check if ANY of the specified type bits match
-        const CANDLE_TYPE_MASKS: u64 = CandleBits::BASIC_MASK
-            | CandleBits::DOJI_MASK
-            | CandleBits::MARUBOZU_MASK
-            | CandleBits::SPINNING_TOP_MASK
-            | CandleBits::OTHER;
-
-        let candle_type_part = pattern.mask & CANDLE_TYPE_MASKS;
-        let candle_value_part = pattern.value & CANDLE_TYPE_MASKS;
-
-        // For other fields: only check bits that have been computed
-        // This allows lazy evaluation - uncomputed bits are ignored in matching
-        let other_part = pattern.mask & !CANDLE_TYPE_MASKS & self.computed;
+        let candle_type_part = pattern.mandatory_mask & CandleBits::CANDLE_TYPE_MASK;
 
         // For candle types: match if ANY bit matches (OR logic)
-        // IMPORTANT: Only check candle type bits, not other bits like body_gap!
         let candle_match = if candle_type_part != 0 {
-            (self.value & candle_type_part & candle_value_part) != 0
+            (self.mandatory & candle_type_part & pattern.mandatory_value) != 0
         } else {
             true // No candle type requirement
         };
 
-        // For other fields (colour, fill, trend, heights, gaps): exact match (AND logic)
-        // Only checks bits that are both required (in pattern.mask) and computed (in self.computed)
-        let other_match = (self.value & other_part) == (pattern.value & other_part);
-        let result = candle_match && other_match;
+        // For other mandatory fields (colour, fill, trend, line_height): exact match (AND logic)
+        let other_mandatory_part = pattern.mandatory_mask & !CandleBits::CANDLE_TYPE_MASK;
+        let mandatory_match = (self.mandatory & other_mandatory_part)
+            == (pattern.mandatory_value & other_mandatory_part);
 
+        // Lazy: only check bits that have been computed
+        // This allows lazy evaluation - uncomputed bits are ignored in matching
+        let lazy_part = pattern.lazy_mask & self.lazy_computed;
+        let lazy_match = (self.lazy_value & lazy_part) == (pattern.lazy_value & lazy_part);
+
+        let result = candle_match && mandatory_match && lazy_match;
         if result {
             PERF_COUNTERS.record_bit_match_success();
         }
-
         result
     }
 
@@ -561,7 +565,7 @@ impl CandleBits {
     /// 0=Basic, 1=Doji, 2=Marubozu, 3=SpinningTop, None=Other (no patterns)
     #[inline(always)]
     pub fn candle_group(&self) -> Option<usize> {
-        let v = self.value;
+        let v = self.mandatory;
         if (v & Self::BASIC_MASK) != 0 {
             Some(0)
         } else if (v & Self::DOJI_MASK) != 0 {
@@ -582,35 +586,47 @@ impl CandleBits {
 /// The value defines the expected bit values for the bits we care about
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PatternMask {
-    pub mask: u64,  // Which bits to check
-    pub value: u64, // Expected values for checked bits
+    pub mandatory_mask: u32,  // Which mandatory bits to check
+    pub mandatory_value: u32, // Expected mandatory bit values
+    pub lazy_mask: u16,       // Which lazy bits to check
+    pub lazy_value: u16,      // Expected lazy bit values
 }
 
 impl PatternMask {
     /// Create a new pattern mask
-    pub const fn new(mask: u64, value: u64) -> Self {
-        PatternMask { mask, value }
+    pub const fn new(mandatory_mask: u32, mandatory_value: u32) -> Self {
+        PatternMask {
+            mandatory_mask,
+            mandatory_value,
+            lazy_mask: 0,
+            lazy_value: 0,
+        }
     }
 
     /// Create a wildcard pattern that matches anything
     pub const fn wildcard() -> Self {
-        PatternMask { mask: 0, value: 0 }
+        PatternMask {
+            mandatory_mask: 0,
+            mandatory_value: 0,
+            lazy_mask: 0,
+            lazy_value: 0,
+        }
     }
 
     /// Builder: Set colour requirement
     pub const fn with_colour(mut self, colour: bool) -> Self {
-        self.mask |= 1 << CandleBits::COLOUR_BIT;
+        self.mandatory_mask |= 1u32 << CandleBits::COLOUR_BIT;
         if colour {
-            self.value |= 1 << CandleBits::COLOUR_BIT;
+            self.mandatory_value |= 1u32 << CandleBits::COLOUR_BIT;
         }
         self
     }
 
     /// Builder: Set fill requirement
     pub const fn with_fill(mut self, fill: bool) -> Self {
-        self.mask |= 1 << CandleBits::FILL_BIT;
+        self.mandatory_mask |= 1u32 << CandleBits::FILL_BIT;
         if fill {
-            self.value |= 1 << CandleBits::FILL_BIT;
+            self.mandatory_value |= 1u32 << CandleBits::FILL_BIT;
         }
         self
     }
@@ -619,20 +635,20 @@ impl PatternMask {
     pub const fn with_candle_type(mut self, candle_type_pattern: CandleTypePattern) -> Self {
         match candle_type_pattern {
             CandleTypePattern::Basic(variant_mask) => {
-                self.mask |= CandleBits::BASIC_MASK;
-                self.value |= (variant_mask as u64) << CandleBits::BASIC_OFFSET;
+                self.mandatory_mask |= CandleBits::BASIC_MASK;
+                self.mandatory_value |= (variant_mask as u32) << CandleBits::BASIC_OFFSET;
             }
             CandleTypePattern::Doji(variant_mask) => {
-                self.mask |= CandleBits::DOJI_MASK;
-                self.value |= (variant_mask as u64) << CandleBits::DOJI_OFFSET;
+                self.mandatory_mask |= CandleBits::DOJI_MASK;
+                self.mandatory_value |= (variant_mask as u32) << CandleBits::DOJI_OFFSET;
             }
             CandleTypePattern::Marubozu(variant_mask) => {
-                self.mask |= CandleBits::MARUBOZU_MASK;
-                self.value |= (variant_mask as u64) << CandleBits::MARUBOZU_OFFSET;
+                self.mandatory_mask |= CandleBits::MARUBOZU_MASK;
+                self.mandatory_value |= (variant_mask as u32) << CandleBits::MARUBOZU_OFFSET;
             }
             CandleTypePattern::SpinningTop(variant_mask) => {
-                self.mask |= CandleBits::SPINNING_TOP_MASK;
-                self.value |= (variant_mask as u64) << CandleBits::SPINNING_TOP_OFFSET;
+                self.mandatory_mask |= CandleBits::SPINNING_TOP_MASK;
+                self.mandatory_value |= (variant_mask as u32) << CandleBits::SPINNING_TOP_OFFSET;
             }
             CandleTypePattern::Any => {
                 // Don't set any mask bits - matches anything
@@ -661,108 +677,109 @@ impl PatternMask {
         match candle_type_pattern {
             CandleTypePattern::Basic(variant_mask) => {
                 if variant_mask == ALL_BASIC_VARIANTS {
-                    self.mask |= CandleBits::DOJI_MASK
+                    self.mandatory_mask |= CandleBits::DOJI_MASK
                         | CandleBits::MARUBOZU_MASK
                         | CandleBits::SPINNING_TOP_MASK
-                        | (1 << CandleBits::OTHER_BIT);
-                    self.value |= CandleBits::DOJI_MASK
+                        | (1u32 << CandleBits::OTHER_BIT);
+                    self.mandatory_value |= CandleBits::DOJI_MASK
                         | CandleBits::MARUBOZU_MASK
                         | CandleBits::SPINNING_TOP_MASK
-                        | (1 << CandleBits::OTHER_BIT);
+                        | (1u32 << CandleBits::OTHER_BIT);
                 } else {
                     let inverted_mask = ALL_BASIC_VARIANTS & !variant_mask;
-                    self.mask |= CandleBits::DOJI_MASK
+                    self.mandatory_mask |= CandleBits::DOJI_MASK
                         | CandleBits::MARUBOZU_MASK
                         | CandleBits::SPINNING_TOP_MASK
-                        | (1 << CandleBits::OTHER_BIT);
-                    self.value |= CandleBits::DOJI_MASK
+                        | (1u32 << CandleBits::OTHER_BIT);
+                    self.mandatory_value |= CandleBits::DOJI_MASK
                         | CandleBits::MARUBOZU_MASK
                         | CandleBits::SPINNING_TOP_MASK
-                        | (1 << CandleBits::OTHER_BIT);
-                    self.mask |= CandleBits::BASIC_MASK;
-                    self.value |= (inverted_mask as u64) << CandleBits::BASIC_OFFSET;
+                        | (1u32 << CandleBits::OTHER_BIT);
+                    self.mandatory_mask |= CandleBits::BASIC_MASK;
+                    self.mandatory_value |= (inverted_mask as u32) << CandleBits::BASIC_OFFSET;
                 }
             }
             CandleTypePattern::Doji(variant_mask) => {
                 if variant_mask == ALL_DOJI_VARIANTS {
-                    self.mask |= CandleBits::BASIC_MASK
+                    self.mandatory_mask |= CandleBits::BASIC_MASK
                         | CandleBits::MARUBOZU_MASK
                         | CandleBits::SPINNING_TOP_MASK
-                        | (1 << CandleBits::OTHER_BIT);
-                    self.value |= CandleBits::BASIC_MASK
+                        | (1u32 << CandleBits::OTHER_BIT);
+                    self.mandatory_value |= CandleBits::BASIC_MASK
                         | CandleBits::MARUBOZU_MASK
                         | CandleBits::SPINNING_TOP_MASK
-                        | (1 << CandleBits::OTHER_BIT);
+                        | (1u32 << CandleBits::OTHER_BIT);
                 } else {
                     let inverted_mask = ALL_DOJI_VARIANTS & !variant_mask;
-                    self.mask |= CandleBits::BASIC_MASK
+                    self.mandatory_mask |= CandleBits::BASIC_MASK
                         | CandleBits::MARUBOZU_MASK
                         | CandleBits::SPINNING_TOP_MASK
-                        | (1 << CandleBits::OTHER_BIT);
-                    self.value |= CandleBits::BASIC_MASK
+                        | (1u32 << CandleBits::OTHER_BIT);
+                    self.mandatory_value |= CandleBits::BASIC_MASK
                         | CandleBits::MARUBOZU_MASK
                         | CandleBits::SPINNING_TOP_MASK
-                        | (1 << CandleBits::OTHER_BIT);
-                    self.mask |= CandleBits::DOJI_MASK;
-                    self.value |= (inverted_mask as u64) << CandleBits::DOJI_OFFSET;
+                        | (1u32 << CandleBits::OTHER_BIT);
+                    self.mandatory_mask |= CandleBits::DOJI_MASK;
+                    self.mandatory_value |= (inverted_mask as u32) << CandleBits::DOJI_OFFSET;
                 }
             }
             CandleTypePattern::Marubozu(variant_mask) => {
                 if variant_mask == ALL_MARUBOZU_VARIANTS {
-                    self.mask |= CandleBits::BASIC_MASK
+                    self.mandatory_mask |= CandleBits::BASIC_MASK
                         | CandleBits::DOJI_MASK
                         | CandleBits::SPINNING_TOP_MASK
-                        | (1 << CandleBits::OTHER_BIT);
-                    self.value |= CandleBits::BASIC_MASK
+                        | (1u32 << CandleBits::OTHER_BIT);
+                    self.mandatory_value |= CandleBits::BASIC_MASK
                         | CandleBits::DOJI_MASK
                         | CandleBits::SPINNING_TOP_MASK
-                        | (1 << CandleBits::OTHER_BIT);
+                        | (1u32 << CandleBits::OTHER_BIT);
                 } else {
                     let inverted_mask = ALL_MARUBOZU_VARIANTS & !variant_mask;
-                    self.mask |= CandleBits::BASIC_MASK
+                    self.mandatory_mask |= CandleBits::BASIC_MASK
                         | CandleBits::DOJI_MASK
                         | CandleBits::SPINNING_TOP_MASK
-                        | (1 << CandleBits::OTHER_BIT);
-                    self.value |= CandleBits::BASIC_MASK
+                        | (1u32 << CandleBits::OTHER_BIT);
+                    self.mandatory_value |= CandleBits::BASIC_MASK
                         | CandleBits::DOJI_MASK
                         | CandleBits::SPINNING_TOP_MASK
-                        | (1 << CandleBits::OTHER_BIT);
-                    self.mask |= CandleBits::MARUBOZU_MASK;
-                    self.value |= (inverted_mask as u64) << CandleBits::MARUBOZU_OFFSET;
+                        | (1u32 << CandleBits::OTHER_BIT);
+                    self.mandatory_mask |= CandleBits::MARUBOZU_MASK;
+                    self.mandatory_value |= (inverted_mask as u32) << CandleBits::MARUBOZU_OFFSET;
                 }
             }
             CandleTypePattern::SpinningTop(variant_mask) => {
                 if variant_mask == ALL_SPINNING_TOP_VARIANTS {
-                    self.mask |= CandleBits::BASIC_MASK
+                    self.mandatory_mask |= CandleBits::BASIC_MASK
                         | CandleBits::DOJI_MASK
                         | CandleBits::MARUBOZU_MASK
-                        | (1 << CandleBits::OTHER_BIT);
-                    self.value |= CandleBits::BASIC_MASK
+                        | (1u32 << CandleBits::OTHER_BIT);
+                    self.mandatory_value |= CandleBits::BASIC_MASK
                         | CandleBits::DOJI_MASK
                         | CandleBits::MARUBOZU_MASK
-                        | (1 << CandleBits::OTHER_BIT);
+                        | (1u32 << CandleBits::OTHER_BIT);
                 } else {
                     let inverted_mask = ALL_SPINNING_TOP_VARIANTS & !variant_mask;
-                    self.mask |= CandleBits::BASIC_MASK
+                    self.mandatory_mask |= CandleBits::BASIC_MASK
                         | CandleBits::DOJI_MASK
                         | CandleBits::MARUBOZU_MASK
-                        | (1 << CandleBits::OTHER_BIT);
-                    self.value |= CandleBits::BASIC_MASK
+                        | (1u32 << CandleBits::OTHER_BIT);
+                    self.mandatory_value |= CandleBits::BASIC_MASK
                         | CandleBits::DOJI_MASK
                         | CandleBits::MARUBOZU_MASK
-                        | (1 << CandleBits::OTHER_BIT);
-                    self.mask |= CandleBits::SPINNING_TOP_MASK;
-                    self.value |= (inverted_mask as u64) << CandleBits::SPINNING_TOP_OFFSET;
+                        | (1u32 << CandleBits::OTHER_BIT);
+                    self.mandatory_mask |= CandleBits::SPINNING_TOP_MASK;
+                    self.mandatory_value |=
+                        (inverted_mask as u32) << CandleBits::SPINNING_TOP_OFFSET;
                 }
             }
             CandleTypePattern::Any => {
                 // Negating "Any" doesn't make sense, but we'll treat it as matching nothing
                 // Set mask but no value bits - will never match
-                self.mask |= CandleBits::BASIC_MASK
+                self.mandatory_mask |= CandleBits::BASIC_MASK
                     | CandleBits::DOJI_MASK
                     | CandleBits::MARUBOZU_MASK
                     | CandleBits::SPINNING_TOP_MASK
-                    | (1 << CandleBits::OTHER_BIT);
+                    | (1u32 << CandleBits::OTHER_BIT);
             }
         }
         self
@@ -826,24 +843,24 @@ impl PatternMask {
 
         // Build the mask from the final allowed sets
         if allowed_basic != 0 {
-            self.mask |= CandleBits::BASIC_MASK;
-            self.value |= (allowed_basic as u64) << CandleBits::BASIC_OFFSET;
+            self.mandatory_mask |= CandleBits::BASIC_MASK;
+            self.mandatory_value |= (allowed_basic as u32) << CandleBits::BASIC_OFFSET;
         }
         if allowed_doji != 0 {
-            self.mask |= CandleBits::DOJI_MASK;
-            self.value |= (allowed_doji as u64) << CandleBits::DOJI_OFFSET;
+            self.mandatory_mask |= CandleBits::DOJI_MASK;
+            self.mandatory_value |= (allowed_doji as u32) << CandleBits::DOJI_OFFSET;
         }
         if allowed_marubozu != 0 {
-            self.mask |= CandleBits::MARUBOZU_MASK;
-            self.value |= (allowed_marubozu as u64) << CandleBits::MARUBOZU_OFFSET;
+            self.mandatory_mask |= CandleBits::MARUBOZU_MASK;
+            self.mandatory_value |= (allowed_marubozu as u32) << CandleBits::MARUBOZU_OFFSET;
         }
         if allowed_spinning != 0 {
-            self.mask |= CandleBits::SPINNING_TOP_MASK;
-            self.value |= (allowed_spinning as u64) << CandleBits::SPINNING_TOP_OFFSET;
+            self.mandatory_mask |= CandleBits::SPINNING_TOP_MASK;
+            self.mandatory_value |= (allowed_spinning as u32) << CandleBits::SPINNING_TOP_OFFSET;
         }
         if allowed_other {
-            self.mask |= 1 << CandleBits::OTHER_BIT;
-            self.value |= 1 << CandleBits::OTHER_BIT;
+            self.mandatory_mask |= 1u32 << CandleBits::OTHER_BIT;
+            self.mandatory_value |= 1u32 << CandleBits::OTHER_BIT;
         }
 
         self
@@ -851,27 +868,27 @@ impl PatternMask {
 
     /// Builder: Set trend requirement
     pub const fn with_trend(mut self, trend: bool) -> Self {
-        self.mask |= 1 << CandleBits::TREND_BIT;
+        self.mandatory_mask |= 1u32 << CandleBits::TREND_BIT;
         if trend {
-            self.value |= 1 << CandleBits::TREND_BIT;
+            self.mandatory_value |= 1u32 << CandleBits::TREND_BIT;
         }
         self
     }
 
     /// Builder: Set body height requirement (LONG=true, SHORT=false)
     pub const fn with_body_height(mut self, is_long: bool) -> Self {
-        self.mask |= 1 << CandleBits::BODY_HEIGHT_BIT;
+        self.lazy_mask |= 1u16 << CandleBits::BODY_HEIGHT_BIT;
         if is_long {
-            self.value |= 1 << CandleBits::BODY_HEIGHT_BIT;
+            self.lazy_value |= 1u16 << CandleBits::BODY_HEIGHT_BIT;
         }
         self
     }
 
     /// Builder: Set line height requirement (LONG=true, SHORT=false)
     pub const fn with_line_height(mut self, is_long: bool) -> Self {
-        self.mask |= 1 << CandleBits::LINE_HEIGHT_BIT;
+        self.mandatory_mask |= 1u32 << CandleBits::LINE_HEIGHT_BIT;
         if is_long {
-            self.value |= 1 << CandleBits::LINE_HEIGHT_BIT;
+            self.mandatory_value |= 1u32 << CandleBits::LINE_HEIGHT_BIT;
         }
         self
     }
@@ -880,13 +897,13 @@ impl PatternMask {
     /// Body gap means current candle's body doesn't touch previous close
     pub const fn with_body_gap(mut self, gap_down: bool) -> Self {
         // Set both bits in mask (we care about presence AND direction)
-        self.mask |= 1 << CandleBits::BODY_GAP_PRESENT_BIT;
-        self.mask |= 1 << CandleBits::BODY_GAP_DIRECTION_BIT;
+        self.lazy_mask |= (1u16 << CandleBits::BODY_GAP_PRESENT_BIT)
+            | (1u16 << CandleBits::BODY_GAP_DIRECTION_BIT);
         // Set present bit in value (we require a gap to exist)
-        self.value |= 1 << CandleBits::BODY_GAP_PRESENT_BIT;
+        self.lazy_value |= 1u16 << CandleBits::BODY_GAP_PRESENT_BIT;
         // Set direction bit if gap down
         if gap_down {
-            self.value |= 1 << CandleBits::BODY_GAP_DIRECTION_BIT;
+            self.lazy_value |= 1u16 << CandleBits::BODY_GAP_DIRECTION_BIT;
         }
         self
     }
@@ -895,13 +912,13 @@ impl PatternMask {
     /// Wick gap means no overlap at all between current and previous candle
     pub const fn with_wick_gap(mut self, gap_down: bool) -> Self {
         // Set both bits in mask (we care about presence AND direction)
-        self.mask |= 1 << CandleBits::WICK_GAP_PRESENT_BIT;
-        self.mask |= 1 << CandleBits::WICK_GAP_DIRECTION_BIT;
+        self.lazy_mask |= (1u16 << CandleBits::WICK_GAP_PRESENT_BIT)
+            | (1u16 << CandleBits::WICK_GAP_DIRECTION_BIT);
         // Set present bit in value (we require a gap to exist)
-        self.value |= 1 << CandleBits::WICK_GAP_PRESENT_BIT;
+        self.lazy_value |= 1u16 << CandleBits::WICK_GAP_PRESENT_BIT;
         // Set direction bit if gap down
         if gap_down {
-            self.value |= 1 << CandleBits::WICK_GAP_DIRECTION_BIT;
+            self.lazy_value |= 1u16 << CandleBits::WICK_GAP_DIRECTION_BIT;
         }
         self
     }
@@ -920,7 +937,7 @@ pub struct PatternDefinition<const N: usize> {
     pub forecast: ForcastType,
     pub bars: [PatternMask; N], // One mask per bar (oldest to newest)
     pub check_prev_bar: bool,   // If true, bars[0] contains prev_bar constraint
-    pub lazy_bits_mask: u64,    // Which lazy bits this pattern needs (0 = none)
+    pub lazy_bits_mask: u16,    // Which lazy bits this pattern needs (0 = none)
 }
 
 impl<const N: usize> PatternDefinition<N> {
@@ -930,7 +947,7 @@ impl<const N: usize> PatternDefinition<N> {
         forecast: ForcastType,
         bars: [PatternMask; N],
         check_prev_bar: bool,
-        lazy_bits_mask: u64,
+        lazy_bits_mask: u16,
     ) -> Self {
         PatternDefinition {
             pattern,
@@ -1107,9 +1124,9 @@ impl<const N1: usize, const N2: usize, const N3: usize, const N4: usize, const N
         let group = current_bar.candle_group()?;
 
         // colour: 1=GREEN, 0=RED
-        let colour = (current_bar.value & CandleBits::COLOUR_GREEN != 0) as usize;
+        let colour = (current_bar.mandatory & CandleBits::COLOUR_GREEN != 0) as usize;
         // fill: 1=HALLOW, 0=FILL
-        let fill = (current_bar.value & CandleBits::FILL_HALLOW != 0) as usize;
+        let fill = (current_bar.mandatory & CandleBits::FILL_HALLOW != 0) as usize;
         // Pre-combine colour+fill into the low 2 bits of the key offset
         let cf = colour * 2 + fill;
 
@@ -1117,7 +1134,7 @@ impl<const N1: usize, const N2: usize, const N3: usize, const N4: usize, const N
 
         // 1-bar patterns: window = [prev_bar, bar1]
         if bars.len() >= 2 {
-            let is_uptrend = (bars[bars.len() - 2].value & CandleBits::TREND_UP) != 0;
+            let is_uptrend = (bars[bars.len() - 2].mandatory & CandleBits::TREND_UP) != 0;
             let key = group * 8 + (is_uptrend as usize) * 4 + cf;
             let (start, end) = gd.one_bar[key];
             check_bar_group!(
@@ -1134,7 +1151,7 @@ impl<const N1: usize, const N2: usize, const N3: usize, const N4: usize, const N
 
         // 2-bar patterns: window = [prev_bar, bar1, bar2]
         if bars.len() >= 3 {
-            let is_uptrend = (bars[bars.len() - 3].value & CandleBits::TREND_UP) != 0;
+            let is_uptrend = (bars[bars.len() - 3].mandatory & CandleBits::TREND_UP) != 0;
             let key = group * 8 + (is_uptrend as usize) * 4 + cf;
             let (start, end) = gd.two_bar[key];
             check_bar_group!(
@@ -1151,7 +1168,7 @@ impl<const N1: usize, const N2: usize, const N3: usize, const N4: usize, const N
 
         // 3-bar patterns
         if bars.len() >= 4 {
-            let is_uptrend = (bars[bars.len() - 4].value & CandleBits::TREND_UP) != 0;
+            let is_uptrend = (bars[bars.len() - 4].mandatory & CandleBits::TREND_UP) != 0;
             let key = group * 8 + (is_uptrend as usize) * 4 + cf;
             let (start, end) = gd.three_bar[key];
             check_bar_group!(
@@ -1168,7 +1185,7 @@ impl<const N1: usize, const N2: usize, const N3: usize, const N4: usize, const N
 
         // 4-bar patterns
         if bars.len() >= 5 {
-            let is_uptrend = (bars[bars.len() - 5].value & CandleBits::TREND_UP) != 0;
+            let is_uptrend = (bars[bars.len() - 5].mandatory & CandleBits::TREND_UP) != 0;
             let key = group * 8 + (is_uptrend as usize) * 4 + cf;
             let (start, end) = gd.four_bar[key];
             check_bar_group!(
@@ -1185,7 +1202,7 @@ impl<const N1: usize, const N2: usize, const N3: usize, const N4: usize, const N
 
         // 5-bar patterns
         if bars.len() >= 6 {
-            let is_uptrend = (bars[bars.len() - 6].value & CandleBits::TREND_UP) != 0;
+            let is_uptrend = (bars[bars.len() - 6].mandatory & CandleBits::TREND_UP) != 0;
             let key = group * 8 + (is_uptrend as usize) * 4 + cf;
             let (start, end) = gd.five_bar[key];
             check_bar_group!(
