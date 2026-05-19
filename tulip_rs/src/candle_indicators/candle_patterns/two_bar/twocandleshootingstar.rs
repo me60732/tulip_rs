@@ -73,7 +73,7 @@ pub fn compute_bits(
     let (open, _, _, close) = inputs;
     
     let second_bar = &mut bars[SECOND];
-    // Ensure body_height is computed (needed by pattern template filter)
+    
     if (second_bar.computed & (1 << CandleBits::BODY_HEIGHT_BIT)) == 0 {
         let body_height = cdl_height((open[SECOND], close[SECOND]), state.ema_body);
         second_bar.set_body_height(body_height);

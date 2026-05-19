@@ -33,6 +33,10 @@ struct PatternInfo {
     module_path: String,
     /// Groups (0=Basic,1=Doji,2=Marubozu,3=SpinningTop) the final bar can match.
     final_bar_groups: Vec<usize>,
+    /// Colour of the final bar: None=ANY, Some(true)=GREEN, Some(false)=RED
+    final_bar_colour: Option<bool>,
+    /// Fill of the final bar: None=ANY, Some(true)=HALLOW, Some(false)=FILL
+    final_bar_fill: Option<bool>,
 }
 
 fn main() {
@@ -324,23 +328,60 @@ fn parse_attribute_content(content: &str, bar_dir: &str, file_name: &str) -> Opt
         }
     }
 
-    // Extract candle_type from the last bar block and compute group indices
-    let final_bar_groups = if let Some(paren_pos) = last_bar_paren {
-        let block = extract_balanced_parens(&content[paren_pos..]);
-        let candle_type_str = if let Some(start) = block.find("candle_type = \"") {
-            let rest = &block[start + 15..];
-            if let Some(end) = rest.find('"') {
-                &rest[..end]
+    // Extract candle_type, colour, and fill from the last bar block
+    let (final_bar_groups, final_bar_colour, final_bar_fill) =
+        if let Some(paren_pos) = last_bar_paren {
+            let block = extract_balanced_parens(&content[paren_pos..]);
+
+            // candle_type → group indices
+            let candle_type_str = if let Some(start) = block.find("candle_type = \"") {
+                let rest = &block[start + 15..];
+                if let Some(end) = rest.find('"') {
+                    &rest[..end]
+                } else {
+                    ""
+                }
             } else {
                 ""
-            }
+            };
+            let groups = parse_candle_type_groups(candle_type_str);
+
+            // colour → None=ANY, Some(true)=GREEN, Some(false)=RED
+            let colour = if let Some(start) = block.find("colour = \"") {
+                let rest = &block[start + 10..];
+                if let Some(end) = rest.find('"') {
+                    match &rest[..end] {
+                        "GREEN" => Some(true),
+                        "RED" => Some(false),
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // fill → None=ANY, Some(true)=HALLOW, Some(false)=FILL
+            let fill = if let Some(start) = block.find("fill = \"") {
+                let rest = &block[start + 8..];
+                if let Some(end) = rest.find('"') {
+                    match &rest[..end] {
+                        "HALLOW" => Some(true),
+                        "FILL" => Some(false),
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            (groups, colour, fill)
         } else {
-            ""
+            (vec![0, 1, 2, 3], None, None)
         };
-        parse_candle_type_groups(candle_type_str)
-    } else {
-        vec![0, 1, 2, 3]
-    };
 
     if let (Some(name), Some(forecast)) = (name, forecast) {
         let module_path = format!("candle_patterns::{}::{}", bar_dir, file_name);
@@ -353,6 +394,8 @@ fn parse_attribute_content(content: &str, bar_dir: &str, file_name: &str) -> Opt
             lazy_bits_mask,
             module_path,
             final_bar_groups,
+            final_bar_colour,
+            final_bar_fill,
         })
     } else {
         None
@@ -363,100 +406,117 @@ fn parse_attribute_content(content: &str, bar_dir: &str, file_name: &str) -> Opt
 /// Patterns spanning multiple (group, trend) pairs are duplicated — one entry per pair.
 fn organize_patterns(
     patterns: &[PatternInfo],
-) -> HashMap<usize, Vec<(usize, usize, &PatternInfo)>> {
-    let mut by_bars: HashMap<usize, Vec<(usize, usize, &PatternInfo)>> = HashMap::new();
+) -> HashMap<usize, Vec<(usize, usize, usize, usize, &PatternInfo)>> {
+    let mut by_bars: HashMap<usize, Vec<(usize, usize, usize, usize, &PatternInfo)>> =
+        HashMap::new();
 
     for pattern in patterns {
         let trends = forecast_trend_buckets(&pattern.forecast);
+
+        // colour: 0=RED, 1=GREEN — None duplicates into both
+        let colours: &[usize] = match pattern.final_bar_colour {
+            Some(true) => &[1],
+            Some(false) => &[0],
+            None => &[0, 1],
+        };
+        // fill: 0=FILL, 1=HALLOW — None duplicates into both
+        let fills: &[usize] = match pattern.final_bar_fill {
+            Some(true) => &[1],
+            Some(false) => &[0],
+            None => &[0, 1],
+        };
+
         let entries = by_bars.entry(pattern.bar_count).or_default();
         for &g in &pattern.final_bar_groups {
             for &t in &trends {
-                entries.push((g, t, pattern));
+                for &c in colours {
+                    for &f in fills {
+                        entries.push((g, t, c, f, pattern));
+                    }
+                }
             }
         }
     }
 
     for entries in by_bars.values_mut() {
         entries.sort_by(|a, b| {
-            a.0.cmp(&b.0) // group
-                .then_with(|| a.1.cmp(&b.1)) // trend
-                .then_with(|| {
-                    forecast_order(&a.2.forecast).cmp(&forecast_order(&b.2.forecast))
-                })
-                .then_with(|| a.2.name.cmp(&b.2.name))
+            a.0.cmp(&b.0)  // group
+                .then_with(|| a.1.cmp(&b.1))  // trend
+                .then_with(|| a.2.cmp(&b.2))  // colour
+                .then_with(|| a.3.cmp(&b.3))  // fill
+                .then_with(|| forecast_order(&a.4.forecast).cmp(&forecast_order(&b.4.forecast)))
+                .then_with(|| a.4.name.cmp(&b.4.name))
         });
     }
 
     by_bars
 }
 
-/// Compute the [(start, end); 8] dispatch array for all patterns in `entries`.
-/// Entries must be sorted by (group, trend, ...).
-fn compute_gt_dispatch(entries: &[(usize, usize, &PatternInfo)]) -> [(usize, usize); 8] {
-    let mut dispatch = [(0usize, 0usize); 8];
+/// Compute the [(start, end); 32] dispatch array for all patterns in `entries`.
+/// Entries must be sorted by (group, trend, colour, fill, ...).
+/// Key = group*8 + trend*4 + colour*2 + fill  (32 total keys)
+fn compute_gtcf_dispatch(
+    entries: &[(usize, usize, usize, usize, &PatternInfo)],
+) -> [(usize, usize); 32] {
+    let mut dispatch = [(0usize, 0usize); 32];
     for g in 0..4usize {
         for t in 0..2usize {
-            let key = g * 2 + t;
-            let start = entries.partition_point(|e| e.0 * 2 + e.1 < key);
-            let end = entries.partition_point(|e| e.0 * 2 + e.1 <= key);
-            dispatch[key] = (start, end);
+            for c in 0..2usize {
+                for f in 0..2usize {
+                    let key = g * 8 + t * 4 + c * 2 + f;
+                    let start =
+                        entries.partition_point(|e| e.0 * 8 + e.1 * 4 + e.2 * 2 + e.3 < key);
+                    let end = entries.partition_point(|e| e.0 * 8 + e.1 * 4 + e.2 * 2 + e.3 <= key);
+                    dispatch[key] = (start, end);
+                }
+            }
         }
     }
     dispatch
 }
 
-/// Compute the [(start, end); 8] dispatch array for a specific forecast type.
-/// Within each (group, trend) block the range covers only entries whose forecast
-/// matches `forecast_str`.
-fn compute_forecast_gt_dispatch(
-    entries: &[(usize, usize, &PatternInfo)],
+/// Compute the [(start, end); 32] dispatch array for a specific forecast type.
+/// Within each (group, trend, colour, fill) block the range covers only entries
+/// whose forecast matches `forecast_str`.
+/// Key = group*8 + trend*4 + colour*2 + fill  (32 total keys)
+fn compute_forecast_gtcf_dispatch(
+    entries: &[(usize, usize, usize, usize, &PatternInfo)],
     forecast_str: &str,
-) -> [(usize, usize); 8] {
+) -> [(usize, usize); 32] {
     let f_order = forecast_order(forecast_str);
-    let mut dispatch = [(0usize, 0usize); 8];
+    let mut dispatch = [(0usize, 0usize); 32];
     for g in 0..4usize {
         for t in 0..2usize {
-            let key = g * 2 + t;
-            let block_start = entries.partition_point(|e| e.0 * 2 + e.1 < key);
-            let block_end = entries.partition_point(|e| e.0 * 2 + e.1 <= key);
-            let block = &entries[block_start..block_end];
-            let fc_start =
-                block_start + block.partition_point(|e| forecast_order(&e.2.forecast) < f_order);
-            let fc_end =
-                block_start + block.partition_point(|e| forecast_order(&e.2.forecast) <= f_order);
-            dispatch[key] = (fc_start, fc_end);
+            for c in 0..2usize {
+                for f in 0..2usize {
+                    let key = g * 8 + t * 4 + c * 2 + f;
+                    let block_start =
+                        entries.partition_point(|e| e.0 * 8 + e.1 * 4 + e.2 * 2 + e.3 < key);
+                    let block_end =
+                        entries.partition_point(|e| e.0 * 8 + e.1 * 4 + e.2 * 2 + e.3 <= key);
+                    let block = &entries[block_start..block_end];
+                    let fc_start = block_start
+                        + block.partition_point(|e| forecast_order(&e.4.forecast) < f_order);
+                    let fc_end = block_start
+                        + block.partition_point(|e| forecast_order(&e.4.forecast) <= f_order);
+                    dispatch[key] = (fc_start, fc_end);
+                }
+            }
         }
     }
     dispatch
 }
 
 /// Format a [(usize, usize); 8] dispatch array as a Rust literal.
-fn emit_gt_array(d: [(usize, usize); 8]) -> String {
-    format!(
-        "[({},{}),({},{}),({},{}),({},{}),({},{}),({},{}),({},{}),({},{})]",
-        d[0].0,
-        d[0].1,
-        d[1].0,
-        d[1].1,
-        d[2].0,
-        d[2].1,
-        d[3].0,
-        d[3].1,
-        d[4].0,
-        d[4].1,
-        d[5].0,
-        d[5].1,
-        d[6].0,
-        d[6].1,
-        d[7].0,
-        d[7].1,
-    )
+fn emit_gt_array(d: [(usize, usize); 32]) -> String {
+    let pairs: Vec<String> = d.iter().map(|(s, e)| format!("({},{})", s, e)).collect();
+    format!("[{}]", pairs.join(","))
 }
 
 /// Generate the complete registry code
 fn generate_registry_code(
     patterns: &[PatternInfo],
-    patterns_by_bars: &HashMap<usize, Vec<(usize, usize, &PatternInfo)>>,
+    patterns_by_bars: &HashMap<usize, Vec<(usize, usize, usize, usize, &PatternInfo)>>,
 ) -> String {
     let mut code = String::new();
 
@@ -601,19 +661,32 @@ fn generate_registry_code(
 
     // Diagnostic: report per-key counts for two_bar
     {
-        let mut key_counts = [0usize; 8];
+        let mut key_counts = [0usize; 32];
         for e in entries2 {
-            key_counts[e.0 * 2 + e.1] += 1;
+            key_counts[e.0 * 8 + e.1 * 4 + e.2 * 2 + e.3] += 1;
         }
         let group_names = ["Basic", "Doji", "Marubozu", "SpinTop"];
         let trend_names = ["DOWN", "UP"];
+        let colour_names = ["RED", "GREEN"];
+        let fill_names = ["FILL", "HALLOW"];
         for g in 0..4 {
             for t in 0..2 {
-                let k = g * 2 + t;
-                println!(
-                    "cargo:warning=two_bar [{} {}] key={} count={}",
-                    group_names[g], trend_names[t], k, key_counts[k]
-                );
+                for c in 0..2 {
+                    for f in 0..2 {
+                        let k = g * 8 + t * 4 + c * 2 + f;
+                        if key_counts[k] > 0 {
+                            println!(
+                                "cargo:warning=two_bar [{} {} {} {}] key={} count={}",
+                                group_names[g],
+                                trend_names[t],
+                                colour_names[c],
+                                fill_names[f],
+                                k,
+                                key_counts[k]
+                            );
+                        }
+                    }
+                }
             }
         }
     }
@@ -635,7 +708,7 @@ fn generate_registry_code(
         ("five_bar", entries5),
     ] {
         code.push_str(&format!("    {}: [", field_name));
-        for (_, _, p) in entries.iter() {
+        for (_, _, _, _, p) in entries.iter() {
             code.push_str(&format!("PATTERN_DEF_{}, ", p.name.to_uppercase()));
         }
         code.push_str("],\n");
@@ -654,13 +727,13 @@ fn generate_registry_code(
         "BullishReversalOrContinuation",
     ];
 
-    code.push_str("// Group-trend dispatch constants per forecast type\n");
+    code.push_str("// Group-trend-colour-fill dispatch constants per forecast type\n");
     for &fc in &all_forecast_types {
-        let d1 = compute_forecast_gt_dispatch(entries1, fc);
-        let d2 = compute_forecast_gt_dispatch(entries2, fc);
-        let d3 = compute_forecast_gt_dispatch(entries3, fc);
-        let d4 = compute_forecast_gt_dispatch(entries4, fc);
-        let d5 = compute_forecast_gt_dispatch(entries5, fc);
+        let d1 = compute_forecast_gtcf_dispatch(entries1, fc);
+        let d2 = compute_forecast_gtcf_dispatch(entries2, fc);
+        let d3 = compute_forecast_gtcf_dispatch(entries3, fc);
+        let d4 = compute_forecast_gtcf_dispatch(entries4, fc);
+        let d5 = compute_forecast_gtcf_dispatch(entries5, fc);
         code.push_str(&format!(
             "const FORECAST_GTD_{}: GroupTrendDispatch = GroupTrendDispatch::new(\n    {},\n    {},\n    {},\n    {},\n    {}\n);\n\n",
             fc.to_uppercase(),
@@ -673,11 +746,11 @@ fn generate_registry_code(
     }
 
     // Global dispatch
-    let gd1 = compute_gt_dispatch(entries1);
-    let gd2 = compute_gt_dispatch(entries2);
-    let gd3 = compute_gt_dispatch(entries3);
-    let gd4 = compute_gt_dispatch(entries4);
-    let gd5 = compute_gt_dispatch(entries5);
+    let gd1 = compute_gtcf_dispatch(entries1);
+    let gd2 = compute_gtcf_dispatch(entries2);
+    let gd3 = compute_gtcf_dispatch(entries3);
+    let gd4 = compute_gtcf_dispatch(entries4);
+    let gd5 = compute_gtcf_dispatch(entries5);
     code.push_str(&format!(
         "const GLOBAL_GROUP_TREND_DISPATCH: GroupTrendDispatch = GroupTrendDispatch::new(\n    {},\n    {},\n    {},\n    {},\n    {}\n);\n\n",
         emit_gt_array(gd1),

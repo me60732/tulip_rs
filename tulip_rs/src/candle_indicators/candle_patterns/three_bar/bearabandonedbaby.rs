@@ -76,12 +76,12 @@ pub fn compute_bits(
 ) {
     let (_, high, low, _) = inputs;
 
-    // Ensure body_height is computed (needed by pattern template filter)
+    
     if (bars[THIRD].computed & (1 << CandleBits::WICK_GAP_PRESENT_BIT)) == 0 {
         let gap = cdl_gap::<false>((high[SECOND], low[SECOND]), (high[THIRD], low[THIRD]));
         bars[THIRD].set_wick_gap(gap);
     }
-    // Ensure body_height is computed (needed by pattern template filter)
+    
     if (bars[SECOND].computed & (1 << CandleBits::WICK_GAP_PRESENT_BIT)) == 0 {
         let gap = cdl_gap::<false>((high[FIRST], low[FIRST]), (high[SECOND], low[SECOND]));
         bars[SECOND].set_wick_gap(gap);

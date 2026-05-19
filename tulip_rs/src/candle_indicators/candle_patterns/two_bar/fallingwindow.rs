@@ -56,7 +56,7 @@ pub fn compute_bits(
     let (_, high, low, _) = inputs;
 
     let second_bar = &mut bars[SECOND];
-    // Ensure body_height is computed (needed by pattern template filter)
+    
     if (second_bar.computed & (1 << CandleBits::WICK_GAP_PRESENT_BIT)) == 0 {
         let gap = cdl_gap::<false>((high[FIRST], low[FIRST]), (high[SECOND], low[SECOND]));
         second_bar.set_wick_gap(gap);

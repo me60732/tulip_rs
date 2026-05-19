@@ -56,7 +56,7 @@ pub fn calc(
     _bars: &[CandleBits],
 ) -> bool {
     let (open, high, low, close) = inputs;
-    // Ensure body_height is computed (needed by pattern template filter)
+    
     
 
     if cdl_wick_length((open[FIRST], close[FIRST]), low[FIRST], Some(2.0)) == SHORT {
@@ -79,7 +79,7 @@ pub fn compute_bits(
 ) {
     let (open, _, _, close) = inputs;
     let current_bar = &mut bars[1];
-    // Ensure body_height is computed (needed by pattern template filter)
+    
     if (current_bar.computed & (1 << CandleBits::BODY_HEIGHT_BIT)) == 0 {
         let body_height = cdl_height((open[FIRST], close[FIRST]), state.ema_body);
         current_bar.set_body_height(body_height);

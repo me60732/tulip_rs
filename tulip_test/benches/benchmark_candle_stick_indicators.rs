@@ -103,7 +103,7 @@ fn bench_rust_candlestick(c: &mut Criterion) {
 
             // Benchmark each forecast type
             for (forecast_name, forecast_type) in get_all_forecast_variants() {
-                #[cfg(feature = "perf-stats")]
+                /*#[cfg(feature = "perf-stats")]
                 PERF_COUNTERS.reset();
 
                 // Run just ONE iteration to get single-run stats
@@ -119,7 +119,7 @@ fn bench_rust_candlestick(c: &mut Criterion) {
                     stats.print_summary();
                     PERF_COUNTERS.reset(); // Clear the single-run stats
                                            //break;
-                }
+                }*/
 
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
@@ -143,14 +143,14 @@ fn bench_rust_candlestick(c: &mut Criterion) {
         }
 
         // Print performance statistics if enabled
-        /*#[cfg(feature = "perf-stats")]
+        #[cfg(feature = "perf-stats")]
         {
             use tulip_rs::candle_indicators::perf_stats::PERF_COUNTERS;
             let stats = PERF_COUNTERS.snapshot();
             eprintln!("\n{}", "=".repeat(70));
             eprintln!("PERFORMANCE STATISTICS (DB logging run)");
             stats.print_summary();
-        }*/
+        }
     } else {
         // Run Criterion benchmark with synthetic data
         let (open_vec, high_vec, low_vec, close_vec) = expand_inputs();
