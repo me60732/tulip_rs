@@ -1,3 +1,5 @@
+use crate::candle_indicators::pattern_test::EmaState;
+
 pub const HALLOW: bool = true;
 pub const FILL: bool = false;
 pub const GREEN: bool = true;
@@ -7,7 +9,7 @@ pub const SHORT: bool = false;
 pub const NO_TOP_WICK: i8 = 1;
 pub const NO_BOTTOM_WICK: i8 = -1;
 pub const NO_WICK: i8 = 0;
-pub const HAS_WICK: i8 = 2;
+pub const BOTH_WICK: i8 = 2;
 pub const UP_TREND: bool = true;
 pub const DOWN_TREND: bool = false;
 pub const GAP_UP: bool = true;
@@ -17,6 +19,71 @@ pub const GAP_DOWN: bool = false;
 pub const MIN_LONG_CDL_HEIGHT: f64 = 0.7; //70%
 pub const TOLERANCE: f64 = 0.005; //0.5 %
 pub const DOJI_MAX_HEIGHT: f64 = 0.03;
+
+#[derive(Default)]
+pub struct CandleShape {
+    pub fill: Option<bool>,
+    pub wick: Option<i8>,
+    pub top_wick_length: Option<bool>,
+    pub bottom_wick_length: Option<bool>,
+    pub line_height: Option<bool>,
+}
+impl CandleShape {
+    pub fn new() -> Self {
+        Self {
+            fill: None,
+            wick: None,
+            top_wick_length: None,
+            bottom_wick_length: None,
+            line_height: None
+        }
+    }
+    #[inline(always)]
+    pub fn get_fill(&mut self, open: f64, close: f64) -> bool {
+        if let Some(fill) = self.fill {
+            return fill;
+        }
+        let fill = cdl_body_fill(open, close);
+        self.fill = Some(fill);
+        fill
+    }
+    #[inline(always)]
+    pub fn get_line_height(&mut self, high: f64, low: f64, ema_state: &EmaState) -> bool {
+        if let Some(line_height) = self.line_height {
+            return line_height;
+        }
+        let line_height = cdl_height((high, low), ema_state.ema_line);
+        self.line_height = Some(line_height);
+        line_height
+    }
+    #[inline(always)]
+    pub fn get_wick(&mut self, open: f64, high: f64, low: f64, close: f64) -> i8 {
+        if let Some(wick) = self.wick {
+            return wick;
+        }
+        let wick = cdl_no_wick(open, high, low, close);
+        self.wick = Some(wick);
+        wick
+    }
+    #[inline(always)]
+    pub fn get_top_wick_length(&mut self, open: f64, high: f64, close: f64) -> bool {
+        if let Some(top_wick_length) = self.top_wick_length {
+            return top_wick_length;
+        }
+        let top_wick_length = cdl_wick_length((open, close), high, None);
+        self.top_wick_length = Some(top_wick_length);
+        top_wick_length
+    }
+    #[inline(always)]
+    pub fn get_bottom_wick_length(&mut self, open: f64, low: f64, close: f64) -> bool {
+        if let Some(bottom_wick_length) = self.bottom_wick_length {
+            return bottom_wick_length;
+        }
+        let bottom_wick_length = cdl_wick_length((open, close), low, None);
+        self.bottom_wick_length = Some(bottom_wick_length);
+        bottom_wick_length
+    }
+}
 
 #[inline(always)]
 pub(crate) fn cdl_total_range(real1: f64, real2: f64) -> f64 {
@@ -208,7 +275,7 @@ pub fn cdl_no_wick(open: f64, high: f64, low: f64, close: f64) -> i8 {
         (true, true) => NO_WICK,
         (true, false) => NO_TOP_WICK,
         (false, true) => NO_BOTTOM_WICK,
-        (false, false) => HAS_WICK,
+        (false, false) => BOTH_WICK,
     }
 }
 /// Returns the position of `val` within (or relative to) the candle's body as a percentage.

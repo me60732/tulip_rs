@@ -139,7 +139,7 @@ fn bench_rust_candlestick(c: &mut Criterion) {
                     Some(stock_symbol),
                 );
             }
-            //break;
+            break;
         }
 
         // Print performance statistics if enabled

@@ -1,6 +1,6 @@
 use crate::candle_indicators::candle_types::doji::CDLDoji;
 use crate::candle_indicators::common::{
-    cdl_body_fill, cdl_height, cdl_wick_length, FILL, HALLOW, LONG, SHORT,
+    cdl_height, cdl_wick_length, CandleShape, FILL, HALLOW, LONG, SHORT,
 };
 use crate::candle_indicators::{pattern_test::EmaState as State, types::CandleStick};
 
@@ -23,12 +23,26 @@ impl CandleStick for CDLSpinningTop {
         if CDLDoji::is_candlestick(open, high, low, close, state) {
             return false;
         }
-        CDLSpinningTop::is_candlestick_fast(open, high, low, close, false, state)
+        CDLSpinningTop::is_candlestick_fast(
+            open,
+            high,
+            low,
+            close,
+            &mut CandleShape::default(),
+            state,
+        )
     }
     #[inline(always)]
-    fn is_candlestick_fast(open: f64, high: f64, low: f64, close: f64, _: bool, _: &State) -> bool {
-        if cdl_wick_length((open, close), low, Some(1.00000001)) != SHORT
-            || cdl_wick_length((open, close), high, Some(1.0000001)) != SHORT
+    fn is_candlestick_fast(
+        open: f64,
+        high: f64,
+        low: f64,
+        close: f64,
+        candle_shape: &mut CandleShape,
+        _: &State,
+    ) -> bool {
+        if candle_shape.get_bottom_wick_length(open, close, low) != SHORT
+            || candle_shape.get_top_wick_length(open, close, high) != SHORT
         {
             return true;
         }
@@ -44,7 +58,7 @@ impl CandleStick for CDLSpinningTop {
         if CDLDoji::is_candlestick(open, high, low, close, state) {
             return None;
         }
-        CDLSpinningTop::classify_fast(open, high, low, close, cdl_body_fill(open, close), state)
+        CDLSpinningTop::classify_fast(open, high, low, close, &mut CandleShape::default(), state)
     }
     #[inline(always)]
     fn classify_fast(
@@ -52,15 +66,22 @@ impl CandleStick for CDLSpinningTop {
         high: f64,
         low: f64,
         close: f64,
-        fill: bool,
+        candle_shape: &mut CandleShape,
         state: &State,
     ) -> Option<Self::Classified> {
-        if CDLSpinningTop::is_candlestick_fast(open, high, low, close, fill, state) {
-            if CDLSpinningTop::is_white_spinning_top(open, high, low, close, fill, state) {
+        if CDLSpinningTop::is_candlestick_fast(open, high, low, close, candle_shape, state) {
+            if CDLSpinningTop::is_white_spinning_top(open, high, low, close, candle_shape, state) {
                 return Some(CDLSpinningTop::WhiteSpinningTop);
-            } else if CDLSpinningTop::is_black_spinning_top(open, high, low, close, fill, state) {
+            } else if CDLSpinningTop::is_black_spinning_top(
+                open,
+                high,
+                low,
+                close,
+                candle_shape,
+                state,
+            ) {
                 return Some(CDLSpinningTop::BlackSpinningTop);
-            } else if CDLSpinningTop::is_high_wave(open, high, low, close, state) {
+            } else if CDLSpinningTop::is_high_wave(open, high, low, close, state, candle_shape) {
                 return Some(CDLSpinningTop::HighWave);
             }
         }
@@ -99,14 +120,13 @@ impl CDLSpinningTop {
         high: f64,
         low: f64,
         close: f64,
-        fill: bool,
+        candle_shape: &mut CandleShape,
         state: &State,
     ) -> bool {
-        if fill == FILL {
+        if candle_shape.get_fill(open, close) == FILL {
             return false;
         }
-
-        if cdl_height((high, low), state.ema_line) == LONG
+        if candle_shape.get_line_height(high, low, state) == LONG
             && (cdl_wick_length((open, close), low, Some(3.0)) == LONG
                 || cdl_wick_length((open, close), high, Some(3.0)) == LONG)
         {
@@ -120,14 +140,14 @@ impl CDLSpinningTop {
         high: f64,
         low: f64,
         close: f64,
-        fill: bool,
+        candle_shape: &mut CandleShape,
         state: &State,
     ) -> bool {
-        if fill == HALLOW {
+        if candle_shape.get_fill(open, close) == HALLOW {
             return false;
         }
 
-        if cdl_height((high, low), state.ema_line) == LONG
+        if candle_shape.get_line_height(high, low, state) == LONG
             && (cdl_wick_length((open, close), low, Some(3.0)) == LONG
                 || cdl_wick_length((open, close), high, Some(3.0)) == LONG)
         {
@@ -136,8 +156,15 @@ impl CDLSpinningTop {
         true
     }
     #[inline(always)]
-    fn is_high_wave(open: f64, high: f64, low: f64, close: f64, state: &State) -> bool {
-        if cdl_height((high, low), state.ema_line) == SHORT {
+    fn is_high_wave(
+        open: f64,
+        high: f64,
+        low: f64,
+        close: f64,
+        state: &State,
+        candle_shape: &mut CandleShape,
+    ) -> bool {
+        if candle_shape.get_line_height(high, low, state) == SHORT {
             return false;
         }
         if cdl_height((open, close), state.ema_body) == LONG {

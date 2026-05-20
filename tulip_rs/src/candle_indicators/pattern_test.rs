@@ -1,6 +1,6 @@
 use crate::candle_indicators::candle_patterns::{CandlePattern, PATTERN_REGISTRY};
 use crate::candle_indicators::common::{
-    cdl_body_fill, cdl_colour, cdl_height, DOWN_TREND, UP_TREND,
+    cdl_body_fill, cdl_colour, cdl_height, DOWN_TREND, UP_TREND, CandleShape
 };
 use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::types::CandleTypes;
@@ -53,9 +53,10 @@ impl PatternTest {
         // Cache for next time
         self.last_trend = trend;
 
+        let mut candle_shape = CandleShape::default();
         let colour = cdl_colour(close[current - 1], c);
         let fill = cdl_body_fill(o, c);
-        let candle_type = CandleTypes::get_type(o, h, l, c, state);
+        let candle_type = CandleTypes::get_type_fast(o, h, l, c, &mut candle_shape, state);
 
         // Calculate line height (total line range vs EMA line average)
         // This is a COMPULSORY bit - always computed

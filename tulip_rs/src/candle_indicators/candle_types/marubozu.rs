@@ -1,7 +1,7 @@
 use crate::candle_indicators::candle_types::doji::CDLDoji;
 use crate::candle_indicators::common::{
-    cdl_body_fill, cdl_no_wick, cdl_wick_length, HALLOW, NO_BOTTOM_WICK, NO_TOP_WICK, NO_WICK,
-    SHORT,
+    CandleShape, HALLOW, NO_BOTTOM_WICK, NO_TOP_WICK,
+    NO_WICK, SHORT,
 };
 use crate::candle_indicators::{pattern_test::EmaState as State, types::CandleStick};
 
@@ -38,7 +38,7 @@ impl CandleStick for CDLMarubozu {
         if CDLDoji::is_candlestick(open, high, low, close, state) {
             return None;
         }
-        CDLMarubozu::classify_fast(open, high, low, close, cdl_body_fill(open, close), state)
+        CDLMarubozu::classify_fast(open, high, low, close, &mut CandleShape::default(), state)
     }
     #[inline(always)]
     fn classify_fast(
@@ -46,27 +46,28 @@ impl CandleStick for CDLMarubozu {
         high: f64,
         low: f64,
         close: f64,
-        fill: bool,
+        candle_shape: &mut CandleShape,
         _: &State,
     ) -> Option<Self::Classified> {
-        if cdl_no_wick(open, high, low, close) == NO_WICK {
-            if fill == HALLOW {
+        let wick = candle_shape.get_wick(open, high, low, close);
+        if wick == NO_WICK {
+            if candle_shape.get_fill(open, close) == HALLOW {
                 return Some(CDLMarubozu::WhiteMarubozu);
             } else {
                 return Some(CDLMarubozu::BlackMarubozu);
             }
-        } else if cdl_no_wick(open, high, low, close) == NO_TOP_WICK
-            && cdl_wick_length((open, close), low, None) == SHORT
+        } else if wick == NO_TOP_WICK
+            && candle_shape.get_bottom_wick_length(open, low, close) == SHORT
         {
-            if fill == HALLOW {
+            if candle_shape.get_fill(open, close) == HALLOW {
                 return Some(CDLMarubozu::ClosingWhiteMarubozu);
             } else {
                 return Some(CDLMarubozu::OpeningBlackMarubozu);
             }
-        } else if cdl_no_wick(open, high, low, close) == NO_BOTTOM_WICK
-            && cdl_wick_length((open, close), high, None) == SHORT
+        } else if wick == NO_BOTTOM_WICK
+            && candle_shape.get_top_wick_length(open, high, close) == SHORT
         {
-            if fill == HALLOW {
+            if candle_shape.get_fill(open, close) == HALLOW {
                 return Some(CDLMarubozu::OpeningWhiteMarubozu);
             } else {
                 return Some(CDLMarubozu::ClosingBlackMarubozu);

@@ -1,5 +1,5 @@
 use crate::candle_indicators::common::{
-    cdl_body_position, cdl_height, cdl_no_wick, cdl_total_range, DOJI_MAX_HEIGHT, LONG, NO_WICK,
+    BOTH_WICK, CandleShape, DOJI_MAX_HEIGHT, LONG, NO_BOTTOM_WICK, NO_TOP_WICK, NO_WICK, SHORT, cdl_body_position, cdl_total_range
 };
 use crate::candle_indicators::{pattern_test::EmaState as State, types::CandleStick};
 
@@ -25,10 +25,10 @@ impl CandleStick for CDLDoji {
     }
 
     fn is_candlestick(open: f64, high: f64, low: f64, close: f64, state: &State) -> bool {
-        CDLDoji::is_candlestick_fast(open, high, low, close, false, state)
+        CDLDoji::is_candlestick_fast(open, high, low, close, &mut CandleShape::default(), state)
     }
     #[inline(always)]
-    fn is_candlestick_fast(open: f64, _: f64, _: f64, close: f64, _: bool, state: &State) -> bool {
+    fn is_candlestick_fast(open: f64, _: f64, _: f64, close: f64, _candle_shape: &mut CandleShape, state: &State) -> bool {
         let body_range = cdl_total_range(open, close);
 
         if body_range <= state.ema_body * DOJI_MAX_HEIGHT {
@@ -44,7 +44,7 @@ impl CandleStick for CDLDoji {
         close: f64,
         state: &State,
     ) -> Option<Self::Classified> {
-        CDLDoji::classify_fast(open, high, low, close, false, state)
+        CDLDoji::classify_fast(open, high, low, close, &mut CandleShape::default(), state)
     }
     #[inline(always)]
     fn classify_fast(
@@ -52,28 +52,28 @@ impl CandleStick for CDLDoji {
         high: f64,
         low: f64,
         close: f64,
-        _: bool,
+        candle_shape: &mut CandleShape,
         state: &State,
     ) -> Option<Self::Classified> {
-        if !CDLDoji::is_candlestick_fast(open, high, low, close, false, state) {
+        if !CDLDoji::is_candlestick_fast(open, high, low, close, candle_shape, state) {
             return None;
         }
-        if cdl_height((high, low), state.ema_line) == LONG {
+        if candle_shape.get_line_height(high, low, state) == LONG {
             if let Some(body_position) = cdl_body_position(open, high, low, close) {
-                if CDLDoji::is_long_legged_doji(body_position) {
+                if CDLDoji::is_long_legged_doji(body_position, candle_shape) {
                     return Some(CDLDoji::LongLeggedDoji);
                 }
                 // Then, check for Dragonfly Doji.
-                if CDLDoji::is_dragonfly_doji(body_position) {
+                if CDLDoji::is_dragonfly_doji(body_position, candle_shape) {
                     return Some(CDLDoji::DragonflyDoji);
                 }
                 // Then, check for Gravestone Doji.
-                if CDLDoji::is_gravestone_doji(body_position) {
+                if CDLDoji::is_gravestone_doji(body_position, candle_shape) {
                     return Some(CDLDoji::GravestoneDoji);
                 }
             }
         } else {
-            if CDLDoji::is_four_price_doji(open, high, low, close) {
+            if CDLDoji::is_four_price_doji(open, high, low, close, candle_shape) {
                 // Additional condition example: sometimes you want to check that the body is near zero.
                 //if (open - close).abs() < 0.05 { //////// Dont know why this is here
                 return Some(CDLDoji::FourPriceDoji);
@@ -117,31 +117,42 @@ impl CandleStick for CDLDoji {
 
 impl CDLDoji {
     #[inline(always)]
-    fn is_long_legged_doji(body_position: f64) -> bool {
+    fn is_long_legged_doji(body_position: f64, candle_shape: &mut CandleShape) -> bool {
         if body_position > 45.0 && body_position < 55.0 {
+            candle_shape.wick = Some(BOTH_WICK);
+            candle_shape.top_wick_length = Some(LONG);
+            candle_shape.bottom_wick_length = Some(LONG);
             return true;
         }
 
         false
     }
     #[inline(always)]
-    fn is_dragonfly_doji(body_position: f64) -> bool {
+    fn is_dragonfly_doji(body_position: f64, candle_shape: &mut CandleShape) -> bool {
         if body_position == 100.0 {
+            candle_shape.wick = Some(NO_BOTTOM_WICK);
+            candle_shape.top_wick_length = Some(SHORT);
+            candle_shape.bottom_wick_length = Some(LONG);
             return true;
         }
 
         false
     }
     #[inline(always)]
-    fn is_gravestone_doji(body_position: f64) -> bool {
+    fn is_gravestone_doji(body_position: f64, candle_shape: &mut CandleShape) -> bool {
         if body_position == 0.0 {
+            candle_shape.wick = Some(NO_TOP_WICK);
+            candle_shape.top_wick_length = Some(LONG);
+            candle_shape.bottom_wick_length = Some(SHORT);
             return true;
         }
         false
     }
     #[inline(always)]
-    fn is_four_price_doji(open: f64, high: f64, low: f64, close: f64) -> bool {
-        if cdl_no_wick(open, high, low, close) == NO_WICK {
+    fn is_four_price_doji(open: f64, high: f64, low: f64, close: f64, candle_shape: &mut CandleShape) -> bool {
+        if candle_shape.get_wick(open, high, low, close) == NO_WICK {
+            candle_shape.top_wick_length = Some(SHORT);
+            candle_shape.bottom_wick_length = Some(SHORT);
             return true;
         }
 

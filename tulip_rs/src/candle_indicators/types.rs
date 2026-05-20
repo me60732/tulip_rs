@@ -1,7 +1,7 @@
 use crate::candle_indicators::{
     candle_patterns::CandlePattern,
     candle_types::{CDLBasic, CDLDoji, CDLMarubozu, CDLSpinningTop},
-    common::cdl_body_fill,
+    common::CandleShape,
     pattern_test::EmaState as State,
 };
 //use serde::{Deserialize, Serialize};
@@ -24,21 +24,23 @@ impl Default for CandleTypes {
 }
 impl CandleTypes {
     pub fn get_type(open: f64, high: f64, low: f64, close: f64, state: &State) -> Self {
+        let mut candle_shape = CandleShape::new();
         // Check in priority order: Doji -> Marubozu -> SpinningTop -> Basic -> Other
-        if let Some(doji) = CDLDoji::classify_fast(open, high, low, close, false, state) {
+        if let Some(doji) = CDLDoji::classify_fast(open, high, low, close, &mut candle_shape, state) {
             return Self::Doji(doji);
         }
-        let fill = cdl_body_fill(open, close);
-        if let Some(basic) = CDLBasic::classify_fast(open, high, low, close, fill, state) {
+        
+        
+        if let Some(basic) = CDLBasic::classify_fast(open, high, low, close, &mut candle_shape, state) {
             return Self::Basic(basic);
         }
 
-        if let Some(marubozu) = CDLMarubozu::classify_fast(open, high, low, close, fill, state) {
+        if let Some(marubozu) = CDLMarubozu::classify_fast(open, high, low, close, &mut candle_shape, state) {
             return Self::Marubozu(marubozu);
         }
 
         if let Some(spinning_top) =
-            CDLSpinningTop::classify_fast(open, high, low, close, fill, state)
+            CDLSpinningTop::classify_fast(open, high, low, close, &mut candle_shape, state)
         {
             return Self::SpinningTop(spinning_top);
         }
@@ -50,24 +52,24 @@ impl CandleTypes {
         high: f64,
         low: f64,
         close: f64,
-        fill: bool,
+        candle_shape: &mut CandleShape,
         state: &State,
     ) -> Self {
         // Check in priority order: Doji -> Marubozu -> SpinningTop -> Basic -> Other
-        if let Some(doji) = CDLDoji::classify_fast(open, high, low, close, false, state) {
+        if let Some(doji) = CDLDoji::classify_fast(open, high, low, close, candle_shape, state) {
             return Self::Doji(doji);
         }
 
-        if let Some(basic) = CDLBasic::classify_fast(open, high, low, close, fill, state) {
+        if let Some(basic) = CDLBasic::classify_fast(open, high, low, close, candle_shape, state) {
             return Self::Basic(basic);
         }
 
-        if let Some(marubozu) = CDLMarubozu::classify_fast(open, high, low, close, fill, state) {
+        if let Some(marubozu) = CDLMarubozu::classify_fast(open, high, low, close, candle_shape, state) {
             return Self::Marubozu(marubozu);
         }
 
         if let Some(spinning_top) =
-            CDLSpinningTop::classify_fast(open, high, low, close, fill, state)
+            CDLSpinningTop::classify_fast(open, high, low, close, candle_shape, state)
         {
             return Self::SpinningTop(spinning_top);
         }
@@ -189,7 +191,7 @@ pub trait CandleStick {
         high: f64,
         low: f64,
         close: f64,
-        fill: bool,
+        candle_shape: &mut CandleShape,
         state: &State,
     ) -> Option<Self::Classified>;
     /// Does not preform Doji test, Doji candle must have already been eliminated
@@ -203,10 +205,10 @@ pub trait CandleStick {
         high: f64,
         low: f64,
         close: f64,
-        fill: bool,
+        candle_shape: &mut CandleShape,
         state: &State,
     ) -> bool {
-        Self::classify_fast(open, high, low, close, fill, state).is_some()
+        Self::classify_fast(open, high, low, close, candle_shape, state).is_some()
     }
     fn to_string(&self) -> String;
     fn discriminant(&self) -> u8;
