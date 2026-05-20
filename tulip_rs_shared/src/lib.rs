@@ -9,7 +9,7 @@
 //!
 //! CandleBits is split into two separate fields:
 //!
-//! ### `mandatory: u32`  (always computed at bar creation, 25 bits used)
+//! ### `mandatory: u32`  (always computed at bar creation, 27 bits used)
 //!
 //! Tight-packed — no byte-boundary waste:
 //!
@@ -23,8 +23,16 @@
 //!   Bit  22      FILL     (HOLLOW=1, FILLED=0)
 //!   Bit  23      TREND    (UP=1, DOWN=0)
 //!   Bit  24      LINE_HEIGHT (LONG=1, SHORT=0)
-//!   Bits 25–31   7 spare
+//!   Bit  25      LOWER_WICK_GT_BODY  (lower wick height > body height)
+//!   Bit  26      UPPER_WICK_GT_BODY  (upper wick height > body height)
+//!   Bits 27–31   5 spare
 //! ```
+//!
+//! LOWER_WICK_GT_BODY and UPPER_WICK_GT_BODY together encode three wick states:
+//!   10 → only lower wick > body  (dragonfly/proto-hammer direction)
+//!   01 → only upper wick > body  (gravestone/proto-shooting-star direction)
+//!   11 → both wicks > body       (symmetric spinning top / high-wave territory)
+//!   00 → neither wick > body     (marubozu or very small wicks)
 //!
 //! ### `lazy_value / lazy_computed: u16`  (computed on demand, 5 bits used)
 //!
