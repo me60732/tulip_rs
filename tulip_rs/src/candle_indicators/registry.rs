@@ -50,8 +50,10 @@
 /// - **Body Gap**: Current candle's body doesn't touch previous close
 /// - **Wick Gap**: No overlap at all between current and previous candle (complete gap)
 use crate::candle_indicators::candle_patterns::CandlePattern;
-use crate::candle_indicators::common::{BODY_GAP_UP, BODY_GAP_DOWN, WICK_GAP_UP, WICK_GAP_DOWN, NO_GAP, cdl_gap};
 use crate::candle_indicators::candle_types::{CDLBasic, CDLDoji, CDLMarubozu, CDLSpinningTop};
+use crate::candle_indicators::common::{
+    cdl_gap, BODY_GAP_DOWN, BODY_GAP_UP, NO_GAP, WICK_GAP_DOWN, WICK_GAP_UP,
+};
 use crate::candle_indicators::pattern_test::EmaState;
 use crate::candle_indicators::perf_stats::PERF_COUNTERS;
 use crate::candle_indicators::types::{CandleStick, CandleTypePattern, CandleTypes, ForcastType};
@@ -326,13 +328,24 @@ impl CandleBits {
             mandatory |= 1u32 << Self::UPPER_WICK_LT_BODY_BIT;
         }
 
+        // If a wick is already known to be shorter than the body it cannot be ≥ 2× the body.
+        // Pre-mark those lazy bits as computed=true, value=false so the 2× calculation is
+        // never needed and pattern mask checks against them short-circuit immediately.
+        let mut lazy_computed: u16 = 0;
+        if lower_wick_lt_body {
+            lazy_computed |= 1u16 << Self::LOWER_WICK_LONG_2X_BIT;
+        }
+        if upper_wick_lt_body {
+            lazy_computed |= 1u16 << Self::UPPER_WICK_LONG_2X_BIT;
+        }
+
         CandleBits {
             mandatory,
             lazy_value: 0,
-            lazy_computed: 0,
+            lazy_computed,
         }
     }
-    pub fn apply_gap(&mut self, prev: (f64,f64,f64,f64), current: (f64,f64,f64,f64)) -> i8 {
+    pub fn apply_gap(&mut self, prev: (f64, f64, f64, f64), current: (f64, f64, f64, f64)) -> i8 {
         let (prev_open, prev_high, prev_low, prev_close) = prev;
         let (cur_open, cur_high, cur_low, cur_close) = current;
         let gap = cdl_gap(prev, current);
@@ -343,18 +356,74 @@ impl CandleBits {
             self.set_low_in_line(cur_low >= prev_low && cur_low <= prev_high);
 
             if gap == NO_GAP {
-                       // Bodies overlap: open/close body-position bits need first principles too
+                // Bodies overlap: open/close body-position bits need first principles too
                 let prev_body_bot = prev_open.min(prev_close);
                 let prev_body_top = prev_open.max(prev_close);
-                let prev_mid      = (prev_body_bot + prev_body_top) / 2.0;
-                self.set_open_above_mid (cur_open  > prev_mid);
-                self.set_open_in_body  (cur_open  >= prev_body_bot && cur_open  <= prev_body_top);
+                let prev_mid = (prev_body_bot + prev_body_top) / 2.0;
+                self.set_open_above_mid(cur_open > prev_mid);
+                self.set_open_in_body(cur_open >= prev_body_bot && cur_open <= prev_body_top);
                 self.set_close_above_mid(cur_close > prev_mid);
-                self.set_close_in_body  (cur_close >= prev_body_bot && cur_close <= prev_body_top);
+                self.set_close_in_body(cur_close >= prev_body_bot && cur_close <= prev_body_top);
             }
         }
         gap
     }
+
+    /// Compute all relative-position lazy bits (1–13) from raw OHLC data.
+    ///
+    /// Unlike `apply_gap` which infers bits from the gap type, this method has
+    /// full OHLC data for both bars and sets every position bit exactly — no
+    /// inference needed.  Call this from `compute_bits()` for patterns that
+    /// need engulf or position bits so they are populated before the pattern
+    /// evaluator runs.
+    ///
+    /// **Bits set:** 1–2 (open), 3–4 (close), 5–7 (high), 8–10 (low), 11–13 (engulf)
+    ///
+    /// # Arguments
+    /// * `prev`    — `(open, high, low, close)` of the previous bar
+    /// * `current` — `(open, high, low, close)` of the current bar
+    pub fn apply_engulfing(&mut self, prev: (f64, f64, f64, f64), current: (f64, f64, f64, f64)) {
+        let (prev_open, prev_high, prev_low, prev_close) = prev;
+        let (cur_open, cur_high, cur_low, cur_close) = current;
+
+        let prev_body_top = prev_open.max(prev_close);
+        let prev_body_bot = prev_open.min(prev_close);
+        let prev_mid = (prev_body_top + prev_body_bot) / 2.0;
+        let cur_body_top = cur_open.max(cur_close);
+        let cur_body_bot = cur_open.min(cur_close);
+
+        // === Bits 1–2: open vs prev body ===
+        self.set_open_above_mid(cur_open > prev_mid);
+        self.set_open_in_body(cur_open >= prev_body_bot && cur_open <= prev_body_top);
+
+        // === Bits 3–4: close vs prev body ===
+        self.set_close_above_mid(cur_close > prev_mid);
+        self.set_close_in_body(cur_close >= prev_body_bot && cur_close <= prev_body_top);
+
+        // === Bits 5–7: high vs prev body / line ===
+        self.set_high_above_mid(cur_high > prev_mid);
+        self.set_high_in_body(cur_high >= prev_body_bot && cur_high <= prev_body_top);
+        self.set_high_in_line(cur_high >= prev_low && cur_high <= prev_high);
+
+        // === Bits 8–10: low vs prev body / line ===
+        self.set_low_above_mid(cur_low > prev_mid);
+        self.set_low_in_body(cur_low >= prev_body_bot && cur_low <= prev_body_top);
+        self.set_low_in_line(cur_low >= prev_low && cur_low <= prev_high);
+
+        // === Bit 11: I engulf prev body ===
+        // My body must fully span prev body AND be strictly wider on at least one side.
+        // One side may be flush (cur_top == prev_top OR cur_bot == prev_bot), but both
+        // sides flush simultaneously means same-size — that is not an engulf.
+        let body_engulf = cur_body_top >= prev_body_top
+            && cur_body_bot <= prev_body_bot
+            && (cur_body_top > prev_body_top || cur_body_bot < prev_body_bot);
+        self.set_engulfs_prev(body_engulf);
+
+        // === Bits 12–13: prev high/low within my body ===
+        self.set_prev_high_in_my_body(prev_high <= cur_body_top && prev_high >= cur_body_bot);
+        self.set_prev_low_in_my_body(prev_low <= cur_body_top && prev_low >= cur_body_bot);
+    }
+
     #[inline(always)]
     fn set_gap(&mut self, gap: i8) {
         match gap {
@@ -372,7 +441,7 @@ impl CandleBits {
                 self.set_close_in_body(false);
             }
             BODY_GAP_DOWN => {
-                self.set_low_above_mid(false);                
+                self.set_low_above_mid(false);
                 self.set_low_in_body(false);
                 self.set_open_above_mid(false);
                 self.set_open_in_body(false);
@@ -396,13 +465,12 @@ impl CandleBits {
                 self.set_high_above_mid(true);
                 self.set_high_in_body(false);
 
-
                 self.set_open_above_mid(true);
                 self.set_open_in_body(false);
                 self.set_close_above_mid(true);
                 self.set_close_in_body(false);
             }
-            
+
             _ => {}
         }
     }
@@ -1361,6 +1429,52 @@ impl PatternMask {
         self.lazy_mask |= 1u16 << CandleBits::PREV_LOW_IN_MY_BODY_BIT;
         if is_in {
             self.lazy_value |= 1u16 << CandleBits::PREV_LOW_IN_MY_BODY_BIT;
+        }
+        self
+    }
+
+    /// Shorthand: the current bar engulfs the previous bar.
+    ///
+    /// `kind` must be one of:
+    /// - `ENGULF_BODY` (1) — my body strictly spans prev body
+    ///   → sets `I_ENGULF_PREV_BODY` (bit 11)
+    /// - `ENGULF_LINE` (2) — my body spans prev body **and** wicks
+    ///   → sets `PREV_HIGH_IN_MY_BODY + PREV_LOW_IN_MY_BODY` (bits 12–13)
+    pub const fn with_engulf_prev(mut self, kind: i8) -> Self {
+        if kind >= 2 {
+            // LINE: my body contains the entire prev bar line (wicks included)
+            self.lazy_mask |= (1u16 << CandleBits::PREV_HIGH_IN_MY_BODY_BIT)
+                | (1u16 << CandleBits::PREV_LOW_IN_MY_BODY_BIT);
+            self.lazy_value |= (1u16 << CandleBits::PREV_HIGH_IN_MY_BODY_BIT)
+                | (1u16 << CandleBits::PREV_LOW_IN_MY_BODY_BIT);
+        } else {
+            // BODY: my body strictly spans prev body
+            self.lazy_mask |= 1u16 << CandleBits::I_ENGULF_PREV_BODY_BIT;
+            self.lazy_value |= 1u16 << CandleBits::I_ENGULF_PREV_BODY_BIT;
+        }
+        self
+    }
+
+    /// Shorthand: the current bar sits inside the previous bar.
+    ///
+    /// `kind` must be one of:
+    /// - `ENGULF_BODY` (1) — my body is inside prev body
+    ///   → sets `OPEN_IN_PREV_BODY + CLOSE_IN_PREV_BODY` (bits 2 + 4)
+    /// - `ENGULF_LINE` (2) — my entire line is inside prev line
+    ///   → sets `HIGH_IN_PREV_LINE + LOW_IN_PREV_LINE` (bits 7 + 10)
+    pub const fn with_inside_prev(mut self, kind: i8) -> Self {
+        if kind >= 2 {
+            // LINE: my entire candle (including wicks) sits within prev candle's range
+            self.lazy_mask |= (1u16 << CandleBits::HIGH_IN_PREV_LINE_BIT)
+                | (1u16 << CandleBits::LOW_IN_PREV_LINE_BIT);
+            self.lazy_value |= (1u16 << CandleBits::HIGH_IN_PREV_LINE_BIT)
+                | (1u16 << CandleBits::LOW_IN_PREV_LINE_BIT);
+        } else {
+            // BODY: my body sits within prev body
+            self.lazy_mask |= (1u16 << CandleBits::OPEN_IN_PREV_BODY_BIT)
+                | (1u16 << CandleBits::CLOSE_IN_PREV_BODY_BIT);
+            self.lazy_value |= (1u16 << CandleBits::OPEN_IN_PREV_BODY_BIT)
+                | (1u16 << CandleBits::CLOSE_IN_PREV_BODY_BIT);
         }
         self
     }

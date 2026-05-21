@@ -60,7 +60,7 @@ impl PatternTest {
 
         //DO NOT REMOVE USED FOR TESTING!!!!!
         /*if current >= 9 {
-            println!("\nBar {}: trend: {:?}, colour: {:?}, candle_shape: {:?},\ncandle_type: {:?}", current, trend, colour, candle_type, candle_shape);
+            println!("\nBar {}: trend: {:?}, colour: {:?}, candle_shape: {:?},\ncandle_type: {:?}", current, trend, colour, candle_shape, candle_type);
         }*/
 
         // Compute mandatory wick-vs-body bits using CandleShape (cached from classification)

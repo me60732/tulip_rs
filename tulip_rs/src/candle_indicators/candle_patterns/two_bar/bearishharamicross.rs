@@ -1,5 +1,4 @@
 use crate::candle_indicators::{
-    common::cdl_bar_engulf_bar,
     pattern_test::EmaState,
     registry::CandleBits,
     types::{CandleInfo, ForcastType},
@@ -29,27 +28,35 @@ pub fn info() -> CandleInfo {
         line_height = "LONG",
         candle_type = "Basic(WhiteCandle | LongWhiteCandle) Marubozu(OpeningWhiteMarubozu | ClosingWhiteMarubozu | WhiteMarubozu)"
     ),
-    bar(colour = "RED", candle_type = "Doji(Doji | LongLeggedDoji)",)
+    bar(
+        colour = "RED",
+        candle_type = "Doji(Doji | LongLeggedDoji)",
+        inside_prev = "LINE"
+    )
 )]
-
 pub fn calc(
-    inputs: (&[f64], &[f64], &[f64], &[f64]),
+    _inputs: (&[f64], &[f64], &[f64], &[f64]),
     _state: &EmaState,
     _bars: &[CandleBits],
 ) -> bool {
-    let (open, high, low, close) = inputs;
-    // === Additional Constraints Beyond Basic Pattern Match ===
-    if !cdl_bar_engulf_bar((open[FIRST], close[FIRST]), (high[SECOND], low[SECOND])) {
-        return false;
-    }
+    // FIRST's body containing SECOND's full line is enforced by inside_prev = "LINE".
     true
 }
 
-/// Default compute_bits - this pattern doesn't use lazy bits
 pub fn compute_bits(
-    _inputs: (&[f64], &[f64], &[f64], &[f64]),
+    inputs: (&[f64], &[f64], &[f64], &[f64]),
     _state: &EmaState,
-    _bars: &mut [CandleBits],
+    bars: &mut [CandleBits],
 ) {
-    // No lazy bits needed for this pattern
+    let (open, high, low, close) = inputs;
+    // Gate on I_ENGULF_PREV_BODY_BIT (bit 11): apply_engulfing sets all of bits 1–13
+    // atomically, so if bit 11 is already in lazy_computed another call already ran.
+    // This populates HIGH_IN_PREV_BODY (bit 6) and LOW_IN_PREV_BODY (bit 9)
+    // which the pattern mask checks via inside_prev = "LINE".
+    if bars[SECOND].lazy_computed & (1u16 << CandleBits::I_ENGULF_PREV_BODY_BIT) == 0 {
+        bars[SECOND].apply_engulfing(
+            (open[FIRST], high[FIRST], low[FIRST], close[FIRST]),
+            (open[SECOND], high[SECOND], low[SECOND], close[SECOND]),
+        );
+    }
 }

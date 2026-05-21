@@ -2,12 +2,10 @@ use crate::candle_indicators::{
     pattern_test::EmaState,
     registry::CandleBits,
     types::{CandleInfo, ForcastType},
-    common::cdl_bar_engulf_bar
 };
 use tulip_rs_macros::pattern_template;
 
 use super::{FIRST, SECOND};
-
 
 pub fn info() -> CandleInfo {
     CandleInfo {
@@ -19,10 +17,11 @@ pub fn info() -> CandleInfo {
         japanese_name: "shita banare kobato gaeshi",
     }
 }
+
 #[pattern_template(
     name = "HomingPigeon",
     forecast = "BullishReversal",
-    prev_bar (trend = "DOWN"),
+    prev_bar(trend = "DOWN"),
     bar(
         colour = "RED",
         fill = "FILL",
@@ -30,33 +29,33 @@ pub fn info() -> CandleInfo {
         candle_type = "Basic(BlackCandle | LongBlackCandle) Marubozu(OpeningBlackMarubozu | ClosingBlackMarubozu | BlackMarubozu)"
     ),
     bar(
-        colour = "GREEN", 
+        colour = "GREEN",
         fill = "FILL",
-        candle_type = "Basic(BlackCandle | ShortBlackCandle | LongBlackCandle) Marubozu(OpeningBlackMarubozu | ClosingBlackMarubozu | BlackMarubozu)"
-    ),
+        candle_type = "Basic(BlackCandle | ShortBlackCandle | LongBlackCandle) Marubozu(OpeningBlackMarubozu | ClosingBlackMarubozu | BlackMarubozu)",
+        inside_prev = "BODY"
+    )
 )]
-
 pub fn calc(
-    inputs: (&[f64], &[f64], &[f64], &[f64]),
+    _inputs: (&[f64], &[f64], &[f64], &[f64]),
     _state: &EmaState,
     _bars: &[CandleBits],
 ) -> bool {
-
-    let (open, _, _, close) = inputs;
-
-    if !cdl_bar_engulf_bar((open[FIRST], close[FIRST]), (open[SECOND], close[SECOND])) {
-        return false;
-    };
-
-    
+    // Body containment is enforced by the inside_prev = "BODY" pattern mask bit.
     true
 }
 
-/// Default compute_bits - this pattern doesn't use lazy bits
 pub fn compute_bits(
-    _inputs: (&[f64], &[f64], &[f64], &[f64]),
+    inputs: (&[f64], &[f64], &[f64], &[f64]),
     _state: &EmaState,
-    _bars: &mut [CandleBits],
+    bars: &mut [CandleBits],
 ) {
-    // No lazy bits needed for this pattern
+    let (open, high, low, close) = inputs;
+    // Gate on I_ENGULF_PREV_BODY_BIT (bit 11): apply_engulfing sets all of bits 1–13
+    // atomically, so if bit 11 is already in lazy_computed another call already ran.
+    if bars[SECOND].lazy_computed & (1u16 << CandleBits::I_ENGULF_PREV_BODY_BIT) == 0 {
+        bars[SECOND].apply_engulfing(
+            (open[FIRST], high[FIRST], low[FIRST], close[FIRST]),
+            (open[SECOND], high[SECOND], low[SECOND], close[SECOND]),
+        );
+    }
 }

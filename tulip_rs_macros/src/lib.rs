@@ -37,12 +37,12 @@ struct BarRequirement {
     low_above_prev_mid: Option<String>,
     low_in_prev_body: Option<String>,
     low_in_prev_line: Option<String>,
-    // Engulf bits (lazy)
-    engulfs_prev: Option<String>,
-    prev_in_my_body: Option<String>,
     // Wick 2x bits (lazy)
     lower_wick_2x: Option<String>,
     upper_wick_2x: Option<String>,
+    // Shorthand engulf attributes
+    engulf_prev: Option<String>,
+    inside_prev: Option<String>,
 }
 
 impl Parse for BarRequirement {
@@ -67,10 +67,10 @@ impl Parse for BarRequirement {
         let mut low_above_prev_mid = None;
         let mut low_in_prev_body = None;
         let mut low_in_prev_line = None;
-        let mut engulfs_prev = None;
-        let mut prev_in_my_body = None;
         let mut lower_wick_2x = None;
         let mut upper_wick_2x = None;
+        let mut engulf_prev = None;
+        let mut inside_prev = None;
 
         // Expect: bar(key = "value", ...)
         let content;
@@ -102,10 +102,10 @@ impl Parse for BarRequirement {
                 "low_above_prev_mid" => low_above_prev_mid = Some(value.value()),
                 "low_in_prev_body" => low_in_prev_body = Some(value.value()),
                 "low_in_prev_line" => low_in_prev_line = Some(value.value()),
-                "engulfs_prev" => engulfs_prev = Some(value.value()),
-                "prev_in_my_body" => prev_in_my_body = Some(value.value()),
                 "lower_wick_2x" => lower_wick_2x = Some(value.value()),
                 "upper_wick_2x" => upper_wick_2x = Some(value.value()),
+                "engulf_prev" => engulf_prev = Some(value.value()),
+                "inside_prev" => inside_prev = Some(value.value()),
                 _ => {
                     return Err(syn::Error::new_spanned(
                         key,
@@ -116,7 +116,7 @@ impl Parse for BarRequirement {
                          close_above_prev_mid, close_in_prev_body, \
                          high_above_prev_mid, high_in_prev_body, high_in_prev_line, \
                          low_above_prev_mid, low_in_prev_body, low_in_prev_line, \
-                         engulfs_prev, prev_in_my_body, lower_wick_2x, upper_wick_2x",
+                         lower_wick_2x, upper_wick_2x, engulf_prev, inside_prev",
                     ))
                 }
             }
@@ -147,10 +147,10 @@ impl Parse for BarRequirement {
             low_above_prev_mid,
             low_in_prev_body,
             low_in_prev_line,
-            engulfs_prev,
-            prev_in_my_body,
             lower_wick_2x,
             upper_wick_2x,
+            engulf_prev,
+            inside_prev,
         })
     }
 }
@@ -317,22 +317,6 @@ impl Parse for PatternTemplate {
                      lower_wick_lt_body, upper_wick_lt_body",
                 ));
             }
-            if pb.engulfs_prev.is_some() {
-                return Err(input.error(
-                    "prev_bar does not support 'engulfs_prev' — it is a lazy bit that requires \
-                     data from outside the pattern window. Use only mandatory attributes on \
-                     prev_bar: trend, colour, fill, line_height, candle_type, \
-                     lower_wick_lt_body, upper_wick_lt_body",
-                ));
-            }
-            if pb.prev_in_my_body.is_some() {
-                return Err(input.error(
-                    "prev_bar does not support 'prev_in_my_body' — it is a lazy bit that requires \
-                     data from outside the pattern window. Use only mandatory attributes on \
-                     prev_bar: trend, colour, fill, line_height, candle_type, \
-                     lower_wick_lt_body, upper_wick_lt_body",
-                ));
-            }
             if pb.lower_wick_2x.is_some() {
                 return Err(input.error(
                     "prev_bar does not support 'lower_wick_2x' — it is a lazy bit that requires \
@@ -344,6 +328,22 @@ impl Parse for PatternTemplate {
             if pb.upper_wick_2x.is_some() {
                 return Err(input.error(
                     "prev_bar does not support 'upper_wick_2x' — it is a lazy bit that requires \
+                     data from outside the pattern window. Use only mandatory attributes on \
+                     prev_bar: trend, colour, fill, line_height, candle_type, \
+                     lower_wick_lt_body, upper_wick_lt_body",
+                ));
+            }
+            if pb.engulf_prev.is_some() {
+                return Err(input.error(
+                    "prev_bar does not support 'engulf_prev' — it is a lazy bit that requires \
+                     data from outside the pattern window. Use only mandatory attributes on \
+                     prev_bar: trend, colour, fill, line_height, candle_type, \
+                     lower_wick_lt_body, upper_wick_lt_body",
+                ));
+            }
+            if pb.inside_prev.is_some() {
+                return Err(input.error(
+                    "prev_bar does not support 'inside_prev' — it is a lazy bit that requires \
                      data from outside the pattern window. Use only mandatory attributes on \
                      prev_bar: trend, colour, fill, line_height, candle_type, \
                      lower_wick_lt_body, upper_wick_lt_body",
@@ -671,14 +671,28 @@ fn generate_pattern_mask(bar: &BarRequirement) -> proc_macro2::TokenStream {
         builder = quote! { #builder.with_low_in_prev_line(#is_true) };
     }
 
-    // Engulf bits (lazy)
-    if let Some(ref v) = bar.engulfs_prev {
-        let is_true = v == "TRUE";
-        builder = quote! { #builder.with_engulfs_prev(#is_true) };
+    // Shorthand engulf attributes
+    if let Some(ref v) = bar.engulf_prev {
+        let kind: i8 = match v.as_str() {
+            "BODY" => tulip_rs_shared::ENGULF_BODY,
+            "LINE" => tulip_rs_shared::ENGULF_LINE,
+            _ => panic!(
+                "Invalid engulf_prev value: '{}'. Expected 'BODY' or 'LINE'",
+                v
+            ),
+        };
+        builder = quote! { #builder.with_engulf_prev(#kind) };
     }
-    if let Some(ref v) = bar.prev_in_my_body {
-        let is_true = v == "TRUE";
-        builder = quote! { #builder.with_prev_in_my_body(#is_true) };
+    if let Some(ref v) = bar.inside_prev {
+        let kind: i8 = match v.as_str() {
+            "BODY" => tulip_rs_shared::ENGULF_BODY,
+            "LINE" => tulip_rs_shared::ENGULF_LINE,
+            _ => panic!(
+                "Invalid inside_prev value: '{}'. Expected 'BODY' or 'LINE'",
+                v
+            ),
+        };
+        builder = quote! { #builder.with_inside_prev(#kind) };
     }
 
     // Wick 2x bits (lazy)
@@ -827,22 +841,35 @@ pub fn pattern_template(attr: TokenStream, item: TokenStream) -> TokenStream {
         lazy_mask_value |= 1u16 << tulip_rs_shared::LOW_IN_PREV_LINE_BIT;
     }
 
-    // Engulf bits
-    if any_bars_with(|b| b.engulfs_prev.is_some()) {
-        lazy_mask_value |= 1u16 << tulip_rs_shared::I_ENGULF_PREV_BODY_BIT;
-    }
-    // prev_in_my_body expands to two bits: prev_high_in_my_body (12) and prev_low_in_my_body (13)
-    if any_bars_with(|b| b.prev_in_my_body.is_some()) {
-        lazy_mask_value |= 1u16 << tulip_rs_shared::PREV_HIGH_IN_MY_BODY_BIT;
-        lazy_mask_value |= 1u16 << tulip_rs_shared::PREV_LOW_IN_MY_BODY_BIT;
-    }
-
     // Wick 2x bits
     if any_bars_with(|b| b.lower_wick_2x.is_some()) {
         lazy_mask_value |= 1u16 << tulip_rs_shared::LOWER_WICK_LONG_2X_BIT;
     }
     if any_bars_with(|b| b.upper_wick_2x.is_some()) {
         lazy_mask_value |= 1u16 << tulip_rs_shared::UPPER_WICK_LONG_2X_BIT;
+    }
+
+    // engulf_prev shorthand:
+    //   BODY → I_ENGULF_PREV_BODY (bit 11)
+    //   LINE → PREV_HIGH_IN_MY_BODY (bit 12) + PREV_LOW_IN_MY_BODY (bit 13)
+    if any_bars_with(|b| b.engulf_prev.as_deref() == Some("BODY")) {
+        lazy_mask_value |= 1u16 << tulip_rs_shared::I_ENGULF_PREV_BODY_BIT;
+    }
+    if any_bars_with(|b| b.engulf_prev.as_deref() == Some("LINE")) {
+        lazy_mask_value |= 1u16 << tulip_rs_shared::PREV_HIGH_IN_MY_BODY_BIT;
+        lazy_mask_value |= 1u16 << tulip_rs_shared::PREV_LOW_IN_MY_BODY_BIT;
+    }
+
+    // inside_prev shorthand:
+    //   BODY → OPEN_IN_PREV_BODY (bit 2) + CLOSE_IN_PREV_BODY (bit 4)
+    //   LINE → HIGH_IN_PREV_LINE (bit 7) + LOW_IN_PREV_LINE (bit 10)
+    if any_bars_with(|b| b.inside_prev.as_deref() == Some("BODY")) {
+        lazy_mask_value |= 1u16 << tulip_rs_shared::OPEN_IN_PREV_BODY_BIT;
+        lazy_mask_value |= 1u16 << tulip_rs_shared::CLOSE_IN_PREV_BODY_BIT;
+    }
+    if any_bars_with(|b| b.inside_prev.as_deref() == Some("LINE")) {
+        lazy_mask_value |= 1u16 << tulip_rs_shared::HIGH_IN_PREV_LINE_BIT;
+        lazy_mask_value |= 1u16 << tulip_rs_shared::LOW_IN_PREV_LINE_BIT;
     }
 
     // Generate lazy bit mask constant name

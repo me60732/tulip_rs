@@ -1,6 +1,5 @@
 use crate::candle_indicators::{
     candle_patterns::CandlePattern,
-    common::cdl_bar_engulf_bar,
     pattern_test::EmaState,
     registry::CandleBits,
     types::{CandleInfo, ForcastType},
@@ -8,7 +7,6 @@ use crate::candle_indicators::{
 use tulip_rs_macros::pattern_template;
 
 use super::{FIRST, SECOND};
-
 
 pub fn info() -> CandleInfo {
     CandleInfo {
@@ -35,49 +33,59 @@ pub fn info() -> CandleInfo {
         colour = "GREEN",
         fill = "HALLOW",
         candle_type = "!Doji(FourPriceDoji)",
+        inside_prev = "BODY"
     )
 )]
-
 pub fn calc(
     inputs: (&[f64], &[f64], &[f64], &[f64]),
     _state: &EmaState,
     bars: &[CandleBits],
 ) -> bool {
-    let (open, high, low, close) = inputs;
+    let (_, _, low, _) = inputs;
 
-
+    // Sharing the same low means the lines touch — not a true harami
     if low[FIRST] == low[SECOND] {
         return false;
     }
-    // Fast bit check: if current bar is any Doji type (FourPriceDoji already filtered by template)
-    // Check for any doji variant using the public constants
-    let second_bar = bars[SECOND].mandatory;
-    let is_doji = (second_bar & CandleBits::DOJI) != 0
-        || (second_bar & CandleBits::LONG_LEGGED_DOJI) != 0
-        || (second_bar & CandleBits::DRAGONFLY_DOJI) != 0
-        || (second_bar & CandleBits::GRAVESTONE_DOJI) != 0;
 
-    // === Additional Constraints Beyond Basic Pattern Match ===
+    // If second bar is a doji, exclude the haramicross case:
+    // when FIRST's body also contains SECOND's full line (high and low),
+    // that is a haramicross, not a harami.
+    let second_mandatory = bars[SECOND].mandatory;
+    let is_doji = (second_mandatory & CandleBits::DOJI) != 0
+        || (second_mandatory & CandleBits::LONG_LEGGED_DOJI) != 0
+        || (second_mandatory & CandleBits::DRAGONFLY_DOJI) != 0
+        || (second_mandatory & CandleBits::GRAVESTONE_DOJI) != 0;
+
     if is_doji {
-        // For doji: check if first bar's body engulfs current bar's full range
-        if cdl_bar_engulf_bar((open[FIRST], close[FIRST]), (high[SECOND], low[SECOND])) {
+        // apply_engulfing (run in compute_bits) sets HIGH_IN_PREV_BODY and LOW_IN_PREV_BODY.
+        // If both are true, FIRST's body fully contains SECOND's range → haramicross → reject.
+        let high_in_prev_body =
+            bars[SECOND].lazy_value & (1u16 << CandleBits::HIGH_IN_PREV_BODY_BIT) != 0;
+        let low_in_prev_body =
+            bars[SECOND].lazy_value & (1u16 << CandleBits::LOW_IN_PREV_BODY_BIT) != 0;
+        if high_in_prev_body && low_in_prev_body {
             return false;
         }
-    }
-
-    // First bar's body must engulf second bar's body
-    if !cdl_bar_engulf_bar((open[FIRST], close[FIRST]), (open[SECOND], close[SECOND])) {
-        return false;
     }
 
     true
 }
 
-/// Default compute_bits - this pattern doesn't use lazy bits
 pub fn compute_bits(
-    _inputs: (&[f64], &[f64], &[f64], &[f64]),
+    inputs: (&[f64], &[f64], &[f64], &[f64]),
     _state: &EmaState,
-    _bars: &mut [CandleBits],
+    bars: &mut [CandleBits],
 ) {
-    // No lazy bits needed for this pattern
+    let (open, high, low, close) = inputs;
+    // Gate on I_ENGULF_PREV_BODY_BIT (bit 11): apply_engulfing sets all of bits 1–13
+    // atomically, so if bit 11 is already in lazy_computed another call already ran.
+    // This populates OPEN/CLOSE_IN_PREV_BODY (bits 2+4) checked by inside_prev = "BODY",
+    // and HIGH/LOW_IN_PREV_BODY (bits 6+9) used for the haramicross rejection in calc().
+    if bars[SECOND].lazy_computed & (1u16 << CandleBits::I_ENGULF_PREV_BODY_BIT) == 0 {
+        bars[SECOND].apply_engulfing(
+            (open[FIRST], high[FIRST], low[FIRST], close[FIRST]),
+            (open[SECOND], high[SECOND], low[SECOND], close[SECOND]),
+        );
+    }
 }

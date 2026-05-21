@@ -37,6 +37,11 @@ struct PatternInfo {
     final_bar_colour: Option<bool>,
     /// Fill of the final bar: None=ANY, Some(true)=HALLOW, Some(false)=FILL
     final_bar_fill: Option<bool>,
+    /// Within-bucket sort priority:
+    ///   0 = engulfing (has engulf_prev / inside_prev) — sets bits 1-13 via apply_engulfing
+    ///   1 = gap       (has body_gap / wick_gap)        — sets bits 1-10 via apply_gap
+    ///   2 = other     (no engulf or gap attributes)
+    priority: usize,
 }
 
 fn main() {
@@ -386,6 +391,19 @@ fn parse_attribute_content(content: &str, bar_dir: &str, file_name: &str) -> Opt
     if let (Some(name), Some(forecast)) = (name, forecast) {
         let module_path = format!("candle_patterns::{}::{}", bar_dir, file_name);
         let lazy_bits_mask = format!("PATTERN_LAZY_BITS_{}", name.to_uppercase());
+
+        // Priority within a (group, trend, colour, fill) bucket:
+        //   0 = engulfing — apply_engulfing sets bits 1-13 (superset of gap bits)
+        //   1 = gap       — apply_gap sets bits 1-10
+        //   2 = other
+        let priority = if content.contains("engulf_prev") || content.contains("inside_prev") {
+            0
+        } else if content.contains("body_gap") || content.contains("wick_gap") {
+            1
+        } else {
+            2
+        };
+
         Some(PatternInfo {
             name,
             forecast,
@@ -396,6 +414,7 @@ fn parse_attribute_content(content: &str, bar_dir: &str, file_name: &str) -> Opt
             final_bar_groups,
             final_bar_colour,
             final_bar_fill,
+            priority,
         })
     } else {
         None
@@ -445,6 +464,7 @@ fn organize_patterns(
                 .then_with(|| a.2.cmp(&b.2))  // colour
                 .then_with(|| a.3.cmp(&b.3))  // fill
                 .then_with(|| forecast_order(&a.4.forecast).cmp(&forecast_order(&b.4.forecast)))
+                .then_with(|| a.4.priority.cmp(&b.4.priority))  // engulf first, gap second, other last
                 .then_with(|| a.4.name.cmp(&b.4.name))
         });
     }

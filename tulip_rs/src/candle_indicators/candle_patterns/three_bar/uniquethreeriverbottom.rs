@@ -1,6 +1,6 @@
 use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
-    common::{cdl_bar_engulf_bar, cdl_wick_length, LONG},
+    common::{cdl_wick_length, LONG},
     pattern_test::EmaState,
     types::{CandleInfo, ForcastType},
 };
@@ -23,15 +23,12 @@ pub fn info() -> CandleInfo {
     name = "UniqueThreeRiverBottom",
     forecast = "BullishReversal",
     prev_bar(trend = "DOWN"),
-    bar(
-        colour = "RED"
-        fill = "FILL",
-        line_height = "LONG",
-    ),
+    bar(colour = "RED", fill = "FILL", line_height = "LONG",),
     bar(
         colour = "GREEN",
         fill = "FILL",
         line_height = "LONG",
+        inside_prev = "BODY"
     ),
     bar(
         colour = "RED",
@@ -40,27 +37,15 @@ pub fn info() -> CandleInfo {
         body_gap = "GAP_DOWN",
     )
 )]
-
 pub fn calc(
     inputs: (&[f64], &[f64], &[f64], &[f64]),
     _state: &EmaState,
     _bars: &[CandleBits],
 ) -> bool {
-    // Basic pattern matching is already done by registry:
-    // - Trend is uptrend
-    // - 3 bars present
-    // - All bars are GREEN and HALLOW
-    // - Bar 1 matches required candle types
-    //
-    // This function ONLY checks relational constraints between bars
-
     let (open, _, low, close) = inputs;
 
-    // === Additional Constraints Beyond Basic Pattern Match ===
-
-    if !cdl_bar_engulf_bar((open[FIRST], close[FIRST]), (open[SECOND], close[SECOND])) {
-        return false;
-    }
+    // Body containment of SECOND inside FIRST is enforced by inside_prev = "BODY".
+    // Remaining relational checks:
     if cdl_wick_length((open[SECOND], close[SECOND]), low[SECOND], Some(2.0)) != LONG {
         return false;
     }
@@ -68,23 +53,30 @@ pub fn calc(
         return false;
     }
 
-    // All conditions met
     true
 }
 
-/// Default compute_bits - this pattern doesn't use lazy bits
 pub fn compute_bits(
     inputs: (&[f64], &[f64], &[f64], &[f64]),
     _state: &EmaState,
     bars: &mut [CandleBits],
 ) {
     let (open, high, low, close) = inputs;
-    let third_bar = &mut bars[THIRD];
 
+    // SECOND bar: engulf bits for inside_prev = "BODY"
+    // Gate on I_ENGULF_PREV_BODY_BIT (bit 11) — apply_engulfing sets all of bits 1–13 atomically.
+    if bars[SECOND].lazy_computed & (1u16 << CandleBits::I_ENGULF_PREV_BODY_BIT) == 0 {
+        bars[SECOND].apply_engulfing(
+            (open[FIRST], high[FIRST], low[FIRST], close[FIRST]),
+            (open[SECOND], high[SECOND], low[SECOND], close[SECOND]),
+        );
+    }
+
+    // THIRD bar: gap bits for body_gap = "GAP_DOWN"
     let body_pos_mask =
         (1u16 << CandleBits::OPEN_IN_PREV_BODY_BIT) | (1u16 << CandleBits::CLOSE_IN_PREV_BODY_BIT);
-    if (third_bar.lazy_computed & body_pos_mask) != body_pos_mask {
-        third_bar.apply_gap(
+    if (bars[THIRD].lazy_computed & body_pos_mask) != body_pos_mask {
+        bars[THIRD].apply_gap(
             (open[SECOND], high[SECOND], low[SECOND], close[SECOND]),
             (open[THIRD], high[THIRD], low[THIRD], close[THIRD]),
         );

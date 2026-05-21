@@ -4,16 +4,14 @@
 //! consecutive white (bullish) candles with progressively smaller bodies and
 //! increasing upper shadows.
 
+use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
-    common::cdl_real_within_body,
     pattern_test::EmaState,
     types::{CandleInfo, ForcastType},
 };
-use crate::candle_indicators::registry::CandleBits;
 use tulip_rs_macros::pattern_template;
 
 use super::{FIRST, SECOND};
-
 
 pub fn info() -> CandleInfo {
     CandleInfo {
@@ -56,50 +54,39 @@ pub fn info() -> CandleInfo {
         candle_type = "Basic(BlackCandle | LongBlackCandle) Marubozu(OpeningBlackMarubozu | ClosingBlackMarubozu | BlackMarubozu)"
     ),
     bar(
-        colour = "GREEN", 
+        colour = "GREEN",
         fill = "HALLOW",
-        candle_type = "!Doji(Doji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | FourPriceDoji)"
+        candle_type = "!Doji(Doji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | FourPriceDoji)",
+        inside_prev = "BODY"
     ),
     bar(
-        colour = "GREEN", 
+        colour = "GREEN",
         fill = "HALLOW",
         candle_type = "!Doji(Doji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | FourPriceDoji)"
     )
 )]
 
 pub fn calc(
-    inputs: (&[f64], &[f64], &[f64], &[f64]),
+    _inputs: (&[f64], &[f64], &[f64], &[f64]),
     _state: &EmaState,
-    _bars: &[CandleBits]
+    _bars: &[CandleBits],
 ) -> bool {
-    // Basic pattern matching is already done by registry:
-    // - Trend is uptrend
-    // - 3 bars present
-    // - All bars are GREEN and HALLOW
-    // - Bar 1 matches required candle types
-    //
-    // This function ONLY checks relational constraints between bars
-
-    
-    let (open, _, _, close) = inputs;
-
-    // === Additional Constraints Beyond Basic Pattern Match ===
-    if !cdl_real_within_body((open[FIRST], close[FIRST]), open[SECOND])
-    && !cdl_real_within_body((open[FIRST], close[FIRST]), close[SECOND]) 
-    && !(open[SECOND] == close[FIRST] && close[FIRST] == open[SECOND]) 
-    { return false }
-
-    
-
-    // All conditions met
+    // Body containment of SECOND inside FIRST is enforced by inside_prev = "BODY".
     true
 }
 
-/// Default compute_bits - this pattern doesn't use lazy bits
 pub fn compute_bits(
-    _inputs: (&[f64], &[f64], &[f64], &[f64]),
+    inputs: (&[f64], &[f64], &[f64], &[f64]),
     _state: &EmaState,
-    _bars: &mut [CandleBits],
+    bars: &mut [CandleBits],
 ) {
-    // No lazy bits needed for this pattern
+    let (open, high, low, close) = inputs;
+    // Gate on I_ENGULF_PREV_BODY_BIT (bit 11): apply_engulfing sets all of bits 1–13
+    // atomically, so if bit 11 is already in lazy_computed another call already ran.
+    if bars[SECOND].lazy_computed & (1u16 << CandleBits::I_ENGULF_PREV_BODY_BIT) == 0 {
+        bars[SECOND].apply_engulfing(
+            (open[FIRST], high[FIRST], low[FIRST], close[FIRST]),
+            (open[SECOND], high[SECOND], low[SECOND], close[SECOND]),
+        );
+    }
 }

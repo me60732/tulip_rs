@@ -254,3 +254,15 @@ pub const BODY_GAP_DOWN: i8 = -1;
 pub const WICK_GAP_UP: i8 = 2;
 /// Entire current candle (including wicks) is below prev candle.
 pub const WICK_GAP_DOWN: i8 = -2;
+
+// ============================================================================
+// ENGULF KIND CONSTANTS  (i8)
+// ============================================================================
+//
+// Used by `PatternMask::with_engulf_prev` / `with_inside_prev` and the
+// `pattern_template` proc macro to specify the engulf type.
+
+/// Body-only engulf — current/previous body spans the target body.
+pub const ENGULF_BODY: i8 = 1;
+/// Full-line engulf — current/previous body spans the target body AND wicks.
+pub const ENGULF_LINE: i8 = 2;

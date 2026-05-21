@@ -161,9 +161,9 @@ pub fn cdl_gap(prev: (f64, f64, f64, f64), current: (f64, f64, f64, f64)) -> i8 
     let (cur_open, cur_high, cur_low, cur_close) = current;
 
     // Wick gap: the entire current candle is outside the prev wick range.
-    if cur_low >= prev_high {
+    if cur_low > prev_high {
         return WICK_GAP_UP;
-    } else if cur_high <= prev_low {
+    } else if cur_high < prev_low {
         return WICK_GAP_DOWN;
     }
 
@@ -173,9 +173,9 @@ pub fn cdl_gap(prev: (f64, f64, f64, f64), current: (f64, f64, f64, f64)) -> i8 
     let cur_body_bot = cur_open.min(cur_close);
     let cur_body_top = cur_open.max(cur_close);
 
-    if cur_body_bot >= prev_body_top {
+    if cur_body_bot > prev_body_top {
         return BODY_GAP_UP;
-    } else if cur_body_top <= prev_body_bot {
+    } else if cur_body_top < prev_body_bot {
         return BODY_GAP_DOWN;
     }
 

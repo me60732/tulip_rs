@@ -41,7 +41,7 @@ pub fn calc(
     bars: &[CandleBits],
 ) -> bool {
     let (open, high, low, close) = inputs;
-
+    
     if !(open[FIRST] > open[SECOND] && open[SECOND] > low[FIRST]) {
         return false;
     }
@@ -72,7 +72,7 @@ pub fn calc(
             return false;
         }
     }
-
+    
     true
 }
 
