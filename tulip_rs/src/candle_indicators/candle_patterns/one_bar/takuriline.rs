@@ -6,7 +6,7 @@
 ///     if the gap is created at the opening or at the closing, it makes the signal stronger
 ///     appears as a long line
 use crate::candle_indicators::{
-    common::{cdl_height, cdl_wick_length, LONG, SHORT},
+    common::{cdl_height, cdl_wick_length, SHORT},
     pattern_test::EmaState,
     registry::CandleBits,
     types::{CandleInfo, ForcastType},
@@ -34,6 +34,8 @@ pub fn info() -> CandleInfo {
     bar(
         body_height = "SHORT",
         line_height = "LONG",
+        upper_wick_lt_body = "TRUE",
+        lower_wick_2x = "TRUE",
         candle_type = "!Doji(Doji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | FourPriceDoji)"
     )
 )]
@@ -46,10 +48,10 @@ pub fn calc(
     // For 1-bar pattern with prev_bar:
     // bars[0] = prev_bar
     // bars[1] = current bar (the doji - already validated by registry)
-    let (open, high, low, close) = inputs;
+    let (open, _, low, close) = inputs;
+
     
     if cdl_wick_length((open[FIRST], close[FIRST]), low[FIRST], Some(3.0)) == SHORT { return false }
-    if cdl_wick_length((open[FIRST], close[FIRST]), high[FIRST], None) == LONG { return false }
 
     if !(state.ema > close[FIRST] && state.ema > open[FIRST]) {
         return false;
@@ -64,13 +66,18 @@ pub fn compute_bits(
     state: &EmaState,
     bars: &mut [CandleBits],
 ) {
-    let (open, _, _, close) = inputs;
+    let (open, _, low, close) = inputs;
 
-    let current_bar = &mut bars[FIRST];
+    let first_bar = &mut bars[FIRST];
 
     
-    if (current_bar.lazy_computed & (1 << CandleBits::BODY_HEIGHT_BIT)) == 0 {
+    if (first_bar.lazy_computed & (1 << CandleBits::BODY_HEIGHT_BIT)) == 0 {
         let body_height = cdl_height((open[FIRST], close[FIRST]), state.ema_body);
-        current_bar.set_body_height(body_height);
+        first_bar.set_body_height(body_height);
+    }
+
+    if (first_bar.lazy_computed & (1u16 << CandleBits::LOWER_WICK_LONG_2X_BIT)) == 0 {
+        let is_2x = cdl_wick_length((open[FIRST], close[FIRST]), low[FIRST], Some(2.0)) != SHORT;
+        first_bar.set_lower_wick_2x(is_2x);
     }
 }

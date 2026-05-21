@@ -44,7 +44,7 @@ pub fn calc(
     state: &EmaState,
     _bars: &[CandleBits],
 ) -> bool {
-    let (_, high, low, _) = inputs;
+    let (_, high, _, _) = inputs;
 
     if !(high[FIRST] <= state.ema) {
         return false;

@@ -7,7 +7,7 @@
 ///    appears as a long line
 use crate::candle_indicators::{
     candle_patterns::CandlePattern,
-    common::{cdl_height, cdl_wick_length, LONG, SHORT},
+    common::{cdl_height, cdl_wick_length, SHORT},
     pattern_test::EmaState,
     registry::CandleBits,
     types::{CandleInfo, ForcastType},
@@ -34,27 +34,17 @@ pub fn info() -> CandleInfo {
     bar(
         body_height = "SHORT",
         body_gap = "GAP_UP",
+        lower_wick_lt_body = "TRUE",
+        upper_wick_2x = "TRUE",
         candle_type = "SpinningTop(WhiteSpinningTop | BlackSpinningTop | HighWave)"
     )
 )]
 
 pub fn calc(
-    inputs: (&[f64], &[f64], &[f64], &[f64]),
+    _inputs: (&[f64], &[f64], &[f64], &[f64]),
     _state: &EmaState,
     _bars: &[CandleBits],
 ) -> bool {
-    // For 1-bar pattern with prev_bar:
-    // bars[0] = prev_bar
-    // bars[1] = current bar (the doji - already validated by registry)
-
-    let (open, high, low, close) = inputs;
-
-    if cdl_wick_length((open[FIRST], close[FIRST]), low[FIRST], None) == LONG {
-        return false;
-    }
-    if cdl_wick_length((open[FIRST], close[FIRST]), high[FIRST], Some(2.5)) == SHORT {
-        return false;
-    }
 
     true
 }
@@ -72,7 +62,10 @@ pub fn compute_bits(
         let body_height = cdl_height((open[FIRST], close[FIRST]), state.ema_body);
         first_bar.set_body_height(body_height);
     }
-
+    if (first_bar.lazy_computed & (1u16 << CandleBits::UPPER_WICK_LONG_2X_BIT)) == 0 {
+        let is_2x = cdl_wick_length((open[FIRST], close[FIRST]), high[FIRST], Some(2.0)) != SHORT;
+        first_bar.set_upper_wick_2x(is_2x);
+    }
     let body_pos_mask =
         (1u16 << CandleBits::OPEN_IN_PREV_BODY_BIT) | (1u16 << CandleBits::CLOSE_IN_PREV_BODY_BIT);
     if (first_bar.lazy_computed & body_pos_mask) != body_pos_mask {

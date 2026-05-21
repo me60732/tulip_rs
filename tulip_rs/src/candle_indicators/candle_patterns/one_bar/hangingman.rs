@@ -1,6 +1,6 @@
 use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
-    common::{cdl_height, cdl_wick_length, LONG, SHORT},
+    common::{cdl_height, cdl_wick_length, SHORT},
     pattern_test::EmaState,
     types::{CandleInfo, ForcastType},
 };

@@ -24,7 +24,7 @@ pub const MIN_LONG_CDL_HEIGHT: f64 = 0.7; //70%
 pub const TOLERANCE: f64 = 0.005; //0.5 %
 pub const DOJI_MAX_HEIGHT: f64 = 0.03;
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct CandleShape {
     pub fill: Option<bool>,
     pub wick: Option<i8>,
