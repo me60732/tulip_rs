@@ -1,13 +1,12 @@
+use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
-    common::{cdl_similar_height, cdl_total_range, cdl_gap},
+    common::{cdl_similar_height, cdl_total_range},
     pattern_test::EmaState,
     types::{CandleInfo, ForcastType},
 };
-use crate::candle_indicators::registry::CandleBits;
 use tulip_rs_macros::pattern_template;
 
 use super::{FIRST, SECOND, THIRD};
-
 
 pub fn info() -> CandleInfo {
     CandleInfo {
@@ -52,7 +51,7 @@ pub fn calc(
 
     // Safety: need at least 2 bars before current (i-2 must be valid)
     let (open, high, low, close) = inputs;
-    
+
     // === Additional Constraints Beyond Basic Pattern Match ===
 
     //body can not be greater then the first body
@@ -86,7 +85,6 @@ pub fn calc(
         return false;
     }
 
-    
     true
 }
 
@@ -96,11 +94,13 @@ pub fn compute_bits(
     _state: &EmaState,
     bars: &mut [CandleBits],
 ) {
-    let (_, high, low, _) = inputs;
-    
-    let second_bar = &mut bars[2];
-    if (second_bar.lazy_computed & (1 << CandleBits::WICK_GAP_PRESENT_BIT)) == 0 {
-        let gap = cdl_gap::<false>((high[FIRST], low[FIRST]), (high[SECOND], low[SECOND]));
-        second_bar.set_wick_gap(gap);
+    let (open, high, low, close) = inputs;
+    let bar = &mut bars[2];
+
+    if (bar.lazy_computed & (1u16 << CandleBits::HIGH_IN_PREV_LINE_BIT)) == 0 {
+        bar.apply_gap(
+            (open[FIRST], high[FIRST], low[FIRST], close[FIRST]),
+            (open[SECOND], high[SECOND], low[SECOND], close[SECOND]),
+        );
     }
 }

@@ -23,26 +23,30 @@
 //!   Bit  22      FILL     (HOLLOW=1, FILLED=0)
 //!   Bit  23      TREND    (UP=1, DOWN=0)
 //!   Bit  24      LINE_HEIGHT (LONG=1, SHORT=0)
-//!   Bit  25      LOWER_WICK_GT_BODY  (lower wick height > body height)
-//!   Bit  26      UPPER_WICK_GT_BODY  (upper wick height > body height)
-//!   Bits 27–31   5 spare
+//!   Bit  25      LOWER_WICK_LT_BODY  (lower wick < body height)
+//!   Bit  26      UPPER_WICK_LT_BODY  (upper wick < body height)
+//!   Bits 27–31  5 spare
 //! ```
 //!
-//! LOWER_WICK_GT_BODY and UPPER_WICK_GT_BODY together encode three wick states:
-//!   10 → only lower wick > body  (dragonfly/proto-hammer direction)
-//!   01 → only upper wick > body  (gravestone/proto-shooting-star direction)
-//!   11 → both wicks > body       (symmetric spinning top / high-wave territory)
-//!   00 → neither wick > body     (marubozu or very small wicks)
-//!
-//! ### `lazy_value / lazy_computed: u16`  (computed on demand, 5 bits used)
+//! ### `lazy_value / lazy_computed: u16`  (computed on demand, all 16 bits used)
 //!
 //! ```text
-//!   Bit  0   BODY_HEIGHT       (LONG=1, SHORT=0)
-//!   Bit  1   BODY_GAP_PRESENT
-//!   Bit  2   BODY_GAP_DIRECTION (DOWN=1, UP=0)
-//!   Bit  3   WICK_GAP_PRESENT
-//!   Bit  4   WICK_GAP_DIRECTION (DOWN=1, UP=0)
-//!   Bits 5–15  11 spare for future lazy attributes
+//!   Bit  0   BODY_HEIGHT           (LONG=1, SHORT=0)
+//!   Bit  1   OPEN_ABOVE_PREV_BODY_MID  (my open > prev body midpoint)
+//!   Bit  2   OPEN_IN_PREV_BODY     (my open ∈ prev body)
+//!   Bit  3   CLOSE_ABOVE_PREV_BODY_MID (my close > prev body midpoint)
+//!   Bit  4   CLOSE_IN_PREV_BODY    (my close ∈ prev body)
+//!   Bit  5   HIGH_ABOVE_PREV_BODY_MID  (my high > prev body midpoint)
+//!   Bit  6   HIGH_IN_PREV_BODY     (my high ∈ prev body)
+//!   Bit  7   HIGH_IN_PREV_LINE     (my high ∈ [prev LOW, prev HIGH])
+//!   Bit  8   LOW_ABOVE_PREV_BODY_MID   (my low > prev body midpoint)
+//!   Bit  9   LOW_IN_PREV_BODY      (my low ∈ prev body)
+//!   Bit 10   LOW_IN_PREV_LINE      (my low ∈ [prev LOW, prev HIGH])
+//!   Bit 11   I_ENGULF_PREV_BODY    (prev open AND prev close both ∈ my body)
+//!   Bit 12   PREV_HIGH_IN_MY_BODY  (prev bar's high ∈ my body)
+//!   Bit 13   PREV_LOW_IN_MY_BODY   (prev bar's low ∈ my body)
+//!   Bit 14   LOWER_WICK_LONG_2X    (lower wick ≥ 2× body height)
+//!   Bit 15   UPPER_WICK_LONG_2X    (upper wick ≥ 2× body height)
 //! ```
 
 // ============================================================================
@@ -58,16 +62,29 @@ pub const COLOUR_BIT: u32 = 21;
 pub const FILL_BIT: u32 = 22;
 pub const TREND_BIT: u32 = 23;
 pub const LINE_HEIGHT_BIT: u32 = 24;
+pub const LOWER_WICK_LT_BODY_BIT: u32 = 25;
+pub const UPPER_WICK_LT_BODY_BIT: u32 = 26;
 
 // ============================================================================
 // LAZY BIT POSITION CONSTANTS  (shift amounts into `lazy_value / lazy_computed: u16`)
 // ============================================================================
 
 pub const BODY_HEIGHT_BIT: u32 = 0;
-pub const BODY_GAP_PRESENT_BIT: u32 = 1;
-pub const BODY_GAP_DIRECTION_BIT: u32 = 2;
-pub const WICK_GAP_PRESENT_BIT: u32 = 3;
-pub const WICK_GAP_DIRECTION_BIT: u32 = 4;
+pub const OPEN_ABOVE_PREV_BODY_MID_BIT: u32 = 1;
+pub const OPEN_IN_PREV_BODY_BIT: u32 = 2;
+pub const CLOSE_ABOVE_PREV_BODY_MID_BIT: u32 = 3;
+pub const CLOSE_IN_PREV_BODY_BIT: u32 = 4;
+pub const HIGH_ABOVE_PREV_BODY_MID_BIT: u32 = 5;
+pub const HIGH_IN_PREV_BODY_BIT: u32 = 6;
+pub const HIGH_IN_PREV_LINE_BIT: u32 = 7;
+pub const LOW_ABOVE_PREV_BODY_MID_BIT: u32 = 8;
+pub const LOW_IN_PREV_BODY_BIT: u32 = 9;
+pub const LOW_IN_PREV_LINE_BIT: u32 = 10;
+pub const I_ENGULF_PREV_BODY_BIT: u32 = 11;
+pub const PREV_HIGH_IN_MY_BODY_BIT: u32 = 12;
+pub const PREV_LOW_IN_MY_BODY_BIT: u32 = 13;
+pub const LOWER_WICK_LONG_2X_BIT: u32 = 14;
+pub const UPPER_WICK_LONG_2X_BIT: u32 = 15;
 
 // ============================================================================
 // MANDATORY BITMASK CONSTANTS  (u32)
@@ -86,18 +103,16 @@ pub const COMPULSORY_MASK: u32 = CANDLE_TYPE_MASK
     | (1u32 << COLOUR_BIT)
     | (1u32 << FILL_BIT)
     | (1u32 << TREND_BIT)
-    | (1u32 << LINE_HEIGHT_BIT);
+    | (1u32 << LINE_HEIGHT_BIT)
+    | (1u32 << LOWER_WICK_LT_BODY_BIT)
+    | (1u32 << UPPER_WICK_LT_BODY_BIT);
 
 // ============================================================================
 // LAZY BITMASK CONSTANTS  (u16)
 // ============================================================================
 
 /// Mask covering all currently-defined lazy bits
-pub const LAZY_MASK: u16 = (1u16 << BODY_HEIGHT_BIT)
-    | (1u16 << BODY_GAP_PRESENT_BIT)
-    | (1u16 << BODY_GAP_DIRECTION_BIT)
-    | (1u16 << WICK_GAP_PRESENT_BIT)
-    | (1u16 << WICK_GAP_DIRECTION_BIT);
+pub const LAZY_MASK: u16 = 0xFFFF; // All 16 bits used
 
 // ============================================================================
 // HELPER FUNCTIONS — Variant Encoding (produce u32 mandatory field bits)
@@ -180,6 +195,10 @@ pub const TREND_DOWN: u32 = 0;
 pub const LINE_HEIGHT_LONG: u32 = 1u32 << LINE_HEIGHT_BIT;
 pub const LINE_HEIGHT_SHORT: u32 = 0;
 
+// === Lower/Upper Wick vs Body (bits 25–26) ===
+pub const LOWER_WICK_LT_BODY: u32 = 1u32 << LOWER_WICK_LT_BODY_BIT;
+pub const UPPER_WICK_LT_BODY: u32 = 1u32 << UPPER_WICK_LT_BODY_BIT;
+
 // ============================================================================
 // LAZY BIT VALUE CONSTANTS  (u16)
 // ============================================================================
@@ -188,12 +207,50 @@ pub const LINE_HEIGHT_SHORT: u32 = 0;
 pub const BODY_HEIGHT_LONG: u16 = 1u16 << BODY_HEIGHT_BIT;
 pub const BODY_HEIGHT_SHORT: u16 = 0;
 
-// === Body Gap (lazy bits 1–2) ===
-pub const BODY_GAP_PRESENT: u16 = 1u16 << BODY_GAP_PRESENT_BIT;
-pub const BODY_GAP_UP: u16 = BODY_GAP_PRESENT;
-pub const BODY_GAP_DOWN: u16 = BODY_GAP_PRESENT | (1u16 << BODY_GAP_DIRECTION_BIT);
+// === Open vs Prev Body (lazy bits 1–2) ===
+pub const OPEN_ABOVE_PREV_BODY_MID: u16 = 1u16 << OPEN_ABOVE_PREV_BODY_MID_BIT;
+pub const OPEN_IN_PREV_BODY: u16 = 1u16 << OPEN_IN_PREV_BODY_BIT;
 
-// === Wick Gap (lazy bits 3–4) ===
-pub const WICK_GAP_PRESENT: u16 = 1u16 << WICK_GAP_PRESENT_BIT;
-pub const WICK_GAP_UP: u16 = WICK_GAP_PRESENT;
-pub const WICK_GAP_DOWN: u16 = WICK_GAP_PRESENT | (1u16 << WICK_GAP_DIRECTION_BIT);
+// === Close vs Prev Body (lazy bits 3–4) ===
+pub const CLOSE_ABOVE_PREV_BODY_MID: u16 = 1u16 << CLOSE_ABOVE_PREV_BODY_MID_BIT;
+pub const CLOSE_IN_PREV_BODY: u16 = 1u16 << CLOSE_IN_PREV_BODY_BIT;
+
+// === High vs Prev Body/Line (lazy bits 5–7) ===
+pub const HIGH_ABOVE_PREV_BODY_MID: u16 = 1u16 << HIGH_ABOVE_PREV_BODY_MID_BIT;
+pub const HIGH_IN_PREV_BODY: u16 = 1u16 << HIGH_IN_PREV_BODY_BIT;
+pub const HIGH_IN_PREV_LINE: u16 = 1u16 << HIGH_IN_PREV_LINE_BIT;
+
+// === Low vs Prev Body/Line (lazy bits 8–10) ===
+pub const LOW_ABOVE_PREV_BODY_MID: u16 = 1u16 << LOW_ABOVE_PREV_BODY_MID_BIT;
+pub const LOW_IN_PREV_BODY: u16 = 1u16 << LOW_IN_PREV_BODY_BIT;
+pub const LOW_IN_PREV_LINE: u16 = 1u16 << LOW_IN_PREV_LINE_BIT;
+
+// === Engulfment relationships (lazy bits 11–13) ===
+pub const I_ENGULF_PREV_BODY: u16 = 1u16 << I_ENGULF_PREV_BODY_BIT;
+pub const PREV_HIGH_IN_MY_BODY: u16 = 1u16 << PREV_HIGH_IN_MY_BODY_BIT;
+pub const PREV_LOW_IN_MY_BODY: u16 = 1u16 << PREV_LOW_IN_MY_BODY_BIT;
+
+// === Wick length vs body (lazy bits 14–15) ===
+pub const LOWER_WICK_LONG_2X: u16 = 1u16 << LOWER_WICK_LONG_2X_BIT;
+pub const UPPER_WICK_LONG_2X: u16 = 1u16 << UPPER_WICK_LONG_2X_BIT;
+
+// ============================================================================
+// CDL_GAP RETURN CODE CONSTANTS  (i8)
+// ============================================================================
+//
+// Returned by `cdl_gap(prev, current)` to describe the gap relationship
+// between two consecutive candles. Used by:
+//   - Runtime pattern calc functions to interpret cdl_gap results.
+//   - PatternMask::with_body_gap / with_wick_gap setters.
+//   - The pattern_template proc macro (via tulip_rs_macros).
+
+/// No gap — bodies overlap.
+pub const NO_GAP: i8 = 0;
+/// Current body is entirely above prev body; wicks may still overlap.
+pub const BODY_GAP_UP: i8 = 1;
+/// Current body is entirely below prev body; wicks may still overlap.
+pub const BODY_GAP_DOWN: i8 = -1;
+/// Entire current candle (including wicks) is above prev candle.
+pub const WICK_GAP_UP: i8 = 2;
+/// Entire current candle (including wicks) is below prev candle.
+pub const WICK_GAP_DOWN: i8 = -2;

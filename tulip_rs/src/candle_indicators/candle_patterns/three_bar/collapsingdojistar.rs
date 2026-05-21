@@ -2,7 +2,6 @@
 
 use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
-    common::cdl_gap,
     pattern_test::EmaState,
     types::{CandleInfo, ForcastType},
 };
@@ -49,21 +48,24 @@ pub fn calc(
     true
 }
 
-/// Default compute_bits - this pattern doesn't use lazy bits
 pub fn compute_bits(
     inputs: (&[f64], &[f64], &[f64], &[f64]),
     _state: &EmaState,
     bars: &mut [CandleBits],
 ) {
-    let (_, high, low, _) = inputs;
-    
-    if (bars[THIRD].lazy_computed & (1 << CandleBits::WICK_GAP_PRESENT_BIT)) == 0 {
-        let gap = cdl_gap::<false>((high[SECOND], low[SECOND]), (high[THIRD], low[THIRD]));
-        bars[THIRD].set_wick_gap(gap);
+    let (open, high, low, close) = inputs;
+
+    if (bars[THIRD].lazy_computed & (1u16 << CandleBits::HIGH_IN_PREV_LINE_BIT)) == 0 {
+        bars[THIRD].apply_gap(
+            (open[SECOND], high[SECOND], low[SECOND], close[SECOND]),
+            (open[THIRD], high[THIRD], low[THIRD], close[THIRD]),
+        );
     }
-    
-    if (bars[SECOND].lazy_computed & (1 << CandleBits::WICK_GAP_PRESENT_BIT)) == 0 {
-        let gap = cdl_gap::<false>((high[FIRST], low[FIRST]), (high[SECOND], low[SECOND]));
-        bars[SECOND].set_wick_gap(gap);
+
+    if (bars[SECOND].lazy_computed & (1u16 << CandleBits::HIGH_IN_PREV_LINE_BIT)) == 0 {
+        bars[SECOND].apply_gap(
+            (open[FIRST], high[FIRST], low[FIRST], close[FIRST]),
+            (open[SECOND], high[SECOND], low[SECOND], close[SECOND]),
+        );
     }
 }

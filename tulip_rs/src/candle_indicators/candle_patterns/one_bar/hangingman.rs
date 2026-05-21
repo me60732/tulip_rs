@@ -46,6 +46,8 @@ pub fn info() -> CandleInfo {
     bar(
         body_height = "SHORT",
         line_height = "LONG",
+        upper_wick_lt_body = "TRUE",
+        lower_wick_lt_body = "FALSE",
         candle_type = "!Doji(Doji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | FourPriceDoji)"
     )
 )]
@@ -55,16 +57,7 @@ pub fn calc(
     state: &EmaState,
     _bars: &[CandleBits],
 ) -> bool {
-    let (open, high, low, close) = inputs;
-    
-    
-
-    if cdl_wick_length((open[FIRST], close[FIRST]), low[FIRST], Some(2.0)) == SHORT {
-        return false;
-    }
-    if cdl_wick_length((open[FIRST], close[FIRST]), high[FIRST], None) == LONG {
-        return false;
-    }
+    let (open, _, _, close) = inputs;
 
     if !(state.ema < close[FIRST] && state.ema < open[FIRST]) {
         return false;
@@ -77,11 +70,15 @@ pub fn compute_bits(
     state: &EmaState,
     bars: &mut [CandleBits],
 ) {
-    let (open, _, _, close) = inputs;
-    let current_bar = &mut bars[1];
+    let (open, _, low, close) = inputs;
+    let first_bar = &mut bars[1];
     
-    if (current_bar.lazy_computed & (1 << CandleBits::BODY_HEIGHT_BIT)) == 0 {
+    if (first_bar.lazy_computed & (1 << CandleBits::BODY_HEIGHT_BIT)) == 0 {
         let body_height = cdl_height((open[FIRST], close[FIRST]), state.ema_body);
-        current_bar.set_body_height(body_height);
+        first_bar.set_body_height(body_height);
+    }
+    if (first_bar.lazy_computed & (1u16 << CandleBits::LOWER_WICK_LONG_2X_BIT)) == 0 {
+        let is_2x = cdl_wick_length((open[FIRST], close[FIRST]), low[FIRST], Some(2.0)) != SHORT;
+        first_bar.set_lower_wick_2x(is_2x);
     }
 }

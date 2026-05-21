@@ -1,3 +1,4 @@
+use super::FIRST;
 use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
     common::cdl_body_greater,
@@ -5,8 +6,6 @@ use crate::candle_indicators::{
     types::{CandleInfo, ForcastType},
 };
 use tulip_rs_macros::pattern_template;
-use super::FIRST;
-
 
 pub fn info() -> CandleInfo {
     CandleInfo {
@@ -44,6 +43,8 @@ pub fn info() -> CandleInfo {
     bar(
         fill = "HALLOW",
         line_height = "LONG",
+        lower_wick_lt_body = "TRUE",
+        upper_wick_lt_body = "TRUE",
         candle_type = "Basic(LongWhiteCandle) Marubozu(OpeningWhiteMarubozu | ClosingWhiteMarubozu | WhiteMarubozu)"
     )
 )]
@@ -51,11 +52,15 @@ pub fn info() -> CandleInfo {
 pub fn calc(
     inputs: (&[f64], &[f64], &[f64], &[f64]),
     state: &EmaState,
-    _bars: &[CandleBits],
+    bars: &[CandleBits],
 ) -> bool {
     let (open, _, _, close) = inputs;
     // === Additional Constraints Beyond Basic Pattern Match ===
-    if !cdl_body_greater((open[FIRST], close[FIRST]), state.ema_body, 3.0) {
+    // LongWhiteCandle already guarantees a sufficiently large body by definition;
+    // only apply the explicit size check for Marubozu variants.
+    if (bars[FIRST].mandatory & CandleBits::LONG_WHITE_CANDLE) == 0
+        && !cdl_body_greater((open[FIRST], close[FIRST]), state.ema_body, 3.0)
+    {
         return false;
     }
     // All conditions met

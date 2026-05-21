@@ -20,8 +20,29 @@ struct BarRequirement {
     candle_type: Option<String>,
     body_height: Option<String>,
     line_height: Option<String>,
+    // Shorthand gap attributes (expand to position bits in generate_pattern_mask)
     body_gap: Option<String>,
     wick_gap: Option<String>,
+    // Mandatory wick comparison bits (computed at push time via CandleShape)
+    lower_wick_lt_body: Option<String>,
+    upper_wick_lt_body: Option<String>,
+    // Position bits (lazy, relative to previous bar)
+    open_above_prev_mid: Option<String>,
+    open_in_prev_body: Option<String>,
+    close_above_prev_mid: Option<String>,
+    close_in_prev_body: Option<String>,
+    high_above_prev_mid: Option<String>,
+    high_in_prev_body: Option<String>,
+    high_in_prev_line: Option<String>,
+    low_above_prev_mid: Option<String>,
+    low_in_prev_body: Option<String>,
+    low_in_prev_line: Option<String>,
+    // Engulf bits (lazy)
+    engulfs_prev: Option<String>,
+    prev_in_my_body: Option<String>,
+    // Wick 2x bits (lazy)
+    lower_wick_2x: Option<String>,
+    upper_wick_2x: Option<String>,
 }
 
 impl Parse for BarRequirement {
@@ -34,6 +55,22 @@ impl Parse for BarRequirement {
         let mut line_height = None;
         let mut body_gap = None;
         let mut wick_gap = None;
+        let mut lower_wick_lt_body = None;
+        let mut upper_wick_lt_body = None;
+        let mut open_above_prev_mid = None;
+        let mut open_in_prev_body = None;
+        let mut close_above_prev_mid = None;
+        let mut close_in_prev_body = None;
+        let mut high_above_prev_mid = None;
+        let mut high_in_prev_body = None;
+        let mut high_in_prev_line = None;
+        let mut low_above_prev_mid = None;
+        let mut low_in_prev_body = None;
+        let mut low_in_prev_line = None;
+        let mut engulfs_prev = None;
+        let mut prev_in_my_body = None;
+        let mut lower_wick_2x = None;
+        let mut upper_wick_2x = None;
 
         // Expect: bar(key = "value", ...)
         let content;
@@ -53,10 +90,33 @@ impl Parse for BarRequirement {
                 "line_height" => line_height = Some(value.value()),
                 "body_gap" => body_gap = Some(value.value()),
                 "wick_gap" => wick_gap = Some(value.value()),
+                "lower_wick_lt_body" => lower_wick_lt_body = Some(value.value()),
+                "upper_wick_lt_body" => upper_wick_lt_body = Some(value.value()),
+                "open_above_prev_mid" => open_above_prev_mid = Some(value.value()),
+                "open_in_prev_body" => open_in_prev_body = Some(value.value()),
+                "close_above_prev_mid" => close_above_prev_mid = Some(value.value()),
+                "close_in_prev_body" => close_in_prev_body = Some(value.value()),
+                "high_above_prev_mid" => high_above_prev_mid = Some(value.value()),
+                "high_in_prev_body" => high_in_prev_body = Some(value.value()),
+                "high_in_prev_line" => high_in_prev_line = Some(value.value()),
+                "low_above_prev_mid" => low_above_prev_mid = Some(value.value()),
+                "low_in_prev_body" => low_in_prev_body = Some(value.value()),
+                "low_in_prev_line" => low_in_prev_line = Some(value.value()),
+                "engulfs_prev" => engulfs_prev = Some(value.value()),
+                "prev_in_my_body" => prev_in_my_body = Some(value.value()),
+                "lower_wick_2x" => lower_wick_2x = Some(value.value()),
+                "upper_wick_2x" => upper_wick_2x = Some(value.value()),
                 _ => {
                     return Err(syn::Error::new_spanned(
                         key,
-                        "Unknown bar attribute. Expected: trend, colour, fill, candle_type, body_height, line_height, body_gap, or wick_gap",
+                        "Unknown bar attribute. Valid attributes: trend, colour, fill, \
+                         candle_type, body_height, line_height, body_gap, wick_gap, \
+                         lower_wick_lt_body, upper_wick_lt_body, \
+                         open_above_prev_mid, open_in_prev_body, \
+                         close_above_prev_mid, close_in_prev_body, \
+                         high_above_prev_mid, high_in_prev_body, high_in_prev_line, \
+                         low_above_prev_mid, low_in_prev_body, low_in_prev_line, \
+                         engulfs_prev, prev_in_my_body, lower_wick_2x, upper_wick_2x",
                     ))
                 }
             }
@@ -75,6 +135,22 @@ impl Parse for BarRequirement {
             line_height,
             body_gap,
             wick_gap,
+            lower_wick_lt_body,
+            upper_wick_lt_body,
+            open_above_prev_mid,
+            open_in_prev_body,
+            close_above_prev_mid,
+            close_in_prev_body,
+            high_above_prev_mid,
+            high_in_prev_body,
+            high_in_prev_line,
+            low_above_prev_mid,
+            low_in_prev_body,
+            low_in_prev_line,
+            engulfs_prev,
+            prev_in_my_body,
+            lower_wick_2x,
+            upper_wick_2x,
         })
     }
 }
@@ -132,10 +208,153 @@ impl Parse for PatternTemplate {
             return Err(input.error("Pattern must have at least one bar requirement"));
         }
 
+        // Validate that prev_bar only uses mandatory (compulsory) attributes.
+        // Lazy attributes require OHLC data from the bar before prev_bar, which
+        // is outside the sliding window and can never be populated in compute_bits().
+        // lower_wick_lt_body and upper_wick_lt_body ARE mandatory bits — they are valid on prev_bar.
+        if let Some(ref pb) = prev_bar {
+            if pb.body_height.is_some() {
+                return Err(input.error(
+                    "prev_bar does not support 'body_height' — it is a lazy bit that requires \
+                     data from outside the pattern window. Use only mandatory attributes on \
+                     prev_bar: trend, colour, fill, line_height, candle_type, \
+                     lower_wick_lt_body, upper_wick_lt_body",
+                ));
+            }
+            if pb.body_gap.is_some() {
+                return Err(input.error(
+                    "prev_bar does not support 'body_gap' — it is a lazy bit that requires \
+                     data from outside the pattern window. Use only mandatory attributes on \
+                     prev_bar: trend, colour, fill, line_height, candle_type, \
+                     lower_wick_lt_body, upper_wick_lt_body",
+                ));
+            }
+            if pb.wick_gap.is_some() {
+                return Err(input.error(
+                    "prev_bar does not support 'wick_gap' — it is a lazy bit that requires \
+                     data from outside the pattern window. Use only mandatory attributes on \
+                     prev_bar: trend, colour, fill, line_height, candle_type, \
+                     lower_wick_lt_body, upper_wick_lt_body",
+                ));
+            }
+            if pb.open_above_prev_mid.is_some() {
+                return Err(input.error(
+                    "prev_bar does not support 'open_above_prev_mid' — it is a lazy bit that \
+                     requires data from outside the pattern window. Use only mandatory attributes \
+                     on prev_bar: trend, colour, fill, line_height, candle_type, \
+                     lower_wick_lt_body, upper_wick_lt_body",
+                ));
+            }
+            if pb.open_in_prev_body.is_some() {
+                return Err(input.error(
+                    "prev_bar does not support 'open_in_prev_body' — it is a lazy bit that \
+                     requires data from outside the pattern window. Use only mandatory attributes \
+                     on prev_bar: trend, colour, fill, line_height, candle_type, \
+                     lower_wick_lt_body, upper_wick_lt_body",
+                ));
+            }
+            if pb.close_above_prev_mid.is_some() {
+                return Err(input.error(
+                    "prev_bar does not support 'close_above_prev_mid' — it is a lazy bit that \
+                     requires data from outside the pattern window. Use only mandatory attributes \
+                     on prev_bar: trend, colour, fill, line_height, candle_type, \
+                     lower_wick_lt_body, upper_wick_lt_body",
+                ));
+            }
+            if pb.close_in_prev_body.is_some() {
+                return Err(input.error(
+                    "prev_bar does not support 'close_in_prev_body' — it is a lazy bit that \
+                     requires data from outside the pattern window. Use only mandatory attributes \
+                     on prev_bar: trend, colour, fill, line_height, candle_type, \
+                     lower_wick_lt_body, upper_wick_lt_body",
+                ));
+            }
+            if pb.high_above_prev_mid.is_some() {
+                return Err(input.error(
+                    "prev_bar does not support 'high_above_prev_mid' — it is a lazy bit that \
+                     requires data from outside the pattern window. Use only mandatory attributes \
+                     on prev_bar: trend, colour, fill, line_height, candle_type, \
+                     lower_wick_lt_body, upper_wick_lt_body",
+                ));
+            }
+            if pb.high_in_prev_body.is_some() {
+                return Err(input.error(
+                    "prev_bar does not support 'high_in_prev_body' — it is a lazy bit that \
+                     requires data from outside the pattern window. Use only mandatory attributes \
+                     on prev_bar: trend, colour, fill, line_height, candle_type, \
+                     lower_wick_lt_body, upper_wick_lt_body",
+                ));
+            }
+            if pb.high_in_prev_line.is_some() {
+                return Err(input.error(
+                    "prev_bar does not support 'high_in_prev_line' — it is a lazy bit that \
+                     requires data from outside the pattern window. Use only mandatory attributes \
+                     on prev_bar: trend, colour, fill, line_height, candle_type, \
+                     lower_wick_lt_body, upper_wick_lt_body",
+                ));
+            }
+            if pb.low_above_prev_mid.is_some() {
+                return Err(input.error(
+                    "prev_bar does not support 'low_above_prev_mid' — it is a lazy bit that \
+                     requires data from outside the pattern window. Use only mandatory attributes \
+                     on prev_bar: trend, colour, fill, line_height, candle_type, \
+                     lower_wick_lt_body, upper_wick_lt_body",
+                ));
+            }
+            if pb.low_in_prev_body.is_some() {
+                return Err(input.error(
+                    "prev_bar does not support 'low_in_prev_body' — it is a lazy bit that \
+                     requires data from outside the pattern window. Use only mandatory attributes \
+                     on prev_bar: trend, colour, fill, line_height, candle_type, \
+                     lower_wick_lt_body, upper_wick_lt_body",
+                ));
+            }
+            if pb.low_in_prev_line.is_some() {
+                return Err(input.error(
+                    "prev_bar does not support 'low_in_prev_line' — it is a lazy bit that \
+                     requires data from outside the pattern window. Use only mandatory attributes \
+                     on prev_bar: trend, colour, fill, line_height, candle_type, \
+                     lower_wick_lt_body, upper_wick_lt_body",
+                ));
+            }
+            if pb.engulfs_prev.is_some() {
+                return Err(input.error(
+                    "prev_bar does not support 'engulfs_prev' — it is a lazy bit that requires \
+                     data from outside the pattern window. Use only mandatory attributes on \
+                     prev_bar: trend, colour, fill, line_height, candle_type, \
+                     lower_wick_lt_body, upper_wick_lt_body",
+                ));
+            }
+            if pb.prev_in_my_body.is_some() {
+                return Err(input.error(
+                    "prev_bar does not support 'prev_in_my_body' — it is a lazy bit that requires \
+                     data from outside the pattern window. Use only mandatory attributes on \
+                     prev_bar: trend, colour, fill, line_height, candle_type, \
+                     lower_wick_lt_body, upper_wick_lt_body",
+                ));
+            }
+            if pb.lower_wick_2x.is_some() {
+                return Err(input.error(
+                    "prev_bar does not support 'lower_wick_2x' — it is a lazy bit that requires \
+                     data from outside the pattern window. Use only mandatory attributes on \
+                     prev_bar: trend, colour, fill, line_height, candle_type, \
+                     lower_wick_lt_body, upper_wick_lt_body",
+                ));
+            }
+            if pb.upper_wick_2x.is_some() {
+                return Err(input.error(
+                    "prev_bar does not support 'upper_wick_2x' — it is a lazy bit that requires \
+                     data from outside the pattern window. Use only mandatory attributes on \
+                     prev_bar: trend, colour, fill, line_height, candle_type, \
+                     lower_wick_lt_body, upper_wick_lt_body",
+                ));
+            }
+        }
+
         Ok(PatternTemplate {
             name,
             forecast,
-            prev_bar, // NEW
+            prev_bar,
             bars,
         })
     }
@@ -374,32 +593,102 @@ fn generate_pattern_mask(bar: &BarRequirement) -> proc_macro2::TokenStream {
         builder = quote! { #builder.with_line_height(#is_long) };
     }
 
+    // Mandatory wick comparison bits (bits 25–26)
+    if let Some(ref v) = bar.lower_wick_lt_body {
+        let is_true = v == "TRUE";
+        builder = quote! { #builder.with_lower_wick_lt_body(#is_true) };
+    }
+    if let Some(ref v) = bar.upper_wick_lt_body {
+        let is_true = v == "TRUE";
+        builder = quote! { #builder.with_upper_wick_lt_body(#is_true) };
+    }
+
+    // Gap shorthand attributes — PatternMask::with_body_gap / with_wick_gap expand
+    // these to the appropriate position bits internally.
     if let Some(ref body_gap) = bar.body_gap {
-        // Note: GAP_UP constant = true, GAP_DOWN constant = false (consistent with other directions)
-        // But with_body_gap parameter is 'gap_down', so GAP_UP should map to gap_down=false
-        let gap_down = match body_gap.as_str() {
-            "GAP_UP" => false,  // GAP_UP means gap_down=false
-            "GAP_DOWN" => true, // GAP_DOWN means gap_down=true
+        let gap: i8 = match body_gap.as_str() {
+            "GAP_UP" => tulip_rs_shared::BODY_GAP_UP,
+            "GAP_DOWN" => tulip_rs_shared::BODY_GAP_DOWN,
             _ => panic!(
                 "Invalid body_gap value: {}. Expected 'GAP_UP' or 'GAP_DOWN'",
                 body_gap
             ),
         };
-        builder = quote! { #builder.with_body_gap(#gap_down) };
+        builder = quote! { #builder.with_body_gap(#gap) };
     }
 
     if let Some(ref wick_gap) = bar.wick_gap {
-        // Note: GAP_UP constant = true, GAP_DOWN constant = false (consistent with other directions)
-        // But with_wick_gap parameter is 'gap_down', so GAP_UP should map to gap_down=false
-        let gap_down = match wick_gap.as_str() {
-            "GAP_UP" => false,  // GAP_UP means gap_down=false
-            "GAP_DOWN" => true, // GAP_DOWN means gap_down=true
+        let gap: i8 = match wick_gap.as_str() {
+            "GAP_UP" => tulip_rs_shared::WICK_GAP_UP,
+            "GAP_DOWN" => tulip_rs_shared::WICK_GAP_DOWN,
             _ => panic!(
                 "Invalid wick_gap value: {}. Expected 'GAP_UP' or 'GAP_DOWN'",
                 wick_gap
             ),
         };
-        builder = quote! { #builder.with_wick_gap(#gap_down) };
+        builder = quote! { #builder.with_wick_gap(#gap) };
+    }
+
+    // Position bits (lazy, relative to previous bar)
+    if let Some(ref v) = bar.open_above_prev_mid {
+        let is_true = v == "TRUE";
+        builder = quote! { #builder.with_open_above_prev_mid(#is_true) };
+    }
+    if let Some(ref v) = bar.open_in_prev_body {
+        let is_true = v == "TRUE";
+        builder = quote! { #builder.with_open_in_prev_body(#is_true) };
+    }
+    if let Some(ref v) = bar.close_above_prev_mid {
+        let is_true = v == "TRUE";
+        builder = quote! { #builder.with_close_above_prev_mid(#is_true) };
+    }
+    if let Some(ref v) = bar.close_in_prev_body {
+        let is_true = v == "TRUE";
+        builder = quote! { #builder.with_close_in_prev_body(#is_true) };
+    }
+    if let Some(ref v) = bar.high_above_prev_mid {
+        let is_true = v == "TRUE";
+        builder = quote! { #builder.with_high_above_prev_mid(#is_true) };
+    }
+    if let Some(ref v) = bar.high_in_prev_body {
+        let is_true = v == "TRUE";
+        builder = quote! { #builder.with_high_in_prev_body(#is_true) };
+    }
+    if let Some(ref v) = bar.high_in_prev_line {
+        let is_true = v == "TRUE";
+        builder = quote! { #builder.with_high_in_prev_line(#is_true) };
+    }
+    if let Some(ref v) = bar.low_above_prev_mid {
+        let is_true = v == "TRUE";
+        builder = quote! { #builder.with_low_above_prev_mid(#is_true) };
+    }
+    if let Some(ref v) = bar.low_in_prev_body {
+        let is_true = v == "TRUE";
+        builder = quote! { #builder.with_low_in_prev_body(#is_true) };
+    }
+    if let Some(ref v) = bar.low_in_prev_line {
+        let is_true = v == "TRUE";
+        builder = quote! { #builder.with_low_in_prev_line(#is_true) };
+    }
+
+    // Engulf bits (lazy)
+    if let Some(ref v) = bar.engulfs_prev {
+        let is_true = v == "TRUE";
+        builder = quote! { #builder.with_engulfs_prev(#is_true) };
+    }
+    if let Some(ref v) = bar.prev_in_my_body {
+        let is_true = v == "TRUE";
+        builder = quote! { #builder.with_prev_in_my_body(#is_true) };
+    }
+
+    // Wick 2x bits (lazy)
+    if let Some(ref v) = bar.lower_wick_2x {
+        let is_true = v == "TRUE";
+        builder = quote! { #builder.with_lower_wick_2x(#is_true) };
+    }
+    if let Some(ref v) = bar.upper_wick_2x {
+        let is_true = v == "TRUE";
+        builder = quote! { #builder.with_upper_wick_2x(#is_true) };
     }
 
     builder
@@ -464,39 +753,100 @@ pub fn pattern_template(attr: TokenStream, item: TokenStream) -> TokenStream {
     // Generate unique const names
     let masks_name = format_ident!("PATTERN_MASKS_{}", pattern_name.to_uppercase());
 
-    // Detect which lazy bits this pattern uses
-    let uses_body_height = template.bars.iter().any(|b| b.body_height.is_some())
-        || template
-            .prev_bar
-            .as_ref()
-            .is_some_and(|b| b.body_height.is_some());
-    let uses_body_gap = template.bars.iter().any(|b| b.body_gap.is_some())
-        || template
-            .prev_bar
-            .as_ref()
-            .is_some_and(|b| b.body_gap.is_some());
-    let uses_wick_gap = template.bars.iter().any(|b| b.wick_gap.is_some())
-        || template
-            .prev_bar
-            .as_ref()
-            .is_some_and(|b| b.wick_gap.is_some());
+    // -----------------------------------------------------------------------
+    // Lazy bits mask computation
+    //
+    // Determines which lazy bits must be computed before this pattern can be
+    // evaluated.  We check every bar (including prev_bar) for each attribute
+    // and OR in the corresponding bit(s).
+    //
+    // Mandatory bits (lower_wick_lt_body / upper_wick_lt_body) are NOT lazy —
+    // they are computed eagerly at push time, so they do NOT contribute here.
+    // -----------------------------------------------------------------------
+
+    // Helper: does any bar (including prev_bar) have this attribute set?
+    // Uses a fn pointer so iterator adapters can accept the predicate without wrapping.
+    let any_bars_with = |pred: fn(&BarRequirement) -> bool| -> bool {
+        template.bars.iter().any(pred) || template.prev_bar.as_ref().is_some_and(pred)
+    };
+
+    let mut lazy_mask_value: u16 = 0;
+
+    // Bit 0 — BODY_HEIGHT
+    if any_bars_with(|b| b.body_height.is_some()) {
+        lazy_mask_value |= 1u16 << tulip_rs_shared::BODY_HEIGHT_BIT;
+    }
+
+    // body_gap shorthand expands to: open_above_prev_mid (1), open_in_prev_body (2),
+    //   close_above_prev_mid (3), close_in_prev_body (4)
+    if any_bars_with(|b| b.body_gap.is_some()) {
+        lazy_mask_value |= 1u16 << tulip_rs_shared::OPEN_ABOVE_PREV_BODY_MID_BIT;
+        lazy_mask_value |= 1u16 << tulip_rs_shared::OPEN_IN_PREV_BODY_BIT;
+        lazy_mask_value |= 1u16 << tulip_rs_shared::CLOSE_ABOVE_PREV_BODY_MID_BIT;
+        lazy_mask_value |= 1u16 << tulip_rs_shared::CLOSE_IN_PREV_BODY_BIT;
+    }
+
+    // wick_gap shorthand expands to: high_above_prev_mid (5), high_in_prev_line (7),
+    //   low_above_prev_mid (8), low_in_prev_line (10)
+    if any_bars_with(|b| b.wick_gap.is_some()) {
+        lazy_mask_value |= 1u16 << tulip_rs_shared::HIGH_ABOVE_PREV_BODY_MID_BIT;
+        lazy_mask_value |= 1u16 << tulip_rs_shared::HIGH_IN_PREV_LINE_BIT;
+        lazy_mask_value |= 1u16 << tulip_rs_shared::LOW_ABOVE_PREV_BODY_MID_BIT;
+        lazy_mask_value |= 1u16 << tulip_rs_shared::LOW_IN_PREV_LINE_BIT;
+    }
+
+    // Individual position bits
+    if any_bars_with(|b| b.open_above_prev_mid.is_some()) {
+        lazy_mask_value |= 1u16 << tulip_rs_shared::OPEN_ABOVE_PREV_BODY_MID_BIT;
+    }
+    if any_bars_with(|b| b.open_in_prev_body.is_some()) {
+        lazy_mask_value |= 1u16 << tulip_rs_shared::OPEN_IN_PREV_BODY_BIT;
+    }
+    if any_bars_with(|b| b.close_above_prev_mid.is_some()) {
+        lazy_mask_value |= 1u16 << tulip_rs_shared::CLOSE_ABOVE_PREV_BODY_MID_BIT;
+    }
+    if any_bars_with(|b| b.close_in_prev_body.is_some()) {
+        lazy_mask_value |= 1u16 << tulip_rs_shared::CLOSE_IN_PREV_BODY_BIT;
+    }
+    if any_bars_with(|b| b.high_above_prev_mid.is_some()) {
+        lazy_mask_value |= 1u16 << tulip_rs_shared::HIGH_ABOVE_PREV_BODY_MID_BIT;
+    }
+    if any_bars_with(|b| b.high_in_prev_body.is_some()) {
+        lazy_mask_value |= 1u16 << tulip_rs_shared::HIGH_IN_PREV_BODY_BIT;
+    }
+    if any_bars_with(|b| b.high_in_prev_line.is_some()) {
+        lazy_mask_value |= 1u16 << tulip_rs_shared::HIGH_IN_PREV_LINE_BIT;
+    }
+    if any_bars_with(|b| b.low_above_prev_mid.is_some()) {
+        lazy_mask_value |= 1u16 << tulip_rs_shared::LOW_ABOVE_PREV_BODY_MID_BIT;
+    }
+    if any_bars_with(|b| b.low_in_prev_body.is_some()) {
+        lazy_mask_value |= 1u16 << tulip_rs_shared::LOW_IN_PREV_BODY_BIT;
+    }
+    if any_bars_with(|b| b.low_in_prev_line.is_some()) {
+        lazy_mask_value |= 1u16 << tulip_rs_shared::LOW_IN_PREV_LINE_BIT;
+    }
+
+    // Engulf bits
+    if any_bars_with(|b| b.engulfs_prev.is_some()) {
+        lazy_mask_value |= 1u16 << tulip_rs_shared::I_ENGULF_PREV_BODY_BIT;
+    }
+    // prev_in_my_body expands to two bits: prev_high_in_my_body (12) and prev_low_in_my_body (13)
+    if any_bars_with(|b| b.prev_in_my_body.is_some()) {
+        lazy_mask_value |= 1u16 << tulip_rs_shared::PREV_HIGH_IN_MY_BODY_BIT;
+        lazy_mask_value |= 1u16 << tulip_rs_shared::PREV_LOW_IN_MY_BODY_BIT;
+    }
+
+    // Wick 2x bits
+    if any_bars_with(|b| b.lower_wick_2x.is_some()) {
+        lazy_mask_value |= 1u16 << tulip_rs_shared::LOWER_WICK_LONG_2X_BIT;
+    }
+    if any_bars_with(|b| b.upper_wick_2x.is_some()) {
+        lazy_mask_value |= 1u16 << tulip_rs_shared::UPPER_WICK_LONG_2X_BIT;
+    }
 
     // Generate lazy bit mask constant name
     let lazy_bits_name = format_ident!("PATTERN_LAZY_BITS_{}", pattern_name.to_uppercase());
-
-    // Calculate lazy bit mask using shared constants (single source of truth)
-    let mut lazy_mask_value: u16 = 0;
-    if uses_body_height {
-        lazy_mask_value |= 1u16 << tulip_rs_shared::BODY_HEIGHT_BIT;
-    }
-    if uses_body_gap {
-        lazy_mask_value |= (1u16 << tulip_rs_shared::BODY_GAP_PRESENT_BIT)
-            | (1u16 << tulip_rs_shared::BODY_GAP_DIRECTION_BIT);
-    }
-    if uses_wick_gap {
-        lazy_mask_value |= (1u16 << tulip_rs_shared::WICK_GAP_PRESENT_BIT)
-            | (1u16 << tulip_rs_shared::WICK_GAP_DIRECTION_BIT);
-    }
 
     let expanded = quote! {
         // Keep the original function

@@ -1,6 +1,6 @@
 use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
-    common::{cdl_gap, cdl_real_in_body_position},
+    common::cdl_real_in_body_position,
     pattern_test::EmaState,
     types::{CandleInfo, ForcastType},
 };
@@ -84,13 +84,19 @@ pub fn compute_bits(
     _state: &EmaState,
     bars: &mut [CandleBits],
 ) {
-    let (open, _, _, close) = inputs;
-    if (bars[THIRD].lazy_computed & (1 << CandleBits::BODY_GAP_PRESENT_BIT)) == 0 {
-        let gap = cdl_gap::<true>((open[SECOND], close[SECOND]), (open[THIRD], close[THIRD]));
-        bars[THIRD].set_body_gap(gap);
+    let (open, high, low, close) = inputs;
+    let body_pos_mask =
+        (1u16 << CandleBits::OPEN_IN_PREV_BODY_BIT) | (1u16 << CandleBits::CLOSE_IN_PREV_BODY_BIT);
+    if (bars[THIRD].lazy_computed & body_pos_mask) != body_pos_mask {
+        bars[THIRD].apply_gap(
+            (open[SECOND], high[SECOND], low[SECOND], close[SECOND]),
+            (open[THIRD], high[THIRD], low[THIRD], close[THIRD]),
+        );
     }
-    if (bars[SECOND].lazy_computed & (1 << CandleBits::BODY_GAP_PRESENT_BIT)) == 0 {
-        let gap = cdl_gap::<true>((open[FIRST], close[FIRST]), (open[SECOND], close[SECOND]));
-        bars[SECOND].set_body_gap(gap);
+    if (bars[SECOND].lazy_computed & body_pos_mask) != body_pos_mask {
+        bars[SECOND].apply_gap(
+            (open[FIRST], high[FIRST], low[FIRST], close[FIRST]),
+            (open[SECOND], high[SECOND], low[SECOND], close[SECOND]),
+        );
     }
 }

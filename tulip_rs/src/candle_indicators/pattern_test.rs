@@ -1,6 +1,6 @@
 use crate::candle_indicators::candle_patterns::{CandlePattern, PATTERN_REGISTRY};
 use crate::candle_indicators::common::{
-    cdl_body_fill, cdl_colour, cdl_height, DOWN_TREND, UP_TREND, CandleShape
+    cdl_colour, CandleShape, DOWN_TREND, UP_TREND,
 };
 use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::types::CandleTypes;
@@ -55,27 +55,31 @@ impl PatternTest {
 
         let mut candle_shape = CandleShape::default();
         let colour = cdl_colour(close[current - 1], c);
-        let fill = cdl_body_fill(o, c);
         let candle_type = CandleTypes::get_type_fast(o, h, l, c, &mut candle_shape, state);
 
-        // Calculate line height (total line range vs EMA line average)
-        // This is a COMPULSORY bit - always computed
-        let line_height = cdl_height((h, l), state.ema_line);
 
         //DO NOT REMOVE USED FOR TESTING!!!!!
         /*if current >= 10 {
             println!("Bar {}: trend: {:?}, colour: {:?}, fill: {:?}, line_height: {:?}, candle_type: {:?}", current, trend, colour, fill, line_height, candle_type);
         }*/
 
-        // Create CandleBits with only compulsory attributes
-        // Lazy attributes (body_height, body_gap, wick_gap) will be computed on-demand
+        // Compute mandatory wick-vs-body bits using CandleShape (cached from classification)
+        // get_bottom/top_wick_length returns LONG (true) when wick >= body height
+        // so lower/upper_wick_lt_body is the negation
+        let lower_wick_lt_body = !candle_shape.get_bottom_wick_length(o, l, c);
+        let upper_wick_lt_body = !candle_shape.get_top_wick_length(o, h, c);
+
+        // Create CandleBits with all compulsory attributes
+        // Lazy position/engulf/wick-2x attributes are computed on-demand
         // when patterns actually need them
         self.bars.push(CandleBits::new(
             &candle_type,
             colour,
-            fill,
+            candle_shape.get_fill(o, c),
             trend,
-            line_height,
+            candle_shape.get_line_height(h, l, state),
+            lower_wick_lt_body,
+            upper_wick_lt_body,
         ));
     }
 }

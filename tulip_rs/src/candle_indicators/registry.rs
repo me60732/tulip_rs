@@ -39,16 +39,18 @@
 ///
 /// Or in manual PatternMask construction:
 /// ```ignore
+/// use crate::candle_indicators::common::{BODY_GAP_UP, BODY_GAP_DOWN, WICK_GAP_UP, WICK_GAP_DOWN};
 /// PatternMask::new()
 ///     .with_colour(GREEN)
-///     .with_body_gap(false)    // false = gap up, true = gap down
-///     .with_wick_gap(true)     // true = gap down
+///     .with_body_gap(BODY_GAP_UP)
+///     .with_wick_gap(WICK_GAP_DOWN)
 /// ```
 ///
 /// Gap types:
 /// - **Body Gap**: Current candle's body doesn't touch previous close
 /// - **Wick Gap**: No overlap at all between current and previous candle (complete gap)
 use crate::candle_indicators::candle_patterns::CandlePattern;
+use crate::candle_indicators::common::{BODY_GAP_UP, BODY_GAP_DOWN, WICK_GAP_UP, WICK_GAP_DOWN, NO_GAP, cdl_gap};
 use crate::candle_indicators::candle_types::{CDLBasic, CDLDoji, CDLMarubozu, CDLSpinningTop};
 use crate::candle_indicators::pattern_test::EmaState;
 use crate::candle_indicators::perf_stats::PERF_COUNTERS;
@@ -98,9 +100,13 @@ use serde::{Deserialize, Serialize};
 /// - Line height (bit 24)
 ///
 /// **Lazy bits** (computed on-demand, stored in `lazy_value` / tracked in `lazy_computed`):
-/// - Body height (lazy bit 0)
-/// - Body gap (lazy bits 1–2)
-/// - Wick gap (lazy bits 3–4)
+/// - Body height (bit 0)
+/// - Open position relative to prev body (bits 1–2)
+/// - Close position relative to prev body (bits 3–4)
+/// - High position relative to prev body/line (bits 5–7)
+/// - Low position relative to prev body/line (bits 8–10)
+/// - Engulf bits (bits 11–13)
+/// - Wick 2× bits (bits 14–15)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct CandleBits {
     pub mandatory: u32,     // Compulsory bits (always computed at bar creation)
@@ -120,12 +126,26 @@ impl CandleBits {
     pub const FILL_BIT: u32 = tulip_rs_shared::FILL_BIT;
     pub const TREND_BIT: u32 = tulip_rs_shared::TREND_BIT;
     pub const LINE_HEIGHT_BIT: u32 = tulip_rs_shared::LINE_HEIGHT_BIT;
+    // Mandatory wick vs body bit positions (bits 25–26)
+    pub const LOWER_WICK_LT_BODY_BIT: u32 = tulip_rs_shared::LOWER_WICK_LT_BODY_BIT;
+    pub const UPPER_WICK_LT_BODY_BIT: u32 = tulip_rs_shared::UPPER_WICK_LT_BODY_BIT;
     // Lazy bit positions (shift amounts into `lazy_value / lazy_computed: u16`)
     pub const BODY_HEIGHT_BIT: u32 = tulip_rs_shared::BODY_HEIGHT_BIT;
-    pub const BODY_GAP_PRESENT_BIT: u32 = tulip_rs_shared::BODY_GAP_PRESENT_BIT;
-    pub const BODY_GAP_DIRECTION_BIT: u32 = tulip_rs_shared::BODY_GAP_DIRECTION_BIT;
-    pub const WICK_GAP_PRESENT_BIT: u32 = tulip_rs_shared::WICK_GAP_PRESENT_BIT;
-    pub const WICK_GAP_DIRECTION_BIT: u32 = tulip_rs_shared::WICK_GAP_DIRECTION_BIT;
+    pub const OPEN_ABOVE_PREV_BODY_MID_BIT: u32 = tulip_rs_shared::OPEN_ABOVE_PREV_BODY_MID_BIT;
+    pub const OPEN_IN_PREV_BODY_BIT: u32 = tulip_rs_shared::OPEN_IN_PREV_BODY_BIT;
+    pub const CLOSE_ABOVE_PREV_BODY_MID_BIT: u32 = tulip_rs_shared::CLOSE_ABOVE_PREV_BODY_MID_BIT;
+    pub const CLOSE_IN_PREV_BODY_BIT: u32 = tulip_rs_shared::CLOSE_IN_PREV_BODY_BIT;
+    pub const HIGH_ABOVE_PREV_BODY_MID_BIT: u32 = tulip_rs_shared::HIGH_ABOVE_PREV_BODY_MID_BIT;
+    pub const HIGH_IN_PREV_BODY_BIT: u32 = tulip_rs_shared::HIGH_IN_PREV_BODY_BIT;
+    pub const HIGH_IN_PREV_LINE_BIT: u32 = tulip_rs_shared::HIGH_IN_PREV_LINE_BIT;
+    pub const LOW_ABOVE_PREV_BODY_MID_BIT: u32 = tulip_rs_shared::LOW_ABOVE_PREV_BODY_MID_BIT;
+    pub const LOW_IN_PREV_BODY_BIT: u32 = tulip_rs_shared::LOW_IN_PREV_BODY_BIT;
+    pub const LOW_IN_PREV_LINE_BIT: u32 = tulip_rs_shared::LOW_IN_PREV_LINE_BIT;
+    pub const I_ENGULF_PREV_BODY_BIT: u32 = tulip_rs_shared::I_ENGULF_PREV_BODY_BIT;
+    pub const PREV_HIGH_IN_MY_BODY_BIT: u32 = tulip_rs_shared::PREV_HIGH_IN_MY_BODY_BIT;
+    pub const PREV_LOW_IN_MY_BODY_BIT: u32 = tulip_rs_shared::PREV_LOW_IN_MY_BODY_BIT;
+    pub const LOWER_WICK_LONG_2X_BIT: u32 = tulip_rs_shared::LOWER_WICK_LONG_2X_BIT;
+    pub const UPPER_WICK_LONG_2X_BIT: u32 = tulip_rs_shared::UPPER_WICK_LONG_2X_BIT;
 
     // Re-export masks from tulip_rs_shared
     pub const BASIC_MASK: u32 = tulip_rs_shared::BASIC_MASK;
@@ -195,23 +215,43 @@ impl CandleBits {
     pub const BODY_HEIGHT_LONG: u16 = tulip_rs_shared::BODY_HEIGHT_LONG;
     pub const BODY_HEIGHT_SHORT: u16 = tulip_rs_shared::BODY_HEIGHT_SHORT;
 
-    // === Line Height (bit 24) ===
+    // === Line Height (mandatory bit 24) ===
     pub const LINE_HEIGHT_LONG: u32 = tulip_rs_shared::LINE_HEIGHT_LONG;
     pub const LINE_HEIGHT_SHORT: u32 = tulip_rs_shared::LINE_HEIGHT_SHORT;
 
-    // === Body Gap (lazy bits 1–2) ===
-    pub const BODY_GAP_PRESENT: u16 = tulip_rs_shared::BODY_GAP_PRESENT;
-    pub const BODY_GAP_UP: u16 = tulip_rs_shared::BODY_GAP_UP;
-    pub const BODY_GAP_DOWN: u16 = tulip_rs_shared::BODY_GAP_DOWN;
+    // === Wick vs Body (mandatory bits 25–26) ===
+    pub const LOWER_WICK_LT_BODY: u32 = tulip_rs_shared::LOWER_WICK_LT_BODY;
+    pub const UPPER_WICK_LT_BODY: u32 = tulip_rs_shared::UPPER_WICK_LT_BODY;
 
-    // === Wick Gap (lazy bits 3–4) ===
-    pub const WICK_GAP_PRESENT: u16 = tulip_rs_shared::WICK_GAP_PRESENT;
-    pub const WICK_GAP_UP: u16 = tulip_rs_shared::WICK_GAP_UP;
-    pub const WICK_GAP_DOWN: u16 = tulip_rs_shared::WICK_GAP_DOWN;
+    // === Open position (lazy bits 1–2) ===
+    pub const OPEN_ABOVE_PREV_BODY_MID: u16 = tulip_rs_shared::OPEN_ABOVE_PREV_BODY_MID;
+    pub const OPEN_IN_PREV_BODY: u16 = tulip_rs_shared::OPEN_IN_PREV_BODY;
 
-    /// Sets candle type, colour, fill, trend, and line_height immediately and
-    /// marks them as computed.  The lazy attributes (body_height, body_gap,
-    /// wick_gap) are left unset and computed on-demand via the `set_*` methods
+    // === Close position (lazy bits 3–4) ===
+    pub const CLOSE_ABOVE_PREV_BODY_MID: u16 = tulip_rs_shared::CLOSE_ABOVE_PREV_BODY_MID;
+    pub const CLOSE_IN_PREV_BODY: u16 = tulip_rs_shared::CLOSE_IN_PREV_BODY;
+
+    // === High position (lazy bits 5–7) ===
+    pub const HIGH_ABOVE_PREV_BODY_MID: u16 = tulip_rs_shared::HIGH_ABOVE_PREV_BODY_MID;
+    pub const HIGH_IN_PREV_BODY: u16 = tulip_rs_shared::HIGH_IN_PREV_BODY;
+    pub const HIGH_IN_PREV_LINE: u16 = tulip_rs_shared::HIGH_IN_PREV_LINE;
+
+    // === Low position (lazy bits 8–10) ===
+    pub const LOW_ABOVE_PREV_BODY_MID: u16 = tulip_rs_shared::LOW_ABOVE_PREV_BODY_MID;
+    pub const LOW_IN_PREV_BODY: u16 = tulip_rs_shared::LOW_IN_PREV_BODY;
+    pub const LOW_IN_PREV_LINE: u16 = tulip_rs_shared::LOW_IN_PREV_LINE;
+
+    // === Engulf bits (lazy bits 11–13) ===
+    pub const I_ENGULF_PREV_BODY: u16 = tulip_rs_shared::I_ENGULF_PREV_BODY;
+    pub const PREV_HIGH_IN_MY_BODY: u16 = tulip_rs_shared::PREV_HIGH_IN_MY_BODY;
+    pub const PREV_LOW_IN_MY_BODY: u16 = tulip_rs_shared::PREV_LOW_IN_MY_BODY;
+
+    // === Wick 2× bits (lazy bits 14–15) ===
+    pub const LOWER_WICK_LONG_2X: u16 = tulip_rs_shared::LOWER_WICK_LONG_2X;
+    pub const UPPER_WICK_LONG_2X: u16 = tulip_rs_shared::UPPER_WICK_LONG_2X;
+
+    /// Sets all compulsory bits immediately. Lazy position/engulf/wick-2x
+    /// attributes are left unset and computed on-demand via the `set_*` methods
     /// when a pattern actually requires them.
     ///
     /// Compulsory bits (stored in `mandatory: u32`):
@@ -220,6 +260,8 @@ impl CandleBits {
     /// - Fill (bit 22)
     /// - Trend (bit 23)
     /// - Line height (bit 24)
+    /// - Lower wick < body (bit 25)
+    /// - Upper wick < body (bit 26)
     #[inline(always)]
     pub fn new(
         candle_type: &CandleTypes,
@@ -227,6 +269,8 @@ impl CandleBits {
         fill: bool,
         trend: bool,
         line_height: bool,
+        lower_wick_lt_body: bool,
+        upper_wick_lt_body: bool,
     ) -> Self {
         let mut mandatory: u32 = 0;
 
@@ -272,13 +316,96 @@ impl CandleBits {
             mandatory |= 1u32 << Self::LINE_HEIGHT_BIT;
         }
 
+        // Set lower wick < body bit (mandatory bit 25)
+        if lower_wick_lt_body {
+            mandatory |= 1u32 << Self::LOWER_WICK_LT_BODY_BIT;
+        }
+
+        // Set upper wick < body bit (mandatory bit 26)
+        if upper_wick_lt_body {
+            mandatory |= 1u32 << Self::UPPER_WICK_LT_BODY_BIT;
+        }
+
         CandleBits {
             mandatory,
             lazy_value: 0,
             lazy_computed: 0,
         }
     }
+    pub fn apply_gap(&mut self, prev: (f64,f64,f64,f64), current: (f64,f64,f64,f64)) -> i8 {
+        let (prev_open, prev_high, prev_low, prev_close) = prev;
+        let (cur_open, cur_high, cur_low, cur_close) = current;
+        let gap = cdl_gap(prev, current);
+        self.set_gap(gap);
+        // Always mark high/low in-line bits — correct for all gap types
+        if gap != WICK_GAP_UP && gap != WICK_GAP_DOWN {
+            self.set_high_in_line(cur_high >= prev_low && cur_high <= prev_high);
+            self.set_low_in_line(cur_low >= prev_low && cur_low <= prev_high);
 
+            if gap == NO_GAP {
+                       // Bodies overlap: open/close body-position bits need first principles too
+                let prev_body_bot = prev_open.min(prev_close);
+                let prev_body_top = prev_open.max(prev_close);
+                let prev_mid      = (prev_body_bot + prev_body_top) / 2.0;
+                self.set_open_above_mid (cur_open  > prev_mid);
+                self.set_open_in_body  (cur_open  >= prev_body_bot && cur_open  <= prev_body_top);
+                self.set_close_above_mid(cur_close > prev_mid);
+                self.set_close_in_body  (cur_close >= prev_body_bot && cur_close <= prev_body_top);
+            }
+        }
+        gap
+    }
+    #[inline(always)]
+    fn set_gap(&mut self, gap: i8) {
+        match gap {
+            WICK_GAP_DOWN => {
+                self.set_high_above_mid(false);
+                self.set_low_above_mid(false);
+                self.set_high_in_body(false);
+                self.set_high_in_line(false);
+                self.set_low_in_body(false);
+                self.set_low_in_line(false);
+
+                self.set_open_above_mid(false);
+                self.set_open_in_body(false);
+                self.set_close_above_mid(false);
+                self.set_close_in_body(false);
+            }
+            BODY_GAP_DOWN => {
+                self.set_low_above_mid(false);                
+                self.set_low_in_body(false);
+                self.set_open_above_mid(false);
+                self.set_open_in_body(false);
+                self.set_close_above_mid(false);
+                self.set_close_in_body(false);
+            }
+            WICK_GAP_UP => {
+                self.set_high_above_mid(true);
+                self.set_low_above_mid(true);
+                self.set_high_in_body(false);
+                self.set_high_in_line(false);
+                self.set_low_in_body(false);
+                self.set_low_in_line(false);
+
+                self.set_open_above_mid(true);
+                self.set_open_in_body(false);
+                self.set_close_above_mid(true);
+                self.set_close_in_body(false);
+            }
+            BODY_GAP_UP => {
+                self.set_high_above_mid(true);
+                self.set_high_in_body(false);
+
+
+                self.set_open_above_mid(true);
+                self.set_open_in_body(false);
+                self.set_close_above_mid(true);
+                self.set_close_in_body(false);
+            }
+            
+            _ => {}
+        }
+    }
     /// Set the body height attribute (lazy evaluation)
     ///
     /// This marks the body height bit as computed. Call this method when you
@@ -296,64 +423,231 @@ impl CandleBits {
         self.lazy_computed |= 1u16 << Self::BODY_HEIGHT_BIT;
     }
 
-    /// Set the body gap attribute (lazy evaluation)
-    ///
-    /// This marks the body gap bits as computed. Call this method when you
-    /// have calculated whether there's a gap between the current body and
-    /// the previous close.
-    ///
-    /// # Arguments
-    /// * `gap` - None for no gap, Some(false) for gap up, Some(true) for gap down
+    // --- Granular open position setters ---
+    // Each sets exactly one bit and marks only that bit computed.
+    // Use these when you know only a subset of the open-position bits.
+    // Use set_open_position() when both are known.
+
+    /// Set whether the current bar's open is above the prev bar's body midpoint.
     #[inline(always)]
-    pub fn set_body_gap(&mut self, gap: Option<bool>) {
-        // Clear both gap bits first
-        self.lazy_value &=
-            !((1u16 << Self::BODY_GAP_PRESENT_BIT) | (1u16 << Self::BODY_GAP_DIRECTION_BIT));
-
-        if let Some(gap_up) = gap {
-            self.lazy_value |= 1u16 << Self::BODY_GAP_PRESENT_BIT; // Gap exists
-                                                                   // Note: gap_up = true means GAP_UP, gap_up = false means GAP_DOWN
-                                                                   // BODY_GAP_DIRECTION_BIT set means DOWN, unset means UP
-            if !gap_up {
-                // If gap is DOWN (false), set the direction bit
-                self.lazy_value |= 1u16 << Self::BODY_GAP_DIRECTION_BIT; // Gap down
-            }
-            // If gap_up is true (GAP_UP), direction bit stays unset
+    pub fn set_open_above_mid(&mut self, above_mid: bool) {
+        if above_mid {
+            self.lazy_value |= 1u16 << Self::OPEN_ABOVE_PREV_BODY_MID_BIT;
+        } else {
+            self.lazy_value &= !(1u16 << Self::OPEN_ABOVE_PREV_BODY_MID_BIT);
         }
-
-        // Mark both bits as computed
-        self.lazy_computed |=
-            (1u16 << Self::BODY_GAP_PRESENT_BIT) | (1u16 << Self::BODY_GAP_DIRECTION_BIT);
+        self.lazy_computed |= 1u16 << Self::OPEN_ABOVE_PREV_BODY_MID_BIT;
     }
 
-    /// Set the wick gap attribute (lazy evaluation)
-    ///
-    /// This marks the wick gap bits as computed. Call this method when you
-    /// have calculated whether there's a complete gap between the current and
-    /// previous candle wicks (no overlap at all).
+    /// Set whether the current bar's open is within the prev bar's body [BOT, TOP].
+    #[inline(always)]
+    pub fn set_open_in_body(&mut self, in_body: bool) {
+        if in_body {
+            self.lazy_value |= 1u16 << Self::OPEN_IN_PREV_BODY_BIT;
+        } else {
+            self.lazy_value &= !(1u16 << Self::OPEN_IN_PREV_BODY_BIT);
+        }
+        self.lazy_computed |= 1u16 << Self::OPEN_IN_PREV_BODY_BIT;
+    }
+
+    /// Set both open position bits at once. Use when both values are known.
+    /// Composes the two granular setters above.
     ///
     /// # Arguments
-    /// * `gap` - None for no gap, Some(false) for gap up, Some(true) for gap down
+    /// * `above_mid` - true if open is above prev body midpoint
+    /// * `in_body`   - true if open is within prev body [BOT, TOP]
     #[inline(always)]
-    pub fn set_wick_gap(&mut self, gap: Option<bool>) {
-        // Clear both gap bits first
-        self.lazy_value &=
-            !((1u16 << Self::WICK_GAP_PRESENT_BIT) | (1u16 << Self::WICK_GAP_DIRECTION_BIT));
+    pub fn set_open_position(&mut self, above_mid: bool, in_body: bool) {
+        self.set_open_above_mid(above_mid);
+        self.set_open_in_body(in_body);
+    }
 
-        if let Some(gap_up) = gap {
-            self.lazy_value |= 1u16 << Self::WICK_GAP_PRESENT_BIT; // Gap exists
-                                                                   // Note: gap_up = true means GAP_UP, gap_up = false means GAP_DOWN
-                                                                   // WICK_GAP_DIRECTION_BIT set means DOWN, unset means UP
-            if !gap_up {
-                // If gap is DOWN (false), set the direction bit
-                self.lazy_value |= 1u16 << Self::WICK_GAP_DIRECTION_BIT; // Gap down
-            }
-            // If gap_up is true (GAP_UP), direction bit stays unset
+    // --- Granular close position setters ---
+    // Each sets exactly one bit and marks only that bit computed.
+    // Use these when you know only a subset of the close-position bits.
+    // Use set_close_position() when both are known.
+
+    /// Set whether the current bar's close is above the prev bar's body midpoint.
+    #[inline(always)]
+    pub fn set_close_above_mid(&mut self, above_mid: bool) {
+        if above_mid {
+            self.lazy_value |= 1u16 << Self::CLOSE_ABOVE_PREV_BODY_MID_BIT;
+        } else {
+            self.lazy_value &= !(1u16 << Self::CLOSE_ABOVE_PREV_BODY_MID_BIT);
         }
+        self.lazy_computed |= 1u16 << Self::CLOSE_ABOVE_PREV_BODY_MID_BIT;
+    }
 
-        // Mark both bits as computed
-        self.lazy_computed |=
-            (1u16 << Self::WICK_GAP_PRESENT_BIT) | (1u16 << Self::WICK_GAP_DIRECTION_BIT);
+    /// Set whether the current bar's close is within the prev bar's body [BOT, TOP].
+    #[inline(always)]
+    pub fn set_close_in_body(&mut self, in_body: bool) {
+        if in_body {
+            self.lazy_value |= 1u16 << Self::CLOSE_IN_PREV_BODY_BIT;
+        } else {
+            self.lazy_value &= !(1u16 << Self::CLOSE_IN_PREV_BODY_BIT);
+        }
+        self.lazy_computed |= 1u16 << Self::CLOSE_IN_PREV_BODY_BIT;
+    }
+
+    /// Set both close position bits at once. Use when both values are known.
+    /// Composes the two granular setters above.
+    ///
+    /// # Arguments
+    /// * `above_mid` - true if close is above prev body midpoint
+    /// * `in_body`   - true if close is within prev body [BOT, TOP]
+    #[inline(always)]
+    pub fn set_close_position(&mut self, above_mid: bool, in_body: bool) {
+        self.set_close_above_mid(above_mid);
+        self.set_close_in_body(in_body);
+    }
+
+    // --- Granular high position setters ---
+    // Each sets exactly one bit and marks only that bit computed.
+    // Use these when you know only a subset of the high-position bits.
+    // Use set_high_position() when all three are known.
+
+    /// Set whether the current bar's high is above the prev bar's body midpoint.
+    #[inline(always)]
+    pub fn set_high_above_mid(&mut self, above_mid: bool) {
+        if above_mid {
+            self.lazy_value |= 1u16 << Self::HIGH_ABOVE_PREV_BODY_MID_BIT;
+        } else {
+            self.lazy_value &= !(1u16 << Self::HIGH_ABOVE_PREV_BODY_MID_BIT);
+        }
+        self.lazy_computed |= 1u16 << Self::HIGH_ABOVE_PREV_BODY_MID_BIT;
+    }
+
+    /// Set whether the current bar's high is within the prev bar's body [BOT, TOP].
+    #[inline(always)]
+    pub fn set_high_in_body(&mut self, in_body: bool) {
+        if in_body {
+            self.lazy_value |= 1u16 << Self::HIGH_IN_PREV_BODY_BIT;
+        } else {
+            self.lazy_value &= !(1u16 << Self::HIGH_IN_PREV_BODY_BIT);
+        }
+        self.lazy_computed |= 1u16 << Self::HIGH_IN_PREV_BODY_BIT;
+    }
+
+    /// Set whether the current bar's high is within the prev bar's full line [LOW, HIGH].
+    #[inline(always)]
+    pub fn set_high_in_line(&mut self, in_line: bool) {
+        if in_line {
+            self.lazy_value |= 1u16 << Self::HIGH_IN_PREV_LINE_BIT;
+        } else {
+            self.lazy_value &= !(1u16 << Self::HIGH_IN_PREV_LINE_BIT);
+        }
+        self.lazy_computed |= 1u16 << Self::HIGH_IN_PREV_LINE_BIT;
+    }
+
+    // --- Granular low position setters ---
+
+    /// Set whether the current bar's low is above the prev bar's body midpoint.
+    #[inline(always)]
+    pub fn set_low_above_mid(&mut self, above_mid: bool) {
+        if above_mid {
+            self.lazy_value |= 1u16 << Self::LOW_ABOVE_PREV_BODY_MID_BIT;
+        } else {
+            self.lazy_value &= !(1u16 << Self::LOW_ABOVE_PREV_BODY_MID_BIT);
+        }
+        self.lazy_computed |= 1u16 << Self::LOW_ABOVE_PREV_BODY_MID_BIT;
+    }
+
+    /// Set whether the current bar's low is within the prev bar's body [BOT, TOP].
+    #[inline(always)]
+    pub fn set_low_in_body(&mut self, in_body: bool) {
+        if in_body {
+            self.lazy_value |= 1u16 << Self::LOW_IN_PREV_BODY_BIT;
+        } else {
+            self.lazy_value &= !(1u16 << Self::LOW_IN_PREV_BODY_BIT);
+        }
+        self.lazy_computed |= 1u16 << Self::LOW_IN_PREV_BODY_BIT;
+    }
+
+    /// Set whether the current bar's low is within the prev bar's full line [LOW, HIGH].
+    #[inline(always)]
+    pub fn set_low_in_line(&mut self, in_line: bool) {
+        if in_line {
+            self.lazy_value |= 1u16 << Self::LOW_IN_PREV_LINE_BIT;
+        } else {
+            self.lazy_value &= !(1u16 << Self::LOW_IN_PREV_LINE_BIT);
+        }
+        self.lazy_computed |= 1u16 << Self::LOW_IN_PREV_LINE_BIT;
+    }
+
+    /// Set all three high position bits at once. Use when all values are known
+    /// (e.g. body_gap patterns that compute prev body bounds anyway).
+    /// Composes the three granular setters above.
+    #[inline(always)]
+    pub fn set_high_position(&mut self, above_mid: bool, in_body: bool, in_line: bool) {
+        self.set_high_above_mid(above_mid);
+        self.set_high_in_body(in_body);
+        self.set_high_in_line(in_line);
+    }
+
+    /// Set all three low position bits at once. Use when all values are known.
+    /// Composes the three granular setters above.
+    #[inline(always)]
+    pub fn set_low_position(&mut self, above_mid: bool, in_body: bool, in_line: bool) {
+        self.set_low_above_mid(above_mid);
+        self.set_low_in_body(in_body);
+        self.set_low_in_line(in_line);
+    }
+
+    /// Set whether my body engulfs prev bar's body (lazy evaluation)
+    ///
+    /// True means prev open AND prev close are both within my body range.
+    #[inline(always)]
+    pub fn set_engulfs_prev(&mut self, does_engulf: bool) {
+        if does_engulf {
+            self.lazy_value |= 1u16 << Self::I_ENGULF_PREV_BODY_BIT;
+        } else {
+            self.lazy_value &= !(1u16 << Self::I_ENGULF_PREV_BODY_BIT);
+        }
+        self.lazy_computed |= 1u16 << Self::I_ENGULF_PREV_BODY_BIT;
+    }
+
+    /// Set whether prev bar's high is within my body (lazy evaluation)
+    #[inline(always)]
+    pub fn set_prev_high_in_my_body(&mut self, is_in: bool) {
+        if is_in {
+            self.lazy_value |= 1u16 << Self::PREV_HIGH_IN_MY_BODY_BIT;
+        } else {
+            self.lazy_value &= !(1u16 << Self::PREV_HIGH_IN_MY_BODY_BIT);
+        }
+        self.lazy_computed |= 1u16 << Self::PREV_HIGH_IN_MY_BODY_BIT;
+    }
+
+    /// Set whether prev bar's low is within my body (lazy evaluation)
+    #[inline(always)]
+    pub fn set_prev_low_in_my_body(&mut self, is_in: bool) {
+        if is_in {
+            self.lazy_value |= 1u16 << Self::PREV_LOW_IN_MY_BODY_BIT;
+        } else {
+            self.lazy_value &= !(1u16 << Self::PREV_LOW_IN_MY_BODY_BIT);
+        }
+        self.lazy_computed |= 1u16 << Self::PREV_LOW_IN_MY_BODY_BIT;
+    }
+
+    /// Set the lower wick ≥ 2× body height bit (lazy evaluation)
+    #[inline(always)]
+    pub fn set_lower_wick_2x(&mut self, is_2x: bool) {
+        if is_2x {
+            self.lazy_value |= 1u16 << Self::LOWER_WICK_LONG_2X_BIT;
+        } else {
+            self.lazy_value &= !(1u16 << Self::LOWER_WICK_LONG_2X_BIT);
+        }
+        self.lazy_computed |= 1u16 << Self::LOWER_WICK_LONG_2X_BIT;
+    }
+
+    /// Set the upper wick ≥ 2× body height bit (lazy evaluation)
+    #[inline(always)]
+    pub fn set_upper_wick_2x(&mut self, is_2x: bool) {
+        if is_2x {
+            self.lazy_value |= 1u16 << Self::UPPER_WICK_LONG_2X_BIT;
+        } else {
+            self.lazy_value &= !(1u16 << Self::UPPER_WICK_LONG_2X_BIT);
+        }
+        self.lazy_computed |= 1u16 << Self::UPPER_WICK_LONG_2X_BIT;
     }
 
     /// Create a wildcard (all bits set to match any value)
@@ -474,42 +768,16 @@ impl CandleBits {
         }
     }
 
-    /// Get the body gap information
-    ///
-    /// Returns:
-    /// - `None` if there is no body gap with the previous candle
-    /// - `Some(common::GAP_UP)` (false) if there is a gap up
-    /// - `Some(common::GAP_DOWN)` (true) if there is a gap down
+    /// Returns true if the lower wick height is less than the body height (mandatory bit 25).
     #[inline(always)]
-    pub fn get_body_gap(&self) -> Option<bool> {
-        use crate::candle_indicators::common::{GAP_DOWN, GAP_UP};
-        let gap_present = self.lazy_value & Self::BODY_GAP_PRESENT != 0;
-        if gap_present {
-            // Check the direction bit
-            let gap_down = self.lazy_value & (1u16 << Self::BODY_GAP_DIRECTION_BIT) != 0;
-            Some(if gap_down { GAP_DOWN } else { GAP_UP })
-        } else {
-            None
-        }
+    pub fn get_lower_wick_lt_body(&self) -> bool {
+        self.mandatory & Self::LOWER_WICK_LT_BODY != 0
     }
 
-    /// Get the wick gap information
-    ///
-    /// Returns:
-    /// - `None` if there is no wick gap with the previous candle
-    /// - `Some(common::GAP_UP)` (false) if there is a gap up between wicks
-    /// - `Some(common::GAP_DOWN)` (true) if there is a gap down between wicks
+    /// Returns true if the upper wick height is less than the body height (mandatory bit 26).
     #[inline(always)]
-    pub fn get_wick_gap(&self) -> Option<bool> {
-        use crate::candle_indicators::common::{GAP_DOWN, GAP_UP};
-        let gap_present = self.lazy_value & Self::WICK_GAP_PRESENT != 0;
-        if gap_present {
-            // Check the direction bit
-            let gap_down = self.lazy_value & (1u16 << Self::WICK_GAP_DIRECTION_BIT) != 0;
-            Some(if gap_down { GAP_DOWN } else { GAP_UP })
-        } else {
-            None
-        }
+    pub fn get_upper_wick_lt_body(&self) -> bool {
+        self.mandatory & Self::UPPER_WICK_LT_BODY != 0
     }
 
     /// Check if this matches the given mask pattern
@@ -893,32 +1161,224 @@ impl PatternMask {
         self
     }
 
-    /// Builder: Set body gap requirement (gap_up=false, gap_down=true)
-    /// Body gap means current candle's body doesn't touch previous close
-    pub const fn with_body_gap(mut self, gap_down: bool) -> Self {
-        // Set both bits in mask (we care about presence AND direction)
-        self.lazy_mask |= (1u16 << CandleBits::BODY_GAP_PRESENT_BIT)
-            | (1u16 << CandleBits::BODY_GAP_DIRECTION_BIT);
-        // Set present bit in value (we require a gap to exist)
-        self.lazy_value |= 1u16 << CandleBits::BODY_GAP_PRESENT_BIT;
-        // Set direction bit if gap down
-        if gap_down {
-            self.lazy_value |= 1u16 << CandleBits::BODY_GAP_DIRECTION_BIT;
+    /// Builder: Require lower wick < body height (mandatory bit 25)
+    pub const fn with_lower_wick_lt_body(mut self, is_lt: bool) -> Self {
+        self.mandatory_mask |= 1u32 << CandleBits::LOWER_WICK_LT_BODY_BIT;
+        if is_lt {
+            self.mandatory_value |= 1u32 << CandleBits::LOWER_WICK_LT_BODY_BIT;
         }
         self
     }
 
-    /// Builder: Set wick gap requirement (gap_up=false, gap_down=true)
-    /// Wick gap means no overlap at all between current and previous candle
-    pub const fn with_wick_gap(mut self, gap_down: bool) -> Self {
-        // Set both bits in mask (we care about presence AND direction)
-        self.lazy_mask |= (1u16 << CandleBits::WICK_GAP_PRESENT_BIT)
-            | (1u16 << CandleBits::WICK_GAP_DIRECTION_BIT);
-        // Set present bit in value (we require a gap to exist)
-        self.lazy_value |= 1u16 << CandleBits::WICK_GAP_PRESENT_BIT;
-        // Set direction bit if gap down
-        if gap_down {
-            self.lazy_value |= 1u16 << CandleBits::WICK_GAP_DIRECTION_BIT;
+    /// Builder: Require upper wick < body height (mandatory bit 26)
+    pub const fn with_upper_wick_lt_body(mut self, is_lt: bool) -> Self {
+        self.mandatory_mask |= 1u32 << CandleBits::UPPER_WICK_LT_BODY_BIT;
+        if is_lt {
+            self.mandatory_value |= 1u32 << CandleBits::UPPER_WICK_LT_BODY_BIT;
+        }
+        self
+    }
+
+    /// Builder: Set body gap requirement using position bits.
+    ///
+    /// `gap` must be one of:
+    /// - `BODY_GAP_UP`  (1)  — open and close are both above prev body
+    ///   (OPEN/CLOSE not in prev body, OPEN/CLOSE above prev body midpoint)
+    /// - `BODY_GAP_DOWN` (-1) — open and close are both below prev body
+    ///   (OPEN/CLOSE not in prev body, OPEN/CLOSE below prev body midpoint)
+    pub const fn with_body_gap(mut self, gap: i8) -> Self {
+        // Require OPEN_IN_PREV_BODY = 0 and CLOSE_IN_PREV_BODY = 0 (gap means not in body)
+        // Require OPEN_ABOVE and CLOSE_ABOVE to match the direction
+        self.lazy_mask |= (1u16 << CandleBits::OPEN_IN_PREV_BODY_BIT)
+            | (1u16 << CandleBits::CLOSE_IN_PREV_BODY_BIT)
+            | (1u16 << CandleBits::OPEN_ABOVE_PREV_BODY_MID_BIT)
+            | (1u16 << CandleBits::CLOSE_ABOVE_PREV_BODY_MID_BIT);
+        // IN_PREV_BODY bits must be 0 (anti-mask) — clear them in value
+        self.lazy_value &= !((1u16 << CandleBits::OPEN_IN_PREV_BODY_BIT)
+            | (1u16 << CandleBits::CLOSE_IN_PREV_BODY_BIT));
+        if gap > 0 {
+            // BODY_GAP_UP: open and close are above prev body
+            self.lazy_value |= (1u16 << CandleBits::OPEN_ABOVE_PREV_BODY_MID_BIT)
+                | (1u16 << CandleBits::CLOSE_ABOVE_PREV_BODY_MID_BIT);
+        } else {
+            // BODY_GAP_DOWN: open and close are below prev body (anti-mask)
+            self.lazy_value &= !((1u16 << CandleBits::OPEN_ABOVE_PREV_BODY_MID_BIT)
+                | (1u16 << CandleBits::CLOSE_ABOVE_PREV_BODY_MID_BIT));
+        }
+        self
+    }
+
+    /// Builder: Set wick gap requirement using position bits.
+    ///
+    /// `gap` must be one of:
+    /// - `WICK_GAP_UP`   (2)  — entire candle is above prev full range (my low > prev high)
+    /// - `WICK_GAP_DOWN` (-2) — entire candle is below prev full range (my high < prev low)
+    pub const fn with_wick_gap(mut self, gap: i8) -> Self {
+        // HIGH_IN_PREV_LINE and LOW_IN_PREV_LINE must be 0 (no overlap with prev line)
+        // HIGH_ABOVE and LOW_ABOVE indicate direction
+        self.lazy_mask |= (1u16 << CandleBits::HIGH_IN_PREV_LINE_BIT)
+            | (1u16 << CandleBits::LOW_IN_PREV_LINE_BIT)
+            | (1u16 << CandleBits::HIGH_ABOVE_PREV_BODY_MID_BIT)
+            | (1u16 << CandleBits::LOW_ABOVE_PREV_BODY_MID_BIT);
+        // IN_PREV_LINE bits must be 0 (anti-mask)
+        self.lazy_value &= !((1u16 << CandleBits::HIGH_IN_PREV_LINE_BIT)
+            | (1u16 << CandleBits::LOW_IN_PREV_LINE_BIT));
+        if gap > 0 {
+            // WICK_GAP_UP: high and low are above prev range
+            self.lazy_value |= (1u16 << CandleBits::HIGH_ABOVE_PREV_BODY_MID_BIT)
+                | (1u16 << CandleBits::LOW_ABOVE_PREV_BODY_MID_BIT);
+        } else {
+            // WICK_GAP_DOWN: high and low are below prev range (anti-mask)
+            self.lazy_value &= !((1u16 << CandleBits::HIGH_ABOVE_PREV_BODY_MID_BIT)
+                | (1u16 << CandleBits::LOW_ABOVE_PREV_BODY_MID_BIT));
+        }
+        self
+    }
+
+    /// Builder: Require open above prev body midpoint (lazy bit 1)
+    pub const fn with_open_above_prev_mid(mut self, is_above: bool) -> Self {
+        self.lazy_mask |= 1u16 << CandleBits::OPEN_ABOVE_PREV_BODY_MID_BIT;
+        if is_above {
+            self.lazy_value |= 1u16 << CandleBits::OPEN_ABOVE_PREV_BODY_MID_BIT;
+        }
+        self
+    }
+
+    /// Builder: Require open within prev body (lazy bit 2)
+    pub const fn with_open_in_prev_body(mut self, is_in: bool) -> Self {
+        self.lazy_mask |= 1u16 << CandleBits::OPEN_IN_PREV_BODY_BIT;
+        if is_in {
+            self.lazy_value |= 1u16 << CandleBits::OPEN_IN_PREV_BODY_BIT;
+        }
+        self
+    }
+
+    /// Builder: Require close above prev body midpoint (lazy bit 3)
+    pub const fn with_close_above_prev_mid(mut self, is_above: bool) -> Self {
+        self.lazy_mask |= 1u16 << CandleBits::CLOSE_ABOVE_PREV_BODY_MID_BIT;
+        if is_above {
+            self.lazy_value |= 1u16 << CandleBits::CLOSE_ABOVE_PREV_BODY_MID_BIT;
+        }
+        self
+    }
+
+    /// Builder: Require close within prev body (lazy bit 4)
+    pub const fn with_close_in_prev_body(mut self, is_in: bool) -> Self {
+        self.lazy_mask |= 1u16 << CandleBits::CLOSE_IN_PREV_BODY_BIT;
+        if is_in {
+            self.lazy_value |= 1u16 << CandleBits::CLOSE_IN_PREV_BODY_BIT;
+        }
+        self
+    }
+
+    /// Builder: Require high above prev body midpoint (lazy bit 5)
+    pub const fn with_high_above_prev_mid(mut self, is_above: bool) -> Self {
+        self.lazy_mask |= 1u16 << CandleBits::HIGH_ABOVE_PREV_BODY_MID_BIT;
+        if is_above {
+            self.lazy_value |= 1u16 << CandleBits::HIGH_ABOVE_PREV_BODY_MID_BIT;
+        }
+        self
+    }
+
+    /// Builder: Require high within prev body (lazy bit 6)
+    pub const fn with_high_in_prev_body(mut self, is_in: bool) -> Self {
+        self.lazy_mask |= 1u16 << CandleBits::HIGH_IN_PREV_BODY_BIT;
+        if is_in {
+            self.lazy_value |= 1u16 << CandleBits::HIGH_IN_PREV_BODY_BIT;
+        }
+        self
+    }
+
+    /// Builder: Require high within prev full line [prev LOW, prev HIGH] (lazy bit 7)
+    pub const fn with_high_in_prev_line(mut self, is_in: bool) -> Self {
+        self.lazy_mask |= 1u16 << CandleBits::HIGH_IN_PREV_LINE_BIT;
+        if is_in {
+            self.lazy_value |= 1u16 << CandleBits::HIGH_IN_PREV_LINE_BIT;
+        }
+        self
+    }
+
+    /// Builder: Require low above prev body midpoint (lazy bit 8)
+    pub const fn with_low_above_prev_mid(mut self, is_above: bool) -> Self {
+        self.lazy_mask |= 1u16 << CandleBits::LOW_ABOVE_PREV_BODY_MID_BIT;
+        if is_above {
+            self.lazy_value |= 1u16 << CandleBits::LOW_ABOVE_PREV_BODY_MID_BIT;
+        }
+        self
+    }
+
+    /// Builder: Require low within prev body (lazy bit 9)
+    pub const fn with_low_in_prev_body(mut self, is_in: bool) -> Self {
+        self.lazy_mask |= 1u16 << CandleBits::LOW_IN_PREV_BODY_BIT;
+        if is_in {
+            self.lazy_value |= 1u16 << CandleBits::LOW_IN_PREV_BODY_BIT;
+        }
+        self
+    }
+
+    /// Builder: Require low within prev full line [prev LOW, prev HIGH] (lazy bit 10)
+    pub const fn with_low_in_prev_line(mut self, is_in: bool) -> Self {
+        self.lazy_mask |= 1u16 << CandleBits::LOW_IN_PREV_LINE_BIT;
+        if is_in {
+            self.lazy_value |= 1u16 << CandleBits::LOW_IN_PREV_LINE_BIT;
+        }
+        self
+    }
+
+    /// Builder: Require my body engulfs prev body — both prev open and prev close
+    /// are within my body range (lazy bit 11)
+    pub const fn with_engulfs_prev(mut self, does_engulf: bool) -> Self {
+        self.lazy_mask |= 1u16 << CandleBits::I_ENGULF_PREV_BODY_BIT;
+        if does_engulf {
+            self.lazy_value |= 1u16 << CandleBits::I_ENGULF_PREV_BODY_BIT;
+        }
+        self
+    }
+
+    /// Builder: Require prev bar's high AND low are both within my body —
+    /// my body fully contains the previous bar's full range (lazy bits 12–13)
+    pub const fn with_prev_in_my_body(mut self, engulfs: bool) -> Self {
+        self.lazy_mask |= (1u16 << CandleBits::PREV_HIGH_IN_MY_BODY_BIT)
+            | (1u16 << CandleBits::PREV_LOW_IN_MY_BODY_BIT);
+        if engulfs {
+            self.lazy_value |= (1u16 << CandleBits::PREV_HIGH_IN_MY_BODY_BIT)
+                | (1u16 << CandleBits::PREV_LOW_IN_MY_BODY_BIT);
+        }
+        self
+    }
+
+    /// Builder: Require prev bar's high is within my body (lazy bit 12)
+    pub const fn with_prev_high_in_my_body(mut self, is_in: bool) -> Self {
+        self.lazy_mask |= 1u16 << CandleBits::PREV_HIGH_IN_MY_BODY_BIT;
+        if is_in {
+            self.lazy_value |= 1u16 << CandleBits::PREV_HIGH_IN_MY_BODY_BIT;
+        }
+        self
+    }
+
+    /// Builder: Require prev bar's low is within my body (lazy bit 13)
+    pub const fn with_prev_low_in_my_body(mut self, is_in: bool) -> Self {
+        self.lazy_mask |= 1u16 << CandleBits::PREV_LOW_IN_MY_BODY_BIT;
+        if is_in {
+            self.lazy_value |= 1u16 << CandleBits::PREV_LOW_IN_MY_BODY_BIT;
+        }
+        self
+    }
+
+    /// Builder: Require lower wick ≥ 2× body height (lazy bit 14)
+    pub const fn with_lower_wick_2x(mut self, is_2x: bool) -> Self {
+        self.lazy_mask |= 1u16 << CandleBits::LOWER_WICK_LONG_2X_BIT;
+        if is_2x {
+            self.lazy_value |= 1u16 << CandleBits::LOWER_WICK_LONG_2X_BIT;
+        }
+        self
+    }
+
+    /// Builder: Require upper wick ≥ 2× body height (lazy bit 15)
+    pub const fn with_upper_wick_2x(mut self, is_2x: bool) -> Self {
+        self.lazy_mask |= 1u16 << CandleBits::UPPER_WICK_LONG_2X_BIT;
+        if is_2x {
+            self.lazy_value |= 1u16 << CandleBits::UPPER_WICK_LONG_2X_BIT;
         }
         self
     }

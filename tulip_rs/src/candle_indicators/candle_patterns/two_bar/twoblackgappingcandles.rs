@@ -2,12 +2,10 @@ use crate::candle_indicators::{
     pattern_test::EmaState,
     registry::CandleBits,
     types::{CandleInfo, ForcastType},
-    common::cdl_gap
 };
 use tulip_rs_macros::pattern_template;
 
-use super::{PREV, FIRST, SECOND};
-
+use super::{FIRST, PREV, SECOND};
 
 pub fn info() -> CandleInfo {
     CandleInfo {
@@ -84,11 +82,15 @@ pub fn compute_bits(
     _state: &EmaState,
     bars: &mut [CandleBits],
 ) {
-    let (open, _, _, close) = inputs;
+    let (open, high, low, close) = inputs;
     let first_bar = &mut bars[FIRST];
 
-    if (first_bar.lazy_computed & (1 << CandleBits::BODY_GAP_PRESENT_BIT)) == 0 {
-        let gap = cdl_gap::<true>((open[PREV], close[PREV]), (open[FIRST], close[FIRST]));
-        first_bar.set_body_gap(gap);
+    let body_pos_mask =
+        (1u16 << CandleBits::OPEN_IN_PREV_BODY_BIT) | (1u16 << CandleBits::CLOSE_IN_PREV_BODY_BIT);
+    if (first_bar.lazy_computed & body_pos_mask) != body_pos_mask {
+        first_bar.apply_gap(
+            (open[PREV], high[PREV], low[PREV], close[PREV]),
+            (open[FIRST], high[FIRST], low[FIRST], close[FIRST]),
+        );
     }
 }

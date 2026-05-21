@@ -9,7 +9,6 @@
 ///    the high price at the level or below of the trendline
 ///    length of the shadows is not important
 use crate::candle_indicators::{
-    common::cdl_gap,
     pattern_test::EmaState,
     registry::CandleBits,
     types::{CandleInfo, ForcastType},
@@ -45,13 +44,8 @@ pub fn calc(
     state: &EmaState,
     _bars: &[CandleBits],
 ) -> bool {
-
     let (_, high, low, _) = inputs;
 
-    // Test that apply regardless of previous candle type
-    if !(high[FIRST] > low[PREV]) {
-        return false;
-    }
     if !(high[FIRST] <= state.ema) {
         return false;
     }
@@ -65,12 +59,15 @@ pub fn compute_bits(
     _state: &EmaState,
     bars: &mut [CandleBits],
 ) {
-    let (open, _, _, close) = inputs;
+    let (open, high, low, close) = inputs;
 
     let first_bar = &mut bars[1];
-    // Ensure body_gap is computed (needed by pattern template filter)
-    if (first_bar.lazy_computed & (1 << CandleBits::BODY_GAP_PRESENT_BIT)) == 0 {
-        let gap = cdl_gap::<true>((open[PREV], close[PREV]), (open[FIRST], close[FIRST]));
-        first_bar.set_body_gap(gap);
+    let body_pos_mask =
+        (1u16 << CandleBits::OPEN_IN_PREV_BODY_BIT) | (1u16 << CandleBits::CLOSE_IN_PREV_BODY_BIT);
+    if (first_bar.lazy_computed & body_pos_mask) != body_pos_mask {
+        first_bar.apply_gap(
+            (open[PREV], high[PREV], low[PREV], close[PREV]),
+            (open[FIRST], high[FIRST], low[FIRST], close[FIRST]),
+        );
     }
 }

@@ -1,13 +1,12 @@
+use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
-    common::{cdl_real_within_body, cdl_gap},
+    common::cdl_real_within_body,
     pattern_test::EmaState,
     types::{CandleInfo, ForcastType},
 };
-use crate::candle_indicators::registry::CandleBits;
 use tulip_rs_macros::pattern_template;
 
 use super::{FIRST, SECOND, THIRD};
-
 
 pub fn info() -> CandleInfo {
     CandleInfo {
@@ -24,9 +23,9 @@ pub fn info() -> CandleInfo {
     name = "UpsideTasukiGap",
     forecast = "BullishContinuation",
     prev_bar(trend = "UP"),
-    bar( 
+    bar(
         colour = "GREEN"
-        fill = "HALLOW", 
+        fill = "HALLOW",
         line_height = "LONG",
     ),
     bar(
@@ -44,7 +43,7 @@ pub fn info() -> CandleInfo {
 pub fn calc(
     inputs: (&[f64], &[f64], &[f64], &[f64]),
     _state: &EmaState,
-    _bars: &[CandleBits]
+    _bars: &[CandleBits],
 ) -> bool {
     // Basic pattern matching is already done by registry:
     // - Trend is uptrend
@@ -57,7 +56,9 @@ pub fn calc(
     let (open, _, _, close) = inputs;
     // === Additional Constraints Beyond Basic Pattern Match ===
 
-    if !cdl_real_within_body((open[SECOND], close[SECOND]), open[THIRD]) { return false }
+    if !cdl_real_within_body((open[SECOND], close[SECOND]), open[THIRD]) {
+        return false;
+    }
 
     if !(close[THIRD] > close[FIRST]) {
         return false;
@@ -72,11 +73,13 @@ pub fn compute_bits(
     _state: &EmaState,
     bars: &mut [CandleBits],
 ) {
-    let (_, high, low, _) = inputs;
-    let second_bar = &mut bars[2];
-    
-    if (second_bar.lazy_computed & (1 << CandleBits::WICK_GAP_PRESENT_BIT)) == 0 {
-        let gap = cdl_gap::<false>((high[FIRST], low[FIRST]), (high[SECOND], low[SECOND]));
-        second_bar.set_wick_gap(gap);
+    let (open, high, low, close) = inputs;
+    let bar = &mut bars[2];
+
+    if (bar.lazy_computed & (1u16 << CandleBits::LOW_IN_PREV_LINE_BIT)) == 0 {
+        bar.apply_gap(
+            (open[FIRST], high[FIRST], low[FIRST], close[FIRST]),
+            (open[SECOND], high[SECOND], low[SECOND], close[SECOND]),
+        );
     }
 }

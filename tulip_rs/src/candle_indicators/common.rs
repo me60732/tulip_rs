@@ -12,8 +12,12 @@ pub const NO_WICK: i8 = 0;
 pub const BOTH_WICK: i8 = 2;
 pub const UP_TREND: bool = true;
 pub const DOWN_TREND: bool = false;
-pub const GAP_UP: bool = true;
-pub const GAP_DOWN: bool = false;
+
+pub const NO_GAP: i8 = tulip_rs_shared::NO_GAP;
+pub const BODY_GAP_UP: i8 = tulip_rs_shared::BODY_GAP_UP;
+pub const BODY_GAP_DOWN: i8 = tulip_rs_shared::BODY_GAP_DOWN;
+pub const WICK_GAP_UP: i8 = tulip_rs_shared::WICK_GAP_UP;
+pub const WICK_GAP_DOWN: i8 = tulip_rs_shared::WICK_GAP_DOWN;
 
 //min_long_cdl_height,
 pub const MIN_LONG_CDL_HEIGHT: f64 = 0.7; //70%
@@ -35,7 +39,7 @@ impl CandleShape {
             wick: None,
             top_wick_length: None,
             bottom_wick_length: None,
-            line_height: None
+            line_height: None,
         }
     }
     #[inline(always)]
@@ -136,35 +140,46 @@ pub(crate) fn cdl_height(body: (f64, f64), avg_range: f64) -> bool {
         SHORT
     }
 }
+/// Detect the gap type between two candles.
+///
+/// Checks for a wick gap first (entire current candle outside prev wick range),
+/// then falls back to a body-only gap (current body outside prev body range).
+///
+/// # Arguments
+/// * `prev`    - `(open, high, low, close)` of the previous candle
+/// * `current` - `(open, high, low, close)` of the current candle
+///
+/// # Returns
+/// * `WICK_GAP_UP`   ( 2) — current candle entirely above prev wick range
+/// * `BODY_GAP_UP`   ( 1) — current body above prev body; wicks still overlap
+/// * `NO_GAP`        ( 0) — bodies overlap
+/// * `BODY_GAP_DOWN` (-1) — current body below prev body; wicks still overlap
+/// * `WICK_GAP_DOWN` (-2) — current candle entirely below prev wick range
 #[inline(always)]
-pub fn cdl_gap<const BODY_GAP: bool>(
-    prev_candle: (f64, f64),
-    current_candle: (f64, f64),
-) -> Option<bool> {
-    let prev_top;
-    let prev_bottom;
-    let top;
-    let bottom;
+pub fn cdl_gap(prev: (f64, f64, f64, f64), current: (f64, f64, f64, f64)) -> i8 {
+    let (prev_open, prev_high, prev_low, prev_close) = prev;
+    let (cur_open, cur_high, cur_low, cur_close) = current;
 
-    if BODY_GAP {
-        prev_top = prev_candle.0.max(prev_candle.1);
-        prev_bottom = prev_candle.0.min(prev_candle.1);
-        top = current_candle.0.max(current_candle.1);
-        bottom = current_candle.0.min(current_candle.1);
-    } else {
-        prev_top = prev_candle.0;
-        prev_bottom = prev_candle.1;
-        top = current_candle.0;
-        bottom = current_candle.1;
+    // Wick gap: the entire current candle is outside the prev wick range.
+    if cur_low >= prev_high {
+        return WICK_GAP_UP;
+    } else if cur_high <= prev_low {
+        return WICK_GAP_DOWN;
     }
 
-    if bottom >= prev_top {
-        return Some(GAP_UP);
-    } else if top <= prev_bottom {
-        return Some(GAP_DOWN);
+    // Body gap: current body is outside the prev body range (wicks still overlap).
+    let prev_body_top = prev_open.max(prev_close);
+    let prev_body_bot = prev_open.min(prev_close);
+    let cur_body_bot = cur_open.min(cur_close);
+    let cur_body_top = cur_open.max(cur_close);
+
+    if cur_body_bot >= prev_body_top {
+        return BODY_GAP_UP;
+    } else if cur_body_top <= prev_body_bot {
+        return BODY_GAP_DOWN;
     }
 
-    None
+    NO_GAP
 }
 #[inline(always)]
 pub fn cdl_similar_height(body1: (f64, f64), body2: (f64, f64), tolerance: Option<f64>) -> bool {

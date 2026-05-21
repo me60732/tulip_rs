@@ -1,11 +1,11 @@
+use super::{FIRST, FOURTH, SECOND, THIRD};
+use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
-    common::{cdl_real_within_body, cdl_bar_engulf_bar, cdl_gap},
+    common::{cdl_bar_engulf_bar, cdl_real_within_body},
     pattern_test::EmaState,
     types::{CandleInfo, ForcastType},
 };
-use crate::candle_indicators::registry::CandleBits;
 use tulip_rs_macros::pattern_template;
-use super::{FIRST, SECOND, THIRD, FOURTH};
 
 pub fn info() -> CandleInfo {
     CandleInfo {
@@ -68,12 +68,15 @@ pub fn compute_bits(
     _state: &EmaState,
     bars: &mut [CandleBits],
 ) {
-    let (open, _, _, close) = inputs;
+    let (open, high, low, close) = inputs;
 
     let third_bar = &mut bars[3];
-    
-    if (third_bar.lazy_computed & (1 << CandleBits::BODY_GAP_PRESENT_BIT)) == 0 {
-        let gap = cdl_gap::<true>((open[SECOND], close[SECOND]), (open[THIRD], close[THIRD]));
-        third_bar.set_body_gap(gap);
+    let body_pos_mask =
+        (1u16 << CandleBits::OPEN_IN_PREV_BODY_BIT) | (1u16 << CandleBits::CLOSE_IN_PREV_BODY_BIT);
+    if (third_bar.lazy_computed & body_pos_mask) != body_pos_mask {
+        third_bar.apply_gap(
+            (open[SECOND], high[SECOND], low[SECOND], close[SECOND]),
+            (open[THIRD], high[THIRD], low[THIRD], close[THIRD]),
+        );
     }
 }

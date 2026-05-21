@@ -1,13 +1,12 @@
+use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
-    common::{cdl_bar_engulf_bar, cdl_wick_length, LONG, cdl_gap},
+    common::{cdl_bar_engulf_bar, cdl_wick_length, LONG},
     pattern_test::EmaState,
     types::{CandleInfo, ForcastType},
 };
-use crate::candle_indicators::registry::CandleBits;
 use tulip_rs_macros::pattern_template;
 
 use super::{FIRST, SECOND, THIRD};
-
 
 pub fn info() -> CandleInfo {
     CandleInfo {
@@ -24,9 +23,9 @@ pub fn info() -> CandleInfo {
     name = "UniqueThreeRiverBottom",
     forecast = "BullishReversal",
     prev_bar(trend = "DOWN"),
-    bar( 
+    bar(
         colour = "RED"
-        fill = "FILL", 
+        fill = "FILL",
         line_height = "LONG",
     ),
     bar(
@@ -55,7 +54,6 @@ pub fn calc(
     //
     // This function ONLY checks relational constraints between bars
 
-    
     let (open, _, low, close) = inputs;
 
     // === Additional Constraints Beyond Basic Pattern Match ===
@@ -69,7 +67,7 @@ pub fn calc(
     if !(low[SECOND] < low[FIRST]) || !(low[THIRD] > low[SECOND]) {
         return false;
     }
-    
+
     // All conditions met
     true
 }
@@ -80,11 +78,15 @@ pub fn compute_bits(
     _state: &EmaState,
     bars: &mut [CandleBits],
 ) {
-    let (open, _, _, close) = inputs;
+    let (open, high, low, close) = inputs;
     let third_bar = &mut bars[THIRD];
 
-    if (third_bar.lazy_computed & (1 << CandleBits::BODY_GAP_PRESENT_BIT)) == 0 {
-        let gap = cdl_gap::<true>((open[SECOND], close[SECOND]), (open[THIRD], close[THIRD]));
-        third_bar.set_body_gap(gap);
+    let body_pos_mask =
+        (1u16 << CandleBits::OPEN_IN_PREV_BODY_BIT) | (1u16 << CandleBits::CLOSE_IN_PREV_BODY_BIT);
+    if (third_bar.lazy_computed & body_pos_mask) != body_pos_mask {
+        third_bar.apply_gap(
+            (open[SECOND], high[SECOND], low[SECOND], close[SECOND]),
+            (open[THIRD], high[THIRD], low[THIRD], close[THIRD]),
+        );
     }
 }

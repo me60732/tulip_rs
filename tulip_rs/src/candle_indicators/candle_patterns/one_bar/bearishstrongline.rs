@@ -44,6 +44,8 @@ pub fn info() -> CandleInfo {
     bar(
         fill = "FILL",
         line_height = "LONG",
+        lower_wick_lt_body = "TRUE",
+        upper_wick_lt_body = "TRUE",
         candle_type = "Basic(LongBlackCandle) Marubozu(OpeningBlackMarubozu | ClosingBlackMarubozu | BlackMarubozu)"
     )
 )]
@@ -51,13 +53,17 @@ pub fn info() -> CandleInfo {
 pub fn calc(
     inputs: (&[f64], &[f64], &[f64], &[f64]),
     state: &EmaState,
-    _bars: &[CandleBits],
+    bars: &[CandleBits],
 ) -> bool {
     // === Additional Constraints Beyond Basic Pattern Match ===
 
     let (open, _, _, close) = inputs;
-    
-    if !cdl_body_greater((open[FIRST], close[FIRST]), state.ema_body, 3.0) {
+    // === Additional Constraints Beyond Basic Pattern Match ===
+    // LongWhiteCandle already guarantees a sufficiently large body by definition;
+    // only apply the explicit size check for Marubozu variants.
+    if (bars[FIRST].mandatory & CandleBits::LONG_WHITE_CANDLE) == 0
+        && !cdl_body_greater((open[FIRST], close[FIRST]), state.ema_body, 3.0)
+    {
         return false;
     }
     // All conditions met
@@ -70,5 +76,5 @@ pub fn compute_bits(
     _state: &EmaState,
     _bars: &mut [CandleBits],
 ) {
-    // No lazy bits needed for this pattern
+
 }

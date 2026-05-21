@@ -44,6 +44,7 @@ pub fn info() -> CandleInfo {
     bar(
         fill = "FILL",
         line_height = "LONG",
+        lower_wick_lt_body = "TRUE",
         candle_type = "Marubozu(OpeningBlackMarubozu)"
     )
 )]

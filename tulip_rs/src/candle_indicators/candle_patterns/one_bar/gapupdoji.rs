@@ -1,8 +1,7 @@
 use super::{FIRST, PREV};
-use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
-    common::cdl_gap,
     pattern_test::EmaState,
+    registry::CandleBits,
     types::{CandleInfo, ForcastType},
 };
 use tulip_rs_macros::pattern_template;
@@ -60,11 +59,13 @@ pub fn compute_bits(
     _state: &EmaState,
     bars: &mut [CandleBits],
 ) {
-    let (_, high, low, _) = inputs;
+    let (open, high, low, close) = inputs;
     let current_bar = &mut bars[1];
-    
-    if (current_bar.lazy_computed & (1 << CandleBits::WICK_GAP_PRESENT_BIT)) == 0 {
-        let gap = cdl_gap::<false>((high[PREV], low[PREV]), (high[FIRST], low[FIRST]));
-        current_bar.set_wick_gap(gap);
+
+    if (current_bar.lazy_computed & (1u16 << CandleBits::LOW_IN_PREV_LINE_BIT)) == 0 {
+        current_bar.apply_gap(
+            (open[PREV], high[PREV], low[PREV], close[PREV]),
+            (open[FIRST], high[FIRST], low[FIRST], close[FIRST]),
+        );
     }
 }

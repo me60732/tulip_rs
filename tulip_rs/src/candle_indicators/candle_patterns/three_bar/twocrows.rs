@@ -1,13 +1,12 @@
+use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
-    common::{cdl_real_within_body, cdl_gap},
+    common::cdl_real_within_body,
     pattern_test::EmaState,
     types::{CandleInfo, ForcastType},
 };
-use crate::candle_indicators::registry::CandleBits;
 use tulip_rs_macros::pattern_template;
 
 use super::{FIRST, SECOND, THIRD};
-
 
 pub fn info() -> CandleInfo {
     CandleInfo {
@@ -25,8 +24,8 @@ pub fn info() -> CandleInfo {
     forecast = "BearishReversal",
     prev_bar(trend = "UP"),
     bar(
-        colour = "GREEN", 
-        fill = "HALLOW", 
+        colour = "GREEN",
+        fill = "HALLOW",
         line_height = "LONG",
         candle_type = "Basic(WhiteCandle | LongWhiteCandle) Marubozu(OpeningWhiteMarubozu | ClosingWhiteMarubozu | WhiteMarubozu)"
     ),
@@ -46,7 +45,7 @@ pub fn info() -> CandleInfo {
 pub fn calc(
     inputs: (&[f64], &[f64], &[f64], &[f64]),
     _state: &EmaState,
-    _bars: &[CandleBits]
+    _bars: &[CandleBits],
 ) -> bool {
     // Basic pattern matching is already done by registry:
     // - Trend is uptrend
@@ -56,15 +55,16 @@ pub fn calc(
     //
     // This function ONLY checks relational constraints between bars
 
-    
     let (open, _, _, close) = inputs;
 
     // === Additional Constraints Beyond Basic Pattern Match ===
 
-    if !cdl_real_within_body((open[FIRST], close[FIRST]), close[THIRD]) 
-    && !cdl_real_within_body((open[SECOND], close[SECOND]), open[THIRD]) 
-    { return false }
-    
+    if !cdl_real_within_body((open[FIRST], close[FIRST]), close[THIRD])
+        && !cdl_real_within_body((open[SECOND], close[SECOND]), open[THIRD])
+    {
+        return false;
+    }
+
     // All conditions met
     true
 }
@@ -75,11 +75,15 @@ pub fn compute_bits(
     _state: &EmaState,
     bars: &mut [CandleBits],
 ) {
-    let (open, _, _, close) = inputs;
+    let (open, high, low, close) = inputs;
     let second_bar = &mut bars[SECOND];
 
-    if (second_bar.lazy_computed & (1 << CandleBits::BODY_GAP_PRESENT_BIT)) == 0 {
-        let gap = cdl_gap::<true>((open[FIRST], close[FIRST]), (open[SECOND], close[SECOND]));
-        second_bar.set_body_gap(gap);
+    let body_pos_mask =
+        (1u16 << CandleBits::OPEN_IN_PREV_BODY_BIT) | (1u16 << CandleBits::CLOSE_IN_PREV_BODY_BIT);
+    if (second_bar.lazy_computed & body_pos_mask) != body_pos_mask {
+        second_bar.apply_gap(
+            (open[FIRST], high[FIRST], low[FIRST], close[FIRST]),
+            (open[SECOND], high[SECOND], low[SECOND], close[SECOND]),
+        );
     }
 }

@@ -8,7 +8,6 @@ use tulip_rs_macros::pattern_template;
 
 use super::FIRST;
 
-
 pub fn info() -> CandleInfo {
     CandleInfo {
         name: "hammer",
@@ -45,33 +44,32 @@ pub fn info() -> CandleInfo {
     prev_bar(trend = "DOWN")
     bar(
         candle_type = "SpinningTop(WhiteSpinningTop | BlackSpinningTop)",
-        line_height = "LONG"
+        line_height = "LONG",
+        upper_wick_lt_body = "TRUE",
+        lower_wick_lt_body = "FALSE",
+        lower_wick_2x = "TRUE"
     )
 )]
 
 pub fn calc(
-    inputs: (&[f64], &[f64], &[f64], &[f64]),
+    _inputs: (&[f64], &[f64], &[f64], &[f64]),
     _state: &EmaState,
-   _bars: &[CandleBits],
+    _bars: &[CandleBits],
 ) -> bool {
-    let (open, high, low, close) = inputs;
 
-    
-    if cdl_wick_length((open[FIRST], close[FIRST]), high[FIRST], None) != SHORT {
-        return false;
-    }
-
-    if cdl_wick_length((open[FIRST], close[FIRST]), low[FIRST], Some(2.0)) == SHORT {
-        return false;
-    }
     true
 }
 
-/// Default compute_bits - this pattern doesn't use lazy bits
 pub fn compute_bits(
-    _inputs: (&[f64], &[f64], &[f64], &[f64]),
+    inputs: (&[f64], &[f64], &[f64], &[f64]),
     _state: &EmaState,
-    _bars: &mut [CandleBits],
+    bars: &mut [CandleBits],
 ) {
-    // No lazy bits needed for this pattern
+    let (open, _, low, close) = inputs;
+    let first_bar = &mut bars[FIRST];
+
+    if (first_bar.lazy_computed & (1u16 << CandleBits::LOWER_WICK_LONG_2X_BIT)) == 0 {
+        let is_2x = cdl_wick_length((open[FIRST], close[FIRST]), low[FIRST], Some(2.0)) != SHORT;
+        first_bar.set_lower_wick_2x(is_2x);
+    }
 }
