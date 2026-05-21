@@ -1,6 +1,6 @@
 #[allow(dead_code)]
 pub(super) const BAR_COUNT: usize = 2;
-
+#[allow(dead_code)]
 pub(super) const PREV: usize = 0;
 pub(super) const FIRST: usize = 1;
 pub(super) const SECOND: usize = 2;

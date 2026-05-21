@@ -78,26 +78,3 @@ pub fn calc(
     // All conditions met
     true
 }
-
-/// Default compute_bits - this pattern doesn't use lazy bits
-pub fn compute_bits(
-    inputs: (&[f64], &[f64], &[f64], &[f64]),
-    _state: &EmaState,
-    bars: &mut [CandleBits],
-) {
-    let (open, high, low, close) = inputs;
-    let body_pos_mask =
-        (1u16 << CandleBits::OPEN_IN_PREV_BODY_BIT) | (1u16 << CandleBits::CLOSE_IN_PREV_BODY_BIT);
-    if (bars[THIRD].lazy_computed & body_pos_mask) != body_pos_mask {
-        bars[THIRD].apply_gap(
-            (open[SECOND], high[SECOND], low[SECOND], close[SECOND]),
-            (open[THIRD], high[THIRD], low[THIRD], close[THIRD]),
-        );
-    }
-    if (bars[SECOND].lazy_computed & body_pos_mask) != body_pos_mask {
-        bars[SECOND].apply_gap(
-            (open[FIRST], high[FIRST], low[FIRST], close[FIRST]),
-            (open[SECOND], high[SECOND], low[SECOND], close[SECOND]),
-        );
-    }
-}

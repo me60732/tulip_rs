@@ -1,13 +1,12 @@
+use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
-    common::{cdl_wick_length, LONG, cdl_body_greater_body},
+    common::{cdl_body_greater_body, cdl_wick_length, LONG},
     pattern_test::EmaState,
     types::{CandleInfo, ForcastType},
 };
-use crate::candle_indicators::registry::CandleBits;
 use tulip_rs_macros::pattern_template;
 
 use super::{FIRST, SECOND, THIRD};
-
 
 pub fn info() -> CandleInfo {
     CandleInfo {
@@ -43,17 +42,13 @@ pub fn info() -> CandleInfo {
     name = "ThreeStarsInTheSouth",
     forecast = "BullishReversal",
     prev_bar(trend = "DOWN"),
+    bar(colour = "RED", fill = "FILL", line_height = "LONG",),
     bar(
         colour = "RED",
         fill = "FILL",
-        line_height = "LONG",
-    ),
-    bar(
-        colour = "RED", 
-        fill = "FILL",
         candle_type = "!Doji(Doji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | FourPriceDoji)"
     ),
-    bar( 
+    bar(
         fill = "FILL",
         line_height = "SHORT",
         candle_type = "Marubozu(OpeningBlackMarubozu | ClosingBlackMarubozu | BlackMarubozu)"
@@ -73,26 +68,22 @@ pub fn calc(
     //
     // This function ONLY checks relational constraints between bars
 
-    
     let (open, high, low, close) = inputs;
 
-    if open[FIRST] <= open[SECOND] { return false }
-    if low[SECOND] <= low[FIRST] { return false }
-    
-    if cdl_wick_length((open[FIRST], close[FIRST]), low[FIRST], Some(1.000001)) != LONG { return false }
+    if open[FIRST] <= open[SECOND] {
+        return false;
+    }
+    if low[SECOND] <= low[FIRST] {
+        return false;
+    }
+
+    if cdl_wick_length((open[FIRST], close[FIRST]), low[FIRST], Some(1.000001)) != LONG {
+        return false;
+    }
     if !cdl_body_greater_body((high[SECOND], low[SECOND]), (high[THIRD], low[THIRD]), 1.0) {
         return false;
     }
 
     // All conditions met
     true
-}
-
-/// Default compute_bits - this pattern doesn't use lazy bits
-pub fn compute_bits(
-    _inputs: (&[f64], &[f64], &[f64], &[f64]),
-    _state: &EmaState,
-    _bars: &mut [CandleBits],
-) {
-    // No lazy bits needed for this pattern
 }

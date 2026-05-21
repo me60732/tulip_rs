@@ -718,6 +718,138 @@ impl CandleBits {
         self.lazy_computed |= 1u16 << Self::UPPER_WICK_LONG_2X_BIT;
     }
 
+    /// Ensure BODY_HEIGHT_BIT is computed for this bar.
+    #[inline(always)]
+    pub fn ensure_body_height(&mut self, open: f64, close: f64, ema_body: f64) {
+        if (self.lazy_computed & (1u16 << Self::BODY_HEIGHT_BIT)) != 0 {
+            return;
+        }
+        let body = (open - close).abs();
+        self.set_body_height(body >= ema_body);
+    }
+
+    /// Ensure OPEN_IN_PREV_BODY + OPEN_ABOVE_PREV_BODY_MID — single geometry pass.
+    #[inline(always)]
+    pub fn ensure_open_position(&mut self, open: f64, prev_open: f64, prev_close: f64) {
+        let open_in_mask = 1u16 << Self::OPEN_IN_PREV_BODY_BIT;
+        let open_above_mask = 1u16 << Self::OPEN_ABOVE_PREV_BODY_MID_BIT;
+        let needs_in = (self.lazy_computed & open_in_mask) == 0;
+        let needs_above = (self.lazy_computed & open_above_mask) == 0;
+        if !needs_in && !needs_above {
+            return;
+        }
+        let body_top = prev_open.max(prev_close);
+        let body_bot = prev_open.min(prev_close);
+        if needs_in {
+            self.set_open_in_body(open >= body_bot && open <= body_top);
+        }
+        if needs_above {
+            let body_mid = (body_top + body_bot) / 2.0;
+            self.set_open_above_mid(open > body_mid);
+        }
+    }
+
+    /// Ensure CLOSE_IN_PREV_BODY + CLOSE_ABOVE_PREV_BODY_MID — single geometry pass.
+    #[inline(always)]
+    pub fn ensure_close_position(&mut self, close: f64, prev_open: f64, prev_close: f64) {
+        let close_in_mask = 1u16 << Self::CLOSE_IN_PREV_BODY_BIT;
+        let close_above_mask = 1u16 << Self::CLOSE_ABOVE_PREV_BODY_MID_BIT;
+        let needs_in = (self.lazy_computed & close_in_mask) == 0;
+        let needs_above = (self.lazy_computed & close_above_mask) == 0;
+        if !needs_in && !needs_above {
+            return;
+        }
+        let body_top = prev_open.max(prev_close);
+        let body_bot = prev_open.min(prev_close);
+        if needs_in {
+            self.set_close_in_body(close >= body_bot && close <= body_top);
+        }
+        if needs_above {
+            let body_mid = (body_top + body_bot) / 2.0;
+            self.set_close_above_mid(close > body_mid);
+        }
+    }
+
+    /// Ensure all four open+close position bits — body geometry computed once.
+    #[inline(always)]
+    pub fn ensure_open_close_position(
+        &mut self,
+        open: f64,
+        close: f64,
+        prev_open: f64,
+        prev_close: f64,
+    ) {
+        let open_in_mask = 1u16 << Self::OPEN_IN_PREV_BODY_BIT;
+        let open_above_mask = 1u16 << Self::OPEN_ABOVE_PREV_BODY_MID_BIT;
+        let close_in_mask = 1u16 << Self::CLOSE_IN_PREV_BODY_BIT;
+        let close_above_mask = 1u16 << Self::CLOSE_ABOVE_PREV_BODY_MID_BIT;
+        let needs_open_in = (self.lazy_computed & open_in_mask) == 0;
+        let needs_open_above = (self.lazy_computed & open_above_mask) == 0;
+        let needs_close_in = (self.lazy_computed & close_in_mask) == 0;
+        let needs_close_above = (self.lazy_computed & close_above_mask) == 0;
+        if !needs_open_in && !needs_open_above && !needs_close_in && !needs_close_above {
+            return;
+        }
+        let body_top = prev_open.max(prev_close);
+        let body_bot = prev_open.min(prev_close);
+        if needs_open_in {
+            self.set_open_in_body(open >= body_bot && open <= body_top);
+        }
+        if needs_close_in {
+            self.set_close_in_body(close >= body_bot && close <= body_top);
+        }
+        if needs_open_above || needs_close_above {
+            let body_mid = (body_top + body_bot) / 2.0;
+            if needs_open_above {
+                self.set_open_above_mid(open > body_mid);
+            }
+            if needs_close_above {
+                self.set_close_above_mid(close > body_mid);
+            }
+        }
+    }
+
+    /// Ensure LOWER_WICK_LONG_2X + UPPER_WICK_LONG_2X — body computed once.
+    #[inline(always)]
+    pub fn ensure_wick_2x(&mut self, open: f64, close: f64, high: f64, low: f64) {
+        let lower_mask = 1u16 << Self::LOWER_WICK_LONG_2X_BIT;
+        let upper_mask = 1u16 << Self::UPPER_WICK_LONG_2X_BIT;
+        let needs_lower = (self.lazy_computed & lower_mask) == 0;
+        let needs_upper = (self.lazy_computed & upper_mask) == 0;
+        if !needs_lower && !needs_upper {
+            return;
+        }
+        let body = (open - close).abs();
+        let body_top = open.max(close);
+        let body_bot = open.min(close);
+        if needs_lower {
+            let lower_wick = body_bot - low;
+            self.set_lower_wick_2x(lower_wick >= 2.0 * body);
+        }
+        if needs_upper {
+            let upper_wick = high - body_top;
+            self.set_upper_wick_2x(upper_wick >= 2.0 * body);
+        }
+    }
+
+    /// Ensure LOW_IN_PREV_LINE_BIT: low is within [prev_low, prev_high].
+    #[inline(always)]
+    pub fn ensure_low_in_prev_line(&mut self, low: f64, prev_low: f64, prev_high: f64) {
+        if (self.lazy_computed & (1u16 << Self::LOW_IN_PREV_LINE_BIT)) != 0 {
+            return;
+        }
+        self.set_low_in_line(low >= prev_low && low <= prev_high);
+    }
+
+    /// Ensure HIGH_IN_PREV_LINE_BIT: high is within [prev_low, prev_high].
+    #[inline(always)]
+    pub fn ensure_high_in_prev_line(&mut self, high: f64, prev_low: f64, prev_high: f64) {
+        if (self.lazy_computed & (1u16 << Self::HIGH_IN_PREV_LINE_BIT)) != 0 {
+            return;
+        }
+        self.set_high_in_line(high >= prev_low && high <= prev_high);
+    }
+
     /// Create a wildcard (all bits set to match any value)
     pub const fn wildcard() -> Self {
         CandleBits {
@@ -926,6 +1058,8 @@ pub struct PatternMask {
     pub mandatory_value: u32, // Expected mandatory bit values
     pub lazy_mask: u16,       // Which lazy bits to check
     pub lazy_value: u16,      // Expected lazy bit values
+    pub has_engulf: bool,     // true when template declares engulf_prev or inside_prev
+    pub has_gap: bool,        // true when template declares body_gap or wick_gap
 }
 
 impl PatternMask {
@@ -936,6 +1070,8 @@ impl PatternMask {
             mandatory_value,
             lazy_mask: 0,
             lazy_value: 0,
+            has_engulf: false,
+            has_gap: false,
         }
     }
 
@@ -946,6 +1082,8 @@ impl PatternMask {
             mandatory_value: 0,
             lazy_mask: 0,
             lazy_value: 0,
+            has_engulf: false,
+            has_gap: false,
         }
     }
 
@@ -1255,6 +1393,7 @@ impl PatternMask {
     /// - `BODY_GAP_DOWN` (-1) — open and close are both below prev body
     ///   (OPEN/CLOSE not in prev body, OPEN/CLOSE below prev body midpoint)
     pub const fn with_body_gap(mut self, gap: i8) -> Self {
+        self.has_gap = true;
         // Require OPEN_IN_PREV_BODY = 0 and CLOSE_IN_PREV_BODY = 0 (gap means not in body)
         // Require OPEN_ABOVE and CLOSE_ABOVE to match the direction
         self.lazy_mask |= (1u16 << CandleBits::OPEN_IN_PREV_BODY_BIT)
@@ -1282,6 +1421,7 @@ impl PatternMask {
     /// - `WICK_GAP_UP`   (2)  — entire candle is above prev full range (my low > prev high)
     /// - `WICK_GAP_DOWN` (-2) — entire candle is below prev full range (my high < prev low)
     pub const fn with_wick_gap(mut self, gap: i8) -> Self {
+        self.has_gap = true;
         // HIGH_IN_PREV_LINE and LOW_IN_PREV_LINE must be 0 (no overlap with prev line)
         // HIGH_ABOVE and LOW_ABOVE indicate direction
         self.lazy_mask |= (1u16 << CandleBits::HIGH_IN_PREV_LINE_BIT)
@@ -1441,6 +1581,7 @@ impl PatternMask {
     /// - `ENGULF_LINE` (2) — my body spans prev body **and** wicks
     ///   → sets `PREV_HIGH_IN_MY_BODY + PREV_LOW_IN_MY_BODY` (bits 12–13)
     pub const fn with_engulf_prev(mut self, kind: i8) -> Self {
+        self.has_engulf = true;
         if kind >= 2 {
             // LINE: my body contains the entire prev bar line (wicks included)
             self.lazy_mask |= (1u16 << CandleBits::PREV_HIGH_IN_MY_BODY_BIT)
@@ -1463,6 +1604,7 @@ impl PatternMask {
     /// - `ENGULF_LINE` (2) — my entire line is inside prev line
     ///   → sets `HIGH_IN_PREV_LINE + LOW_IN_PREV_LINE` (bits 7 + 10)
     pub const fn with_inside_prev(mut self, kind: i8) -> Self {
+        self.has_engulf = true;
         if kind >= 2 {
             // LINE: my entire candle (including wicks) sits within prev candle's range
             self.lazy_mask |= (1u16 << CandleBits::HIGH_IN_PREV_LINE_BIT)
@@ -1494,6 +1636,20 @@ impl PatternMask {
         if is_2x {
             self.lazy_value |= 1u16 << CandleBits::UPPER_WICK_LONG_2X_BIT;
         }
+        self
+    }
+
+    /// Builder: Mark that this bar's pattern declares engulf_prev or inside_prev.
+    /// Signals `ensure_lazy_bits` to call `apply_engulfing` for this bar.
+    pub const fn with_has_engulf(mut self) -> Self {
+        self.has_engulf = true;
+        self
+    }
+
+    /// Builder: Mark that this bar's pattern declares body_gap or wick_gap.
+    /// Signals `ensure_lazy_bits` to call `apply_gap` for this bar.
+    pub const fn with_has_gap(mut self) -> Self {
+        self.has_gap = true;
         self
     }
 
@@ -1578,6 +1734,91 @@ impl<const N: usize> PatternDefinition<N> {
     }
 }
 
+/// Compute all lazy bits required by the pattern's masks that are not yet stamped.
+/// Called after mandatory bits pass, before the lazy mask check.
+/// Uses `apply_engulfing` / `apply_gap` when the template declared those attributes
+/// (signalled by `PatternMask::has_engulf` / `has_gap`), otherwise uses individual
+/// `ensure_*` helpers.
+#[inline(always)]
+pub fn ensure_lazy_bits(
+    masks: &[PatternMask],
+    bars: &mut [CandleBits],
+    ohlc: (&[f64], &[f64], &[f64], &[f64]),
+    state: &EmaState,
+) {
+    let (open, high, low, close) = ohlc;
+    for i in 0..bars.len() {
+        let missing = masks[i].lazy_mask & !bars[i].lazy_computed;
+        if missing == 0 {
+            continue;
+        }
+
+        // apply_engulfing: only when template declared engulf_prev or inside_prev
+        if masks[i].has_engulf && i > 0 {
+            if bars[i].lazy_computed & (1u16 << CandleBits::I_ENGULF_PREV_BODY_BIT) == 0 {
+                bars[i].apply_engulfing(
+                    (open[i - 1], high[i - 1], low[i - 1], close[i - 1]),
+                    (open[i], high[i], low[i], close[i]),
+                );
+                continue; // apply_engulfing stamps all position bits 1–13
+            }
+        }
+
+        // apply_gap: only when template declared body_gap or wick_gap
+        if masks[i].has_gap && i > 0 {
+            if bars[i].lazy_computed & (1u16 << CandleBits::OPEN_IN_PREV_BODY_BIT) == 0 {
+                bars[i].apply_gap(
+                    (open[i - 1], high[i - 1], low[i - 1], close[i - 1]),
+                    (open[i], high[i], low[i], close[i]),
+                );
+            }
+        }
+
+        // Re-read missing after bulk helpers may have stamped bits
+        let missing = masks[i].lazy_mask & !bars[i].lazy_computed;
+        if missing == 0 {
+            continue;
+        }
+
+        if missing & (1u16 << CandleBits::BODY_HEIGHT_BIT) != 0 {
+            bars[i].ensure_body_height(open[i], close[i], state.ema_body);
+        }
+
+        let wick_2x_mask = (1u16 << CandleBits::LOWER_WICK_LONG_2X_BIT)
+            | (1u16 << CandleBits::UPPER_WICK_LONG_2X_BIT);
+        if missing & wick_2x_mask != 0 {
+            bars[i].ensure_wick_2x(open[i], close[i], high[i], low[i]);
+        }
+
+        // Individual position bits — only reached if apply_engulfing/gap didn't run
+        if i > 0 {
+            let needs_open = missing
+                & ((1u16 << CandleBits::OPEN_IN_PREV_BODY_BIT)
+                    | (1u16 << CandleBits::OPEN_ABOVE_PREV_BODY_MID_BIT))
+                != 0;
+            let needs_close = missing
+                & ((1u16 << CandleBits::CLOSE_IN_PREV_BODY_BIT)
+                    | (1u16 << CandleBits::CLOSE_ABOVE_PREV_BODY_MID_BIT))
+                != 0;
+            match (needs_open, needs_close) {
+                (true, true) => {
+                    bars[i].ensure_open_close_position(open[i], close[i], open[i - 1], close[i - 1])
+                }
+                (true, false) => bars[i].ensure_open_position(open[i], open[i - 1], close[i - 1]),
+                (false, true) => bars[i].ensure_close_position(close[i], open[i - 1], close[i - 1]),
+                (false, false) => {}
+            }
+
+            if missing & (1u16 << CandleBits::LOW_IN_PREV_LINE_BIT) != 0 {
+                bars[i].ensure_low_in_prev_line(low[i], low[i - 1], high[i - 1]);
+            }
+            if missing & (1u16 << CandleBits::HIGH_IN_PREV_LINE_BIT) != 0 {
+                bars[i].ensure_high_in_prev_line(high[i], low[i - 1], high[i - 1]);
+            }
+        }
+    }
+}
+
 /// Emit the hot-path funnel (compulsory bits → lazy compute → full bits → calc)
 /// for one bar-count group.
 ///
@@ -1619,9 +1860,14 @@ macro_rules! check_bar_group {
                     if !pattern_def.matches_bars_compulsory_only(window) {
                         continue;
                     }
-                    pattern_def
-                        .pattern
-                        .compute_bits($inputs, $i, $state, window);
+                    let ohlc_start = $i + 1 - $window_size;
+                    let sliced_ohlc = (
+                        &$inputs.0[ohlc_start..=$i],
+                        &$inputs.1[ohlc_start..=$i],
+                        &$inputs.2[ohlc_start..=$i],
+                        &$inputs.3[ohlc_start..=$i],
+                    );
+                    ensure_lazy_bits(&pattern_def.bars, window, sliced_ohlc, $state);
                 }
                 if !pattern_def.matches_bars(window) {
                     continue;

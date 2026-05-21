@@ -588,27 +588,6 @@ fn generate_registry_code(
     code.push_str("        }\n");
     code.push_str("    }\n\n");
 
-    // compute_bits()
-    code.push_str("    pub fn compute_bits(\n");
-    code.push_str("        &self,\n");
-    code.push_str("        inputs: (&[f64], &[f64], &[f64], &[f64]),\n");
-    code.push_str("        i: usize,\n");
-    code.push_str("        state: &EmaState,\n");
-    code.push_str("        bars: &mut [CandleBits],\n");
-    code.push_str("    ) {\n");
-    code.push_str("        let (open, high, low, close) = inputs;\n");
-    code.push_str("        match self {\n");
-    for pattern in patterns {
-        let module = pattern.module_path.split("::").last().unwrap();
-        let slice_start = format!("i-{}", pattern.bar_count);
-        code.push_str(&format!(
-            "            CandlePattern::{} => {}::compute_bits((&open[{}..=i], &high[{}..=i], &low[{}..=i], &close[{}..=i]), state, bars),\n",
-            pattern.name, module, slice_start, slice_start, slice_start, slice_start
-        ));
-    }
-    code.push_str("        }\n");
-    code.push_str("    }\n\n");
-
     // get_info()
     code.push_str("    pub fn get_info(&self) -> CandleInfo {\n");
     code.push_str("        match self {\n");

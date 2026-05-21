@@ -1,4 +1,3 @@
-use super::{FIRST, PREV};
 use crate::candle_indicators::{
     pattern_test::EmaState,
     registry::CandleBits,
@@ -52,20 +51,4 @@ pub fn calc(
     _bars: &[CandleBits],
 ) -> bool {
     true
-}
-
-pub fn compute_bits(
-    inputs: (&[f64], &[f64], &[f64], &[f64]),
-    _state: &EmaState,
-    bars: &mut [CandleBits],
-) {
-    let (open, high, low, close) = inputs;
-    let current_bar = &mut bars[1];
-
-    if (current_bar.lazy_computed & (1u16 << CandleBits::LOW_IN_PREV_LINE_BIT)) == 0 {
-        current_bar.apply_gap(
-            (open[PREV], high[PREV], low[PREV], close[PREV]),
-            (open[FIRST], high[FIRST], low[FIRST], close[FIRST]),
-        );
-    }
 }

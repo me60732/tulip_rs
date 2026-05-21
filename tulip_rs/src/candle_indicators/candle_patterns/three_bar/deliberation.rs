@@ -1,6 +1,6 @@
 use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
-    common::{cdl_body_greater_body, cdl_height, cdl_total_wick_length},
+    common::{cdl_body_greater_body, cdl_total_wick_length},
     pattern_test::EmaState,
     types::{CandleInfo, ForcastType},
 };
@@ -100,23 +100,4 @@ pub fn calc(
 
     // All conditions met
     true
-}
-
-/// Default compute_bits - this pattern doesn't use lazy bits
-pub fn compute_bits(
-    inputs: (&[f64], &[f64], &[f64], &[f64]),
-    state: &EmaState,
-    bars: &mut [CandleBits],
-) {
-    let (open, _, _, close) = inputs;
-
-    if (bars[2].lazy_computed & (1 << CandleBits::BODY_HEIGHT_BIT)) == 0 {
-        let body_height = cdl_height((open[SECOND], close[SECOND]), state.ema_body);
-        bars[2].set_body_height(body_height);
-    }
-    // Ensure 1st bar body_height is computed (needed by pattern template filter)
-    if (bars[1].lazy_computed & (1 << CandleBits::BODY_HEIGHT_BIT)) == 0 {
-        let body_height = cdl_height((open[FIRST], close[FIRST]), state.ema_body);
-        bars[1].set_body_height(body_height);
-    }
 }

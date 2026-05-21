@@ -62,12 +62,3 @@ pub fn calc(
     // All conditions met
     true
 }
-
-/// Default compute_bits - this pattern doesn't use lazy bits
-pub fn compute_bits(
-    _inputs: (&[f64], &[f64], &[f64], &[f64]),
-    _state: &EmaState,
-    _bars: &mut [CandleBits],
-) {
-    // No lazy bits needed for this pattern
-}

@@ -1,13 +1,11 @@
 use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
-    common::{cdl_height, cdl_wick_length, SHORT},
     pattern_test::EmaState,
     types::{CandleInfo, ForcastType},
 };
 use tulip_rs_macros::pattern_template;
 
 use super::FIRST;
-
 
 pub fn info() -> CandleInfo {
     CandleInfo {
@@ -63,22 +61,4 @@ pub fn calc(
         return false;
     }
     true
-}
-
-pub fn compute_bits(
-    inputs: (&[f64], &[f64], &[f64], &[f64]),
-    state: &EmaState,
-    bars: &mut [CandleBits],
-) {
-    let (open, _, low, close) = inputs;
-    let first_bar = &mut bars[1];
-    
-    if (first_bar.lazy_computed & (1 << CandleBits::BODY_HEIGHT_BIT)) == 0 {
-        let body_height = cdl_height((open[FIRST], close[FIRST]), state.ema_body);
-        first_bar.set_body_height(body_height);
-    }
-    if (first_bar.lazy_computed & (1u16 << CandleBits::LOWER_WICK_LONG_2X_BIT)) == 0 {
-        let is_2x = cdl_wick_length((open[FIRST], close[FIRST]), low[FIRST], Some(2.0)) != SHORT;
-        first_bar.set_lower_wick_2x(is_2x);
-    }
 }

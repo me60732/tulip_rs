@@ -1,12 +1,11 @@
+use super::FIRST;
+use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
     common::cdl_body_greater,
     pattern_test::EmaState,
     types::{CandleInfo, ForcastType},
 };
-use crate::candle_indicators::registry::CandleBits;
 use tulip_rs_macros::pattern_template;
-use super::FIRST;
-
 
 pub fn info() -> CandleInfo {
     CandleInfo {
@@ -68,13 +67,4 @@ pub fn calc(
     }
     // All conditions met
     true
-}
-
-/// Default compute_bits - this pattern doesn't use lazy bits
-pub fn compute_bits(
-    _inputs: (&[f64], &[f64], &[f64], &[f64]),
-    _state: &EmaState,
-    _bars: &mut [CandleBits],
-) {
-
 }

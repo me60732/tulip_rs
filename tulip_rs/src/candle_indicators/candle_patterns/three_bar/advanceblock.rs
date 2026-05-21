@@ -14,7 +14,6 @@ use tulip_rs_macros::pattern_template;
 
 use super::{FIRST, SECOND, THIRD};
 
-
 pub fn info() -> CandleInfo {
     CandleInfo {
         name: "advanceblock",
@@ -99,13 +98,4 @@ pub fn calc(
 
     // All conditions met
     true
-}
-
-/// Default compute_bits - this pattern doesn't use lazy bits
-pub fn compute_bits(
-    _inputs: (&[f64], &[f64], &[f64], &[f64]),
-    _state: &EmaState,
-    _bars: &mut [CandleBits],
-) {
-    // No lazy bits needed for this pattern
 }

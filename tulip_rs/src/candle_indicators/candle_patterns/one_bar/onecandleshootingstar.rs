@@ -7,14 +7,12 @@
 ///    appears as a long line
 use crate::candle_indicators::{
     candle_patterns::CandlePattern,
-    common::{cdl_height, cdl_wick_length, SHORT},
     pattern_test::EmaState,
     registry::CandleBits,
     types::{CandleInfo, ForcastType},
 };
 use tulip_rs_macros::pattern_template;
 
-use super::{FIRST, PREV};
 
 pub fn info() -> CandleInfo {
     CandleInfo {
@@ -45,33 +43,5 @@ pub fn calc(
     _state: &EmaState,
     _bars: &[CandleBits],
 ) -> bool {
-
     true
-}
-
-/// Default compute_bits - this pattern doesn't use lazy bits
-pub fn compute_bits(
-    inputs: (&[f64], &[f64], &[f64], &[f64]),
-    state: &EmaState,
-    bars: &mut [CandleBits],
-) {
-    let (open, high, low, close) = inputs;
-    let first_bar = &mut bars[FIRST];
-
-    if (first_bar.lazy_computed & (1 << CandleBits::BODY_HEIGHT_BIT)) == 0 {
-        let body_height = cdl_height((open[FIRST], close[FIRST]), state.ema_body);
-        first_bar.set_body_height(body_height);
-    }
-    if (first_bar.lazy_computed & (1u16 << CandleBits::UPPER_WICK_LONG_2X_BIT)) == 0 {
-        let is_2x = cdl_wick_length((open[FIRST], close[FIRST]), high[FIRST], Some(2.0)) != SHORT;
-        first_bar.set_upper_wick_2x(is_2x);
-    }
-    let body_pos_mask =
-        (1u16 << CandleBits::OPEN_IN_PREV_BODY_BIT) | (1u16 << CandleBits::CLOSE_IN_PREV_BODY_BIT);
-    if (first_bar.lazy_computed & body_pos_mask) != body_pos_mask {
-        first_bar.apply_gap(
-            (open[PREV], high[PREV], low[PREV], close[PREV]),
-            (open[FIRST], high[FIRST], low[FIRST], close[FIRST]),
-        );
-    }
 }

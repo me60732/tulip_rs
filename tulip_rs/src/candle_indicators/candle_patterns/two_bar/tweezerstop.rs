@@ -7,7 +7,6 @@ use tulip_rs_macros::pattern_template;
 
 use super::{FIRST, SECOND};
 
-
 pub fn info() -> CandleInfo {
     CandleInfo {
         name: "tweezerstop",
@@ -22,13 +21,9 @@ pub fn info() -> CandleInfo {
 #[pattern_template(
     name = "TweezersTop",
     forecast = "BearishReversal",
-    prev_bar( trend = "UP"),
-    bar(
-        candle_type = "!Doji(FourPriceDoji) !Marubozu(WhiteMarubozu | ClosingWhiteMarubozu)"
-    ),
-    bar(
-        candle_type = "!Doji(FourPriceDoji) !Marubozu(WhiteMarubozu | ClosingWhiteMarubozu)"
-    )
+    prev_bar(trend = "UP"),
+    bar(candle_type = "!Doji(FourPriceDoji) !Marubozu(WhiteMarubozu | ClosingWhiteMarubozu)"),
+    bar(candle_type = "!Doji(FourPriceDoji) !Marubozu(WhiteMarubozu | ClosingWhiteMarubozu)")
 )]
 
 pub fn calc(
@@ -38,18 +33,9 @@ pub fn calc(
 ) -> bool {
     let (_, high, _, _) = inputs;
 
-    if !(high[FIRST] == high[SECOND]) { 
+    if !(high[FIRST] == high[SECOND]) {
         return false;
     }
-    
-    true
-}
 
-/// Default compute_bits - this pattern doesn't use lazy bits
-pub fn compute_bits(
-    _inputs: (&[f64], &[f64], &[f64], &[f64]),
-    _state: &EmaState,
-    _bars: &mut [CandleBits],
-) {
-    // No lazy bits needed for this pattern
+    true
 }

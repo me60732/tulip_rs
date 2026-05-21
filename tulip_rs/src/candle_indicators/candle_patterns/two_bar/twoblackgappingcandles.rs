@@ -5,7 +5,7 @@ use crate::candle_indicators::{
 };
 use tulip_rs_macros::pattern_template;
 
-use super::{FIRST, PREV, SECOND};
+use super::{FIRST, SECOND};
 
 pub fn info() -> CandleInfo {
     CandleInfo {
@@ -41,7 +41,7 @@ pub fn calc(
     bars: &[CandleBits],
 ) -> bool {
     let (open, high, low, close) = inputs;
-    
+
     if !(open[FIRST] > open[SECOND] && open[SECOND] > low[FIRST]) {
         return false;
     }
@@ -72,25 +72,6 @@ pub fn calc(
             return false;
         }
     }
-    
+
     true
-}
-
-/// Default compute_bits - this pattern doesn't use lazy bits
-pub fn compute_bits(
-    inputs: (&[f64], &[f64], &[f64], &[f64]),
-    _state: &EmaState,
-    bars: &mut [CandleBits],
-) {
-    let (open, high, low, close) = inputs;
-    let first_bar = &mut bars[FIRST];
-
-    let body_pos_mask =
-        (1u16 << CandleBits::OPEN_IN_PREV_BODY_BIT) | (1u16 << CandleBits::CLOSE_IN_PREV_BODY_BIT);
-    if (first_bar.lazy_computed & body_pos_mask) != body_pos_mask {
-        first_bar.apply_gap(
-            (open[PREV], high[PREV], low[PREV], close[PREV]),
-            (open[FIRST], high[FIRST], low[FIRST], close[FIRST]),
-        );
-    }
 }

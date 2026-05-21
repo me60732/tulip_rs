@@ -1,4 +1,4 @@
-use super::{FIRST, FOURTH, SECOND, THIRD};
+use super::{FIRST, SECOND, THIRD};
 use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
     common::cdl_real_within_body,
@@ -57,32 +57,4 @@ pub fn calc(
     }
 
     true
-}
-
-pub fn compute_bits(
-    inputs: (&[f64], &[f64], &[f64], &[f64]),
-    _state: &EmaState,
-    bars: &mut [CandleBits],
-) {
-    let (open, high, low, close) = inputs;
-
-    // THIRD bar: gap bits for body_gap = "GAP_DOWN"
-    let body_pos_mask =
-        (1u16 << CandleBits::OPEN_IN_PREV_BODY_BIT) | (1u16 << CandleBits::CLOSE_IN_PREV_BODY_BIT);
-    if (bars[THIRD].lazy_computed & body_pos_mask) != body_pos_mask {
-        bars[THIRD].apply_gap(
-            (open[SECOND], high[SECOND], low[SECOND], close[SECOND]),
-            (open[THIRD], high[THIRD], low[THIRD], close[THIRD]),
-        );
-    }
-
-    // FOURTH bar: engulf bits for engulf_prev = "LINE"
-    // Gate on I_ENGULF_PREV_BODY_BIT (bit 11) — apply_engulfing sets all of bits 1–13 atomically.
-    // engulf_prev = "LINE" checks PREV_HIGH_IN_MY_BODY (bit 12) + PREV_LOW_IN_MY_BODY (bit 13).
-    if bars[FOURTH].lazy_computed & (1u16 << CandleBits::I_ENGULF_PREV_BODY_BIT) == 0 {
-        bars[FOURTH].apply_engulfing(
-            (open[THIRD], high[THIRD], low[THIRD], close[THIRD]),
-            (open[FOURTH], high[FOURTH], low[FOURTH], close[FOURTH]),
-        );
-    }
 }

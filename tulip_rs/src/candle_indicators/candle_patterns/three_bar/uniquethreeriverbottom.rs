@@ -55,30 +55,3 @@ pub fn calc(
 
     true
 }
-
-pub fn compute_bits(
-    inputs: (&[f64], &[f64], &[f64], &[f64]),
-    _state: &EmaState,
-    bars: &mut [CandleBits],
-) {
-    let (open, high, low, close) = inputs;
-
-    // SECOND bar: engulf bits for inside_prev = "BODY"
-    // Gate on I_ENGULF_PREV_BODY_BIT (bit 11) — apply_engulfing sets all of bits 1–13 atomically.
-    if bars[SECOND].lazy_computed & (1u16 << CandleBits::I_ENGULF_PREV_BODY_BIT) == 0 {
-        bars[SECOND].apply_engulfing(
-            (open[FIRST], high[FIRST], low[FIRST], close[FIRST]),
-            (open[SECOND], high[SECOND], low[SECOND], close[SECOND]),
-        );
-    }
-
-    // THIRD bar: gap bits for body_gap = "GAP_DOWN"
-    let body_pos_mask =
-        (1u16 << CandleBits::OPEN_IN_PREV_BODY_BIT) | (1u16 << CandleBits::CLOSE_IN_PREV_BODY_BIT);
-    if (bars[THIRD].lazy_computed & body_pos_mask) != body_pos_mask {
-        bars[THIRD].apply_gap(
-            (open[SECOND], high[SECOND], low[SECOND], close[SECOND]),
-            (open[THIRD], high[THIRD], low[THIRD], close[THIRD]),
-        );
-    }
-}

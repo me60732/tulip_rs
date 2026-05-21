@@ -1,11 +1,11 @@
+use super::{FIRST, FOURTH, SECOND, THIRD};
+use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
-    common::{cdl_real_within_body, cdl_bar_engulf_bar},
+    common::{cdl_bar_engulf_bar, cdl_real_within_body},
     pattern_test::EmaState,
     types::{CandleInfo, ForcastType},
 };
-use crate::candle_indicators::registry::CandleBits;
 use tulip_rs_macros::pattern_template;
-use super::{FIRST, SECOND, THIRD, FOURTH};
 
 pub fn info() -> CandleInfo {
     CandleInfo {
@@ -38,7 +38,7 @@ pub fn info() -> CandleInfo {
         candle_type = "!Doji(FourPriceDoji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | Doji)"
     ),
     bar(
-        colour = "GREEN", 
+        colour = "GREEN",
         fill = "HALLOW",
         line_height = "LONG",
         candle_type = "Basic(WhiteCandle | LongWhiteCandle) Marubozu(OpeningWhiteMarubozu | ClosingWhiteMarubozu | WhiteMarubozu)"
@@ -48,30 +48,20 @@ pub fn info() -> CandleInfo {
 pub fn calc(
     inputs: (&[f64], &[f64], &[f64], &[f64]),
     _state: &EmaState,
-    _bars: &[CandleBits]
+    _bars: &[CandleBits],
 ) -> bool {
-    
     let (open, _, _, close) = inputs;
-    
+
     // === Additional Constraints Beyond Basic Pattern Match ===
     if !cdl_real_within_body((open[FIRST], close[FIRST]), open[SECOND])
-    || !cdl_real_within_body((open[SECOND], close[SECOND]), open[THIRD]) 
-    { 
-        return false 
+        || !cdl_real_within_body((open[SECOND], close[SECOND]), open[THIRD])
+    {
+        return false;
     }
-    
-    if !cdl_bar_engulf_bar((open[FOURTH], close[FOURTH]), (open[FIRST], close[THIRD])) { 
-        return false 
+
+    if !cdl_bar_engulf_bar((open[FOURTH], close[FOURTH]), (open[FIRST], close[THIRD])) {
+        return false;
     }
     // All conditions met
     true
-}
-
-/// Default compute_bits - this pattern doesn't use lazy bits
-pub fn compute_bits(
-    _inputs: (&[f64], &[f64], &[f64], &[f64]),
-    _state: &EmaState,
-    _bars: &mut [CandleBits],
-) {
-    // No lazy bits needed for this pattern
 }

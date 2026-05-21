@@ -1,13 +1,12 @@
+use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
+    common::cdl_real_in_body_position,
     pattern_test::EmaState,
     types::{CandleInfo, ForcastType},
-    common::cdl_real_in_body_position,
 };
-use crate::candle_indicators::registry::CandleBits;
 use tulip_rs_macros::pattern_template;
 
 use super::{FIRST, SECOND, THIRD};
-
 
 pub fn info() -> CandleInfo {
     CandleInfo {
@@ -58,15 +57,6 @@ pub fn calc(
     if !(-5.0..=5.0).contains(&third_pos) {
         return false;
     }
-    
+
     true
-}
-
-/// Default compute_bits - this pattern doesn't use lazy bits
-pub fn compute_bits(
-    _inputs: (&[f64], &[f64], &[f64], &[f64]),
-    _state: &EmaState,
-    _bars: &mut [CandleBits],
-) {
-
 }

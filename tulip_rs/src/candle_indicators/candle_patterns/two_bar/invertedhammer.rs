@@ -1,5 +1,4 @@
 use crate::candle_indicators::{
-    common::{cdl_height, cdl_wick_length},
     pattern_test::EmaState,
     registry::CandleBits,
     types::{CandleInfo, ForcastType},
@@ -50,32 +49,4 @@ pub fn calc(
     }
 
     true
-}
-
-pub fn compute_bits(
-    inputs: (&[f64], &[f64], &[f64], &[f64]),
-    state: &EmaState,
-    bars: &mut [CandleBits],
-) {
-    let (open, high, _, close) = inputs;
-    let height_mask = 1u16 << CandleBits::BODY_HEIGHT_BIT;
-    if (bars[FIRST].lazy_computed & height_mask) == 0 {
-        bars[FIRST].set_body_height(cdl_height((open[FIRST], close[FIRST]), state.ema_body));
-    }
-    if (bars[SECOND].lazy_computed & height_mask) == 0 {
-        bars[SECOND].set_body_height(cdl_height((open[SECOND], close[SECOND]), state.ema_body));
-    }
-
-    if (bars[SECOND].lazy_computed & (1u16 << CandleBits::UPPER_WICK_LONG_2X_BIT)) == 0 {
-        bars[SECOND].set_upper_wick_2x(cdl_wick_length(
-            (open[SECOND], close[SECOND]),
-            high[SECOND],
-            Some(2.0),
-        ));
-    }
-
-    if (bars[SECOND].lazy_computed & (1u16 << CandleBits::OPEN_ABOVE_PREV_BODY_MID_BIT)) == 0 {
-        let body_mid = (open[FIRST].max(close[FIRST]) + open[FIRST].min(close[FIRST])) / 2.0;
-        bars[SECOND].set_open_above_mid(open[SECOND] > body_mid);
-    }
 }
