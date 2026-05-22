@@ -1,6 +1,6 @@
 use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
-    common::{cdl_body_greater_body, cdl_total_wick_length},
+    common::cdl_body_greater_body,
     pattern_test::EmaState,
     types::{CandleInfo, ForcastType},
 };
@@ -42,12 +42,26 @@ pub fn info() -> CandleInfo {
     name = "Deliberation",
     forecast = "BearishReversal",
     prev_bar(trend = "UP"),
-    bar(colour = "GREEN", fill = "HALLOW", body_height = "LONG",),
-    bar(colour = "GREEN", fill = "HALLOW", body_height = "LONG"),
+    bar(
+        colour = "GREEN", 
+        fill = "HALLOW", 
+        body_height = "LONG",
+    ),
+    bar(
+        colour = "GREEN",
+        fill = "HALLOW",
+        body_height = "LONG",
+        open_in_prev_body = "TRUE",
+        close_in_prev_body = "FALSE",
+        close_above_prev_mid = "TRUE",
+    ),
     bar(
         colour = "GREEN",
         fill = "HALLOW",
         line_height = "SHORT",
+        low_in_prev_line = "TRUE",
+        close_in_prev_body = "FALSE",
+        close_above_prev_mid = "TRUE",
         candle_type = "Basic(ShortWhiteCandle) SpinningTop(WhiteSpinningTop)"
     )
 )]
@@ -65,7 +79,7 @@ pub fn calc(
     //
     // This function ONLY checks relational constraints between bars
 
-    let (open, high, low, close) = inputs;
+    let (open, _, _, close) = inputs;
 
     //may not be neccusary
     if cdl_body_greater_body(
@@ -80,21 +94,6 @@ pub fn calc(
         (open[FIRST], close[FIRST]),
         1.0,
     ) {
-        return false;
-    }
-
-    if !(open[THIRD] > open[SECOND]) || open[THIRD] > close[SECOND] {
-        return false;
-    }
-    if !(open[SECOND] > open[FIRST]) || open[SECOND] > close[FIRST] {
-        return false;
-    }
-
-    let first_wick = cdl_total_wick_length(open[FIRST], high[FIRST], low[FIRST], close[FIRST]);
-
-    if !(first_wick > cdl_total_wick_length(open[SECOND], high[SECOND], low[SECOND], close[SECOND]))
-        || !(first_wick > cdl_total_wick_length(open[THIRD], high[THIRD], low[THIRD], close[THIRD]))
-    {
         return false;
     }
 

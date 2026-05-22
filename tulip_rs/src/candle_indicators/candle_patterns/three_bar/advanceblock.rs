@@ -5,7 +5,7 @@
 //! increasing upper shadows.
 
 use crate::candle_indicators::{
-    common::{cdl_body_greater_body, cdl_real_within_body, cdl_total_wick_length},
+    common::{cdl_body_greater_body, cdl_total_wick_length},
     pattern_test::EmaState,
     registry::CandleBits,
     types::{CandleInfo, ForcastType},
@@ -54,8 +54,20 @@ pub fn info() -> CandleInfo {
         line_height = "LONG",
         candle_type = "Basic(WhiteCandle | LongWhiteCandle) Marubozu(OpeningWhiteMarubozu | ClosingWhiteMarubozu | WhiteMarubozu)"
     ),
-    bar(colour = "GREEN", fill = "HALLOW"),
-    bar(colour = "GREEN", fill = "HALLOW")
+    bar(
+        colour = "GREEN", 
+        fill = "HALLOW",
+        open_in_prev_body = "TRUE",
+        close_in_prev_body = "FALSE",
+        close_above_prev_mid = "TRUE"
+    ),
+    bar(
+        colour = "GREEN",
+        fill = "HALLOW",
+        open_in_prev_body = "TRUE",
+        close_in_prev_body = "FALSE",
+        close_above_prev_mid = "TRUE"
+    )
 )]
 
 pub fn calc(
@@ -65,14 +77,6 @@ pub fn calc(
 ) -> bool {
     let (open, high, low, close) = inputs;
 
-    // === Additional Constraints Beyond Basic Pattern Match ===
-
-    // 1. Last 2 bars must open within the previous bar body
-    if !cdl_real_within_body((open[SECOND], close[SECOND]), open[THIRD])
-        || !cdl_real_within_body((open[FIRST], close[FIRST]), open[SECOND])
-    {
-        return false;
-    }
 
     // 2. Shadows of the second and third line should be longer than the first line
     let first_wick = cdl_total_wick_length(open[FIRST], high[FIRST], low[FIRST], close[FIRST]);

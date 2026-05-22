@@ -9,6 +9,7 @@ use tulip_rs_macros::pattern_template;
         fill = "HALLOW"
         colour = "GREEN",
         line_height = "LONG",
+        body_height = "LONG",
         candle_type = "Basic(WhiteCandle | LongWhiteCandle) Marubozu(OpeningWhiteMarubozu | ClosingWhiteMarubozu | WhiteMarubozu)"
     ),
     bar(

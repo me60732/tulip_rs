@@ -1,13 +1,32 @@
-use crate::candle_indicators::registry::CandleBits;
-use crate::candle_indicators::{
-    common::{cdl_wick_length, LONG},
-    pattern_test::EmaState,
-    types::{CandleInfo, ForcastType},
-};
+use crate::candle_indicators::types::{CandleInfo, ForcastType};
 use tulip_rs_macros::pattern_template;
 
-use super::{FIRST, SECOND, THIRD};
-
+#[pattern_template(
+    name = "UniqueThreeRiverBottom",
+    forecast = "BullishReversal",
+    prev_bar(trend = "DOWN"),
+    bar(
+        colour = "RED",
+        line_height = "LONG",
+        body_height = "LONG",
+        candle_type = "Basic(BlackCandle | LongBlackCandle) Marubozu(OpeningBlackMarubozu | ClosingBlackMarubozu | BlackMarubozu)"
+    ),
+    bar(
+        colour = "GREEN",
+        fill = "FILL",
+        line_height = "LONG",
+        inside_prev = "BODY",
+        lower_wick_2x = "TRUE",
+        low_in_prev_line = "FALSE",
+    ),
+    bar(
+        colour = "RED",
+        fill = "HALLOW",
+        line_height = "SHORT",
+        body_gap = "GAP_DOWN",
+        low_in_prev_line = "TRUE"
+    )
+)]
 pub fn info() -> CandleInfo {
     CandleInfo {
         name: "uniquethreeriverbottom",
@@ -19,39 +38,5 @@ pub fn info() -> CandleInfo {
     }
 }
 
-#[pattern_template(
-    name = "UniqueThreeRiverBottom",
-    forecast = "BullishReversal",
-    prev_bar(trend = "DOWN"),
-    bar(colour = "RED", fill = "FILL", line_height = "LONG",),
-    bar(
-        colour = "GREEN",
-        fill = "FILL",
-        line_height = "LONG",
-        inside_prev = "BODY"
-    ),
-    bar(
-        colour = "RED",
-        fill = "HALLOW",
-        line_height = "SHORT",
-        body_gap = "GAP_DOWN",
-    )
-)]
-pub fn calc(
-    inputs: (&[f64], &[f64], &[f64], &[f64]),
-    _state: &EmaState,
-    _bars: &[CandleBits],
-) -> bool {
-    let (open, _, low, close) = inputs;
 
-    // Body containment of SECOND inside FIRST is enforced by inside_prev = "BODY".
-    // Remaining relational checks:
-    if cdl_wick_length((open[SECOND], close[SECOND]), low[SECOND], Some(2.0)) != LONG {
-        return false;
-    }
-    if !(low[SECOND] < low[FIRST]) || !(low[THIRD] > low[SECOND]) {
-        return false;
-    }
 
-    true
-}

@@ -6,7 +6,7 @@ use crate::candle_indicators::{
 };
 use tulip_rs_macros::pattern_template;
 
-use super::{FIRST, SECOND, THIRD};
+use super::{FIRST, THIRD};
 
 pub fn info() -> CandleInfo {
     CandleInfo {
@@ -46,6 +46,7 @@ pub fn info() -> CandleInfo {
         colour = "GREEN",
         fill = "HALLOW",
         line_height = "LONG",
+        body_height = "LONG",
         candle_type = "Basic(WhiteCandle | LongWhiteCandle) Marubozu(OpeningWhiteMarubozu | ClosingWhiteMarubozu | WhiteMarubozu)"
     ),
     bar(
@@ -58,6 +59,7 @@ pub fn info() -> CandleInfo {
         fill = "FILL",
         body_gap = "GAP_DOWN",
         line_height = "LONG",
+        body_height = "LONG",
         candle_type = "Basic(BlackCandle | LongBlackCandle) Marubozu(OpeningBlackMarubozu | ClosingBlackMarubozu | BlackMarubozu)"
     )
 )]
@@ -67,14 +69,7 @@ pub fn calc(
     _state: &EmaState,
     _bars: &[CandleBits],
 ) -> bool {
-    let (open, high, low, close) = inputs;
+    let (open, _, _, close) = inputs;
 
-    if !(low[SECOND] < high[FIRST]) {
-        return false;
-    }
-    if cdl_real_in_body_position((open[FIRST], close[FIRST]), close[THIRD]) > 50.0 {
-        return false;
-    }
-    // All conditions met
-    true
+    cdl_real_in_body_position((open[FIRST], close[FIRST]), close[THIRD]) < 50.0
 }

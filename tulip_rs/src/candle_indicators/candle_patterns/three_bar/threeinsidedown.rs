@@ -1,21 +1,5 @@
-use crate::candle_indicators::{
-    pattern_test::EmaState,
-    registry::CandleBits,
-    types::{CandleInfo, ForcastType},
-};
+use crate::candle_indicators::types::{CandleInfo, ForcastType};
 use tulip_rs_macros::pattern_template;
-
-
-pub fn info() -> CandleInfo {
-    CandleInfo {
-        name: "threeinsidedown",
-        full_name: "Three Inside Down",
-        forcast: ForcastType::BearishReversal,
-        extended_pattern: None,
-        bars: 3,
-        japanese_name: "Sanpei Fukakudari",
-    }
-}
 
 #[pattern_template(
     name = "ThreeInsideDown",
@@ -25,6 +9,7 @@ pub fn info() -> CandleInfo {
         colour = "GREEN",
         fill = "HALLOW",
         line_height = "LONG",
+        body_height = "LONG",
         candle_type = "Basic(WhiteCandle | LongWhiteCandle) Marubozu(OpeningWhiteMarubozu | ClosingWhiteMarubozu | WhiteMarubozu)"
     ),
     bar(
@@ -39,11 +24,16 @@ pub fn info() -> CandleInfo {
         candle_type = "!Doji(Doji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | FourPriceDoji)"
     )
 )]
-pub fn calc(
-    _inputs: (&[f64], &[f64], &[f64], &[f64]),
-    _state: &EmaState,
-    _bars: &[CandleBits],
-) -> bool {
-    // Body containment of SECOND inside FIRST is enforced by inside_prev = "BODY".
-    true
+pub fn info() -> CandleInfo {
+    CandleInfo {
+        name: "threeinsidedown",
+        full_name: "Three Inside Down",
+        forcast: ForcastType::BearishReversal,
+        extended_pattern: None,
+        bars: 3,
+        japanese_name: "Sanpei Fukakudari",
+    }
 }
+
+
+

@@ -26,20 +26,23 @@ pub fn info() -> CandleInfo {
     bar(
         colour = "RED",
         fill = "FILL",
-        line_height = "LONG"
-        candle_type = "!Doji(Doji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | FourPriceDoji)"
+        line_height = "LONG",
+        body_height = "LONG",
+        candle_type = "Basic(BlackCandle | LongBlackCandle) Marubozu(OpeningBlackMarubozu | ClosingBlackMarubozu | BlackMarubozu)"
     ),
     bar(
         colour = "RED",
         fill = "FILL",
         line_height = "LONG",
-        candle_type = "!Doji(Doji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | FourPriceDoji)"
+        body_height = "LONG",
+        candle_type = "Basic(BlackCandle | LongBlackCandle) Marubozu(OpeningBlackMarubozu | ClosingBlackMarubozu | BlackMarubozu)"
     ),
     bar(
         colour = "RED",
         fill = "FILL",
         line_height = "LONG",
-        candle_type = "!Doji(Doji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | FourPriceDoji)"
+        body_height = "LONG",
+        candle_type = "Basic(BlackCandle | LongBlackCandle) Marubozu(OpeningBlackMarubozu | ClosingBlackMarubozu | BlackMarubozu)"
     )
 )]
 

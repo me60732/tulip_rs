@@ -31,10 +31,10 @@ pub fn info() -> CandleInfo {
 #[pattern_template(
     name = "SouthernDoji",
     forecast = "BullishReversal",
-    prev_bar(trend = "DOWN")
+    prev_bar(trend = "DOWN"),
     bar(
         colour = "RED",
-        candle_type = "!Doji(FourPriceDoji)",
+        candle_type = "Doji(LongLeggedDoji | DragonflyDoji | GravestoneDoji | Doji)",
         body_gap = "GAP_DOWN"
     )
 )]
@@ -46,10 +46,6 @@ pub fn calc(
 ) -> bool {
     let (_, high, _, _) = inputs;
 
-    if !(high[FIRST] <= state.ema) {
-        return false;
-    }
-
-    true
+    high[FIRST] <= state.ema
 }
 

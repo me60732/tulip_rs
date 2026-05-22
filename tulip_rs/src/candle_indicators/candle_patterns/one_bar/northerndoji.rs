@@ -31,10 +31,10 @@ pub fn info() -> CandleInfo {
 #[pattern_template(
     name = "NorthernDoji",
     forecast = "BearishReversal",
-    prev_bar(trend = "UP")
+    prev_bar(trend = "UP"),
     bar(
         colour = "GREEN",
-        candle_type = "!Doji(LongLeggedDoji | DragonflyDoji | GravestoneDoji)",
+        candle_type = "Doji(LongLeggedDoji | DragonflyDoji | GravestoneDoji | Doji)",
         body_gap = "GAP_UP"
     )
 )]
@@ -45,10 +45,5 @@ pub fn calc(
     _bars: &[CandleBits],
 ) -> bool {
     let (_, _, low, _) = inputs;
-
-    if !(low[FIRST] >= state.ema) {
-        return false;
-    }
-
-    true
+    low[FIRST] >= state.ema
 }

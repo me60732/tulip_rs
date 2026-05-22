@@ -10,6 +10,7 @@ use tulip_rs_macros::pattern_template;
         fill = "FILL"
         colour = "RED",
         line_height = "LONG",
+        body_height = "LONG",
         candle_type = "Basic(BlackCandle | LongBlackCandle) Marubozu(OpeningBlackMarubozu | ClosingBlackMarubozu | BlackMarubozu)"
     ),
     bar(

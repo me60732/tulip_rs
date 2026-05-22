@@ -1,6 +1,6 @@
 use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
-    common::{cdl_similar_height, cdl_total_range},
+    common::cdl_total_range,
     pattern_test::EmaState,
     types::{CandleInfo, ForcastType},
 };
@@ -23,16 +23,22 @@ pub fn info() -> CandleInfo {
     name = "BullSidebySideWhiteLines",
     forecast = "BullishContinuation",
     prev_bar(trend = "UP"),
-    bar(colour = "GREEN", fill = "HALLOW", line_height = "LONG"),
     bar(
         colour = "GREEN",
         fill = "HALLOW",
-        candle_type = "!Doji(Doji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | FourPriceDoji)",
+        line_height = "LONG",
+        body_height = "LONG",
+        candle_type = "Basic(WhiteCandle | LongWhiteCandle) Marubozu(OpeningWhiteMarubozu | ClosingWhiteMarubozu | WhiteMarubozu)"
+    ),
+    bar(
+        colour = "GREEN",
+        fill = "HALLOW",
+        candle_type = "Basic(ShortWhiteCandle | WhiteCandle | LongWhiteCandle) Marubozu(OpeningWhiteMarubozu | ClosingWhiteMarubozu | WhiteMarubozu)",
         wick_gap = "GAP_UP"
     ),
     bar(
         fill = "HALLOW",
-        candle_type = "!Doji(Doji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | FourPriceDoji)"
+        candle_type = "Basic(ShortWhiteCandle | WhiteCandle | LongWhiteCandle) Marubozu(OpeningWhiteMarubozu | ClosingWhiteMarubozu | WhiteMarubozu)"
     )
 )]
 
@@ -54,14 +60,6 @@ pub fn calc(
     }
 
     if !(high[FIRST] < low[THIRD]) {
-        return false;
-    }
-
-    if !cdl_similar_height(
-        (high[SECOND], low[SECOND]),
-        (high[THIRD], low[THIRD]),
-        Some(0.1),
-    ) {
         return false;
     }
 

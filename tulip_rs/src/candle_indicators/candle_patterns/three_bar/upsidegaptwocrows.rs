@@ -26,6 +26,7 @@ pub fn info() -> CandleInfo {
         colour = "GREEN",
         fill = "HALLOW",
         line_height = "LONG",
+        body_height = "LONG",
         candle_type = "Basic(WhiteCandle | LongWhiteCandle) Marubozu(OpeningWhiteMarubozu | ClosingWhiteMarubozu | WhiteMarubozu)"
     ),
     bar(
@@ -37,8 +38,9 @@ pub fn info() -> CandleInfo {
     bar(
         colour = "RED",
         fill = "FILL",
-        candle_type = "!Doji(Doji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | FourPriceDoji)",
-        engulf_prev = "BODY"
+        candle_type = "Basic(BlackCandle | LongBlackCandle) Marubozu(OpeningBlackMarubozu | ClosingBlackMarubozu | BlackMarubozu)",
+        engulf_prev = "BODY",
+        body_height = "LONG",
     )
 )]
 pub fn calc(
@@ -47,12 +49,5 @@ pub fn calc(
     _bars: &[CandleBits],
 ) -> bool {
     let (_, _, _, close) = inputs;
-
-    // Body engulf of SECOND by THIRD is enforced by engulf_prev = "BODY".
-    // THIRD's close must still be above FIRST's close.
-    if !(close[THIRD] > close[FIRST]) {
-        return false;
-    }
-
-    true
+    close[THIRD] > close[FIRST]
 }

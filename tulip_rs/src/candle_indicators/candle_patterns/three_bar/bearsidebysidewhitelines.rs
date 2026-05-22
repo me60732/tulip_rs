@@ -1,6 +1,6 @@
 use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
-    common::{cdl_similar_height, cdl_total_range},
+    common::cdl_total_range,
     pattern_test::EmaState,
     types::{CandleInfo, ForcastType},
 };
@@ -23,16 +23,22 @@ pub fn info() -> CandleInfo {
     name = "BearSideBySideWhiteLines",
     forecast = "BearishContinuation",
     prev_bar(trend = "DOWN"),
-    bar(colour = "RED", fill = "FILL", line_height = "LONG"),
+    bar(
+        colour = "RED",
+        fill = "FILL",
+        line_height = "LONG",
+        body_height = "LONG",
+        candle_type = "Basic(BlackCandle | LongBlackCandle) Marubozu(OpeningBlackMarubozu | ClosingBlackMarubozu | BlackMarubozu)"
+    ),
     bar(
         colour = "RED",
         fill = "HALLOW",
-        candle_type = "!Doji(Doji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | FourPriceDoji)",
-        wick_gap = "GAP_DOWN"
+        wick_gap = "GAP_DOWN",
+        candle_type = "Basic(ShortWhiteCandle | WhiteCandle | LongWhiteCandle) Marubozu(OpeningWhiteMarubozu | ClosingWhiteMarubozu | WhiteMarubozu)"
     ),
     bar(
         fill = "HALLOW",
-        candle_type = "!Doji(Doji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | FourPriceDoji)"
+        candle_type = "Basic(ShortWhiteCandle | WhiteCandle | LongWhiteCandle) Marubozu(OpeningWhiteMarubozu | ClosingWhiteMarubozu | WhiteMarubozu)"
     )
 )]
 
@@ -51,7 +57,6 @@ pub fn calc(
 
     // Safety: need at least 2 bars before current (i-2 must be valid)
     let (open, high, low, close) = inputs;
-
     // === Additional Constraints Beyond Basic Pattern Match ===
 
     //body can not be greater then the first body
@@ -65,14 +70,6 @@ pub fn calc(
 
     //third must wick gap bellow first, second bar is in bar pattern wick_gap test already
     if !(low[FIRST] > high[THIRD]) {
-        return false;
-    }
-
-    if !cdl_similar_height(
-        (high[SECOND], low[SECOND]),
-        (high[THIRD], low[THIRD]),
-        Some(0.1),
-    ) {
         return false;
     }
 

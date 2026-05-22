@@ -46,6 +46,7 @@ pub fn info() -> CandleInfo {
         colour = "RED",
         fill = "FILL",
         line_height = "LONG",
+        body_height = "LONG",
         candle_type = "Basic(BlackCandle | LongBlackCandle) Marubozu(OpeningBlackMarubozu | ClosingBlackMarubozu | BlackMarubozu)"
     ),
     bar(
@@ -59,6 +60,7 @@ pub fn info() -> CandleInfo {
         fill = "HALLOW",
         body_gap = "GAP_UP",
         line_height = "LONG",
+        body_height = "LONG",
         candle_type = "Basic(WhiteCandle | WhiteBlackCandle) Marubozu(OpeningWhiteMarubozu | ClosingWhiteMarubozu | WhiteMarubozu)"
     )
 )]
@@ -78,9 +80,5 @@ pub fn calc(
 
     let (open, _, _, close) = inputs;
 
-    if cdl_real_in_body_position((open[FIRST], close[FIRST]), close[THIRD]) < 50.0 {
-        return false;
-    }
-    // All conditions met
-    true
+    cdl_real_in_body_position((open[FIRST], close[FIRST]), close[THIRD]) > 50.0
 }

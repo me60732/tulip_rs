@@ -20,9 +20,9 @@ fn main() {
     ];
 
     let pattern_open = vec![87.15, 89.10, 89.15];
-    let pattern_high = vec![88.30, 89.60, 89.20];
+    let pattern_high = vec![88.30, 90.10, 89.20];
     let pattern_low = vec![87.05, 89.00, 88.15];
-    let pattern_close = vec![88.29, 89.50, 88.20];
+    let pattern_close = vec![88.29, 90.10, 88.20];
     
     open.extend(pattern_open);
     high.extend(pattern_high);

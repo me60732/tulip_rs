@@ -6,7 +6,7 @@ use crate::candle_indicators::{
 };
 use tulip_rs_macros::pattern_template;
 
-use super::{FIRST, SECOND, THIRD};
+use super::{FIRST, THIRD};
 
 pub fn info() -> CandleInfo {
     CandleInfo {
@@ -27,6 +27,7 @@ pub fn info() -> CandleInfo {
         colour = "GREEN",
         fill = "HALLOW",
         line_height = "LONG",
+        body_height = "LONG",
         candle_type = "Basic(WhiteCandle | LongWhiteCandle) Marubozu(OpeningWhiteMarubozu | ClosingWhiteMarubozu | WhiteMarubozu)"
     ),
     bar(
@@ -38,6 +39,9 @@ pub fn info() -> CandleInfo {
     bar(
         colour = "RED",
         fill = "FILL",
+        line_height = "LONG",
+        body_height = "LONG",
+        open_in_prev_body = "TRUE",
         candle_type = "Basic(BlackCandle | LongBlackCandle) Marubozu(OpeningBlackMarubozu | ClosingBlackMarubozu | BlackMarubozu)"
     )
 )]
@@ -59,12 +63,5 @@ pub fn calc(
 
     // === Additional Constraints Beyond Basic Pattern Match ===
 
-    if !cdl_real_within_body((open[FIRST], close[FIRST]), close[THIRD])
-        && !cdl_real_within_body((open[SECOND], close[SECOND]), open[THIRD])
-    {
-        return false;
-    }
-
-    // All conditions met
-    true
+    cdl_real_within_body((open[FIRST], close[FIRST]), close[THIRD])
 }

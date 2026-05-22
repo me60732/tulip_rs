@@ -1,12 +1,11 @@
 use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
-    common::cdl_real_within_body,
     pattern_test::EmaState,
     types::{CandleInfo, ForcastType},
 };
 use tulip_rs_macros::pattern_template;
 
-use super::{FIRST, SECOND, THIRD};
+use super::{FIRST, THIRD};
 
 pub fn info() -> CandleInfo {
     CandleInfo {
@@ -46,17 +45,20 @@ pub fn info() -> CandleInfo {
         colour = "RED",
         fill = "FILL",
         line_height = "LONG",
-        candle_type = "!Doji(Doji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | FourPriceDoji)"
+        body_height = "LONG",
+        candle_type = "Basic(BlackCandle | LongBlackCandle) Marubozu(OpeningBlackMarubozu | ClosingBlackMarubozu | BlackMarubozu)"
     ),
     bar(
         colour = "RED",
         fill = "FILL",
         wick_gap = "GAP_DOWN",
-        candle_type = "!Doji(Doji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | FourPriceDoji)"
+        candle_type = "Basic(BlackCandle | LongBlackCandle | ShortBlackCandle) Marubozu(OpeningBlackMarubozu | ClosingBlackMarubozu | BlackMarubozu)"
     ),
     bar(
         colour = "GREEN",
         fill = "HALLOW",
+        open_in_prev_body = "TRUE",
+        close_in_prev_body = "FALSE",
         candle_type = "!Doji(Doji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | FourPriceDoji)"
     )
 )]
@@ -66,24 +68,8 @@ pub fn calc(
     _state: &EmaState,
     _bars: &[CandleBits],
 ) -> bool {
-    // Basic pattern matching is already done by registry:
-    // - Trend is uptrend
-    // - 3 bars present
-    // - All bars are GREEN and HALLOW
-    // - Bar 1 matches required candle types
-    //
-    // This function ONLY checks relational constraints between bars
 
-    let (open, _, _, close) = inputs;
+    let (_, _, _, close) = inputs;
 
-    if !cdl_real_within_body((open[SECOND], close[SECOND]), open[THIRD]) {
-        return false;
-    }
-
-    if !(close[THIRD] < close[FIRST] && close[THIRD] > open[SECOND]) {
-        return false;
-    }
-
-    // All conditions met
-    true
+    close[THIRD] < close[FIRST]
 }

@@ -6,7 +6,7 @@ use crate::candle_indicators::{
 };
 use tulip_rs_macros::pattern_template;
 
-use super::{FIRST, SECOND, THIRD};
+use super::{FIRST, THIRD};
 
 pub fn info() -> CandleInfo {
     CandleInfo {
@@ -46,18 +46,24 @@ pub fn info() -> CandleInfo {
         colour = "RED",
         fill = "FILL",
         line_height = "LONG",
-        candle_type = "!Doji(Doji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | FourPriceDoji)"
+        body_height = "LONG",
+        candle_type = "Basic(BlackCandle | LongBlackCandle) Marubozu(OpeningBlackMarubozu | ClosingBlackMarubozu | BlackMarubozu)"
     ),
     bar(
         colour = "RED",
         fill = "FILL",
         wick_gap = "GAP_DOWN",
-        candle_type = "!Doji(Doji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | FourPriceDoji)"
+        line_height = "LONG",
+        body_height = "LONG",
+        candle_type = "Basic(BlackCandle | LongBlackCandle) Marubozu(OpeningBlackMarubozu | ClosingBlackMarubozu | BlackMarubozu)"
     ),
     bar(
         colour = "GREEN",
         fill = "HALLOW",
-        candle_type = "!Doji(Doji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | FourPriceDoji)"
+        open_in_prev_body = "TRUE",
+        close_in_prev_body = "FALSE",
+        close_above_prev_mid = "TRUE",
+        candle_type = "Basic(WhiteCandle | ShortWhiteCandle | LongWhiteCandle) Marubozu(OpeningWhiteMarubozu | ClosingWhiteMarubozu | WhiteMarubozu)"
     )
 )]
 
@@ -66,22 +72,8 @@ pub fn calc(
     _state: &EmaState,
     _bars: &[CandleBits],
 ) -> bool {
-    // Basic pattern matching is already done by registry:
-    // - Trend is uptrend
-    // - 3 bars present
-    // - All bars are GREEN and HALLOW
-    // - Bar 1 matches required candle types
-    //
-    // This function ONLY checks relational constraints between bars
-
     let (open, _, _, close) = inputs;
 
-    if !cdl_real_within_body((open[SECOND], close[SECOND]), open[THIRD])
-        || !cdl_real_within_body((open[FIRST], close[FIRST]), close[THIRD])
-    {
-        return false;
-    }
-
-    // All conditions met
-    true
+    cdl_real_within_body((open[FIRST], close[FIRST]), close[THIRD])
+    
 }

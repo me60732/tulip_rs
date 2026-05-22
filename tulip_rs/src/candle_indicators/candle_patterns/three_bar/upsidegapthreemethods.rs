@@ -6,7 +6,7 @@ use crate::candle_indicators::{
 };
 use tulip_rs_macros::pattern_template;
 
-use super::{FIRST, SECOND, THIRD};
+use super::{FIRST, THIRD};
 
 pub fn info() -> CandleInfo {
     CandleInfo {
@@ -27,16 +27,24 @@ pub fn info() -> CandleInfo {
         colour = "GREEN"
         fill = "HALLOW",
         line_height = "LONG",
+        body_height = "LONG",
+        candle_type = "Basic(WhiteCandle | LongWhiteCandle) Marubozu(OpeningWhiteMarubozu | ClosingWhiteMarubozu | WhiteMarubozu)"
     ),
     bar(
         colour = "GREEN",
         fill = "HALLOW",
         wick_gap = "GAP_UP",
+        line_height = "LONG",
+        body_height = "LONG",
+        candle_type = "Basic(WhiteCandle | LongWhiteCandle) Marubozu(OpeningWhiteMarubozu | ClosingWhiteMarubozu | WhiteMarubozu)"
     ),
     bar(
         colour = "RED",
         fill = "FILL",
-        candle_type = "!Doji(Doji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | FourPriceDoji)",
+        open_in_prev_body = "TRUE",
+        close_in_prev_body = "FALSE",
+        close_above_prev_mid = "FALSE",
+        candle_type = "Basic(BlackCandle | ShortBlackCandle | LongBlackCandle) Marubozu(OpeningBlackMarubozu | ClosingBlackMarubozu | BlackMarubozu)"
     )
 )]
 
@@ -48,12 +56,6 @@ pub fn calc(
     let (open, _, _, close) = inputs;
     // === Additional Constraints Beyond Basic Pattern Match ===
 
-    if !cdl_real_within_body((open[SECOND], close[SECOND]), open[THIRD])
-        || !cdl_real_within_body((open[FIRST], close[FIRST]), close[THIRD])
-    {
-        return false;
-    }
+    cdl_real_within_body((open[FIRST], close[FIRST]), close[THIRD])
 
-    // All conditions met
-    true
 }

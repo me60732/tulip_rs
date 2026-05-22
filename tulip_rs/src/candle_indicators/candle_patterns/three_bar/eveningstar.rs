@@ -46,12 +46,13 @@ pub fn info() -> CandleInfo {
         colour = "GREEN",
         fill = "HALLOW",
         line_height = "LONG",
+        body_height = "LONG",
         candle_type = "Basic(WhiteCandle | LongWhiteCandle) Marubozu(OpeningWhiteMarubozu | ClosingWhiteMarubozu | WhiteMarubozu)"
     ),
     bar(
         colour = "GREEN",
         body_gap = "GAP_UP",
-        line_height = "SHORT",
+        body_height = "SHORT",
         candle_type = "!Doji(Doji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | FourPriceDoji)"
     ),
     bar(
@@ -59,6 +60,7 @@ pub fn info() -> CandleInfo {
         fill = "FILL",
         body_gap = "GAP_DOWN",
         line_height = "LONG",
+        body_height = "LONG",
         candle_type = "Basic(BlackCandle | LongBlackCandle) Marubozu(OpeningBlackMarubozu | ClosingBlackMarubozu | BlackMarubozu)"
     )
 )]
@@ -70,10 +72,5 @@ pub fn calc(
 ) -> bool {
     let (open, _, _, close) = inputs;
 
-    if cdl_real_in_body_position((open[FIRST], close[FIRST]), close[THIRD]) > 50.0 {
-        return false;
-    }
-
-    // All conditions met
-    true
+    cdl_real_in_body_position((open[FIRST], close[FIRST]), close[THIRD]) < 50.0
 }
