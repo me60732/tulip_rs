@@ -156,6 +156,24 @@ fn forecast_trend_buckets(forecast: &str) -> Vec<usize> {
     }
 }
 
+/// Infer fill from a positive (non-negated) candle_type string.
+/// "White*" variants → Some(true) = HALLOW, "Black*" variants → Some(false) = FILL.
+/// Returns None for negation patterns, mixed types, or Doji/neutral-only types.
+fn infer_fill_from_candle_type(candle_type_str: &str) -> Option<bool> {
+    let ct = candle_type_str.trim();
+    // Negation patterns are too complex to infer fill from
+    if ct.contains('!') {
+        return None;
+    }
+    let has_white = ct.contains("White");
+    let has_black = ct.contains("Black");
+    match (has_white, has_black) {
+        (true, false) => Some(true),  // All White variants → HALLOW
+        (false, true) => Some(false), // All Black variants → FILL
+        _ => None,                    // Mixed, neither (Doji/HighWave), or empty
+    }
+}
+
 /// Extract a balanced-parentheses block from `s`, where `s[0]` is the opening `(`.
 /// Returns the slice `s[0..=close_pos]` including both parens.
 fn extract_balanced_parens(s: &str) -> &str {
@@ -368,6 +386,7 @@ fn parse_attribute_content(content: &str, bar_dir: &str, file_name: &str) -> Opt
             };
 
             // fill → None=ANY, Some(true)=HALLOW, Some(false)=FILL
+            // If not explicitly specified, infer from candle_type (White→HALLOW, Black→FILL)
             let fill = if let Some(start) = block.find("fill = \"") {
                 let rest = &block[start + 8..];
                 if let Some(end) = rest.find('"') {
@@ -380,7 +399,7 @@ fn parse_attribute_content(content: &str, bar_dir: &str, file_name: &str) -> Opt
                     None
                 }
             } else {
-                None
+                infer_fill_from_candle_type(candle_type_str)
             };
 
             (groups, colour, fill)

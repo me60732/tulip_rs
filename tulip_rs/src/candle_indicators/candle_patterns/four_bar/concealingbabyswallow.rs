@@ -1,7 +1,6 @@
-use super::{FIRST, SECOND, THIRD};
+use super::THIRD;
 use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
-    common::cdl_real_within_body,
     pattern_test::EmaState,
     types::{CandleInfo, ForcastType},
 };
@@ -22,17 +21,26 @@ pub fn info() -> CandleInfo {
     name = "ConcealingBabySwallow",
     forecast = "BullishReversal",
     prev_bar(trend = "DOWN"),
-    bar(colour = "RED", fill = "FILL", candle_type = "Marubozu(BlackMarubozu)"),
-    bar(colour = "RED", fill = "FILL", candle_type = "Marubozu(BlackMarubozu)"),
+    bar(
+        colour = "RED", 
+        candle_type = "Marubozu(BlackMarubozu)"
+    ),
     bar(
         colour = "RED",
-        fill = "FILL",
+        open_in_prev_body = "TRUE",
+        body_height = "LONG",
+        candle_type = "Marubozu(BlackMarubozu)"
+    ),
+    bar(
+        colour = "RED",
         body_gap = "GAP_DOWN",
+        high_in_prev_body = "TRUE",
+        lower_wick_lt_body = "TRUE",
         candle_type = "SpinningTop(HighWave)"
     ),
     bar(
-        fill = "FILL",
         line_height = "LONG",
+        body_height = "LONG",
         candle_type = "Basic(BlackCandle | LongBlackCandle) Marubozu(OpeningBlackMarubozu | ClosingBlackMarubozu | BlackMarubozu)",
         engulf_prev = "LINE"
     )
@@ -42,19 +50,6 @@ pub fn calc(
     _state: &EmaState,
     _bars: &[CandleBits],
 ) -> bool {
-    let (open, high, low, close) = inputs;
-
-    // FOURTH's body engulfing THIRD's full line is enforced by engulf_prev = "LINE".
-    // Remaining relational checks:
-    if !cdl_real_within_body((open[FIRST], close[FIRST]), open[SECOND])
-        || !cdl_real_within_body((open[SECOND], close[SECOND]), high[THIRD])
-    {
-        return false;
-    }
-
-    if low[THIRD] != close[THIRD] {
-        return false;
-    }
-
-    true
+    let (_, _, low, close) = inputs;
+    low[THIRD] == close[THIRD] 
 }

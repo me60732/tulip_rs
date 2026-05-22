@@ -1,7 +1,7 @@
-use super::{FIRST, FOURTH, SECOND, THIRD};
+use super::{FIRST, FOURTH, SECOND};
 use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
-    common::{cdl_bar_engulf_bar, cdl_real_within_body},
+    common::cdl_bar_engulf_bar,
     pattern_test::EmaState,
     types::{CandleInfo, ForcastType},
 };
@@ -30,17 +30,21 @@ pub fn info() -> CandleInfo {
     bar(
         colour = "RED",
         fill = "FILL",
+        open_in_prev_body = "TRUE",
         candle_type = "!Doji(FourPriceDoji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | Doji)"
     ),
     bar(
         colour = "RED",
         fill = "FILL",
+        open_in_prev_body = "TRUE",
         candle_type = "!Doji(FourPriceDoji | LongLeggedDoji | DragonflyDoji | GravestoneDoji | Doji)"
     ),
     bar(
         colour = "GREEN",
         fill = "HALLOW",
         line_height = "LONG",
+        body_height = "LONG",
+        engulf_prev = "BODY",
         candle_type = "Basic(WhiteCandle | LongWhiteCandle) Marubozu(OpeningWhiteMarubozu | ClosingWhiteMarubozu | WhiteMarubozu)"
     )
 )]
@@ -51,17 +55,5 @@ pub fn calc(
     _bars: &[CandleBits],
 ) -> bool {
     let (open, _, _, close) = inputs;
-
-    // === Additional Constraints Beyond Basic Pattern Match ===
-    if !cdl_real_within_body((open[FIRST], close[FIRST]), open[SECOND])
-        || !cdl_real_within_body((open[SECOND], close[SECOND]), open[THIRD])
-    {
-        return false;
-    }
-
-    if !cdl_bar_engulf_bar((open[FOURTH], close[FOURTH]), (open[FIRST], close[THIRD])) {
-        return false;
-    }
-    // All conditions met
-    true
+    cdl_bar_engulf_bar((open[FOURTH], close[FOURTH]), (open[FIRST], close[SECOND]))
 }
