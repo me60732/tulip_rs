@@ -23,7 +23,10 @@ pub fn info() -> CandleInfo {
     forecast = "BullishReversal",
     prev_bar(trend = "DOWN"),
     bar(candle_type = "!Doji(FourPriceDoji)"),
-    bar(candle_type = "!Doji(FourPriceDoji)")
+    bar(
+        candle_type = "!Doji(FourPriceDoji)",
+        inside_prev = "LINE"
+    ),
 )]
 
 pub fn calc(
@@ -33,8 +36,5 @@ pub fn calc(
 ) -> bool {
     let (_, _, low, _) = inputs;
 
-    if low[FIRST] != low[SECOND] {
-        return false;
-    }
-    true
+    low[FIRST] == low[SECOND]
 }

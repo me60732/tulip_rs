@@ -875,9 +875,42 @@ pub fn pattern_template(attr: TokenStream, item: TokenStream) -> TokenStream {
     // Generate lazy bit mask constant name
     let lazy_bits_name = format_ident!("PATTERN_LAZY_BITS_{}", pattern_name.to_uppercase());
 
+    // Determine whether we need to emit a default calc.
+    // If the macro is applied to a function OTHER than `calc` (e.g. `info`),
+    // the module has no hand-written calc, so we generate one that returns true.
+    let is_calc = input_fn.sig.ident == "calc";
+
+    // When the annotated function IS calc, add #[inline(always)] automatically.
+    let maybe_inline = if is_calc {
+        quote! { #[inline(always)] }
+    } else {
+        quote! {}
+    };
+
+    // Generated default calc used when the module omits it entirely.
+    let default_calc = if !is_calc {
+        quote! {
+            /// Generated default calc — all constraints are expressed in the pattern template mask.
+            #[inline(always)]
+            pub fn calc(
+                _inputs: (&[f64], &[f64], &[f64], &[f64]),
+                _state: &crate::candle_indicators::pattern_test::EmaState,
+                _bars: &[crate::candle_indicators::registry::CandleBits],
+            ) -> bool {
+                true
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     let expanded = quote! {
-        // Keep the original function
+        // Keep the original function (with inline hint when it is calc)
+        #maybe_inline
         #input_fn
+
+        // Default calc (emitted only when macro is not applied to calc)
+        #default_calc
 
         // Metadata comment for build script - DO NOT REMOVE
         // PATTERN_REGISTRY_ENTRY: name=#pattern_name, forecast=#forecast_name, bars=#pattern_bar_count, has_prev_bar=#has_prev_bar, lazy_bits_mask=#lazy_bits_name

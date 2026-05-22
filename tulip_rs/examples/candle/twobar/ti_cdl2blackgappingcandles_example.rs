@@ -19,7 +19,7 @@ fn main() {
         87.77, 87.29,
     ];
     
-    let pattern_open = vec![86.30, 85.20];
+    let pattern_open = vec![86.30, 85.35];
     let pattern_high = vec![86.40, 85.55];
     let pattern_low = vec![85.0, 84.70];
     let pattern_close = vec![85.30, 84.80];

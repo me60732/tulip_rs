@@ -23,7 +23,10 @@ pub fn info() -> CandleInfo {
     forecast = "BearishReversal",
     prev_bar(trend = "UP"),
     bar(candle_type = "!Doji(FourPriceDoji) !Marubozu(WhiteMarubozu | ClosingWhiteMarubozu)"),
-    bar(candle_type = "!Doji(FourPriceDoji) !Marubozu(WhiteMarubozu | ClosingWhiteMarubozu)")
+    bar(
+        candle_type = "!Doji(FourPriceDoji) !Marubozu(WhiteMarubozu | ClosingWhiteMarubozu)",
+        inside_prev = "LINE",
+    ),
 )]
 
 pub fn calc(
@@ -33,9 +36,5 @@ pub fn calc(
 ) -> bool {
     let (_, high, _, _) = inputs;
 
-    if !(high[FIRST] == high[SECOND]) {
-        return false;
-    }
-
-    true
+    high[FIRST] == high[SECOND]
 }

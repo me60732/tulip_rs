@@ -1,21 +1,6 @@
-use crate::candle_indicators::{
-    pattern_test::EmaState,
-    registry::CandleBits,
-    types::{CandleInfo, ForcastType},
-};
+use crate::candle_indicators::types::{CandleInfo, ForcastType};
 use tulip_rs_macros::pattern_template;
 
-
-pub fn info() -> CandleInfo {
-    CandleInfo {
-        name: "bullishtasukiline",
-        full_name: "Bullish Tasuki Line",
-        forcast: ForcastType::BullishReversal,
-        extended_pattern: None,
-        bars: 2,
-        japanese_name: "Tasuki",
-    }
-}
 
 #[pattern_template(
     name = "BullishTasukiLine",
@@ -39,11 +24,15 @@ pub fn info() -> CandleInfo {
         candle_type = "Basic(WhiteCandle | LongWhiteCandle) Marubozu(OpeningWhiteMarubozu | ClosingWhiteMarubozu | WhiteMarubozu)",
     )
 )]
-
-pub fn calc(
-    _inputs: (&[f64], &[f64], &[f64], &[f64]),
-    _state: &EmaState,
-    _bars: &[CandleBits],
-) -> bool {
-    true
+pub fn info() -> CandleInfo {
+    CandleInfo {
+        name: "bullishtasukiline",
+        full_name: "Bullish Tasuki Line",
+        forcast: ForcastType::BullishReversal,
+        extended_pattern: None,
+        bars: 2,
+        japanese_name: "Tasuki",
+    }
 }
+
+

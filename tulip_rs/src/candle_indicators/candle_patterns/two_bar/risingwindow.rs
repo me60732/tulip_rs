@@ -36,9 +36,5 @@ pub fn calc(
 ) -> bool {
     let (_, _, _, close) = inputs;
 
-    if !(close[FIRST] > state.ema) {
-        return false;
-    }
-
-    true
+    close[FIRST] > state.ema
 }

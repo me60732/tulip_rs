@@ -36,14 +36,5 @@ pub fn calc(
     _bars: &[CandleBits],
 ) -> bool {
     let (open, high, _, _) = inputs;
-    if !(high[FIRST] > state.ema) {
-        return false;
-    }
-    if !(open[FIRST] < state.ema) {
-        return false;
-    }
-    if !(open[SECOND] > state.ema) {
-        return false;
-    }
-    true
+    high[FIRST] > state.ema && open[FIRST] < state.ema && open[SECOND] > state.ema
 }

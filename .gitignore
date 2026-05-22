@@ -4,4 +4,5 @@
 /.cargo/
 .~*
 *.md
+!pattern_authoring_guide.md
 candle_indicators_old

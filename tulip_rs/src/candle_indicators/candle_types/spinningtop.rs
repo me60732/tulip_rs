@@ -41,8 +41,8 @@ impl CandleStick for CDLSpinningTop {
         candle_shape: &mut CandleShape,
         _: &State,
     ) -> bool {
-        if candle_shape.get_bottom_wick_length(open, close, low) != SHORT
-            || candle_shape.get_top_wick_length(open, close, high) != SHORT
+        if candle_shape.get_bottom_wick_length(open, low, close) != SHORT
+            || candle_shape.get_top_wick_length(open, high, close) != SHORT
         {
             return true;
         }

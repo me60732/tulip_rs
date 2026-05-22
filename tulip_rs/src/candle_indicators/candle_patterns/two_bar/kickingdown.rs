@@ -5,8 +5,6 @@ use crate::candle_indicators::{
 };
 use tulip_rs_macros::pattern_template;
 
-use super::{FIRST, SECOND};
-
 pub fn info() -> CandleInfo {
     CandleInfo {
         name: "kickingdown",
@@ -24,10 +22,13 @@ pub fn info() -> CandleInfo {
     bar(
         fill = "HALLOW",
         line_height = "LONG",
+        body_height = "LONG",
         candle_type = "Marubozu(WhiteMarubozu)"
     ),
     bar(
-        body_gap = "GAP_DOWN",
+        colour = "RED",
+        wick_gap = "GAP_DOWN",
+        body_height = "LONG"
         fill = "FILL",
         line_height = "LONG",
         candle_type = "Marubozu(BlackMarubozu)"
@@ -35,15 +36,11 @@ pub fn info() -> CandleInfo {
 )]
 
 pub fn calc(
-    inputs: (&[f64], &[f64], &[f64], &[f64]),
+    _inputs: (&[f64], &[f64], &[f64], &[f64]),
     _state: &EmaState,
     _bars: &[CandleBits],
 ) -> bool {
-    let (open, _, _, _) = inputs;
 
-    if !(open[FIRST] > open[SECOND]) {
-        return false;
-    }
 
     true
 }

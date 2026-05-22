@@ -7,7 +7,7 @@
 ///     a doji candle
 ///     a body above the first candle's body
 use crate::candle_indicators::{
-    common::{cdl_wick_length, LONG, SHORT},
+    common::cdl_wick_length,
     pattern_test::EmaState,
     registry::CandleBits,
     types::{CandleInfo, ForcastType},
@@ -41,6 +41,9 @@ pub fn info() -> CandleInfo {
         colour = "GREEN",
         body_height = "SHORT",
         body_gap = "GAP_UP",
+        upper_wick_lt_body = "FALSE",
+        upper_wick_2x = "TRUE", 
+        lower_wick_lt_body = "TRUE",
         candle_type = "SpinningTop(WhiteSpinningTop | BlackSpinningTop | HighWave)"
     )
 )]
@@ -50,14 +53,6 @@ pub fn calc(
     _state: &EmaState,
     _bars: &[CandleBits],
 ) -> bool {
-    let (open, high, low, close) = inputs;
-
-    if cdl_wick_length((open[SECOND], close[SECOND]), high[SECOND], Some(2.5)) == SHORT {
-        return false;
-    }
-    if cdl_wick_length((open[SECOND], close[SECOND]), low[SECOND], None) == LONG {
-        return false;
-    }
-
-    true
+    let (open, high, _, close) = inputs;
+    cdl_wick_length((open[SECOND], close[SECOND]), high[SECOND], Some(2.5))
 }

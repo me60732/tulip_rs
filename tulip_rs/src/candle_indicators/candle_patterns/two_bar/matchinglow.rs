@@ -28,6 +28,7 @@ pub fn info() -> CandleInfo {
         candle_type = "Marubozu(BlackMarubozu | ClosingBlackMarubozu)"
     ),
     bar(
+        inside_prev = "BODY",
         colour = "GREEN",
         fill = "FILL",
         candle_type = "Marubozu(BlackMarubozu | ClosingBlackMarubozu)"
@@ -39,14 +40,7 @@ pub fn calc(
     _state: &EmaState,
     _bars: &[CandleBits],
 ) -> bool {
-    let (open, _, _, close) = inputs;
+    let (_, _, _, close) = inputs;
 
-    if !(open[FIRST] > open[SECOND]) {
-        return false;
-    }
-    if !(close[FIRST] == close[SECOND]) {
-        return false;
-    }
-
-    true
+    close[FIRST] == close[SECOND]
 }

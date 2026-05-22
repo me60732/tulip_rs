@@ -44,9 +44,5 @@ pub fn calc(
 ) -> bool {
     let (_, _, low, close) = inputs;
 
-    if close[SECOND] != low[FIRST] {
-        return false;
-    }
-
-    true
+    close[SECOND] == low[FIRST]
 }
