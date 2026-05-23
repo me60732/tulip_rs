@@ -145,7 +145,7 @@ pub fn info() -> CandleInfo {
     CandleInfo {
         name: "mypattern",            // lowercase, no spaces — used as the key
         full_name: "My Pattern",      // human-readable display name
-        forcast: ForcastType::BullishReversal,
+        forecast: ForecastType::BullishReversal,
         extended_pattern: None,       // or Some(CandlePattern::XYZ) if this pattern
                                       // is the first step of a larger one
         bars: 2,                      // must match the number of bar() blocks
@@ -158,12 +158,12 @@ pub fn info() -> CandleInfo {
 
 | Value | Meaning |
 |-------|---------|
-| `ForcastType::BullishReversal` | Trend reverses upward |
-| `ForcastType::BearishReversal` | Trend reverses downward |
-| `ForcastType::BullishContinuation` | Uptrend continues |
-| `ForcastType::BearishContinuation` | Downtrend continues |
-| `ForcastType::BullishReversalOrContinuation` | Bullish signal, context-dependent |
-| `ForcastType::BearishReversalOrContinuation` | Bearish signal, context-dependent |
+| `ForecastType::BullishReversal` | Trend reverses upward |
+| `ForecastType::BearishReversal` | Trend reverses downward |
+| `ForecastType::BullishContinuation` | Uptrend continues |
+| `ForecastType::BearishContinuation` | Downtrend continues |
+| `ForecastType::BullishReversalOrContinuation` | Bullish signal, context-dependent |
+| `ForecastType::BearishReversalOrContinuation` | Bearish signal, context-dependent |
 
 ---
 
@@ -183,7 +183,7 @@ registry uses these masks for fast bitwise pre-filtering before calling `calc`.
 ```rust
 #[pattern_template(
     name = "MyPattern",               // PascalCase identifier for the generated enum variant
-    forecast = "BullishReversal",     // matches a ForcastType variant (without the prefix)
+    forecast = "BullishReversal",     // matches a ForecastType variant (without the prefix)
     prev_bar( ... ),                  // trend of the bar before the pattern starts
     bar( ... ),                       // first bar of the pattern (oldest)
     bar( ... ),                       // second bar

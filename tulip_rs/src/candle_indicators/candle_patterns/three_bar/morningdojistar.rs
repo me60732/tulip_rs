@@ -2,7 +2,7 @@ use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
     common::cdl_real_in_body_position,
     pattern_test::EmaState,
-    types::{CandleInfo, ForcastType},
+    types::{CandleInfo, ForecastType},
 };
 use tulip_rs_macros::pattern_template;
 
@@ -12,7 +12,7 @@ pub fn info() -> CandleInfo {
     CandleInfo {
         name: "morningdojistar",
         full_name: "Morning Doji Star",
-        forcast: ForcastType::BullishReversal,
+        forecast: ForecastType::BullishReversal,
         extended_pattern: None,
         bars: 3,
         japanese_name: "Ake no myojyo doji bike",

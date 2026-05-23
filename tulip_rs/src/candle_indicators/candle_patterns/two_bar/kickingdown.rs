@@ -1,7 +1,7 @@
 use crate::candle_indicators::{
     pattern_test::EmaState,
     registry::CandleBits,
-    types::{CandleInfo, ForcastType},
+    types::{CandleInfo, ForecastType},
 };
 use tulip_rs_macros::pattern_template;
 
@@ -9,7 +9,7 @@ pub fn info() -> CandleInfo {
     CandleInfo {
         name: "kickingdown",
         full_name: "Kicking Down",
-        forcast: ForcastType::BearishReversalOrContinuation,
+        forecast: ForecastType::BearishReversalOrContinuation,
         extended_pattern: None,
         bars: 2,
         japanese_name: "Keri Ashi",

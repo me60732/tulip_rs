@@ -2,7 +2,7 @@ use crate::candle_indicators::{
     candle_patterns::CandlePattern,
     pattern_test::EmaState,
     registry::CandleBits,
-    types::{CandleInfo, ForcastType},
+    types::{CandleInfo, ForecastType},
 };
 use tulip_rs_macros::pattern_template;
 
@@ -11,7 +11,7 @@ pub fn info() -> CandleInfo {
     CandleInfo {
         name: "bullishengulfing",
         full_name: "Bullish Engulfing",
-        forcast: ForcastType::BullishReversal,
+        forecast: ForecastType::BullishReversal,
         extended_pattern: Some(CandlePattern::ThreeOutsideUp),
         bars: 2,
         japanese_name: "Tsutsumi",

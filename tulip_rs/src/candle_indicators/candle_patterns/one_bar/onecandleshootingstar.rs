@@ -5,7 +5,7 @@
 ///    upper shadow at least two times longer than the body
 ///    if the gap is created at the opening or the closing, it makes the signal stronger
 ///    appears as a long line
-use crate::candle_indicators::types::{CandleInfo, ForcastType};
+use crate::candle_indicators::types::{CandleInfo, ForecastType};
 use crate::candle_indicators::candle_patterns::CandlePattern;
 use tulip_rs_macros::pattern_template;
 
@@ -25,7 +25,7 @@ pub fn info() -> CandleInfo {
     CandleInfo {
         name: "onecandleshootingstar",
         full_name: "One-Candle Shooting Star",
-        forcast: ForcastType::BearishReversal,
+        forecast: ForecastType::BearishReversal,
         bars: 1,
         japanese_name: "Nagare Boshi",
         extended_pattern: Some(CandlePattern::TwoCandleShootingStar),

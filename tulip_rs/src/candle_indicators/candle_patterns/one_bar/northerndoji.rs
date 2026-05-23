@@ -11,7 +11,7 @@
 use crate::candle_indicators::{
     pattern_test::EmaState,
     registry::CandleBits,
-    types::{CandleInfo, ForcastType},
+    types::{CandleInfo, ForecastType},
 };
 use tulip_rs_macros::pattern_template;
 
@@ -21,7 +21,7 @@ pub fn info() -> CandleInfo {
     CandleInfo {
         name: "northerndoji",
         full_name: "Northern Doji",
-        forcast: ForcastType::BearishReversal,
+        forecast: ForecastType::BearishReversal,
         extended_pattern: None,
         bars: 1,
         japanese_name: "Kita no Doji",

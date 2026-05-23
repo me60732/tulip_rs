@@ -4,7 +4,7 @@ use crate::candle_indicators::common::{
 };
 use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::types::CandleTypes;
-use crate::candle_indicators::types::ForcastType;
+use crate::candle_indicators::types::ForecastType;
 use crate::indicators::simd_indicators::ema_simd::{calc_simd as ema_calc, multiplier_simd};
 use crate::ring_buffer::buffer::BufferElement;
 use crate::ring_buffer::fixed_single_buffer::FixedMirrorBuffer;
@@ -291,7 +291,7 @@ impl State {
         low: &[f64],
         close: &[f64],
         i: usize,
-        forecast_type: Option<ForcastType>,
+        forecast_type: Option<ForecastType>,
     ) -> Option<Vec<CandlePattern>> {
         // Update test pattern with current bar and previous ema state
         self.pattern_test

@@ -3,7 +3,7 @@ use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
     common::{cdl_wick_length, LONG},
     pattern_test::EmaState,
-    types::{CandleInfo, ForcastType},
+    types::{CandleInfo, ForecastType},
 };
 use tulip_rs_macros::pattern_template;
 
@@ -11,7 +11,7 @@ pub fn info() -> CandleInfo {
     CandleInfo {
         name: "bearishbelthold",
         full_name: "Bearish Belt Hold",
-        forcast: ForcastType::BearishReversal,
+        forecast: ForecastType::BearishReversal,
         extended_pattern: None,
         bars: 1,
         japanese_name: "Yorikiri",

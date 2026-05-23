@@ -13,7 +13,7 @@
 //! Patterns spanning multiple (group,trend) pairs are duplicated.
 //!
 //! ## 2. Group-Trend Dispatch (GroupTrendDispatch)
-//! One GroupTrendDispatch per forecast type (indexed by ForcastType as usize) plus
+//! One GroupTrendDispatch per forecast type (indexed by ForecastType as usize) plus
 //! GLOBAL_GROUP_TREND_DISPATCH for the no-forecast path.
 //! Each holds per-bar-count [(start,end); 8] arrays keyed by group*2+trend.
 
@@ -129,7 +129,7 @@ fn extract_pattern_info(path: &Path, bar_dir: &str, file_name: &str) -> Option<P
 }
 
 /// Return the forecast ordering used for sort and array indexing.
-/// Must match the `ForcastType` enum discriminant order.
+/// Must match the `ForecastType` enum discriminant order.
 fn forecast_order(f: &str) -> usize {
     match f {
         "BearishReversal" => 0,
@@ -566,7 +566,7 @@ fn generate_registry_code(
     // Imports
     code.push_str("use crate::candle_indicators::{\n");
     code.push_str("    registry::*,\n");
-    code.push_str("    types::ForcastType,\n");
+    code.push_str("    types::ForecastType,\n");
     code.push_str("    pattern_test::EmaState,\n");
     code.push_str("    types::CandleInfo,\n");
     for pattern in patterns {
@@ -635,7 +635,7 @@ fn generate_registry_code(
             const_name, total_masks
         ));
         code.push_str(&format!("    CandlePattern::{},\n", pattern.name));
-        code.push_str(&format!("    ForcastType::{},\n", pattern.forecast));
+        code.push_str(&format!("    ForecastType::{},\n", pattern.forecast));
         code.push_str(&format!("    {}::{},\n", module, masks_name));
         code.push_str(&format!("    {},\n", pattern.has_prev_bar));
         code.push_str(&format!("    {}::{},\n", module, pattern.lazy_bits_mask));

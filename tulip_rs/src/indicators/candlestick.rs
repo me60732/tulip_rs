@@ -1,6 +1,6 @@
 use crate::candle_indicators::candle_patterns::*;
 use crate::candle_indicators::pattern_test::{State, MAX_PATTERN_LENGTH};
-pub use crate::candle_indicators::types::ForcastType;
+pub use crate::candle_indicators::types::ForecastType;
 use crate::common::{validate_inputs, validate_options};
 use crate::indicators::ema::{min_data as ema_min_data, multiplier as ema_multiplier};
 use serde::{Deserialize, Serialize};
@@ -52,7 +52,7 @@ impl IndicatorState {
     pub fn batch_indicator(
         &mut self,
         inputs: &[&[f64]; INPUTS_WIDTH],
-        forecast_type: Option<ForcastType>,
+        forecast_type: Option<ForecastType>,
     ) -> Result<Vec<Option<Vec<CandlePattern>>>, IndicatorError> {
 
         validate_inputs(inputs, 1)?;
@@ -77,7 +77,7 @@ impl IndicatorState {
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
-    forecast_type: Option<ForcastType>,
+    forecast_type: Option<ForecastType>,
 ) -> Result<(Vec<Option<Vec<CandlePattern>>>, IndicatorState), IndicatorError> {
     validate_options(options)?;
     validate_inputs(inputs, min_data(options))?;
@@ -136,7 +136,7 @@ fn cycle(
     start: usize,
     state: &mut State,
     output: &mut Vec<Option<Vec<CandlePattern>>>,
-    forecast_type: Option<ForcastType>,
+    forecast_type: Option<ForecastType>,
 ) {
     for (j, i) in (start..open.len()).enumerate() {
         let patterns = state.calc(open, high, low, close, i, forecast_type);

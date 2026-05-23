@@ -2,7 +2,7 @@ use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
     common::cdl_total_range,
     pattern_test::EmaState,
-    types::{CandleInfo, ForcastType},
+    types::{CandleInfo, ForecastType},
 };
 use tulip_rs_macros::pattern_template;
 
@@ -12,7 +12,7 @@ pub fn info() -> CandleInfo {
     CandleInfo {
         name: "bullsidebysidewhitelines",
         full_name: "Bullish Side by Side White Lines",
-        forcast: ForcastType::BullishContinuation,
+        forecast: ForecastType::BullishContinuation,
         extended_pattern: None,
         bars: 3,
         japanese_name: "Uwappanare narabi aka",

@@ -2,7 +2,7 @@ use super::THIRD;
 use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
     pattern_test::EmaState,
-    types::{CandleInfo, ForcastType},
+    types::{CandleInfo, ForecastType},
 };
 use tulip_rs_macros::pattern_template;
 
@@ -10,7 +10,7 @@ pub fn info() -> CandleInfo {
     CandleInfo {
         name: "concealingbabyswallow",
         full_name: "Concealing Baby Swallow",
-        forcast: ForcastType::BullishReversal,
+        forecast: ForecastType::BullishReversal,
         extended_pattern: None,
         bars: 4,
         japanese_name: "kotsubame tsutsumi",

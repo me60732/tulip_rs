@@ -1,4 +1,4 @@
-use tulip_rs::indicators::candlestick::{indicator, ForcastType};
+use tulip_rs::indicators::candlestick::{indicator, ForecastType};
 
 fn main() {
     // Example input data: open, high, low, and close prices
@@ -58,7 +58,7 @@ fn main() {
         }
     }
 
-    let (result, _) = match indicator(&inputs, &options, Some(ForcastType::BullishReversal)) {
+    let (result, _) = match indicator(&inputs, &options, Some(ForecastType::BullishReversal)) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

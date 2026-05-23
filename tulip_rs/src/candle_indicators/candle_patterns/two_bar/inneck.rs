@@ -2,7 +2,7 @@ use crate::candle_indicators::{
     common::cdl_real_in_body_position,
     pattern_test::EmaState,
     registry::CandleBits,
-    types::{CandleInfo, ForcastType},
+    types::{CandleInfo, ForecastType},
 };
 use tulip_rs_macros::pattern_template;
 
@@ -12,7 +12,7 @@ pub fn info() -> CandleInfo {
     CandleInfo {
         name: "inneck",
         full_name: "In Neck",
-        forcast: ForcastType::BearishContinuation,
+        forecast: ForecastType::BearishContinuation,
         extended_pattern: None,
         bars: 2,
         japanese_name: "Irikubi",

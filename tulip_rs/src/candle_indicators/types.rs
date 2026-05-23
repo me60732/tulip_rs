@@ -116,7 +116,7 @@ impl CandleTypePattern {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ForcastType {
+pub enum ForecastType {
     BearishReversal,
     BullishReversal,
     BearishContinuation,
@@ -124,30 +124,30 @@ pub enum ForcastType {
     BearishReversalOrContinuation,
     BullishReversalOrContinuation,
 }
-impl fmt::Display for ForcastType {
+impl fmt::Display for ForecastType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self)
     }
 }
 
-impl ForcastType {
+impl ForecastType {
     /// Get all forecast types that are valid for a given trend when no specific forecast is requested.
     /// This is used when filtering by trend alone (no forecast type specified).
     #[inline(always)]
-    pub const fn all_for_trend(is_uptrend: bool) -> &'static [ForcastType] {
+    pub const fn all_for_trend(is_uptrend: bool) -> &'static [ForecastType] {
         if is_uptrend {
             &[
-                ForcastType::BearishReversal,     // reverses FROM uptrend TO downtrend
-                ForcastType::BullishContinuation, // continues uptrend
-                ForcastType::BearishReversalOrContinuation,
-                ForcastType::BullishReversalOrContinuation,
+                ForecastType::BearishReversal,     // reverses FROM uptrend TO downtrend
+                ForecastType::BullishContinuation, // continues uptrend
+                ForecastType::BearishReversalOrContinuation,
+                ForecastType::BullishReversalOrContinuation,
             ]
         } else {
             &[
-                ForcastType::BullishReversal,     // reverses FROM downtrend TO uptrend
-                ForcastType::BearishContinuation, // continues downtrend
-                ForcastType::BearishReversalOrContinuation,
-                ForcastType::BullishReversalOrContinuation,
+                ForecastType::BullishReversal,     // reverses FROM downtrend TO uptrend
+                ForecastType::BearishContinuation, // continues downtrend
+                ForecastType::BearishReversalOrContinuation,
+                ForecastType::BullishReversalOrContinuation,
             ]
         }
     }
@@ -157,12 +157,12 @@ impl ForcastType {
     #[inline(always)]
     pub const fn matches_trend(&self, is_uptrend: bool) -> bool {
         match self {
-            ForcastType::BearishReversal => is_uptrend, // requires uptrend to reverse from
-            ForcastType::BullishReversal => !is_uptrend, // requires downtrend to reverse from
-            ForcastType::BearishContinuation => !is_uptrend, // requires downtrend to continue
-            ForcastType::BullishContinuation => is_uptrend, // requires uptrend to continue
-            ForcastType::BearishReversalOrContinuation => true, // valid in any trend
-            ForcastType::BullishReversalOrContinuation => true, // valid in any trend
+            ForecastType::BearishReversal => is_uptrend, // requires uptrend to reverse from
+            ForecastType::BullishReversal => !is_uptrend, // requires downtrend to reverse from
+            ForecastType::BearishContinuation => !is_uptrend, // requires downtrend to continue
+            ForecastType::BullishContinuation => is_uptrend, // requires uptrend to continue
+            ForecastType::BearishReversalOrContinuation => true, // valid in any trend
+            ForecastType::BullishReversalOrContinuation => true, // valid in any trend
         }
     }
 }
@@ -170,7 +170,7 @@ impl ForcastType {
 pub struct CandleInfo {
     pub name: &'static str,
     pub full_name: &'static str,
-    pub forcast: ForcastType,
+    pub forecast: ForecastType,
     pub bars: usize,
     pub extended_pattern: Option<CandlePattern>,
     pub japanese_name: &'static str,

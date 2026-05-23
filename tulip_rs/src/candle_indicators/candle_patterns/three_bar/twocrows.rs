@@ -2,7 +2,7 @@ use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
     common::cdl_real_within_body,
     pattern_test::EmaState,
-    types::{CandleInfo, ForcastType},
+    types::{CandleInfo, ForecastType},
 };
 use tulip_rs_macros::pattern_template;
 
@@ -12,7 +12,7 @@ pub fn info() -> CandleInfo {
     CandleInfo {
         name: "twocrows",
         full_name: "Two Crows",
-        forcast: ForcastType::BearishReversal,
+        forecast: ForecastType::BearishReversal,
         extended_pattern: None,
         bars: 3,
         japanese_name: "Niwa Garasu",

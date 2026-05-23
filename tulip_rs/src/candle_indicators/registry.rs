@@ -56,7 +56,7 @@ use crate::candle_indicators::common::{
 };
 use crate::candle_indicators::pattern_test::EmaState;
 use crate::candle_indicators::perf_stats::PERF_COUNTERS;
-use crate::candle_indicators::types::{CandleStick, CandleTypePattern, CandleTypes, ForcastType};
+use crate::candle_indicators::types::{CandleStick, CandleTypePattern, CandleTypes, ForecastType};
 use serde::{Deserialize, Serialize};
 
 /// Bitmask representation of a single bar's properties with lazy evaluation
@@ -1727,7 +1727,7 @@ impl PatternMask {
 #[derive(Debug, Clone, Copy)]
 pub struct PatternDefinition<const N: usize> {
     pub pattern: CandlePattern,
-    pub forecast: ForcastType,
+    pub forecast: ForecastType,
     pub bars: [PatternMask; N], // One mask per bar (oldest to newest)
     pub check_prev_bar: bool,   // If true, bars[0] contains prev_bar constraint
     pub lazy_bits_mask: u16,    // Which lazy bits this pattern needs (0 = none)
@@ -1737,7 +1737,7 @@ impl<const N: usize> PatternDefinition<N> {
     /// Create a new pattern definition
     pub const fn new(
         pattern: CandlePattern,
-        forecast: ForcastType,
+        forecast: ForecastType,
         bars: [PatternMask; N],
         check_prev_bar: bool,
         lazy_bits_mask: u16,
@@ -2152,7 +2152,7 @@ pub struct PatternRegister<
     const N5: usize,
 > {
     pub pattern_definitions: PatternDefinitionRegister<N1, N2, N3, N4, N5>,
-    /// Group-trend dispatches indexed by `ForcastType as usize` (6 entries).
+    /// Group-trend dispatches indexed by `ForecastType as usize` (6 entries).
     pub forecast_dispatches: [GroupTrendDispatch; 6],
     /// Group-trend dispatch covering all patterns (no forecast filter).
     pub global_dispatch: GroupTrendDispatch,
@@ -2181,7 +2181,7 @@ impl<const N1: usize, const N2: usize, const N3: usize, const N4: usize, const N
         inputs: (&[f64], &[f64], &[f64], &[f64]),
         i: usize,
         state: &EmaState,
-        forecast: Option<ForcastType>,
+        forecast: Option<ForecastType>,
     ) -> Option<Vec<CandlePattern>> {
         let gd = match forecast {
             Some(fc) => {

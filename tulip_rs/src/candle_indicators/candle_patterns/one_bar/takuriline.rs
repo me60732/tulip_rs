@@ -9,7 +9,7 @@ use crate::candle_indicators::{
     common::{cdl_wick_length, SHORT},
     pattern_test::EmaState,
     registry::CandleBits,
-    types::{CandleInfo, ForcastType},
+    types::{CandleInfo, ForecastType},
 };
 use tulip_rs_macros::pattern_template;
 
@@ -19,7 +19,7 @@ pub fn info() -> CandleInfo {
     CandleInfo {
         name: "takuriline",
         full_name: "Takuri Line",
-        forcast: ForcastType::BullishReversal,
+        forecast: ForecastType::BullishReversal,
         extended_pattern: None,
         bars: 1,
         japanese_name: "takuri",

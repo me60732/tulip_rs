@@ -1,4 +1,4 @@
-use crate::candle_indicators::types::{CandleInfo, ForcastType};
+use crate::candle_indicators::types::{CandleInfo, ForecastType};
 use tulip_rs_macros::pattern_template;
 
 #[pattern_template(
@@ -29,7 +29,7 @@ pub fn info() -> CandleInfo {
     CandleInfo {
         name: "threestarsinthesouth",
         full_name: "Three Stars In The South",
-        forcast: ForcastType::BullishReversal,
+        forecast: ForecastType::BullishReversal,
         extended_pattern: None,
         bars: 3,
         japanese_name: "Kyoku no santen boshi",

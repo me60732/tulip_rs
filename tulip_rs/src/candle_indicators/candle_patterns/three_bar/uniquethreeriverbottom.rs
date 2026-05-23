@@ -1,4 +1,4 @@
-use crate::candle_indicators::types::{CandleInfo, ForcastType};
+use crate::candle_indicators::types::{CandleInfo, ForecastType};
 use tulip_rs_macros::pattern_template;
 
 #[pattern_template(
@@ -31,7 +31,7 @@ pub fn info() -> CandleInfo {
     CandleInfo {
         name: "uniquethreeriverbottom",
         full_name: "Unique Three River Bottom",
-        forcast: ForcastType::BullishReversal,
+        forecast: ForecastType::BullishReversal,
         extended_pattern: None,
         bars: 3,
         japanese_name: "Sankawa soko zuka",

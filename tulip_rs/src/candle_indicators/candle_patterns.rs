@@ -38,7 +38,7 @@
 //!     CandleInfo {
 //!         name: "mypattern",
 //!         full_name: "My Pattern",
-//!         forcast: ForcastType::BullishReversal,
+//!         forecast: ForecastType::BullishReversal,
 //!         bars: 1,
 //!         japanese_name: "",
 //!     }

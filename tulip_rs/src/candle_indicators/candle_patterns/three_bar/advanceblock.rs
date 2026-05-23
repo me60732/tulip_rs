@@ -8,7 +8,7 @@ use crate::candle_indicators::{
     common::cdl_total_wick_length,
     pattern_test::EmaState,
     registry::CandleBits,
-    types::{CandleInfo, ForcastType},
+    types::{CandleInfo, ForecastType},
 };
 use tulip_rs_macros::pattern_template;
 
@@ -18,7 +18,7 @@ pub fn info() -> CandleInfo {
     CandleInfo {
         name: "advanceblock",
         full_name: "Advance Block",
-        forcast: ForcastType::BearishReversal,
+        forecast: ForecastType::BearishReversal,
         bars: 3,
         extended_pattern: None,
         japanese_name: "Sakizumari",

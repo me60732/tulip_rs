@@ -1,4 +1,4 @@
-use crate::candle_indicators::types::{CandleInfo, ForcastType};
+use crate::candle_indicators::types::{CandleInfo, ForecastType};
 use tulip_rs_macros::pattern_template;
 
 #[pattern_template(
@@ -28,7 +28,7 @@ pub fn info() -> CandleInfo {
     CandleInfo {
         name: "twoblackgappingcandles",
         full_name: "Two Black Gapping Candles",
-        forcast: ForcastType::BearishContinuation,
+        forecast: ForecastType::BearishContinuation,
         extended_pattern: None,
         bars: 2,
         japanese_name: "Nihon no kuroi madoake rōsoku ashi",
