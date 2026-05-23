@@ -149,6 +149,7 @@ impl CandleBits {
     pub const PREV_LOW_IN_MY_BODY_BIT: u32 = tulip_rs_shared::PREV_LOW_IN_MY_BODY_BIT;
     pub const LOWER_WICK_LONG_2X_BIT: u32 = tulip_rs_shared::LOWER_WICK_LONG_2X_BIT;
     pub const UPPER_WICK_LONG_2X_BIT: u32 = tulip_rs_shared::UPPER_WICK_LONG_2X_BIT;
+    pub const BODY_GT_PREV_BODY_BIT: u32 = tulip_rs_shared::BODY_GT_PREV_BODY_BIT;
 
     // Re-export masks from tulip_rs_shared
     pub const BASIC_MASK: u32 = tulip_rs_shared::BASIC_MASK;
@@ -253,6 +254,9 @@ impl CandleBits {
     pub const LOWER_WICK_LONG_2X: u16 = tulip_rs_shared::LOWER_WICK_LONG_2X;
     pub const UPPER_WICK_LONG_2X: u16 = tulip_rs_shared::UPPER_WICK_LONG_2X;
 
+    // === Body vs previous body size (lazy bit 15) ===
+    pub const BODY_GT_PREV_BODY: u16 = tulip_rs_shared::BODY_GT_PREV_BODY;
+
     /// Sets all compulsory bits immediately. Lazy position/engulf/wick-2x
     /// attributes are left unset and computed on-demand via the `set_*` methods
     /// when a pattern actually requires them.
@@ -353,6 +357,7 @@ impl CandleBits {
             lazy_computed,
         }
     }
+    #[inline(always)]
     pub fn apply_gap(&mut self, prev: (f64, f64, f64, f64), current: (f64, f64, f64, f64)) -> i8 {
         let (prev_open, prev_high, prev_low, prev_close) = prev;
         let (cur_open, cur_high, cur_low, cur_close) = current;
@@ -390,6 +395,7 @@ impl CandleBits {
     /// # Arguments
     /// * `prev`    — `(open, high, low, close)` of the previous bar
     /// * `current` — `(open, high, low, close)` of the current bar
+    #[inline(always)]
     pub fn apply_engulfing(&mut self, prev: (f64, f64, f64, f64), current: (f64, f64, f64, f64)) {
         let (prev_open, prev_high, prev_low, prev_close) = prev;
         let (cur_open, cur_high, cur_low, cur_close) = current;
@@ -426,6 +432,14 @@ impl CandleBits {
             && cur_body_bot <= prev_body_bot
             && (cur_body_top > prev_body_top || cur_body_bot < prev_body_bot);
         self.set_engulfs_prev(body_engulf);
+
+        // === Bit 15: body_gt_prev_body ===
+        // Engulfing my body contains the prev body and extends at least one side,
+        // so my body is definitively larger — stamp TRUE for free while the
+        // geometry is already computed. Non-engulf is ambiguous; leave uncomputed.
+        if body_engulf {
+            self.set_body_gt_prev_body(true);
+        }
 
         // === Bits 12–13: prev high/low within my body ===
         self.set_prev_high_in_my_body(prev_high <= cur_body_top && prev_high >= cur_body_bot);
@@ -722,6 +736,20 @@ impl CandleBits {
         self.lazy_computed |= 1u16 << Self::UPPER_WICK_LONG_2X_BIT;
     }
 
+    /// Set whether this bar's body is strictly greater than the previous bar's body (lazy bit 15).
+    ///
+    /// `TRUE` = |close - open| > |prev_close - prev_open|
+    /// `FALSE` = less than OR equal (ties count as FALSE)
+    #[inline(always)]
+    pub fn set_body_gt_prev_body(&mut self, is_gt: bool) {
+        if is_gt {
+            self.lazy_value |= 1u16 << Self::BODY_GT_PREV_BODY_BIT;
+        } else {
+            self.lazy_value &= !(1u16 << Self::BODY_GT_PREV_BODY_BIT);
+        }
+        self.lazy_computed |= 1u16 << Self::BODY_GT_PREV_BODY_BIT;
+    }
+
     /// Set the body height bit from raw OHLC values.
     /// Prefer passing `body_height` to `CandleBits::new()`; use this only
     /// when the bit needs to be recomputed after construction.
@@ -729,6 +757,26 @@ impl CandleBits {
     pub fn ensure_body_height(&mut self, open: f64, close: f64, ema_body: f64) {
         let body = (open - close).abs();
         self.set_body_height(body >= ema_body);
+    }
+
+    /// Ensure BODY_GT_PREV_BODY_BIT (lazy bit 15): current body > previous body.
+    ///
+    /// Computes abs(close - open) vs abs(prev_close - prev_open) and stamps the bit.
+    /// Equal sizes are treated as NOT greater (FALSE).
+    #[inline(always)]
+    pub fn ensure_body_gt_prev_body(
+        &mut self,
+        open: f64,
+        close: f64,
+        prev_open: f64,
+        prev_close: f64,
+    ) {
+        if (self.lazy_computed & (1u16 << Self::BODY_GT_PREV_BODY_BIT)) != 0 {
+            return;
+        }
+        let body = (open - close).abs();
+        let prev_body = (prev_open - prev_close).abs();
+        self.set_body_gt_prev_body(body > prev_body);
     }
 
     /// Ensure OPEN_IN_PREV_BODY + OPEN_ABOVE_PREV_BODY_MID — single geometry pass.
@@ -1642,6 +1690,18 @@ impl PatternMask {
         self
     }
 
+    /// Builder: Require this bar's body is (strictly) greater than the previous bar's body (lazy bit 15).
+    ///
+    /// `is_gt = true`  → body must be strictly larger than prev body
+    /// `is_gt = false` → body must be smaller than or equal to prev body
+    pub const fn with_body_gt_prev_body(mut self, is_gt: bool) -> Self {
+        self.lazy_mask |= 1u16 << CandleBits::BODY_GT_PREV_BODY_BIT;
+        if is_gt {
+            self.lazy_value |= 1u16 << CandleBits::BODY_GT_PREV_BODY_BIT;
+        }
+        self
+    }
+
     /// Builder: Mark that this bar's pattern declares engulf_prev or inside_prev.
     /// Signals `ensure_lazy_bits` to call `apply_engulfing` for this bar.
     pub const fn with_has_engulf(mut self) -> Self {
@@ -1788,6 +1848,11 @@ pub fn ensure_lazy_bits(
             | (1u16 << CandleBits::UPPER_WICK_LONG_2X_BIT);
         if missing & wick_2x_mask != 0 {
             bars[i].ensure_wick_2x(open[i], close[i], high[i], low[i]);
+        }
+
+        // Bit 15: body > previous body
+        if i > 0 && missing & (1u16 << CandleBits::BODY_GT_PREV_BODY_BIT) != 0 {
+            bars[i].ensure_body_gt_prev_body(open[i], close[i], open[i - 1], close[i - 1]);
         }
 
         // Individual position bits — only reached if apply_engulfing/gap didn't run

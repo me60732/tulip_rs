@@ -45,6 +45,7 @@ This guide explains how to add a new candlestick pattern to the registry.
 | `inside_prev` | `"BODY"` / `"LINE"` | yes | I sit inside prev body or full line |
 | `lower_wick_2x` | `"TRUE"` / `"FALSE"` | yes | Lower wick ≥ 2× body |
 | `upper_wick_2x` | `"TRUE"` / `"FALSE"` | yes | Upper wick ≥ 2× body |
+| `body_gt_prev_body` | `"TRUE"` / `"FALSE"` | yes | Body strictly larger than prev bar's body |
 
 > **Lazy attributes** are computed automatically by the registry on demand.
 > **Eager attributes** ("Lazy? = no") are pre-computed at bar-push time and
@@ -479,6 +480,29 @@ bar(
 > **Threshold note:** The 2× bits are pre-filters. If the pattern needs a
 > finer threshold (e.g. ≥ 2.5×), declare `upper_wick_2x = "TRUE"` in the
 > template for fast pre-filtering and add the exact check in `calc()`.
+
+### `body_gt_prev_body` — lazy bit *(new)*
+
+Compares the current bar's body height (`|close − open|`) to the **immediately
+previous** bar's body height. Computed on demand; available automatically when
+declared in the template.
+
+| Attribute | `"TRUE"` means | `"FALSE"` means |
+|-----------|---------------|-----------------|
+| `body_gt_prev_body` | current body **strictly >** previous body | current body **≤** previous body (ties → `FALSE`) |
+
+This is the canonical way to express *progressively shrinking* or *growing*
+bodies across consecutive bars without writing manual `calc()` comparisons.
+
+```rust
+// Advance Block — each bar's body is smaller than the one before it
+bar(colour = "GREEN", fill = "HALLOW", open_in_prev_body = "TRUE", body_gt_prev_body = "FALSE"),
+bar(colour = "GREEN", fill = "HALLOW", open_in_prev_body = "TRUE", body_gt_prev_body = "FALSE"),
+```
+
+> **Limitation:** The bit compares only **adjacent** bars (current vs its
+> immediate predecessor). To compare non-adjacent bars (e.g. bar 3 vs bar 1),
+> you still need a manual check in `calc()`.
 
 ---
 

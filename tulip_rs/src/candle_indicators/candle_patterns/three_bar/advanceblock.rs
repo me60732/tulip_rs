@@ -5,7 +5,7 @@
 //! increasing upper shadows.
 
 use crate::candle_indicators::{
-    common::{cdl_body_greater_body, cdl_total_wick_length},
+    common::cdl_total_wick_length,
     pattern_test::EmaState,
     registry::CandleBits,
     types::{CandleInfo, ForcastType},
@@ -55,18 +55,20 @@ pub fn info() -> CandleInfo {
         candle_type = "Basic(WhiteCandle | LongWhiteCandle) Marubozu(OpeningWhiteMarubozu | ClosingWhiteMarubozu | WhiteMarubozu)"
     ),
     bar(
-        colour = "GREEN", 
+        colour = "GREEN",
         fill = "HALLOW",
         open_in_prev_body = "TRUE",
         close_in_prev_body = "FALSE",
-        close_above_prev_mid = "TRUE"
+        close_above_prev_mid = "TRUE",
+        body_gt_prev_body = "FALSE"
     ),
     bar(
         colour = "GREEN",
         fill = "HALLOW",
         open_in_prev_body = "TRUE",
         close_in_prev_body = "FALSE",
-        close_above_prev_mid = "TRUE"
+        close_above_prev_mid = "TRUE",
+        body_gt_prev_body = "FALSE"
     )
 )]
 
@@ -77,26 +79,12 @@ pub fn calc(
 ) -> bool {
     let (open, high, low, close) = inputs;
 
-
     // 2. Shadows of the second and third line should be longer than the first line
     let first_wick = cdl_total_wick_length(open[FIRST], high[FIRST], low[FIRST], close[FIRST]);
 
     if !(first_wick < cdl_total_wick_length(open[SECOND], high[SECOND], low[SECOND], close[SECOND]))
         || !(first_wick < cdl_total_wick_length(open[THIRD], high[THIRD], low[THIRD], close[THIRD]))
     {
-        return false;
-    }
-
-    // 3. Body height in each bar must be smaller than the previous bar
-    if cdl_body_greater_body(
-        (open[THIRD], close[THIRD]),
-        (open[SECOND], close[SECOND]),
-        1.0,
-    ) || cdl_body_greater_body(
-        (open[SECOND], close[SECOND]),
-        (open[FIRST], close[FIRST]),
-        1.0,
-    ) {
         return false;
     }
 

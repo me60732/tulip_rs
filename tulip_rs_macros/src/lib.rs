@@ -40,6 +40,8 @@ struct BarRequirement {
     // Wick 2x bits (lazy)
     lower_wick_2x: Option<String>,
     upper_wick_2x: Option<String>,
+    // Body vs previous body size (lazy bit 15)
+    body_gt_prev_body: Option<String>,
     // Shorthand engulf attributes
     engulf_prev: Option<String>,
     inside_prev: Option<String>,
@@ -69,6 +71,7 @@ impl Parse for BarRequirement {
         let mut low_in_prev_line = None;
         let mut lower_wick_2x = None;
         let mut upper_wick_2x = None;
+        let mut body_gt_prev_body = None;
         let mut engulf_prev = None;
         let mut inside_prev = None;
 
@@ -104,6 +107,7 @@ impl Parse for BarRequirement {
                 "low_in_prev_line" => low_in_prev_line = Some(value.value()),
                 "lower_wick_2x" => lower_wick_2x = Some(value.value()),
                 "upper_wick_2x" => upper_wick_2x = Some(value.value()),
+                "body_gt_prev_body" => body_gt_prev_body = Some(value.value()),
                 "engulf_prev" => engulf_prev = Some(value.value()),
                 "inside_prev" => inside_prev = Some(value.value()),
                 _ => {
@@ -116,7 +120,7 @@ impl Parse for BarRequirement {
                          close_above_prev_mid, close_in_prev_body, \
                          high_above_prev_mid, high_in_prev_body, high_in_prev_line, \
                          low_above_prev_mid, low_in_prev_body, low_in_prev_line, \
-                         lower_wick_2x, upper_wick_2x, engulf_prev, inside_prev",
+                         lower_wick_2x, upper_wick_2x, body_gt_prev_body, engulf_prev, inside_prev",
                     ))
                 }
             }
@@ -149,6 +153,7 @@ impl Parse for BarRequirement {
             low_in_prev_line,
             lower_wick_2x,
             upper_wick_2x,
+            body_gt_prev_body,
             engulf_prev,
             inside_prev,
         })
@@ -323,6 +328,14 @@ impl Parse for PatternTemplate {
                     "prev_bar does not support 'upper_wick_2x' — it is a lazy bit that requires \
                      data from outside the pattern window. Use only mandatory attributes on \
                      prev_bar: trend, colour, fill, line_height, candle_type, \
+                     body_height, lower_wick_lt_body, upper_wick_lt_body",
+                ));
+            }
+            if pb.body_gt_prev_body.is_some() {
+                return Err(input.error(
+                    "prev_bar does not support 'body_gt_prev_body' — it is a lazy bit that \
+                     requires data from outside the pattern window. Use only mandatory attributes \
+                     on prev_bar: trend, colour, fill, line_height, candle_type, \
                      body_height, lower_wick_lt_body, upper_wick_lt_body",
                 ));
             }
@@ -696,6 +709,12 @@ fn generate_pattern_mask(bar: &BarRequirement) -> proc_macro2::TokenStream {
     if let Some(ref v) = bar.upper_wick_2x {
         let is_true = v == "TRUE";
         builder = quote! { #builder.with_upper_wick_2x(#is_true) };
+    }
+
+    // Body vs previous body size (lazy bit 15)
+    if let Some(ref v) = bar.body_gt_prev_body {
+        let is_true = v == "TRUE";
+        builder = quote! { #builder.with_body_gt_prev_body(#is_true) };
     }
 
     builder

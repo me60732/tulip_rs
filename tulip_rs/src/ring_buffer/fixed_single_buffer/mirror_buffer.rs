@@ -94,7 +94,10 @@ impl<T: BufferElement, const N: usize> FixedMirrorBuffer<T, N> {
     #[inline(always)]
     pub fn push(&mut self, value: T) {
         self.ring[self.index] = value;
-        self.index = (self.index + 1) % N;
+        self.index += 1;
+        if self.index == N {
+            self.index = 0;
+        }
 
         if self.count < N {
             self.view[self.count] = value;
@@ -126,7 +129,10 @@ impl<T: BufferElement, const N: usize> FixedMirrorBuffer<T, N> {
     #[inline(always)]
     pub unsafe fn push_unchecked(&mut self, value: T) {
         *self.ring.get_unchecked_mut(self.index) = value;
-        self.index = (self.index + 1) % N;
+        self.index += 1;
+        if self.index == N {
+            self.index = 0;
+        }
 
         self.view.copy_within(1.., 0);
         *self.view.get_unchecked_mut(N - 1) = value;
@@ -209,14 +215,10 @@ impl<T: BufferElement, const N: usize> FixedMirrorBuffer<T, N> {
             return;
         }
         if self.count < N {
-            // Buffer hasn't wrapped yet: view[i] maps directly to ring[i].
             for i in 0..self.count {
                 self.ring[i] = self.view[i];
             }
         } else {
-            // Buffer is full: view[i] maps to ring[(index + i) % N].
-            // `index` points at the oldest slot (next to be overwritten),
-            // so view[0] (oldest) lives at ring[index].
             for i in 0..N {
                 self.ring[(self.index + i) % N] = self.view[i];
             }

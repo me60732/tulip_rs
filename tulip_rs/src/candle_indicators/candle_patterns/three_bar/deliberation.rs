@@ -6,7 +6,7 @@ use crate::candle_indicators::{
 };
 use tulip_rs_macros::pattern_template;
 
-use super::{FIRST, SECOND, THIRD};
+use super::{FIRST, THIRD};
 
 pub fn info() -> CandleInfo {
     CandleInfo {
@@ -42,11 +42,7 @@ pub fn info() -> CandleInfo {
     name = "Deliberation",
     forecast = "BearishReversal",
     prev_bar(trend = "UP"),
-    bar(
-        colour = "GREEN", 
-        fill = "HALLOW", 
-        body_height = "LONG",
-    ),
+    bar(colour = "GREEN", fill = "HALLOW", body_height = "LONG",),
     bar(
         colour = "GREEN",
         fill = "HALLOW",
@@ -62,6 +58,7 @@ pub fn info() -> CandleInfo {
         low_in_prev_line = "TRUE",
         close_in_prev_body = "FALSE",
         close_above_prev_mid = "TRUE",
+        body_gt_prev_body = "FALSE",
         candle_type = "Basic(ShortWhiteCandle) SpinningTop(WhiteSpinningTop)"
     )
 )]
@@ -81,14 +78,6 @@ pub fn calc(
 
     let (open, _, _, close) = inputs;
 
-    //may not be neccusary
-    if cdl_body_greater_body(
-        (open[THIRD], close[THIRD]),
-        (open[SECOND], close[SECOND]),
-        1.0,
-    ) {
-        return false;
-    }
     if cdl_body_greater_body(
         (open[THIRD], close[THIRD]),
         (open[FIRST], close[FIRST]),

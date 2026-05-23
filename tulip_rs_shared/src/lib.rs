@@ -47,6 +47,7 @@
 //!   Bit 12   PREV_LOW_IN_MY_BODY   (prev bar's low ∈ my body)
 //!   Bit 13   LOWER_WICK_LONG_2X    (lower wick ≥ 2× body height)
 //!   Bit 14   UPPER_WICK_LONG_2X    (upper wick ≥ 2× body height)
+//!   Bit 15   BODY_GT_PREV_BODY     (body height > previous bar's body height)
 //! ```
 
 // ============================================================================
@@ -85,6 +86,7 @@ pub const PREV_HIGH_IN_MY_BODY_BIT: u32 = 11;
 pub const PREV_LOW_IN_MY_BODY_BIT: u32 = 12;
 pub const LOWER_WICK_LONG_2X_BIT: u32 = 13;
 pub const UPPER_WICK_LONG_2X_BIT: u32 = 14;
+pub const BODY_GT_PREV_BODY_BIT: u32 = 15;
 
 // ============================================================================
 // MANDATORY BITMASK CONSTANTS  (u32)
@@ -113,7 +115,7 @@ pub const COMPULSORY_MASK: u32 = CANDLE_TYPE_MASK
 // ============================================================================
 
 /// Mask covering all currently-defined lazy bits
-pub const LAZY_MASK: u16 = 0x7FFF; // 15 bits used (bits 0–14)
+pub const LAZY_MASK: u16 = 0xFFFF; // 16 bits used (bits 0–15)
 
 // ============================================================================
 // HELPER FUNCTIONS — Variant Encoding (produce u32 mandatory field bits)
@@ -234,6 +236,7 @@ pub const PREV_LOW_IN_MY_BODY: u16 = 1u16 << PREV_LOW_IN_MY_BODY_BIT;
 // === Wick length vs body (lazy bits 14–15) ===
 pub const LOWER_WICK_LONG_2X: u16 = 1u16 << LOWER_WICK_LONG_2X_BIT;
 pub const UPPER_WICK_LONG_2X: u16 = 1u16 << UPPER_WICK_LONG_2X_BIT;
+pub const BODY_GT_PREV_BODY: u16 = 1u16 << BODY_GT_PREV_BODY_BIT;
 
 // ============================================================================
 // CDL_GAP RETURN CODE CONSTANTS  (i8)
