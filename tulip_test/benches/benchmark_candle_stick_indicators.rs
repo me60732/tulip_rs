@@ -26,7 +26,7 @@ const CLOSE: [f64; 15] = [
 ];
 
 // Default options: [candle_period, trend_period, trend_signal_period]
-const OPTIONS: [f64; OPTIONS_WIDTH] = [5.0, 10.0, 3.0];
+const OPTIONS: [f64; OPTIONS_WIDTH] = [5.0, 10.0, 5.0];
 
 // Utility function to expand data
 fn expand_inputs() -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {

@@ -58,7 +58,7 @@ impl CandleStick for CDLDoji {
         if !CDLDoji::is_candlestick_fast(open, high, low, close, candle_shape, state) {
             return None;
         }
-        if candle_shape.get_line_height(high, low, state) == LONG {
+        if candle_shape.line_height == LONG {
             if let Some(body_position) = cdl_body_position(open, high, low, close) {
                 if CDLDoji::is_long_legged_doji(body_position, candle_shape) {
                     return Some(CDLDoji::LongLeggedDoji);

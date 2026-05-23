@@ -1,4 +1,4 @@
-use crate::candle_indicators::pattern_test::EmaState;
+use std::simd::{Simd, num::SimdFloat, cmp::SimdPartialOrd};
 
 pub const HALLOW: bool = true;
 pub const FILL: bool = false;
@@ -30,16 +30,18 @@ pub struct CandleShape {
     pub wick: Option<i8>,
     pub top_wick_length: Option<bool>,
     pub bottom_wick_length: Option<bool>,
-    pub line_height: Option<bool>,
+    pub line_height: bool,
+    pub body_height: bool,
 }
 impl CandleShape {
-    pub fn new() -> Self {
+    pub fn new(line_height: bool, body_height: bool) -> Self {
         Self {
             fill: None,
             wick: None,
             top_wick_length: None,
             bottom_wick_length: None,
-            line_height: None,
+            line_height,
+            body_height,
         }
     }
     #[inline(always)]
@@ -51,15 +53,7 @@ impl CandleShape {
         self.fill = Some(fill);
         fill
     }
-    #[inline(always)]
-    pub fn get_line_height(&mut self, high: f64, low: f64, ema_state: &EmaState) -> bool {
-        if let Some(line_height) = self.line_height {
-            return line_height;
-        }
-        let line_height = cdl_height((high, low), ema_state.ema_line);
-        self.line_height = Some(line_height);
-        line_height
-    }
+
     #[inline(always)]
     pub fn get_wick(&mut self, open: f64, high: f64, low: f64, close: f64) -> i8 {
         if let Some(wick) = self.wick {
@@ -139,6 +133,16 @@ pub(crate) fn cdl_height(body: (f64, f64), avg_range: f64) -> bool {
     } else {
         SHORT
     }
+}
+#[inline(always)]
+pub(crate) fn cdl_height_simd(body: (Simd<f64, 2>, Simd<f64, 2>), avg_range: Simd<f64, 2>) -> [bool; 2] {
+    let (top, bottom) = body;
+    let range = (top - bottom).abs();
+    
+    let min_range = Simd::splat(MIN_LONG_CDL_HEIGHT) * avg_range;
+    let tol_range = Simd::splat(TOLERANCE) * avg_range;
+    range.simd_ge(min_range - tol_range).to_array()
+    
 }
 /// Detect the gap type between two candles.
 ///

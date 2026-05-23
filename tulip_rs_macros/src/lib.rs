@@ -211,22 +211,15 @@ impl Parse for PatternTemplate {
         // Validate that prev_bar only uses mandatory (compulsory) attributes.
         // Lazy attributes require OHLC data from the bar before prev_bar, which
         // is outside the sliding window and can never be populated in compute_bits().
-        // lower_wick_lt_body and upper_wick_lt_body ARE mandatory bits — they are valid on prev_bar.
+        // Mandatory bits (trend, colour, fill, line_height, candle_type,
+        // lower_wick_lt_body, upper_wick_lt_body, body_height) are always valid on prev_bar.
         if let Some(ref pb) = prev_bar {
-            if pb.body_height.is_some() {
-                return Err(input.error(
-                    "prev_bar does not support 'body_height' — it is a lazy bit that requires \
-                     data from outside the pattern window. Use only mandatory attributes on \
-                     prev_bar: trend, colour, fill, line_height, candle_type, \
-                     lower_wick_lt_body, upper_wick_lt_body",
-                ));
-            }
             if pb.body_gap.is_some() {
                 return Err(input.error(
                     "prev_bar does not support 'body_gap' — it is a lazy bit that requires \
                      data from outside the pattern window. Use only mandatory attributes on \
                      prev_bar: trend, colour, fill, line_height, candle_type, \
-                     lower_wick_lt_body, upper_wick_lt_body",
+                     body_height, lower_wick_lt_body, upper_wick_lt_body",
                 ));
             }
             if pb.wick_gap.is_some() {
@@ -234,7 +227,7 @@ impl Parse for PatternTemplate {
                     "prev_bar does not support 'wick_gap' — it is a lazy bit that requires \
                      data from outside the pattern window. Use only mandatory attributes on \
                      prev_bar: trend, colour, fill, line_height, candle_type, \
-                     lower_wick_lt_body, upper_wick_lt_body",
+                     body_height, lower_wick_lt_body, upper_wick_lt_body",
                 ));
             }
             if pb.open_above_prev_mid.is_some() {
@@ -242,7 +235,7 @@ impl Parse for PatternTemplate {
                     "prev_bar does not support 'open_above_prev_mid' — it is a lazy bit that \
                      requires data from outside the pattern window. Use only mandatory attributes \
                      on prev_bar: trend, colour, fill, line_height, candle_type, \
-                     lower_wick_lt_body, upper_wick_lt_body",
+                     body_height, lower_wick_lt_body, upper_wick_lt_body",
                 ));
             }
             if pb.open_in_prev_body.is_some() {
@@ -250,7 +243,7 @@ impl Parse for PatternTemplate {
                     "prev_bar does not support 'open_in_prev_body' — it is a lazy bit that \
                      requires data from outside the pattern window. Use only mandatory attributes \
                      on prev_bar: trend, colour, fill, line_height, candle_type, \
-                     lower_wick_lt_body, upper_wick_lt_body",
+                     body_height, lower_wick_lt_body, upper_wick_lt_body",
                 ));
             }
             if pb.close_above_prev_mid.is_some() {
@@ -258,7 +251,7 @@ impl Parse for PatternTemplate {
                     "prev_bar does not support 'close_above_prev_mid' — it is a lazy bit that \
                      requires data from outside the pattern window. Use only mandatory attributes \
                      on prev_bar: trend, colour, fill, line_height, candle_type, \
-                     lower_wick_lt_body, upper_wick_lt_body",
+                     body_height, lower_wick_lt_body, upper_wick_lt_body",
                 ));
             }
             if pb.close_in_prev_body.is_some() {
@@ -266,7 +259,7 @@ impl Parse for PatternTemplate {
                     "prev_bar does not support 'close_in_prev_body' — it is a lazy bit that \
                      requires data from outside the pattern window. Use only mandatory attributes \
                      on prev_bar: trend, colour, fill, line_height, candle_type, \
-                     lower_wick_lt_body, upper_wick_lt_body",
+                     body_height, lower_wick_lt_body, upper_wick_lt_body",
                 ));
             }
             if pb.high_above_prev_mid.is_some() {
@@ -274,7 +267,7 @@ impl Parse for PatternTemplate {
                     "prev_bar does not support 'high_above_prev_mid' — it is a lazy bit that \
                      requires data from outside the pattern window. Use only mandatory attributes \
                      on prev_bar: trend, colour, fill, line_height, candle_type, \
-                     lower_wick_lt_body, upper_wick_lt_body",
+                     body_height, lower_wick_lt_body, upper_wick_lt_body",
                 ));
             }
             if pb.high_in_prev_body.is_some() {
@@ -282,7 +275,7 @@ impl Parse for PatternTemplate {
                     "prev_bar does not support 'high_in_prev_body' — it is a lazy bit that \
                      requires data from outside the pattern window. Use only mandatory attributes \
                      on prev_bar: trend, colour, fill, line_height, candle_type, \
-                     lower_wick_lt_body, upper_wick_lt_body",
+                     body_height, lower_wick_lt_body, upper_wick_lt_body",
                 ));
             }
             if pb.high_in_prev_line.is_some() {
@@ -290,7 +283,7 @@ impl Parse for PatternTemplate {
                     "prev_bar does not support 'high_in_prev_line' — it is a lazy bit that \
                      requires data from outside the pattern window. Use only mandatory attributes \
                      on prev_bar: trend, colour, fill, line_height, candle_type, \
-                     lower_wick_lt_body, upper_wick_lt_body",
+                     body_height, lower_wick_lt_body, upper_wick_lt_body",
                 ));
             }
             if pb.low_above_prev_mid.is_some() {
@@ -298,7 +291,7 @@ impl Parse for PatternTemplate {
                     "prev_bar does not support 'low_above_prev_mid' — it is a lazy bit that \
                      requires data from outside the pattern window. Use only mandatory attributes \
                      on prev_bar: trend, colour, fill, line_height, candle_type, \
-                     lower_wick_lt_body, upper_wick_lt_body",
+                     body_height, lower_wick_lt_body, upper_wick_lt_body",
                 ));
             }
             if pb.low_in_prev_body.is_some() {
@@ -306,7 +299,7 @@ impl Parse for PatternTemplate {
                     "prev_bar does not support 'low_in_prev_body' — it is a lazy bit that \
                      requires data from outside the pattern window. Use only mandatory attributes \
                      on prev_bar: trend, colour, fill, line_height, candle_type, \
-                     lower_wick_lt_body, upper_wick_lt_body",
+                     body_height, lower_wick_lt_body, upper_wick_lt_body",
                 ));
             }
             if pb.low_in_prev_line.is_some() {
@@ -314,7 +307,7 @@ impl Parse for PatternTemplate {
                     "prev_bar does not support 'low_in_prev_line' — it is a lazy bit that \
                      requires data from outside the pattern window. Use only mandatory attributes \
                      on prev_bar: trend, colour, fill, line_height, candle_type, \
-                     lower_wick_lt_body, upper_wick_lt_body",
+                     body_height, lower_wick_lt_body, upper_wick_lt_body",
                 ));
             }
             if pb.lower_wick_2x.is_some() {
@@ -322,7 +315,7 @@ impl Parse for PatternTemplate {
                     "prev_bar does not support 'lower_wick_2x' — it is a lazy bit that requires \
                      data from outside the pattern window. Use only mandatory attributes on \
                      prev_bar: trend, colour, fill, line_height, candle_type, \
-                     lower_wick_lt_body, upper_wick_lt_body",
+                     body_height, lower_wick_lt_body, upper_wick_lt_body",
                 ));
             }
             if pb.upper_wick_2x.is_some() {
@@ -330,7 +323,7 @@ impl Parse for PatternTemplate {
                     "prev_bar does not support 'upper_wick_2x' — it is a lazy bit that requires \
                      data from outside the pattern window. Use only mandatory attributes on \
                      prev_bar: trend, colour, fill, line_height, candle_type, \
-                     lower_wick_lt_body, upper_wick_lt_body",
+                     body_height, lower_wick_lt_body, upper_wick_lt_body",
                 ));
             }
             if pb.engulf_prev.is_some() {
@@ -338,7 +331,7 @@ impl Parse for PatternTemplate {
                     "prev_bar does not support 'engulf_prev' — it is a lazy bit that requires \
                      data from outside the pattern window. Use only mandatory attributes on \
                      prev_bar: trend, colour, fill, line_height, candle_type, \
-                     lower_wick_lt_body, upper_wick_lt_body",
+                     body_height, lower_wick_lt_body, upper_wick_lt_body",
                 ));
             }
             if pb.inside_prev.is_some() {
@@ -346,7 +339,7 @@ impl Parse for PatternTemplate {
                     "prev_bar does not support 'inside_prev' — it is a lazy bit that requires \
                      data from outside the pattern window. Use only mandatory attributes on \
                      prev_bar: trend, colour, fill, line_height, candle_type, \
-                     lower_wick_lt_body, upper_wick_lt_body",
+                     body_height, lower_wick_lt_body, upper_wick_lt_body",
                 ));
             }
         }
@@ -786,13 +779,8 @@ pub fn pattern_template(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let mut lazy_mask_value: u16 = 0;
 
-    // Bit 0 — BODY_HEIGHT
-    if any_bars_with(|b| b.body_height.is_some()) {
-        lazy_mask_value |= 1u16 << tulip_rs_shared::BODY_HEIGHT_BIT;
-    }
-
-    // body_gap shorthand expands to: open_above_prev_mid (1), open_in_prev_body (2),
-    //   close_above_prev_mid (3), close_in_prev_body (4)
+    // body_gap shorthand expands to: open_above_prev_mid (0), open_in_prev_body (1),
+    //   close_above_prev_mid (2), close_in_prev_body (3)
     if any_bars_with(|b| b.body_gap.is_some()) {
         lazy_mask_value |= 1u16 << tulip_rs_shared::OPEN_ABOVE_PREV_BODY_MID_BIT;
         lazy_mask_value |= 1u16 << tulip_rs_shared::OPEN_IN_PREV_BODY_BIT;

@@ -72,13 +72,13 @@ impl CandleStick for CDLBasic {
     ) -> Option<Self::Classified> {
         if CDLBasic::is_candlestick_fast(open, high, low, close, candle_shape, state) {
             let fill = candle_shape.get_fill(open, close);
-            if CDLBasic::is_long_body(open, high, low, close, state, candle_shape) {
+            if CDLBasic::is_long_body(open, close, state, &candle_shape) {
                 if fill == HALLOW {
                     return Some(CDLBasic::LongWhiteCandle);
                 } else {
                     return Some(CDLBasic::LongBlackCandle);
                 }
-            } else if CDLBasic::is_long_line(high, low, state, candle_shape) {
+            } else if CDLBasic::is_long_line(&candle_shape) {
                 if fill == HALLOW {
                     return Some(CDLBasic::WhiteCandle);
                 } else {
@@ -129,8 +129,8 @@ impl CandleStick for CDLBasic {
 }
 impl CDLBasic {
     #[inline(always)]
-    fn is_long_body(open: f64, high: f64, low: f64, close: f64, state: &State, candle_shape: &mut CandleShape) -> bool {
-        if CDLBasic::is_long_line(high, low, state, candle_shape) {
+    fn is_long_body(open: f64, close: f64, state: &State, candle_shape: &CandleShape) -> bool {
+        if CDLBasic::is_long_line(candle_shape) {
             // long line
             if cdl_body_greater((open, close), state.ema_body, 3.0) {
                 // long body
@@ -140,8 +140,8 @@ impl CDLBasic {
         false
     }
     #[inline(always)]
-    fn is_long_line(high: f64, low: f64, state: &State, candle_shape: &mut CandleShape) -> bool {
-        if candle_shape.get_line_height(high, low, state) == LONG {
+    fn is_long_line(candle_shape: &CandleShape) -> bool {
+        if candle_shape.line_height == LONG {
             // long line
             return true;
         }

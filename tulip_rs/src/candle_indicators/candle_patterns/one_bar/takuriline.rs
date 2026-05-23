@@ -53,7 +53,7 @@ pub fn calc(
         return false;
     }
 
-    if !(state.ema > close[FIRST] && state.ema > open[FIRST]) {
+    if !(state.get_ema() > close[FIRST] && state.get_ema() > open[FIRST]) {
         return false;
     }
 

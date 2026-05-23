@@ -5,7 +5,6 @@ use crate::common::{validate_inputs, validate_options};
 use crate::indicators::ema::{min_data as ema_min_data, multiplier as ema_multiplier};
 use serde::{Deserialize, Serialize};
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
-
 pub const INPUTS_WIDTH: usize = 4;
 pub const OPTIONS_WIDTH: usize = 3;
 
@@ -35,17 +34,15 @@ pub fn output_length(data_len: usize, options: &[f64]) -> usize {
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     state: State,
-    multipliers:  ((f64, f64), (f64, f64), (f64, f64)) ,
     open: Vec<f64>,
     high: Vec<f64>,
     low: Vec<f64>,
     close: Vec<f64>,
 }
 impl IndicatorState {
-    pub fn new(state: State, multipliers: ((f64, f64), (f64, f64), (f64, f64)), open: &[f64], high: &[f64], low: &[f64], close: &[f64]) -> Self {
+    pub fn new(state: State, open: &[f64], high: &[f64], low: &[f64], close: &[f64]) -> Self {
         Self {
             state,
-            multipliers,
             open: open[open.len() - MAX_PATTERN_LENGTH - 1..].to_vec(),
             high: high[high.len() - MAX_PATTERN_LENGTH - 1..].to_vec(),
             low: low[low.len() - MAX_PATTERN_LENGTH - 1..].to_vec(),
@@ -70,7 +67,7 @@ impl IndicatorState {
     
         let mut output = vec![None; capacity];
 
-        cycle(&self.open, &self.high, &self.low, &self.close, MAX_PATTERN_LENGTH + 1, &mut self.state, self.multipliers, &mut output, forecast_type);
+        cycle(&self.open, &self.high, &self.low, &self.close, MAX_PATTERN_LENGTH + 1, &mut self.state, &mut output, forecast_type);
 
         self.open.drain(..self.open.len() - MAX_PATTERN_LENGTH - 1);
         Ok(output)
@@ -89,13 +86,11 @@ pub fn indicator(
     let trend_period = options[1] as usize;
     let signal_period = options[2] as usize;
 
-    let multipliers = multiplier(candle_period, trend_period, signal_period);
     let mut state = State::init(
         inputs,
         candle_period,
         trend_period,
         signal_period,
-        multipliers,
     );
 
     let greater_period = if candle_period > trend_period {
@@ -123,14 +118,13 @@ pub fn indicator(
         close,
         open.len() - output.len(),
         &mut state,
-        multipliers,
         &mut output,
         forecast_type,
     );
     
     Ok((
         output, 
-        IndicatorState::new(state, multipliers, open, high, low, close)
+        IndicatorState::new(state, open, high, low, close)
     ))
 }
 
@@ -141,12 +135,11 @@ fn cycle(
     close: &[f64],
     start: usize,
     state: &mut State,
-    multipliers: ((f64, f64), (f64, f64), (f64, f64)),
     output: &mut Vec<Option<Vec<CandlePattern>>>,
     forecast_type: Option<ForcastType>,
 ) {
     for (j, i) in (start..open.len()).enumerate() {
-        let patterns = state.calc(open, high, low, close, i, multipliers, forecast_type);
+        let patterns = state.calc(open, high, low, close, i, forecast_type);
         unsafe { *output.get_unchecked_mut(j) = patterns };
     }
 }

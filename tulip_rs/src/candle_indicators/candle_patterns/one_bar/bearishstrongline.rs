@@ -55,7 +55,6 @@ pub fn calc(
     bars: &[CandleBits],
 ) -> bool {
     // === Additional Constraints Beyond Basic Pattern Match ===
-
     let (open, _, _, close) = inputs;
     // === Additional Constraints Beyond Basic Pattern Match ===
     // LongWhiteCandle already guarantees a sufficiently large body by definition;

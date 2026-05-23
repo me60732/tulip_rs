@@ -36,7 +36,7 @@ pub fn calc(
 ) -> bool {
     let (_, _, _, close) = inputs;
 
-    if !(close[FIRST] < state.ema) {
+    if !(close[FIRST] < state.get_ema()) {
         return false;
     }
 

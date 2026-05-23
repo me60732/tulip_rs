@@ -25,28 +25,28 @@
 //!   Bit  24      LINE_HEIGHT (LONG=1, SHORT=0)
 //!   Bit  25      LOWER_WICK_LT_BODY  (lower wick < body height)
 //!   Bit  26      UPPER_WICK_LT_BODY  (upper wick < body height)
-//!   Bits 27–31  5 spare
+//!   Bit  27      BODY_HEIGHT         (LONG=1, SHORT=0)
+//!   Bits 28–31  4 spare
 //! ```
 //!
 //! ### `lazy_value / lazy_computed: u16`  (computed on demand, all 16 bits used)
 //!
 //! ```text
-//!   Bit  0   BODY_HEIGHT           (LONG=1, SHORT=0)
-//!   Bit  1   OPEN_ABOVE_PREV_BODY_MID  (my open > prev body midpoint)
-//!   Bit  2   OPEN_IN_PREV_BODY     (my open ∈ prev body)
-//!   Bit  3   CLOSE_ABOVE_PREV_BODY_MID (my close > prev body midpoint)
-//!   Bit  4   CLOSE_IN_PREV_BODY    (my close ∈ prev body)
-//!   Bit  5   HIGH_ABOVE_PREV_BODY_MID  (my high > prev body midpoint)
-//!   Bit  6   HIGH_IN_PREV_BODY     (my high ∈ prev body)
-//!   Bit  7   HIGH_IN_PREV_LINE     (my high ∈ [prev LOW, prev HIGH])
-//!   Bit  8   LOW_ABOVE_PREV_BODY_MID   (my low > prev body midpoint)
-//!   Bit  9   LOW_IN_PREV_BODY      (my low ∈ prev body)
-//!   Bit 10   LOW_IN_PREV_LINE      (my low ∈ [prev LOW, prev HIGH])
-//!   Bit 11   I_ENGULF_PREV_BODY    (prev open AND prev close both ∈ my body)
-//!   Bit 12   PREV_HIGH_IN_MY_BODY  (prev bar's high ∈ my body)
-//!   Bit 13   PREV_LOW_IN_MY_BODY   (prev bar's low ∈ my body)
-//!   Bit 14   LOWER_WICK_LONG_2X    (lower wick ≥ 2× body height)
-//!   Bit 15   UPPER_WICK_LONG_2X    (upper wick ≥ 2× body height)
+//!   Bit  0   OPEN_ABOVE_PREV_BODY_MID  (my open > prev body midpoint)
+//!   Bit  1   OPEN_IN_PREV_BODY     (my open ∈ prev body)
+//!   Bit  2   CLOSE_ABOVE_PREV_BODY_MID (my close > prev body midpoint)
+//!   Bit  3   CLOSE_IN_PREV_BODY    (my close ∈ prev body)
+//!   Bit  4   HIGH_ABOVE_PREV_BODY_MID  (my high > prev body midpoint)
+//!   Bit  5   HIGH_IN_PREV_BODY     (my high ∈ prev body)
+//!   Bit  6   HIGH_IN_PREV_LINE     (my high ∈ [prev LOW, prev HIGH])
+//!   Bit  7   LOW_ABOVE_PREV_BODY_MID   (my low > prev body midpoint)
+//!   Bit  8   LOW_IN_PREV_BODY      (my low ∈ prev body)
+//!   Bit  9   LOW_IN_PREV_LINE      (my low ∈ [prev LOW, prev HIGH])
+//!   Bit 10   I_ENGULF_PREV_BODY    (prev open AND prev close both ∈ my body)
+//!   Bit 11   PREV_HIGH_IN_MY_BODY  (prev bar's high ∈ my body)
+//!   Bit 12   PREV_LOW_IN_MY_BODY   (prev bar's low ∈ my body)
+//!   Bit 13   LOWER_WICK_LONG_2X    (lower wick ≥ 2× body height)
+//!   Bit 14   UPPER_WICK_LONG_2X    (upper wick ≥ 2× body height)
 //! ```
 
 // ============================================================================
@@ -64,27 +64,27 @@ pub const TREND_BIT: u32 = 23;
 pub const LINE_HEIGHT_BIT: u32 = 24;
 pub const LOWER_WICK_LT_BODY_BIT: u32 = 25;
 pub const UPPER_WICK_LT_BODY_BIT: u32 = 26;
+pub const BODY_HEIGHT_BIT: u32 = 27;
 
 // ============================================================================
 // LAZY BIT POSITION CONSTANTS  (shift amounts into `lazy_value / lazy_computed: u16`)
 // ============================================================================
 
-pub const BODY_HEIGHT_BIT: u32 = 0;
-pub const OPEN_ABOVE_PREV_BODY_MID_BIT: u32 = 1;
-pub const OPEN_IN_PREV_BODY_BIT: u32 = 2;
-pub const CLOSE_ABOVE_PREV_BODY_MID_BIT: u32 = 3;
-pub const CLOSE_IN_PREV_BODY_BIT: u32 = 4;
-pub const HIGH_ABOVE_PREV_BODY_MID_BIT: u32 = 5;
-pub const HIGH_IN_PREV_BODY_BIT: u32 = 6;
-pub const HIGH_IN_PREV_LINE_BIT: u32 = 7;
-pub const LOW_ABOVE_PREV_BODY_MID_BIT: u32 = 8;
-pub const LOW_IN_PREV_BODY_BIT: u32 = 9;
-pub const LOW_IN_PREV_LINE_BIT: u32 = 10;
-pub const I_ENGULF_PREV_BODY_BIT: u32 = 11;
-pub const PREV_HIGH_IN_MY_BODY_BIT: u32 = 12;
-pub const PREV_LOW_IN_MY_BODY_BIT: u32 = 13;
-pub const LOWER_WICK_LONG_2X_BIT: u32 = 14;
-pub const UPPER_WICK_LONG_2X_BIT: u32 = 15;
+pub const OPEN_ABOVE_PREV_BODY_MID_BIT: u32 = 0;
+pub const OPEN_IN_PREV_BODY_BIT: u32 = 1;
+pub const CLOSE_ABOVE_PREV_BODY_MID_BIT: u32 = 2;
+pub const CLOSE_IN_PREV_BODY_BIT: u32 = 3;
+pub const HIGH_ABOVE_PREV_BODY_MID_BIT: u32 = 4;
+pub const HIGH_IN_PREV_BODY_BIT: u32 = 5;
+pub const HIGH_IN_PREV_LINE_BIT: u32 = 6;
+pub const LOW_ABOVE_PREV_BODY_MID_BIT: u32 = 7;
+pub const LOW_IN_PREV_BODY_BIT: u32 = 8;
+pub const LOW_IN_PREV_LINE_BIT: u32 = 9;
+pub const I_ENGULF_PREV_BODY_BIT: u32 = 10;
+pub const PREV_HIGH_IN_MY_BODY_BIT: u32 = 11;
+pub const PREV_LOW_IN_MY_BODY_BIT: u32 = 12;
+pub const LOWER_WICK_LONG_2X_BIT: u32 = 13;
+pub const UPPER_WICK_LONG_2X_BIT: u32 = 14;
 
 // ============================================================================
 // MANDATORY BITMASK CONSTANTS  (u32)
@@ -105,14 +105,15 @@ pub const COMPULSORY_MASK: u32 = CANDLE_TYPE_MASK
     | (1u32 << TREND_BIT)
     | (1u32 << LINE_HEIGHT_BIT)
     | (1u32 << LOWER_WICK_LT_BODY_BIT)
-    | (1u32 << UPPER_WICK_LT_BODY_BIT);
+    | (1u32 << UPPER_WICK_LT_BODY_BIT)
+    | (1u32 << BODY_HEIGHT_BIT);
 
 // ============================================================================
 // LAZY BITMASK CONSTANTS  (u16)
 // ============================================================================
 
 /// Mask covering all currently-defined lazy bits
-pub const LAZY_MASK: u16 = 0xFFFF; // All 16 bits used
+pub const LAZY_MASK: u16 = 0x7FFF; // 15 bits used (bits 0–14)
 
 // ============================================================================
 // HELPER FUNCTIONS — Variant Encoding (produce u32 mandatory field bits)
@@ -203,9 +204,9 @@ pub const UPPER_WICK_LT_BODY: u32 = 1u32 << UPPER_WICK_LT_BODY_BIT;
 // LAZY BIT VALUE CONSTANTS  (u16)
 // ============================================================================
 
-// === Body Height (lazy bit 0) ===
-pub const BODY_HEIGHT_LONG: u16 = 1u16 << BODY_HEIGHT_BIT;
-pub const BODY_HEIGHT_SHORT: u16 = 0;
+// === Body Height (mandatory bit 27) ===
+pub const BODY_HEIGHT_LONG: u32 = 1u32 << BODY_HEIGHT_BIT;
+pub const BODY_HEIGHT_SHORT: u32 = 0;
 
 // === Open vs Prev Body (lazy bits 1–2) ===
 pub const OPEN_ABOVE_PREV_BODY_MID: u16 = 1u16 << OPEN_ABOVE_PREV_BODY_MID_BIT;

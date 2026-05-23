@@ -23,7 +23,7 @@ impl Default for CandleTypes {
     }
 }
 impl CandleTypes {
-    pub fn get_type(open: f64, high: f64, low: f64, close: f64, state: &State) -> Self {
+    /*pub fn get_type(open: f64, high: f64, low: f64, close: f64, state: &State) -> Self {
         let mut candle_shape = CandleShape::new();
         // Check in priority order: Doji -> Marubozu -> SpinningTop -> Basic -> Other
         if let Some(doji) = CDLDoji::classify_fast(open, high, low, close, &mut candle_shape, state) {
@@ -46,7 +46,7 @@ impl CandleTypes {
         }
 
         Self::Other
-    }
+    }*/
     pub fn get_type_fast(
         open: f64,
         high: f64,

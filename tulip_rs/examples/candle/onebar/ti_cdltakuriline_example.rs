@@ -29,7 +29,7 @@ fn main() {
     low.extend(pattern_low);
     close.extend(pattern_close);
     
-    let options = [5.0, 2.0, 3.0];
+    let options = [5.0, 2.0, 2.0];
 
     // Step 1: Full calculation
     let inputs = [

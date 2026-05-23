@@ -131,8 +131,9 @@ impl CandleBits {
     // Mandatory wick vs body bit positions (bits 25–26)
     pub const LOWER_WICK_LT_BODY_BIT: u32 = tulip_rs_shared::LOWER_WICK_LT_BODY_BIT;
     pub const UPPER_WICK_LT_BODY_BIT: u32 = tulip_rs_shared::UPPER_WICK_LT_BODY_BIT;
-    // Lazy bit positions (shift amounts into `lazy_value / lazy_computed: u16`)
+    // Mandatory body height bit position (bit 27)
     pub const BODY_HEIGHT_BIT: u32 = tulip_rs_shared::BODY_HEIGHT_BIT;
+    // Lazy bit positions (shift amounts into `lazy_value / lazy_computed: u16`)
     pub const OPEN_ABOVE_PREV_BODY_MID_BIT: u32 = tulip_rs_shared::OPEN_ABOVE_PREV_BODY_MID_BIT;
     pub const OPEN_IN_PREV_BODY_BIT: u32 = tulip_rs_shared::OPEN_IN_PREV_BODY_BIT;
     pub const CLOSE_ABOVE_PREV_BODY_MID_BIT: u32 = tulip_rs_shared::CLOSE_ABOVE_PREV_BODY_MID_BIT;
@@ -213,9 +214,9 @@ impl CandleBits {
     pub const TREND_UP: u32 = tulip_rs_shared::TREND_UP;
     pub const TREND_DOWN: u32 = tulip_rs_shared::TREND_DOWN;
 
-    // === Body Height (lazy bit 0) ===
-    pub const BODY_HEIGHT_LONG: u16 = tulip_rs_shared::BODY_HEIGHT_LONG;
-    pub const BODY_HEIGHT_SHORT: u16 = tulip_rs_shared::BODY_HEIGHT_SHORT;
+    // === Body Height (mandatory bit 27) ===
+    pub const BODY_HEIGHT_LONG: u32 = tulip_rs_shared::BODY_HEIGHT_LONG;
+    pub const BODY_HEIGHT_SHORT: u32 = tulip_rs_shared::BODY_HEIGHT_SHORT;
 
     // === Line Height (mandatory bit 24) ===
     pub const LINE_HEIGHT_LONG: u32 = tulip_rs_shared::LINE_HEIGHT_LONG;
@@ -225,30 +226,30 @@ impl CandleBits {
     pub const LOWER_WICK_LT_BODY: u32 = tulip_rs_shared::LOWER_WICK_LT_BODY;
     pub const UPPER_WICK_LT_BODY: u32 = tulip_rs_shared::UPPER_WICK_LT_BODY;
 
-    // === Open position (lazy bits 1–2) ===
+    // === Open position (lazy bits 0–1) ===
     pub const OPEN_ABOVE_PREV_BODY_MID: u16 = tulip_rs_shared::OPEN_ABOVE_PREV_BODY_MID;
     pub const OPEN_IN_PREV_BODY: u16 = tulip_rs_shared::OPEN_IN_PREV_BODY;
 
-    // === Close position (lazy bits 3–4) ===
+    // === Close position (lazy bits 2–3) ===
     pub const CLOSE_ABOVE_PREV_BODY_MID: u16 = tulip_rs_shared::CLOSE_ABOVE_PREV_BODY_MID;
     pub const CLOSE_IN_PREV_BODY: u16 = tulip_rs_shared::CLOSE_IN_PREV_BODY;
 
-    // === High position (lazy bits 5–7) ===
+    // === High position (lazy bits 4–6) ===
     pub const HIGH_ABOVE_PREV_BODY_MID: u16 = tulip_rs_shared::HIGH_ABOVE_PREV_BODY_MID;
     pub const HIGH_IN_PREV_BODY: u16 = tulip_rs_shared::HIGH_IN_PREV_BODY;
     pub const HIGH_IN_PREV_LINE: u16 = tulip_rs_shared::HIGH_IN_PREV_LINE;
 
-    // === Low position (lazy bits 8–10) ===
+    // === Low position (lazy bits 7–9) ===
     pub const LOW_ABOVE_PREV_BODY_MID: u16 = tulip_rs_shared::LOW_ABOVE_PREV_BODY_MID;
     pub const LOW_IN_PREV_BODY: u16 = tulip_rs_shared::LOW_IN_PREV_BODY;
     pub const LOW_IN_PREV_LINE: u16 = tulip_rs_shared::LOW_IN_PREV_LINE;
 
-    // === Engulf bits (lazy bits 11–13) ===
+    // === Engulf bits (lazy bits 10–12) ===
     pub const I_ENGULF_PREV_BODY: u16 = tulip_rs_shared::I_ENGULF_PREV_BODY;
     pub const PREV_HIGH_IN_MY_BODY: u16 = tulip_rs_shared::PREV_HIGH_IN_MY_BODY;
     pub const PREV_LOW_IN_MY_BODY: u16 = tulip_rs_shared::PREV_LOW_IN_MY_BODY;
 
-    // === Wick 2× bits (lazy bits 14–15) ===
+    // === Wick 2× bits (lazy bits 13–14) ===
     pub const LOWER_WICK_LONG_2X: u16 = tulip_rs_shared::LOWER_WICK_LONG_2X;
     pub const UPPER_WICK_LONG_2X: u16 = tulip_rs_shared::UPPER_WICK_LONG_2X;
 
@@ -264,6 +265,7 @@ impl CandleBits {
     /// - Line height (bit 24)
     /// - Lower wick < body (bit 25)
     /// - Upper wick < body (bit 26)
+    /// - Body height (bit 27)
     #[inline(always)]
     pub fn new(
         candle_type: &CandleTypes,
@@ -273,6 +275,7 @@ impl CandleBits {
         line_height: bool,
         lower_wick_lt_body: bool,
         upper_wick_lt_body: bool,
+        body_height: bool,
     ) -> Self {
         let mut mandatory: u32 = 0;
 
@@ -326,6 +329,11 @@ impl CandleBits {
         // Set upper wick < body bit (mandatory bit 26)
         if upper_wick_lt_body {
             mandatory |= 1u32 << Self::UPPER_WICK_LT_BODY_BIT;
+        }
+
+        // Set body height bit (mandatory bit 27)
+        if body_height {
+            mandatory |= 1u32 << Self::BODY_HEIGHT_BIT;
         }
 
         // If a wick is already known to be shorter than the body it cannot be ≥ 2× the body.
@@ -474,21 +482,17 @@ impl CandleBits {
             _ => {}
         }
     }
-    /// Set the body height attribute (lazy evaluation)
-    ///
-    /// This marks the body height bit as computed. Call this method when you
-    /// have calculated the body height relative to the EMA.
+    /// Set the body height attribute (mandatory bit 27).
     ///
     /// # Arguments
     /// * `is_long` - true for LONG body, false for SHORT body
     #[inline(always)]
     pub fn set_body_height(&mut self, is_long: bool) {
         if is_long {
-            self.lazy_value |= 1u16 << Self::BODY_HEIGHT_BIT;
+            self.mandatory |= 1u32 << Self::BODY_HEIGHT_BIT;
         } else {
-            self.lazy_value &= !(1u16 << Self::BODY_HEIGHT_BIT);
+            self.mandatory &= !(1u32 << Self::BODY_HEIGHT_BIT);
         }
-        self.lazy_computed |= 1u16 << Self::BODY_HEIGHT_BIT;
     }
 
     // --- Granular open position setters ---
@@ -718,12 +722,11 @@ impl CandleBits {
         self.lazy_computed |= 1u16 << Self::UPPER_WICK_LONG_2X_BIT;
     }
 
-    /// Ensure BODY_HEIGHT_BIT is computed for this bar.
+    /// Set the body height bit from raw OHLC values.
+    /// Prefer passing `body_height` to `CandleBits::new()`; use this only
+    /// when the bit needs to be recomputed after construction.
     #[inline(always)]
     pub fn ensure_body_height(&mut self, open: f64, close: f64, ema_body: f64) {
-        if (self.lazy_computed & (1u16 << Self::BODY_HEIGHT_BIT)) != 0 {
-            return;
-        }
         let body = (open - close).abs();
         self.set_body_height(body >= ema_body);
     }
@@ -947,7 +950,7 @@ impl CandleBits {
     #[inline(always)]
     pub fn get_body_height(&self) -> bool {
         use crate::candle_indicators::common::{LONG, SHORT};
-        if self.lazy_value & Self::BODY_HEIGHT_LONG != 0 {
+        if self.mandatory & Self::BODY_HEIGHT_LONG != 0 {
             LONG
         } else {
             SHORT
@@ -1351,9 +1354,9 @@ impl PatternMask {
 
     /// Builder: Set body height requirement (LONG=true, SHORT=false)
     pub const fn with_body_height(mut self, is_long: bool) -> Self {
-        self.lazy_mask |= 1u16 << CandleBits::BODY_HEIGHT_BIT;
+        self.mandatory_mask |= 1u32 << CandleBits::BODY_HEIGHT_BIT;
         if is_long {
-            self.lazy_value |= 1u16 << CandleBits::BODY_HEIGHT_BIT;
+            self.mandatory_value |= 1u32 << CandleBits::BODY_HEIGHT_BIT;
         }
         self
     }
@@ -1747,6 +1750,7 @@ pub fn ensure_lazy_bits(
     state: &EmaState,
 ) {
     let (open, high, low, close) = ohlc;
+    let _ = state; // body_height is now mandatory — state no longer needed here
     for i in 0..bars.len() {
         let missing = masks[i].lazy_mask & !bars[i].lazy_computed;
         if missing == 0 {
@@ -1778,10 +1782,6 @@ pub fn ensure_lazy_bits(
         let missing = masks[i].lazy_mask & !bars[i].lazy_computed;
         if missing == 0 {
             continue;
-        }
-
-        if missing & (1u16 << CandleBits::BODY_HEIGHT_BIT) != 0 {
-            bars[i].ensure_body_height(open[i], close[i], state.ema_body);
         }
 
         let wick_2x_mask = (1u16 << CandleBits::LOWER_WICK_LONG_2X_BIT)

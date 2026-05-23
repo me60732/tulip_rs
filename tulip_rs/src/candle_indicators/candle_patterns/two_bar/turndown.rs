@@ -39,5 +39,5 @@ pub fn calc(
     _bars: &[CandleBits],
 ) -> bool {
     let (open, _, low, _) = inputs;
-    low[FIRST] < state.ema && open[FIRST] > state.ema && open[SECOND] < state.ema
+    low[FIRST] < state.get_ema() && open[FIRST] > state.get_ema() && open[SECOND] < state.get_ema()
 }

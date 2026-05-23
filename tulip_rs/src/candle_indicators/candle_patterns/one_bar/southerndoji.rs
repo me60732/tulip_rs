@@ -46,6 +46,5 @@ pub fn calc(
 ) -> bool {
     let (_, high, _, _) = inputs;
 
-    high[FIRST] <= state.ema
+    high[FIRST] <= state.get_ema()
 }
-
