@@ -135,7 +135,9 @@ impl<'de> Deserialize<'de> for EmaState {
         enum Field {
             Ema,
             Multipliers,
+            #[serde(rename = "ema_line")]
             EmaLine,
+            #[serde(rename = "ema_body")]
             EmaBody,
         }
 
