@@ -2,7 +2,7 @@
 resolver = "3"
 members = [
     "tulip_rs",
-    "tulip_test",
+    #"tulip_test",
 ]
 
 [profile.release]

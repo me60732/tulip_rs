@@ -4,23 +4,41 @@ use crate::indicators::typprice::calc as calc_typprice;
 use crate::ring_buffer::multi_buffer::multi_buffer::{MultiBuffer as Buffer, RingBuffer};
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 4;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::mfi_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::mfi_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::mfi_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::mfi_simd::indicator_by_options as indicator;
 }
 
@@ -119,18 +137,11 @@ impl IndicatorState {
     /// * `high` - The current high price.
     /// * `low` - The current low price.
     /// * `close` - The current close price.
-    /// * `volume` - The current volume data.
-    /// * `prev_high` - The previous high price.
-    /// * `prev_low` - The previous low price.
-    /// * `prev_close` - The previous close price.
-    /// * `positive_flow` - The previous positive money flow.
-    /// * `negative_flow` - The previous negative money flow.
-    /// * `period` - The period for the MFI calculation.
-    /// * `index` - The current index in the loop.
+    /// * `volume` - The current volume.
     ///
     /// # Returns
     ///
-    /// A tuple containing the calculated MFI, new positive money flow, and new negative money flow values.
+    /// The calculated MFI value as a percentage in the range `[0, 100]`.
     #[inline(always)]
     pub fn calc(&mut self, high: &f64, low: &f64, close: &f64, volume: &f64) -> f64 {
         let prev_typprice = self.typprice;
@@ -187,6 +198,19 @@ impl IndicatorState {
         self.pos_sum / (self.pos_sum + self.neg_sum).max(f64::EPSILON) * 100.0
     }
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
@@ -203,7 +227,7 @@ pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize + 1
 }
 
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Calculates the output length for the MFI indicator.
 ///
 /// # Arguments
 ///
@@ -217,16 +241,34 @@ pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
 
-/// Calculates the Money Flow Index (MFI) for an entire dataset or a slice of it.
+/// Calculates the Money Flow Index (MFI) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — high prices
+/// * `inputs[1]` — low prices
+/// * `inputs[2]` — close prices
+/// * `inputs[3]` — volume
+///
+/// # Options
+///
+/// * `options[0]` — period
 ///
 /// # Arguments
 ///
-/// * `inputs` - A slice of vectors containing the input data.
-/// * `options` - A slice containing the options for the MFI calculation.
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `optional_outputs` - Pass `Some(&[true])` to enable the optional output
+///   (`typprice`); `None` disables all optional outputs.
 ///
 /// # Returns
 ///
-/// A vector of vectors containing the MFI line.
+/// `Ok((outputs, state))` where:
+/// - `outputs[0]` — `mfi`
+/// - `outputs[1]` — `typprice` (empty if not requested)
+///
+/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
@@ -256,7 +298,12 @@ pub fn indicator(
     );
     // Perform the main MFI calculation
     cycle_mfi(
-        (&inputs[0][period..], &inputs[1][period..], &inputs[2][period..], &inputs[3][period..]),
+        (
+            &inputs[0][period..],
+            &inputs[1][period..],
+            &inputs[2][period..],
+            &inputs[3][period..],
+        ),
         &mut state,
         &mut mfi_line,
         &mut typprice_line[offset..],
@@ -269,15 +316,10 @@ pub fn indicator(
 ///
 /// # Arguments
 ///
-/// * `high` - A slice of high prices.
-/// * `low` - A slice of low prices.
-/// * `close` - A slice of close prices.
-/// * `volume` - A slice of volume data.
-/// * `period` - The period for the MFI calculation.
-/// * `mfi_line` - A mutable reference to a vector for storing the MFI line.
-/// * `output_vectors` - A mutable reference to an array of optional output vectors.
-/// * `prev_state` - An optional tuple containing the previous state values.
-/// * `start` - The start index for the main loop.
+/// * `inputs` - A tuple of slices for high, low, close, and volume data.
+/// * `state` - A mutable reference to the current `IndicatorState`.
+/// * `mfi_line` - A mutable slice for storing the MFI output values.
+/// * `typprice_line` - A mutable slice for storing optional typical price output values.
 fn cycle_mfi(
     inputs: (&[f64], &[f64], &[f64], &[f64]),
     state: &mut IndicatorState,

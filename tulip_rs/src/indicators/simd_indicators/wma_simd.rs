@@ -10,12 +10,14 @@ use crate::indicators::{
 };
 use std::simd::Simd;
 
+/// SIMD-parallel state for the Weighted Moving Average (WMA) indicator, holding `N` lanes of per-asset state.
 pub struct SimdState<const N: usize> {
     sum: Simd<f64, N>,
     weighted_sum: Simd<f64, N>,
 }
 
 impl<const N: usize> SimdState<N> {
+    /// Constructs a `SimdState` by gathering scalar per-asset states into SIMD vectors.
     pub fn new(states: &[&mut State]) -> Self {
         let mut sum = [0.0; N];
         let mut weighted_sum = [0.0; N];
@@ -29,6 +31,7 @@ impl<const N: usize> SimdState<N> {
             weighted_sum: Simd::from_array(weighted_sum),
         }
     }
+    /// Converts the SIMD state into an array of `N` scalar [`State`] values.
     pub fn to_states(&self) -> [State; N] {
         let sum = self.sum.to_array();
         let weighted_sum = self.weighted_sum.to_array();
@@ -37,6 +40,7 @@ impl<const N: usize> SimdState<N> {
 
         states
     }
+    /// Writes the current SIMD lane values back into the provided scalar per-asset states.
     pub fn write_states(&self, states: &mut [&mut State]) {
         let sum = self.sum.to_array();
         let sum_sq = self.weighted_sum.to_array();
@@ -46,6 +50,17 @@ impl<const N: usize> SimdState<N> {
             states[i].weighted_sum = sum_sq[i];
         }
     }
+    /// Initialises the WMA SIMD state from raw input slices by accumulating the
+    /// weighted and unweighted sums over the first `period` bars.
+    ///
+    /// # Arguments
+    ///
+    /// * `inputs` - Per-lane input price slices; must each contain at least `period` values.
+    /// * `period` - WMA look-back period.
+    ///
+    /// # Returns
+    ///
+    /// A fully-initialised [`SimdState`] ready to be updated bar-by-bar.
     pub fn init_state<'a>(inputs: &[&'a [f64]; N], period: usize) -> SimdState<N> {
         let mut sums = Simd::splat(0.0);
         let mut weighted_sum = Simd::splat(0.0);
@@ -63,6 +78,21 @@ impl<const N: usize> SimdState<N> {
             weighted_sum: weighted_sum,
         }
     }
+    /// Computes one bar of the Weighted Moving Average (WMA) for `N` assets simultaneously
+    /// using SIMD parallelism.
+    ///
+    /// Slides the rolling weighted sum by one bar and divides by the triangular weight sum.
+    ///
+    /// # Arguments
+    ///
+    /// * `prev_value` - Oldest price being dropped from the window.
+    /// * `value` - Current prices for this bar.
+    /// * `multipliers` - Tuple `(1/period, triangular_weights, period_as_f64)` pre-computed
+    ///   constants for SMA and WMA normalisation.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(wma, sma)` for all `N` lanes.
     #[inline(always)]
     pub fn calc_simd(
         &mut self,
@@ -84,6 +114,21 @@ impl<const N: usize> SimdState<N> {
     }
 }
 
+/// Computes one bar of the Weighted Moving Average (WMA) for `N` assets simultaneously
+/// using SIMD parallelism.
+///
+/// Thin wrapper delegating to [`SimdState::calc_simd`].
+///
+/// # Arguments
+///
+/// * `state` - Mutable SIMD state.
+/// * `prev_value` - Oldest price being dropped from the window.
+/// * `value` - Current prices for this bar.
+/// * `multipliers` - Tuple `(1/period, triangular_weights, period_as_f64)`.
+///
+/// # Returns
+///
+/// A tuple `(wma, sma)` for all `N` lanes.
 #[inline(always)]
 pub fn calc_simd<const N: usize>(
     state: &mut SimdState<N>,

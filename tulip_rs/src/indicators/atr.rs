@@ -6,23 +6,41 @@ use crate::indicators::wilders::{calc as calc_wilders, partial_calc as partial_c
 use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 3;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::atr_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::atr_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::atr_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::atr_simd::indicator_by_options as indicator;
 }
 
@@ -133,6 +151,22 @@ impl TIndicatorState<3> for IndicatorState {
         Ok(vec![atr_line, tr_line])
     }
 }
+/// Returns the minimum number of input bars required to produce results
+/// accurate to `decimals` decimal places.
+///
+/// For indicators with exponential smoothing the seed value's influence
+/// must decay below the requested precision, so this value grows with
+/// `decimals`. Internally uses `min_process` with the smoothing
+/// multiplier to calculate the required lookback.
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options (e.g. period).
+/// * `decimals` - The number of decimal places of accuracy required.
+///
+/// # Returns
+///
+/// The minimum number of input bars needed for the requested accuracy.
 pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
     min_process(
         options,
@@ -154,32 +188,43 @@ pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
 pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize + 1 // period
 }
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Calculates the output length for the ATR indicator.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
 /// * `options` - A slice containing the options for the ATR calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
 ///
 /// # Returns
 ///
-/// The output length.
+/// The number of output values produced by the ATR calculation.
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
-/// Calculates the Average True Range (ATR) indicator for an entire dataset or a slice of it.
+/// Calculates the Average True Range (ATR) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — high prices
+/// * `inputs[1]` — low prices
+/// * `inputs[2]` — close prices
+///
+/// # Options
+///
+/// * `options[0]` — period
 ///
 /// # Arguments
 ///
-/// * `inputs` - A slice of vectors containing the high, low, and close prices.
-/// * `options` - A slice containing the period for the ATR calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
-/// * `optional_outputs` - An optional slice of booleans indicating which additional outputs to generate.
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `optional_outputs` - Pass `Some(&[true])` to also emit the true range (`tr`) line;
+///   `None` disables all optional outputs.
 ///
 /// # Returns
 ///
-/// A vector of vectors containing the ATR line and any additional requested outputs.
+/// `Ok((outputs, state))` where `outputs[0]` is `atr`, `outputs[1]` is `tr` (optional),
+/// and `state` can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -217,14 +262,9 @@ pub fn indicator(
 ///
 /// # Arguments
 ///
-/// * `high` - A slice of high prices.
-/// * `low` - A slice of low prices.
-/// * `close` - A slice of close prices.
-/// * `period` - The period for the ATR calculation.
-/// * `indicator_state` - A slice containing necessary input values.
-/// * `start` - The starting index for the calculation.
-/// * `atr_line` - A mutable reference to a vector for storing the ATR line.
-/// * `output_vectors` - A mutable reference to an array of optional vectors for storing additional outputs.
+/// * `inputs` - A tuple of high, low, and close price slices.
+/// * `state` - A mutable reference to the current ATR state.
+/// * `outputs` - A tuple of mutable slices for storing the ATR line and optional TR line.
 fn cycle_atr(
     inputs: (&[f64], &[f64], &[f64]),
     state: &mut State,
@@ -250,18 +290,18 @@ fn cycle_atr(
         );
     }
 }
-/// Calculates the current value of the Average True Range (ATR) indicator.
+/// Calculates the current ATR and true range values.
 ///
 /// # Arguments
 ///
-/// * `inputs` - A tuple containing the high and low prices.
-/// * `prev_close` - The previous close price.
-/// * `prev_atr` - The previous ATR value.
-/// * `period` - The period for the ATR calculation.
+/// * `state` - A mutable reference to the current ATR state.
+/// * `high` - The current high price.
+/// * `low` - The current low price.
+/// * `close` - The current close price.
 ///
 /// # Returns
 ///
-/// The updated ATR value.
+/// A tuple of `(atr, tr)` containing the updated ATR value and current true range.
 #[inline(always)]
 pub fn calc(state: &mut State, high: f64, low: f64, close: f64) -> (f64, f64) {
     state.calc(high, low, close)

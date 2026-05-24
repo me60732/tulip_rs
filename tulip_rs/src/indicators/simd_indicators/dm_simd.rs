@@ -1,12 +1,13 @@
 use crate::indicators::dm::State;
-use crate::indicators::simd_indicators::simd_types::F64Constants;
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::by_asset::dm::indicator_by_assets;
+use crate::indicators::simd_indicators::simd_types::F64Constants;
 
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::dm::indicator_by_options;
 
 use std::simd::{cmp::SimdPartialOrd, num::SimdFloat, Select, Simd, StdFloat};
+/// SIMD-parallel state for the Directional Movement (DM) indicator, holding `N` lanes of per-asset state.
 pub struct SimdState<const N: usize> {
     pub dmup: Simd<f64, N>,
     pub dmdown: Simd<f64, N>,
@@ -14,6 +15,7 @@ pub struct SimdState<const N: usize> {
     pub prev_low: Simd<f64, N>,
 }
 impl<const N: usize> SimdState<N> {
+    /// Constructs a `SimdState` by gathering scalar per-asset states into SIMD vectors.
     pub fn new(states: &[&mut State]) -> Self {
         let mut dmup = [0.0; N];
         let mut dmdown = [0.0; N];
@@ -41,6 +43,7 @@ impl<const N: usize> SimdState<N> {
 
         states
     }*/
+    /// Writes the current SIMD lane values back into the provided scalar per-asset states.
     pub fn write_states(&self, states: &mut [&mut State]) {
         let dmup = self.dmup.to_array();
         let dmdown = self.dmdown.to_array();
@@ -55,6 +58,22 @@ impl<const N: usize> SimdState<N> {
         }
     }
 }
+/// Computes one bar of the Directional Movement (DM) indicator for `N` assets simultaneously
+/// using SIMD parallelism.
+///
+/// Advances the smoothed DM+ (`dmup`) and DM- (`dmdown`) running sums by one bar
+/// using the Wilder smoothing formula: `dm = dm * multiplier + raw_dp_or_dm`.
+///
+/// # Arguments
+///
+/// * `state` - Mutable SIMD state holding current `dmup`, `dmdown`, `prev_high`, and `prev_low`.
+/// * `high` - High prices for this bar.
+/// * `low` - Low prices for this bar.
+/// * `multiplier` - Per-lane Wilder smoothing decay factor `(1 - 1/period)`.
+///
+/// # Returns
+///
+/// A tuple `(dmup, dmdown)` of updated smoothed DM+ and DM- values for all `N` lanes.
 #[inline(always)]
 pub fn calc_simd<const N: usize>(
     state: &mut SimdState<N>,
@@ -106,6 +125,11 @@ pub fn calc_dp_dm_simd1<const N: usize>(
     (dp, dm)
 }*/
 
+/// Computes the raw positive (DP) and negative (DM) directional movement for `N` lanes.
+///
+/// Both values are clamped to non-negative, and the smaller of the two is zeroed out
+/// so that only the dominant direction contributes on each bar.
+/// Updates `state.prev_high` and `state.prev_low` in place.
 #[inline(always)]
 pub fn calc_dp_dm_simd<const N: usize>(
     state: &mut SimdState<N>,

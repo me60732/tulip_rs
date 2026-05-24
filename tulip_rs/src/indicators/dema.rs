@@ -5,23 +5,41 @@ use crate::indicators::ema::{calc as calc_ema, output_length as ema_output_lengt
 use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::dema_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::dema_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::dema_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::dema_simd::indicator_by_options as indicator;
 }
 
@@ -119,6 +137,22 @@ impl TIndicatorState<1> for IndicatorState {
         Ok(vec![dema_line, ema_line])
     }
 }
+/// Returns the minimum number of input bars required to produce results
+/// accurate to `decimals` decimal places.
+///
+/// For indicators with exponential smoothing the seed value's influence
+/// must decay below the requested precision, so this value grows with
+/// `decimals`. Internally uses `min_process` with the smoothing
+/// multiplier to calculate the required lookback.
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options (e.g. period).
+/// * `decimals` - The number of decimal places of accuracy required.
+///
+/// # Returns
+///
+/// The minimum number of input bars needed for the requested accuracy.
 pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
     min_process(
         options,
@@ -141,35 +175,44 @@ pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize * 2 - 1
 }
 
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Returns the number of output values given an input data length and options.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
 /// * `options` - A slice containing the options for the DEMA calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
 ///
 /// # Returns
 ///
-/// The output length.
+/// The number of output values (`data_len - min_data(options) + 1`).
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     //println!("Len: {:?}, Options: {:?}", data_len, options);
     data_len - min_data(options) + 1
 }
 
-/// Calculates the Double Exponential Moving Average (DEMA) for an entire dataset or a slice of it.
+/// Calculates the Double Exponential Moving Average (DEMA) over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — real values (typically close prices)
+///
+/// # Options
+///
+/// * `options[0]` — period (EMA window length)
 ///
 /// # Arguments
 ///
-/// * `inputs` - A slice of vectors containing the input data.
-/// * `options` - A slice containing the options for the DEMA calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
-/// * `_optional_outputs` - An optional slice of booleans indicating which additional outputs to generate.
+/// * `inputs` - Array of input slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `optional_outputs` - Pass `Some(&[true])` to enable the optional `ema`
+///   output; `None` disables all optional outputs.
 ///
 /// # Returns
 ///
-/// A vector of vectors containing the DEMA line.
-
+/// `Ok((outputs, state))` where `outputs[0]` is `dema` and `outputs[1]` is `ema`
+/// (empty unless requested). `state` can be passed to `IndicatorState::batch_indicator`
+/// for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -199,13 +242,13 @@ pub fn indicator(
         let offset = crate::slice_outputs_start!(dema_line.len(), ema_line);
         &mut ema_line[offset..]
     };
-    
+
     cycle_dema(
         &inputs[0][period * 2 - 2..],
         multipliers,
         &mut state,
         &mut dema_line,
-        ema
+        ema,
     );
 
     Ok((
@@ -218,13 +261,11 @@ pub fn indicator(
 ///
 /// # Arguments
 ///
-/// * `real` - A slice of input data.
-/// * `period` - The period for the DEMA calculation.
-/// * `ema1` - A mutable reference to the first EMA value.
-/// * `ema2` - A mutable reference to the second EMA value.
-/// * `dema_line` - A mutable reference to a vector for storing the DEMA line.
-/// * `start` - The starting index for the calculation.
-/// * `output_vectors` - A mutable reference to a slice of optional output vectors.
+/// * `real` - A slice of input values.
+/// * `multipliers` - A tuple of EMA multipliers derived from the period.
+/// * `state` - Mutable reference to the DEMA state holding `ema1` and `ema2`.
+/// * `dema_line` - Mutable slice to write the DEMA output values into.
+/// * `ema_line` - Mutable slice to write the EMA output values into (optional output).
 fn cycle_dema(
     real: &[f64],
     multipliers: (f64, f64),
@@ -251,15 +292,13 @@ fn cycle_dema(
 ///
 /// # Arguments
 ///
-/// * `value` - The current data point.
-/// * `prev_ema1` - The previous EMA1 value.
-/// * `prev_ema2` - The previous EMA2 value.
-/// * `period` - The period for the EMA calculation.
+/// * `state` - Mutable reference to the DEMA state holding `ema1` and `ema2`.
+/// * `value` - The current input value.
+/// * `multiplier` - A tuple of EMA multipliers derived from the period.
 ///
 /// # Returns
 ///
-/// A tuple `(dema, new_ema1, new_ema2)` representing the DEMA and the updated EMA values.
-
+/// A tuple `(dema, ema1)` representing the DEMA value and the updated first EMA.
 #[inline(always)]
 pub fn calc(state: &mut State, value: &f64, multiplier: (f64, f64)) -> (f64, f64) {
     state.ema1 = calc_ema(value, state.ema1, multiplier);

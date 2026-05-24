@@ -12,12 +12,19 @@ use crate::indicators::{
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
+/// SIMD driver that advances the Klinger Volume Oscillator (KVO) across `N` asset lanes
+/// per scheduling epoch.
 struct KvoDriver {
     multipliers: ((f64, f64), (f64, f64)),
     want_optional_outputs: (bool, bool, bool),
 }
 
 impl Driver<State> for KvoDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
+    ///
+    /// Reads from `inputs[asset][field]` (high, low, close, volume), writes the KVO to
+    /// `outputs[asset][0]`, optional short EMA to `outputs[asset][1]`, optional long EMA
+    /// to `outputs[asset][2]`, and updates `states[asset]` in place.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -82,6 +89,24 @@ impl Driver<State> for KvoDriver {
     }
 }
 
+/// Calculates the Klinger Volume Oscillator (KVO) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[high, low, close, volume]` for asset `i`.
+/// * `options` - Shared options slice; `options[0]` is `short_period`, `options[1]` is
+///   `long_period`.
+/// * `optional_outputs` - Optional slice selecting extra outputs: index `0` = `short_ema`,
+///   index `1` = `long_ema`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the KVO line for asset `i`,
+/// `outputs[i][1]` is the optional `short_ema`, `outputs[i][2]` is the optional `long_ema`,
+/// and `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

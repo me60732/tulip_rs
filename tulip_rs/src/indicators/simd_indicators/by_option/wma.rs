@@ -11,11 +11,13 @@ struct Params {
     multipliers: (f64, f64, f64),
     period: usize,
 }
+/// SIMD driver for the Weighted Moving Average (WMA) indicator, processing `N` option-set lanes per scheduling epoch.
 struct WmaDriver {
     want_optional_outputs: bool,
 }
 
 impl Driver<State, Params> for WmaDriver {
+    /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -75,6 +77,23 @@ impl Driver<State, Params> for WmaDriver {
     }
 }
 
+/// Calculates the Weighted Moving Average (WMA) for one shared asset across `N` different
+/// option sets simultaneously using SIMD parallelism.
+///
+/// Uses the [`PrimeMover`] scheduler to batch option sets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - Shared input data: `inputs[0]` is `&[f64]` containing `real` (price series).
+/// * `options` - An array of `N` option sets; `options[i]` is `&[f64; OPTIONS_WIDTH]` containing
+///   `[period]` for option set `i`.
+/// * `optional_outputs` - Optional slice controlling extra output series;
+///   index 0 enables `sma`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is `wma` and `outputs[i][1]` is `sma`
+/// (empty unless requested) for option set `i`,
+/// and `states[i]` is the final [`IndicatorState`] for option set `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short or any option set is invalid.
 pub fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[&[f64; OPTIONS_WIDTH]; N],

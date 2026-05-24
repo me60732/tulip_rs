@@ -4,23 +4,39 @@ use crate::indicators::sma::{calc as calc_sma, multiplier as sma_multiplier};
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::wma_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::wma_simd::indicator_by_options;
 
 // Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
     pub use crate::indicators::simd_indicators::wma_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
     pub use crate::indicators::simd_indicators::wma_simd::indicator_by_options as indicator;
 }
 
@@ -131,6 +147,19 @@ pub fn info() -> Info<'static> {
         optional_outputs: &["sma"],
     }
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options: `[period]`.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
@@ -147,7 +176,7 @@ pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize + 1
 }
 
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Calculates the output length based on the data length and options.
 ///
 /// # Arguments
 ///
@@ -161,29 +190,40 @@ pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
 
-/// Calculates the Weighted Moving Average (WMA) for an entire dataset or a slice of it.
+/// Calculates the Weighted Moving Average (WMA) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — `real` (price series)
+///
+/// # Options
+///
+/// * `options[0]` — `period`
 ///
 /// # Arguments
 ///
-/// * `inputs` - A slice of vectors containing the input data.
-/// * `options` - A slice containing the options for the WMA calculation.
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `optional_outputs` - Pass `Some(&[true])` to enable the optional `sma` output;
+///   `None` disables it.
 ///
 /// # Returns
 ///
-/// A vector of vectors containing the WMA line.
+/// `Ok((outputs, state))` where `outputs[0]` is `wma` and `state`
+/// can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    
     validate_options(options)?;
     let period = options[0] as usize;
     let multipliers = multiplier(period);
-    
+
     validate_inputs(inputs, min_data(options))?;
     let real = inputs[0];
-    
+
     let (mut wma_line, mut sma_line) = {
         let capacity = output_length(real.len(), options);
         (
@@ -216,10 +256,10 @@ pub fn indicator(
 /// # Arguments
 ///
 /// * `real` - A slice of input data.
+/// * `state` - Mutable reference to the rolling `State` (sum and weighted sum).
 /// * `period` - The period for the WMA calculation.
-/// * `start` - The starting index for the calculation.
-/// * `wma_line` - A mutable reference to a vector for storing the WMA line.
-/// * `output_vectors` - A mutable reference to an array of optional output vectors.
+/// * `multipliers` - A tuple of `(sma_multiplier, weights, n)` from `multiplier()`.
+/// * `out_vecs` - Mutable output slices: `(wma_line, sma_line)`.
 fn cycle_wma(
     real: &[f64],
     state: &mut State,
@@ -233,11 +273,7 @@ fn cycle_wma(
     for (j, i) in (period..real.len()).enumerate() {
         let (wma, sma);
         unsafe {
-            (wma, sma) = state.calc(
-                real.get_unchecked(j),
-                real.get_unchecked(i),
-                multipliers,
-            );
+            (wma, sma) = state.calc(real.get_unchecked(j), real.get_unchecked(i), multipliers);
             *wma_line.get_unchecked_mut(j) = wma;
         }
         crate::store_optional_outputs!(j,
@@ -250,14 +286,14 @@ fn cycle_wma(
 ///
 /// # Arguments
 ///
-/// * `sum` - The rolling sum of the input data.
-/// * `prev_value` - The previous value in the input data.
-/// * `value` - The new value in the input data.
-/// * `period` - The period for the WMA calculation.
+/// * `state` - Mutable reference to the rolling `State` (sum and weighted sum).
+/// * `prev_value` - The value leaving the window (oldest element).
+/// * `value` - The new value entering the window (newest element).
+/// * `multipliers` - A tuple of `(sma_multiplier, weights, n)` from `multiplier()`.
 ///
 /// # Returns
 ///
-/// The calculated WMA value and the updated rolling sum.
+/// A tuple of `(wma, sma)` for this bar.
 #[inline(always)]
 pub fn calc(
     state: &mut State,

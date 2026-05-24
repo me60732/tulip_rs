@@ -5,14 +5,22 @@ pub use crate::indicators::simd_indicators::by_asset::dema::indicator_by_assets;
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::dema::indicator_by_options;
 
-use crate::indicators::simd_indicators::{ema_simd::calc_simd as calc_ema_simd, simd_types::F64Constants};
+use crate::indicators::simd_indicators::{
+    ema_simd::calc_simd as calc_ema_simd, simd_types::F64Constants,
+};
 use std::simd::{Simd, StdFloat};
 
+/// SIMD-parallel state for computing the Double Exponential Moving Average (DEMA) across `N`
+/// assets simultaneously. Each field is a SIMD vector where lane `i` corresponds to asset `i`.
 pub struct SimdState<const N: usize> {
+    /// First-order EMA of the input price series.
     pub ema1: Simd<f64, N>,
+    /// Second-order EMA — EMA of `ema1`.
     pub ema2: Simd<f64, N>,
 }
 impl<const N: usize> SimdState<N> {
+    /// Gathers `N` mutable scalar [`State`] references into a single `SimdState`,
+    /// packing each field into a SIMD lane.
     pub fn new_mut_ref(states: &[&mut State]) -> Self {
         let mut ema1 = [0.0; N];
         let mut ema2 = [0.0; N];
@@ -26,6 +34,8 @@ impl<const N: usize> SimdState<N> {
             ema2: Simd::from_array(ema2),
         }
     }
+    /// Gathers `N` immutable scalar [`State`] references into a single `SimdState`,
+    /// packing each field into a SIMD lane.
     pub fn new(states: &[&State]) -> Self {
         let mut ema1 = [0.0; N];
         let mut ema2 = [0.0; N];
@@ -39,6 +49,7 @@ impl<const N: usize> SimdState<N> {
             ema2: Simd::from_array(ema2),
         }
     }
+    /// Scatters the SIMD state back into an array of `N` scalar [`State`] values.
     pub fn to_states(&self) -> [State; N] {
         let ema1 = self.ema1.to_array();
         let ema2 = self.ema2.to_array();
@@ -47,6 +58,8 @@ impl<const N: usize> SimdState<N> {
 
         states
     }
+    /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place,
+    /// avoiding allocation compared to [`to_states`].
     pub fn write_states(&self, states: &mut [&mut State]) {
         let ema1 = self.ema1.to_array();
         let ema2 = self.ema2.to_array();
@@ -58,6 +71,14 @@ impl<const N: usize> SimdState<N> {
     }
 }
 
+/// Advances the DEMA by one bar for `N` assets simultaneously.
+///
+/// Applies EMA twice: `ema1 = EMA(value)`, `ema2 = EMA(ema1)`. Returns
+/// `DEMA = 2 * ema1 - ema2` (using a fused multiply-add) and the intermediate `ema1`.
+///
+/// # Returns
+///
+/// A tuple `(dema, ema1)` of SIMD vectors for all `N` lanes.
 #[inline(always)]
 pub fn calc_simd<const N: usize>(
     state: &mut SimdState<N>,

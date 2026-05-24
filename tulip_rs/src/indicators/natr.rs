@@ -1,29 +1,47 @@
 use crate::common::{min_process, validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
-pub use crate::indicators::atr::multiplier;
 use crate::indicators::atr::calc as calc_atr;
+pub use crate::indicators::atr::multiplier;
 pub use crate::indicators::atr::State;
 use crate::indicators::tr::output_length as tr_output_length;
 use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 3;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::natr_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::natr_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::natr_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::natr_simd::indicator_by_options as indicator;
 }
 
@@ -40,6 +58,22 @@ pub fn info() -> Info<'static> {
         optional_outputs: &["atr", "tr"],
     }
 }
+/// Returns the minimum number of input bars required to produce results
+/// accurate to `decimals` decimal places.
+///
+/// For indicators with exponential smoothing the seed value's influence
+/// must decay below the requested precision, so this value grows with
+/// `decimals`. Internally uses `min_process` with the smoothing
+/// multiplier to calculate the required lookback.
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options (e.g. period).
+/// * `decimals` - The number of decimal places of accuracy required.
+///
+/// # Returns
+///
+/// The minimum number of input bars needed for the requested accuracy.
 pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
     min_process(
         options,
@@ -64,9 +98,7 @@ pub struct IndicatorState {
 }
 impl IndicatorState {
     pub fn new(state: State) -> Self {
-        Self {
-            state
-        }
+        Self { state }
     }
 }
 impl TIndicatorState<3> for IndicatorState {
@@ -99,6 +131,32 @@ impl TIndicatorState<3> for IndicatorState {
     }
 }
 
+/// Calculates the Normalized Average True Range (NATR) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — high prices
+/// * `inputs[1]` — low prices
+/// * `inputs[2]` — close prices
+///
+/// # Options
+///
+/// * `options[0]` — period
+///
+/// # Arguments
+///
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `optional_outputs` - Optional slice of booleans enabling extra outputs:
+///   `[0]` → `atr`, `[1]` → `tr`.
+///
+/// # Returns
+///
+/// `Ok((outputs, state))` where `outputs[0]` is the `natr` line,
+/// `outputs[1]` is the `atr` line (empty if not requested), and
+/// `outputs[2]` is the `tr` line (empty if not requested). `state` can be
+/// passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -106,7 +164,7 @@ pub fn indicator(
 ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
     validate_options(options)?;
     let period = options[0] as usize;
-    
+
     validate_inputs(inputs, min_data(options))?;
     let (mut natr_line, mut atr_line, mut tr_line);
     {
@@ -123,7 +181,11 @@ pub fn indicator(
     let offset = crate::slice_outputs_start!(natr_line.len(), tr_line);
 
     cycle_natr(
-        (&inputs[0][period..], &inputs[1][period..], &inputs[2][period..]),
+        (
+            &inputs[0][period..],
+            &inputs[1][period..],
+            &inputs[2][period..],
+        ),
         &mut natr_line,
         (&mut atr_line, &mut tr_line[offset..]),
         &mut state,

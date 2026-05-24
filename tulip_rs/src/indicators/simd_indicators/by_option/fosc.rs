@@ -8,11 +8,13 @@ use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::tsf::output_length as tsf_output_length;
 use crate::types::IndicatorError;
 use std::simd::Simd;
+/// SIMD driver for the Forecast Oscillator (FOSC) indicator, processing `N` option-set lanes per scheduling epoch.
 struct FoscDriver {
     want_optional_outputs: (bool, bool, bool, bool, bool),
 }
 
 impl Driver<State, usize> for FoscDriver {
+    /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD. Reads the shared input, applies each lane's options, writes outputs, and updates per-lane states.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -83,6 +85,21 @@ impl Driver<State, usize> for FoscDriver {
     }
 }
 
+/// Calculates the Forecast Oscillator (FOSC) on a single asset with `N` different option sets
+/// simultaneously using SIMD parallelism.
+///
+/// # Arguments
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+///   `[real]`.
+/// * `options` - An array of `N` option sets, one per SIMD lane: `[period]`.
+/// * `optional_outputs` - Optional output flags:
+///   `[want_tsf, want_linreg, want_linregslope, want_linregintercept]`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i]` contains
+/// `[fosc, tsf?, linreg?, linregslope?, linregintercept?]`
+/// and `states[i]` is the final [`IndicatorState`] for option set `i`.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[&[f64; OPTIONS_WIDTH]; N],

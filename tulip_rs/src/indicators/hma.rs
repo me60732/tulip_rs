@@ -4,23 +4,41 @@ use crate::indicators::wma::{calc as calc_wma, multiplier as wma_multiplier, Sta
 use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::hma_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::hma_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::hma_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::hma_simd::indicator_by_options as indicator;
 }
 /// Returns information about the Hull Moving Average (HMA) indicator.
@@ -155,6 +173,19 @@ impl State {
         (i, state)
     }
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
@@ -173,7 +204,7 @@ pub fn min_data(options: &[f64]) -> usize {
     period + psqrt + 1
 }
 
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Returns the number of output values produced by the HMA indicator given input data length and options.
 ///
 /// # Arguments
 ///
@@ -182,22 +213,36 @@ pub fn min_data(options: &[f64]) -> usize {
 ///
 /// # Returns
 ///
-/// The output length.
+/// The number of output values.
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
 
-/// Calculates the Hull Moving Average (HMA) for an entire dataset or a slice of it.
+/// Calculates the Hull Moving Average (HMA) indicator for an entire dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — real (close) prices
+///
+/// # Options
+///
+/// * `options[0]` — period
+///
+/// # Outputs
+///
+/// * `outputs[0]` — `hma` line
 ///
 /// # Arguments
 ///
-/// * `inputs` - A slice of vectors containing the input data.
-/// * `options` - A slice containing the options for the HMA calculation.
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `_optional_outputs` - Unused; HMA has no optional outputs.
 ///
 /// # Returns
 ///
-/// A vector of vectors containing the HMA line.
-
+/// `Ok((outputs, state))` where `outputs[0]` is the `hma` line and
+/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -232,15 +277,16 @@ pub fn indicator(
     ))
 }
 
-/// Performs the main calculation loop for the HMA indicator using rolling sums.
+/// Performs the main calculation loop for the HMA indicator.
 ///
 /// # Arguments
 ///
 /// * `real` - A slice of input data.
-/// * `period` - The period for the HMA calculation.
-/// * `start` - The starting index for the calculation.
-/// * `hma_line` - A mutable reference to a vector for storing the HMA line.
-/// * `output_vectors` - A mutable reference to an array of optional output vectors.
+/// * `state` - A mutable reference to the indicator state.
+/// * `periods` - A tuple `(period, period2)` for the full and half WMA periods.
+/// * `multipliers` - The precomputed WMA multiplier tuple for both periods.
+/// * `start` - The starting index within `real` for the calculation.
+/// * `hma_line` - A mutable slice for storing the HMA output values.
 //#[inline(always)]
 fn cycle_hma(
     real: &[f64],
@@ -266,19 +312,19 @@ fn cycle_hma(
     }
 }
 
-/// Calculates the Hull Moving Average (HMA) for the current data point using rolling sums.
+/// Calculates the Hull Moving Average (HMA) for the current data point.
 ///
 /// # Arguments
 ///
-/// * `sum` - The rolling sum of the input data.
-/// * `weighted_sum` - The rolling weighted sum of the input data.
-/// * `prev_value` - The previous value in the input data.
-/// * `value` - The new value in the input data.
-/// * `period` - The period for the HMA calculation.
+/// * `state` - A mutable reference to the indicator state.
+/// * `prev_values` - A tuple of references to the previous values needed for rolling WMA sums:
+///   `(prev_value_at_period, prev_value_at_half_period)`.
+/// * `value` - A reference to the current input value.
+/// * `multipliers` - The precomputed WMA multiplier tuple for both periods.
 ///
 /// # Returns
 ///
-/// The calculated HMA, WMA, and SMA values.
+/// The calculated HMA value.
 #[inline]
 pub fn calc(
     state: &mut State,
@@ -342,16 +388,16 @@ pub(crate) unsafe fn calc_unchecked(
     hma
 }
 
-/// Initializes the sums for the HMA calculation.
+/// Returns the precomputed WMA multipliers for the HMA calculation.
 ///
 /// # Arguments
 ///
-/// * `prev_real` - A reference to a [f64] containing the previous input values.
+/// * `period` - The HMA period.
 ///
 /// # Returns
 ///
-/// A tuple containing the initial sum and weighted sum.
-
+/// A tuple `(periodsqrt, weightssqrt, multiplier, multiplier2)` where `multiplier` and
+/// `multiplier2` are the WMA multiplier tuples for `period` and `period/2` respectively.
 pub fn multiplier(period: usize) -> (f64, f64, (f64, f64, f64), (f64, f64, f64)) {
     let periodsqrt = ((period as f64).sqrt() as usize) as f64;
     let weightssqrt = periodsqrt * (periodsqrt + 1.0) / 2.0;

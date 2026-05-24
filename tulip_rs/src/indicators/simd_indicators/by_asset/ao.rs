@@ -12,12 +12,20 @@ use crate::indicators::{
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
+/// SIMD driver that advances the Awesome Oscillator (AO) across `N` asset lanes per scheduling
+/// epoch.
 struct AoDriver {
+    /// SMA scaling factors `(short_multiplier, long_multiplier)` for the 5- and 34-bar windows.
     multipliers: (f64, f64),
+    /// Optional output flags: `(has_optional, want_short_sma, want_long_sma, want_medprice)`.
     want_optional_outputs: (bool, bool, bool, bool),
 }
 
 impl Driver<State, ()> for AoDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
+    ///
+    /// Reads from `inputs[asset][field]` (high, low), writes to `outputs[asset][output]`,
+    /// and updates `states[asset]` in place.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -80,6 +88,22 @@ impl Driver<State, ()> for AoDriver {
     }
 }
 
+/// Calculates the Awesome Oscillator (AO) for `N` assets simultaneously using SIMD parallelism.
+///
+/// AO uses fixed short (5-bar) and long (34-bar) SMA windows and requires no configurable
+/// options. Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[high, low]` for asset `i`.
+/// * `options` - Unused; AO uses fixed-length SMA windows.
+/// * `optional_outputs` - Optional output flags:
+///   `[want_short_sma, want_long_sma, want_medprice]`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i]` contains `[ao, short_sma?, long_sma?, medprice?]`
+/// for asset `i` and `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     _options: &[f64; OPTIONS_WIDTH],

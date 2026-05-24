@@ -9,12 +9,14 @@ use crate::indicators::simd_indicators::{
 use crate::indicators::vosc::State;
 
 use std::simd::{cmp::SimdPartialEq, *};
+/// SIMD-parallel state for the Volume Oscillator (VOSC) indicator, holding `N` lanes of per-asset state.
 pub struct SimdState<const N: usize> {
     pub short_sum: Simd<f64, N>,
     pub long_sum: Simd<f64, N>,
 }
 
 impl<const N: usize> SimdState<N> {
+    /// Constructs a `SimdState` by gathering scalar per-asset states into SIMD vectors.
     pub fn new(states: &[&mut State]) -> Self {
         let mut short_sum = [0.0; N];
         let mut long_sum = [0.0; N];
@@ -28,6 +30,7 @@ impl<const N: usize> SimdState<N> {
             long_sum: Simd::from_array(long_sum),
         }
     }
+    /// Converts the SIMD state into an array of `N` scalar [`State`] values.
     pub fn to_states(&self) -> [State; N] {
         let short_sum = self.short_sum.to_array();
         let long_sum = self.long_sum.to_array();
@@ -36,6 +39,7 @@ impl<const N: usize> SimdState<N> {
 
         states
     }
+    /// Writes the current SIMD lane values back into the provided scalar per-asset states.
     pub fn write_states(&self, states: &mut [&mut State]) {
         let short_sum = self.short_sum.to_array();
         let long_sum = self.long_sum.to_array();
@@ -46,6 +50,22 @@ impl<const N: usize> SimdState<N> {
         }
     }
 
+    /// Computes one bar of the Volume Oscillator (VOSC) for `N` assets simultaneously
+    /// using SIMD parallelism.
+    ///
+    /// Updates the short-term and long-term volume SMAs and returns
+    /// `(fast_sma - slow_sma) * 100 / slow_sma`. Returns zero for lanes where `slow_sma` is zero.
+    ///
+    /// # Arguments
+    ///
+    /// * `vols` - Tuple of `(current_volume, prev_short_volume, prev_long_volume)` used by the
+    ///   respective SMA windows.
+    /// * `short_multiplier` - Per-lane SMA factor `1 / short_period`.
+    /// * `long_multiplier` - Per-lane SMA factor `1 / long_period`.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(vosc, fast_sma, slow_sma)` for all `N` lanes.
     #[inline(always)]
     pub fn calc_simd(
         &mut self,
@@ -71,6 +91,21 @@ impl<const N: usize> SimdState<N> {
     }
 }
 
+/// Computes one bar of the Volume Oscillator (VOSC) for `N` assets simultaneously
+/// using SIMD parallelism.
+///
+/// Thin wrapper delegating to [`SimdState::calc_simd`].
+///
+/// # Arguments
+///
+/// * `state` - Mutable SIMD state.
+/// * `vols` - Tuple of `(current_volume, prev_short_volume, prev_long_volume)`.
+/// * `short_multiplier` - Per-lane SMA factor `1 / short_period`.
+/// * `long_multiplier` - Per-lane SMA factor `1 / long_period`.
+///
+/// # Returns
+///
+/// A tuple `(vosc, fast_sma, slow_sma)` for all `N` lanes.
 #[inline(always)]
 pub fn calc_simd<const N: usize>(
     state: &mut SimdState<N>,

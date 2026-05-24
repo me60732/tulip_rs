@@ -1,20 +1,27 @@
 //use crate::common::validate_inputs;
+use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::sma::{
     min_data, multiplier, output_length, IndicatorState, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
-use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
 //use crate::indicators::ad::output_length;
 use crate::indicators::simd_indicators::sma_simd::calc_simd;
 
+/// SIMD driver for Simple Moving Average (SMA) across `N` asset lanes per epoch.
+/// Holds shared parameters used by [`Driver::next_run`] for each scheduled run.
 struct SmaDriver {
+    /// The `1.0 / period` multiplier broadcast to all SIMD lanes.
     multiplier: f64,
+    /// The look-back window length (number of bars summed per average).
     period: usize,
 }
 
 impl Driver<f64> for SmaDriver {
+    /// Processes `bar_count` bars for `N` assets simultaneously using SIMD.
+    /// Reads `inputs[asset][0]` (real prices), writes `outputs[asset][0]` (SMA line),
+    /// and updates `states[asset]` with the rolling window sum for subsequent epochs.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -37,7 +44,6 @@ impl Driver<f64> for SmaDriver {
 
         // Optimization 3: Simplified main loop with pre-computed offsets
         for (j, i) in (self.period..len).enumerate() {
-
             let (old_vals, new_vals) = crate::extract_simd_at_indices!(N, input_ptrs,
                 old_vals @ j,
                 new_vals @ i
@@ -58,6 +64,12 @@ impl Driver<f64> for SmaDriver {
     }
 }
 
+/// Warms up the SMA state by accumulating the first `period` bars of each of the `N`
+/// input slices into a running sum. Returns the per-asset initial sums and the shared multiplier.
+///
+/// # Returns
+///
+/// `(sums, multiplier)` — a `Vec<f64>` of `N` window sums and the `1.0 / period` constant.
 pub fn init_state<'a, const N: usize>(inputs: &[&'a [f64]; N], period: usize) -> (Vec<f64>, f64) {
     let multiplier = multiplier(period);
     let mut sums = Simd::<f64, N>::splat(0.0);
@@ -73,6 +85,26 @@ pub fn init_state<'a, const N: usize>(inputs: &[&'a [f64]; N], period: usize) ->
     (sums.to_array().to_vec(), multiplier)
 }
 
+/// Calculates the Simple Moving Average (SMA) for `N` assets simultaneously using SIMD.
+///
+/// All assets share the same `options` (period). Warms up each asset's rolling sum via
+/// [`init_state`], then dispatches to [`SmaDriver::next_run`] through the `PrimeMover` scheduler.
+///
+/// # Arguments
+///
+/// * `inputs`           — `N` asset input sets; `inputs[i][0]` is the real-price slice for asset `i`.
+/// * `options`          — Shared parameter array: `options[0]` = period.
+/// * `_optional_outputs`— Unused; SMA has no optional output lines.
+///
+/// # Returns
+///
+/// `Ok((outputs, states))` where:
+/// * `outputs[i][0]` — the SMA line for asset `i`.
+/// * `states[i]`     — the [`IndicatorState`] (rolling sum + multiplier) for resuming computation.
+///
+/// # Errors
+///
+/// Returns [`IndicatorError`] if inputs are too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

@@ -4,23 +4,41 @@ pub use crate::indicators::sma::multiplier;
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 2;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::qstick_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::qstick_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::qstick_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::qstick_simd::indicator_by_options as indicator;
 }
 
@@ -93,14 +111,27 @@ pub fn info() -> Info<'static> {
         optional_outputs: &[],
     }
 }
-pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
-    min_data(options)
-}
-/// Returns the minimum amount of data required for the SMA indicator.
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
 ///
 /// # Arguments
 ///
-/// * `options` - A slice containing the options for the SMA calculation.
+/// * `options` - A slice containing the indicator options.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
+pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
+    min_data(options)
+}
+/// Returns the minimum amount of data required for the QStick indicator.
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the options for the QStick calculation.
 ///
 /// # Returns
 ///
@@ -108,13 +139,12 @@ pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
 pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize + 1
 }
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Calculates the output length for the QStick indicator given the input data length and options.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the SMA calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
+/// * `options` - A slice containing the options for the QStick calculation.
 ///
 /// # Returns
 ///
@@ -122,29 +152,39 @@ pub fn min_data(options: &[f64]) -> usize {
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
-/// Calculates the QStick indicator values.
+/// Calculates the QStick indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — open prices
+/// * `inputs[1]` — close prices
+///
+/// # Options
+///
+/// * `options[0]` — period
 ///
 /// # Arguments
 ///
-/// * `inputs` - A slice of vectors containing the input data (open and close prices).
-/// * `options` - A slice containing the options for the QStick calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
-/// * `_optional_outputs` - An optional slice indicating whether to calculate optional outputs.
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `_optional_outputs` - Unused; this indicator has no optional outputs.
 ///
 /// # Returns
 ///
-/// An `Output` struct containing the QStick indicator values and the state.
-
+/// `Ok((outputs, state))` where:
+/// - `outputs[0]` — `qstick`
+///
+/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    
     validate_options(options)?;
     let period = options[0] as usize;
     let multiplier = multiplier(period);
-    
+
     validate_inputs(inputs, min_data(options))?;
     let open = inputs[0];
     let close = inputs[1];
@@ -170,19 +210,6 @@ pub fn init(open: &[f64], close: &[f64], period: usize) -> f64 {
     }
     sum
 }
-/// Calculates the QStick indicator values from the previous state.
-///
-/// # Arguments
-///
-/// * `inputs` - A slice of vectors containing the input data (open and close prices).
-/// * `options` - A slice containing the options for the QStick calculation.
-/// * `indicator_state` - The previous state of the QStick indicator.
-/// * `_optional_outputs` - An optional slice indicating whether to calculate optional outputs.
-///
-/// # Returns
-///
-/// An `Output` struct containing the QStick indicator values and the updated state.
-
 /// Performs the main calculation loop for the QStick indicator.
 ///
 /// # Arguments
@@ -190,13 +217,13 @@ pub fn init(open: &[f64], close: &[f64], period: usize) -> f64 {
 /// * `open` - A slice containing the open prices.
 /// * `close` - A slice containing the close prices.
 /// * `period` - The period for the QStick calculation.
-/// * `qstick_line` - A mutable vector to store the QStick values.
-/// * `sum` - The initial sum of the differences between close and open prices.
-/// * `start` - The starting index for the calculation.
+/// * `multiplier` - The multiplier for averaging (1/period).
+/// * `qstick_line` - A mutable slice to store the QStick values.
+/// * `sum` - The running sum of close-open differences.
 ///
 /// # Returns
 ///
-/// The updated sum of the differences between close and open prices.
+/// The updated running sum.
 fn cycle_qstick(
     open: &[f64],
     close: &[f64],
@@ -233,7 +260,7 @@ fn cycle_qstick(
 ///
 /// # Returns
 ///
-/// A tuple containing the QStick value and the updated sum.
+/// The QStick value for the current bar.
 #[inline(always)]
 pub fn calc(
     open: f64,

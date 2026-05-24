@@ -8,11 +8,13 @@ use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
+/// SIMD driver for the Detrended Price Oscillator (DPO) indicator, processing `N` option-set lanes per scheduling epoch.
 struct DpoDriver {
     want_sma: bool,
 }
 
 impl Driver<f64, (usize, usize, f64)> for DpoDriver {
+    /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD. Reads the shared input, applies each lane's options, writes outputs, and updates per-lane states.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -81,6 +83,19 @@ impl Driver<f64, (usize, usize, f64)> for DpoDriver {
     }
 }
 
+/// Calculates the Detrended Price Oscillator (DPO) on a single asset with `N` different option sets
+/// simultaneously using SIMD parallelism.
+///
+/// # Arguments
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+///   `[real]`.
+/// * `options` - An array of `N` option sets, one per SIMD lane: `[period]`.
+/// * `optional_outputs` - Optional output flags: `[want_sma]`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i]` contains `[dpo, sma?]`
+/// and `states[i]` is the final [`IndicatorState`] for option set `i`.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[&[f64; OPTIONS_WIDTH]; N],

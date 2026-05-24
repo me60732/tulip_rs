@@ -9,11 +9,13 @@ use std::simd::Simd;
 //use crate::indicators::ad::output_length;
 use crate::indicators::simd_indicators::rocr_simd::calc_simd;
 
+/// SIMD driver that advances the Rate of Change Ratio (ROCR) across `N` asset lanes per scheduling epoch.
 struct RocrDriver {
     period: usize,
 }
 
 impl Driver<bool> for RocrDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -24,19 +26,13 @@ impl Driver<bool> for RocrDriver {
         let len = inputs[0][0].len();
 
         // Optimization 2: Pre-compute all input and output pointers
-        let output_ptrs = crate::extract_output_ptrs!(
-            outputs,
-            N,
-            output_ptr
-        );
+        let output_ptrs = crate::extract_output_ptrs!(outputs, N, output_ptr);
 
         // Optimization 2: Pre-compute all input and output pointers
         let input_ptrs = crate::extract_input_ptrs!(inputs, N, real_ptrs);
-        
 
         // Optimization 3: Simplified main loop with pre-computed offsets
         for (j, i) in (self.period..len).enumerate() {
-
             let (old_vals, new_vals) = crate::extract_simd_at_indices!(N, input_ptrs,
                 old_vals @ j,
                 new_vals @ i
@@ -52,6 +48,23 @@ impl Driver<bool> for RocrDriver {
     }
 }
 
+/// Calculates the Rate of Change Ratio (ROCR) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// ROCR measures the ratio of the current price to the price `period` bars ago.
+/// It produces no optional outputs. Uses the [`PrimeMover`] scheduler to batch
+/// assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[real]` for asset `i`.
+/// * `options` - `[period]` — the look-back period for the ratio calculation.
+/// * `_optional_outputs` - Unused; ROCR produces no optional outputs.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the ROCR line for asset `i`
+/// and `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

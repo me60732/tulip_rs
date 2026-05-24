@@ -14,11 +14,13 @@ struct Params {
     periods: (usize, usize),
     alpha: f64,
 }
+/// SIMD driver for the Variable Index Dynamic Average (VIDYA) indicator, processing `N` option-set lanes per scheduling epoch.
 struct VidyaDriver {
     want_optional_outputs: (bool, bool, bool, bool, bool),
 }
 
 impl Driver<State, Params> for VidyaDriver {
+    /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -110,6 +112,26 @@ impl Driver<State, Params> for VidyaDriver {
     }
 }
 
+/// Calculates the Variable Index Dynamic Average (VIDYA) for one shared asset across `N` different
+/// option sets simultaneously using SIMD parallelism.
+///
+/// Uses the [`PrimeMover`] scheduler to batch option sets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - Shared input data: `inputs[0]` is `&[f64]` containing `real` (price series).
+/// * `options` - An array of `N` option sets; `options[i]` is `&[f64; OPTIONS_WIDTH]` containing
+///   `[short_period, long_period, alpha]` for option set `i`.
+/// * `optional_outputs` - Optional slice controlling extra output series;
+///   index 0 enables `short_sma`, index 1 enables `long_sma`, index 2 enables `short_sdtdev`,
+///   index 3 enables `long_sdtdev`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is `vidya`, `outputs[i][1]` is `short_sma`
+/// (empty unless requested), `outputs[i][2]` is `long_sma` (empty unless requested),
+/// `outputs[i][3]` is `short_sdtdev` (empty unless requested), and `outputs[i][4]` is
+/// `long_sdtdev` (empty unless requested) for option set `i`,
+/// and `states[i]` is the final [`IndicatorState`] for option set `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short or any option set is invalid.
 pub fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[&[f64; OPTIONS_WIDTH]; N],

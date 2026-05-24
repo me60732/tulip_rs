@@ -6,23 +6,41 @@ use crate::indicators::ema::{
 use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 2;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::ppo_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::ppo_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::ppo_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::ppo_simd::indicator_by_options as indicator;
 }
 
@@ -110,6 +128,22 @@ pub fn info() -> Info<'static> {
         optional_outputs: &["short_ema", "long_ema"],
     }
 }
+/// Returns the minimum number of input bars required to produce results
+/// accurate to `decimals` decimal places.
+///
+/// For indicators with exponential smoothing the seed value's influence
+/// must decay below the requested precision, so this value grows with
+/// `decimals`. Internally uses `min_process` with the long-period EMA
+/// smoothing multiplier to calculate the required lookback.
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options (e.g. `short_period`, `long_period`).
+/// * `decimals` - The number of decimal places of accuracy required.
+///
+/// # Returns
+///
+/// The minimum number of input bars needed for the requested accuracy.
 pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
     let (_short_multiplier, long_multiplier) = multiplier(options[0] as usize, options[1] as usize);
     min_process(
@@ -135,12 +169,36 @@ pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), Ind
     }
     Ok(())
 }
+/// Calculates the Percentage Price Oscillator (PPO) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — real (a price series, e.g. close)
+///
+/// # Options
+///
+/// * `options[0]` — short_period
+/// * `options[1]` — long_period
+///
+/// # Arguments
+///
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `optional_outputs` - Optional slice of booleans enabling extra outputs:
+///   `[0]` → `short_ema`, `[1]` → `long_ema`.
+///
+/// # Returns
+///
+/// `Ok((outputs, state))` where `outputs[0]` is the `ppo` line,
+/// `outputs[1]` is the `short_ema` line (empty if not requested), and
+/// `outputs[2]` is the `long_ema` line (empty if not requested). `state` can be
+/// passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    
     validate_options(options)?;
     validate_inputs(inputs, min_data(options))?;
 
@@ -168,7 +226,7 @@ pub fn indicator(
         let offset = crate::slice_outputs_start!(ppo_line.len(), short_ema_line);
         (&mut short_ema_line[offset..], long_ema_line.as_mut_slice())
     };
-    
+
     cycle_ppo(
         &real[long_period..],
         multipliers,

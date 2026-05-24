@@ -3,23 +3,41 @@ pub use crate::indicator_types::TIndicatorState;
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::rocr_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::rocr_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::rocr_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::rocr_simd::indicator_by_options as indicator;
 }
 /// Returns information about the Rate of Change Ratio (ROCR) indicator.
@@ -68,6 +86,19 @@ impl TIndicatorState<1> for IndicatorState {
     }
 }
 
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
@@ -75,13 +106,12 @@ pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
 pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize
 }
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Calculates the output length for the ROCR indicator given the input data length and options.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the EMA calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
+/// * `options` - A slice containing the options for the ROCR calculation.
 ///
 /// # Returns
 ///
@@ -90,6 +120,29 @@ pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options)
 }
 
+/// Calculates the Rate of Change Ratio (ROCR) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — real (source) values
+///
+/// # Options
+///
+/// * `options[0]` — period
+///
+/// # Arguments
+///
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `_optional_outputs` - Unused; this indicator has no optional outputs.
+///
+/// # Returns
+///
+/// `Ok((outputs, state))` where:
+/// - `outputs[0]` — `rocr`
+///
+/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -117,8 +170,7 @@ pub fn indicator(
 fn cycle_rocr(real: &[f64], period: usize, rocr_line: &mut [f64]) {
     for (j, i) in (period..real.len()).enumerate() {
         unsafe {
-            *rocr_line.get_unchecked_mut(j) =
-                calc(*real.get_unchecked(i), *real.get_unchecked(j))
+            *rocr_line.get_unchecked_mut(j) = calc(*real.get_unchecked(i), *real.get_unchecked(j))
         };
     }
 }

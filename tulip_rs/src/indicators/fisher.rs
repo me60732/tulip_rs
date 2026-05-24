@@ -10,23 +10,41 @@ use crate::ring_buffer::single_buffer::mirror_buffer::{MinMaxBuffer, MirrorBuffe
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 2;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::fisher_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::fisher_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::fisher_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::fisher_simd::indicator_by_options as indicator;
 }
 
@@ -57,7 +75,7 @@ impl TIndicatorState<2> for IndicatorState {
             )
         };
         let [high, low] = inputs;
-    
+
         match self.period {
             1..=12 => {
                 cycle_fisher::<1>(
@@ -148,6 +166,19 @@ pub fn info() -> Info<'static> {
     }
 }
 
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
@@ -165,7 +196,7 @@ pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize
 }
 
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Returns the number of output values produced by the Fisher Transform indicator given input data length and options.
 ///
 /// # Arguments
 ///
@@ -174,22 +205,39 @@ pub fn min_data(options: &[f64]) -> usize {
 ///
 /// # Returns
 ///
-/// The output length for the Fisher Transform calculation.
+/// The number of output values.
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
 
-/// Calculates the Fisher Transform indicator values.
+/// Calculates the Fisher Transform indicator for an entire dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — high prices
+/// * `inputs[1]` — low prices
+///
+/// # Options
+///
+/// * `options[0]` — period
+///
+/// # Outputs
+///
+/// * `outputs[0]` — `fisher` line
+/// * `outputs[1]` — `fisher_signal` line
 ///
 /// # Arguments
 ///
-/// * `inputs` - A slice of vectors containing the input data (high, low prices).
-/// * `options` - A slice containing the options for the Fisher Transform calculation.
-/// * `_optional_outputs` - An optional slice indicating whether to calculate optional outputs.
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `_optional_outputs` - Unused; Fisher Transform has no optional outputs.
 ///
 /// # Returns
 ///
-/// An `Output` struct containing the Fisher Transform indicator values and the state.
+/// `Ok((outputs, state))` where `outputs[0]` is the `fisher` line,
+/// `outputs[1]` is the `fisher_signal` line, and `state` can be passed
+/// to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -208,33 +256,18 @@ pub fn indicator(
     };
 
     let mut state = State::init_state(high, low, period, &mut fisher_line, &mut signal_line);
-    
+
     let outputs = (&mut fisher_line[1..], &mut signal_line[1..]);
     let inputs = (&high[period..], &low[period..]);
     match period {
         1..=4 => {
-            cycle_fisher::<1>(
-                inputs,
-                period,
-                outputs,
-                &mut state,
-            );
+            cycle_fisher::<1>(inputs, period, outputs, &mut state);
         }
         5..30 => {
-            cycle_fisher::<4>(
-                inputs,
-                period,
-                outputs,
-                &mut state,
-            );
+            cycle_fisher::<4>(inputs, period, outputs, &mut state);
         }
         _ => {
-            cycle_fisher::<8>(
-                inputs,
-                period,
-                outputs,
-                &mut state,
-            );
+            cycle_fisher::<8>(inputs, period, outputs, &mut state);
         }
     }
     Ok((

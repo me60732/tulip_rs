@@ -7,23 +7,41 @@ pub use crate::indicators::wilders::multiplier;
 use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 3;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::dx_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::dx_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::dx_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::dx_simd::indicator_by_options as indicator;
 }
 
@@ -88,6 +106,22 @@ pub fn info() -> Info<'static> {
         optional_outputs: &["atr", "tr"],
     }
 }
+/// Returns the minimum number of input bars required to produce results
+/// accurate to `decimals` decimal places.
+///
+/// Because DX uses Wilder's smoothing the seed value's influence must
+/// decay below the requested precision, so this value grows with
+/// `decimals`. Internally uses `min_process` with the smoothing
+/// multiplier to calculate the required lookback.
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options (e.g. period).
+/// * `decimals` - The number of decimal places of accuracy required.
+///
+/// # Returns
+///
+/// The minimum number of input bars needed for the requested accuracy.
 pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
     min_process(
         options,
@@ -109,33 +143,49 @@ pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
 pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize + 1 // period
 }
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Returns the number of output values produced by the DX indicator given input data length and options.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
 /// * `options` - A slice containing the options for the DX calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
 ///
 /// # Returns
 ///
-/// The output length.
+/// The number of output values.
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
-/// Calculates the Directional Movement Index (DX) indicator for an entire dataset or a slice of it.
+/// Calculates the Directional Movement Index (DX) indicator for an entire dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — high prices
+/// * `inputs[1]` — low prices
+/// * `inputs[2]` — close prices
+///
+/// # Options
+///
+/// * `options[0]` — period
+///
+/// # Outputs
+///
+/// * `outputs[0]` — `dx` line
+/// * `outputs[1]` — `atr` (optional, if requested)
+/// * `outputs[2]` — `tr` (optional, if requested)
 ///
 /// # Arguments
 ///
-/// * `inputs` - A slice of vectors containing the high, low, and close prices.
-/// * `options` - A slice containing the period for the DX calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
-/// * `optional_outputs` - An optional slice of booleans indicating which additional outputs to generate.
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `optional_outputs` - Optional slice selecting which extra outputs to compute:
+///   index `0` = `atr`, index `1` = `tr`.
 ///
 /// # Returns
 ///
-/// A vector of vectors containing the DX line and any additional requested outputs.
-
+/// `Ok((outputs, state))` where `outputs[0]` is the `dx` line and
+/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -194,11 +244,9 @@ pub fn indicator(
 /// * `high` - A slice of high prices.
 /// * `low` - A slice of low prices.
 /// * `close` - A slice of close prices.
-/// * `period` - The period for the DX calculation.
-/// * `indicator_state` - A slice containing necessary input values.
-/// * `start` - The starting index for the calculation.
-/// * `dx_line` - A mutable reference to a vector for storing the DX line.
-/// * `output_vectors` - A mutable reference to an array of optional vectors for storing additional outputs.
+/// * `state` - A mutable reference to the indicator state.
+/// * `inv_multiplier` - The inverse smoothing multiplier used for ATR calculation.
+/// * `out_vecs` - A tuple of mutable output slices: `(dx_line, atr_line, tr_line)`.
 //#[inline(always)]
 fn cycle(
     high: &[f64],
@@ -234,23 +282,18 @@ fn cycle(
         }
     }
 }
-/// Calculates the current value of the Directional Movement Index (DX).
+/// Calculates the current DX, ATR, and TR values for one bar.
 ///
 /// # Arguments
 ///
+/// * `state` - A mutable reference to the indicator state.
 /// * `high` - The current high price.
 /// * `low` - The current low price.
-/// * `prev_high` - The previous high price.
-/// * `prev_low` - The previous low price.
-/// * `prev_close` - The previous close price.
-/// * `prev_plus_di` - The previous plus DI value.
-/// * `prev_minus_di` - The previous minus DI value.
-/// * `prev_atr` - The previous ATR value.
-/// * `period` - The period for the DX calculation.
+/// * `close` - The current close price.
 ///
 /// # Returns
 ///
-/// A tuple containing the current plus DI value, the current minus DI value, and the updated ATR value.
+/// A tuple `(dx, atr, tr)` containing the current DX value, ATR, and True Range.
 #[inline(always)]
 pub fn calc(state: &mut State, high: f64, low: f64, close: f64) -> (f64, f64, f64) {
     let (_, _, atr, tr) = calc_diup_didown(state, high, low, close);

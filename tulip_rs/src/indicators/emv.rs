@@ -4,15 +4,25 @@ use crate::indicators::medprice::calc as calc_medprice;
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 3;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 0;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::emv_simd::indicator_by_assets;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::emv_simd::indicator_by_assets as indicator;
 }
 
@@ -74,6 +84,19 @@ pub fn info() -> Info<'static> {
         optional_outputs: &["medprice"],
     }
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
@@ -90,34 +113,45 @@ pub fn min_data(_options: &[f64]) -> usize {
     2 // The EMV calculation requires at least two data points
 }
 
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Returns the number of output values produced by the EMV indicator given input data length and options.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
 /// * `options` - A slice containing the options for the EMV calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
 ///
 /// # Returns
 ///
-/// The output length.
+/// The number of output values.
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
 
-/// Calculates the Ease of Movement (EMV) for an entire dataset or a slice of it.
+/// Calculates the Ease of Movement (EMV) indicator for an entire dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — high prices
+/// * `inputs[1]` — low prices
+/// * `inputs[2]` — volume
+///
+/// # Outputs
+///
+/// * `outputs[0]` — `emv` line
+/// * `outputs[1]` — `medprice` (optional, if requested)
 ///
 /// # Arguments
 ///
-/// * `inputs` - A slice of vectors containing the input data.
-/// * `options` - A slice containing the options for the EMV calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
-/// * `_optional_outputs` - An optional slice of booleans indicating which additional outputs to generate.
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `_options` - Unused; EMV has no options.
+/// * `optional_outputs` - Optional slice selecting which extra outputs to compute:
+///   index `0` = `medprice`.
 ///
 /// # Returns
 ///
-/// A vector of vectors containing the EMV line.
-
+/// `Ok((outputs, state))` where `outputs[0]` is the `emv` line and
+/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     _options: &[f64; OPTIONS_WIDTH],
@@ -169,9 +203,9 @@ pub fn indicator(
 /// * `high` - A slice of high prices.
 /// * `low` - A slice of low prices.
 /// * `volume` - A slice of volume data.
-/// * `period` - The period for the EMV calculation.
-/// * `start` - The starting index for the calculation.
-/// * `emv_line` - A mutable reference to a vector for storing the EMV line.
+/// * `prev_medprice` - A mutable reference to the previous median price value.
+/// * `emv_line` - A mutable slice for storing the EMV output values.
+/// * `medprice_line` - A mutable slice for storing the optional median price output.
 fn cycle_emv(
     high: &[f64],
     low: &[f64],
@@ -184,26 +218,30 @@ fn cycle_emv(
 
     for i in 0..high.len() {
         unsafe {
-            *emv_line.get_unchecked_mut(i) = calc(*high.get_unchecked(i), *low.get_unchecked(i), *volume.get_unchecked(i), prev_medprice);
+            *emv_line.get_unchecked_mut(i) = calc(
+                *high.get_unchecked(i),
+                *low.get_unchecked(i),
+                *volume.get_unchecked(i),
+                prev_medprice,
+            );
         }
         crate::store_optional_outputs!(i,
             want_medprice, medprice_line => *prev_medprice);
     }
 }
 
-/// Calculates the Ease of Movement (EMV) for the current data point.
+/// Calculates the Ease of Movement (EMV) for a single bar.
 ///
 /// # Arguments
 ///
 /// * `high` - The current high price.
 /// * `low` - The current low price.
 /// * `volume` - The current volume.
-/// * `period` - The period for the EMV calculation.
+/// * `prev_medprice` - A mutable reference to the previous median price; updated in place.
 ///
 /// # Returns
 ///
 /// The calculated EMV value.
-///
 #[inline(always)]
 pub fn calc(high: f64, low: f64, volume: f64, prev_medprice: &mut f64) -> f64 {
     let medprice = calc_medprice(high, low);

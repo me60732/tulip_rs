@@ -3,23 +3,41 @@ pub use crate::indicator_types::TIndicatorState;
 use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 2;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::dm_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::dm_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::dm_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::dm_simd::indicator_by_options as indicator;
 }
 /// Returns information about the Directional Movement (DM) indicator.
@@ -103,6 +121,22 @@ impl State {
         state
     }
 }
+/// Returns the minimum number of input bars required to produce results
+/// accurate to `decimals` decimal places.
+///
+/// For indicators with exponential smoothing the seed value's influence
+/// must decay below the requested precision, so this value grows with
+/// `decimals`. Internally uses `min_process` with the Wilder's smoothing
+/// multiplier to calculate the required lookback.
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options (e.g. period).
+/// * `decimals` - The number of decimal places of accuracy required.
+///
+/// # Returns
+///
+/// The minimum number of input bars needed for the requested accuracy.
 pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
     min_process(
         options,
@@ -124,33 +158,41 @@ pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
 pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize + 1
 }
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Returns the number of output values given an input data length and options.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
 /// * `options` - A slice containing the options for the DM calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
 ///
 /// # Returns
 ///
-/// The output length.
+/// The number of output values (`data_len - min_data(options) + 1`).
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
-/// Calculates the Directional Movement (DM) indicator for an entire dataset or a slice of it.
+/// Calculates the Directional Movement (DM) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — high prices
+/// * `inputs[1]` — low prices
+///
+/// # Options
+///
+/// * `options[0]` — period (Wilder smoothing window for DM+ / DM-)
 ///
 /// # Arguments
 ///
-/// * `inputs` - A slice of vectors containing the high and low prices.
-/// * `options` - A slice containing the period for the DM calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
-/// * `_optional_outputs` - An optional slice of booleans indicating which additional outputs to generate.
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `_optional_outputs` - Unused; DM has no optional outputs.
 ///
 /// # Returns
 ///
-/// A vector of vectors containing the plus DM line and minus DM line.
-
+/// `Ok((outputs, state))` where `outputs[0]` is `plus_dm`, `outputs[1]` is `minus_dm`,
+/// and `state` can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -178,35 +220,15 @@ pub fn indicator(
         IndicatorState { state: state },
     ))
 }
-/// Calculates the Directional Movement (DM) indicator, picking up where the previous calculation left off.
-///
-/// This function is useful for scenarios where indicator data is stored in a database and you need to continue calculations from the last stored state.
-///
-/// # Arguments
-///
-/// * `inputs` - A slice of vectors containing the high and low prices.
-/// * `options` - A slice containing the period for the DM calculation.
-/// * `indicator_state` - An `IndicatorState` struct containing necessary input values.
-/// * `_optional_outputs` - An optional slice of booleans indicating which additional outputs to generate.
-///
-/// # Returns
-///
-/// A vector of vectors containing the plus DM line and minus DM line.
-
 /// Performs the main calculation loop for the DM indicator.
 ///
 /// # Arguments
 ///
 /// * `high` - A slice of high prices.
 /// * `low` - A slice of low prices.
-/// * `period` - The period for the DM calculation.
-/// * `indicator_state` - A slice containing necessary input values.
-/// * `start` - The starting index for the calculation.
-/// * `capacity` - The capacity of the output vectors.
-///
-/// # Returns
-///
-/// A tuple containing the plus DM line and minus DM line.
+/// * `state` - Mutable reference to the DM state.
+/// * `plus_dm_line` - Mutable slice to write the DM+ output values into.
+/// * `minus_dm_line` - Mutable slice to write the DM- output values into.
 fn cycle_calc(
     high: &[f64],
     low: &[f64],
@@ -224,18 +246,17 @@ fn cycle_calc(
     }
 }
 
-/// Calculates the current DM+ and DM- values.
+/// Calculates the smoothed DM+ and DM- values for the current bar.
 ///
 /// # Arguments
 ///
+/// * `state` - Mutable reference to the DM state.
 /// * `high` - The current high price.
 /// * `low` - The current low price.
-/// * `prev_high` - The previous high price.
-/// * `prev_low` - The previous low price.
 ///
 /// # Returns
 ///
-/// A tuple containing the current DM+ value and the current DM- value.
+/// A tuple `(plus_dm, minus_dm)` of the smoothed directional movement values.
 #[inline(always)]
 pub fn calc(state: &mut State, high: f64, low: f64) -> (f64, f64) {
     let (dp, dm) = calc_dp_dm(state, high, low);
@@ -243,19 +264,17 @@ pub fn calc(state: &mut State, high: f64, low: f64) -> (f64, f64) {
     (state.dmup, state.dmdown)
 }
 
-/// Calculates the updated DM+ and DM- values using the Wilder's smoothing method.
+/// Applies Wilder's smoothing to update DM+ and DM- in state.
 ///
 /// # Arguments
 ///
-/// * `dp` - The current DM+ value.
-/// * `dm` - The current DM- value.
-/// * `dmup` - The previous DM+ value.
-/// * `dmdown` - The previous DM- value.
-/// * `period` - The period for the DM calculation.
+/// * `state` - Mutable reference to the DM state containing `dmup`, `dmdown`, and `multiplier`.
+/// * `dp` - The raw DM+ value for the current bar.
+/// * `dm` - The raw DM- value for the current bar.
 ///
 /// # Returns
 ///
-/// A tuple containing the updated DM+ value and the updated DM- value.
+/// A tuple `(dmup, dmdown)` of the updated smoothed directional movement values.
 #[inline(always)]
 fn calc_dmup_dmdown(state: &mut State, dp: f64, dm: f64) -> (f64, f64) {
     //state.dmup = state.multiplier * state.dmup + dp;
@@ -264,18 +283,20 @@ fn calc_dmup_dmdown(state: &mut State, dp: f64, dm: f64) -> (f64, f64) {
     state.dmdown = state.dmdown.mul_add(state.multiplier, dm);
     (state.dmup, state.dmdown)
 }
-/// Calculates the current DM+ and DM- values.
+/// Calculates the raw DM+ and DM- values for the current bar.
+///
+/// Uses `state.prev_high` and `state.prev_low` as the previous bar's values,
+/// then updates them to `high` and `low`.
 ///
 /// # Arguments
 ///
+/// * `state` - Mutable reference to the DM state (reads and updates `prev_high` and `prev_low`).
 /// * `high` - The current high price.
-/// * `prev_high` - The previous high price.
 /// * `low` - The current low price.
-/// * `prev_low` - The previous low price.
 ///
 /// # Returns
 ///
-/// A tuple containing the current DM+ value and the current DM- value.
+/// A tuple `(dp, dm)` of the raw directional movement values before smoothing.
 #[inline(always)]
 pub fn calc_dp_dm(state: &mut State, high: f64, low: f64) -> (f64, f64) {
     let mut dp = high - state.prev_high; //.max(0.0);

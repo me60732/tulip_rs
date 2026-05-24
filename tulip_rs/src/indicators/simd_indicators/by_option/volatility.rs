@@ -8,9 +8,11 @@ use crate::indicators::volatility::{
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
+/// SIMD driver for the Volatility Indicator (VOLATILITY) indicator, processing `N` option-set lanes per scheduling epoch.
 struct VolatilityDriver {}
 
 impl Driver<State, (usize, f64)> for VolatilityDriver {
+    /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -55,6 +57,21 @@ impl Driver<State, (usize, f64)> for VolatilityDriver {
     }
 }
 
+/// Calculates the Volatility Indicator (VOLATILITY) for one shared asset across `N` different
+/// option sets simultaneously using SIMD parallelism.
+///
+/// Uses the [`PrimeMover`] scheduler to batch option sets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - Shared input data: `inputs[0]` is `&[f64]` containing `real` (price series).
+/// * `options` - An array of `N` option sets; `options[i]` is `&[f64; OPTIONS_WIDTH]` containing
+///   `[period]` for option set `i`.
+/// * `optional_outputs` - Unused; VOLATILITY has no optional outputs.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is `volatility` for option set `i`
+/// and `states[i]` is the final [`IndicatorState`] for option set `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short or any option set is invalid.
 pub fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS_WIDTH], //stock[ fields [ field [f64] ] ]
     options: &[&[f64; OPTIONS_WIDTH]; N],

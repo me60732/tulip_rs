@@ -5,11 +5,13 @@ pub use crate::indicators::simd_indicators::by_asset::min::indicator_by_assets;
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::min::indicator_by_options;
 
+/// SIMD-parallel state for the Rolling Minimum indicator, holding `N` lanes of per-asset state.
 pub struct SimdState<const N: usize> {
     pub min: Simd<f64, N>,
     pub trail: Simd<usize, N>,
 }
 impl<const N: usize> SimdState<N> {
+    /// Constructs a `SimdState` by gathering scalar per-asset states into SIMD vectors.
     pub fn new(states: &[&mut State]) -> Self {
         let mut min = [0.0; N];
         let mut trail: [usize; N] = [0; N];
@@ -24,6 +26,7 @@ impl<const N: usize> SimdState<N> {
             trail: Simd::from_array(trail),
         }
     }
+    /// Converts the SIMD state into an array of `N` scalar [`State`] values.
     pub fn to_states(&self) -> [State; N] {
         let min = self.min.to_array();
         let trail = self.trail.to_array();
@@ -32,6 +35,7 @@ impl<const N: usize> SimdState<N> {
 
         states
     }
+    /// Writes the current SIMD lane values back into the provided scalar per-asset states.
     pub fn write_states(&self, states: &mut [&mut State]) {
         let min = self.min.to_array();
         let trail = self.trail.to_array();
@@ -62,15 +66,25 @@ mod import {
     };
 }
 pub mod assets {
+    //! Per-asset road SIMD helpers for the Rolling Minimum indicator.
     use super::import::*;
     use super::{find_min_scalar, find_min_simd, SimdState};
+    /// Trait providing the unchecked per-asset SIMD minimum-window computation.
     pub trait Calc<const N: usize> {
+        /// Computes the rolling minimum for `N` asset lanes simultaneously (unsafe, bounds-unchecked).
+        ///
+        /// Reads the current value at index `i`, updates the trailing minimum and trail counter,
+        /// and if the oldest entry has fallen off the window performs a linear rescan.
+        ///
+        /// # Safety
+        /// `real` pointers must each be valid for reads in `[i - look_back, i]`.
         unsafe fn calc_unchecked_simd<const WINDOW_LANES: usize>(
             &mut self,
             real: [*const f64; N],
             i: usize,
             look_back: usize,
         ) -> (Simd<f64, N>, Simd<usize, N>);
+        /// Same as [`calc_unchecked_simd`] but accepts the current value directly to avoid a redundant load.
         unsafe fn calc_unchecked_simd_w_current<const WINDOW_LANES: usize>(
             &mut self,
             real: [*const f64; N],
@@ -144,15 +158,24 @@ pub mod assets {
     }
 }
 pub mod options {
+    //! Per-option road SIMD helpers for the Rolling Minimum indicator.
     use super::import::*;
     use super::{find_min_scalar, find_min_simd, SimdState};
+    /// Trait providing the unchecked per-option SIMD minimum-window computation.
     pub trait Calc<const N: usize> {
+        /// Computes the rolling minimum for `N` option lanes simultaneously (unsafe, bounds-unchecked).
+        ///
+        /// Each lane may have a different look-back period supplied via `look_back: Simd<usize, N>`.
+        ///
+        /// # Safety
+        /// `real` pointers must each be valid for reads within their respective window.
         unsafe fn calc_unchecked_simd(
             &mut self,
             real: [*const f64; N],
             i: Simd<usize, N>,
             look_back: Simd<usize, N>,
         ) -> (Simd<f64, N>, Simd<usize, N>);
+        /// Same as [`calc_unchecked_simd`] but accepts the current values to avoid a redundant load.
         unsafe fn calc_unchecked_simd_w_current(
             &mut self,
             real: [*const f64; N],
@@ -226,6 +249,10 @@ pub mod options {
     }
 }
 
+/// Scans `window` scalar-by-scalar to find the minimum value, also considering `current`.
+///
+/// Returns a tuple `(min_value, index_of_min)` where `index_of_min` is the position
+/// within `window` (or `window.len()` if `current` is the minimum).
 #[inline(always)]
 pub(crate) fn find_min_scalar(window: &[f64], current: f64) -> (f64, usize) {
     let end = window.len();
@@ -245,6 +272,10 @@ pub(crate) fn find_min_scalar(window: &[f64], current: f64) -> (f64, usize) {
     (min_val, min_idx)
 }
 
+/// Scans `window` using SIMD chunks of width `N` to find the minimum value, also considering `current`.
+///
+/// Returns a tuple `(min_value, index_of_min)` where `index_of_min` is the position
+/// within `window` (or `window.len()` if `current` is the minimum).
 pub(crate) fn find_min_simd<const N: usize>(window: &[f64], current: f64) -> (f64, usize) {
     let mut global_min = unsafe { *window.get_unchecked(0) };
     //let mut global_min = unsafe { *window.get_unchecked(0) };

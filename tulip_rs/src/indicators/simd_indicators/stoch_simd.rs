@@ -17,16 +17,26 @@ pub mod assets {
     use crate::ring_buffer::single_buffer::generic_buffer::{
         RingBuffer, SimdBuffer, SimdRingBuffer,
     };
+
+    /// SIMD-parallel state for computing the Stochastic Oscillator across `N` assets simultaneously.
+    /// Each field is a SIMD vector where lane `i` corresponds to asset `i`.
     pub struct SimdState<const N: usize> {
+        /// Rolling buffer of fast-%K values used to smooth into slow-%K for each lane.
         pub prev_k: SimdBuffer<N>,
+        /// Rolling buffer of slow-%K values used to smooth into %D for each lane.
         pub prev_d: SimdBuffer<N>,
+        /// Sub-state tracking the rolling minimum of the low prices for the %K window.
         pub min_state: MinSimdState<N>,
+        /// Sub-state tracking the rolling maximum of the high prices for the %K window.
         pub max_state: MaxSimdState<N>,
+        /// Running sum of fast-%K values within the slow-%K smoothing window for each lane.
         pub k_sum: Simd<f64, N>,
+        /// Running sum of slow-%K values within the %D smoothing window for each lane.
         pub d_sum: Simd<f64, N>,
     }
 
     impl<const N: usize> SimdState<N> {
+        /// Gathers `N` scalar [`State`] references into a single `SimdState`, packing each field into a SIMD lane.
         pub fn new(states: &mut [&mut State]) -> Self {
             debug_assert_eq!(states.len(), N, "Number of states must match SIMD width");
 
@@ -63,6 +73,8 @@ pub mod assets {
                 d_sum: Simd::from_array(d_sum),
             }
         }
+
+        /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place.
         pub fn write_states(&self, states: &mut [&mut State]) {
             // First, handle the buffer updates
             let k_buffers = self.prev_k.to_f64_buffers();
@@ -89,6 +101,15 @@ pub mod assets {
             self.max_state.write_states(&mut max_refs);
             self.min_state.write_states(&mut min_refs);
         }
+
+        /// Advances one bar of the Stochastic Oscillator for `N` asset lanes simultaneously.
+        ///
+        /// Computes fast-%K as `100 * (close - min_low) / (max_high - min_low)` over the
+        /// look-back window, then smooths it into slow-%K and further into %D using running sums.
+        ///
+        /// # Returns
+        ///
+        /// `(k, d)` — the smoothed slow-%K and %D values for the current bar across all lanes.
         #[inline(always)]
         pub unsafe fn calc_unchecked_simd<const CHUNK_SIZE: usize>(
             &mut self,
@@ -128,16 +149,26 @@ pub mod options {
         max_simd::options::Calc as CalcMax, min_simd::options::Calc as CalcMin,
     };
     use crate::ring_buffer::unsync_multi_buffer::multi_buffer::{RingBuffer, UnsyncBuffer};
+
+    /// SIMD-parallel state for computing the Stochastic Oscillator across `N` option sets simultaneously.
+    /// Each field is a SIMD vector where lane `i` corresponds to option set `i`.
     pub struct SimdState<const N: usize> {
+        /// Rolling buffer of fast-%K values for each option lane.
         pub prev_k: UnsyncBuffer<N, f64>,
+        /// Rolling buffer of slow-%K values for each option lane.
         pub prev_d: UnsyncBuffer<N, f64>,
+        /// Sub-state tracking the rolling minimum of the low prices for each option's %K window.
         pub min_state: MinSimdState<N>,
+        /// Sub-state tracking the rolling maximum of the high prices for each option's %K window.
         pub max_state: MaxSimdState<N>,
+        /// Running sum of fast-%K values within the slow-%K smoothing window for each option lane.
         pub k_sum: Simd<f64, N>,
+        /// Running sum of slow-%K values within the %D smoothing window for each option lane.
         pub d_sum: Simd<f64, N>,
     }
 
     impl<const N: usize> SimdState<N> {
+        /// Gathers `N` scalar [`State`] references into a single `SimdState`, packing each field into a SIMD lane.
         pub fn new(states: &mut [&mut State]) -> Self {
             debug_assert_eq!(states.len(), N, "Number of states must match SIMD width");
 
@@ -174,6 +205,8 @@ pub mod options {
                 d_sum: Simd::from_array(d_sum),
             }
         }
+
+        /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place.
         pub fn write_states(&self, states: &mut [&mut State]) {
             // First, handle the buffer updates
             let k_buffers = self.prev_k.to_f64_buffers();
@@ -201,6 +234,15 @@ pub mod options {
             self.max_state.write_states(&mut max_refs);
             self.min_state.write_states(&mut min_refs);
         }
+
+        /// Advances one bar of the Stochastic Oscillator for `N` option lanes simultaneously.
+        ///
+        /// Each lane uses its own look-back window sizes (lane-specific `k_period`). Computes
+        /// fast-%K, smooths it into slow-%K, then further into %D.
+        ///
+        /// # Returns
+        ///
+        /// `(k, d)` — the smoothed slow-%K and %D values for the current bar across all option lanes.
         #[inline(always)]
         pub unsafe fn calc_unchecked_simd(
             &mut self,

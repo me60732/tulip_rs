@@ -3,23 +3,41 @@ pub use crate::indicator_types::TIndicatorState;
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::linreg_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::linreg_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::linreg_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::linreg_simd::indicator_by_options as indicator;
 }
 
@@ -51,7 +69,7 @@ impl IndicatorState {
     pub fn new(state: State, real: &[f64], period: usize) -> Self {
         Self {
             state,
-            real: real[real.len() - period+1..].to_vec(),
+            real: real[real.len() - period + 1..].to_vec(),
             period,
         }
     }
@@ -84,7 +102,7 @@ impl TIndicatorState<1> for IndicatorState {
             &mut linreg_line,
             (&mut slope_line, &mut intercept_line),
         );
-        self.real.drain(..self.real.len() - self.period+1);
+        self.real.drain(..self.real.len() - self.period + 1);
 
         Ok(vec![linreg_line, slope_line, intercept_line])
     }
@@ -123,6 +141,19 @@ impl State {
         Self::new(sum_x, sum_y, sum_xy, per)
     }
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
@@ -139,13 +170,12 @@ pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize + 1
 }
 
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Calculates the output length for the LINREG indicator.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
 /// * `options` - A slice containing the options for the LINREG calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
 ///
 /// # Returns
 ///
@@ -154,17 +184,32 @@ pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
 
-/// Calculates the Linear Regression (LINREG) for an entire dataset or a slice of it.
+/// Calculates the Linear Regression (LINREG) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — real (close) prices
+///
+/// # Options
+///
+/// * `options[0]` — period
 ///
 /// # Arguments
 ///
-/// * `inputs` - A slice of vectors containing the input data.
-/// * `options` - A slice containing the options for the LINREG calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `optional_outputs` - Pass `Some(&[true, false])` to enable optional outputs
+///   (`linregslope`, `linregintercept`); `None` disables all optional outputs.
 ///
 /// # Returns
 ///
-/// A vector of vectors containing the LINREG line.
+/// `Ok((outputs, state))` where:
+/// - `outputs[0]` — `linreg`
+/// - `outputs[1]` — `linregslope` (empty if not requested)
+/// - `outputs[2]` — `linregintercept` (empty if not requested)
+///
+/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
@@ -198,7 +243,7 @@ pub fn indicator(
 
     Ok((
         vec![linreg_line, slope_line, intercept_line],
-        IndicatorState::new(state, real, period)
+        IndicatorState::new(state, real, period),
     ))
 }
 
@@ -207,9 +252,10 @@ pub fn indicator(
 /// # Arguments
 ///
 /// * `real` - A slice of input data.
+/// * `state` - A mutable reference to the current `State`.
 /// * `period` - The period for the LINREG calculation.
-/// * `start` - The starting index for the calculation.
-/// * `linreg_line` - A mutable reference to a vector for storing the LINREG line.
+/// * `linreg_line` - A mutable slice for storing the LINREG output values.
+/// * `out_vecs` - A tuple of mutable slices for optional slope and intercept outputs.
 fn cycle_linreg(
     real: &[f64],
     state: &mut State,
@@ -221,16 +267,11 @@ fn cycle_linreg(
     let (has_optional, want_slope, want_intercept) =
         crate::calc_want_flags!(slope_line, intercept_line);
 
-    for (j, i) in (period-1..real.len()).enumerate() {
-        let (prev_value, value) = unsafe { (
-            *real.get_unchecked(j),
-            *real.get_unchecked(i)
-        ) };
+    for (j, i) in (period - 1..real.len()).enumerate() {
+        let (prev_value, value) = unsafe { (*real.get_unchecked(j), *real.get_unchecked(i)) };
         let (linreg, slope, intercept) = calc(state, prev_value, value, period);
-        
-        unsafe {
-            *linreg_line.get_unchecked_mut(j) = linreg
-        };
+
+        unsafe { *linreg_line.get_unchecked_mut(j) = linreg };
         if has_optional {
             crate::store_optional_outputs!(j,
                 want_slope, slope_line => slope,

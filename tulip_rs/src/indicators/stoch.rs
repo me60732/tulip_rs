@@ -7,23 +7,41 @@ pub use crate::indicators::{max::State as MaxState, min::State as MinState};
 use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 3;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 3;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::stoch_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::stoch_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::stoch_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::stoch_simd::indicator_by_options as indicator;
 }
 
@@ -36,13 +54,19 @@ pub struct IndicatorState {
     k_period: usize,
 }
 impl IndicatorState {
-    pub fn new(state: State, high: &[f64], low: &[f64], multipliers: (f64, f64), k_period: usize) -> Self {
+    pub fn new(
+        state: State,
+        high: &[f64],
+        low: &[f64],
+        multipliers: (f64, f64),
+        k_period: usize,
+    ) -> Self {
         Self {
             state,
             multipliers,
             high: high[high.len() - k_period..].to_vec(),
             low: low[low.len() - k_period..].to_vec(),
-            k_period
+            k_period,
         }
     }
 }
@@ -71,7 +95,7 @@ impl TIndicatorState<3> for IndicatorState {
             1..=4 => {
                 cycle::<1>(
                     (&self.high, &self.low, close),
-                    self.k_period, 
+                    self.k_period,
                     0,
                     self.multipliers,
                     &mut self.state,
@@ -81,7 +105,7 @@ impl TIndicatorState<3> for IndicatorState {
             5..30 => {
                 cycle::<4>(
                     (&self.high, &self.low, close),
-                    self.k_period, 
+                    self.k_period,
                     0,
                     self.multipliers,
                     &mut self.state,
@@ -91,7 +115,7 @@ impl TIndicatorState<3> for IndicatorState {
             _ => {
                 cycle::<8>(
                     (&self.high, &self.low, close),
-                    self.k_period, 
+                    self.k_period,
                     0,
                     self.multipliers,
                     &mut self.state,
@@ -182,6 +206,19 @@ pub fn info() -> Info<'static> {
         optional_outputs: &[],
     }
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
@@ -198,35 +235,49 @@ pub fn min_data(options: &[f64]) -> usize {
     (options[0] + options[1] + options[2]) as usize + 1
 }
 
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Calculates the output lengths for the Stochastic Oscillator given the input data length and options.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
 /// * `options` - A slice containing the options for the Stochastic Oscillator calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
 ///
 /// # Returns
 ///
-/// The output length for the Stochastic Oscillator calculation.
+/// A tuple `(k_capacity, d_capacity)` representing the total %K output length and the %D output length.
 pub fn output_length(data_len: usize, options: &[f64]) -> (usize, usize) {
     let d_capacity = data_len - min_data(options) + 1;
     (d_capacity + options[2] as usize, d_capacity)
 }
 
-/// Calculates the Stochastic Oscillator indicator values.
+/// Calculates the Stochastic Oscillator indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — high prices
+/// * `inputs[1]` — low prices
+/// * `inputs[2]` — close prices
+///
+/// # Options
+///
+/// * `options[0]` — k_period
+/// * `options[1]` — k_slow
+/// * `options[2]` — d_period
 ///
 /// # Arguments
 ///
-/// * `inputs` - A slice of vectors containing the input data (high, low, and close prices).
-/// * `options` - A slice containing the options for the Stochastic Oscillator calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
-/// * `optional_outputs` - An optional slice indicating whether to calculate optional outputs.
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `_optional_outputs` - Unused; this indicator has no optional outputs.
 ///
 /// # Returns
 ///
-/// An `Output` struct containing the Stochastic Oscillator indicator values and the state.
-
+/// `Ok((outputs, state))` where:
+/// - `outputs[0]` — `stoch_k`
+/// - `outputs[1]` — `stoch_d`
+///
+/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -257,7 +308,7 @@ pub fn indicator(
         1..=4 => {
             cycle::<1>(
                 (high, low, close),
-                k_period, 
+                k_period,
                 start,
                 multipliers,
                 &mut state,
@@ -267,7 +318,7 @@ pub fn indicator(
         5..30 => {
             cycle::<4>(
                 (high, low, close),
-                k_period, 
+                k_period,
                 start,
                 multipliers,
                 &mut state,
@@ -277,7 +328,7 @@ pub fn indicator(
         _ => {
             cycle::<8>(
                 (high, low, close),
-                k_period, 
+                k_period,
                 start,
                 multipliers,
                 &mut state,
@@ -288,42 +339,20 @@ pub fn indicator(
 
     Ok((
         vec![k_line, d_line],
-        IndicatorState::new(state, high, low, multipliers, k_period)
+        IndicatorState::new(state, high, low, multipliers, k_period),
     ))
 }
-
-/// Calculates the Stochastic Oscillator indicator values from the previous state.
-///
-/// # Arguments
-///
-/// * `inputs` - A slice of vectors containing the input data (high, low, and close prices).
-/// * `options` - A slice containing the options for the Stochastic Oscillator calculation.
-/// * `indicator_state` - The previous state of the Stochastic Oscillator indicator.
-/// * `optional_outputs` - An optional slice indicating whether to calculate optional outputs.
-///
-/// # Returns
-///
-/// An `Output` struct containing the Stochastic Oscillator indicator values and the updated state.
 
 /// Performs the main calculation loop for the Stochastic Oscillator indicator.
 ///
 /// # Arguments
 ///
-/// * `high` - A slice of high prices.
-/// * `low` - A slice of low prices.
-/// * `close` - A slice of close prices.
-/// * `period` - The period for the Stochastic Oscillator calculation.
-/// * `k_line` - A mutable reference to a vector for storing the %K line.
-/// * `d_line` - A mutable reference to a vector for storing the %D line.
-/// * `output_vectors` - A mutable reference to an array of optional output vectors.
-/// * `min` - The minimum value.
-/// * `max` - The maximum value.
-/// * `trail_min` - The trailing index for the minimum value.
-/// * `trail_max` - The trailing index for the maximum value.
-///
-/// # Returns
-///
-/// A tuple containing the updated min, max, trail_min, and trail_max values.
+/// * `inputs` - A tuple of three slices: `(high, low, close)`.
+/// * `k_period` - The lookback period for the fast %K calculation.
+/// * `start` - The starting index within `close` to begin output from.
+/// * `multipliers` - A tuple `(k_multiplier, d_multiplier)` for the slow %K and %D averages.
+/// * `state` - A mutable reference to the current `State`.
+/// * `outputs` - A mutable tuple `(k_line, d_line)` of output slices.
 fn cycle<const N: usize>(
     inputs: (&[f64], &[f64], &[f64]),
     k_period: usize,
@@ -337,31 +366,25 @@ fn cycle<const N: usize>(
 
     for (j, i) in (start..close.len()).enumerate() {
         unsafe {
-            (
-                *k_line.get_unchecked_mut(j),
-                *d_line.get_unchecked_mut(j),
-            ) = calc_unchecked::<N>(state, inputs, i, k_period, multipliers);
+            (*k_line.get_unchecked_mut(j), *d_line.get_unchecked_mut(j)) =
+                calc_unchecked::<N>(state, inputs, i, k_period, multipliers);
         }
         //k_count += 1;
     }
 }
-/// Calculates the Stochastic Oscillator values for a single data point.
+/// Calculates the Stochastic Oscillator %K and %D values for a single data point.
 ///
 /// # Arguments
 ///
-/// * `high` - A slice of high prices.
-/// * `low` - A slice of low prices.
-/// * `close` - A slice of close prices.
-/// * `i` - The current index.
-/// * `min` - The minimum value.
-/// * `trail_min` - The trailing index for the minimum value.
-/// * `max` - The maximum value.
-/// * `trail_max` - The trailing index for the maximum value.
-/// * `period` - The period for the Stochastic Oscillator calculation.
+/// * `state` - A mutable reference to the current `State`.
+/// * `inputs` - A tuple of three slices: `(high, low, close)`.
+/// * `i` - The current index within `close`.
+/// * `k_period` - The lookback period for the fast %K calculation.
+/// * `multipliers` - A tuple `(k_multiplier, d_multiplier)` for the slow %K and %D averages.
 ///
 /// # Returns
 ///
-/// A tuple containing the %K, %D, min, max, trail_min, and trail_max values.
+/// A tuple `(k, d)` — the slow %K and %D values for the current bar.
 #[inline(always)]
 pub fn calc(
     state: &mut State,

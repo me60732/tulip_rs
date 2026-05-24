@@ -5,23 +5,41 @@ use crate::indicators::tsf::{calc as calc_tsf, output_length as tsf_output_lengt
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::fosc_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::fosc_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::fosc_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::fosc_simd::indicator_by_options as indicator;
 }
 
@@ -35,7 +53,7 @@ impl IndicatorState {
     pub fn new(state: State, real: &[f64], period: usize) -> Self {
         Self {
             state,
-            real: real[real.len() - period+1..].to_vec(),
+            real: real[real.len() - period + 1..].to_vec(),
             period,
         }
     }
@@ -68,7 +86,7 @@ impl TIndicatorState<1> for IndicatorState {
             &self.real,
             &mut self.state,
             self.period,
-            self.period-1,
+            self.period - 1,
             (
                 &mut fosc_line,
                 &mut tsf_line,
@@ -78,7 +96,7 @@ impl TIndicatorState<1> for IndicatorState {
             ),
         );
 
-        self.real.drain(..self.real.len() - self.period+1);
+        self.real.drain(..self.real.len() - self.period + 1);
 
         Ok(vec![
             fosc_line,
@@ -143,6 +161,19 @@ pub fn info() -> Info<'static> {
         optional_outputs: &["tsf", "linreg", "linregslope", "linregintercept"],
     }
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
@@ -159,32 +190,50 @@ pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize + 2
 }
 
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Returns the number of output values produced by the FOSC indicator given input data length and options.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
 /// * `options` - A slice containing the options for the FOSC calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
 ///
 /// # Returns
 ///
-/// The output length.
+/// The number of output values.
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
 
-/// Calculates the Forecast Oscillator (FOSC) for an entire dataset or a slice of it.
+/// Calculates the Forecast Oscillator (FOSC) indicator for an entire dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — real (close) prices
+///
+/// # Options
+///
+/// * `options[0]` — period
+///
+/// # Outputs
+///
+/// * `outputs[0]` — `fosc` line
+/// * `outputs[1]` — `tsf` (optional, if requested)
+/// * `outputs[2]` — `linreg` (optional, if requested)
+/// * `outputs[3]` — `linregslope` (optional, if requested)
+/// * `outputs[4]` — `linregintercept` (optional, if requested)
 ///
 /// # Arguments
 ///
-/// * `inputs` - A slice of vectors containing the input data.
-/// * `options` - A slice containing the options for the FOSC calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `optional_outputs` - Optional slice selecting which extra outputs to compute:
+///   index `0` = `tsf`, `1` = `linreg`, `2` = `linregslope`, `3` = `linregintercept`.
 ///
 /// # Returns
 ///
-/// A vector of vectors containing the FOSC line.
+/// `Ok((outputs, state))` where `outputs[0]` is the `fosc` line and
+/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -236,15 +285,9 @@ pub fn indicator(
             &mut intercept_line[offsets.3..],
         )
     };
-    
+
     // Perform the main FOSC calculation
-    cycle_fosc(
-        &real[2..],
-        &mut state,
-        period,
-        period -1,
-        outputs,
-    );
+    cycle_fosc(&real[2..], &mut state, period, period - 1, outputs);
 
     Ok((
         vec![fosc_line, tsf_line, linreg_line, slope_line, intercept_line],
@@ -257,10 +300,11 @@ pub fn indicator(
 /// # Arguments
 ///
 /// * `real` - A slice of input data.
+/// * `state` - A mutable reference to the indicator state.
 /// * `period` - The period for the FOSC calculation.
-/// * `start` - The starting index for the calculation.
-/// * `fosc_line` - A mutable reference to a vector for storing the FOSC line.
-/// * `output_vectors` - A mutable reference to an array of optional output vectors.
+/// * `start` - The starting index within `real` for the calculation.
+/// * `out_vecs` - A tuple of mutable output slices:
+///   `(fosc_line, tsf_line, linreg_line, slope_line, intercept_line)`.
 //#[inline(always)]
 fn cycle_fosc(
     real: &[f64],

@@ -10,23 +10,39 @@ use crate::indicators::{
 use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 3;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::vidya_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::vidya_simd::indicator_by_options;
 
 // Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
     pub use crate::indicators::simd_indicators::vidya_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
     pub use crate::indicators::simd_indicators::vidya_simd::indicator_by_options as indicator;
 }
 
@@ -223,6 +239,22 @@ pub fn info() -> Info<'static> {
         optional_outputs: &["short_sma", "long_sma", "short_sdtdev", "long_sdtdev"],
     }
 }
+/// Returns the minimum number of input bars required to produce results
+/// accurate to `decimals` decimal places.
+///
+/// For indicators with exponential smoothing the seed value's influence
+/// must decay below the requested precision, so this value grows with
+/// `decimals`. Internally uses `min_process` with the smoothing
+/// multiplier to calculate the required lookback.
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options: `[short_period, long_period, alpha]`.
+/// * `decimals` - The number of decimal places of accuracy required.
+///
+/// # Returns
+///
+/// The minimum number of input bars needed for the requested accuracy.
 pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
     let (short_multiplier, long_multiplier) = multiplier(options[0] as usize, options[1] as usize);
     if options[1] >= 10.0 {
@@ -243,12 +275,29 @@ pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
         )
     }
 }
-/// Returns the minimum required data points (using the long period).
+/// Returns the minimum amount of data required for the VIDYA indicator.
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the options: `[short_period, long_period, alpha]`.
+///
+/// # Returns
+///
+/// The minimum amount of data required (equal to the long period).
 pub fn min_data(options: &[f64]) -> usize {
     options[1] as usize
 }
 
-/// Returns the output length.
+/// Calculates the output length based on the data length and options.
+///
+/// # Arguments
+///
+/// * `data_len` - The length of the input data.
+/// * `options` - A slice containing the options for the VIDYA calculation.
+///
+/// # Returns
+///
+/// The output length.
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
@@ -258,7 +307,30 @@ pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), Ind
     }
     Ok(())
 }
-/// Full-indicator calculation for VIDYA.
+/// Calculates the Variable Index Dynamic Average (VIDYA) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — `real` (price series)
+///
+/// # Options
+///
+/// * `options[0]` — `short_period`
+/// * `options[1]` — `long_period`
+/// * `options[2]` — `alpha` (smoothing constant; must be in `(0.0, 1.0)`)
+///
+/// # Arguments
+///
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `optional_outputs` - Pass `Some(&[true, …])` to enable optional outputs
+///   `[short_sma, long_sma, short_stddev, long_stddev]`; `None` disables all.
+///
+/// # Returns
+///
+/// `Ok((outputs, state))` where `outputs[0]` is `vidya` and `state`
+/// can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -281,7 +353,7 @@ pub fn indicator(
         mut short_sd_line,
         mut long_sd_line,
         mut state,
-        outputs
+        outputs,
     );
     {
         let capacity = output_length(real.len(), options);
@@ -296,7 +368,7 @@ pub fn indicator(
             short_sd_line: short_capacity,
             long_sd_line: long_capacity
         );
-        
+
         // Start processing at the max period for a full window.
         state = State::init_state(
             short_period,
@@ -325,8 +397,7 @@ pub fn indicator(
             &mut long_sd_line[start.3..],
         )
     }
-    
-    
+
     cycle(
         real,
         (short_period, long_period),
@@ -349,7 +420,18 @@ pub fn indicator(
     ))
 }
 
-/// Loop through the data calling calc() for each bar.
+/// Iterates over the real data slice and computes VIDYA values for each bar.
+///
+/// # Arguments
+///
+/// * `real` - The full input data slice.
+/// * `periods` - A tuple of `(short_period, long_period)`.
+/// * `multipliers` - A tuple of `(short_multiplier, long_multiplier)` from `multiplier()`.
+/// * `alpha` - The smoothing constant.
+/// * `state` - Mutable reference to the rolling calculation state.
+/// * `vidya_line` - Mutable output slice for VIDYA values.
+/// * `out_vecs` - Mutable output slices for optional outputs:
+///   `(short_sma, long_sma, short_sd, long_sd)`.
 fn cycle(
     real: &[f64],
     periods: (usize, usize),
@@ -368,10 +450,7 @@ fn cycle(
         let (value, prev_values) = unsafe {
             (
                 real.get_unchecked(i),
-                (
-                    real.get_unchecked(i - short_period),
-                    real.get_unchecked(j),
-                ),
+                (real.get_unchecked(i - short_period), real.get_unchecked(j)),
             )
         };
         let (vidya, sma_short, sma_long, sd_short, sd_long) =
@@ -389,23 +468,20 @@ fn cycle(
     }
 }
 
-/// Calculation for a single bar of VIDYA.
-/// All computations—including calling stddev_calc—are done here.
+/// Calculates a single bar of VIDYA, updating the rolling state in place.
 ///
-/// Parameters:
-/// - real: full data slice.
-/// - i: current index (must be at least as high as both short_period and long_period).
-/// - short_period: period for the short volatility.
-/// - long_period: period for the long volatility.
-/// - alpha: scaling constant.
-/// - multiplier_short: multiplier for the short_period.
-/// - multiplier_long: multiplier for the long_period.
-/// - prev_vidya: previous VIDYA value.
-/// - sum_short, sum_sq_short: rolling state for the short period.
-/// - sum_long, sum_sq_long: rolling state for the long period.
+/// # Arguments
 ///
-/// Returns a tuple:
-/// (new_vidya, new_sum_short, new_sum_sq_short, new_sum_long, new_sum_sq_long, sma_short, sma_long)
+/// * `state` - Mutable reference to the rolling `State` (short and long stddev states,
+///   previous VIDYA value).
+/// * `value` - The current input value.
+/// * `prev_values` - A tuple of previous values: `(prev_short, prev_long)`.
+/// * `alpha` - The smoothing constant.
+/// * `multipliers` - A tuple of `(short_multiplier, long_multiplier)` from `multiplier()`.
+///
+/// # Returns
+///
+/// A tuple of `(vidya, sma_short, sma_long, sd_short, sd_long)`.
 #[inline(always)]
 pub fn calc(
     state: &mut State,

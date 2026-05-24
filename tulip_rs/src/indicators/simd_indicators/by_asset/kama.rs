@@ -7,12 +7,18 @@ use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
 
+/// SIMD driver that advances the Kaufman's Adaptive Moving Average (KAMA) across `N` asset
+/// lanes per scheduling epoch.
 struct KamaDriver {
     multipliers: (f64, f64),
     period: usize,
 }
 
 impl Driver<State> for KamaDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
+    ///
+    /// Reads from `inputs[asset][0]` (real), writes the KAMA to `outputs[asset][0]`,
+    /// and updates `states[asset]` in place.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -59,6 +65,21 @@ impl Driver<State> for KamaDriver {
     }
 }
 
+/// Calculates the Kaufman's Adaptive Moving Average (KAMA) for `N` assets simultaneously
+/// using SIMD parallelism.
+///
+/// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[real]` for asset `i`.
+/// * `options` - Shared options slice; `options[0]` is the period.
+/// * `_optional_outputs` - Unused; KAMA has no optional outputs.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the KAMA line for asset `i`
+/// and `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

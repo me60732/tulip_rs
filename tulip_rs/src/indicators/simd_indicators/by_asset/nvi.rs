@@ -9,9 +9,11 @@ use std::simd::Simd;
 //use crate::indicators::ad::output_length;
 use crate::indicators::simd_indicators::nvi_simd::SimdState;
 
+/// SIMD driver that advances the Negative Volume Index (NVI) across `N` asset lanes per scheduling epoch.
 struct NviDriver;
 
 impl Driver<State> for NviDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -28,15 +30,11 @@ impl Driver<State> for NviDriver {
         let (close_ptrs, volume_ptrs) =
             crate::extract_input_ptrs!(inputs, N, close_ptrs, volume_ptrs);
 
-        let output_ptrs = crate::extract_output_ptrs!(
-            outputs,
-            N,
-            output_ptr
-        );
+        let output_ptrs = crate::extract_output_ptrs!(outputs, N, output_ptr);
 
         // Optimization 3: Simplified main loop with pre-computed offsets
         for i in 0..len {
-            let (close, volume) = crate::extract_simd_inputs_at_index!(i, N, 
+            let (close, volume) = crate::extract_simd_inputs_at_index!(i, N,
                 close @ close_ptrs,
                 volume @ volume_ptrs
             );
@@ -54,6 +52,23 @@ impl Driver<State> for NviDriver {
     }
 }
 
+/// Calculates the Negative Volume Index (NVI) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// NVI accumulates price-change contributions only on bars where volume declines.
+/// It requires no configurable options. Uses the [`PrimeMover`] scheduler to batch
+/// assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[close, volume]` for asset `i`.
+/// * `_options` - Unused; NVI has no configurable options.
+/// * `_optional_outputs` - Unused; NVI produces only the single NVI line output.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the NVI line for asset `i`
+/// and `states[i]` is the final [`State`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     _options: &[f64; OPTIONS_WIDTH],

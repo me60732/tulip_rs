@@ -3,27 +3,49 @@ pub use crate::indicator_types::TIndicatorState;
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 2;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 2;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::psar_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::psar_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::psar_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::psar_simd::indicator_by_options as indicator;
 }
 
 /// Returns information about the Parabolic SAR (PSAR) indicator.
+///
+/// # Returns
+///
+/// An `Info` struct containing metadata about the PSAR indicator.
 pub fn info() -> Info<'static> {
     Info {
         name: "psar",
@@ -100,15 +122,47 @@ impl State {
         }
     }
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value regardless of `_decimals`. Returns
+/// one more than [`min_data`] to allow the algorithm to warm up past its
+/// initial seed bar.
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// `min_data(options) + 1` — the minimum number of input bars needed.
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options) + 1
 }
 /// Returns the minimum amount of data required for the PSAR indicator.
+///
+/// # Arguments
+///
+/// * `_options` - A slice containing the options for the PSAR calculation (unused).
+///
+/// # Returns
+///
+/// The minimum number of input data points required (`2`).
 pub fn min_data(_options: &[f64]) -> usize {
     2
 }
 
 /// Returns the output length for the PSAR indicator.
+///
+/// # Arguments
+///
+/// * `data_len` - The length of the input data.
+/// * `_options` - A slice containing the options for the PSAR calculation (unused for length).
+///
+/// # Returns
+///
+/// The number of output values produced.
 pub fn output_length(data_len: usize, _options: &[f64]) -> usize {
     data_len - min_data(_options) + 1
 }
@@ -118,6 +172,29 @@ pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), Ind
     }
     Ok(())
 }
+/// Calculates the Parabolic SAR (PSAR) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — high prices
+/// * `inputs[1]` — low prices
+///
+/// # Options
+///
+/// * `options[0]` — acceleration_factor (initial step and per-bar increment)
+/// * `options[1]` — max_acceleration_factor (upper bound on the acceleration factor)
+///
+/// # Arguments
+///
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `_optional_outputs` - Unused; this indicator has no optional outputs.
+///
+/// # Returns
+///
+/// `Ok((outputs, state))` where `outputs[0]` is the `psar` line and
+/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -148,7 +225,7 @@ pub fn indicator(
 
     Ok((
         vec![psar_line],
-        IndicatorState::new(state, high, low, (af_step, max_af))
+        IndicatorState::new(state, high, low, (af_step, max_af)),
     ))
 }
 

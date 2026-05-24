@@ -6,6 +6,8 @@ use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
 
+/// SIMD driver that advances the Mean Deviation (MD) across `N` asset lanes per scheduling
+/// epoch.
 struct MdDriver {
     multiplier: f64,
     period: usize,
@@ -13,6 +15,10 @@ struct MdDriver {
 }
 
 impl Driver<f64> for MdDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
+    ///
+    /// Reads from `inputs[asset][0]` (real), writes the MD to `outputs[asset][0]`,
+    /// optional SMA to `outputs[asset][1]`, and updates `states[asset]` in place.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -70,6 +76,21 @@ impl Driver<f64> for MdDriver {
     }
 }
 
+/// Calculates the Mean Deviation (MD) for `N` assets simultaneously using SIMD parallelism.
+///
+/// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[real]` for asset `i`.
+/// * `options` - Shared options slice; `options[0]` is the period.
+/// * `optional_outputs` - Optional slice selecting extra outputs: index `0` = `sma`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the MD for asset `i`,
+/// `outputs[i][1]` is the optional SMA, and `states[i]` is the final [`IndicatorState`]
+/// for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

@@ -10,12 +10,14 @@ use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
+/// SIMD driver that advances the Percentage Price Oscillator (PPO) across `N` asset lanes per scheduling epoch.
 struct PpoDriver {
     multipliers: ((f64, f64), (f64, f64)),
     want_optional_outputs: (bool, bool, bool),
 }
 
 impl Driver<State> for PpoDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -79,6 +81,26 @@ impl Driver<State> for PpoDriver {
     }
 }
 
+/// Calculates the Percentage Price Oscillator (PPO) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// PPO expresses the difference between a short-period EMA and a long-period EMA as a
+/// percentage of the long EMA. Uses the [`PrimeMover`] scheduler to batch assets into
+/// SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[real]` for asset `i`.
+/// * `options` - `[short_period, long_period]` — the EMA periods for the oscillator.
+/// * `optional_outputs` - Optional slice of booleans enabling extra outputs:
+///   `[0]` → `short_ema`, `[1]` → `long_ema`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the PPO line,
+/// `outputs[i][1]` is the short EMA line (empty unless requested), and
+/// `outputs[i][2]` is the long EMA line (empty unless requested), for asset `i`.
+/// `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

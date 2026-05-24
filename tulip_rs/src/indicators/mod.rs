@@ -1,3 +1,15 @@
+//! Scalar (single-asset) technical indicator implementations.
+//!
+//! Each sub-module exposes a self-contained indicator with a consistent API:
+//! - [`info`] — static metadata (name, inputs, options, outputs)
+//! - [`min_data`] — minimum input bars required
+//! - [`min_data_accuracy`] — minimum bars for a given decimal precision
+//! - [`output_length`] — output slice length for a given input length
+//! - [`indicator`] — full computation returning outputs and a streaming [`IndicatorState`]
+//! - [`IndicatorState::batch_indicator`] — streaming update from saved state
+//!
+//! SIMD-parallel variants are in [`crate::indicators::simd_indicators`].
+
 pub mod ad;
 pub mod adosc;
 pub mod adx;
@@ -47,8 +59,6 @@ pub mod ppo;
 pub mod psar;
 pub mod pvi;
 pub mod qstick;
-pub mod range;
-pub mod rema;
 pub mod roc;
 pub mod rocr;
 pub mod rsi;

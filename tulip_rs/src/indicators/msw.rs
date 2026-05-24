@@ -1,27 +1,45 @@
 use crate::common::{validate_inputs, validate_options};
-use crate::math_simd::trig::simd_sin_cos;
 pub use crate::indicator_types::TIndicatorState;
+use crate::math_simd::trig::simd_sin_cos;
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
-use std::simd::{Simd, num::SimdFloat, StdFloat};
+use std::simd::{num::SimdFloat, Simd, StdFloat};
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::msw_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::msw_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::msw_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::msw_simd::indicator_by_options as indicator;
 }
 
@@ -41,8 +59,7 @@ macro_rules! simd_increments {
 }
 
 pub struct MSWConstants<const N: usize>;
-impl<const N: usize> MSWConstants<N>
-{
+impl<const N: usize> MSWConstants<N> {
     pub const INCREMENTS: Simd<f64, N> = simd_increments!(N);
     pub const TPI: Simd<f64, N> = Simd::splat(TPI);
 }
@@ -64,14 +81,14 @@ pub fn info() -> Info<'static> {
 pub struct IndicatorState {
     real: Vec<f64>,
     period: usize,
-    multiplier: f64
+    multiplier: f64,
 }
 impl IndicatorState {
     pub fn new(real: &[f64], period: usize, multiplier: f64) -> Self {
         Self {
             real: real[real.len() - period..].to_vec(),
             period,
-            multiplier
+            multiplier,
         }
     }
 }
@@ -94,19 +111,43 @@ impl TIndicatorState<1> for IndicatorState {
 
         match self.period {
             0..=7 => {
-                cycle_msw::<4>(&self.real, self.period, self.multiplier, &mut sine_line, &mut lead_line);
+                cycle_msw::<4>(
+                    &self.real,
+                    self.period,
+                    self.multiplier,
+                    &mut sine_line,
+                    &mut lead_line,
+                );
             }
             _ => {
-                cycle_msw::<8>(&self.real, self.period, self.multiplier, &mut sine_line, &mut lead_line);
+                cycle_msw::<8>(
+                    &self.real,
+                    self.period,
+                    self.multiplier,
+                    &mut sine_line,
+                    &mut lead_line,
+                );
             }
         }
-        
 
         self.real.drain(..self.real.len() - self.period);
 
         Ok(vec![sine_line, lead_line])
     }
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
@@ -120,12 +161,33 @@ pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
 
+/// Calculates the Mesa Sine Wave (MSW) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — real (a price series, e.g. close)
+///
+/// # Options
+///
+/// * `options[0]` — period
+///
+/// # Arguments
+///
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `_optional_outputs` - Unused; this indicator has no optional outputs.
+///
+/// # Returns
+///
+/// `Ok((outputs, state))` where `outputs[0]` is the `msw_sine` line,
+/// `outputs[1]` is the `msw_lead` line, and `state` can be passed to
+/// `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    
     validate_options(options)?;
     let (period, multiplier) = {
         let period = options[0] as usize;
@@ -151,7 +213,6 @@ pub fn indicator(
             cycle_msw::<8>(real, period, multiplier, &mut sine_line, &mut lead_line);
         }
     }
-    
 
     Ok((
         vec![sine_line, lead_line],
@@ -161,13 +222,19 @@ pub fn indicator(
 
 /// Iterates over the input data and applies the calc function.
 //#[inline(always)]
-fn cycle_msw<const N: usize>(real: &[f64], period: usize, multiplier: f64, sine_line: &mut [f64], lead_line: &mut [f64]) {
+fn cycle_msw<const N: usize>(
+    real: &[f64],
+    period: usize,
+    multiplier: f64,
+    sine_line: &mut [f64],
+    lead_line: &mut [f64],
+) {
     for (j, i) in (period..real.len()).enumerate() {
         unsafe {
             (
                 *sine_line.get_unchecked_mut(j),
                 *lead_line.get_unchecked_mut(j),
-                ) = calc::<N>(real.get_unchecked(j+1..=i), multiplier)
+            ) = calc::<N>(real.get_unchecked(j + 1..=i), multiplier)
         };
     }
 }
@@ -176,9 +243,7 @@ const TPI: f64 = PI * 2.0;
 const HPI: f64 = PI * 0.5;
 const QPI: f64 = PI * 0.25;
 #[inline(always)]
-pub fn calc<const N: usize>(prev_slice: &[f64], multiplier: f64) -> (f64, f64)
-{
-    
+pub fn calc<const N: usize>(prev_slice: &[f64], multiplier: f64) -> (f64, f64) {
     let (rp, ip) = calc_rp_ip::<N>(prev_slice, multiplier);
     // Calculate phase from rp and ip
     let phase = if rp.abs() > 0.001 {
@@ -195,46 +260,42 @@ pub fn calc<const N: usize>(prev_slice: &[f64], multiplier: f64) -> (f64, f64)
     (phase.sin(), (phase + QPI).sin())
 }
 #[inline(always)]
-pub fn calc_rp_ip<const N: usize>(slice: &[f64], multiplier: f64) -> (f64, f64) 
-
-{
+pub fn calc_rp_ip<const N: usize>(slice: &[f64], multiplier: f64) -> (f64, f64) {
     calc_rp_ip_internal::<N>(slice, multiplier, 0, slice.len())
 }
 #[inline(always)]
 fn calc_rp_ip_internal<const N: usize>(
-    slice: &[f64], 
-    multiplier: f64, 
+    slice: &[f64],
+    multiplier: f64,
     base_idx: usize,
     total_len: usize,
-) -> (f64, f64) 
-
-{
-   
+) -> (f64, f64) {
     let multiplier_simd = Simd::splat(multiplier);
     let mut rp_simd = Simd::splat(0.0);
     let mut ip_simd = Simd::splat(0.0);
-    
+
     // Process forward in chunks
     let mut chunks = slice.chunks_exact(N);
     let mut current_idx = base_idx;
     let len = total_len - 1;
-    
+
     for chunk in &mut chunks {
         // Load chunk directly
         let weights = Simd::from_slice(chunk);
-        
+
         // Calculate j values (angles) in reverse
         let j_vals = Simd::splat((len - current_idx) as f64) - MSWConstants::<N>::INCREMENTS;
         //let j_vals = MSWConstants::<N>::INCREMENTS.mul_add(-multiplier_simd, multiplier_simd * Simd::splat((len - current_idx) as f64));
         // Calculate angles and trig functions
-        let (sin_vals, cos_vals) = simd_sin_cos((MSWConstants::<N>::TPI * j_vals) * multiplier_simd);
-        
+        let (sin_vals, cos_vals) =
+            simd_sin_cos((MSWConstants::<N>::TPI * j_vals) * multiplier_simd);
+
         // Sum the SIMD results
         /*rp += (cos_vals * weights).reduce_sum();
         ip += (sin_vals * weights).reduce_sum();*/
         rp_simd = cos_vals.mul_add(weights, rp_simd);
         ip_simd = sin_vals.mul_add(weights, ip_simd);
-        
+
         current_idx += N;
     }
     // Reduce at the end, only once
@@ -243,11 +304,12 @@ fn calc_rp_ip_internal<const N: usize>(
     // Handle remainder recursively with smaller SIMD widths
     let remainder = chunks.remainder();
     if !remainder.is_empty() {
-        let (rp_rem, ip_rem) = calc_rp_ip_remainder::<N>(remainder, multiplier, current_idx, total_len);
+        let (rp_rem, ip_rem) =
+            calc_rp_ip_remainder::<N>(remainder, multiplier, current_idx, total_len);
         rp += rp_rem;
         ip += ip_rem;
     }
-    
+
     (rp, ip)
 }
 
@@ -268,11 +330,11 @@ macro_rules! simd_remainder_dispatch {
                 rp = cos.mul_add(weight, rp);
                 ip = sin.mul_add(weight, ip);
             }
-            
+
             (rp, ip)
         }
     };
-    
+
     ($slice:expr, $period:expr, $base_idx:expr, $total_len:expr, $current_n:expr, [$next_n:expr $(, $rest:expr)*]) => {
         if $current_n > $next_n && $slice.len() >= $next_n {
             calc_rp_ip_internal::<$next_n>($slice, $period, $base_idx, $total_len)
@@ -283,15 +345,20 @@ macro_rules! simd_remainder_dispatch {
 }
 #[inline(always)]
 fn calc_rp_ip_remainder<const N: usize>(
-    slice: &[f64], 
-    multiplier: f64, 
+    slice: &[f64],
+    multiplier: f64,
     base_idx: usize,
     total_len: usize,
-) -> (f64, f64) 
-
-{
+) -> (f64, f64) {
     // Only check lane counts smaller than N
-    simd_remainder_dispatch!(slice, multiplier, base_idx, total_len, N, [64, 32, 16, 8, 4, 2])
+    simd_remainder_dispatch!(
+        slice,
+        multiplier,
+        base_idx,
+        total_len,
+        N,
+        [64, 32, 16, 8, 4, 2]
+    )
 }
 
 pub fn multiplier(period: usize) -> f64 {

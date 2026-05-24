@@ -5,23 +5,39 @@ use crate::indicators::stddev::{calc as stddev_calc, State as StddevState};
 use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::volatility_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::volatility_simd::indicator_by_options;
 
 // Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
     pub use crate::indicators::simd_indicators::volatility_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
     pub use crate::indicators::simd_indicators::volatility_simd::indicator_by_options as indicator;
 }
 const ANNUAL: f64 = 15.874507866387544; // 252_f64.sqrt()
@@ -46,10 +62,7 @@ pub struct IndicatorState {
 }
 impl IndicatorState {
     pub fn new(state: State, multiplier: f64) -> Self {
-        Self {
-            state,
-            multiplier
-        }
+        Self { state, multiplier }
     }
 }
 impl TIndicatorState<1> for IndicatorState {
@@ -123,21 +136,70 @@ impl State {
         sd * ANNUAL
     }
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options: `[period]`.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
-/// Returns the minimum required data points (equal to the period).
+/// Returns the minimum amount of data required for the Volatility indicator.
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the options: `[period]`.
+///
+/// # Returns
+///
+/// The minimum amount of data required.
 pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize + 2
 }
 
-/// Returns the output length.
+/// Calculates the output length based on the data length and options.
+///
+/// # Arguments
+///
+/// * `data_len` - The length of the input data.
+/// * `options` - A slice containing the options for the Volatility calculation.
+///
+/// # Returns
+///
+/// The output length.
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
 
-/// Full-indicator calculation for Volatility.
-
+/// Calculates the Volatility indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — `real` (price series)
+///
+/// # Options
+///
+/// * `options[0]` — `period`
+///
+/// # Arguments
+///
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `_optional_outputs` - Unused; this indicator has no optional outputs.
+///
+/// # Returns
+///
+/// `Ok((outputs, state))` where `outputs[0]` is `volatility` and `state`
+/// can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -146,7 +208,7 @@ pub fn indicator(
     validate_options(options)?;
     let period = options[0] as usize;
     let multiplier = multiplier(period);
-    
+
     validate_inputs(inputs, min_data(options))?;
     let mut vol_line = {
         let capacity = output_length(inputs[0].len(), options);
@@ -154,18 +216,23 @@ pub fn indicator(
     };
     let mut state = State::init_state(inputs[0], period);
 
-    cycle(&inputs[0][period+1..], multiplier, &mut state, &mut vol_line);
+    cycle(
+        &inputs[0][period + 1..],
+        multiplier,
+        &mut state,
+        &mut vol_line,
+    );
 
     Ok((vec![vol_line], IndicatorState { multiplier, state }))
 }
-/// Loop through the data calling calc() for each bar.
-/// Parameters:
-/// - real: full data slice.
-/// - start: starting index (>= period).
-/// - period: period used for stddev calculation.
-/// - multiplier: the multiplier from stddev_multiplier.
-/// - vol: previous volatility value.
-/// - sum, sum_sq: rolling state for stddev calculation.
+/// Iterates over the real data slice and computes a Volatility value for each bar.
+///
+/// # Arguments
+///
+/// * `real` - Input data slice starting after the initialization window.
+/// * `multiplier` - The stddev multiplier computed from the period.
+/// * `state` - Mutable reference to the rolling calculation state.
+/// * `vol_line` - Mutable output slice for volatility values.
 fn cycle(real: &[f64], multiplier: f64, state: &mut State, vol_line: &mut [f64]) {
     for i in 0..real.len() {
         unsafe {
@@ -175,21 +242,36 @@ fn cycle(real: &[f64], multiplier: f64, state: &mut State, vol_line: &mut [f64])
     }
 }
 
-/// Calculation for a single bar of Volatility.
-/// All per‑bar math (including calling stddev_calc) is done here.
-/// Parameters:
-/// - real: full data slice.
-/// - i: current index (must be at least period).
-/// - period: period for stddev.
-/// - multiplier: multiplier from stddev_multiplier.
-/// - sum, sum_sq: rolling state for stddev.
+/// Calculates a single Volatility value for one bar, updating the rolling state.
 ///
-/// Returns a tuple:
-///     (volatility, new_sum, new_sum_sq, sma)
+/// # Arguments
+///
+/// * `state` - Mutable reference to the rolling `State`.
+/// * `real` - The current input value.
+/// * `multiplier` - The stddev multiplier computed from the period.
+///
+/// # Returns
+///
+/// The annualised volatility value for this bar.
 #[inline(always)]
 pub fn calc(state: &mut State, real: f64, multiplier: f64) -> f64 {
     state.calc(real, multiplier)
 }
+/// Calculates a single Volatility value for one bar using unchecked buffer access.
+///
+/// # Arguments
+///
+/// * `state` - Mutable reference to the rolling `State`.
+/// * `real` - The current input value.
+/// * `multiplier` - The stddev multiplier computed from the period.
+///
+/// # Returns
+///
+/// The annualised volatility value for this bar.
+///
+/// # Safety
+///
+/// The internal ring buffer must have been fully initialised before calling this function.
 #[inline(always)]
 pub unsafe fn calc_unchecked(state: &mut State, real: f64, multiplier: f64) -> f64 {
     state.calc_unchecked(real, multiplier)

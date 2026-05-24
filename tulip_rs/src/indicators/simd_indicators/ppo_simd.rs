@@ -10,11 +10,13 @@ use crate::indicators::simd_indicators::{
 };
 use std::simd::{num::SimdFloat, *};
 
+/// SIMD-parallel state for the Percentage Price Oscillator (PPO) indicator, holding `N` lanes of per-asset state.
 pub struct SimdState<const N: usize> {
     pub short_ema: Simd<f64, N>,
     pub long_ema: Simd<f64, N>,
 }
 impl<const N: usize> SimdState<N> {
+    /// Constructs a `SimdState` by gathering scalar per-asset states into SIMD vectors.
     pub fn new(states: &[&mut State]) -> Self {
         let mut short_ema = [0.0; N];
         let mut long_ema = [0.0; N];
@@ -36,6 +38,7 @@ impl<const N: usize> SimdState<N> {
 
         states
     }*/
+    /// Writes the current SIMD lane values back into the provided scalar per-asset states.
     pub fn write_states(&self, states: &mut [&mut State]) {
         let short_ema = self.short_ema.to_array();
         let long_ema = self.long_ema.to_array();
@@ -45,6 +48,20 @@ impl<const N: usize> SimdState<N> {
             states[i].long_ema = long_ema[i];
         }
     }
+    /// Computes one bar of the Percentage Price Oscillator (PPO) for `N` assets simultaneously
+    /// using SIMD parallelism.
+    ///
+    /// Updates the short-term and long-term EMAs and returns
+    /// `(short_ema - long_ema) * 100 / long_ema`.
+    ///
+    /// # Arguments
+    ///
+    /// * `real` - Current prices for this bar.
+    /// * `multipliers` - Tuple of `(short_multiplier, long_multiplier)` EMA multiplier pairs.
+    ///
+    /// # Returns
+    ///
+    /// PPO values for all `N` lanes.
     #[inline(always)]
     pub fn calc_simd(
         &mut self,
@@ -60,4 +77,3 @@ impl<const N: usize> SimdState<N> {
         (self.short_ema - self.long_ema) * F64Constants::HUNDRED / long_ema_safe
     }
 }
-

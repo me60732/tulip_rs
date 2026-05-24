@@ -17,13 +17,22 @@ pub mod assets {
     use super::*;
     use crate::ring_buffer::multi_buffer::mirror_buffer::{MinMaxBuffer, MirrorBuffer};
     use crate::ring_buffer::multi_buffer::multi_buffer::MultiBuffer;
+
+    /// SIMD-parallel state for computing the Stochastic RSI across `N` assets simultaneously.
+    /// Each field is a SIMD vector where lane `i` corresponds to asset `i`.
     pub struct SimdState<const N: usize> {
+        /// Rolling buffer of RSI values for each lane, used to find the min/max RSI over the period.
         pub buffer: MultiBuffer<N>,
+        /// Sub-state tracking the rolling minimum of RSI values for each lane.
         pub min_state: MinSimdState<N>,
+        /// Sub-state tracking the rolling maximum of RSI values for each lane.
         pub max_state: MaxSimdState<N>,
+        /// Sub-state tracking the underlying RSI computation for each lane.
         pub rsi_state: RsiSimdState<N>,
     }
+
     impl<const N: usize> SimdState<N> {
+        /// Gathers `N` scalar [`State`] references into a single `SimdState`, packing each field into a SIMD lane.
         pub fn new(states: &mut [&mut State]) -> Self {
             let mut min_refs = Vec::with_capacity(N);
             let mut max_refs = Vec::with_capacity(N);
@@ -55,6 +64,8 @@ pub mod assets {
                 rsi_state,
             }
         }
+
+        /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place.
         pub fn write_states(&self, states: &mut [&mut State]) {
             let mut max_refs = Vec::with_capacity(N);
             let mut min_refs = Vec::with_capacity(N);
@@ -74,6 +85,15 @@ pub mod assets {
             self.min_state.write_states(&mut min_refs);
         }
 
+        /// Advances one bar of the Stochastic RSI computation for `N` asset lanes simultaneously.
+        ///
+        /// Computes RSI for the new bar, appends it to the rolling RSI buffer, then applies
+        /// the stochastic formula `100 * (rsi - min_rsi) / (max_rsi - min_rsi)` over the window.
+        /// Returns 0 when the RSI range is below [`f64::EPSILON`].
+        ///
+        /// # Returns
+        ///
+        /// `(stochrsi, rsi)` — the Stochastic RSI value and the underlying RSI value for each lane.
         #[inline(always)]
         pub fn calc_simd<const CHUNK_SIZE: usize>(
             &mut self,
@@ -111,14 +131,22 @@ pub mod options {
         },
         //single_buffer::mirror_buffer::MirrorBuffer as SingleMirrorBuffer,
     };
+
+    /// SIMD-parallel state for computing the Stochastic RSI across `N` option sets simultaneously.
+    /// Each field is a SIMD vector where lane `i` corresponds to option set `i`.
     pub struct SimdState<const N: usize> {
+        /// Rolling buffer of RSI values for each option lane.
         pub buffer: UnsyncBuffer<N, f64>,
+        /// Sub-state tracking the rolling minimum of RSI values for each option lane.
         pub min_state: MinSimdState<N>,
+        /// Sub-state tracking the rolling maximum of RSI values for each option lane.
         pub max_state: MaxSimdState<N>,
+        /// Sub-state tracking the underlying RSI computation for each option lane.
         pub rsi_state: RsiSimdState<N>,
     }
 
     impl<const N: usize> SimdState<N> {
+        /// Gathers `N` scalar [`State`] references into a single `SimdState`, packing each field into a SIMD lane.
         pub fn new(states: &mut [&mut State]) -> Self {
             let mut min_refs = Vec::with_capacity(N);
             let mut max_refs = Vec::with_capacity(N);
@@ -145,6 +173,8 @@ pub mod options {
                 rsi_state,
             }
         }
+
+        /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place.
         pub fn write_states(&self, states: &mut [&mut State]) {
             let mut max_refs = Vec::with_capacity(N);
             let mut min_refs = Vec::with_capacity(N);
@@ -163,6 +193,15 @@ pub mod options {
             self.min_state.write_states(&mut min_refs);
             self.rsi_state.write_states(&mut rsi_refs);
         }
+
+        /// Advances one bar of the Stochastic RSI computation for `N` option lanes simultaneously.
+        ///
+        /// Each lane uses its own period. Computes RSI, then applies the stochastic formula
+        /// over each lane's own rolling window size.
+        ///
+        /// # Returns
+        ///
+        /// `(stochrsi, rsi)` — the Stochastic RSI and underlying RSI for each option lane.
         #[inline(always)]
         pub fn calc_simd(
             &mut self,
@@ -184,7 +223,12 @@ pub mod options {
 
             (kfast, rsi)
         }
-        //caller must ensure the buffer is full
+
+        /// Advances one bar of the Stochastic RSI assuming the buffer is already full.
+        ///
+        /// # Safety
+        ///
+        /// Caller must guarantee the internal RSI buffer has been fully populated before calling.
         #[inline(always)]
         pub unsafe fn calc_simd_unchecked(
             &mut self,

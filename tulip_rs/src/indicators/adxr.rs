@@ -11,26 +11,49 @@ use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
 use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 3;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::adxr_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::adxr_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::adxr_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::adxr_simd::indicator_by_options as indicator;
 }
 
+/// Returns information about the Average Directional Movement Rating (ADXR) indicator.
+///
+/// # Returns
+///
+/// An `Info` struct containing metadata about the ADXR indicator.
 pub fn info() -> Info<'static> {
     Info {
         name: "adxr",
@@ -89,16 +112,13 @@ impl TIndicatorState<3> for IndicatorState {
         );
 
         cycle_adxr(
-            &high, &low, &close,
+            &high,
+            &low,
+            &close,
             &mut self.state,
             self.inv_multiplier,
             &mut adxr_line,
-            (
-                &mut adx_line,
-                &mut dx_line,
-                &mut atr_line,
-                &mut tr_line,
-            ),
+            (&mut adx_line, &mut dx_line, &mut atr_line, &mut tr_line),
         );
         Ok(vec![adxr_line, adx_line, dx_line, atr_line, tr_line])
     }
@@ -149,6 +169,22 @@ impl State {
 pub fn min_data(options: &[f64]) -> usize {
     (options[0] as usize - 1) * 3 + 1 // period
 }
+/// Returns the minimum number of input bars required to produce results
+/// accurate to `decimals` decimal places.
+///
+/// For indicators with exponential smoothing the seed value's influence
+/// must decay below the requested precision, so this value grows with
+/// `decimals`. Internally uses `min_process` with Wilder's smoothing
+/// multiplier to calculate the required lookback.
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options (period).
+/// * `decimals` - The number of decimal places of accuracy required.
+///
+/// # Returns
+///
+/// The minimum number of input bars needed for the requested accuracy.
 pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
     min_process(
         options,
@@ -158,13 +194,12 @@ pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
         min_data,
     )
 }
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Calculates the output length for the ADXR indicator based on the data length and options.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
 /// * `options` - A slice containing the period for the ADXR calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
 ///
 /// # Returns
 ///
@@ -172,19 +207,34 @@ pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
-/// Calculates the Average Directional Movement Index Rating (ADXR) and other optional outputs.
-/// used to calculate an entire dataset
+/// Calculates the Average Directional Movement Index Rating (ADXR) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — high prices
+/// * `inputs[1]` — low prices
+/// * `inputs[2]` — close prices
+///
+/// # Options
+///
+/// * `options[0]` — period (must be >= 2)
+///
 /// # Arguments
 ///
-/// * `inputs` - A slice of vectors containing the high, low, and close prices.
-/// * `options` - A slice containing the period for the ADXR calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
-///   can calculate over an entire dataset (default) or only the most recent values, more efficient for large datasets, however less accurate, so this option is a speed vs accuracy tradeoff
-/// * `optional_outputs` - An optional slice of booleans indicating which additional outputs to generate.
+/// * `inputs` - Array of 3 input price slices (see Inputs above).
+/// * `options` - Array of 1 indicator option (see Options above).
+/// * `optional_outputs` - Pass `Some(&[true, false, false, false])` to enable individual
+///   optional outputs (`adx`, `dx`, `atr`, `tr`); `None` disables all.
 ///
 /// # Returns
 ///
-/// A vector of vectors containing the ADXR line and any additional requested outputs.
+/// `Ok((outputs, state))` where `outputs[0]` is the `adxr` line,
+/// `outputs[1]` is the optional `adx` line, `outputs[2]` is the optional `dx` line,
+/// `outputs[3]` is the optional `atr` line, and `outputs[4]` is the optional `tr` line
+/// (each empty if not requested).
+/// `state` can be passed to `IndicatorState::batch_indicator` to continue streaming.
+///
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -229,7 +279,8 @@ pub fn indicator(
         (&inputs[0][from..], &inputs[1][from..], &inputs[2][from..])
     };
     let outputs = {
-        let offsets = crate::slice_outputs_start!(adxr_line.len(), adx_line, dx_line, atr_line, tr_line);
+        let offsets =
+            crate::slice_outputs_start!(adxr_line.len(), adx_line, dx_line, atr_line, tr_line);
         (
             &mut adx_line[offsets.0..],
             &mut dx_line[offsets.1..],
@@ -237,7 +288,7 @@ pub fn indicator(
             &mut tr_line[offsets.3..],
         )
     };
-    
+
     cycle_adxr(
         high,
         low,
@@ -257,19 +308,17 @@ pub fn indicator(
     ))
 }
 
-/// Performs the main calculation loop for the ADXR and Indicator functions.
+/// Performs the main calculation loop for the ADXR indicator.
 ///
 /// # Arguments
 ///
 /// * `high` - A slice of high prices.
 /// * `low` - A slice of low prices.
 /// * `close` - A slice of close prices.
-/// * `period` - The period for the ADXR calculation.
-/// * `indicator_state` - A slice containing necessary input values.
-/// * `buffer` - A mutable reference to a VecDeque for storing previous (period) ADX values.
-/// * `start` - The starting index for the calculation.
-/// * `adxr_line` - A mutable reference to a vector for storing the ADXR line.
-/// * `output_vectors` - A mutable reference to an array of optional vectors for storing additional outputs.
+/// * `state` - A mutable reference to the current `State` (ADX state and the rolling ADX buffer).
+/// * `inv_multiplier` - The inverse ATR multiplier used to scale ATR values.
+/// * `adxr_line` - A mutable slice for storing the resulting ADXR line values.
+/// * `out_vecs` - A tuple of mutable slices for optional outputs: ADX, DX, ATR, and TR lines.
 #[inline(always)]
 fn cycle_adxr(
     high: &[f64],
@@ -280,7 +329,6 @@ fn cycle_adxr(
     adxr_line: &mut [f64],
     out_vecs: (&mut [f64], &mut [f64], &mut [f64], &mut [f64]),
 ) {
-    
     let (adx_line, dx_line, atr_line, tr_line) = out_vecs;
     let (has_optional, want_adx, want_dx, want_atr, want_tr) =
         crate::calc_want_flags!(adx_line, dx_line, atr_line, tr_line);

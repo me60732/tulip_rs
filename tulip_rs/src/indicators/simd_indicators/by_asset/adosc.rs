@@ -11,12 +11,21 @@ use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
+/// SIMD driver that advances the Chaikin AD Oscillator (ADOSC) across `N` asset lanes per
+/// scheduling epoch.
 struct AdoscDriver {
+    /// Pre-computed EMA smoothing factors:
+    /// `((short_per, short_inv_per), (long_per, long_inv_per))`.
     multipliers: ((f64, f64), (f64, f64)),
+    /// Optional output flags: `(has_optional, want_short_ema, want_long_ema, want_ad)`.
     want_optional_outputs: (bool, bool, bool, bool),
 }
 
 impl Driver<State, ()> for AdoscDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
+    ///
+    /// Reads from `inputs[asset][field]` (high, low, close, volume), writes to
+    /// `outputs[asset][output]`, and updates `states[asset]` in place.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -86,6 +95,22 @@ impl Driver<State, ()> for AdoscDriver {
     }
 }
 
+/// Calculates the Chaikin AD Oscillator (ADOSC) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// All assets share the same `options`. Uses the [`PrimeMover`] scheduler to batch assets into
+/// SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[high, low, close, volume]` for asset `i`.
+/// * `options` - Shared options applied to all `N` assets: `[short_period, long_period]`.
+/// * `optional_outputs` - Optional output flags: `[want_short_ema, want_long_ema, want_ad]`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i]` contains `[adosc, short_ema?, long_ema?, ad?]`
+/// for asset `i` and `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

@@ -11,6 +11,23 @@ use crate::indicators::simd_indicators::{
 };
 use std::simd::{num::SimdFloat, Simd};
 
+/// Computes one bar of the Directional Movement Index (DX) for `N` assets simultaneously
+/// using SIMD parallelism.
+///
+/// Delegates to the DI SIMD routine for updating DM+ / DM- / ATR, then computes
+/// `DX = 100 * |DI+ - DI-| / (DI+ + DI-)` for all lanes.
+///
+/// # Arguments
+///
+/// * `state` - Mutable shared SIMD state (DM+ / DM- and ATR sub-states).
+/// * `high` - High prices for this bar.
+/// * `low` - Low prices for this bar.
+/// * `close` - Close prices for this bar.
+/// * `multiplier` - Per-lane Wilder smoothing decay factor.
+///
+/// # Returns
+///
+/// A tuple `(dx, atr, tr)` for all `N` lanes.
 #[inline(always)]
 pub fn calc_simd<const N: usize>(
     state: &mut SimdState<N>,
@@ -25,6 +42,7 @@ pub fn calc_simd<const N: usize>(
 
     (dx, atr, tr)
 }
+/// Derives the DX value from already-updated DI+ / DI- and ATR state lanes.
 #[inline(always)]
 pub(crate) fn calc_dx_simd<const N: usize>(state: &mut SimdState<N>) -> Simd<f64, N> {
     let di_up = state.di_state.dmup / state.atr_state.atr;

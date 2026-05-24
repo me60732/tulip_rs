@@ -5,28 +5,47 @@ use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 //use wide::*;
 use std::simd::{num::SimdFloat, Simd};
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 3;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 3;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::ultosc_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::ultosc_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
     pub use crate::indicators::simd_indicators::ultosc_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
     pub use crate::indicators::simd_indicators::ultosc_simd::indicator_by_options as indicator;
 }
 const MULTIPLIERS: Simd<f64, 2> = Simd::from_array([4.0, 2.0]);
-/// Returns meta-information for this indicator.
-/// Adjust the fields (name, full_name, inputs, options, etc.) as needed.
+/// Returns information about the Ultimate Oscillator (ULTOSC) indicator.
+///
+/// # Returns
+///
+/// An `Info` struct containing metadata about the ULTOSC indicator.
 pub fn info() -> Info<'static> {
     Info {
         name: "ultosc",
@@ -227,16 +246,44 @@ impl State {
         (weight_sum + third) * DIV
     }
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
-/// Returns the minimum amount of data required by the indicator.
-/// This is often simply the period.
+/// Returns the minimum amount of data required for the ULTOSC indicator.
+///
+/// # Arguments
+///
+/// * `options` - A slice containing `[short_period, medium_period, long_period]` for the ULTOSC calculation.
+///
+/// # Returns
+///
+/// The minimum amount of data required.
 pub fn min_data(options: &[f64]) -> usize {
     options[2] as usize + 1
 }
-/// Determines the length of the output given the data and recent-only parameter.
-/// You can adjust how the calculation lag is handled here.
+/// Calculates the output length based on the data length and options.
+///
+/// # Arguments
+///
+/// * `data_len` - The length of the input data.
+/// * `options` - A slice containing the options for the ULTOSC calculation.
+///
+/// # Returns
+///
+/// The output length.
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
@@ -246,24 +293,43 @@ pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), Ind
     }
     Ok(())
 }
-/// Calculates the full dataset outputs for this indicator.
+/// Calculates the Ultimate Oscillator (ULTOSC) indicator over the full input dataset.
 ///
-/// Performs common validation, determines the start index, prepares output vectors,
-/// and does a single-pass loop to calculate the indicator values.
-/// Returns an Output struct containing the main indicator outputs and any optional outputs.
+/// # Inputs
+///
+/// * `inputs[0]` — high prices
+/// * `inputs[1]` — low prices
+/// * `inputs[2]` — close prices
+///
+/// # Options
+///
+/// * `options[0]` — short_period
+/// * `options[1]` — medium_period
+/// * `options[2]` — long_period
+///
+/// # Arguments
+///
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `_optional_outputs` - Unused; ULTOSC has no optional outputs.
+///
+/// # Returns
+///
+/// `Ok((outputs, state))` where `outputs[0]` is `ultosc` and
+/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    
     validate_options(options)?;
     let periods = (
         options[0] as usize,
         options[1] as usize,
         options[2] as usize,
     );
-    
+
     validate_inputs(inputs, min_data(options))?;
     let [high, low, close] = inputs;
 
@@ -292,14 +358,16 @@ pub fn indicator(
     ))
 }
 
-/// Calculates the indicator outputs from a previous state.
+/// Performs the main calculation loop for the ULTOSC indicator.
 ///
-/// This function is used when only a subset (usually the most recent bars) need to be recalculated.
-/// It validates the previous state and merges it with new input data if necessary.
-/// For now, this template simply calls the full calculation.
-
-/// A common cycle loop through the data.
-/// This template example simply uses the calc() function to produce a result vector.
+/// # Arguments
+///
+/// * `high` - A slice of high prices.
+/// * `low` - A slice of low prices.
+/// * `close` - A slice of close prices.
+/// * `periods` - A tuple `(short_period, medium_period)` used for the weighted sums.
+/// * `state` - A mutable reference to the current indicator state.
+/// * `ultosc_line` - A mutable slice for storing the ULTOSC output values.
 fn cycle(
     high: &[f64],
     low: &[f64],

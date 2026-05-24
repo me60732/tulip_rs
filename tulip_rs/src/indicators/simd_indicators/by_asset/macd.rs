@@ -9,12 +9,20 @@ use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
+/// SIMD driver that advances the Moving Average Convergence Divergence (MACD) across `N`
+/// asset lanes per scheduling epoch.
 struct MacdDriver {
     multipliers: ((f64, f64), (f64, f64), (f64, f64)),
     want_optional_outputs: (bool, bool, bool),
 }
 
 impl Driver<State> for MacdDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
+    ///
+    /// Reads from `inputs[asset][0]` (real), writes the MACD line to `outputs[asset][0]`,
+    /// signal line to `outputs[asset][1]`, histogram to `outputs[asset][2]`, optional short
+    /// EMA to `outputs[asset][3]`, optional long EMA to `outputs[asset][4]`, and updates
+    /// `states[asset]` in place.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -84,6 +92,25 @@ impl Driver<State> for MacdDriver {
     }
 }
 
+/// Calculates the Moving Average Convergence Divergence (MACD) for `N` assets simultaneously
+/// using SIMD parallelism.
+///
+/// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[real]` for asset `i`.
+/// * `options` - Shared options slice; `options[0]` is `short_period`, `options[1]` is
+///   `long_period`, `options[2]` is `signal_period`.
+/// * `optional_outputs` - Optional slice selecting extra outputs: index `0` = `short_ema`,
+///   index `1` = `long_ema`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the MACD line, `outputs[i][1]` is the
+/// signal line, `outputs[i][2]` is the histogram, `outputs[i][3]` is the optional
+/// `short_ema`, `outputs[i][4]` is the optional `long_ema`, and `states[i]` is the final
+/// [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

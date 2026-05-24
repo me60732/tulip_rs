@@ -6,23 +6,41 @@ use crate::indicators::ema::{
 use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 4;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 2;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::kvo_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::kvo_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::kvo_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::kvo_simd::indicator_by_options as indicator;
 }
 
@@ -162,6 +180,22 @@ impl State {
         state
     }
 }
+/// Returns the minimum number of input bars required to produce results
+/// accurate to `decimals` decimal places.
+///
+/// For indicators with exponential smoothing the seed value's influence
+/// must decay below the requested precision, so this value grows with
+/// `decimals`. Internally uses `min_process` with the smoothing
+/// multiplier to calculate the required lookback.
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options (e.g. period).
+/// * `decimals` - The number of decimal places of accuracy required.
+///
+/// # Returns
+///
+/// The minimum number of input bars needed for the requested accuracy.
 pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
     let multipliers = multiplier(options[0] as usize, options[1] as usize);
     min_process(
@@ -185,7 +219,7 @@ pub fn min_data(options: &[f64]) -> usize {
     options[1] as usize + 1
 }
 
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Returns the number of output values produced by the KVO indicator given input data length and options.
 ///
 /// # Arguments
 ///
@@ -194,7 +228,7 @@ pub fn min_data(options: &[f64]) -> usize {
 ///
 /// # Returns
 ///
-/// The output length.
+/// The number of output values.
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
@@ -204,16 +238,38 @@ pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), Ind
     }
     Ok(())
 }
-/// Calculates the Klinger Volume Oscillator (KVO) for an entire dataset or a slice of it.
+/// Calculates the Klinger Volume Oscillator (KVO) indicator for an entire dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — high prices
+/// * `inputs[1]` — low prices
+/// * `inputs[2]` — close prices
+/// * `inputs[3]` — volume
+///
+/// # Options
+///
+/// * `options[0]` — short_period
+/// * `options[1]` — long_period
+///
+/// # Outputs
+///
+/// * `outputs[0]` — `kvo` line
+/// * `outputs[1]` — `short_ema` (optional, if requested)
+/// * `outputs[2]` — `long_ema` (optional, if requested)
 ///
 /// # Arguments
 ///
-/// * `inputs` - A slice of vectors containing the input data.
-/// * `options` - A slice containing the options for the KVO calculation.
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `optional_outputs` - Optional slice selecting which extra outputs to compute:
+///   index `0` = `short_ema`, index `1` = `long_ema`.
 ///
 /// # Returns
 ///
-/// A vector of vectors containing the KVO line.
+/// `Ok((outputs, state))` where `outputs[0]` is the `kvo` line and
+/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -252,7 +308,7 @@ pub fn indicator(
         let offset = crate::slice_outputs_start!(kvo_line.len(), short_ema_line);
         (&mut short_ema_line[offset..], long_ema_line.as_mut_slice())
     };
-    
+
     cycle_kvo(
         inputs,
         multipliers,
@@ -267,31 +323,15 @@ pub fn indicator(
     ))
 }
 
-/// Calculates the Klinger Volume Oscillator (KVO) from a previous state.
-///
-/// # Arguments
-///
-/// * `inputs` - A slice of vectors containing the input data.
-/// * `options` - A slice containing the options for the KVO calculation.
-/// * `indicator_state` - A reference to the previous state containing the previous input values.
-///
-/// # Returns
-///
-/// A vector of vectors containing the KVO line.
-
 /// Performs the main calculation loop for the KVO indicator.
 ///
 /// # Arguments
 ///
-/// * `high` - A slice of high prices.
-/// * `low` - A slice of low prices.
-/// * `close` - A slice of close prices.
-/// * `volume` - A slice of volume data.
-/// * `short_period` - The short period for the KVO calculation.
-/// * `long_period` - The long period for the KVO calculation.
-/// * `kvo_line` - A mutable reference to a vector for storing the KVO line.
-/// * `output_vectors` - A mutable reference to an array of optional output vectors.
-/// * `prev_state` - An optional tuple containing the previous state values.
+/// * `inputs` - A tuple of four price slices: `(high, low, close, volume)`.
+/// * `multipliers` - A tuple of EMA multiplier pairs for the short and long EMAs.
+/// * `kvo_line` - A mutable slice for storing the KVO output values.
+/// * `state` - A mutable reference to the indicator state.
+/// * `out_vecs` - A tuple of mutable optional output slices: `(short_ema_line, long_ema_line)`.
 fn cycle_kvo(
     inputs: (&[f64], &[f64], &[f64], &[f64]),
     multipliers: ((f64, f64), (f64, f64)),
@@ -325,28 +365,17 @@ fn cycle_kvo(
     }
 }
 
-/// Calculates the Klinger Volume Oscillator (KVO) for the current data point.
+/// Calculates the Klinger Volume Oscillator (KVO) value for a single bar.
 ///
 /// # Arguments
 ///
-/// * `high` - The current high price.
-/// * `low` - The current low price.
-/// * `close` - The current close price.
-/// * `volume` - The current volume data.
-/// * `prev_high` - The previous high price.
-/// * `prev_low` - The previous low price.
-/// * `prev_close` - The previous close price.
-/// * `prev_volume` - The previous volume data.
-/// * `short_ema` - The previous short EMA value.
-/// * `long_ema` - The previous long EMA value.
-/// * `short_period` - The short period for the KVO calculation.
-/// * `long_period` - The long period for the KVO calculation.
-/// * `trend` - The previous trend value.
-/// * `cm` - The previous cm value.
+/// * `state` - A mutable reference to the indicator state.
+/// * `inputs` - A tuple `(high, low, close, volume)` for the current bar.
+/// * `multipliers` - A tuple of EMA multiplier pairs for the short and long EMAs.
 ///
 /// # Returns
 ///
-/// A tuple containing the calculated KVO, new short EMA, new long EMA, new trend, and new cm values.
+/// The calculated KVO value (`short_ema - long_ema`).
 #[inline(always)]
 pub fn calc(
     state: &mut State,

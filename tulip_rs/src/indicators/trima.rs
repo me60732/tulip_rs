@@ -3,27 +3,47 @@ pub use crate::indicator_types::TIndicatorState;
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::trima_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::trima_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
     pub use crate::indicators::simd_indicators::trima_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
     pub use crate::indicators::simd_indicators::trima_simd::indicator_by_options as indicator;
 }
 
-/// Provides metadata about the Triangular Moving Average (TRIMA) indicator.
+/// Returns information about the Triangular Moving Average (TRIMA) indicator.
+///
+/// # Returns
+///
+/// An `Info` struct containing metadata about the TRIMA indicator.
 pub fn info() -> Info<'static> {
     Info {
         name: "trima",
@@ -133,19 +153,70 @@ impl State {
         Self::new(weight_sum, lead_sum, trail_sum)
     }
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
-/// Returns the minimum number of data points required by TRIMA before it can produce output.
+/// Returns the minimum amount of data required for the TRIMA indicator.
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the options for the TRIMA calculation.
+///
+/// # Returns
+///
+/// The minimum amount of data required.
 pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize
 }
 
-/// Computes the final output length based on the data length, options, and optional recent-only calculations.
+/// Calculates the output length based on the data length and options.
+///
+/// # Arguments
+///
+/// * `data_len` - The length of the input data.
+/// * `options` - A slice containing the options for the TRIMA calculation.
+///
+/// # Returns
+///
+/// The output length.
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
 
+/// Calculates the Triangular Moving Average (TRIMA) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — real (price series)
+///
+/// # Options
+///
+/// * `options[0]` — period
+///
+/// # Arguments
+///
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `_optional_outputs` - Unused; TRIMA has no optional outputs.
+///
+/// # Returns
+///
+/// `Ok((outputs, state))` where `outputs[0]` is `trima` and
+/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -178,17 +249,11 @@ pub fn indicator(
 ///
 /// # Arguments
 ///
-/// * `real` - Sliced input data.
-/// * `period` - The period for TRIMA.
-/// * `start` - The index offset: we begin calculations from `start` inclusive.
-/// * `trima_line` - Storage for final TRIMA values.
-/// * `weight_sum` - Accumulated weighted sum of data points.
-/// * `lead_sum` - Accumulated sum for the "leading" portion.
-/// * `trail_sum` - Accumulated sum for the "trailing" portion.
-///
-/// # Returns
-///
-/// A tuple of updated rolling sums `(weight_sum, lead_sum, trail_sum)`.
+/// * `real` - A slice of input data.
+/// * `period` - The period for the TRIMA calculation.
+/// * `multiplier` - Normalization factor applied to produce the final TRIMA value.
+/// * `trima_line` - A mutable slice for storing the TRIMA output values.
+/// * `state` - A mutable reference to the rolling sums state.
 pub fn cycle_trima(
     real: &[f64],
     period: usize,
@@ -205,7 +270,7 @@ pub fn cycle_trima(
                 real.get_unchecked(i),
                 real.get_unchecked(lsi),
                 real.get_unchecked(tsi1),
-                real.get_unchecked(j),//tsi2),
+                real.get_unchecked(j), //tsi2),
                 multiplier,
             );
         }
@@ -213,27 +278,21 @@ pub fn cycle_trima(
         (lsi, tsi1) = (lsi + 1, tsi1 + 1);
     }
 }
-/// Calculates the Triangular Moving Average (TRIMA) output for one iteration.
+/// Calculates the Triangular Moving Average (TRIMA) output for one iteration,
+/// updating the rolling sums in place.
 ///
 /// # Arguments
 ///
-/// * `real` - A slice of the input data (e.g., price series).
-/// * `i` - The current index in the data slice.
-/// * `lsi`, `tsi1`, `tsi2` - Offsets for lead and trail sums.
-/// * `weight_sum` - Accumulated weighted sum of data points.
-/// * `lead_sum` - Accumulated sum for the "leading" portion.
-/// * `trail_sum` - Accumulated sum for the "trailing" portion.
+/// * `state` - A mutable reference to the rolling sums state (`weight_sum`, `lead_sum`, `trail_sum`).
+/// * `real` - The current input value (e.g., current price).
+/// * `lsi` - The value being removed from the lead sum.
+/// * `tsi1` - The value being added to the trail sum.
+/// * `tsi2` - The value being removed from the trail sum.
 /// * `multiplier` - Normalization factor, typically `1.0 / denominator`.
 ///
 /// # Returns
 ///
-/// A tuple containing:
-/// 1. `trima`: The current TRIMA value.
-/// 2. `weight_sum`: Updated weighted sum of data points.
-/// 3. `lead_sum`: Updated leading sum.
-/// 4. `trail_sum`: Updated trailing sum.
-///
-/// The logic updates these rolling sums in one pass to compute TRIMA.
+/// The current TRIMA value.
 #[inline(always)]
 pub fn calc(
     state: &mut State,

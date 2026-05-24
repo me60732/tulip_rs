@@ -9,11 +9,13 @@ use std::simd::Simd;
 //use crate::indicators::ad::output_length;
 use crate::indicators::simd_indicators::roc_simd::calc_simd;
 
+/// SIMD driver for the Rate of Change (ROC) indicator, processing `N` option-set lanes per scheduling epoch.
 struct RocDriver {
     want_optional_outputs: bool,
 }
 
 impl Driver<bool, usize> for RocDriver {
+    /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -62,6 +64,23 @@ impl Driver<bool, usize> for RocDriver {
     }
 }
 
+/// Calculates the Rate of Change (ROC) indicator for one asset with `N` different option sets
+/// simultaneously using SIMD parallelism.
+///
+/// Applies each of the `N` period configurations to the same shared input series, computing
+/// ROC values for all option sets in a single SIMD-accelerated pass via [`PrimeMover`].
+///
+/// # Arguments
+/// * `inputs` - Shared input: `inputs[0]` is the `real` price series.
+/// * `options` - An array of `N` option sets; `options[i][0]` is the `period` for lane `i`.
+/// * `optional_outputs` - Optional slice of booleans enabling extra outputs per lane:
+///   `[0]` → `mom`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is `roc` and `outputs[i][1]` is `mom`
+/// (empty if not requested) for option set `i`, and `states[i]` is the final
+/// [`IndicatorState`] for option set `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[&[f64; OPTIONS_WIDTH]; N],
@@ -121,8 +140,10 @@ pub fn indicator_by_options<const N: usize>(
         ));
         output_buffers.push(output_buffer);
     }
-    
-    let mut driver = RocDriver { want_optional_outputs };
+
+    let mut driver = RocDriver {
+        want_optional_outputs,
+    };
     road_train.drive(&mut driver);
 
     let mut states = Vec::with_capacity(N);

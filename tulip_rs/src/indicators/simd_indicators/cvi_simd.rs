@@ -18,10 +18,14 @@ pub(crate) mod import {
 
 pub mod assets {
     pub(crate) use super::import::*;
+    /// SIMD state alias for the CVI assets path — the state is a [`SimdBuffer`] of EMA values,
+    /// one per asset lane, sized to the indicator's lookback period.
     pub(crate) use crate::ring_buffer::single_buffer::generic_buffer::SimdBuffer as SimdState;
     use crate::ring_buffer::single_buffer::generic_buffer::{RingBuffer, SimdRingBuffer};
 
     impl<const N: usize> SimdBufferExt for SimdState<N> {
+        /// Gathers `N` scalar [`State`] references into a single `SimdState`,
+        /// packing each field into a SIMD lane.
         fn new(states: &mut [&mut State]) -> Self {
             debug_assert_eq!(states.len(), N, "Number of states must match SIMD width");
 
@@ -29,6 +33,8 @@ pub mod assets {
             SimdState::from_f64_buffers(buffers)
         }
 
+        /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in
+        /// place, avoiding allocation compared to a `to_states` conversion.
         fn write_states(&self, states: &mut [&mut State]) {
             // First, handle the buffer updates
             let buffers = self.to_f64_buffers();
@@ -38,6 +44,16 @@ pub mod assets {
         }
     }
 
+    /// Advances the Chaikin Volatility Index (CVI) by one bar for `N` assets simultaneously
+    /// (checked variant).
+    ///
+    /// EMA-smooths the high-low range, then measures its rate of change over the lookback period:
+    /// `(ema - old_ema) / old_ema * 100`. Returns `0.0` until the oldest EMA has magnitude
+    /// greater than epsilon.
+    ///
+    /// # Returns
+    ///
+    /// CVI values for all `N` lanes.
     #[inline]
     pub fn calc_simd<const N: usize>(
         buffer: &mut SimdState<N>,
@@ -56,6 +72,13 @@ pub mod assets {
             (ema - old_ema) / old_ema * F64Constants::HUNDRED
         }
     }
+
+    /// Advances the CVI by one bar for `N` assets simultaneously (unchecked variant).
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee the ring buffer is already full (warm-up complete) and that the
+    /// oldest EMA value is non-zero.
     #[inline(always)]
     pub unsafe fn calc_unchecked_simd<const N: usize>(
         buffer: &mut SimdState<N>,
@@ -76,9 +99,13 @@ pub mod assets {
 pub mod options {
     pub(crate) use super::import::*;
     use crate::ring_buffer::unsync_multi_buffer::multi_buffer::RingBuffer;
+    /// SIMD state alias for the CVI options path — per-lane ring buffers with potentially
+    /// different periods stored in an `UnsyncBuffer`.
     pub(crate) use crate::ring_buffer::unsync_multi_buffer::multi_buffer::UnsyncBuffer as SimdState;
 
     impl<const N: usize> SimdBufferExt for SimdState<N, f64> {
+        /// Gathers `N` scalar [`State`] references into a single `SimdState`,
+        /// packing each field into a SIMD lane.
         fn new(states: &mut [&mut State]) -> Self {
             debug_assert_eq!(states.len(), N, "Number of states must match SIMD width");
 
@@ -89,6 +116,8 @@ pub mod options {
             SimdState::from_buffers(buffer_refs)
         }
 
+        /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in
+        /// place, avoiding allocation compared to a `to_states` conversion.
         fn write_states(&self, states: &mut [&mut State]) {
             // First, handle the buffer updates
             let buffers = self.to_f64_buffers();
@@ -98,6 +127,15 @@ pub mod options {
         }
     }
 
+    /// Advances the CVI by one bar for `N` option lanes simultaneously (checked variant).
+    ///
+    /// Takes a single scalar `(high, low)` pair broadcast to all lanes, EMA-smooths the range,
+    /// and measures its percentage change over each lane's lookback period.
+    /// Returns `0.0` for lanes whose oldest EMA is not yet valid.
+    ///
+    /// # Returns
+    ///
+    /// CVI values for all `N` lanes.
     #[inline]
     pub fn calc_simd<const N: usize>(
         buffer: &mut SimdState<N, f64>,
@@ -116,6 +154,12 @@ pub mod options {
             F64Constants::ZERO,
         )
     }
+
+    /// Advances the CVI by one bar for `N` option lanes simultaneously (unchecked variant).
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee all per-lane ring buffers are fully warmed up.
     #[inline(always)]
     pub(crate) unsafe fn calc_unchecked_simd<const N: usize>(
         buffer: &mut SimdState<N, f64>,

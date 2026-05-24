@@ -7,12 +7,19 @@ pub use crate::indicators::simd_indicators::by_option::trima::indicator_by_optio
 use crate::indicators::trima::State;
 use std::simd::Simd;
 
+/// SIMD-parallel state for computing the Triangular Moving Average (TRIMA) across `N` assets simultaneously.
+/// Each field is a SIMD vector where lane `i` corresponds to asset `i`.
 pub struct SimdState<const N: usize> {
+    /// Weighted running sum (numerator of the current TRIMA) for each lane.
     pub weight_sum: Simd<f64, N>,
+    /// Running sum of values entering the leading half of the triangular window for each lane.
     pub lead_sum: Simd<f64, N>,
+    /// Running sum of values in the trailing half of the triangular window for each lane.
     pub trail_sum: Simd<f64, N>,
 }
+
 impl<const N: usize> SimdState<N> {
+    /// Gathers `N` scalar [`State`] references into a single `SimdState`, packing each field into a SIMD lane.
     pub fn new(states: &[&mut State]) -> Self {
         let mut weight_sum = [0.0; N];
         let mut lead_sum = [0.0; N];
@@ -29,6 +36,8 @@ impl<const N: usize> SimdState<N> {
             trail_sum: Simd::from_array(trail_sum),
         }
     }
+
+    /// Scatters the SIMD state back into an array of `N` scalar [`State`] values.
     pub fn to_states(&self) -> [State; N] {
         let weight_sum = self.weight_sum.to_array();
         let lead_sum = self.lead_sum.to_array();
@@ -39,6 +48,8 @@ impl<const N: usize> SimdState<N> {
 
         states
     }
+
+    /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place.
     pub fn write_states(&self, states: &mut [&mut State]) {
         let weight_sum = self.weight_sum.to_array();
         let lead_sum = self.lead_sum.to_array();
@@ -50,6 +61,16 @@ impl<const N: usize> SimdState<N> {
             states[i].trail_sum = trail_sum[i];
         }
     }
+
+    /// Advances one bar of the TRIMA computation for `N` lanes simultaneously.
+    ///
+    /// The TRIMA is a double-smoothed SMA. On each step the weighted sum is updated by adding
+    /// the incoming value and the lead sum, then removing the trail sum. The result is multiplied
+    /// by `1 / triangular_weight` to produce the average.
+    ///
+    /// # Returns
+    ///
+    /// The TRIMA value for the current bar across all `N` lanes.
     pub fn calc_simd(
         &mut self,
         real: Simd<f64, N>,
@@ -70,6 +91,9 @@ impl<const N: usize> SimdState<N> {
     }
 }
 
+/// Advances one bar of the TRIMA computation for `N` lanes simultaneously.
+///
+/// Delegates to [`SimdState::calc_simd`]. Returns the TRIMA value for the current bar.
 #[inline(always)]
 pub fn calc_simd<const N: usize>(
     state: &mut SimdState<N>,

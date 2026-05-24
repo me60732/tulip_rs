@@ -3,15 +3,24 @@ pub use crate::indicator_types::TIndicatorState;
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 3;
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 0;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::wad_simd::indicator_by_assets;
 
 // Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
     pub use crate::indicators::simd_indicators::wad_simd::indicator_by_assets as indicator;
 }
 
@@ -38,12 +47,12 @@ impl IndicatorState {
     }
     #[inline(always)]
     pub fn calc(&mut self, high: f64, low: f64, close: f64) -> f64 {
-        self.wad += if close > self.prev_close { 
-            close - self.prev_close.min(low) 
-        } else if close < self.prev_close { 
-            close - self.prev_close.max(high) } 
-        else { 
-            0.0 
+        self.wad += if close > self.prev_close {
+            close - self.prev_close.min(low)
+        } else if close < self.prev_close {
+            close - self.prev_close.max(high)
+        } else {
+            0.0
         };
 
         self.prev_close = close;
@@ -66,24 +75,69 @@ impl TIndicatorState<3> for IndicatorState {
         Ok(vec![wad_line])
     }
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options (unused; WAD takes no options).
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
-/// Returns the minimum required data points. We need at least 2 bars:
-/// one to initialize the state (previous close) and then a new bar for a calculation.
+/// Returns the minimum amount of data required for the WAD indicator.
+///
+/// # Arguments
+///
+/// * `_options` - Unused; WAD takes no options.
+///
+/// # Returns
+///
+/// The minimum amount of data required (2: one bar to seed the previous close,
+/// one bar to produce the first output).
 pub fn min_data(_options: &[f64]) -> usize {
     2
 }
 
-/// Returns the output length.
+/// Calculates the output length based on the data length and options.
+///
+/// # Arguments
+///
+/// * `data_len` - The length of the input data.
+/// * `options` - A slice containing the options for the WAD calculation.
+///
+/// # Returns
+///
+/// The output length.
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
 
-/// Full-indicator calculation for WAD.
-/// It computes a cumulative sum using the previous bar's close as state.
-/// Output at index 0 is 0.
-
+/// Calculates the Williams Accumulation/Distribution (WAD) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — `high`
+/// * `inputs[1]` — `low`
+/// * `inputs[2]` — `close`
+///
+/// # Arguments
+///
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `_options` - Unused; WAD takes no options.
+/// * `_optional_outputs` - Unused; this indicator has no optional outputs.
+///
+/// # Returns
+///
+/// `Ok((outputs, state))` where `outputs[0]` is `wad` and `state`
+/// can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     _options: &[f64; OPTIONS_WIDTH],
@@ -111,9 +165,15 @@ pub fn indicator(
     Ok((vec![wad_line], state))
 }
 
-/// Cycle through the close and volume arrays starting at `start` and update the VWMA values.
-/// Uses the sliding window defined by `period` with the current rolling sums passed in.
-/// Returns the new rolling sums (sum, vol_sum) after processing all available data.
+/// Iterates over the high, low, and close slices and computes WAD values for each bar.
+///
+/// # Arguments
+///
+/// * `high` - Input high price slice.
+/// * `low` - Input low price slice.
+/// * `close` - Input close price slice.
+/// * `state` - Mutable reference to the `IndicatorState` (previous close and cumulative WAD).
+/// * `wad_line` - Mutable output slice for WAD values.
 fn cycle(
     high: &[f64],
     low: &[f64],
@@ -131,15 +191,18 @@ fn cycle(
         }
     }
 }
-/// Per-bar calculation that uses the previous bar's close (prev_close)
-/// and updates the rolling sum. For bar at index i:
+/// Calculates a single WAD value for one bar, updating the rolling state in place.
 ///
-/// if close[i] > prev_close: diff = close[i] - min(prev_close, low[i])
-/// if close[i] < prev_close: diff = close[i] - max(prev_close, high[i])
-/// else: diff = 0
+/// # Arguments
 ///
-/// Then new_sum = prev_sum + diff.
-/// Returns (wad, new_prev_close, new_sum)
+/// * `high` - The current bar's high price.
+/// * `low` - The current bar's low price.
+/// * `close` - The current bar's close price.
+/// * `state` - Mutable reference to the `IndicatorState` (previous close and cumulative WAD).
+///
+/// # Returns
+///
+/// The cumulative WAD value after this bar.
 #[inline(always)]
 pub fn calc(high: f64, low: f64, close: f64, state: &mut IndicatorState) -> f64 {
     state.calc(high, low, close)

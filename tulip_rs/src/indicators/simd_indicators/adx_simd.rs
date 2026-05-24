@@ -12,11 +12,17 @@ use crate::indicators::simd_indicators::{
 };
 use std::simd::Simd;
 
+/// SIMD-parallel state for computing the Average Directional Index (ADX) across `N` assets
+/// simultaneously. Each field is a SIMD vector where lane `i` corresponds to asset `i`.
 pub struct SimdState<const N: usize> {
+    /// Embedded DX SIMD state containing Directional Movement and ATR sub-states.
     pub dx_state: DxSimdState<N>,
+    /// Running Wilder-smoothed ADX value for each asset.
     pub adx: Simd<f64, N>,
 }
 impl<const N: usize> SimdState<N> {
+    /// Gathers `N` scalar [`State`] references into a single `SimdState`,
+    /// packing each field into a SIMD lane.
     pub fn new(states: &mut [&mut State]) -> Self {
         // Create vectors to collect the references
         let mut dx_refs = Vec::with_capacity(N);
@@ -57,6 +63,8 @@ impl<const N: usize> SimdState<N> {
             .try_into()
             .unwrap_or_else(|_| panic!("Failed to convert states_vec to array"))
     }*/
+    /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place,
+    /// avoiding allocation compared to a `to_states` conversion.
     pub fn write_states(&self, states: &mut [&mut State]) {
         let mut dx_refs = Vec::with_capacity(N);
         let adx = self.adx.to_array();
@@ -70,6 +78,22 @@ impl<const N: usize> SimdState<N> {
     }
 }
 
+/// Advances the Average Directional Index (ADX) by one bar for `N` assets simultaneously.
+///
+/// Delegates to [`dx_calc_simd`] to update the embedded DX / DM / ATR sub-states, then applies
+/// Wilder smoothing to produce the ADX.
+///
+/// # Arguments
+///
+/// * `state` - Mutable SIMD state carrying the per-lane ADX and DX sub-states.
+/// * `high` - High prices for the current bar across all `N` lanes.
+/// * `low` - Low prices for the current bar across all `N` lanes.
+/// * `close` - Close prices for the current bar across all `N` lanes.
+/// * `multiplier` - Wilder smoothing constant, SIMD-broadcast across all lanes.
+///
+/// # Returns
+///
+/// A tuple `(adx, dx, atr, tr)` of SIMD vectors for all `N` lanes.
 #[inline(always)]
 pub fn calc_simd<const N: usize>(
     state: &mut SimdState<N>,

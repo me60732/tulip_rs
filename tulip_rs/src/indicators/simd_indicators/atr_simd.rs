@@ -13,11 +13,17 @@ use crate::indicators::simd_indicators::{
 };
 use std::simd::Simd;
 
+/// SIMD-parallel state for computing the Average True Range (ATR) across `N` assets
+/// simultaneously. Each field is a SIMD vector where lane `i` corresponds to asset `i`.
 pub struct SimdState<const N: usize> {
+    /// Current Wilder-smoothed ATR value for each asset.
     pub atr: Simd<f64, N>,
+    /// Previous bar's close price for each asset, used to compute the True Range.
     pub prev_close: Simd<f64, N>,
 }
 impl<const N: usize> SimdState<N> {
+    /// Gathers `N` scalar [`State`] references into a single `SimdState`,
+    /// packing each field into a SIMD lane.
     pub fn new(states: &[&mut State]) -> Self {
         let mut atr = [0.0; N];
         let mut prev_close = [0.0; N];
@@ -39,6 +45,8 @@ impl<const N: usize> SimdState<N> {
 
         states
     }*/
+    /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place,
+    /// avoiding allocation compared to a `to_states` conversion.
     pub fn write_states(&self, states: &mut [&mut State]) {
         let atr = self.atr.to_array();
         let prev_close = self.prev_close.to_array();
@@ -48,6 +56,14 @@ impl<const N: usize> SimdState<N> {
             states[i].prev_close = prev_close[i];
         }
     }
+    /// Advances the ATR by one bar using Wilder smoothing for all `N` lanes.
+    ///
+    /// Computes the True Range from `high`, `low`, and the stored `prev_close`, then blends
+    /// it into the running ATR with the Wilder multiplier. Updates `prev_close`.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(atr, tr)` of SIMD vectors for all `N` lanes.
     #[inline(always)]
     pub fn calc_simd(
         &mut self,
@@ -61,6 +77,14 @@ impl<const N: usize> SimdState<N> {
         self.prev_close = close;
         (self.atr, tr)
     }
+    /// Advances the ATR by one bar using the partial Wilder update for all `N` lanes.
+    ///
+    /// Uses the partial (non-corrected) Wilder formula, suitable for the warm-up phase
+    /// before the ATR is fully initialised. Updates `prev_close`.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(atr, tr)` of SIMD vectors for all `N` lanes.
     #[inline(always)]
     pub fn partial_calc_simd(
         &mut self,

@@ -9,9 +9,11 @@ use std::simd::Simd;
 //use crate::indicators::ad::output_length;
 use crate::indicators::simd_indicators::ema_simd::calc_simd;
 
+/// SIMD driver for the Exponential Moving Average (EMA) indicator, processing `N` option-set lanes per scheduling epoch.
 struct EmaDriver {}
 
 impl Driver<f64, (f64, f64)> for EmaDriver {
+    /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD. Reads the shared input, applies each lane's options, writes outputs, and updates per-lane states.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -67,6 +69,19 @@ impl Driver<f64, (f64, f64)> for EmaDriver {
     }
 }
 
+/// Calculates the Exponential Moving Average (EMA) on a single asset with `N` different option sets
+/// simultaneously using SIMD parallelism.
+///
+/// # Arguments
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+///   `[real]`.
+/// * `options` - An array of `N` option sets, one per SIMD lane: `[period]`.
+/// * `optional_outputs` - Unused; EMA has no optional outputs.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i]` contains `[ema]`
+/// and `states[i]` is the final [`IndicatorState`] for option set `i`.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS_WIDTH], //stock[ fields [ field [f64] ] ]
     options: &[&[f64; OPTIONS_WIDTH]; N],

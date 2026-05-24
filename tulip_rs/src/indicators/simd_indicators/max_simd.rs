@@ -5,11 +5,17 @@ pub use crate::indicators::simd_indicators::by_asset::max::indicator_by_assets;
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::max::indicator_by_options;
 
+/// SIMD-parallel state for computing the Rolling Maximum across `N` assets/options simultaneously.
+/// Each field is a SIMD vector where lane `i` corresponds to asset/option `i`.
 pub struct SimdState<const N: usize> {
+    /// Current rolling maximum value per lane.
     pub max: Simd<f64, N>,
+    /// Distance (in bars) from the current bar back to the bar that holds the maximum value.
+    /// When `trail == look_back`, a full window re-scan is triggered.
     pub trail: Simd<usize, N>,
 }
 impl<const N: usize> SimdState<N> {
+    /// Gathers `N` scalar [`State`] references into a single `SimdState`, packing each field into a SIMD lane.
     pub fn new(states: &[&mut State]) -> Self {
         let mut max = [0.0; N];
         let mut trail: [usize; N] = [0; N];
@@ -24,6 +30,7 @@ impl<const N: usize> SimdState<N> {
             trail: Simd::from_array(trail),
         }
     }
+    /// Scatters the SIMD state back into an array of `N` scalar [`State`] values.
     pub fn to_states(&self) -> [State; N] {
         let max = self.max.to_array();
         let trail = self.trail.to_array();
@@ -32,6 +39,7 @@ impl<const N: usize> SimdState<N> {
 
         states
     }
+    /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place.
     pub fn write_states(&self, states: &mut [&mut State]) {
         let max = self.max.to_array();
         let trail = self.trail.to_array();

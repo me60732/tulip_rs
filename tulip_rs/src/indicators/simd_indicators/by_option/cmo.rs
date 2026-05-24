@@ -1,14 +1,18 @@
 //use crate::common::validate_inputs;
-use crate::indicators::cmo::{output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH, min_data};
-use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::cmo_simd::{calc_simd, SimdState};
-use crate::types::IndicatorError;
 use crate::common_simd::options::{validate_inputs, validate_options};
-use std::simd::{Simd, };
+use crate::indicators::cmo::{
+    min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+};
+use crate::indicators::simd_indicators::cmo_simd::{calc_simd, SimdState};
+use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
+use crate::types::IndicatorError;
+use std::simd::Simd;
 
+/// SIMD driver for the Chande Momentum Oscillator (CMO) indicator, processing `N` option-set lanes per scheduling epoch.
 struct CmoDriver;
 
 impl Driver<State, usize> for CmoDriver {
+    /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD. Reads the shared input, applies each lane's options, writes outputs, and updates per-lane states.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -51,9 +55,9 @@ impl Driver<State, usize> for CmoDriver {
             crate::write_simd_at_indices!(N, j,
                 cmo_line_ptr => cmo
             );
-            
+
             prev_i = i;
-            
+
             for i in i.iter_mut() {
                 *i += 1;
             }
@@ -63,12 +67,24 @@ impl Driver<State, usize> for CmoDriver {
     }
 }
 
+/// Calculates the Chande Momentum Oscillator (CMO) on a single asset with `N` different option sets
+/// simultaneously using SIMD parallelism.
+///
+/// # Arguments
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+///   `[real]`.
+/// * `options` - An array of `N` option sets, one per SIMD lane: `[period]`.
+/// * `optional_outputs` - Unused; CMO has no optional outputs.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i]` contains `[cmo]`
+/// and `states[i]` is the final [`IndicatorState`] for option set `i`.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS_WIDTH], //stock[ fields [ field [f64] ] ]
     options: &[&[f64; OPTIONS_WIDTH]; N],
     _optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError>
-{
+) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
     validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
     validate_options(options, None)?;
     let mut road_train = PrimeMover::<N, State, usize>::new();

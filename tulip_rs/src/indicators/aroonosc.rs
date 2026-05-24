@@ -6,22 +6,38 @@ pub use crate::indicators::aroon::{multiplier, OPTIONS_WIDTH};
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 2;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::aroonosc_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::aroonosc_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::aroonosc_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::aroonosc_simd::indicator_by_options as indicator;
 }
 
@@ -120,6 +136,19 @@ pub fn info() -> Info<'static> {
         optional_outputs: &["aroon_down", "aroon_up"],
     }
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
@@ -136,33 +165,44 @@ pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize + 1
 }
 
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Calculates the output length for the Aroon Oscillator indicator.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
 /// * `options` - A slice containing the options for the Aroon Oscillator calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
 ///
 /// # Returns
 ///
-/// The output length for the Aroon Oscillator calculation.
+/// The number of output values produced by the Aroon Oscillator calculation.
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
 
-/// Calculates the Aroon Oscillator indicator values.
+/// Calculates the Aroon Oscillator indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — high prices
+/// * `inputs[1]` — low prices
+///
+/// # Options
+///
+/// * `options[0]` — period
 ///
 /// # Arguments
 ///
-/// * `inputs` - A slice of vectors containing the input data (high and low prices).
-/// * `options` - A slice containing the options for the Aroon Oscillator calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
-/// * `optional_outputs` - An optional slice indicating whether to calculate optional outputs.
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `optional_outputs` - Pass `Some(&[true, false])` to enable `aroon_down`;
+///   `Some(&[false, true])` to enable `aroon_up`; `None` disables all optional outputs.
 ///
 /// # Returns
 ///
-/// An `Output` struct containing the Aroon Oscillator indicator values and the state.
+/// `Ok((outputs, state))` where `outputs[0]` is `aroonosc`, `outputs[1]` is `aroon_down`
+/// (optional), and `outputs[2]` is `aroon_up` (optional). `state` can be passed to
+/// `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -236,19 +276,12 @@ pub fn indicator(
 ///
 /// # Arguments
 ///
-/// * `high` - A slice of high prices.
-/// * `low` - A slice of low prices.
+/// * `inputs` - A tuple of high and low price slices.
 /// * `period` - The period for the Aroon Oscillator calculation.
-/// * `aroonosc` - A mutable reference to a vector for storing the Aroon Oscillator line.
-/// * `output_vectors` - A mutable reference to an array of optional output vectors.
-/// * `min` - The minimum value.
-/// * `max` - The maximum value.
-/// * `trail_min` - The trailing index for the minimum value.
-/// * `trail_max` - The trailing index for the maximum value.
-///
-/// # Returns
-///
-/// A tuple containing the updated min, max, trail_min, and trail_max values.
+/// * `multiplier` - The multiplier used to scale Aroon values (100 / period).
+/// * `aroonosc_line` - A mutable slice for storing the Aroon Oscillator values.
+/// * `state` - A mutable reference to the current indicator state.
+/// * `out_vecs` - A tuple of mutable slices for storing optional Aroon down and Aroon up lines.
 fn cycle<const N: usize>(
     inputs: (&[f64], &[f64]),
     period: usize,

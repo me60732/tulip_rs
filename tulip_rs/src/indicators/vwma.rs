@@ -3,23 +3,39 @@ pub use crate::indicator_types::TIndicatorState;
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 2;
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::vwma_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::vwma_simd::indicator_by_options;
 
 // Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
     pub use crate::indicators::simd_indicators::vwma_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
     pub use crate::indicators::simd_indicators::vwma_simd::indicator_by_options as indicator;
 }
 
@@ -117,21 +133,71 @@ impl State {
         self.sum / self.vol_sum
     }
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options: `[period]`.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
-/// Returns the minimum required data points equal to the period.
+/// Returns the minimum amount of data required for the VWMA indicator.
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the options: `[period]`.
+///
+/// # Returns
+///
+/// The minimum amount of data required (period + 1).
 pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize + 1
 }
 
-/// Returns the output length.
+/// Calculates the output length based on the data length and options.
+///
+/// # Arguments
+///
+/// * `data_len` - The length of the input data.
+/// * `options` - A slice containing the options for the VWMA calculation.
+///
+/// # Returns
+///
+/// The output length.
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
 
-/// Full-indicator calculation for VWMA.
-/// Calculates the Volume Weighted Moving Average (VWMA) indicator for the entire dataset.
+/// Calculates the Volume Weighted Moving Average (VWMA) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — `close` (close price series)
+/// * `inputs[1]` — `volume`
+///
+/// # Options
+///
+/// * `options[0]` — `period`
+///
+/// # Arguments
+///
+/// * `inputs` - Array of input slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `_optional_outputs` - Unused; this indicator has no optional outputs.
+///
+/// # Returns
+///
+/// `Ok((outputs, state))` where `outputs[0]` is `vwma` and `state`
+/// can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -162,25 +228,37 @@ pub fn indicator(
     ))
 }
 
-/// Cycle through the close and volume arrays starting at `period` and updates the VWMA values.
+/// Iterates over the close and volume arrays and writes VWMA values into `vwma_line`.
+///
+/// # Arguments
+///
+/// * `close` - The full close price input slice.
+/// * `volume` - The full volume input slice.
+/// * `period` - The period for the VWMA calculation.
+/// * `state` - Mutable reference to the rolling `State` (weighted sum and volume sum).
+/// * `vwma_line` - Mutable output slice for VWMA values.
 fn cycle(close: &[f64], volume: &[f64], period: usize, state: &mut State, vwma_line: &mut [f64]) {
     for (j, i) in (period..close.len()).enumerate() {
         unsafe {
             *vwma_line.get_unchecked_mut(j) = state.calc(
                 (close.get_unchecked(i), volume.get_unchecked(i)),
-                (
-                    close.get_unchecked(j),
-                    volume.get_unchecked(j),
-                ),
+                (close.get_unchecked(j), volume.get_unchecked(j)),
             )
         };
     }
 }
 
-/// Per-bar calculation for VWMA.
-/// Updates the numerator and denominator for a sliding window of `period` elements.
-/// For index i, the oldest data point is at i - period.
-/// Returns (vwma, new_sum, new_vol_sum).
+/// Calculates a single VWMA value for one bar, updating the rolling state in place.
+///
+/// # Arguments
+///
+/// * `state` - Mutable reference to the rolling `State` (weighted sum and volume sum).
+/// * `values` - A tuple of `(close, volume)` for the current bar.
+/// * `prev_values` - A tuple of `(prev_close, prev_volume)` for the bar leaving the window.
+///
+/// # Returns
+///
+/// The VWMA value for this bar.
 #[inline(always)]
 pub fn calc(state: &mut State, values: (&f64, &f64), prev_values: (&f64, &f64)) -> f64 {
     state.calc(values, prev_values)

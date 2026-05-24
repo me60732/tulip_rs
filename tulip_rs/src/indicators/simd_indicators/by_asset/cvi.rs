@@ -13,11 +13,18 @@ use crate::indicators::simd_indicators::cvi_simd::assets::{
     calc_unchecked_simd, SimdBufferExt, SimdState,
 };
 
+/// SIMD driver that advances the Chaikin Volatility (CVI) across `N` asset lanes per scheduling
+/// epoch.
 struct CviDriver {
+    /// Pre-computed EMA smoothing factors `(multiplier, inv_multiplier)` for the given period.
     multiplier: (f64, f64),
 }
 
 impl Driver<State> for CviDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
+    ///
+    /// Reads from `inputs[asset][field]` (high, low), writes CVI values to
+    /// `outputs[asset][0]`, and updates `states[asset]` in place.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -60,6 +67,23 @@ impl Driver<State> for CviDriver {
     }
 }
 
+/// Calculates the Chaikin Volatility (CVI) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// CVI measures the rate of change of the high-low range EMA over a rolling period.
+/// All assets share the same `options`. Uses the [`PrimeMover`] scheduler to batch assets
+/// into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[high, low]` for asset `i`.
+/// * `options` - Shared options applied to all `N` assets: `[period]`.
+/// * `_optional_outputs` - Unused; CVI has no optional output lines.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the CVI series for asset `i`
+/// and `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

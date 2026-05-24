@@ -1,3 +1,15 @@
+//! SIMD-accelerated indicator implementations.
+//!
+//! This module provides three levels of SIMD parallelism:
+//!
+//! - **`*_simd.rs` files** — low-level SIMD state structs and per-bar `calc_simd` functions
+//!   used as building blocks by the higher-level drivers.
+//! - **`by_asset/`** — process `N` assets with the same options in a single SIMD pass.
+//! - **`by_option/`** — process one asset with `N` different option sets in a single SIMD pass.
+//!
+//! The [`road_train`] module provides the generic `PrimeMover` scheduling engine
+//! that drives both `by_asset` and `by_option` computations.
+
 pub mod ad_simd;
 pub mod adosc_simd;
 pub mod adx_simd;

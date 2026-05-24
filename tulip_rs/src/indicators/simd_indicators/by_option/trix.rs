@@ -13,11 +13,13 @@ use crate::indicators::{
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
+/// SIMD driver for the Triple Exponential Oscillator (TRIX) indicator, processing `N` option-set lanes per scheduling epoch.
 struct TrixDriver {
     want_optional_outputs: (bool, bool, bool, bool),
 }
 
 impl Driver<State, (f64, f64)> for TrixDriver {
+    /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -80,6 +82,24 @@ impl Driver<State, (f64, f64)> for TrixDriver {
     }
 }
 
+/// Calculates the Triple Exponential Oscillator (TRIX) for one shared asset across `N` different
+/// option sets simultaneously using SIMD parallelism.
+///
+/// Uses the [`PrimeMover`] scheduler to batch option sets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - Shared input data: `inputs[0]` is `&[f64]` containing `real` (price series).
+/// * `options` - An array of `N` option sets; `options[i]` is `&[f64; OPTIONS_WIDTH]` containing
+///   `[period]` for option set `i`.
+/// * `optional_outputs` - Optional slice controlling extra output series;
+///   index 0 enables `tema`, index 1 enables `dema`, index 2 enables `ema`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is `trix`, `outputs[i][1]` is `tema`
+/// (empty unless requested), `outputs[i][2]` is `dema` (empty unless requested), and
+/// `outputs[i][3]` is `ema` (empty unless requested) for option set `i`,
+/// and `states[i]` is the final [`IndicatorState`] for option set `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short or any option set is invalid.
 pub fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[&[f64; OPTIONS_WIDTH]; N],

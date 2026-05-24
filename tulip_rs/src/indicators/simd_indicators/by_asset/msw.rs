@@ -8,12 +8,14 @@ use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
 
+/// SIMD driver that advances the Mesa Sine Wave (MSW) across `N` asset lanes per scheduling epoch.
 struct MswDriver {
     period: usize,
     multiplier: f64,
 }
 
 impl Driver<()> for MswDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -49,6 +51,23 @@ impl Driver<()> for MswDriver {
     }
 }
 
+/// Calculates the Mesa Sine Wave (MSW) for `N` assets simultaneously using SIMD parallelism.
+///
+/// MSW decomposes a real input series into sine and lead components using a
+/// Goertzel-style frequency analyser. Uses the [`PrimeMover`] scheduler to batch
+/// assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[real]` for asset `i`.
+/// * `options` - `[period]` — the look-back window length for the sine-wave fit.
+/// * `_optional_outputs` - Unused; MSW produces no optional outputs.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the `msw_sine` line and
+/// `outputs[i][1]` is the `msw_lead` line for asset `i`, and `states[i]` is the
+/// final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

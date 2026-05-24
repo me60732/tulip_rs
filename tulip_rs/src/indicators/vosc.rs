@@ -6,23 +6,39 @@ use crate::indicators::sma::{
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 2;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::vosc_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::vosc_simd::indicator_by_options;
 
 // Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
     pub use crate::indicators::simd_indicators::vosc_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
     pub use crate::indicators::simd_indicators::vosc_simd::indicator_by_options as indicator;
 }
 
@@ -149,16 +165,45 @@ impl State {
         ((fast_sma - slow_sma) * 100.0 / slow_sma, fast_sma, slow_sma)
     }
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options: `[short_period, long_period]`.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
-/// Returns the minimum required data points, at least (long_period + 1) so that
-/// an initial calculation is possible.
+/// Returns the minimum amount of data required for the VOSC indicator.
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the options: `[short_period, long_period]`.
+///
+/// # Returns
+///
+/// The minimum amount of data required (long_period + 1).
 pub fn min_data(options: &[f64]) -> usize {
     options[1] as usize + 1
 }
 
-/// Returns the output length.
+/// Calculates the output length based on the data length and options.
+///
+/// # Arguments
+///
+/// * `data_len` - The length of the input data.
+/// * `options` - A slice containing the options for the VOSC calculation.
+///
+/// # Returns
+///
+/// The output length.
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
@@ -168,13 +213,34 @@ pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), Ind
     }
     Ok(())
 }
-/// Full-indicator calculation for VOSC.
+/// Calculates the Volume Oscillator (VOSC) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — `volume`
+///
+/// # Options
+///
+/// * `options[0]` — `short_period`
+/// * `options[1]` — `long_period`
+///
+/// # Arguments
+///
+/// * `inputs` - Array of input slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `optional_outputs` - Pass `Some(&[true, true])` to enable optional outputs
+///   `[short_sma, long_sma]`; `None` disables all.
+///
+/// # Returns
+///
+/// `Ok((outputs, state))` where `outputs[0]` is `vosc` and `state`
+/// can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    
     validate_options(options)?;
     let short_period = options[0] as usize;
     let long_period = options[1] as usize;
@@ -217,14 +283,16 @@ pub fn indicator(
     ))
 }
 
-/// Cycle through the volume series, updating both fast and slow SMA sums using calc().
-/// Parameters:
-/// - volume: full input slice.
-/// - start: starting index (>= long_period).
-/// - short_period: period for the fast SMA.
-/// - long_period: period for the slow SMA.
-/// - fast_sum, slow_sum: rolling state sums.
-/// - vosc_line: output accumulator for VOSC values.
+/// Iterates over the volume data and computes VOSC values for each bar.
+///
+/// # Arguments
+///
+/// * `volume` - The full input volume slice.
+/// * `periods` - A tuple of `(short_period, long_period)`.
+/// * `multipliers` - A tuple of `(short_multiplier, long_multiplier)` from `multiplier()`.
+/// * `state` - Mutable reference to the rolling `State` (fast and slow sums).
+/// * `vosc_line` - Mutable output slice for VOSC values.
+/// * `out_vecs` - Mutable output slices for optional outputs: `(short_sma, long_sma)`.
 fn cycle(
     volume: &[f64],
     periods: (usize, usize),
@@ -263,17 +331,18 @@ fn cycle(
     }
 }
 
-/// Per-bar calculation for VOSC. This function updates the fast and slow SMA sums using
-/// the sma_calc function and computes the oscillator value.
-/// Parameters:
-/// - volume: full input slice.
-/// - i: current index (must be at least long_period).
-/// - short_period: period for the fast SMA.
-/// - long_period: period for the slow SMA.
-/// - fast_sum, slow_sum: current rolling sums.
+/// Calculates a single VOSC value for one bar, updating the rolling state in place.
 ///
-/// Returns a tuple:
-///     (vosc, new_fast_sum, new_slow_sum)
+/// # Arguments
+///
+/// * `state` - Mutable reference to the rolling `State` (fast and slow SMA sums).
+/// * `vols` - A tuple of `(current_volume, prev_short_volume, prev_long_volume)`.
+/// * `short_multiplier` - The SMA multiplier for the short period.
+/// * `long_multiplier` - The SMA multiplier for the long period.
+///
+/// # Returns
+///
+/// A tuple of `(vosc, short_sma, long_sma)`.
 #[inline(always)]
 pub fn calc(
     state: &mut State,

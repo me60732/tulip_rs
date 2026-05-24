@@ -13,13 +13,22 @@ use crate::indicators::{
     tr::output_length as tr_output_length,
 };
 
+/// SIMD driver that advances the Average Directional Movement Rating (ADXR) across `N` asset
+/// lanes per scheduling epoch.
 struct AdxrDriver {
+    /// Pre-computed Wilder smoothing multiplier for the given period.
     multiplier: f64,
+    /// Pre-computed inverse smoothing multiplier used to correct the accumulated ATR output.
     inv_multiplier: f64,
+    /// Optional output flags: `(has_optional, want_adx, want_dx, want_atr, want_tr)`.
     want_optional_outputs: (bool, bool, bool, bool, bool),
 }
 
 impl Driver<State> for AdxrDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
+    ///
+    /// Reads from `inputs[asset][field]` (high, low, close), writes to
+    /// `outputs[asset][output]`, and updates `states[asset]` in place.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -82,6 +91,22 @@ impl Driver<State> for AdxrDriver {
     }
 }
 
+/// Calculates the Average Directional Movement Rating (ADXR) for `N` assets simultaneously
+/// using SIMD parallelism.
+///
+/// All assets share the same `options`. Uses the [`PrimeMover`] scheduler to batch assets into
+/// SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[high, low, close]` for asset `i`.
+/// * `options` - Shared options applied to all `N` assets: `[period]`.
+/// * `optional_outputs` - Optional output flags: `[want_adx, want_dx, want_atr, want_tr]`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i]` contains `[adxr, adx?, dx?, atr?, tr?]`
+/// for asset `i` and `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

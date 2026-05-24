@@ -7,11 +7,13 @@ use crate::indicators::ultosc::{
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
+/// SIMD driver that advances the Ultimate Oscillator (ULTOSC) across `N` asset lanes per scheduling epoch.
 struct UltoscDriver {
     periods: (usize, usize),
 }
 
 impl Driver<State> for UltoscDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -51,6 +53,23 @@ impl Driver<State> for UltoscDriver {
     }
 }
 
+/// Calculates the Ultimate Oscillator (ULTOSC) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// ULTOSC produces no optional outputs. Uses the [`PrimeMover`] scheduler to batch assets into
+/// SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[high, low, close]` for asset `i`.
+/// * `options` - `options[0]` is `short_period`, `options[1]` is `medium_period`,
+///   `options[2]` is `long_period`.
+/// * `_optional_outputs` - Unused; ULTOSC has no optional outputs.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the ULTOSC line for asset `i` and
+/// `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

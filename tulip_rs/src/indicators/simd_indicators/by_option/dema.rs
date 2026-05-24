@@ -10,11 +10,13 @@ use crate::indicators::ema::output_length as ema_output_length;
 use crate::indicators::simd_indicators::dema_simd::{calc_simd, SimdState};
 use std::simd::Simd;
 
+/// SIMD driver for the Double Exponential Moving Average (DEMA) indicator, processing `N` option-set lanes per scheduling epoch.
 struct DemaDriver {
     want_optional_outputs: bool,
 }
 
 impl Driver<State, (f64, f64)> for DemaDriver {
+    /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD. Reads the shared input, applies each lane's options, writes outputs, and updates per-lane states.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -65,6 +67,19 @@ impl Driver<State, (f64, f64)> for DemaDriver {
     }
 }
 
+/// Calculates the Double Exponential Moving Average (DEMA) on a single asset with `N` different option
+/// sets simultaneously using SIMD parallelism.
+///
+/// # Arguments
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+///   `[real]`.
+/// * `options` - An array of `N` option sets, one per SIMD lane: `[period]`.
+/// * `optional_outputs` - Optional output flags: `[want_ema]`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i]` contains `[dema, ema?]`
+/// and `states[i]` is the final [`IndicatorState`] for option set `i`.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[&[f64; OPTIONS_WIDTH]; N],

@@ -19,11 +19,18 @@ pub mod assets {
         RingBuffer, SimdBuffer, SimdRingBuffer,
     };
 
+    /// SIMD-parallel state for computing the Average Directional Movement Rating (ADXR) across
+    /// `N` assets simultaneously. Each field is a SIMD vector where lane `i` corresponds to
+    /// asset `i`.
     pub struct SimdState<const N: usize> {
+        /// Embedded ADX SIMD state for all `N` asset lanes.
         pub adx_state: AdxSimdState<N>,
+        /// Ring buffer that retains past ADX values used to compute the ADXR average.
         pub buffer: SimdBuffer<N>,
     }
     impl<const N: usize> SimdState<N> {
+        /// Gathers `N` scalar [`State`] references into a single `SimdState`,
+        /// packing each field into a SIMD lane.
         pub fn new(states: &mut [&mut State]) -> Self {
             debug_assert_eq!(states.len(), N, "Number of states must match SIMD width");
 
@@ -43,6 +50,8 @@ pub mod assets {
             Self { adx_state, buffer }
         }
 
+        /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in
+        /// place, avoiding allocation compared to a `to_states` conversion.
         pub fn write_states(&self, states: &mut [&mut State]) {
             // First, handle the buffer updates
             let buffers = self.buffer.to_f64_buffers();
@@ -61,6 +70,14 @@ pub mod assets {
         }
     }
 
+    /// Advances the ADXR by one bar for `N` assets simultaneously (checked variant).
+    ///
+    /// ADXR = `0.5 * (current_ADX + ADX_period_bars_ago)`. Returns zero for all lanes until
+    /// enough bars have been processed to fill the internal ring buffer.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(adxr, adx, dx, atr, tr)` of SIMD vectors for all `N` lanes.
     #[inline(always)]
     pub fn calc_simd<const N: usize>(
         state: &mut SimdState<N>,
@@ -85,6 +102,13 @@ pub mod assets {
 
         (adxr, adx, dx, atr, tr)
     }
+
+    /// Advances the ADXR by one bar for `N` assets simultaneously (unchecked variant).
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee the ring buffer already contains enough historical ADX values
+    /// (i.e. the warm-up period has fully elapsed) before calling this function.
     #[inline(always)]
     pub unsafe fn calc_unchecked_simd<const N: usize>(
         state: &mut SimdState<N>,
@@ -110,11 +134,17 @@ pub mod options {
     use super::imports::*;
     use crate::ring_buffer::unsync_multi_buffer::multi_buffer::{RingBuffer, UnsyncBuffer};
 
+    /// SIMD-parallel state for computing the ADXR across `N` option lanes simultaneously.
+    /// Uses per-lane ring buffers of potentially different periods stored in an `UnsyncBuffer`.
     pub struct SimdState<const N: usize> {
+        /// Embedded ADX SIMD state for all `N` option lanes.
         pub adx_state: AdxSimdState<N>,
+        /// Per-lane ring buffers with independent periods for each option set.
         pub buffer: UnsyncBuffer<N, f64>,
     }
     impl<const N: usize> SimdState<N> {
+        /// Gathers `N` scalar [`State`] references into a single `SimdState`,
+        /// packing each field into a SIMD lane.
         pub fn new(states: &mut [&mut State]) -> Self {
             debug_assert_eq!(states.len(), N, "Number of states must match SIMD width");
 
@@ -134,6 +164,8 @@ pub mod options {
             Self { adx_state, buffer }
         }
 
+        /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in
+        /// place, avoiding allocation compared to a `to_states` conversion.
         pub fn write_states(&self, states: &mut [&mut State]) {
             // First, handle the buffer updates
             let buffers = self.buffer.to_f64_buffers();
@@ -148,6 +180,14 @@ pub mod options {
         }
     }
 
+    /// Advances the ADXR by one bar for `N` option lanes simultaneously (checked variant).
+    ///
+    /// Each lane may have a different period; a SIMD mask gates lanes that are not yet warm.
+    /// ADXR = `0.5 * (current_ADX + ADX_period_bars_ago)`.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(adxr, adx, dx, atr, tr)` of SIMD vectors for all `N` lanes.
     #[inline(always)]
     pub fn calc_simd<const N: usize>(
         state: &mut SimdState<N>,
@@ -170,6 +210,12 @@ pub mod options {
 
         (adxr, adx, dx, atr, tr)
     }
+
+    /// Advances the ADXR by one bar for `N` option lanes simultaneously (unchecked variant).
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee all per-lane ring buffers are fully warmed up before calling.
     #[inline(always)]
     pub(crate) unsafe fn calc_unchecked_simd<const N: usize>(
         state: &mut SimdState<N>,

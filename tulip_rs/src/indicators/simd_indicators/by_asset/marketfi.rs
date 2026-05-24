@@ -5,9 +5,15 @@ use crate::indicators::simd_indicators::marketfi_simd::calc_simd;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;
+/// SIMD driver that advances the Market Facilitation Index (MarketFI) across `N` asset lanes
+/// per scheduling epoch.
 struct MarketfiDriver;
 
 impl Driver<()> for MarketfiDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
+    ///
+    /// Reads from `inputs[asset][field]` (high, low, volume), writes the MarketFI to
+    /// `outputs[asset][0]`. This driver holds no per-asset state.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -47,6 +53,22 @@ impl Driver<()> for MarketfiDriver {
     }
 }
 
+/// Calculates the Market Facilitation Index (MarketFI) for `N` assets simultaneously using
+/// SIMD parallelism.
+///
+/// MarketFI requires no configurable options. Uses the [`PrimeMover`] scheduler to batch
+/// assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[high, low, volume]` for asset `i`.
+/// * `options` - Unused; MarketFI has no configurable options.
+/// * `optional_outputs` - Unused; MarketFI produces only the single marketfi output.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the MarketFI line for asset `i`
+/// and `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     _options: &[f64; OPTIONS_WIDTH],

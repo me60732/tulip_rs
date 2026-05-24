@@ -8,11 +8,18 @@ use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
 
+/// SIMD driver that advances the Money Flow Index (MFI) across `N` asset lanes per
+/// scheduling epoch.
 struct MfiDriver {
     want_optional_outputs: bool,
 }
 
 impl Driver<State> for MfiDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
+    ///
+    /// Reads from `inputs[asset][field]` (high, low, close, volume), writes the MFI to
+    /// `outputs[asset][0]`, optional typical price to `outputs[asset][1]`, and updates
+    /// `states[asset]` in place.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -60,6 +67,22 @@ impl Driver<State> for MfiDriver {
     }
 }
 
+/// Calculates the Money Flow Index (MFI) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[high, low, close, volume]` for asset `i`.
+/// * `options` - Shared options slice; `options[0]` is the period.
+/// * `optional_outputs` - Optional slice selecting extra outputs: index `0` = `typprice`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the MFI for asset `i`,
+/// `outputs[i][1]` is the optional typical price, and `states[i]` is the final
+/// [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

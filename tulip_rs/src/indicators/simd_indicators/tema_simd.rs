@@ -12,11 +12,16 @@ use crate::indicators::simd_indicators::{
 use crate::indicators::tema::State;
 use std::simd::{Simd, StdFloat};
 
+/// SIMD-parallel state for computing the Triple Exponential Moving Average (TEMA) across `N` assets simultaneously.
+/// Each field is a SIMD vector where lane `i` corresponds to asset `i`.
 pub struct SimdState<const N: usize> {
+    /// Nested DEMA state, which itself holds EMA1 and EMA2 for each lane.
     pub dema_state: DemaSimdState<N>,
+    /// The third-order EMA (`EMA(EMA(EMA(real)))`) for each lane.
     pub ema3: Simd<f64, N>,
 }
 impl<const N: usize> SimdState<N> {
+    /// Gathers `N` scalar [`State`] references into a single `SimdState`, packing each field into a SIMD lane.
     pub fn new(states: &[&mut State]) -> Self {
         let mut dema_state = Vec::with_capacity(N);
 
@@ -33,6 +38,7 @@ impl<const N: usize> SimdState<N> {
             ema3: Simd::from_array(ema3),
         }
     }
+    /// Scatters the SIMD state back into an array of `N` scalar [`State`] values.
     pub fn to_states(&self) -> [State; N] {
         let dema_states = self.dema_state.to_states();
         let ema3 = self.ema3.to_array();
@@ -42,6 +48,7 @@ impl<const N: usize> SimdState<N> {
 
         states
     }
+    /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place.
     pub fn write_states(&self, states: &mut [&mut State]) {
         let dema_states = self.dema_state.to_states();
         let ema3 = self.ema3.to_array();
@@ -53,6 +60,14 @@ impl<const N: usize> SimdState<N> {
     }
 }
 
+/// Advances one bar of the TEMA computation for `N` lanes simultaneously.
+///
+/// Computes `TEMA = 3*EMA1 - 3*EMA2 + EMA3` using fused multiply-add arithmetic for
+/// numerical stability. Also returns intermediate DEMA and EMA values as optional outputs.
+///
+/// # Returns
+///
+/// `(tema, dema, ema)` — the TEMA, DEMA, and first-order EMA for the current bar.
 #[inline(always)]
 pub fn calc_simd<const N: usize>(
     state: &mut SimdState<N>,

@@ -3,12 +3,14 @@ pub use crate::indicators::simd_indicators::by_asset::wad::indicator_by_assets;
 use crate::indicators::{simd_indicators::simd_types::F64Constants, wad::IndicatorState as State};
 use std::simd::{cmp::SimdPartialOrd, num::SimdFloat, *};
 
+/// SIMD-parallel state for the Williams Accumulation/Distribution (WAD) indicator, holding `N` lanes of per-asset state.
 pub struct SimdState<const N: usize> {
     pub prev_close: Simd<f64, N>,
     pub wad: Simd<f64, N>,
 }
 
 impl<const N: usize> SimdState<N> {
+    /// Constructs a `SimdState` by gathering scalar per-asset states into SIMD vectors.
     pub fn new(states: &[&mut State]) -> Self {
         let mut prev_close = [0.0; N];
         let mut wad = [0.0; N];
@@ -22,6 +24,7 @@ impl<const N: usize> SimdState<N> {
             wad: Simd::from_array(wad),
         }
     }
+    /// Converts the SIMD state into an array of `N` scalar [`State`] values.
     pub fn to_states(&self) -> [State; N] {
         let prev_close = self.prev_close.to_array();
         let wad = self.wad.to_array();
@@ -30,6 +33,7 @@ impl<const N: usize> SimdState<N> {
 
         states
     }
+    /// Writes the current SIMD lane values back into the provided scalar per-asset states.
     pub fn write_states(&self, states: &mut [&mut State]) {
         let prev_close = self.prev_close.to_array();
         let wad = self.wad.to_array();
@@ -39,6 +43,22 @@ impl<const N: usize> SimdState<N> {
             states[i].wad = wad[i];
         }
     }
+    /// Computes one bar of the Williams Accumulation/Distribution (WAD) for `N` assets simultaneously
+    /// using SIMD parallelism.
+    ///
+    /// On an up-close bar adds `close - min(prev_close, low)`,
+    /// on a down-close bar adds `close - max(prev_close, high)`,
+    /// and holds the value unchanged when close equals the previous close.
+    ///
+    /// # Arguments
+    ///
+    /// * `high` - High prices for this bar.
+    /// * `low` - Low prices for this bar.
+    /// * `close` - Close prices for this bar.
+    ///
+    /// # Returns
+    ///
+    /// Updated WAD values for all `N` lanes.
     #[inline(always)]
     pub fn calc_simd(
         &mut self,

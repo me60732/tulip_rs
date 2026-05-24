@@ -8,11 +8,13 @@ use std::simd::Simd;
 //use crate::indicators::ad::output_length;
 use crate::indicators::simd_indicators::vwma_simd::SimdState;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
+/// SIMD driver that advances the Volume Weighted Moving Average (VWMA) across `N` asset lanes per scheduling epoch.
 struct VwmaDriver {
     period: usize,
 }
 
 impl Driver<State> for VwmaDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -54,6 +56,22 @@ impl Driver<State> for VwmaDriver {
     }
 }
 
+/// Calculates the Volume Weighted Moving Average (VWMA) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// VWMA produces no optional outputs. Uses the [`PrimeMover`] scheduler to batch assets into
+/// SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[close, volume]` for asset `i`.
+/// * `options` - `options[0]` is the `period`.
+/// * `_optional_outputs` - Unused; VWMA has no optional outputs.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the VWMA line for asset `i` and
+/// `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

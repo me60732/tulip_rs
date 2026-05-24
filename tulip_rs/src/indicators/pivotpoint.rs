@@ -2,13 +2,17 @@ use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 3;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
-/// Returns information about the Accumulation/Distribution Line (AD) indicator.
+
+/// Returns information about the Pivot Point indicator.
 ///
 /// # Returns
 ///
-/// An `Info` struct containing metadata about the AD indicator.
+/// An `Info` struct containing metadata about the Pivot Point indicator.
 pub fn info() -> Info<'static> {
     Info {
         name: "pivitpoint",
@@ -47,55 +51,79 @@ impl TIndicatorState<3> for IndicatorState {
         Ok(outputs)
     }
 }
-/// Returns the minimum amount of data required for the AD indicator.
+/// Returns the minimum amount of data required for the Pivot Point indicator.
 ///
 /// # Arguments
 ///
-/// * `_options` - A slice containing the options for the AD calculation.
+/// * `options` - A slice containing the options for the Pivot Point calculation (e.g. `period`).
 ///
 /// # Returns
 ///
-/// The minimum amount of data required.
+/// The minimum number of input data points required.
 pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize
 }
-pub fn min_data_accuracy(options: &[f64], _decimal_places: usize) -> usize {
-    min_data(options)
-}
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
 ///
 /// # Arguments
 ///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the AD calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
+/// * `options` - A slice containing the indicator options (e.g. period).
+/// * `_decimal_places` - Unused. Accuracy is independent of decimal precision for this indicator.
 ///
 /// # Returns
 ///
-/// The output length.
-
+/// The minimum number of input bars required, identical to [`min_data`].
+pub fn min_data_accuracy(options: &[f64], _decimal_places: usize) -> usize {
+    min_data(options)
+}
+/// Returns the output length for the Pivot Point indicator.
+///
+/// # Arguments
+///
+/// * `_data_len` - The length of the input data (unused; Pivot Point always returns one value).
+/// * `_options` - A slice containing the options for the Pivot Point calculation.
+///
+/// # Returns
+///
+/// Always returns `1`, as only the most recent pivot point values are output.
 pub fn output_length(_data_len: usize, _options: &[f64]) -> usize {
     1
 }
 
-/// Calculates the Accumulation/Distribution Line (AD) indicator for an entire dataset or a slice of it.
+/// Calculates the Pivot Point indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — high prices
+/// * `inputs[1]` — low prices
+/// * `inputs[2]` — close prices
+///
+/// # Options
+///
+/// * `options[0]` — period (look-back window length)
 ///
 /// # Arguments
 ///
-/// * `inputs` - A slice of vectors containing the high, low, close prices, and volume.
-/// * `_options` - A slice containing the options for the AD calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data, keep in mind with most indicators this is speed vs accuracy.
-/// * `_optional_outputs` - An optional slice of booleans indicating which additional outputs to generate.
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `_optional_outputs` - Unused; this indicator has no optional outputs.
 ///
 /// # Returns
 ///
-/// A `Result` containing a vector of vectors with the AD line or an `IndicatorError`.
+/// `Ok((outputs, state))` where `outputs[0]` is a single-element vector
+/// `[s3, s2, s1, pp, r1, r2, r3]` representing the three support levels,
+/// pivot point, and three resistance levels computed from the most recent
+/// `period` bars. `state` can be passed to `IndicatorState::batch_indicator`
+/// for streaming. Returns `Err(IndicatorError)` if inputs are too short or
+/// options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    
     validate_options(options)?;
     validate_inputs(inputs, min_data(options))?;
     let period = options[0] as usize;
@@ -123,19 +151,18 @@ fn process(high: &[f64], low: &[f64], close: &[f64], period: usize) -> Vec<Vec<f
     vec![vec![s3, s2, s1, pp, r1, r2, r3]]
 }
 
-/// Calculates the current value of the s3, s2, s1, pivot_point, r1, r2, r3 piviot point indicator.
+/// Calculates the support and resistance levels for the Pivot Point indicator.
 ///
 /// # Arguments
 ///
-/// * `prev_ad` - The previous AD value.
-/// * `high` - The current high price.
-/// * `low` - The current low price.
-/// * `close` - The current close price.
-/// * `volume` - The current volume.
+/// * `high` - A slice of high prices over the look-back period.
+/// * `low` - A slice of low prices over the look-back period.
+/// * `close` - A slice of close prices; the last element is used as the closing price.
 ///
 /// # Returns
 ///
-/// The updated AD value.
+/// A tuple `(s3, s2, s1, pivot_point, r1, r2, r3)` of the three support levels,
+/// the pivot point, and the three resistance levels.
 #[inline(always)]
 pub fn calc(high: &[f64], low: &[f64], close: &[f64]) -> (f64, f64, f64, f64, f64, f64, f64) {
     let close_value = close[close.len() - 1];

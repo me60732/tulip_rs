@@ -7,11 +7,13 @@ use crate::indicators::vhf::{
 use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
+/// SIMD driver that advances the Vertical Horizontal Filter (VHF) across `N` asset lanes per scheduling epoch.
 struct VhfDriver {
     period: usize,
 }
 
 impl Driver<State> for VhfDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -25,7 +27,7 @@ impl Driver<State> for VhfDriver {
         let vhf_line_ptr = crate::extract_output_ptrs!(outputs, N, vhf_line_ptr);
         let real_ptrs = crate::extract_input_ptrs!(inputs, N, real_ptrs);
         let mut state = SimdState::new(&mut states);
-        
+
         match self.period {
             1..=14 => {
                 cycle::<N, 1>(real_ptrs, len, self.period, &mut state, vhf_line_ptr);
@@ -41,9 +43,15 @@ impl Driver<State> for VhfDriver {
         state.write_states(&mut states);
     }
 }
-fn cycle<const N: usize, const CHUNK_SIZE: usize>(real_ptrs: [*const f64; N], len: usize, period: usize, state: &mut SimdState<N>, vhf_line_ptr: [*mut f64; N]) {
-    let look_back = period -1;
-    for (j, i) in (period+1..len).enumerate() {
+fn cycle<const N: usize, const CHUNK_SIZE: usize>(
+    real_ptrs: [*const f64; N],
+    len: usize,
+    period: usize,
+    state: &mut SimdState<N>,
+    vhf_line_ptr: [*mut f64; N],
+) {
+    let look_back = period - 1;
+    for (j, i) in (period + 1..len).enumerate() {
         let values = crate::extract_simd_at_indices!(N, real_ptrs,
             cur_vals @ i,
             prev_vals @ i-1,
@@ -51,9 +59,8 @@ fn cycle<const N: usize, const CHUNK_SIZE: usize>(real_ptrs: [*const f64; N], le
             drop_vals @ j
         );
 
-        let vhf = unsafe {
-            state.calc_unchecked_simd::<CHUNK_SIZE>(values, real_ptrs, look_back, i)
-        };
+        let vhf =
+            unsafe { state.calc_unchecked_simd::<CHUNK_SIZE>(values, real_ptrs, look_back, i) };
 
         // Store results using pre-computed pointers
         crate::write_simd_at_indices!(N, j,
@@ -61,6 +68,22 @@ fn cycle<const N: usize, const CHUNK_SIZE: usize>(real_ptrs: [*const f64; N], le
         );
     }
 }
+/// Calculates the Vertical Horizontal Filter (VHF) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// VHF produces no optional outputs. Uses the [`PrimeMover`] scheduler to batch assets into
+/// SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[real]` for asset `i`.
+/// * `options` - `options[0]` is the `period`.
+/// * `_optional_outputs` - Unused; VHF has no optional outputs.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the VHF line for asset `i` and
+/// `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

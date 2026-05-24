@@ -7,11 +7,13 @@ use crate::indicators::simd_indicators::mass_simd::option::SimdState;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 
+/// SIMD driver for the Mass Index (MASS) indicator, processing `N` option-set lanes per scheduling epoch.
 struct MassDriver {
     multipliers: (f64, f64),
 }
 
 impl Driver<State, usize> for MassDriver {
+    /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD. Reads the shared input, applies each lane's options, writes outputs, and updates per-lane states.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -50,6 +52,19 @@ impl Driver<State, usize> for MassDriver {
     }
 }
 
+/// Calculates the Mass Index (MASS) on a single asset with `N` different option sets
+/// simultaneously using SIMD parallelism.
+///
+/// # Arguments
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+///   `[high, low]`.
+/// * `options` - An array of `N` option sets, one per SIMD lane: `[period]`.
+/// * `optional_outputs` - Unused; Mass Index has no optional outputs.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i]` contains `[mass]`
+/// and `states[i]` is the final [`IndicatorState`] for option set `i`.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[&[f64; OPTIONS_WIDTH]; N],

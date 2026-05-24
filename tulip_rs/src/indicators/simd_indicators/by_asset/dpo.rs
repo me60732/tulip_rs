@@ -9,6 +9,8 @@ use crate::indicators::simd_indicators::{by_asset::sma::init_state, dpo_simd::ca
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
+/// SIMD driver that advances the Detrended Price Oscillator (DPO) across `N` asset lanes
+/// per scheduling epoch.
 struct DpoDriver {
     multiplier: f64,
     period: usize,
@@ -17,6 +19,10 @@ struct DpoDriver {
 }
 
 impl Driver<f64> for DpoDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
+    ///
+    /// Reads from `inputs[asset][0]` (real), writes the DPO to `outputs[asset][0]`,
+    /// optional SMA to `outputs[asset][1]`, and updates `states[asset]` in place.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -41,7 +47,6 @@ impl Driver<f64> for DpoDriver {
             crate::extract_output_ptrs!(outputs, N, dpo_ptrs, sma_ptrs);
         // Optimization 3: Simplified main loop with pre-computed offsets
         for (j, i) in (self.period..len).enumerate() {
-            
             let (old_vals, dpo_vals, new_vals) = crate::extract_simd_at_indices!(N, input_ptrs,
                 old_vals @ j,
                 dpo_vals @ i - self.dpo_period,
@@ -67,6 +72,22 @@ impl Driver<f64> for DpoDriver {
     }
 }
 
+/// Calculates the Detrended Price Oscillator (DPO) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[real]` for asset `i`.
+/// * `options` - Shared options slice; `options[0]` is the period.
+/// * `optional_outputs` - Optional slice selecting extra outputs: index `0` = `sma`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the DPO line for asset `i`,
+/// `outputs[i][1]` is the optional SMA, and `states[i]` is the final [`IndicatorState`]
+/// for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

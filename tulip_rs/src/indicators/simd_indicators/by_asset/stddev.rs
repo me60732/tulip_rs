@@ -8,6 +8,7 @@ use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
 
+/// SIMD driver that advances the Standard Deviation (STDDEV) across `N` asset lanes per scheduling epoch.
 struct StddevDriver {
     multiplier: f64,
     period: usize,
@@ -15,6 +16,7 @@ struct StddevDriver {
 }
 
 impl Driver<State> for StddevDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -58,6 +60,24 @@ impl Driver<State> for StddevDriver {
     }
 }
 
+/// Calculates the Standard Deviation (STDDEV) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// STDDEV computes the rolling population standard deviation over a sliding window.
+/// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[real]` for asset `i`.
+/// * `options` - `[period]` — the rolling-window period for the standard deviation.
+/// * `optional_outputs` - Optional slice of booleans enabling extra outputs:
+///   `[0]` → `sma`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the STDDEV line and
+/// `outputs[i][1]` is the SMA line (empty unless requested) for asset `i`.
+/// `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

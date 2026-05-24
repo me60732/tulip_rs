@@ -7,12 +7,14 @@ use crate::indicators::stoch::{
 use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
+/// SIMD driver that advances the Stochastic Oscillator (STOCH) across `N` asset lanes per scheduling epoch.
 struct StochDriver {
     k_period: usize,
     multipliers: (f64, f64),
 }
 
 impl Driver<State> for StochDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -89,6 +91,25 @@ fn cycle<const N: usize, const CHUNK_SIZE: usize>(
         );
     }
 }
+/// Calculates the Stochastic Oscillator (STOCH) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// STOCH computes the fast %K and smoothed %D stochastic lines, expressing the closing
+/// price relative to the high/low range over the look-back period.
+/// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[high, low, close]` for asset `i`.
+/// * `options` - `[k_period, k_slow, d_period]` — the fast %K look-back period,
+///   the slow %K smoothing period, and the %D smoothing period.
+/// * `_optional_outputs` - Unused; STOCH produces no optional outputs.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the `stoch_k` line and
+/// `outputs[i][1]` is the `stoch_d` line for asset `i`, and
+/// `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

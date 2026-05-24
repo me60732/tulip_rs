@@ -8,11 +8,13 @@ use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
 
+/// SIMD driver that advances Wilder's Smoothing (WILDERS) across `N` asset lanes per scheduling epoch.
 struct WildersDriver {
     multipliers: (f64, f64),
 }
 
 impl Driver<f64> for WildersDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -54,6 +56,21 @@ impl Driver<f64> for WildersDriver {
     }
 }
 
+/// Calculates Wilder's Smoothing (WILDERS) for `N` assets simultaneously using SIMD parallelism.
+///
+/// WILDERS produces no optional outputs. Uses the [`PrimeMover`] scheduler to batch assets into
+/// SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[real]` for asset `i`.
+/// * `options` - `options[0]` is the `period`.
+/// * `_optional_outputs` - Unused; WILDERS has no optional outputs.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the Wilder's Smoothing line for asset `i` and
+/// `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

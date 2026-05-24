@@ -3,23 +3,41 @@ pub use crate::indicator_types::TIndicatorState;
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::max_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::max_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::max_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::max_simd::indicator_by_options as indicator;
 }
 
@@ -96,10 +114,23 @@ pub fn info() -> Info<'static> {
         optional_outputs: &[],
     }
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
-/// Returns the maximum amount of data required for the max indicator.
+/// Returns the minimum amount of data required for the max indicator.
 ///
 /// # Arguments
 ///
@@ -112,13 +143,12 @@ pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize
 }
 
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Calculates the output length for the max indicator.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
 /// * `options` - A slice containing the options for the max calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
 ///
 /// # Returns
 ///
@@ -127,18 +157,29 @@ pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
 
-/// Calculates the max indicator values.
+/// Calculates the Maximum Value (max) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — real prices
+///
+/// # Options
+///
+/// * `options[0]` — period
 ///
 /// # Arguments
 ///
-/// * `inputs` - A slice of vectors containing the input data (real prices).
-/// * `options` - A slice containing the options for the max calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
-/// * `_optional_outputs` - An optional slice indicating whether to calculate optional outputs.
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `optional_outputs` - Unused; this indicator has no optional outputs.
 ///
 /// # Returns
 ///
-/// An `Output` struct containing the max indicator values and the state.
+/// `Ok((outputs, state))` where:
+/// - `outputs[0]` — `max`
+///
+/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -169,10 +210,7 @@ pub fn indicator(
         }
     }
 
-    Ok((
-        vec![max_line],
-        IndicatorState::new(real, state, periods)
-    ))
+    Ok((vec![max_line], IndicatorState::new(real, state, periods)))
 }
 
 /// Performs the main calculation loop for the max indicator.
@@ -180,10 +218,9 @@ pub fn indicator(
 /// # Arguments
 ///
 /// * `real` - A slice of input data.
-/// * `period` - The period for the max calculation.
-/// * `max_line` - A mutable reference to a vector for storing the max line.
-/// * `maxi` - The index of the maximum value.
-/// * `start` - The starting index for the calculation.
+/// * `periods` - A tuple of `(period, look_back)` for the max calculation.
+/// * `max_line` - A mutable slice for storing the max output values.
+/// * `state` - A mutable reference to the current `State`.
 fn cycle_max<const N: usize>(
     real: &[f64],
     periods: (usize, usize),
@@ -196,20 +233,18 @@ fn cycle_max<const N: usize>(
         }
     }
 }
-/// Performs the main calculation loop for the max indicator.
-/// Calculates the maximum value in the given period.
+/// Calculates the maximum value in the window ending at index `i`.
 ///
 /// # Arguments
 ///
+/// * `state` - A mutable reference to the current `State`.
 /// * `real` - A slice of input data.
-/// * `period` - The period for the max calculation.
 /// * `i` - The current index.
-/// * `maxi` - The index of the maximum value.
-/// * `value` - The current value.
+/// * `periods` - A tuple of `(period, look_back)` for the max calculation.
 ///
 /// # Returns
 ///
-/// A tuple containing the maximum value and the updated index of the maximum value.
+/// A tuple containing the maximum value and the updated trail index.
 ///
 /// ```
 #[inline(always)]

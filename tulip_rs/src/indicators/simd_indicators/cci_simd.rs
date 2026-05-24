@@ -19,12 +19,18 @@ pub mod asset {
         RingBuffer, SimdBuffer, SimdRingBuffer,
     };
 
+    /// SIMD-parallel state for computing the Commodity Channel Index (CCI) across `N` assets
+    /// simultaneously. Each field is a SIMD vector where lane `i` corresponds to asset `i`.
     pub struct SimdState<const N: usize> {
+        /// Ring buffer of recent typical prices, used to compute mean deviation.
         buffer: SimdBuffer<N>,
+        /// Rolling sum of typical prices for the SMA calculation.
         sum: Simd<f64, N>,
     }
 
     impl<const N: usize> SimdState<N> {
+        /// Gathers `N` scalar [`State`] references into a single `SimdState`,
+        /// packing each field into a SIMD lane.
         pub fn new(states: &mut [&mut State]) -> Self {
             debug_assert_eq!(states.len(), N, "Number of states must match SIMD width");
 
@@ -44,6 +50,8 @@ pub mod asset {
             }
         }
 
+        /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in
+        /// place, avoiding allocation compared to a `to_states` conversion.
         pub fn write_states(&self, states: &mut [&mut State]) {
             // First, handle the buffer updates
             let buffers = self.buffer.to_f64_buffers();
@@ -79,6 +87,16 @@ pub mod asset {
             self.sum += typprice;
             (F64Constants::ZERO, F64Constants::ZERO, F64Constants::ZERO, typprice)
         }*/
+
+        /// Advances the CCI by one bar for `N` assets simultaneously (unchecked variant).
+        ///
+        /// Computes the typical price `(high + low + close) / 3`, pushes it into the ring buffer,
+        /// calculates the SMA and mean deviation, then returns
+        /// `(cci, sma, mean_deviation, typical_price)`.
+        ///
+        /// # Safety
+        ///
+        /// The caller must guarantee the ring buffer is already full (warm-up complete).
         #[inline(always)]
         pub unsafe fn calc_unchecked_simd(
             &mut self,
@@ -105,12 +123,18 @@ pub(crate) mod options {
     use crate::indicators::{md::calc_md_simd, typprice::calc as typprice_calc};
     use crate::ring_buffer::unsync_multi_buffer::multi_buffer::{RingBuffer, UnsyncBuffer};
 
+    /// SIMD-parallel state for computing the CCI across `N` option lanes simultaneously.
+    /// Uses per-lane ring buffers of potentially different periods stored in an `UnsyncBuffer`.
     pub struct SimdState<const N: usize> {
+        /// Per-lane ring buffers with independent periods for each option set.
         buffer: UnsyncBuffer<N, f64>,
+        /// Rolling sums of typical prices, one per option lane.
         sum: Simd<f64, N>,
     }
 
     impl<const N: usize> SimdState<N> {
+        /// Gathers `N` scalar [`State`] references into a single `SimdState`,
+        /// packing each field into a SIMD lane.
         pub fn new(states: &mut [&mut State]) -> Self {
             debug_assert_eq!(states.len(), N, "Number of states must match SIMD width");
 
@@ -128,6 +152,8 @@ pub(crate) mod options {
             }
         }
 
+        /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in
+        /// place, avoiding allocation compared to a `to_states` conversion.
         pub fn write_states(&self, states: &mut [&mut State]) {
             // First, handle the buffer updates
             let buffers = self.buffer.to_f64_buffers();
@@ -139,6 +165,15 @@ pub(crate) mod options {
             }
         }
 
+        /// Advances the CCI by one bar for `N` option lanes simultaneously (unchecked variant).
+        ///
+        /// Takes a single scalar `(high, low, close)` that is broadcast to all lanes, then
+        /// applies each lane's independent period to compute the SMA and mean deviation.
+        /// Returns `(cci, sma, mean_deviation, typical_price)`.
+        ///
+        /// # Safety
+        ///
+        /// The caller must guarantee all per-lane ring buffers are fully warmed up.
         #[inline(always)]
         pub unsafe fn calc_unchecked_simd(
             &mut self,

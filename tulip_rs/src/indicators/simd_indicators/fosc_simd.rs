@@ -11,12 +11,17 @@ use crate::indicators::simd_indicators::{
 };
 use std::simd::Simd;
 
+/// SIMD-parallel state for computing the Forecast Oscillator (FOSC) across `N` assets simultaneously.
+/// Each field is a SIMD vector where lane `i` corresponds to asset `i`.
 pub struct SimdState<const N: usize> {
+    /// Underlying linear-regression / TSF SIMD state carrying the per-asset sum accumulators.
     linreg_state: SimdLinregState<N>,
+    /// Most recent Time Series Forecast (TSF) value per asset lane, used on the next bar to compute FOSC.
     tsf: Simd<f64, N>,
 }
 
 impl<const N: usize> SimdState<N> {
+    /// Gathers `N` scalar [`State`] references into a single `SimdState`, packing each field into a SIMD lane.
     pub fn new(states: &[&mut State]) -> Self {
         let mut linreg_state = Vec::with_capacity(N);
 
@@ -33,6 +38,7 @@ impl<const N: usize> SimdState<N> {
             tsf: Simd::from_array(tsf),
         }
     }
+    /// Scatters the SIMD state back into an array of `N` scalar [`State`] values.
     pub fn to_states(&self) -> [State; N] {
         let linreg_states = self.linreg_state.to_states();
         let tsf = self.tsf.to_array();
@@ -49,6 +55,7 @@ impl<const N: usize> SimdState<N> {
 
         states
     }
+    /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place.
     pub fn write_states(&self, states: &mut [&mut State]) {
         let linreg_states = self.linreg_state.to_states();
         let tsf = self.tsf.to_array();
@@ -60,6 +67,14 @@ impl<const N: usize> SimdState<N> {
     }
 }
 
+/// Computes one FOSC step across `N` asset lanes using SIMD parallelism.
+///
+/// FOSC measures the percentage deviation of the current price from the Time Series
+/// Forecast: `fosc = 100 * (value - tsf_prev) / value`. It then advances the
+/// underlying linear-regression / TSF state so that `tsf_prev` is ready for the
+/// next bar.
+///
+/// Returns `(fosc, tsf, linreg, slope, intercept)` for all `N` lanes simultaneously.
 #[inline(always)]
 pub fn calc_simd<const N: usize>(
     state: &mut SimdState<N>,

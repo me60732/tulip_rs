@@ -9,11 +9,13 @@ use crate::indicators::mfi::{
 };
 use crate::indicators::simd_indicators::mfi_simd::options::SimdState;
 
+/// SIMD driver for the Money Flow Index (MFI) indicator, processing `N` option-set lanes per scheduling epoch.
 struct MfiDriver {
     want_optional_outputs: bool,
 }
 
 impl Driver<State, usize> for MfiDriver {
+    /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD. Reads the shared input, applies each lane's options, writes outputs, and updates per-lane states.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -62,6 +64,19 @@ impl Driver<State, usize> for MfiDriver {
     }
 }
 
+/// Calculates the Money Flow Index (MFI) on a single asset with `N` different option sets
+/// simultaneously using SIMD parallelism.
+///
+/// # Arguments
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+///   `[high, low, close, volume]`.
+/// * `options` - An array of `N` option sets, one per SIMD lane: `[period]`.
+/// * `optional_outputs` - Optional output flags: `[want_typprice]`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i]` contains `[mfi, typprice?]`
+/// and `states[i]` is the final [`IndicatorState`] for option set `i`.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[&[f64; OPTIONS_WIDTH]; N],

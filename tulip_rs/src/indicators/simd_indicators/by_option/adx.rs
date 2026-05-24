@@ -12,11 +12,19 @@ use crate::indicators::{
     dx::output_length as dx_output_length, tr::output_length as tr_output_length,
 };
 
+/// SIMD driver that advances the Average Directional Index (ADX) across `N` option-set lanes
+/// per scheduling epoch.
 struct AdxDriver {
+    /// Optional output flags: `(has_optional, want_dx, want_atr, want_tr)`.
     want_optional_outputs: (bool, bool, bool, bool),
 }
 
 impl Driver<State, (f64, f64)> for AdxDriver {
+    /// Processes one epoch of bars for `N` option lanes simultaneously using SIMD.
+    ///
+    /// Reads from `inputs[field]` (shared single asset's high, low, close), writes to
+    /// `outputs[lane][output]`, and updates `states[lane]` in place.
+    /// Per-lane Wilder multipliers are loaded from `options[lane]` at the start of each epoch.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -89,6 +97,19 @@ impl Driver<State, (f64, f64)> for AdxDriver {
     }
 }
 
+/// Calculates the Average Directional Index (ADX) on a single asset with `N` different option
+/// sets simultaneously using SIMD parallelism.
+///
+/// # Arguments
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+///   `[high, low, close]`.
+/// * `options` - An array of `N` option sets, one per SIMD lane: `[period]`.
+/// * `optional_outputs` - Optional output flags: `[want_dx, want_atr, want_tr]`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i]` contains `[adx, dx?, atr?, tr?]`
+/// and `states[i]` is the final [`IndicatorState`] for option set `i`.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[&[f64; OPTIONS_WIDTH]; N],

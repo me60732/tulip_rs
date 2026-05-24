@@ -6,23 +6,41 @@ use crate::indicators::ema::{
 use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 2;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::apo_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::apo_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::apo_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::apo_simd::indicator_by_options as indicator;
 }
 
@@ -113,6 +131,22 @@ pub fn info() -> Info<'static> {
         optional_outputs: &["short_ema", "long_ema"],
     }
 }
+/// Returns the minimum number of input bars required to produce results
+/// accurate to `decimals` decimal places.
+///
+/// For indicators with exponential smoothing the seed value's influence
+/// must decay below the requested precision, so this value grows with
+/// `decimals`. Internally uses `min_process` with the long-period EMA
+/// smoothing multiplier to calculate the required lookback.
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options (short period, long period).
+/// * `decimals` - The number of decimal places of accuracy required.
+///
+/// # Returns
+///
+/// The minimum number of input bars needed for the requested accuracy.
 pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
     let (_short_multiplier, long_multiplier) = multiplier(options[0] as usize, options[1] as usize);
     min_process(
@@ -136,13 +170,12 @@ pub fn min_data(options: &[f64]) -> usize {
     options[1] as usize
 }
 
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Calculates the output length for the APO indicator based on the data length and options.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
-/// * `_options` - A slice containing the options for the APO calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
+/// * `options` - A slice containing the short and long periods for the APO calculation.
 ///
 /// # Returns
 ///
@@ -156,18 +189,32 @@ pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), Ind
     }
     Ok(())
 }
-/// Calculates the Absolute Price Oscillator (APO) indicator for an entire dataset or a slice of it.
+/// Calculates the Absolute Price Oscillator (APO) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — close prices
+///
+/// # Options
+///
+/// * `options[0]` — short period (must be >= 1)
+/// * `options[1]` — long period (must be > short period)
 ///
 /// # Arguments
 ///
-/// * `inputs` - A slice of vectors containing the close prices.
-/// * `_options` - A slice containing the options for the APO calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
-/// * `optional_outputs` - An optional slice of booleans indicating which additional outputs to generate.
+/// * `inputs` - Array of 1 input price slice (see Inputs above).
+/// * `options` - Array of 2 indicator options (see Options above).
+/// * `optional_outputs` - Pass `Some(&[true, false])` to enable individual
+///   optional outputs (`short_ema`, `long_ema`); `None` disables all.
 ///
 /// # Returns
 ///
-/// A vector of vectors containing the APO line and optionally the short EMA and long EMA lines.
+/// `Ok((outputs, state))` where `outputs[0]` is the `apo` line,
+/// `outputs[1]` is the optional `short_ema` line, and `outputs[2]` is the optional `long_ema` line
+/// (each empty if not requested).
+/// `state` can be passed to `IndicatorState::batch_indicator` to continue streaming.
+///
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -192,16 +239,18 @@ pub fn indicator(
         short_ema_line: short_ema_capacity,
         long_ema_line: capacity
     );
-    
-    
+
     let multipliers = multiplier(short_period, long_period);
     let mut state = State::init_state(real, short_period, long_period, &mut short_ema_line);
-    
+
     let optional_outputs = {
         let short_start = crate::slice_outputs_start!(capacity, short_ema_line);
-        (&mut short_ema_line[short_start..], long_ema_line.as_mut_slice())
+        (
+            &mut short_ema_line[short_start..],
+            long_ema_line.as_mut_slice(),
+        )
     };
-    
+
     cycle_apo(
         &real[real.len() - apo_line.len()..],
         &mut state,
@@ -220,15 +269,11 @@ pub fn indicator(
 ///
 /// # Arguments
 ///
-/// * `close` - A slice of close prices.
-/// * `short_period` - The short period for the APO calculation.
-/// * `long_period` - The long period for the APO calculation.
-/// * `short_ema` - The initial short EMA value.
-/// * `long_ema` - The initial long EMA value.
-/// * `apo_line` - A mutable reference to a vector for storing the APO line.
-/// * `short_ema_line` - A mutable reference to a vector for storing the short EMA line.
-/// * `long_ema_line` - A mutable reference to a vector for storing the long EMA line.
-/// * `optional_outputs` - An optional slice of booleans indicating which additional outputs to generate.
+/// * `real` - A slice of close prices to process.
+/// * `state` - A mutable reference to the current `State` (short EMA, long EMA).
+/// * `multipliers` - The precomputed EMA multipliers for the short and long periods.
+/// * `apo_line` - A mutable slice for storing the resulting APO line values.
+/// * `out_vecs` - A tuple of mutable slices for optional outputs: short EMA and long EMA lines.
 fn cycle_apo(
     real: &[f64],
     state: &mut State,

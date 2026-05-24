@@ -1,8 +1,8 @@
+#[cfg(feature = "simd_assets")]
+pub use crate::indicators::simd_indicators::by_asset::vidya::indicator_by_assets;
 use crate::indicators::simd_indicators::stddev_simd::{
     calc_simd as stddev_calc_simd, SimdState as SimdStddevState,
 };
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::vidya::indicator_by_assets;
 
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::vidya::indicator_by_options;
@@ -10,14 +10,15 @@ pub use crate::indicators::simd_indicators::by_option::vidya::indicator_by_optio
 use crate::indicators::vidya::State;
 use std::simd::{Simd, StdFloat};
 
+/// SIMD-parallel state for the Variable Index Dynamic Average (VIDYA) indicator, holding `N` lanes of per-asset state.
 pub struct SimdState<const N: usize> {
     pub short_state: SimdStddevState<N>,
     pub long_state: SimdStddevState<N>,
     prev_vidya: Simd<f64, N>,
 }
 impl<const N: usize> SimdState<N> {
+    /// Constructs a `SimdState` by gathering scalar per-asset states into SIMD vectors.
     pub fn new(states: &mut [&mut State]) -> Self {
-        // Create vectors to collect the references
         let mut short_refs = Vec::with_capacity(N);
         let mut long_refs = Vec::with_capacity(N);
 
@@ -38,6 +39,7 @@ impl<const N: usize> SimdState<N> {
         }
     }
 
+    /// Converts the SIMD state into an array of `N` scalar [`State`] values.
     pub fn to_states(&self) -> [State; N] {
         let short_states = self.short_state.to_states();
         let long_states = self.long_state.to_states();
@@ -60,6 +62,7 @@ impl<const N: usize> SimdState<N> {
             .try_into()
             .unwrap_or_else(|_| panic!("Failed to convert states_vec to array"))
     }
+    /// Writes the current SIMD lane values back into the provided scalar per-asset states.
     pub fn write_states(&self, states: &mut [&mut State]) {
         let mut short_refs = Vec::with_capacity(N);
         let mut long_refs = Vec::with_capacity(N);
@@ -76,6 +79,24 @@ impl<const N: usize> SimdState<N> {
             states[i].prev_vidya = prev_vidya[i];
         }
     }
+    /// Computes one bar of the Variable Index Dynamic Average (VIDYA) for `N` assets simultaneously
+    /// using SIMD parallelism.
+    ///
+    /// Computes short-term and long-term standard deviations, then scales the smoothing
+    /// coefficient `k = (sd_short / sd_long) * alpha` and applies:
+    /// `vidya = vidya + k * (value - vidya)`.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - Current prices for this bar.
+    /// * `short_value` - Oldest value being dropped from the short-period stddev window.
+    /// * `long_value` - Oldest value being dropped from the long-period stddev window.
+    /// * `alpha` - EMA alpha coefficient `2 / (period + 1)` as a SIMD vector.
+    /// * `multipliers` - Tuple `(short_multiplier, long_multiplier)` SMA factors for the stddev windows.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(vidya, sma_short, sma_long, sd_short, sd_long)` for all `N` lanes.
     #[inline(always)]
     pub fn calc_simd(
         &mut self,
@@ -110,6 +131,23 @@ impl<const N: usize> SimdState<N> {
     }
 }
 
+/// Computes one bar of the Variable Index Dynamic Average (VIDYA) for `N` assets simultaneously
+/// using SIMD parallelism.
+///
+/// Thin wrapper delegating to [`SimdState::calc_simd`].
+///
+/// # Arguments
+///
+/// * `state` - Mutable SIMD state.
+/// * `value` - Current prices for this bar.
+/// * `short_value` - Oldest value dropped from the short stddev window.
+/// * `long_value` - Oldest value dropped from the long stddev window.
+/// * `alpha` - EMA alpha coefficient.
+/// * `multipliers` - Tuple `(short_multiplier, long_multiplier)`.
+///
+/// # Returns
+///
+/// A tuple `(vidya, sma_short, sma_long, sd_short, sd_long)` for all `N` lanes.
 #[inline(always)]
 pub fn calc_simd<const N: usize>(
     state: &mut SimdState<N>,

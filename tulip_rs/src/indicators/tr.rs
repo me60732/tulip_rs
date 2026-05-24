@@ -3,23 +3,26 @@ pub use crate::indicator_types::TIndicatorState;
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 3;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 0;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::tr_simd::indicator_by_assets;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
     pub use crate::indicators::simd_indicators::tr_simd::indicator_by_assets as indicator;
 }
-
-/// Returns information about the True Range (TR) indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the TR indicator.
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndicatorState {
@@ -48,6 +51,11 @@ impl TIndicatorState<3> for IndicatorState {
         Ok(vec![tr_line])
     }
 }
+/// Returns information about the True Range (TR) indicator.
+///
+/// # Returns
+///
+/// An `Info` struct containing metadata about the TR indicator.
 pub fn info() -> Info<'static> {
     Info {
         name: "TR",
@@ -60,6 +68,19 @@ pub fn info() -> Info<'static> {
         optional_outputs: &[],
     }
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
@@ -75,13 +96,12 @@ pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
 pub fn min_data(_options: &[f64]) -> usize {
     2
 }
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Calculates the output length based on the data length and options.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
-/// * `_options` - A slice containing the options for the TR calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
+/// * `_options` - A slice containing the options for the TR calculation (unused).
 ///
 /// # Returns
 ///
@@ -90,6 +110,25 @@ pub fn output_length(data_len: usize, _options: &[f64]) -> usize {
     data_len - 1
 }
 
+/// Calculates the True Range (TR) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — high prices
+/// * `inputs[1]` — low prices
+/// * `inputs[2]` — close prices
+///
+/// # Arguments
+///
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `_options` - Unused; TR has no options.
+/// * `_optional_outputs` - Unused; TR has no optional outputs.
+///
+/// # Returns
+///
+/// `Ok((outputs, state))` where `outputs[0]` is `tr` and
+/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     _options: &[f64; OPTIONS_WIDTH],
@@ -123,12 +162,8 @@ pub fn indicator(
 /// * `low` - A slice of low prices.
 /// * `close` - A slice of close prices.
 /// * `prev_close` - The previous close price.
-/// * `start` - The starting index for the calculation.
-/// * `tr_line` - the indicator for the output.
-///
-/// # Returns
-///
-/// A vector containing the TR line.
+/// * `start` - The starting index into `high`, `low`, and `close` to begin reading from.
+/// * `tr_line` - A mutable slice for storing the TR output values.
 #[inline(always)]
 fn cycle_tr(
     high: &[f64],
@@ -153,7 +188,8 @@ fn cycle_tr(
 ///
 /// # Arguments
 ///
-/// * `inputs` - A tuple containing the current high and low prices.
+/// * `high` - The current high price.
+/// * `low` - The current low price.
 /// * `prev_close` - The previous close price.
 ///
 /// # Returns

@@ -12,11 +12,19 @@ use crate::indicators::adosc::{
 use crate::indicators::ema::output_length as ema_output_length;
 use crate::indicators::simd_indicators::adosc_simd::{calc_simd, SimdState};
 
+/// SIMD driver that advances the Chaikin AD Oscillator (ADOSC) across `N` option-set lanes
+/// per scheduling epoch.
 struct AdoscDriver {
+    /// Optional output flags: `(has_optional, want_short_ema, want_long_ema, want_ad)`.
     want_optional_outputs: (bool, bool, bool, bool),
 }
 
 impl Driver<State, ((f64, f64), (f64, f64))> for AdoscDriver {
+    /// Processes one epoch of bars for `N` option lanes simultaneously using SIMD.
+    ///
+    /// Reads from `inputs[field]` (shared single asset's high, low, close, volume), writes to
+    /// `outputs[lane][output]`, and updates `states[lane]` in place.
+    /// Per-lane EMA multipliers are loaded from `options[lane]` at the start of each epoch.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -96,6 +104,21 @@ impl Driver<State, ((f64, f64), (f64, f64))> for AdoscDriver {
     }
 }
 
+/// Calculates the Chaikin AD Oscillator (ADOSC) on a single asset with `N` different option
+/// sets simultaneously using SIMD parallelism.
+///
+/// # Arguments
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+///   `[high, low, close, volume]`.
+/// * `options` - An array of `N` option sets, one per SIMD lane:
+///   `[short_period, long_period]`.
+/// * `optional_outputs` - Optional output flags:
+///   `[want_short_ema, want_long_ema, want_ad]`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i]` contains `[adosc, short_ema?, long_ema?, ad?]`
+/// and `states[i]` is the final [`IndicatorState`] for option set `i`.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS_WIDTH], //stock[ fields [ field [f64] ] ]
     options: &[&[f64; OPTIONS_WIDTH]; N],

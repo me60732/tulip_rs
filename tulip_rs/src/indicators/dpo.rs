@@ -6,23 +6,41 @@ use crate::indicators::sma::{calc as calc_sma, output_length as sma_output_lengt
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::dpo_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::dpo_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::dpo_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::dpo_simd::indicator_by_options as indicator;
 }
 
@@ -79,7 +97,6 @@ impl TIndicatorState<1> for IndicatorState {
         Ok(vec![dpo_line, sma_line])
     }
 }
-//Review all doc comments and rewrite (update) to reflect function defination changes
 /// Returns information about the Detrended Price Oscillator (DPO) indicator.
 ///
 /// # Returns
@@ -97,6 +114,19 @@ pub fn info() -> Info<'static> {
         optional_outputs: &["sma"],
     }
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
@@ -113,34 +143,43 @@ pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize + 1
 }
 
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Returns the number of output values given an input data length and options.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
 /// * `options` - A slice containing the options for the DPO calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
 ///
 /// # Returns
 ///
-/// The output length.
+/// The number of output values (`data_len - min_data(options) + 1`).
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
 
-/// Calculates the Detrended Price Oscillator (DPO) for an entire dataset or a slice of it.
+/// Calculates the Detrended Price Oscillator (DPO) over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — real values (typically close prices)
+///
+/// # Options
+///
+/// * `options[0]` — period (SMA window length; look-back offset is `period / 2 + 1`)
 ///
 /// # Arguments
 ///
-/// * `inputs` - A slice of vectors containing the input data.
-/// * `options` - A slice containing the options for the DPO calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
-/// * `_optional_outputs` - An optional slice of booleans indicating which additional outputs to generate.
+/// * `inputs` - Array of input slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `optional_outputs` - Pass `Some(&[true])` to enable the optional `sma`
+///   output; `None` disables all optional outputs.
 ///
 /// # Returns
 ///
-/// A vector of vectors containing the DPO line.
-
+/// `Ok((outputs, state))` where `outputs[0]` is `dpo` and `outputs[1]` is `sma`
+/// (empty unless requested). `state` can be passed to `IndicatorState::batch_indicator`
+/// for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -194,12 +233,13 @@ pub fn indicator(
 ///
 /// # Arguments
 ///
-/// * `real` - A slice of input data.
-/// * `period` - The period for the DPO calculation.
-/// * `sum` - The sum of the previous input values.
-/// * `start` - The starting index for the calculation.
-/// * `dpo_line` - A mutable reference to a vector for storing the DPO line.
-/// * `output_vectors` - A mutable reference to a slice of optional output vectors.
+/// * `real` - A slice of input values.
+/// * `periods` - A tuple `(period, dpo_period)` where `period` is the SMA window and
+///   `dpo_period` is the look-back offset used to detrend the price.
+/// * `multiplier` - The SMA multiplier (`1.0 / period`).
+/// * `sum` - Mutable reference to the running sum used for the SMA calculation.
+/// * `dpo_line` - Mutable slice to write the DPO output values into.
+/// * `sma_line` - Mutable slice to write the SMA values into (optional output).
 fn cycle_dpo(
     real: &[f64],
     periods: (usize, usize),
@@ -215,10 +255,7 @@ fn cycle_dpo(
         let (value, prev_values);
         unsafe {
             value = real.get_unchecked(i);
-            prev_values = (
-                real.get_unchecked(j),
-                real.get_unchecked(i - dpo_period),
-            );
+            prev_values = (real.get_unchecked(j), real.get_unchecked(i - dpo_period));
         }
         let (dpo, sma) = calc(value, sum, prev_values, multiplier);
         unsafe {
@@ -228,18 +265,19 @@ fn cycle_dpo(
     }
 }
 
-/// Calculates the Detrended Price Oscillator (DPO) for the current data point.
+/// Calculates the DPO and SMA values for the current data point.
 ///
 /// # Arguments
 ///
-/// * `value` - The current data point.
-/// * `sum` - The sum of the previous input values.
-/// * `prev_value` - The previous input value.
-/// * `period` - The period for the DPO calculation.
+/// * `value` - The current input value.
+/// * `sum` - Mutable reference to the running sum used for the SMA calculation.
+/// * `prev_values` - A tuple `(prev_value, dpo_price)` where `prev_value` is the value
+///   leaving the SMA window and `dpo_price` is the historical price used for detrending.
+/// * `multiplier` - The SMA multiplier (`1.0 / period`).
 ///
 /// # Returns
 ///
-/// A tuple `(dpo,sma, sum)` representing the DPO and the updated sum.
+/// A tuple `(dpo, sma)` representing the Detrended Price Oscillator and the current SMA.
 #[inline(always)]
 pub fn calc(value: &f64, sum: &mut f64, prev_values: (&f64, &f64), multiplier: f64) -> (f64, f64) {
     //let (sma, mut s) = (0.0, *sum);

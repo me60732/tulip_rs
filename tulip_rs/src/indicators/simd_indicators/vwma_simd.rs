@@ -6,11 +6,13 @@ pub use crate::indicators::simd_indicators::by_option::vwma::indicator_by_option
 use crate::indicators::{simd_indicators::simd_types::F64Constants, vwma::State};
 use std::simd::{cmp::SimdPartialEq, *};
 
+/// SIMD-parallel state for the Volume Weighted Moving Average (VWMA) indicator, holding `N` lanes of per-asset state.
 pub struct SimdState<const N: usize> {
     pub sum: Simd<f64, N>,
     pub vol_sum: Simd<f64, N>,
 }
 impl<const N: usize> SimdState<N> {
+    /// Constructs a `SimdState` by gathering scalar per-asset states into SIMD vectors.
     pub fn new(states: &[&mut State]) -> Self {
         let mut sum = [0.0; N];
         let mut vol_sum = [0.0; N];
@@ -24,6 +26,7 @@ impl<const N: usize> SimdState<N> {
             vol_sum: Simd::from_array(vol_sum),
         }
     }
+    /// Converts the SIMD state into an array of `N` scalar [`State`] values.
     pub fn to_states(&self) -> [State; N] {
         let sum = self.sum.to_array();
         let vol_sum = self.vol_sum.to_array();
@@ -32,6 +35,7 @@ impl<const N: usize> SimdState<N> {
 
         states
     }
+    /// Writes the current SIMD lane values back into the provided scalar per-asset states.
     pub fn write_states(&self, states: &mut [&mut State]) {
         let sum = self.sum.to_array();
         let vol_sum = self.vol_sum.to_array();
@@ -42,6 +46,22 @@ impl<const N: usize> SimdState<N> {
         }
     }
 
+    /// Computes one bar of the Volume Weighted Moving Average (VWMA) for `N` assets simultaneously
+    /// using SIMD parallelism.
+    ///
+    /// Slides the window by subtracting the oldest bar's contribution and adding the current bar's,
+    /// then returns `sum / vol_sum`. Returns zero for lanes where `vol_sum` is zero.
+    ///
+    /// # Arguments
+    ///
+    /// * `close` - Close prices for this bar.
+    /// * `volume` - Volume for this bar.
+    /// * `prev_close` - Close prices from `period` bars ago.
+    /// * `prev_volume` - Volume from `period` bars ago.
+    ///
+    /// # Returns
+    ///
+    /// VWMA values for all `N` lanes.
     #[inline(always)]
     pub fn calc_simd(
         &mut self,
@@ -62,6 +82,22 @@ impl<const N: usize> SimdState<N> {
     }
 }
 
+/// Computes one bar of the Volume Weighted Moving Average (VWMA) for `N` assets simultaneously
+/// using SIMD parallelism.
+///
+/// Thin wrapper delegating to [`SimdState::calc_simd`].
+///
+/// # Arguments
+///
+/// * `state` - Mutable SIMD state.
+/// * `close` - Close prices for this bar.
+/// * `volume` - Volume for this bar.
+/// * `prev_close` - Close prices from `period` bars ago.
+/// * `prev_volume` - Volume from `period` bars ago.
+///
+/// # Returns
+///
+/// VWMA values for all `N` lanes.
 #[inline(always)]
 pub fn calc_simd<const N: usize>(
     state: &mut SimdState<N>,

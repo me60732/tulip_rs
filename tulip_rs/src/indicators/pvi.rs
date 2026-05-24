@@ -3,19 +3,29 @@ pub use crate::indicator_types::TIndicatorState;
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 2;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 0;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::pvi_simd::indicator_by_assets;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::pvi_simd::indicator_by_assets as indicator;
 }
 
-/// Returns information about the Negative Volume Index (pvi) indicator.
+/// Returns information about the Positive Volume Index (PVI) indicator.
 pub fn info() -> Info<'static> {
     Info {
         name: "pvi",
@@ -74,6 +84,19 @@ impl TIndicatorState<2> for IndicatorState {
         Ok(vec![pvi_line])
     }
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
@@ -87,6 +110,24 @@ pub fn output_length(data_len: usize, _options: &[f64]) -> usize {
     data_len - min_data(_options) + 1
 }
 
+/// Calculates the Positive Volume Index (PVI) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — close prices
+/// * `inputs[1]` — volume
+///
+/// # Arguments
+///
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `_options` - Unused; this indicator takes no options.
+/// * `_optional_outputs` - Unused; this indicator has no optional outputs.
+///
+/// # Returns
+///
+/// `Ok((outputs, state))` where `outputs[0]` is the `pvi` line and
+/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     _options: &[f64; OPTIONS_WIDTH],
@@ -129,7 +170,7 @@ fn cycle(close: &[f64], volume: &[f64], pvi_line: &mut [f64], mut pvi: f64) {
     }
 }
 
-/// Performs the core calculation for the Negative Volume Index (pvi) indicator.
+/// Performs the core calculation for the Positive Volume Index (PVI) indicator.
 #[inline(always)]
 pub fn calc(close: &f64, prev_close: &f64, volume: &f64, prev_volume: &f64, pvi: f64) -> f64 {
     if volume > prev_volume {

@@ -8,12 +8,14 @@ use std::simd::Simd;
 //use crate::indicators::ad::output_length;
 use crate::indicators::simd_indicators::roc_simd::calc_simd;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
+/// SIMD driver that advances the Rate of Change (ROC) across `N` asset lanes per scheduling epoch.
 struct RocDriver {
     period: usize,
     want_optional_outputs: bool,
 }
 
 impl Driver<bool> for RocDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -31,7 +33,6 @@ impl Driver<bool> for RocDriver {
 
         // Optimization 3: Simplified main loop with pre-computed offsets
         for (j, i) in (self.period..len).enumerate() {
-
             let (old_vals, new_vals) = crate::extract_simd_at_indices!(N, input_ptrs,
                 old_vals @ j,
                 new_vals @ i
@@ -50,6 +51,24 @@ impl Driver<bool> for RocDriver {
     }
 }
 
+/// Calculates the Rate of Change (ROC) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// ROC measures the percentage change in price over a given look-back `period`.
+/// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[real]` for asset `i`.
+/// * `options` - `[period]` — the look-back period for the rate-of-change calculation.
+/// * `optional_outputs` - Optional slice of booleans enabling extra outputs:
+///   `[0]` → `mom` (Momentum).
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the ROC line and
+/// `outputs[i][1]` is the MOM line (empty unless requested) for asset `i`.
+/// `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

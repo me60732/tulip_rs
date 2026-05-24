@@ -8,23 +8,39 @@ use crate::indicators::ema::{calc as calc_ema, output_length as ema_output_lengt
 use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::tema_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::tema_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
     pub use crate::indicators::simd_indicators::tema_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
     pub use crate::indicators::simd_indicators::tema_simd::indicator_by_options as indicator;
 }
 
@@ -128,6 +144,22 @@ impl TIndicatorState<1> for IndicatorState {
         Ok(vec![tema_line, dema_line, ema_line])
     }
 }
+/// Returns the minimum number of input bars required to produce results
+/// accurate to `decimals` decimal places.
+///
+/// For indicators with exponential smoothing the seed value's influence
+/// must decay below the requested precision, so this value grows with
+/// `decimals`. Internally uses `min_process` with the smoothing
+/// multiplier to calculate the required lookback.
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options (e.g. period).
+/// * `decimals` - The number of decimal places of accuracy required.
+///
+/// # Returns
+///
+/// The minimum number of input bars needed for the requested accuracy.
 pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
     min_process(
         options,
@@ -150,13 +182,12 @@ pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize * 3 - 2
 }
 
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Calculates the output length based on the data length and options.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
 /// * `options` - A slice containing the options for the TEMA calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
 ///
 /// # Returns
 ///
@@ -165,6 +196,30 @@ pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
 
+/// Calculates the Triple Exponential Moving Average (TEMA) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — real (price series)
+///
+/// # Options
+///
+/// * `options[0]` — period
+///
+/// # Arguments
+///
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `optional_outputs` - Optional slice controlling extra output series;
+///   `optional_outputs[0] = true` enables `dema`, `optional_outputs[1] = true` enables `ema`.
+///
+/// # Returns
+///
+/// `Ok((outputs, state))` where `outputs[0]` is `tema`,
+/// `outputs[1]` is `dema` (empty unless requested),
+/// `outputs[2]` is `ema` (empty unless requested), and
+/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -197,7 +252,7 @@ pub fn indicator(
         let offsets = crate::slice_outputs_start!(tema_line.len(), dema_line, ema_line);
         (&mut dema_line[offsets.0..], &mut ema_line[offsets.1..])
     };
-    
+
     // Perform the main TEMA calculation
     cycle_tema(
         real,
@@ -218,13 +273,10 @@ pub fn indicator(
 /// # Arguments
 ///
 /// * `real` - A slice of input data.
-/// * `period` - The period for the TEMA calculation.
-/// * `ema1` - The first EMA value.
-/// * `ema2` - The second EMA value.
-/// * `ema3` - The third EMA value.
-/// * `tema_line` - A mutable reference to a vector for storing the TEMA line.
-/// * `start` - The starting index for the calculation.
-/// * `output_vectors` - A mutable reference to a slice of optional output vectors.
+/// * `multipliers` - A tuple of EMA smoothing factors `(multiplier, inv_multiplier)`.
+/// * `state` - A mutable reference to the current indicator state.
+/// * `tema_line` - A mutable slice for storing the TEMA output values.
+/// * `out_vecs` - A tuple of mutable slices for optional outputs `(dema_line, ema_line)`.
 fn cycle_tema(
     real: &[f64],
     multipliers: (f64, f64),
@@ -234,7 +286,6 @@ fn cycle_tema(
 ) {
     let (dema_line, ema_line) = out_vecs;
     let (has_optional, want_dema, want_ema) = crate::calc_want_flags!(dema_line, ema_line);
-    
 
     for i in 0..real.len() {
         let value = unsafe { real.get_unchecked(i) };
@@ -250,6 +301,17 @@ fn cycle_tema(
     }
 }
 
+/// Calculates a single TEMA value from the current state.
+///
+/// # Arguments
+///
+/// * `state` - A mutable reference to the current indicator state.
+/// * `value` - The current input value.
+/// * `multiplier` - A tuple of EMA smoothing factors `(multiplier, inv_multiplier)`.
+///
+/// # Returns
+///
+/// A tuple `(tema, dema, ema)` containing the current TEMA, DEMA, and EMA values.
 #[inline(always)]
 pub fn calc(state: &mut State, value: &f64, multiplier: (f64, f64)) -> (f64, f64, f64) {
     let dema_state = &mut state.dema_state;
@@ -258,7 +320,9 @@ pub fn calc(state: &mut State, value: &f64, multiplier: (f64, f64)) -> (f64, f64
 
     (
         //3.0 * dema_state.ema1 - 3.0 * dema_state.ema2 + state.ema3,
-        dema_state.ema1.mul_add(3.0, dema_state.ema2.mul_add(-3.0, state.ema3)),
+        dema_state
+            .ema1
+            .mul_add(3.0, dema_state.ema2.mul_add(-3.0, state.ema3)),
         dema,
         ema,
     )

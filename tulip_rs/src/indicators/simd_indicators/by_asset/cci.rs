@@ -13,12 +13,20 @@ use crate::indicators::{
     md::output_length as md_output_length,
 };
 
+/// SIMD driver that advances the Commodity Channel Index (CCI) across `N` asset lanes per
+/// scheduling epoch.
 struct CciDriver {
+    /// Pre-computed `1.0 / (0.015 * period)` CCI scaling factor.
     multiplier: f64,
+    /// Optional output flags: `(has_optional, want_sma, want_md, want_typprice)`.
     want_optional_outputs: (bool, bool, bool, bool),
 }
 
 impl Driver<State> for CciDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
+    ///
+    /// Reads from `inputs[asset][field]` (high, low, close), writes to
+    /// `outputs[asset][output]`, and updates `states[asset]` in place.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -77,6 +85,23 @@ impl Driver<State> for CciDriver {
     }
 }
 
+/// Calculates the Commodity Channel Index (CCI) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// CCI measures the deviation of the typical price from its simple moving average, normalised
+/// by the mean deviation. All assets share the same `options`. Uses the [`PrimeMover`] scheduler
+/// to batch assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[high, low, close]` for asset `i`.
+/// * `options` - Shared options applied to all `N` assets: `[period]`.
+/// * `optional_outputs` - Optional output flags: `[want_sma, want_md, want_typprice]`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i]` contains `[cci, sma?, md?, typprice?]`
+/// for asset `i` and `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

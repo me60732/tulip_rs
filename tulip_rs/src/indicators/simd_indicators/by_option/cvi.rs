@@ -4,15 +4,19 @@ use crate::indicators::cvi::{
     min_data, multiplier, output_length, BufferExt, IndicatorState, State, INPUTS_WIDTH,
     OPTIONS_WIDTH,
 };
-use crate::indicators::simd_indicators::cvi_simd::options::{calc_unchecked_simd, SimdBufferExt, SimdState};
+use crate::indicators::simd_indicators::cvi_simd::options::{
+    calc_unchecked_simd, SimdBufferExt, SimdState,
+};
 
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
+/// SIMD driver for the Chaikin Volatility Indicator (CVI) indicator, processing `N` option-set lanes per scheduling epoch.
 struct CviDriver {}
 
 impl Driver<State, (f64, f64)> for CviDriver {
+    /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD. Reads the shared input, applies each lane's options, writes outputs, and updates per-lane states.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -60,6 +64,19 @@ impl Driver<State, (f64, f64)> for CviDriver {
     }
 }
 
+/// Calculates the Chaikin Volatility Indicator (CVI) on a single asset with `N` different option sets
+/// simultaneously using SIMD parallelism.
+///
+/// # Arguments
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+///   `[high, low]`.
+/// * `options` - An array of `N` option sets, one per SIMD lane: `[period]`.
+/// * `optional_outputs` - Unused; CVI has no optional outputs.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i]` contains `[cvi]`
+/// and `states[i]` is the final [`IndicatorState`] for option set `i`.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[&[f64; OPTIONS_WIDTH]; N],

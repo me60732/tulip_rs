@@ -6,7 +6,10 @@ use crate::indicators::sma::{
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
+
+/// Number of option parameters required by this indicator.
 pub use crate::indicators::ao::OPTIONS_WIDTH;
 const SHORT_PERIOD: usize = 5;
 const LONG_PERIOD: usize = 34;
@@ -99,6 +102,19 @@ impl State {
         state
     }
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options (unused; AO takes no options).
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
@@ -115,13 +131,12 @@ pub fn min_data(_options: &[f64]) -> usize {
     35 // long_period
 }
 
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Calculates the output length based on the data length and options.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
-/// * `_options` - A slice containing the options for the AO calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
+/// * `options` - A slice containing the options for the AO calculation.
 ///
 /// # Returns
 ///
@@ -130,24 +145,29 @@ pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
 
-/// Calculates the Awesome Oscillator (AO) indicator for an entire dataset or a slice of it.
+/// Calculates the Awesome Oscillator (AO) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — `medprice` (median price: `(high + low) / 2`)
 ///
 /// # Arguments
 ///
-/// * `inputs` - A slice of vectors containing the high and low prices.
-/// * `_options` - A slice containing the options for the AO calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
-/// * `_optional_outputs` - An optional slice of booleans indicating which additional outputs to generate.
+/// * `inputs` - Array of input slices (see Inputs above).
+/// * `_options` - Unused; AO takes no options.
+/// * `optional_outputs` - Pass `Some(&[true, true])` to enable optional outputs
+///   `[short_sma, long_sma]`; `None` disables all.
 ///
 /// # Returns
 ///
-/// A vector of vectors containing the AO line.
+/// `Ok((outputs, state))` where `outputs[0]` is `ao` and `state`
+/// can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     _options: &[f64; OPTIONS_WIDTH],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    
     validate_inputs(inputs, min_data(_options))?;
 
     let medprice = inputs[0];
@@ -190,13 +210,11 @@ pub fn indicator(
 ///
 /// # Arguments
 ///
-/// * `high` - A slice of high prices.
-/// * `low` - A slice of low prices.
-/// * `short_period` - The short period for the AO calculation.
-/// * `long_period` - The long period for the AO calculation.
-/// * `prev_medprice` - A mutable reference to a deque containing the previous median prices.
-/// * `start` - The starting index for the calculation.
-/// * `ao_line` - A mutable reference to a vector for storing the AO line.
+/// * `medprice` - The full median price input slice.
+/// * `multipliers` - A tuple of `(short_multiplier, long_multiplier)` from `multiplier()`.
+/// * `state` - Mutable reference to the rolling `State` (short and long SMA sums).
+/// * `ao_line` - Mutable output slice for AO values.
+/// * `out_vecs` - Mutable output slices for optional outputs: `(short_sma_line, long_sma_line)`.
 #[inline(always)]
 fn cycle_ao(
     medprice: &[f64],

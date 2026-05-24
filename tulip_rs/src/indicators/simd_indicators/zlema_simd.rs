@@ -7,6 +7,7 @@ pub use crate::indicators::simd_indicators::by_option::zlema::indicator_by_optio
 use crate::indicators::zlema::State;
 use std::simd::{Simd, StdFloat};
 
+/// SIMD-parallel state for the Zero-Lag Exponential Moving Average (ZLEMA) indicator, holding `N` lanes of per-asset state.
 pub struct SimdState<const N: usize> {
     pub zlema: Simd<f64, N>,
     pub per: Simd<f64, N>,
@@ -14,6 +15,7 @@ pub struct SimdState<const N: usize> {
 }
 
 impl<const N: usize> SimdState<N> {
+    /// Constructs a `SimdState` by gathering scalar per-asset states into SIMD vectors.
     pub fn new(states: &[&mut State]) -> Self {
         let mut zlema = [0.0; N];
         let mut per = [0.0; N];
@@ -30,6 +32,7 @@ impl<const N: usize> SimdState<N> {
             multiplier: Simd::from_array(multiplier),
         }
     }
+    /// Converts the SIMD state into an array of `N` scalar [`State`] values.
     pub fn to_states(&self) -> [State; N] {
         let zlema = self.zlema.to_array();
         let per = self.per.to_array();
@@ -43,6 +46,7 @@ impl<const N: usize> SimdState<N> {
 
         states
     }
+    /// Writes the current SIMD lane values back into the provided scalar per-asset states.
     pub fn write_states(&self, states: &mut [&mut State]) {
         let zlema = self.zlema.to_array();
 
@@ -50,6 +54,20 @@ impl<const N: usize> SimdState<N> {
             states[i].zlema = zlema[i];
         }
     }
+    /// Computes one bar of the Zero-Lag EMA (ZLEMA) for `N` assets simultaneously
+    /// using SIMD parallelism.
+    ///
+    /// Adjusts the current price by `current + (current - lagged)` to remove lag,
+    /// then applies EMA smoothing: `zlema = zlema * per + adjusted * multiplier`.
+    ///
+    /// # Arguments
+    ///
+    /// * `current` - Current prices for this bar.
+    /// * `lagged` - Prices from `(period - 1) / 2` bars ago.
+    ///
+    /// # Returns
+    ///
+    /// Updated ZLEMA values for all `N` lanes.
     #[inline(always)]
     pub fn calc_simd(&mut self, current: Simd<f64, N>, lagged: Simd<f64, N>) -> Simd<f64, N> {
         let adjusted = current + (current - lagged);
@@ -59,6 +77,20 @@ impl<const N: usize> SimdState<N> {
     }
 }
 
+/// Computes one bar of the Zero-Lag EMA (ZLEMA) for `N` assets simultaneously
+/// using SIMD parallelism.
+///
+/// Thin wrapper delegating to [`SimdState::calc_simd`].
+///
+/// # Arguments
+///
+/// * `state` - Mutable SIMD state holding current ZLEMA values and smoothing coefficients.
+/// * `current` - Current prices for this bar.
+/// * `lagged` - Prices from `(period - 1) / 2` bars ago.
+///
+/// # Returns
+///
+/// Updated ZLEMA values for all `N` lanes.
 pub fn calc_simd<const N: usize>(
     state: &mut SimdState<N>,
     current: Simd<f64, N>,

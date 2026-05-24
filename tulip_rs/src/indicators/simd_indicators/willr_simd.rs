@@ -10,11 +10,13 @@ use crate::indicators::simd_indicators::{
 use crate::indicators::willr::State;
 use std::simd::{cmp::SimdPartialOrd, Select, Simd};
 
+/// SIMD-parallel state for the Williams %R indicator, holding `N` lanes of per-asset state.
 pub struct SimdState<const N: usize> {
     min_state: SimdMinState<N>,
     max_state: SimdMaxState<N>,
 }
 impl<const N: usize> SimdState<N> {
+    /// Constructs a `SimdState` by gathering scalar per-asset states into SIMD vectors.
     pub fn new(states: &mut [&mut State]) -> Self {
         let mut min_state = Vec::with_capacity(N);
         let mut max_state = Vec::with_capacity(N);
@@ -31,6 +33,7 @@ impl<const N: usize> SimdState<N> {
             max_state,
         }
     }
+    /// Writes the current SIMD lane values back into the provided scalar per-asset states.
     pub fn write_states(&self, states: &mut [&mut State]) {
         let mut max_refs = Vec::with_capacity(N);
         let mut min_refs = Vec::with_capacity(N);
@@ -44,12 +47,21 @@ impl<const N: usize> SimdState<N> {
     }
 }
 pub mod assets {
+    //! Per-asset road SIMD helpers for the Williams %R indicator.
     use super::*;
     use crate::indicators::simd_indicators::{
         max_simd::assets::Calc as CalcMax, min_simd::assets::Calc as CalcMin,
     };
 
+    /// Trait providing the unchecked per-asset SIMD Williams %R computation.
     pub trait Calc<const N: usize> {
+        /// Computes Williams %R for `N` asset lanes (unsafe, bounds-unchecked).
+        ///
+        /// Finds the rolling `look_back`-bar high and low, then returns
+        /// `100 * (max - close) / (max - min)` for each lane.
+        ///
+        /// # Safety
+        /// `high` and `low` pointers must each be valid for reads in `[i - look_back, i]`.
         unsafe fn calc_unchecked_simd<const CHUNK_SIZE: usize>(
             &mut self,
             high: [*const f64; N],
@@ -86,11 +98,19 @@ pub mod assets {
 }
 
 pub mod options {
+    //! Per-option road SIMD helpers for the Williams %R indicator.
     use super::*;
     use crate::indicators::simd_indicators::{
         max_simd::options::Calc as CalcMax, min_simd::options::Calc as CalcMin,
     };
+    /// Trait providing the unchecked per-option SIMD Williams %R computation.
     pub trait Calc<const N: usize> {
+        /// Computes Williams %R for `N` option lanes (unsafe, bounds-unchecked).
+        ///
+        /// Each lane may have a different look-back period supplied via `look_back: Simd<usize, N>`.
+        ///
+        /// # Safety
+        /// `high` and `low` pointers must each be valid for reads within their respective window.
         unsafe fn calc_unchecked_simd(
             &mut self,
             high: [*const f64; N],

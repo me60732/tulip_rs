@@ -10,12 +10,14 @@ use crate::indicators::simd_indicators::natr_simd::SimdState;
 use crate::indicators::tr::output_length as tr_output_length;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 
+/// SIMD driver that advances the Normalized Average True Range (NATR) across `N` asset lanes per scheduling epoch.
 struct NatrDriver {
     multiplier: f64,
     want_optional_outputs: (bool, bool, bool),
 }
 
 impl Driver<State> for NatrDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -65,6 +67,25 @@ impl Driver<State> for NatrDriver {
     }
 }
 
+/// Calculates the Normalized Average True Range (NATR) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// NATR normalises the Average True Range by the closing price and expresses the result as a
+/// percentage. Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[high, low, close]` for asset `i`.
+/// * `options` - `[period]` — the smoothing period for the underlying ATR.
+/// * `optional_outputs` - Optional slice of booleans enabling extra outputs:
+///   `[0]` → `atr`, `[1]` → `tr`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the NATR line,
+/// `outputs[i][1]` is the ATR line (empty unless requested), and
+/// `outputs[i][2]` is the TR line (empty unless requested), for asset `i`.
+/// `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

@@ -10,6 +10,22 @@ use crate::indicators::simd_indicators::{
     linreg_simd::calc_simd as linreg_calc_simd, simd_types::F64Constants,
 };
 use std::simd::{Simd, StdFloat};
+/// Computes one bar of the Time Series Forecast (TSF) for `N` assets simultaneously
+/// using SIMD parallelism.
+///
+/// Delegates to the linear-regression SIMD routine and projects one period forward:
+/// `tsf = intercept + slope * (period + 1)`.
+///
+/// # Arguments
+///
+/// * `state` - Mutable SIMD state from the underlying linear-regression calculation.
+/// * `prev_value` - Oldest price being dropped from the regression window.
+/// * `value` - Current prices for this bar.
+/// * `period` - Look-back period as a SIMD vector (same value in each lane for assets mode).
+///
+/// # Returns
+///
+/// A tuple `(tsf, linreg, slope, intercept)` for all `N` lanes.
 #[inline(always)]
 pub fn calc_simd<const N: usize>(
     state: &mut SimdState<N>,

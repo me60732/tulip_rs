@@ -1,3 +1,9 @@
+//! SIMD-parallel indicator drivers that process `N` assets with shared options.
+//!
+//! Each sub-module exposes `indicator_by_assets`, which computes one indicator
+//! for `N` asset input sets simultaneously using SIMD parallelism.
+//! Enabled by the `simd_assets` Cargo feature.
+
 pub mod ad;
 pub mod adosc;
 pub mod adx;

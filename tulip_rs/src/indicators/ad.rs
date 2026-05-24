@@ -2,13 +2,25 @@ use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 4;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 0;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::ad_simd::indicator_by_assets;
+
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::ad_simd::indicator_by_assets as indicator;
 }
 /// Returns information about the Accumulation/Distribution Line (AD) indicator.
@@ -65,16 +77,28 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
 pub fn min_data(_options: &[f64]) -> usize {
     1
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options.
+/// * `_decimal_places` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimal_places: usize) -> usize {
     min_data(options)
 }
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Calculates the output length for the AD indicator based on the data length and options.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the AD calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
+/// * `_options` - A slice containing the options for the AD calculation (unused; AD has no options).
 ///
 /// # Returns
 ///
@@ -83,18 +107,27 @@ pub fn output_length(data_len: usize, _options: &[f64]) -> usize {
     data_len
 }
 
-/// Calculates the Accumulation/Distribution Line (AD) indicator for an entire dataset or a slice of it.
+/// Calculates the Accumulation/Distribution Line (AD) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — high prices
+/// * `inputs[1]` — low prices
+/// * `inputs[2]` — close prices
+/// * `inputs[3]` — volume
 ///
 /// # Arguments
 ///
-/// * `inputs` - A slice of vectors containing the high, low, close prices, and volume.
-/// * `_options` - A slice containing the options for the AD calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data, keep in mind with most indicators this is speed vs accuracy.
-/// * `_optional_outputs` - An optional slice of booleans indicating which additional outputs to generate.
+/// * `inputs` - Array of 4 input price/volume slices (see Inputs above).
+/// * `_options` - Unused; AD has no configurable options.
+/// * `_optional_outputs` - Unused; AD produces no optional outputs.
 ///
 /// # Returns
 ///
-/// A `Result` containing a vector of vectors with the AD line or an `IndicatorError`.
+/// `Ok((outputs, state))` where `outputs[0]` is the `ad` line and
+/// `state` can be passed to `IndicatorState::batch_indicator` to continue streaming.
+///
+/// Returns `Err(IndicatorError)` if inputs are too short.
 
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
@@ -115,13 +148,13 @@ pub fn indicator(
 ///
 /// # Arguments
 ///
-/// * `high` - A slice of high prices.
-/// * `low` - A slice of low prices.
-/// * `close` - A slice of close prices.
-/// * `volume` - A slice of volume data.
-/// * `ad_line` - A mutable reference to a vector for storing the AD line.
-/// * `indicator_state` - A slice containing necessary input values.
-/// * `start` - The starting index for the calculation.
+/// * `inputs` - A reference to an array of 4 input slices: high, low, close, and volume.
+/// * `ad_line` - A mutable slice for storing the resulting AD line values.
+/// * `ad` - The running AD accumulator value to continue from.
+///
+/// # Returns
+///
+/// The final AD accumulator value after processing all inputs.
 #[inline(always)]
 fn cycle(inputs: &[&[f64]; INPUTS_WIDTH], ad_line: &mut [f64], mut ad: f64) -> f64 {
     let (high, low, close, volume) = (inputs[0], inputs[1], inputs[2], inputs[3]);
@@ -144,7 +177,7 @@ fn cycle(inputs: &[&[f64]; INPUTS_WIDTH], ad_line: &mut [f64], mut ad: f64) -> f
 ///
 /// # Arguments
 ///
-/// * `prev_ad` - The previous AD value.
+/// * `ad` - The previous AD value.
 /// * `high` - The current high price.
 /// * `low` - The current low price.
 /// * `close` - The current close price.

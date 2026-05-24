@@ -2,6 +2,21 @@ use crate::types::IndicatorError;
 
 use crate::indicators::bop::{indicator, IndicatorState, INPUTS_WIDTH, OPTIONS_WIDTH};
 
+/// Calculates the Balance of Power (BOP) for `N` assets by calling the scalar
+/// [`indicator`] function for each asset independently.
+///
+/// No SIMD parallelism is used; each asset is processed sequentially.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[open, high, low, close]` for asset `i`.
+/// * `options` - Forwarded to the scalar `indicator`; BOP has no configurable options.
+/// * `optional_outputs` - Forwarded to the scalar `indicator`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the BOP series for asset `i`
+/// and `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input is invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N],
     options: &[f64; OPTIONS_WIDTH],

@@ -12,6 +12,10 @@ pub mod imports {
 }
 pub mod assets {
     use super::imports::*;
+    /// Computes one Mean Deviation step across `N` asset lanes using SIMD parallelism.
+    ///
+    /// Updates the SMA via a sliding-window sum and then computes the mean absolute
+    /// deviation of all values in the current window from the new SMA.
     #[inline(always)]
     pub fn calc_simd<const N: usize>(
         value: Simd<f64, N>,
@@ -25,6 +29,10 @@ pub mod assets {
         let md = calc_md_simd(slice, sma, multiplier);
         (md, sma)
     }
+    /// Computes the per-lane mean absolute deviation from `sma` over the values in `slice`.
+    ///
+    /// Sums `|x - sma|` for each value and multiplies by `multiplier` (= 1/period).
+    /// Clamps the result to `EPSILON` to avoid exact-zero returns.
     #[inline(always)]
     pub fn calc_md_simd<const N: usize>(
         slice: &[Simd<f64, N>],
@@ -38,6 +46,10 @@ pub mod assets {
 pub mod options {
     use super::imports::*;
     use crate::indicators::md::calc_md_simd;
+    /// Computes one Mean Deviation step for `N` option lanes (different periods) on a single asset.
+    ///
+    /// Advances the shared SMA, then for each lane reads its own period-length window from
+    /// the raw pointer to compute its individual mean deviation.
     #[inline(always)]
     pub fn calc_simd<const N: usize>(
         value: Simd<f64, N>,

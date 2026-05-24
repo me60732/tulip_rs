@@ -9,11 +9,18 @@ use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
+/// SIMD driver that advances the Chande Momentum Oscillator (CMO) across `N` asset lanes per
+/// scheduling epoch.
 struct CmoDriver {
+    /// The look-back period used to compute up/down momentum sums.
     period: usize,
 }
 
 impl Driver<State> for CmoDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
+    ///
+    /// Reads from `inputs[asset][0]` (real prices), writes CMO values to
+    /// `outputs[asset][0]`, and updates `states[asset]` in place.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -53,6 +60,23 @@ impl Driver<State> for CmoDriver {
     }
 }
 
+/// Calculates the Chande Momentum Oscillator (CMO) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// CMO measures the sum of recent up-moves minus recent down-moves, normalised to a ±100 scale.
+/// All assets share the same `options`. Uses the [`PrimeMover`] scheduler to batch assets into
+/// SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing the real price series for asset `i`.
+/// * `options` - Shared options applied to all `N` assets: `[period]`.
+/// * `_optional_outputs` - Unused; CMO has no optional output lines.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the CMO series for asset `i`
+/// and `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

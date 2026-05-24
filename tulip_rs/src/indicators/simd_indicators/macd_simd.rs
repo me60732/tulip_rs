@@ -1,19 +1,25 @@
 use crate::indicators::macd::State;
-use crate::indicators::simd_indicators::ema_simd::calc_simd as calc_ema_simd;
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::by_asset::macd::indicator_by_assets;
+use crate::indicators::simd_indicators::ema_simd::calc_simd as calc_ema_simd;
 
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::macd::indicator_by_options;
 
 use std::simd::Simd;
 
+/// SIMD-parallel state for computing the MACD indicator across `N` assets simultaneously.
+/// Each field is a SIMD vector where lane `i` corresponds to asset `i`.
 pub struct SimdState<const N: usize> {
+    /// Short-period EMA value per asset lane.
     pub short_ema: Simd<f64, N>,
+    /// Long-period EMA value per asset lane.
     pub long_ema: Simd<f64, N>,
+    /// Signal line (EMA of MACD values) per asset lane.
     pub signal: Simd<f64, N>,
 }
 impl<const N: usize> SimdState<N> {
+    /// Gathers `N` scalar [`State`] references into a single `SimdState`, packing each field into a SIMD lane.
     pub fn new(states: &[&mut State]) -> Self {
         let mut short_ema = [0.0; N];
         let mut long_ema = [0.0; N];
@@ -31,6 +37,7 @@ impl<const N: usize> SimdState<N> {
             signal: Simd::from_array(signal),
         }
     }
+    /// Scatters the SIMD state back into an array of `N` scalar [`State`] values.
     pub fn to_states(&self) -> [State; N] {
         let short_ema = self.short_ema.to_array();
         let long_ema = self.long_ema.to_array();
@@ -41,6 +48,7 @@ impl<const N: usize> SimdState<N> {
 
         states
     }
+    /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place.
     pub fn write_states(&self, states: &mut [&mut State]) {
         let short_ema = self.short_ema.to_array();
         let long_ema = self.long_ema.to_array();
@@ -54,6 +62,11 @@ impl<const N: usize> SimdState<N> {
     }
 }
 
+/// Computes one MACD step across `N` lanes using SIMD parallelism.
+///
+/// Updates the short and long EMAs from the current `value`, computes the
+/// MACD line as `short_ema - long_ema`, updates the signal line as an EMA
+/// of the MACD, and returns `(macd, signal, histogram)` for all lanes.
 #[inline(always)]
 pub fn calc_simd<const N: usize>(
     state: &mut SimdState<N>,

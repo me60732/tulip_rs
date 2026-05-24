@@ -5,23 +5,41 @@ pub use crate::indicators::stddev::{multiplier, State};
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 2;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::bbands_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::bbands_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::bbands_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::bbands_simd::indicator_by_options as indicator;
 }
 
@@ -96,6 +114,19 @@ impl TIndicatorState<1> for IndicatorState {
         Ok(vec![lower_band, middle_band, upper_band])
     }
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
@@ -112,17 +143,16 @@ pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize + 1
 }
 
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Calculates the output length for the BBANDS indicator.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
-/// * `_options` - A slice containing the options for the BBANDS calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
+/// * `options` - A slice containing the options for the BBANDS calculation.
 ///
 /// # Returns
 ///
-/// The output length.
+/// The number of output values produced by the BBANDS calculation.
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
@@ -132,18 +162,29 @@ pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), Ind
     }
     Ok(())
 }
-/// Calculates the Bollinger Bands (BBANDS) indicator for an entire dataset or a slice of it.
+/// Calculates the Bollinger Bands (BBANDS) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — real (price) values
+///
+/// # Options
+///
+/// * `options[0]` — period
+/// * `options[1]` — std_dev (standard deviation multiplier for the bands)
 ///
 /// # Arguments
 ///
-/// * `inputs` - A slice of vectors containing the real prices.
-/// * `_options` - A slice containing the options for the BBANDS calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
-/// * `optional_outputs` - An optional slice of booleans indicating which additional outputs to generate.
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `_optional_outputs` - Unused; BBANDS has no optional outputs.
 ///
 /// # Returns
 ///
-/// A vector of vectors containing the lower band, middle band, and upper band.
+/// `Ok((outputs, state))` where `outputs[0]` is `bbands_lower`, `outputs[1]` is `bbands_middle`,
+/// `outputs[2]` is `bbands_upper`, and `state` can be passed to
+/// `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -198,13 +239,10 @@ pub fn indicator(
 ///
 /// * `real` - A slice of real prices.
 /// * `period` - The period for the BBANDS calculation.
-/// * `std_dev` - The standard deviation multiplier for the BBANDS calculation.
-/// * `middle_band` - A mutable reference to a vector for storing the middle band.
-/// * `upper_band` - A mutable reference to a vector for storing the upper band.
-/// * `lower_band` - A mutable reference to a vector for storing the lower band.
-/// * `sum` - The sum of the previous input values.
-/// * `sum_sq` - The sum of the squares of the previous input values.
-/// * `start` - The starting index for the calculation.
+/// * `std_dev` - The standard deviation multiplier for the bands.
+/// * `multiplier` - The precomputed period multiplier used in standard deviation calculation.
+/// * `outputs` - A tuple of mutable slices for storing the lower, middle, and upper bands.
+/// * `state` - A mutable reference to the current indicator state.
 #[inline(always)]
 fn cycle_bbands(
     real: &[f64],
@@ -232,16 +270,15 @@ fn cycle_bbands(
 ///
 /// # Arguments
 ///
-/// * `std_dev` - The standard deviation multiplier for the BBANDS calculation.
-/// * `sum_sq` - The sum of the squares of the previous input values.
-/// * `sum` - The sum of the previous input values.
-/// * `period` - The period for the BBANDS calculation.
+/// * `state` - A mutable reference to the current standard deviation state.
+/// * `std_dev` - The standard deviation multiplier for the bands.
+/// * `multiplier` - The precomputed period multiplier used in standard deviation calculation.
 /// * `value` - The current input value.
-/// * `prev_value` - The previous input value.
+/// * `prev_value` - The previous period's input value (used to update the rolling sum).
 ///
 /// # Returns
 ///
-/// A tuple containing the lower band, middle band, upper band, sum, sum_sq.
+/// A tuple of `(lower_band, middle_band, upper_band)`.
 #[inline(always)]
 pub fn calc(
     state: &mut State,

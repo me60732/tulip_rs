@@ -1,17 +1,19 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
+use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::sma::{
     init_state, min_data, multiplier, output_length, IndicatorState, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
-use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;
 //use crate::indicators::ad::output_length;
 use crate::indicators::simd_indicators::sma_simd::calc_simd;
 
+/// SIMD driver for the Simple Moving Average (SMA) indicator, processing `N` option-set lanes per scheduling epoch.
 struct SmaDriver {}
 
 impl Driver<f64, (usize, f64)> for SmaDriver {
+    /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -73,6 +75,21 @@ impl Driver<f64, (usize, f64)> for SmaDriver {
     }
 }
 
+/// Calculates the Simple Moving Average (SMA) indicator for one asset with `N` different
+/// option sets simultaneously using SIMD parallelism.
+///
+/// Applies each of the `N` period configurations to the same shared input series, computing
+/// SMA values for all option sets in a single SIMD-accelerated pass via [`PrimeMover`].
+///
+/// # Arguments
+/// * `inputs` - Shared input: `inputs[0]` is the `real` price series.
+/// * `options` - An array of `N` option sets; `options[i][0]` is the `period` for lane `i`.
+/// * `_optional_outputs` - Unused; SMA has no optional outputs.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the `sma` series for option set `i`
+/// and `states[i]` is the final [`IndicatorState`] for option set `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS_WIDTH], //stock[ fields [ field [f64] ] ]
     options: &[&[f64; OPTIONS_WIDTH]; N],

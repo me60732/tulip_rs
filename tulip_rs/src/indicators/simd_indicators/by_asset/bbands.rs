@@ -12,13 +12,22 @@ use std::simd::Simd;
     stddev_simd::{calc_simd as calc_stddev_simd, SimdState},
 };*/
 
+/// SIMD driver that advances the Bollinger Bands (BBANDS) across `N` asset lanes per scheduling
+/// epoch.
 struct BbandsDriver {
+    /// Pre-computed `1.0 / period` SMA multiplier broadcast to all lanes.
     multiplier: f64,
+    /// The rolling window size (number of bars summed per average).
     period: usize,
+    /// Number of standard deviations for the upper and lower band offsets.
     std_dev: f64,
 }
 
 impl Driver<State> for BbandsDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
+    ///
+    /// Reads from `inputs[asset][0]` (real prices), writes `[lower_band, middle_band, upper_band]`
+    /// to `outputs[asset]`, and updates `states[asset]` in place.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -65,6 +74,23 @@ impl Driver<State> for BbandsDriver {
     }
 }
 
+/// Calculates the Bollinger Bands (BBANDS) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// Bollinger Bands consist of a middle SMA band and upper/lower bands placed a configurable
+/// number of standard deviations away. All assets share the same `options`. Uses the
+/// [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing the real price series for asset `i`.
+/// * `options` - Shared options applied to all `N` assets: `[period, std_dev_multiplier]`.
+/// * `_optional_outputs` - Unused; BBANDS has no optional output lines.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i]` contains `[lower_band, middle_band, upper_band]`
+/// for asset `i` and `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

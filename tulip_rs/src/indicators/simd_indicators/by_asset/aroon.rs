@@ -8,12 +8,20 @@ use crate::indicators::simd_indicators::aroon_simd::{assets::Calc, SimdState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;
+/// SIMD driver that advances the Aroon Indicator (AROON) across `N` asset lanes per scheduling
+/// epoch.
 struct AroonDriver {
+    /// The look-back period used to find the highest high and lowest low.
     period: usize,
+    /// Pre-computed `100.0 / period` scaling factor applied to Aroon values.
     multiplier: f64,
 }
 
 impl Driver<State> for AroonDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
+    ///
+    /// Reads from `inputs[asset][field]` (high, low), writes to `outputs[asset][output]`,
+    /// and updates `states[asset]` in place.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -75,6 +83,22 @@ impl Driver<State> for AroonDriver {
     }
 }
 
+/// Calculates the Aroon Indicator (AROON) for `N` assets simultaneously using SIMD parallelism.
+///
+/// The Aroon Indicator measures how many periods ago the highest high and lowest low were recorded
+/// within the look-back window. All assets share the same `options`. Uses the [`PrimeMover`]
+/// scheduler to batch assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[high, low]` for asset `i`.
+/// * `options` - Shared options applied to all `N` assets: `[period]`.
+/// * `_optional_outputs` - Unused; AROON has no optional output lines.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i]` contains `[aroon_down, aroon_up]`
+/// for asset `i` and `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

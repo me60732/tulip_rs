@@ -8,13 +8,20 @@ use crate::indicators::simd_indicators::{
 };
 use crate::ring_buffer::single_buffer::generic_buffer::{RingBuffer, SimdBuffer, SimdRingBuffer};
 use std::simd::Simd;
+/// SIMD-parallel state for computing the Awesome Oscillator (AO) across `N` assets
+/// simultaneously. Each field is a SIMD vector where lane `i` corresponds to asset `i`.
 pub struct SimdState<const N: usize> {
+    /// Ring buffer storing recent median prices for use by both SMA windows.
     buffer: SimdBuffer<N>,
+    /// Rolling sum for the short (5-period) SMA of the median price.
     pub short_sum: Simd<f64, N>,
+    /// Rolling sum for the long (34-period) SMA of the median price.
     pub long_sum: Simd<f64, N>,
 }
 
 impl<const N: usize> SimdState<N> {
+    /// Gathers `N` scalar [`State`] references into a single `SimdState`,
+    /// packing each field into a SIMD lane.
     pub fn new(states: &mut [&mut State]) -> Self {
         debug_assert_eq!(states.len(), N, "Number of states must match SIMD width");
         let mut short_sum = [0.0; N];
@@ -36,6 +43,8 @@ impl<const N: usize> SimdState<N> {
         }
     }
 
+    /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place,
+    /// avoiding allocation compared to a `to_states` conversion.
     pub fn write_states(&self, states: &mut [&mut State]) {
         // First, handle the buffer updates
         let buffers = self.buffer.to_f64_buffers();
@@ -49,6 +58,14 @@ impl<const N: usize> SimdState<N> {
         }
     }
 
+    /// Advances the AO by one bar for `N` assets simultaneously (unchecked variant).
+    ///
+    /// Computes the median price, pushes it into the ring buffer, then updates both the short-
+    /// and long-period SMAs. Returns `(ao, short_sma, long_sma, medprice)`.
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee the ring buffer is already full (warm-up complete).
     #[inline(always)]
     pub unsafe fn calc_unchecked_simd(
         &mut self,
@@ -75,6 +92,15 @@ impl<const N: usize> SimdState<N> {
 
         (short_sma - long_sma, short_sma, long_sma, med_price)
     }
+    /// Advances the AO by one bar for `N` assets simultaneously (checked variant).
+    ///
+    /// Computes the median price, pushes it into the ring buffer, then updates both the short-
+    /// and long-period SMAs. Returns zero for all lanes until the buffer is full enough to
+    /// provide an old median price for the long SMA.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(ao, short_sma, long_sma, medprice)` of SIMD vectors for all `N` lanes.
     #[inline(always)]
     pub fn calc_simd(
         &mut self,

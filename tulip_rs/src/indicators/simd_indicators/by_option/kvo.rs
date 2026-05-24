@@ -12,11 +12,13 @@ use crate::indicators::{
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
+/// SIMD driver for the Klinger Volume Oscillator (KVO) indicator, processing `N` option-set lanes per scheduling epoch.
 struct KvoDriver {
     want_optional_outputs: (bool, bool, bool),
 }
 
 impl Driver<State, ((f64, f64), (f64, f64))> for KvoDriver {
+    /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD. Reads the shared input, applies each lane's options, writes outputs, and updates per-lane states.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -91,6 +93,20 @@ impl Driver<State, ((f64, f64), (f64, f64))> for KvoDriver {
     }
 }
 
+/// Calculates the Klinger Volume Oscillator (KVO) on a single asset with `N` different option sets
+/// simultaneously using SIMD parallelism.
+///
+/// # Arguments
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+///   `[high, low, close, volume]`.
+/// * `options` - An array of `N` option sets, one per SIMD lane:
+///   `[short_period, long_period]`.
+/// * `optional_outputs` - Optional output flags: `[want_short_ema, want_long_ema]`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i]` contains `[kvo, short_ema?, long_ema?]`
+/// and `states[i]` is the final [`IndicatorState`] for option set `i`.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[&[f64; OPTIONS_WIDTH]; N],

@@ -8,9 +8,11 @@ use crate::indicators::simd_indicators::rsi_simd::SimdState;
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
+/// SIMD driver for the Relative Strength Index (RSI) indicator, processing `N` option-set lanes per scheduling epoch.
 struct RsiDriver;
 
 impl Driver<State, f64> for RsiDriver {
+    /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -55,6 +57,21 @@ impl Driver<State, f64> for RsiDriver {
     }
 }
 
+/// Calculates the Relative Strength Index (RSI) indicator for one asset with `N` different
+/// option sets simultaneously using SIMD parallelism.
+///
+/// Applies each of the `N` period configurations to the same shared input series, computing
+/// RSI values for all option sets in a single SIMD-accelerated pass via [`PrimeMover`].
+///
+/// # Arguments
+/// * `inputs` - Shared input: `inputs[0]` is the `real` price series.
+/// * `options` - An array of `N` option sets; `options[i][0]` is the `period` for lane `i`.
+/// * `_optional_outputs` - Unused; RSI has no optional outputs.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the `rsi` series for option set `i`
+/// and `states[i]` is the final [`IndicatorState`] for option set `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[&[f64; OPTIONS_WIDTH]; N],

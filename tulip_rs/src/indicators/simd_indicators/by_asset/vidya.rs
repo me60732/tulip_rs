@@ -10,6 +10,7 @@ use crate::indicators::vidya::{
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
+/// SIMD driver that advances the Variable Index Dynamic Average (VIDYA) across `N` asset lanes per scheduling epoch.
 struct VidyaDriver {
     multipliers: (f64, f64),
     periods: (usize, usize),
@@ -18,6 +19,7 @@ struct VidyaDriver {
 }
 
 impl Driver<State> for VidyaDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -86,6 +88,29 @@ impl Driver<State> for VidyaDriver {
     }
 }
 
+/// Calculates the Variable Index Dynamic Average (VIDYA) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[real]` for asset `i`.
+/// * `options` - `options[0]` is `short_period`, `options[1]` is `long_period`,
+///   `options[2]` is `alpha`.
+/// * `optional_outputs` - `optional_outputs[0] = true` enables `short_sma`,
+///   `optional_outputs[1] = true` enables `long_sma`,
+///   `optional_outputs[2] = true` enables `short_sdtdev`,
+///   `optional_outputs[3] = true` enables `long_sdtdev`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the VIDYA line for asset `i`,
+/// `outputs[i][1]` is `short_sma` (empty unless requested),
+/// `outputs[i][2]` is `long_sma` (empty unless requested),
+/// `outputs[i][3]` is `short_sdtdev` (empty unless requested),
+/// `outputs[i][4]` is `long_sdtdev` (empty unless requested), and
+/// `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

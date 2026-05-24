@@ -4,23 +4,41 @@ use crate::indicators::sma::calc as calc_sma;
 pub use crate::indicators::sma::multiplier;
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::stddev_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::stddev_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::stddev_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::stddev_simd::indicator_by_options as indicator;
 }
 
@@ -130,6 +148,19 @@ pub fn info() -> Info<'static> {
         optional_outputs: &["sma"],
     }
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - An array containing the indicator options.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64; OPTIONS_WIDTH], _decimals: usize) -> usize {
     min_data(options)
 }
@@ -146,13 +177,12 @@ pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize + 1
 }
 
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Calculates the output length for the STDDEV indicator given the input data length and options.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the STDDEV calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
+/// * `options` - An array containing the options for the STDDEV calculation.
 ///
 /// # Returns
 ///
@@ -161,16 +191,40 @@ pub fn output_length(data_len: usize, options: &[f64; OPTIONS_WIDTH]) -> usize {
     data_len - min_data(options) + 1
 }
 
+/// Calculates the Standard Deviation (STDDEV) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — real (source) values
+///
+/// # Options
+///
+/// * `options[0]` — period
+///
+/// # Arguments
+///
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `optional_outputs` - Optional slice of booleans enabling optional outputs.
+///   Pass `Some(&[true])` to also compute `sma`.
+///
+/// # Returns
+///
+/// `Ok((outputs, state))` where:
+/// - `outputs[0]` — `stddev`
+/// - `outputs[1]` — `sma` (only populated when `optional_outputs[0]` is `true`)
+///
+/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    
     validate_options(options)?;
     let period = options[0] as usize;
     let multiplier = multiplier(period);
-    
+
     validate_inputs(inputs, min_data(options))?;
     let real = inputs[0];
 
@@ -211,10 +265,12 @@ pub fn indicator(
 ///
 /// # Arguments
 ///
-/// * `real` - A slice of real prices.
+/// * `real` - A slice of input values.
+/// * `state` - A mutable reference to the current `State` (sum and sum of squares).
 /// * `period` - The period for the STDDEV calculation.
-/// * `stddev_line` - A mutable reference to a vector for storing the STDDEV line.
-/// * `output_vectors` - A mutable reference to a slice of optional output vectors.
+/// * `multiplier` - The precomputed multiplier (1/period).
+/// * `stddev_line` - A mutable slice for storing the STDDEV output values.
+/// * `sma_line` - A mutable slice for storing the optional SMA output values.
 fn cycle_stddev(
     real: &[f64],
     state: &mut State,
@@ -226,13 +282,8 @@ fn cycle_stddev(
     let (_, want_sma) = crate::calc_want_flags!(sma_line);
 
     for (j, i) in (period..real.len()).enumerate() {
-        let (stddev, sma) = unsafe {
-            state.calc(
-                real.get_unchecked(i),
-                real.get_unchecked(j),
-                multiplier,
-            )
-        };
+        let (stddev, sma) =
+            unsafe { state.calc(real.get_unchecked(i), real.get_unchecked(j), multiplier) };
         unsafe { *stddev_line.get_unchecked_mut(j) = stddev };
         crate::store_optional_outputs!(j,
             want_sma, sma_line => sma
@@ -240,19 +291,18 @@ fn cycle_stddev(
     }
 }
 
-/// Calculates the current Standard Deviation (STDDEV) value.
+/// Calculates the current Standard Deviation (STDDEV) value for a single step.
 ///
 /// # Arguments
 ///
-/// * `value` - The current input value.
-/// * `prev_value` - The previous input value.
-/// * `sum` - The sum of the previous input values.
-/// * `sum_sq` - The sum of the squares of the previous input values.
-/// * `period` - The period for the STDDEV calculation.
+/// * `state` - A mutable reference to the current `State` (sum and sum of squares).
+/// * `value` - The current input value entering the window.
+/// * `prev_value` - The oldest input value leaving the window.
+/// * `multiplier` - The precomputed multiplier (1/period).
 ///
 /// # Returns
 ///
-/// The STDDEV value, the updated sum, and the SMA.
+/// A tuple of `(stddev, sma)` — the standard deviation and the simple moving average for the current window.
 #[inline(always)]
 pub fn calc(state: &mut State, value: &f64, prev_value: &f64, multiplier: f64) -> (f64, f64) {
     state.calc(value, prev_value, multiplier)

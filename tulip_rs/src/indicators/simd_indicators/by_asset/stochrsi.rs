@@ -9,6 +9,7 @@ use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
 
+/// SIMD driver that advances the Stochastic RSI (STOCHRSI) across `N` asset lanes per scheduling epoch.
 struct StochrsiDriver {
     want_optional_outputs: bool,
     period: usize,
@@ -16,6 +17,7 @@ struct StochrsiDriver {
 }
 
 impl Driver<State> for StochrsiDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -84,6 +86,26 @@ impl Driver<State> for StochrsiDriver {
     }
 }
 
+/// Calculates the Stochastic RSI (STOCHRSI) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// STOCHRSI applies the Stochastic Oscillator formula to RSI values, normalising RSI
+/// relative to its own high/low range over the look-back period.
+/// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[real]` for asset `i`.
+/// * `options` - `[period]` — the look-back period for both the inner RSI and
+///   the Stochastic normalisation.
+/// * `optional_outputs` - Optional slice of booleans enabling extra outputs:
+///   `[0]` → `rsi`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the STOCHRSI line and
+/// `outputs[i][1]` is the RSI line (empty unless requested) for asset `i`.
+/// `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

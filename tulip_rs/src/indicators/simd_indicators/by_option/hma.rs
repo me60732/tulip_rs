@@ -3,8 +3,8 @@ use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::hma::{
     min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
-use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::simd_indicators::hma_simd::options::{calc_unchecked_simd, SimdState};
+use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
@@ -13,9 +13,11 @@ struct Params {
     period: usize,
     period2: usize,
 }
+/// SIMD driver for the Hull Moving Average (HMA) indicator, processing `N` option-set lanes per scheduling epoch.
 struct HmaDriver;
 
 impl Driver<State, Params> for HmaDriver {
+    /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD. Reads the shared input, applies each lane's options, writes outputs, and updates per-lane states.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -101,6 +103,19 @@ impl Driver<State, Params> for HmaDriver {
     }
 }
 
+/// Calculates the Hull Moving Average (HMA) on a single asset with `N` different option sets
+/// simultaneously using SIMD parallelism.
+///
+/// # Arguments
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+///   `[real]`.
+/// * `options` - An array of `N` option sets, one per SIMD lane: `[period]`.
+/// * `optional_outputs` - Unused; HMA has no optional outputs.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i]` contains `[hma]`
+/// and `states[i]` is the final [`IndicatorState`] for option set `i`.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS_WIDTH], //stock[ fields [ field [f64] ] ]
     options: &[&[f64; OPTIONS_WIDTH]; N],

@@ -5,6 +5,8 @@ pub use crate::indicators::simd_indicators::by_asset::ultosc::indicator_by_asset
 pub use crate::indicators::simd_indicators::by_option::ultosc::indicator_by_options;
 
 pub mod import {
+    //! Internal imports and constants shared by the [`assets`] and [`options`] SIMD
+    //! sub-modules for the Ultimate Oscillator (ULTOSC) indicator.
     pub(crate) use crate::indicators::simd_indicators::simd_types::F64Constants;
     pub(crate) use crate::indicators::ultosc::State;
     pub(crate) use crate::ring_buffer::multi_buffer::multi_buffer::{MultiBuffer, RingBuffer};
@@ -17,8 +19,11 @@ pub mod import {
 }
 
 pub mod assets {
+    //! Per-asset SIMD state and compute for the Ultimate Oscillator (ULTOSC) indicator.
     use super::import::*;
     pub(crate) use crate::ring_buffer::multi_buffer::multi_buffer::SimdRingBuffer;
+    /// SIMD-parallel state for the Ultimate Oscillator (ULTOSC) indicator, holding `N` lanes of
+    /// per-asset state.
     pub struct SimdState<const N: usize> {
         buffer: MultiBuffer<2, Simd<f64, N>>,
 
@@ -34,6 +39,8 @@ pub mod assets {
     }
 
     impl<const N: usize> SimdState<N> {
+        /// Constructs a [`SimdState`] by interleaving the fields of `N` scalar [`State`] references
+        /// into SIMD lanes.
         pub fn new(states: &mut [&mut State]) -> Self {
             debug_assert_eq!(states.len(), N, "Number of states must match SIMD width");
 
@@ -73,6 +80,7 @@ pub mod assets {
             }
         }
 
+        /// Converts this SIMD state into an owned array of `N` scalar [`State`] values.
         pub fn to_states(&self) -> [State; N] {
             let buffers = self.buffer.to_f64_buffers();
             let bp_short_sum = self.bp_short_sum.to_array();
@@ -101,6 +109,7 @@ pub mod assets {
                 .unwrap_or_else(|_| panic!("Failed to convert states_vec to array"))
         }
 
+        /// Writes SIMD state back into `N` scalar [`State`] references.
         pub fn write_states(&self, states: &mut [&mut State]) {
             // First, handle the buffer updates
             let buffers = self.buffer.to_f64_buffers();
@@ -128,6 +137,22 @@ pub mod assets {
             }
         }
 
+        /// Computes one bar of the Ultimate Oscillator for `N` assets simultaneously.
+        ///
+        /// Updates the rolling buying-pressure and true-range sums for the short, medium, and long
+        /// periods, then returns the weighted oscillator value for each lane. Returns `0.0` lanes
+        /// until the long-period buffer is full.
+        ///
+        /// # Arguments
+        ///
+        /// * `high` - High prices for this bar.
+        /// * `low` - Low prices for this bar.
+        /// * `close` - Close prices for this bar.
+        /// * `periods` - Tuple `(short_period, medium_period)` for the shorter rolling windows.
+        ///
+        /// # Returns
+        ///
+        /// ULTOSC values in the range `[0, 100]` for all `N` lanes, or `0.0` while warming up.
         #[inline(always)]
         pub fn calc(
             &mut self,
@@ -168,6 +193,25 @@ pub mod assets {
             }
             F64Constants::ZERO
         }
+        /// Unchecked variant of [`calc`](SimdState::calc) that assumes the long-period ring buffer
+        /// is already full.
+        ///
+        /// # Arguments
+        ///
+        /// * `high` - High prices for this bar.
+        /// * `low` - Low prices for this bar.
+        /// * `close` - Close prices for this bar.
+        /// * `periods` - Tuple `(short_period, medium_period)` for the shorter rolling windows.
+        ///
+        /// # Returns
+        ///
+        /// ULTOSC values for all `N` lanes.
+        ///
+        /// # Safety
+        ///
+        /// The internal ring buffer must be fully initialised (i.e., at least `long_period` bars
+        /// have been processed) before calling this function. Calling it on an uninitialised buffer
+        /// will produce incorrect results or undefined behaviour.
         #[inline(always)]
         pub unsafe fn calc_unchecked(
             &mut self,
@@ -206,7 +250,10 @@ pub mod assets {
 }
 
 pub mod options {
+    //! Per-option SIMD state and compute for the Ultimate Oscillator (ULTOSC) indicator.
     use super::import::*;
+    /// SIMD-parallel state for the Ultimate Oscillator (ULTOSC) indicator, holding `N` lanes of
+    /// per-option state.
     pub struct SimdState<const N: usize> {
         buffer: MultiBuffer<2>,
         periods: ([usize; N], [usize; N], [usize; N]),
@@ -222,6 +269,15 @@ pub mod options {
     }
 
     impl<const N: usize> SimdState<N> {
+        /// Constructs a [`SimdState`] from `N` scalar [`State`] references, one per option-set lane.
+        ///
+        /// Selects the largest-capacity buffer as the shared ring buffer and interleaves the
+        /// rolling sums into SIMD lanes.
+        ///
+        /// # Arguments
+        ///
+        /// * `states` - Mutable references to `N` scalar states (one per option set).
+        /// * `periods` - Arrays of `(short_period, medium_period, long_period)` for each lane.
         pub fn new(
             states: &mut [&mut State],
             periods: ([usize; N], [usize; N], [usize; N]),
@@ -265,6 +321,7 @@ pub mod options {
             }
         }
 
+        /// Writes SIMD state back into `N` scalar [`State`] references, one per option-set lane.
         pub fn write_states(&self, states: &mut [&mut State]) {
             // First, handle the buffer updates
             let vals: [[Vec<f64>; 2]; N] =
@@ -342,6 +399,25 @@ pub mod options {
             }
             F64Constants::ZERO
         }*/
+        /// Unchecked SIMD variant that computes one ULTOSC bar for `N` option-set lanes simultaneously.
+        ///
+        /// Accepts scalar `high`, `low`, `close` inputs (shared across all option lanes) and returns
+        /// a SIMD vector of ULTOSC values, one per option-set lane.
+        ///
+        /// # Arguments
+        ///
+        /// * `high` - High price for this bar (scalar, shared across lanes).
+        /// * `low` - Low price for this bar (scalar, shared across lanes).
+        /// * `close` - Close price for this bar (scalar, shared across lanes).
+        ///
+        /// # Returns
+        ///
+        /// ULTOSC values for all `N` option-set lanes.
+        ///
+        /// # Safety
+        ///
+        /// The internal ring buffer must be fully initialised (i.e., at least `max(long_period)`
+        /// bars have been processed) before calling this function.
         #[inline(always)]
         pub unsafe fn calc_unchecked(&mut self, high: f64, low: f64, close: f64) -> Simd<f64, N> {
             let (short_period, medium_period, long_period) = self.periods;

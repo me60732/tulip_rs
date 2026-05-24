@@ -17,7 +17,13 @@ macro_rules! generate_simd_match {
     };
 }
 
+/// Generic SIMD dispatch trait. Each indicator implements this to process `N` asset lanes
+/// per scheduling epoch.
 pub trait Driver<S, O = ()> {
+    /// Advances N asset lanes by one epoch. `inputs[asset][field]` are the input slices for
+    /// each asset/field; `outputs[asset][output]` are the corresponding output slices;
+    /// `states[asset]` are mutable per-asset state references; `options[asset]` are per-asset
+    /// option references (`None` in shared-option mode).
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -27,22 +33,35 @@ pub trait Driver<S, O = ()> {
     );
 }
 
+/// Represents a single asset being managed by the [`PrimeMover`] scheduler, holding borrowed
+/// input/output slices, the per-asset state, and scheduling metadata (pickup mile, offsets, etc.).
 pub struct Asset<'a, S, O = ()> {
-    pub state: S,                    // Owned state
-    pub inputs: Vec<&'a [f64]>,      // Still borrowed (immutable)
-    pub outputs: Vec<&'a mut [f64]>, // Changed to borrowed mutable slices
+    /// Per-asset indicator state.
+    pub state: S,
+    /// Borrowed input price slices for this asset.
+    pub inputs: Vec<&'a [f64]>,
+    /// Borrowed mutable output slices for this asset.
+    pub outputs: Vec<&'a mut [f64]>,
+    /// Original insertion index, used to restore result order.
     pub original_idx: usize,
+    /// The odometer value at which this asset first becomes ready for processing.
     pub pickup_mile: usize,
+    /// Warm-up bars to prepend before the first output-producing bar.
     start_offset: usize,
+    /// Current read position in the input slices.
     pub inputs_idx: usize,
+    /// Current write position in the output slices.
     pub outputs_idx: usize,
+    /// Optional per-asset options; `None` when all assets share the same options.
     pub options: Option<&'a O>,
 }
 
 impl<'a, S, O> Asset<'a, S, O> {
+    /// Constructs an `Asset` with the given inputs, outputs, original index, warm-up offset,
+    /// state, and optional options.
     pub fn new(
         inputs: Vec<&'a [f64]>,
-        outputs: Vec<&'a mut [f64]>, // Changed parameter type
+        outputs: Vec<&'a mut [f64]>,
         idx: usize,
         inputs_idx: usize,
         start_offset: usize,
@@ -63,18 +82,25 @@ impl<'a, S, O> Asset<'a, S, O> {
     }
 }
 
+/// A batch of `asset_count` assets ready to be dispatched together in a single SIMD
+/// [`Driver::next_run`] call.
 pub struct Trailer<'a, S, O = ()> {
-    // State for each asset in the trailer
+    /// Mutable references to per-asset indicator states for this batch.
     pub states: Vec<&'a mut S>,
-    pub inputs: Vec<Vec<&'a [f64]>>, // [asset][input] -> &[f64] for the window
-    pub outputs: Vec<Vec<&'a mut [f64]>>, // [asset][output] -> &mut [f64] for the window
+    /// Input slices for each asset and field in this batch: `inputs[asset][field]`.
+    pub inputs: Vec<Vec<&'a [f64]>>,
+    /// Mutable output slices for each asset and output in this batch: `outputs[asset][output]`.
+    pub outputs: Vec<Vec<&'a mut [f64]>>,
+    /// Number of assets in this trailer batch (always a power of two, ≤ N).
     pub asset_count: usize,
+    /// Per-asset option references; `None` in shared-option mode.
     pub options: Vec<Option<&'a O>>,
 }
 
+/// Parallel SIMD scheduler. Accumulates up to `N` assets, then dispatches them through a
+/// [`Driver`] in batches until all input data is consumed.
 #[derive(Default)]
-pub struct PrimeMover<'a, const N: usize, S, O = ()>
-{
+pub struct PrimeMover<'a, const N: usize, S, O = ()> {
     assets: Vec<Asset<'a, S, O>>,
     odometer: usize,
 
@@ -83,8 +109,8 @@ pub struct PrimeMover<'a, const N: usize, S, O = ()>
     pickup_miles_buffer: Vec<usize>,
 }
 
-impl<'a, const N: usize, S: 'a, O: 'a> PrimeMover<'a, N, S, O>
-{
+impl<'a, const N: usize, S: 'a, O: 'a> PrimeMover<'a, N, S, O> {
+    /// Creates an empty `PrimeMover` with pre-allocated internal buffers.
     pub fn new() -> Self {
         Self {
             odometer: 0,
@@ -95,6 +121,8 @@ impl<'a, const N: usize, S: 'a, O: 'a> PrimeMover<'a, N, S, O>
         }
     }
 
+    /// Runs the full scheduling loop: repeatedly calls [`next`] to get [`Trailer`] batches,
+    /// dispatches each to `driver.next_run`, and returns the final states in original insertion order.
     pub fn drive<D: Driver<S, O>>(mut self, driver: &mut D) -> Vec<S> {
         while let Some(trailers) = self.next() {
             for trailer in trailers {
@@ -113,6 +141,8 @@ impl<'a, const N: usize, S: 'a, O: 'a> PrimeMover<'a, N, S, O>
         self.into_results()
     }
 
+    /// Advances the internal odometer and returns the next set of [`Trailer`]s to process,
+    /// or `None` when all assets are exhausted.
     pub fn next(&mut self) -> Option<Vec<Trailer<'a, S, O>>> {
         // Clear reusable buffers
         self.to_pickup_buffer.clear();
@@ -268,28 +298,35 @@ impl<'a, const N: usize, S: 'a, O: 'a> PrimeMover<'a, N, S, O>
             }
         }
     }*/
+    /// Adds an asset. Once the full `N` assets have been added, computes each asset's pickup
+    /// mile (data offset + warm-up bars) and sorts by earliest availability.
     pub fn add_asset(&mut self, asset: Asset<'a, S, O>) {
         self.assets.push(asset);
         if self.assets.len() == self.assets.capacity() {
             // First, find the maximum input length
-            let max_len = self.assets.iter().map(|a| a.inputs[0].len()).max().unwrap_or(0);
-            
+            let max_len = self
+                .assets
+                .iter()
+                .map(|a| a.inputs[0].len())
+                .max()
+                .unwrap_or(0);
+
             // Calculate pickup_mile for each asset
             for asset in self.assets.iter_mut() {
                 let length_diff = max_len - asset.inputs[0].len();
                 let init_requirement = asset.inputs_idx; // period - 1 for most indicators
-                
+
                 // pickup_mile accounts for both data availability and initialization
                 asset.pickup_mile = length_diff + init_requirement;
                 //println!("pickup mile: {:?}", asset.pickup_mile);
             }
-            
+
             // Sort by pickup_mile (lowest first = earliest availability)
             self.assets.sort_by_key(|asset| asset.pickup_mile);
         }
         self.odometer = self.assets[0].pickup_mile;
     }
-    // Extract only states when processing is complete (outputs are borrowed, not owned)
+    /// Consumes the scheduler and returns the final per-asset states in the original insertion order.
     pub fn into_results(self) -> Vec<S> {
         //let asset_count = self.assets.len();
 

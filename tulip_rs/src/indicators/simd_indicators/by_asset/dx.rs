@@ -10,6 +10,8 @@ use crate::indicators::tr::output_length as tr_output_length;
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
+/// SIMD driver that advances the Directional Movement Index (DX) across `N` asset lanes
+/// per scheduling epoch.
 struct DxDriver {
     multiplier: f64,
     inv_multiplier: f64,
@@ -17,6 +19,11 @@ struct DxDriver {
 }
 
 impl Driver<State> for DxDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
+    ///
+    /// Reads from `inputs[asset][field]` (high, low, close), writes the DX to
+    /// `outputs[asset][0]`, optional ATR to `outputs[asset][1]`, optional TR to
+    /// `outputs[asset][2]`, and updates `states[asset]` in place.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -69,6 +76,23 @@ impl Driver<State> for DxDriver {
     }
 }
 
+/// Calculates the Directional Movement Index (DX) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[high, low, close]` for asset `i`.
+/// * `options` - Shared options slice; `options[0]` is the period.
+/// * `optional_outputs` - Optional slice selecting extra outputs: index `0` = `atr`,
+///   index `1` = `tr`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the DX line for asset `i`,
+/// `outputs[i][1]` is the optional ATR, `outputs[i][2]` is the optional TR, and
+/// `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

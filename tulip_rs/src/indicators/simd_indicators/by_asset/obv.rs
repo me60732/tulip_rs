@@ -9,9 +9,11 @@ use std::simd::Simd;
 //use crate::indicators::ad::output_length;
 use crate::indicators::simd_indicators::obv_simd::SimdState;
 
+/// SIMD driver that advances the On-Balance Volume (OBV) across `N` asset lanes per scheduling epoch.
 struct ObvDriver;
 
 impl Driver<State> for ObvDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -57,6 +59,23 @@ impl Driver<State> for ObvDriver {
     }
 }
 
+/// Calculates the On-Balance Volume (OBV) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// OBV is a cumulative volume indicator: volume is added when price closes up and
+/// subtracted when price closes down. It requires no configurable options.
+/// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[close, volume]` for asset `i`.
+/// * `_options` - Unused; OBV has no configurable options.
+/// * `_optional_outputs` - Unused; OBV produces only the single OBV line output.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the OBV line for asset `i`
+/// and `states[i]` is the final [`State`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     _options: &[f64; OPTIONS_WIDTH],

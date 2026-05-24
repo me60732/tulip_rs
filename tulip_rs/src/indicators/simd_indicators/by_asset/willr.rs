@@ -7,11 +7,13 @@ use crate::indicators::willr::{
 use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
+/// SIMD driver that advances Williams %R (WILLR) across `N` asset lanes per scheduling epoch.
 struct WillrDriver {
     period: usize,
 }
 
 impl Driver<State> for WillrDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -61,6 +63,21 @@ fn cycle<const N: usize, const CHUNK_SIZE: usize>(
         );
     }
 }
+/// Calculates Williams %R (WILLR) for `N` assets simultaneously using SIMD parallelism.
+///
+/// WILLR produces no optional outputs. Uses the [`PrimeMover`] scheduler to batch assets into
+/// SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[high, low, close]` for asset `i`.
+/// * `options` - `options[0]` is the `period`.
+/// * `_optional_outputs` - Unused; WILLR has no optional outputs.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the Williams %R line for asset `i` and
+/// `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

@@ -12,6 +12,7 @@ use crate::indicators::{
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
+/// SIMD driver that advances the Volume Oscillator (VOSC) across `N` asset lanes per scheduling epoch.
 struct VoscDriver {
     multipliers: (f64, f64),
     long_period: usize,
@@ -20,6 +21,7 @@ struct VoscDriver {
 }
 
 impl Driver<State> for VoscDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -73,6 +75,23 @@ impl Driver<State> for VoscDriver {
     }
 }
 
+/// Calculates the Volume Oscillator (VOSC) for `N` assets simultaneously using SIMD parallelism.
+///
+/// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[volume]` for asset `i`.
+/// * `options` - `options[0]` is `short_period`, `options[1]` is `long_period`.
+/// * `optional_outputs` - `optional_outputs[0] = true` enables `short_sma`,
+///   `optional_outputs[1] = true` enables `long_sma`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the VOSC line for asset `i`,
+/// `outputs[i][1]` is `short_sma` (empty unless requested),
+/// `outputs[i][2]` is `long_sma` (empty unless requested), and
+/// `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

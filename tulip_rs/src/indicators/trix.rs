@@ -7,23 +7,39 @@ pub use crate::indicators::tema::{multiplier, State};
 use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::trix_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::trix_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
     pub use crate::indicators::simd_indicators::trix_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
     pub use crate::indicators::simd_indicators::trix_simd::indicator_by_options as indicator;
 }
 
@@ -85,6 +101,22 @@ pub fn info() -> Info<'static> {
         optional_outputs: &["tema", "dema", "ema"],
     }
 }
+/// Returns the minimum number of input bars required to produce results
+/// accurate to `decimals` decimal places.
+///
+/// For indicators with exponential smoothing the seed value's influence
+/// must decay below the requested precision, so this value grows with
+/// `decimals`. Internally uses `min_process` with the smoothing
+/// multiplier to calculate the required lookback.
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options (e.g. period).
+/// * `decimals` - The number of decimal places of accuracy required.
+///
+/// # Returns
+///
+/// The minimum number of input bars needed for the requested accuracy.
 pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
     min_process(
         options,
@@ -110,13 +142,12 @@ pub fn min_data(options: &[f64]) -> usize {
     (period - 1) * 3 + 2
 }
 
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Calculates the output length based on the data length and options.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
-/// * `options` - Options for the TRIX calculation.
-/// * `recent_only` - Option for computing only the most recent values.
+/// * `options` - A slice containing the options for the TRIX calculation.
 ///
 /// # Returns
 ///
@@ -125,18 +156,32 @@ pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
 
-/// Calculates the TRIX indicator for an entire dataset.
+/// Calculates the Triple Exponential Oscillator (TRIX) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — real (price series)
+///
+/// # Options
+///
+/// * `options[0]` — period
 ///
 /// # Arguments
 ///
-/// * `inputs` - A slice containing the input data vectors.
-/// * `options` - A slice containing the options for the TRIX calculation.
-/// * `recent_only` - Option to calculate only the most recent values.
-/// * `optional_outputs` - Optional slice indicating which additional outputs to produce.
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `optional_outputs` - Optional slice controlling extra output series;
+///   `optional_outputs[0] = true` enables `tema`, `optional_outputs[1] = true` enables `dema`,
+///   `optional_outputs[2] = true` enables `ema`.
 ///
 /// # Returns
 ///
-/// An `Output` struct containing the TRIX line and, if requested, the additional outputs.
+/// `Ok((outputs, state))` where `outputs[0]` is `trix`,
+/// `outputs[1]` is `tema` (empty unless requested),
+/// `outputs[2]` is `dema` (empty unless requested),
+/// `outputs[3]` is `ema` (empty unless requested), and
+/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -181,7 +226,7 @@ pub fn indicator(
             &mut ema_line[offsets.2..],
         )
     };
-    
+
     cycle_trix(
         real,
         multipliers,
@@ -196,45 +241,15 @@ pub fn indicator(
     ))
 }
 
-/// Calculates the TRIX indicator from the previous state.
-///
-/// This function uses the previous state (stored EMA/tema values) and processes the new data points
-/// to update and extend the TRIX calculation.
-///
-/// # Arguments
-///
-/// * `inputs` - A slice containing the input data vectors.
-/// * `options` - A slice containing the options for the TRIX calculation.
-/// * `indicator_state` - An `IndicatorState` struct containing prior state information.
-/// * `optional_outputs` - Optional slice indicating which additional outputs to produce.
-///
-/// # Returns
-///
-/// An `Output` struct containing the updated TRIX line and relevant state.
-
 /// Performs the main calculation loop for the TRIX indicator.
-///
-/// This function closely mirrors the structure of TEMA's cycle routine. It iterates over
-/// the input data starting at `start` and updates the underlying EMAs and TEMA in a single pass.
-/// At each step, it computes TRIX and pushes it to the main output vector as well as the optional outputs.
 ///
 /// # Arguments
 ///
 /// * `real` - A slice of input data.
-/// * `period` - The period for TRIX.
-/// * `start` - The starting index for the calculation.
-/// * `trix_line` - A mutable reference to the main TRIX output vector.
-/// * `prev_tema` - The previous TEMA value (used for the rate of change calculation).
-/// * `prev_ema1` - The previous EMA1 value.
-/// * `prev_ema2` - The previous EMA2 value.
-/// * `prev_ema3` - The previous EMA3 value.
-/// * `output_vectors` - A mutable slice of optional output vectors (for tema, dema, ema).
-///
-/// # Returns
-///
-/// A tuple containing the updated state:
-/// `(trix, tema, dema, ema1)`
-/// where `trix` is the last TRIX value computed.
+/// * `multipliers` - A tuple of EMA smoothing factors `(multiplier, inv_multiplier)`.
+/// * `state` - A mutable reference to the current TEMA indicator state.
+/// * `trix_line` - A mutable slice for storing the TRIX output values.
+/// * `out_vecs` - A tuple of mutable slices for optional outputs `(tema_line, dema_line, ema_line)`.
 fn cycle_trix(
     real: &[f64],
     multipliers: (f64, f64),
@@ -263,29 +278,20 @@ fn cycle_trix(
     }
 }
 
-/// Calculates TRIX for a single data point in one pass.
+/// Calculates TRIX for a single data point.
 ///
-/// It first calls the TEMA calc function to update the triple-smoothed EMA values and then computes TRIX
-/// as the percentage rate of change between the current and previous TEMA.
+/// Updates the triple-smoothed EMA state and computes TRIX as the percentage rate of
+/// change between the current and previous EMA3 value.
 ///
 /// # Arguments
 ///
-/// * `value` - The current data point.
-/// * `prev_tema` - Previous TEMA value (used for rate of change).
-/// * `prev_ema1` - Previous EMA1 value.
-/// * `prev_ema2` - Previous EMA2 value.
-/// * `prev_ema3` - Previous EMA3 value.
-/// * `multiplier` - Multiplier computed from the period.
+/// * `state` - A mutable reference to the current TEMA indicator state.
+/// * `value` - The current input data point.
+/// * `multiplier` - A tuple of EMA smoothing factors `(multiplier, inv_multiplier)`.
 ///
 /// # Returns
 ///
-/// A tuple containing:
-/// 1. `trix` - The current TRIX value.
-/// 2. `tema` - The current TEMA value.
-/// 3. `dema` - The current DEMA value.
-/// 4. `ema1` - The updated EMA1.
-/// 5. `ema2` - The updated EMA2.
-/// 6. `ema3` - The updated EMA3.
+/// A tuple `(trix, tema, dema, ema)` containing the current TRIX, TEMA, DEMA, and EMA values.
 #[inline(always)]
 pub fn calc(state: &mut State, value: &f64, multiplier: (f64, f64)) -> (f64, f64, f64, f64) {
     let prev_ema3 = state.ema3;

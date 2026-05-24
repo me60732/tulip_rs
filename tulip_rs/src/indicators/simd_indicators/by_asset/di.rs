@@ -11,13 +11,22 @@ use crate::indicators::di::{
 use crate::indicators::simd_indicators::di_simd::{calc_simd, SimdState};
 use crate::indicators::tr::output_length as tr_output_length;
 
+/// SIMD driver that advances the Directional Indicator (DI) across `N` asset lanes per
+/// scheduling epoch.
 struct DiDriver {
+    /// Pre-computed Wilder smoothing multiplier for the given period.
     multiplier: f64,
+    /// Pre-computed inverse smoothing multiplier used to correct the accumulated ATR output.
     inv_multiplier: f64,
+    /// Optional output flags: `(has_optional, want_atr, want_tr)`.
     want_optional_outputs: (bool, bool, bool),
 }
 
 impl Driver<State> for DiDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
+    ///
+    /// Reads from `inputs[asset][field]` (high, low, close), writes to
+    /// `outputs[asset][output]`, and updates `states[asset]` in place.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -77,6 +86,23 @@ impl Driver<State> for DiDriver {
     }
 }
 
+/// Calculates the Directional Indicator (DI) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// DI computes the Plus and Minus Directional Indicators (+DI and -DI) over a smoothed ATR
+/// rolling window. All assets share the same `options`. Uses the [`PrimeMover`] scheduler to
+/// batch assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[high, low, close]` for asset `i`.
+/// * `options` - Shared options applied to all `N` assets: `[period]`.
+/// * `optional_outputs` - Optional output flags: `[want_atr, want_tr]`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i]` contains `[plus_di, minus_di, atr?, tr?]`
+/// for asset `i` and `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

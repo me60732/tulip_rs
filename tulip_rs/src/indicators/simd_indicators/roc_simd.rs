@@ -9,6 +9,17 @@ use crate::indicators::simd_indicators::{
 };
 use std::simd::Simd;
 
+/// Computes the Rate of Change (ROC) and Momentum (MOM) for `N` asset lanes simultaneously.
+///
+/// ROC is defined as `(real - prev_real) / prev_real`, i.e. the Momentum divided by the
+/// previous value. Both the ROC ratio and the raw Momentum value are returned so that
+/// callers can avoid recomputing Momentum when they need it as an optional output.
+///
+/// # Returns
+///
+/// `(roc, mom)` where each is a SIMD vector of `N` lanes:
+/// * `roc` — rate-of-change ratio `(real − prev_real) / prev_real` for each lane.
+/// * `mom` — raw momentum `real − prev_real` for each lane.
 #[inline(always)]
 pub fn calc_simd<const N: usize>(
     real: Simd<f64, N>,

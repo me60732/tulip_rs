@@ -5,22 +5,34 @@ pub use crate::indicators::simd_indicators::by_asset::kvo::indicator_by_assets;
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::kvo::indicator_by_options;
 
-use crate::indicators::simd_indicators::{ema_simd::calc_simd as calc_ema_simd, simd_types::F64Constants};
+use crate::indicators::simd_indicators::{
+    ema_simd::calc_simd as calc_ema_simd, simd_types::F64Constants,
+};
 use std::simd::{
     cmp::{SimdPartialEq, SimdPartialOrd},
     num::SimdFloat,
     *,
 };
+/// SIMD-parallel state for computing the Klinger Volume Oscillator (KVO) across `N` assets/options simultaneously.
+/// Each field is a SIMD vector where lane `i` corresponds to asset/option `i`.
 pub struct SimdState<const N: usize> {
+    /// Short-period EMA of the Volume Force (VF) per lane.
     pub short_ema: Simd<f64, N>,
+    /// Long-period EMA of the Volume Force (VF) per lane.
     pub long_ema: Simd<f64, N>,
+    /// Cumulative money flow sum used in the VF calculation per lane.
     pub cm: Simd<f64, N>,
+    /// Current trend direction: `+1.0` when HLC is rising, `-1.0` when falling, per lane.
     pub trend: Simd<f64, N>,
+    /// Previous bar's HLC sum `(high + low + close)` used to detect trend changes per lane.
     pub prev_hlc: Simd<f64, N>,
+    /// Previous bar's high price used to seed `cm` on trend reversals per lane.
     pub prev_high: Simd<f64, N>,
+    /// Previous bar's low price used to seed `cm` on trend reversals per lane.
     pub prev_low: Simd<f64, N>,
 }
 impl<const N: usize> SimdState<N> {
+    /// Gathers `N` scalar [`State`] references into a single `SimdState`, packing each field into a SIMD lane.
     pub fn new(states: &[&mut State]) -> Self {
         let mut short_ema = [0.0; N];
         let mut long_ema = [0.0; N];
@@ -50,6 +62,7 @@ impl<const N: usize> SimdState<N> {
             prev_low: Simd::from_array(prev_low),
         }
     }
+    /// Scatters the SIMD state back into an array of `N` scalar [`State`] values.
     pub fn to_states(&self) -> [State; N] {
         let (short_ema, long_ema, cm, trend, prev_hlc, prev_high, prev_low) = (
             self.short_ema.to_array(),
@@ -75,6 +88,7 @@ impl<const N: usize> SimdState<N> {
 
         states
     }
+    /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place.
     pub fn write_states(&self, states: &mut [&mut State]) {
         let (short_ema, long_ema, cm, trend, prev_hlc, prev_high, prev_low) = (
             self.short_ema.to_array(),
@@ -98,6 +112,10 @@ impl<const N: usize> SimdState<N> {
     }
 }
 
+/// Computes one KVO step across `N` lanes using SIMD parallelism.
+///
+/// Calculates the Volume Force (VF) from the OHLCV inputs via [`calc_vf_simd`], then updates
+/// the short and long EMAs. Returns `short_ema - long_ema` as the KVO value for all lanes.
 #[inline(always)]
 pub fn calc_simd<const N: usize>(
     state: &mut SimdState<N>,
@@ -113,7 +131,11 @@ pub fn calc_simd<const N: usize>(
     state.short_ema - state.long_ema
 }
 
-#[inline(always)]
+/// Computes the Volume Force (VF) component of KVO across `N` lanes using SIMD parallelism.
+///
+/// Detects trend changes by comparing the current HLC sum to the previous bar's value.
+/// On a trend reversal, the cumulative money flow (`cm`) is seeded with the previous bar's
+/// high-low range. `cm` is then #[inline(always)]
 fn calc_vf_simd<const N: usize>(
     inputs: (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
     state: &mut SimdState<N>,

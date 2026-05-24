@@ -6,9 +6,15 @@ use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
+/// SIMD driver that advances the Accumulation/Distribution (AD) line across `N` asset lanes
+/// per scheduling epoch.
 struct AdDriver;
 
 impl Driver<f64, ()> for AdDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
+    ///
+    /// Reads from `inputs[asset][field]` (high, low, close, volume), writes the running AD value
+    /// to `outputs[asset][0]`, and updates `states[asset]` in place.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -56,6 +62,22 @@ impl Driver<f64, ()> for AdDriver {
     }
 }
 
+/// Calculates the Accumulation/Distribution (AD) line for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// AD requires no configurable options. Uses the [`PrimeMover`] scheduler to batch assets into
+/// SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[high, low, close, volume]` for asset `i`.
+/// * `options` - Unused; AD has no configurable options.
+/// * `optional_outputs` - Unused; AD produces only the single AD line output.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the AD line for asset `i`
+/// and `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     _options: &[f64; OPTIONS_WIDTH],

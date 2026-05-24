@@ -10,23 +10,39 @@ use crate::indicators::min::{
 use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 3;
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::willr_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::willr_simd::indicator_by_options;
 
 // Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
     pub use crate::indicators::simd_indicators::willr_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
     pub use crate::indicators::simd_indicators::willr_simd::indicator_by_options as indicator;
 }
 
@@ -43,7 +59,7 @@ impl IndicatorState {
             state,
             high: high[high.len() - period..].to_vec(),
             low: low[low.len() - period..].to_vec(),
-            period
+            period,
         }
     }
 }
@@ -93,7 +109,6 @@ impl TIndicatorState<3> for IndicatorState {
                 );
             }
         }
-        
 
         self.high.drain(..self.high.len() - self.period);
         self.low.drain(..self.low.len() - self.period);
@@ -136,34 +151,85 @@ pub fn info() -> Info<'static> {
         optional_outputs: &[],
     }
 }
+/// Returns the minimum number of input bars required to produce accurate results.
+///
+/// For this indicator accuracy does not depend on decimal precision, so
+/// this always returns the same value as [`min_data`].
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options: `[period]`.
+/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+///
+/// # Returns
+///
+/// The minimum number of input bars required, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
-/// Returns the minimum required data points (equal to the period).
+/// Returns the minimum amount of data required for the Williams %R indicator.
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the options: `[period]`.
+///
+/// # Returns
+///
+/// The minimum amount of data required (period + 1).
 pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize + 1
 }
 
-/// Returns the output length.
-/// The first valid output is at index period-1.
+/// Calculates the output length based on the data length and options.
+///
+/// # Arguments
+///
+/// * `data_len` - The length of the input data.
+/// * `options` - A slice containing the options for the Williams %R calculation.
+///
+/// # Returns
+///
+/// The output length.
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
 
+/// Calculates the Williams %R indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — `high`
+/// * `inputs[1]` — `low`
+/// * `inputs[2]` — `close`
+///
+/// # Options
+///
+/// * `options[0]` — `period`
+///
+/// # Arguments
+///
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `_optional_outputs` - Unused; this indicator has no optional outputs.
+///
+/// # Returns
+///
+/// `Ok((outputs, state))` where `outputs[0]` is `willr` and `state`
+/// can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    
     validate_options(options)?;
     let period = options[0] as usize;
-    
+
     validate_inputs(inputs, min_data(options))?;
     let high = inputs[0];
     let low = inputs[1];
     let close = inputs[2];
-    
+
     let mut willr_line = {
         let capacity = output_length(close.len(), options);
         crate::uninit_vec!(f64, capacity)
@@ -207,13 +273,20 @@ pub fn indicator(
 
     Ok((
         vec![willr_line],
-        IndicatorState::new(state, high, low, period)
+        IndicatorState::new(state, high, low, period),
     ))
 }
 
-/// Iterates over the input slices (starting at `start`) to compute WillR values.
-/// It carries along the rolling state needed to compute min and max efficiently.
-//#[inline(always)]
+/// Iterates over the high, low, and close slices and computes Williams %R values.
+///
+/// # Arguments
+///
+/// * `high` - The full high price input slice.
+/// * `low` - The full low price input slice.
+/// * `close` - The close price slice to iterate over (already offset by `period`).
+/// * `period` - The lookback period.
+/// * `state` - Mutable reference to the rolling `State` (min and max states).
+/// * `willr_line` - Mutable output slice for Williams %R values.
 fn cycle_willr<const N: usize>(
     high: &[f64],
     low: &[f64],
@@ -227,18 +300,10 @@ fn cycle_willr<const N: usize>(
     let mut i = period;
     for (close, willr) in close.iter().zip(willr_line.iter_mut()) {
         unsafe {
-            *willr = calc_unchecked::<N>(
-                state,
-                high,
-                low,
-                close,
-                i,
-                periods,
-            );
+            *willr = calc_unchecked::<N>(state, high, low, close, i, periods);
         }
         i += 1;
     }
-    
 }
 
 /// Calculates WillR for a single bar using the sliding window state.
@@ -263,6 +328,24 @@ pub fn calc(
 
     100.0 * (max - close) / (max - min)
 }
+/// Calculates Williams %R for a single bar using unchecked min/max access.
+///
+/// # Arguments
+///
+/// * `state` - Mutable reference to the rolling `State` (min and max states).
+/// * `high` - The full high price input slice.
+/// * `low` - The full low price input slice.
+/// * `close` - Reference to the current bar's close price.
+/// * `i` - The current index into `high` and `low`.
+/// * `periods` - A tuple of `(period, period - 1)` used by the min/max states.
+///
+/// # Returns
+///
+/// The Williams %R value for this bar.
+///
+/// # Safety
+///
+/// `i` and the look-back window must be within bounds of `high` and `low`.
 #[inline(always)]
 pub unsafe fn calc_unchecked<const N: usize>(
     state: &mut State,

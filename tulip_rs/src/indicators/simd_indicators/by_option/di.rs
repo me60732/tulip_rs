@@ -3,17 +3,19 @@ use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::di::{
     min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
-use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::simd_indicators::di_simd::{calc_simd, SimdState};
+use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::tr::output_length as tr_output_length;
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
+/// SIMD driver for the Directional Indicator (DI) indicator, processing `N` option-set lanes per scheduling epoch.
 struct DiDriver {
     want_optional_outputs: (bool, bool, bool),
 }
 
 impl Driver<State, (f64, f64)> for DiDriver {
+    /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD. Reads the shared input, applies each lane's options, writes outputs, and updates per-lane states.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -87,6 +89,19 @@ impl Driver<State, (f64, f64)> for DiDriver {
     }
 }
 
+/// Calculates the Directional Indicator (DI) on a single asset with `N` different option sets
+/// simultaneously using SIMD parallelism.
+///
+/// # Arguments
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+///   `[high, low, close]`.
+/// * `options` - An array of `N` option sets, one per SIMD lane: `[period]`.
+/// * `optional_outputs` - Optional output flags: `[want_atr, want_tr]`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i]` contains `[plus_di, minus_di, atr?, tr?]`
+/// and `states[i]` is the final [`IndicatorState`] for option set `i`.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[&[f64; OPTIONS_WIDTH]; N],

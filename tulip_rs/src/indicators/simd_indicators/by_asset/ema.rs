@@ -12,12 +12,18 @@ use crate::indicators::ema::{
 //use crate::indicators::ad::output_length;
 use crate::indicators::simd_indicators::ema_simd::calc_simd;
 
+/// SIMD driver that advances the Exponential Moving Average (EMA) across `N` asset lanes
+/// per scheduling epoch.
 struct EmaDriver {
     multiplier: f64,
     inv_multiplier: f64,
 }
 
 impl Driver<f64> for EmaDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
+    ///
+    /// Reads from `inputs[asset][0]` (real), writes the running EMA to `outputs[asset][0]`,
+    /// and updates `states[asset]` in place.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -59,6 +65,7 @@ impl Driver<f64> for EmaDriver {
     }
 }
 
+/// Initialises the per-lane SIMD state by computing the seed value for each of the `N` assets.
 fn init_state<'a, const N: usize>(
     inputs: &[&'a [f64]; N],
     period: usize,
@@ -81,6 +88,21 @@ fn init_state<'a, const N: usize>(
     (emas.to_array().to_vec(), multipliers)
 }
 
+/// Calculates the Exponential Moving Average (EMA) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[real]` for asset `i`.
+/// * `options` - Shared options slice; `options[0]` is the period.
+/// * `_optional_outputs` - Unused; EMA has no optional outputs.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the EMA line for asset `i`
+/// and `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

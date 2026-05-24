@@ -7,9 +7,11 @@ use crate::indicators::wad::{
 };
 use crate::types::IndicatorError;
 use std::simd::Simd;
+/// SIMD driver that advances the WAD Indicator across `N` asset lanes per scheduling epoch.
 struct WadDriver;
 
 impl Driver<State> for WadDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -45,6 +47,21 @@ impl Driver<State> for WadDriver {
     }
 }
 
+/// Calculates the WAD Indicator for `N` assets simultaneously using SIMD parallelism.
+///
+/// WAD requires no configurable options and produces no optional outputs. Uses the
+/// [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[high, low, close]` for asset `i`.
+/// * `_options` - Unused; WAD has no configurable options.
+/// * `_optional_outputs` - Unused; WAD has no optional outputs.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the WAD line for asset `i` and
+/// `states[i]` is the final state for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     _options: &[f64; OPTIONS_WIDTH],

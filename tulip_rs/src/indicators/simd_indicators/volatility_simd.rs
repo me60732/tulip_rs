@@ -5,6 +5,8 @@ pub use crate::indicators::simd_indicators::by_asset::volatility::indicator_by_a
 pub use crate::indicators::simd_indicators::by_option::volatility::indicator_by_options;
 
 pub mod imports {
+    //! Internal imports shared by the [`assets`] and [`options`] SIMD sub-modules
+    //! for the Volatility indicator.
     pub(crate) use crate::indicators::simd_indicators::{
         simd_types::F64Constants,
         stddev_simd::{calc_simd as stddev_calc_simd, SimdState as StddevSimdState},
@@ -15,10 +17,12 @@ pub mod imports {
 }
 
 pub mod assets {
+    //! Per-asset SIMD state and compute for the Volatility indicator.
     use super::imports::*;
     pub(crate) use crate::ring_buffer::single_buffer::generic_buffer::{
         SimdBuffer, SimdRingBuffer,
     };
+    /// SIMD-parallel state for the Volatility indicator, holding `N` lanes of per-asset state.
     pub struct SimdState<const N: usize> {
         pub buffer: SimdBuffer<N>,
         pub stddev_state: StddevSimdState<N>,
@@ -26,6 +30,8 @@ pub mod assets {
     }
 
     impl<const N: usize> SimdState<N> {
+        /// Constructs a [`SimdState`] by interleaving the fields of `N` scalar [`State`] references
+        /// into SIMD lanes.
         pub fn new(states: &mut [&mut State]) -> Self {
             debug_assert_eq!(states.len(), N, "Number of states must match SIMD width");
 
@@ -48,6 +54,7 @@ pub mod assets {
             }
         }
 
+        /// Converts this SIMD state into an owned array of `N` scalar [`State`] values.
         pub fn to_states(&self) -> [State; N] {
             let stddev_states = self.stddev_state.to_states();
             let prev_real = self.prev_real.to_array();
@@ -69,6 +76,7 @@ pub mod assets {
                 .try_into()
                 .unwrap_or_else(|_| panic!("Failed to convert states_vec to array"))
         }
+        /// Writes SIMD state back into `N` scalar [`State`] references.
         pub fn write_states(&self, states: &mut [&mut State]) {
             // First, handle the buffer updates
             let buffers = self.buffer.to_f64_buffers();
@@ -84,6 +92,19 @@ pub mod assets {
             // Finally, update the ADX states
             self.stddev_state.write_states(&mut stddev_refs);
         }
+        /// Computes one bar of the Volatility indicator for `N` assets simultaneously.
+        ///
+        /// Calculates the log return `(real - prev_real) / prev_real`, advances the rolling
+        /// standard deviation state, and returns the annualised volatility for each lane.
+        ///
+        /// # Arguments
+        ///
+        /// * `real` - Current price for each asset lane.
+        /// * `multiplier` - Per-lane stddev multiplier derived from the period.
+        ///
+        /// # Returns
+        ///
+        /// Annualised volatility values for all `N` lanes.
         #[inline(always)]
         pub fn calc_simd(&mut self, real: Simd<f64, N>, multiplier: Simd<f64, N>) -> Simd<f64, N> {
             // Rearranged for better numerical stability when prices are large and close
@@ -93,6 +114,22 @@ pub mod assets {
             let (sd, _) = stddev_calc_simd(&mut self.stddev_state, value, prev_value, multiplier);
             sd * F64Constants::ANNUAL
         }
+        /// Unchecked variant of [`calc_simd`](SimdState::calc_simd) that skips buffer-full checks.
+        ///
+        /// # Arguments
+        ///
+        /// * `real` - Current price for each asset lane.
+        /// * `multiplier` - Per-lane stddev multiplier derived from the period.
+        ///
+        /// # Returns
+        ///
+        /// Annualised volatility values for all `N` lanes.
+        ///
+        /// # Safety
+        ///
+        /// The internal ring buffer must be fully initialised (i.e., at least `period` bars have
+        /// been processed) before calling this function. Calling it on an uninitialised buffer
+        /// will produce incorrect results or undefined behaviour.
         #[inline(always)]
         pub unsafe fn calc_unchecked_simd(
             &mut self,
@@ -110,8 +147,10 @@ pub mod assets {
 }
 
 pub mod options {
+    //! Per-option SIMD state and compute for the Volatility indicator.
     use super::imports::*;
     pub(crate) use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
+    /// SIMD-parallel state for the Volatility indicator, holding `N` lanes of per-option state.
     pub struct SimdState<const N: usize> {
         pub buffer: Buffer,
         pub stddev_state: StddevSimdState<N>,
@@ -120,6 +159,15 @@ pub mod options {
     }
 
     impl<const N: usize> SimdState<N> {
+        /// Constructs a [`SimdState`] from `N` scalar [`State`] references, one per option-set lane.
+        ///
+        /// Selects the largest-capacity buffer as the shared ring buffer and initialises the
+        /// per-lane stddev state.
+        ///
+        /// # Arguments
+        ///
+        /// * `states` - Mutable references to `N` scalar states (one per option set).
+        /// * `periods` - Per-lane period values.
         pub fn new(states: &mut [&mut State], periods: [usize; N]) -> Self {
             debug_assert_eq!(states.len(), N, "Number of states must match SIMD width");
 
@@ -146,6 +194,7 @@ pub mod options {
             }
         }
 
+        /// Writes SIMD state back into `N` scalar [`State`] references, one per option-set lane.
         pub fn write_states(&self, states: &mut [&mut State]) {
             // First, handle the buffer updates
             let vals: [Vec<f64>; N] =
@@ -181,6 +230,25 @@ pub mod options {
             let (sd, _) = stddev_calc_simd(&mut self.stddev_state, value, prev_value, multiplier);
             sd * F64Constants::ANNUAL
         }*/
+        /// Unchecked SIMD variant that computes one Volatility bar for `N` option-set lanes simultaneously.
+        ///
+        /// Accepts a scalar `real` input (shared across all option lanes) and a per-lane
+        /// `multiplier`, and returns annualised volatility for each lane.
+        ///
+        /// # Arguments
+        ///
+        /// * `real` - Current price (scalar, shared across lanes).
+        /// * `multiplier` - Per-lane stddev multiplier derived from each lane's period.
+        ///
+        /// # Returns
+        ///
+        /// Annualised volatility values for all `N` option-set lanes.
+        ///
+        /// # Safety
+        ///
+        /// The internal ring buffer must be fully initialised (i.e., at least `max(period)` bars
+        /// have been processed) before calling this function. Calling it on an uninitialised buffer
+        /// will produce incorrect results or undefined behaviour.
         #[inline(always)]
         pub unsafe fn calc_unchecked_simd(
             &mut self,

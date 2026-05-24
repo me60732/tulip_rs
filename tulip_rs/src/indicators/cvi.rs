@@ -6,23 +6,41 @@ pub use crate::ring_buffer::single_buffer::generic_buffer::{Buffer as State, Rin
 use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 2;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::cvi_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::cvi_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::cvi_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::cvi_simd::indicator_by_options as indicator;
 }
 
@@ -92,6 +110,22 @@ pub fn info() -> Info<'static> {
         optional_outputs: &[],
     }
 }
+/// Returns the minimum number of input bars required to produce results
+/// accurate to `decimals` decimal places.
+///
+/// For indicators with exponential smoothing the seed value's influence
+/// must decay below the requested precision, so this value grows with
+/// `decimals`. Internally uses `min_process` with the smoothing
+/// multiplier to calculate the required lookback.
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options (e.g. period).
+/// * `decimals` - The number of decimal places of accuracy required.
+///
+/// # Returns
+///
+/// The minimum number of input bars needed for the requested accuracy.
 pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
     min_process(
         options,
@@ -114,34 +148,42 @@ pub fn min_data(options: &[f64]) -> usize {
     (options[0] * 2.0) as usize
 }
 
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
+/// Returns the number of output values given an input data length and options.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
 /// * `options` - A slice containing the options for the CVI calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
 ///
 /// # Returns
 ///
-/// The output length.
+/// The number of output values (`data_len - min_data(options) + 1`).
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
 
-/// Calculates the Chaikin Volatility Indicator (CVI) for an entire dataset or a slice of it.
+/// Calculates the Chaikin Volatility Indicator (CVI) over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — high prices
+/// * `inputs[1]` — low prices
+///
+/// # Options
+///
+/// * `options[0]` — period (EMA window used to smooth the high-low range)
 ///
 /// # Arguments
 ///
-/// * `inputs` - A slice of vectors containing the high and low prices.
-/// * `options` - A slice containing the options for the CVI calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
-/// * `_optional_outputs` - An optional slice of booleans indicating which additional outputs to generate.
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `_optional_outputs` - Unused; CVI has no optional outputs.
 ///
 /// # Returns
 ///
-/// A vector of vectors containing the CVI line.
-
+/// `Ok((outputs, state))` where `outputs[0]` is `cvi` and `state`
+/// can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -164,13 +206,7 @@ pub fn indicator(
         let from = period * 2 - 1;
         (&inputs[0][from..], &inputs[1][from..])
     };
-    cycle(
-        high,
-        low,
-        multiplier,
-        &mut state,
-        &mut cvi_line,
-    );
+    cycle(high, low, multiplier, &mut state, &mut cvi_line);
 
     Ok((vec![cvi_line], IndicatorState { state, multiplier }))
 }
@@ -181,11 +217,9 @@ pub fn indicator(
 ///
 /// * `high` - A slice of high prices.
 /// * `low` - A slice of low prices.
-/// * `period` - The period for the CVI calculation.
-/// * `prev_ema` - A deque of previous EMA values.
-/// * `cvi_line` - A mutable reference to a vector for storing the CVI line.
-/// * `start` - The starting index for the calculation.
-/// * `output_vectors` - A mutable reference to a slice of optional output vectors.
+/// * `multiplier` - A tuple `(multiplier, inv_multiplier)` derived from the EMA period.
+/// * `state` - Mutable reference to the ring buffer holding recent EMA values.
+/// * `cvi_line` - Mutable slice to write the CVI output values into.
 fn cycle(
     high: &[f64],
     low: &[f64],
@@ -209,13 +243,14 @@ fn cycle(
 ///
 /// # Arguments
 ///
-/// * `ema_values` - A deque of EMA values.
-/// * `period` - The period for the CVI calculation.
-/// * `index` - The current index.
+/// * `buffer` - Mutable reference to the ring buffer holding recent EMA values.
+/// * `high` - The current high price.
+/// * `low` - The current low price.
+/// * `multiplier` - A tuple `(multiplier, inv_multiplier)` for the EMA calculation.
 ///
 /// # Returns
 ///
-/// The CVI value.
+/// The CVI value as a percentage change between the current and oldest EMA in the buffer.
 #[inline]
 pub fn calc(buffer: &mut State, high: &f64, low: &f64, multiplier: (f64, f64)) -> f64 {
     let prev_ema = buffer.back().unwrap();

@@ -1,3 +1,4 @@
+/// Builds a `Vec<Simd<f64, N>>` from an array of `N` raw input pointers, reading `length` elements each.
 #[macro_export]
 macro_rules! create_simd_vec_from_inputs {
     ($input_ptr:ident, $width:expr, $length:expr) => {
@@ -19,6 +20,8 @@ macro_rules! create_simd_vec_from_inputs {
     };
 }
 
+/// Extracts raw `*const f64` pointer arrays (one per input field) from a nested `inputs` slice.
+/// Returns a tuple of `[*const f64; N]` arrays.
 #[macro_export]
 macro_rules! extract_input_ptrs {
     ($inputs:expr, $width:expr, $($field_name:ident),*) => {
@@ -39,6 +42,7 @@ macro_rules! extract_input_ptrs {
     };
 }
 
+/// Extracts raw `*mut f64` pointer arrays (one per output field) from a nested `outputs` slice.
 #[macro_export]
 macro_rules! extract_output_ptrs {
     ($outputs:expr, $width:expr, $($field_name:ident),*) => {
@@ -73,6 +77,7 @@ macro_rules! extract_simd_inputs_at_index {
     };
 }*/
 
+/// Gathers SIMD lanes from `N` input pointer arrays at per-lane indices.
 #[macro_export]
 macro_rules! extract_simd_inputs_at_index_array {
     ($indices:expr, $width:expr, $($var_name:ident @ $ptr_array:ident),*) => {
@@ -94,6 +99,7 @@ macro_rules! extract_simd_inputs_at_index_array {
     };
 }
 
+/// Same as `extract_simd_inputs_at_index_array!` but returns raw `f64` arrays instead of SIMD vectors.
 #[macro_export]
 macro_rules! extract_array_inputs_at_index_array {
     ($indices:expr, $width:expr, $($var_name:ident @ $ptr_array:ident),*) => {
@@ -115,6 +121,7 @@ macro_rules! extract_array_inputs_at_index_array {
     };
 }
 
+/// Gathers index `i` from each of `N` input pointer arrays into a SIMD vector, one per named field.
 #[macro_export]
 macro_rules! extract_simd_inputs_at_index {
     ($index:expr, $width:expr, $($var_name:ident @ $ptr_array:ident),*) => {
@@ -135,6 +142,7 @@ macro_rules! extract_simd_inputs_at_index {
     };
 }
 
+/// Broadcasts a single scalar value (lane 0) at index `i` into all `N` SIMD lanes.
 #[macro_export]
 macro_rules! extract_simd_inputs_at_index_splat {
     ($index:expr, $width:expr, $($var_name:ident @ $ptr_array:ident),*) => {
@@ -149,6 +157,8 @@ macro_rules! extract_simd_inputs_at_index_splat {
         }
     };
 }
+
+/// Same as `extract_simd_inputs_at_index!` but returns raw `f64` arrays.
 #[macro_export]
 macro_rules! extract_array_inputs_at_index {
     ($index:expr, $width:expr, $($var_name:ident @ $ptr_array:ident),*) => {
@@ -168,6 +178,8 @@ macro_rules! extract_array_inputs_at_index {
         }
     };
 }
+
+/// Conditionally writes a SIMD value to `N` output pointer arrays at index `i` if the want flag is set.
 #[macro_export]
 macro_rules! store_simd_optional_outputs {
     ($index:expr, $width:expr, $($want_flag:expr, $ptr_array:ident => $simd_value:expr),*) => {
@@ -182,6 +194,8 @@ macro_rules! store_simd_optional_outputs {
         )*
     };
 }
+
+/// Same as `store_simd_optional_outputs!` but multiplies by a correction factor before writing.
 #[macro_export]
 macro_rules! store_simd_optional_outputs_corrected {
     ($index:expr, $width:expr, $($want_flag:expr, $ptr_array:ident => corrected($simd_value:expr, $multiplier:expr)),*) => {
@@ -198,8 +212,7 @@ macro_rules! store_simd_optional_outputs_corrected {
     };
 }
 
-/// Extract multiple values from the same input array at different indices
-/// Usage: extract_simd_multiple_at_indices!(N, ptr_array, idx1, idx2, idx3, ...) -> (simd1, simd2, simd3, ...)
+/// Gathers multiple values at different offsets from a single set of `N` pointer arrays.
 #[macro_export]
 macro_rules! extract_simd_at_indices {
     ($width:expr, $ptr_array:ident, $($var_name:ident @ $index:expr),*) => {
@@ -221,6 +234,7 @@ macro_rules! extract_simd_at_indices {
     };
 }
 
+/// Same as `extract_simd_at_indices!` but returns raw `f64` arrays.
 #[macro_export]
 macro_rules! extract_array_at_indices {
     ($width:expr, $ptr_array:ident, $($var_name:ident @ $index:expr),*) => {
@@ -242,6 +256,7 @@ macro_rules! extract_array_at_indices {
     };
 }
 
+/// Gathers values at per-lane dynamic indices from a single pointer array set.
 #[macro_export]
 macro_rules! extract_simd_at_indices_array {
     ($width:expr, $ptr_array:ident, $($var_name:ident @ $indices_simd:expr),*) => {
@@ -266,6 +281,8 @@ macro_rules! extract_simd_at_indices_array {
         }
     };
 }
+
+/// Writes one or more SIMD values to their respective output pointer arrays at index `i`.
 #[macro_export]
 macro_rules! write_simd_at_indices {
     ($width:expr, $index:expr, $($ptr_array:ident => $simd_value:expr),*) => {
@@ -279,7 +296,7 @@ macro_rules! write_simd_at_indices {
     };
 }
 
-
+/// Gathers the current value (offset 0) from each of `N` input pointer arrays into a SIMD vector.
 #[macro_export]
 macro_rules! extract_simd_from_ptrs {
     // Usage:

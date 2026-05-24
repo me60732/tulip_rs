@@ -6,6 +6,24 @@ pub use crate::indicators::simd_indicators::by_option::qstick::indicator_by_opti
 
 use std::simd::Simd;
 
+/// Computes one bar of the QStick indicator for `N` assets simultaneously
+/// using SIMD parallelism.
+///
+/// Updates the running sum of `(close - open)` by adding the new bar's body and
+/// dropping the oldest bar's body, then returns `sum * multiplier` (the SMA of body lengths).
+///
+/// # Arguments
+///
+/// * `open` - Open prices for this bar.
+/// * `close` - Close prices for this bar.
+/// * `prev_open` - Open prices from `period` bars ago (the bar being dropped from the window).
+/// * `prev_close` - Close prices from `period` bars ago.
+/// * `sum` - Running window sum of `(close - open)`; updated in place.
+/// * `multiplier` - Per-lane SMA normalisation factor `1 / period`.
+///
+/// # Returns
+///
+/// QStick values for all `N` lanes.
 #[inline(always)]
 pub fn calc_simd<const N: usize>(
     open: Simd<f64, N>,

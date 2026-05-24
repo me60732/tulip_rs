@@ -13,11 +13,13 @@ use crate::indicators::{
     tr::output_length as tr_output_length,
 };
 
+/// SIMD driver for the Average Directional Movement Rating (ADXR) indicator, processing `N` option-set lanes per scheduling epoch.
 struct AdxrDriver {
     want_optional_outputs: (bool, bool, bool, bool, bool),
 }
 
 impl Driver<State, (f64, f64)> for AdxrDriver {
+    /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD. Reads the shared input, applies each lane's options, writes outputs, and updates per-lane states.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -93,6 +95,19 @@ impl Driver<State, (f64, f64)> for AdxrDriver {
     }
 }
 
+/// Calculates the Average Directional Movement Rating (ADXR) on a single asset with `N` different option
+/// sets simultaneously using SIMD parallelism.
+///
+/// # Arguments
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+///   `[high, low, close]`.
+/// * `options` - An array of `N` option sets, one per SIMD lane: `[period]`.
+/// * `optional_outputs` - Optional output flags: `[want_adx, want_dx, want_atr, want_tr]`.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i]` contains `[adxr, adx?, dx?, atr?, tr?]`
+/// and `states[i]` is the final [`IndicatorState`] for option set `i`.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[&[f64; OPTIONS_WIDTH]; N],

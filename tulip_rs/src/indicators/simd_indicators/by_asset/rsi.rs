@@ -8,11 +8,13 @@ use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
 
+/// SIMD driver that advances the Relative Strength Index (RSI) across `N` asset lanes per scheduling epoch.
 struct RsiDriver {
     multiplier: f64,
 }
 
 impl Driver<State> for RsiDriver {
+    /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -50,6 +52,23 @@ impl Driver<State> for RsiDriver {
     }
 }
 
+/// Calculates the Relative Strength Index (RSI) for `N` assets simultaneously using SIMD
+/// parallelism.
+///
+/// RSI is a momentum oscillator that measures the speed and magnitude of price changes
+/// on a scale from 0 to 100. Uses the [`PrimeMover`] scheduler to batch assets into
+/// SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[real]` for asset `i`.
+/// * `options` - `[period]` — the smoothing period for the RSI calculation.
+/// * `_optional_outputs` - Unused; RSI produces no optional outputs.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i][0]` is the RSI line for asset `i`
+/// and `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

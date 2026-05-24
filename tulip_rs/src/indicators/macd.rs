@@ -5,26 +5,49 @@ use crate::indicators::ema::{
 };
 use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
+/// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
+
+/// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 3;
 
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::macd_simd::indicator_by_assets;
 
+/// SIMD-parallel variant that processes a single asset with `N` different option
+/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::macd_simd::indicator_by_options;
 
-// Sub-module exports with common naming
+/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
+/// allowing SIMD multi-asset computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_assets` Cargo feature.
 #[cfg(feature = "simd_assets")]
 pub mod by_assets {
+    /// Processes `N` assets in parallel with shared options.
+    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::macd_simd::indicator_by_assets as indicator;
 }
 
+/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
+/// allowing SIMD multi-option computation to be used as a drop-in replacement
+/// for the standard single-asset [`indicator`] function.
+/// Requires the `simd_options` Cargo feature.
 #[cfg(feature = "simd_options")]
 pub mod by_options {
+    /// Processes a single asset with `N` different option sets in parallel.
+    /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::macd_simd::indicator_by_options as indicator;
 }
 
+/// Returns information about the Moving Average Convergence Divergence (MACD) indicator.
+///
+/// # Returns
+///
+/// An `Info` struct containing metadata about the MACD indicator.
 pub fn info() -> Info<'static> {
     Info {
         name: "macd",
@@ -144,6 +167,22 @@ pub fn output_length(data_len: usize, options: &[f64]) -> (usize, usize, usize) 
     let histogram_capacity = signal_capacity;
     (macd_capacity, signal_capacity, histogram_capacity)
 }
+/// Returns the minimum number of input bars required to produce results
+/// accurate to `decimals` decimal places.
+///
+/// For indicators with exponential smoothing the seed value's influence
+/// must decay below the requested precision, so this value grows with
+/// `decimals`. Internally uses `min_process` with the smoothing
+/// multiplier to calculate the required lookback.
+///
+/// # Arguments
+///
+/// * `options` - A slice containing the indicator options (e.g. period).
+/// * `decimals` - The number of decimal places of accuracy required.
+///
+/// # Returns
+///
+/// The minimum number of input bars needed for the requested accuracy.
 pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
     let (_short_multiplier, long_multiplier, _signal_multiplier) = multiplier(
         options[0] as usize,
@@ -168,6 +207,36 @@ pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), Ind
     }
     Ok(())
 }
+/// Calculates the Moving Average Convergence Divergence (MACD) indicator over the full input dataset.
+///
+/// # Inputs
+///
+/// * `inputs[0]` — real (close) prices
+///
+/// # Options
+///
+/// * `options[0]` — short_period
+/// * `options[1]` — long_period
+/// * `options[2]` — signal_period
+///
+/// # Arguments
+///
+/// * `inputs` - Array of input price slices (see Inputs above).
+/// * `options` - Array of indicator options (see Options above).
+/// * `optional_outputs` - Pass `Some(&[true, false])` to enable optional outputs
+///   (`short_ema`, `long_ema`); `None` disables all optional outputs.
+///
+/// # Returns
+///
+/// `Ok((outputs, state))` where:
+/// - `outputs[0]` — `macd_line`
+/// - `outputs[1]` — `signal_line`
+/// - `outputs[2]` — `histogram`
+/// - `outputs[3]` — `short_ema` (empty if not requested)
+/// - `outputs[4]` — `long_ema` (empty if not requested)
+///
+/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
+/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
@@ -283,24 +352,19 @@ fn cycle_macd(
 ///
 /// # Arguments
 ///
-/// * `value` - The current price value.
-/// * `short_ema` - The current short period EMA value.
-/// * `long_ema` - The current long period EMA value.
-/// * `signal` - The current signal line value.
-/// * `short_period` - The short period for the MACD calculation.
-/// * `long_period` - The long period for the MACD calculation.
-/// * `signal_period` - The signal period for the MACD calculation.
+/// * `state` - A mutable reference to the current `State` holding EMA values.
+/// * `value` - The current input price value.
+/// * `multipliers` - A tuple of three EMA multiplier pairs for short, long, and signal periods.
 ///
 /// # Returns
 ///
-/// A tuple containing the updated short period EMA, long period EMA, and signal line values.
+/// A tuple containing the MACD line value, signal line value, and histogram value.
 #[inline(always)]
 pub fn calc(
     state: &mut State,
     value: &f64,
     multipliers: ((f64, f64), (f64, f64), (f64, f64)),
 ) -> (f64, f64, f64) {
-
     let (short_multiplier, long_multiplier, signal_multiplier) = multipliers;
     state.short_ema = calc_ema(value, state.short_ema, short_multiplier);
     state.long_ema = calc_ema(value, state.long_ema, long_multiplier);
