@@ -14,7 +14,7 @@ pub fn info() -> CandleInfo {
         forecast: ForecastType::BearishContinuation,
         extended_pattern: None,
         bars: 2,
-        japanese_name: "Iki chigai sen",
+        japanese_name: "Iki Chigai Sen",
     }
 }
 #[pattern_template(

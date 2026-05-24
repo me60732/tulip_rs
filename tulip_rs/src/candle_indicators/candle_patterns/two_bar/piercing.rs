@@ -33,6 +33,6 @@ pub fn info() -> CandleInfo {
         forecast: ForecastType::BullishReversal,
         extended_pattern: None,
         bars: 2,
-        japanese_name: "Kirikomi",
+        japanese_name: "kirikomi",
     }
 }

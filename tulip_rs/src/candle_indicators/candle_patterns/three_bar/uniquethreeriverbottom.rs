@@ -34,7 +34,7 @@ pub fn info() -> CandleInfo {
         forecast: ForecastType::BullishReversal,
         extended_pattern: None,
         bars: 3,
-        japanese_name: "Sankawa soko zuka",
+        japanese_name: " sankawa soko zuka",
     }
 }
 

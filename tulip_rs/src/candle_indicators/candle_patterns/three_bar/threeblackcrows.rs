@@ -36,7 +36,7 @@ pub fn info() -> CandleInfo {
         forecast: ForecastType::BearishReversal,
         extended_pattern: None,
         bars: 3,
-        japanese_name: "Doji sanba garasu",
+        japanese_name: "Sanba Garasu",
     }
 }
 

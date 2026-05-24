@@ -15,7 +15,7 @@ pub fn info() -> CandleInfo {
         forecast: ForecastType::BullishContinuation,
         extended_pattern: None,
         bars: 3,
-        japanese_name: "Uwa banare sanpoo hatsu oshi",
+        japanese_name: "Uwa banare tasuki",
     }
 }
 

@@ -24,7 +24,7 @@ pub fn info() -> CandleInfo {
         forecast: ForecastType::BullishReversal,
         extended_pattern: None,
         bars: 1,
-        japanese_name: "Kita no Doji",
+        japanese_name: "Minami no Doji",
     }
 }
 
