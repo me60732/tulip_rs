@@ -20,6 +20,12 @@ All N assets' data streams are interleaved into SIMD lanes. One call to `indicat
 
 **Typical use case:** Portfolio scanning, universe filtering, backtesting across many symbols with the same parameters.
 
+#### Mismatched bar counts
+
+Assets passed to `indicator_by_assets` do **not** need to have the same number of bars. A newly-listed stock with 200 days of history can be processed in the same call as an asset with 5,000 bars. This is handled internally by the `PrimeMover` scheduler (`road_train` module — inspired by the road trains of [Outback Truckers](https://www.youtube.com/channel/UCps44nJRcJFdw9N32k8pmMA), where multiple trailers hitch behind a single cab and are picked up along the route).
+
+**Performance implication:** the closer the bar counts are across your N assets, the higher the overall throughput. When scanning a universe where bar counts vary widely it is worth grouping assets by similar history length before passing them in batches.
+
 ### By Options — `indicator_by_options::<N>`
 
 **N different option sets are applied to the same asset in a single CPU pass.**

@@ -1,6 +1,6 @@
 # Indicators — Overview
 
-TulipRS implements 100+ technical indicators organised into six categories; every indicator follows the same universal calling convention and returns a serialisable `IndicatorState` alongside its outputs.
+TulipRS implements 75+ technical indicators organised into six categories; every indicator follows the same universal calling convention and returns a serialisable `IndicatorState` alongside its outputs.
 
 ---
 

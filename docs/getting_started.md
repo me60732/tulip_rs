@@ -220,6 +220,7 @@ Every indicator in TulipRS follows the same universal signature. Once you unders
 | Topic | Page |
 |---|---|
 | Full indicator reference | [Indicators — Overview](indicators/index.md) |
+| Indicator metadata, optional outputs, min data | [Indicator API](indicator_api.md) |
 | SIMD acceleration concepts | [SIMD](simd.md) |
 | Streaming / incremental computation | [State Management](state_management.md) |
 | Python bindings details | [Language Bindings](language_bindings.md) |

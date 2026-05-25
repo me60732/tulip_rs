@@ -63,6 +63,7 @@ TulipRS is a production-ready Rust library implementing 100+ technical indicator
 | [Volume](indicators/volume.md) | AD, ADOSC, OBV, MFI, NVI, PVI, VOSC, KVO, EMV, WAD |
 | [Price & Statistical](indicators/price_statistical.md) | AvgPrice, MedPrice, TypPrice, WCPrice, Max, Min, MOM, ROC, ROCR, BOP, LinReg, TSF, TRIX, DPO, Mass, MD, MarketFi, QStick, PivotPoint |
 | [Candlestick Patterns](candlestick_patterns.md) | 60+ patterns, forecast types, Rust and Python usage |
+| [Indicator API](indicator_api.md) | `info()`, optional outputs, `min_data`, `min_data_accuracy` |
 | [SIMD](simd.md) | Conceptual overview: by-assets and by-options modes, lane counts, when to use each |
 | [State Management](state_management.md) | Streaming computation, chunked processing, JSON serialisation |
 | [Language Bindings](language_bindings.md) | Python (PyO3/maturin) details, result object API, planned bindings |
