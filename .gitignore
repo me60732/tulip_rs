@@ -4,6 +4,8 @@
 /.cargo/
 .~*
 *.md
+!docs/*.md
+!docs/**/*.md
 !pattern_authoring_guide.md
 candle_indicators_old
 /tulip_test/
