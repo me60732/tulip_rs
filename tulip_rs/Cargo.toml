@@ -1,6 +1,6 @@
 [package]
 name = "tulip_rs"
-version = "0.1.0"
+version = "0.1.4"
 edition = "2021"
 build = "build.rs"
 
@@ -19,10 +19,10 @@ libc = "0.2"
 
 
 [features]
-default = ["portable_simd", "simd_options", "simd_assets"] #, "candle_deep_analysis"]
+default = ["simd_options", "simd_assets"] #, "candle_deep_analysis"]
 portable_simd = []
-simd_options = ["portable_simd"]
-simd_assets = ["portable_simd"]
+simd_options = []
+simd_assets = []
 
 # TODO figure out how to do a deep analysis to eliminate pattern clashes and pull out only one match, would be a cool feature
 # candle_deep_analysis = []

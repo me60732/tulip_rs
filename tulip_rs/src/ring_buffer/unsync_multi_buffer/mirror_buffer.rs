@@ -22,7 +22,6 @@ pub trait MirrorBuffer<const B: usize, T: SimdElement + BufferElement = f64> {
     fn window_index_to_bars_ago(&self, window_index: usize, lane: usize) -> usize;
     fn from_slice(vals: [&[T]; B], capacity: [usize; B]) -> Self;
 }
-#[cfg(feature = "portable_simd")]
 
 impl<const B: usize, T: BufferElement + SimdElement> MirrorBuffer<B, T> for UnsyncBuffer<B, T> {
     fn new(capacity: [usize; B]) -> Self {

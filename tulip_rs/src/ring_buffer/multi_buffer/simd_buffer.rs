@@ -73,7 +73,6 @@ impl<const B: usize, const N: usize> MultiBuffer<B, Simd<f64, N>>{
 pub trait SimdRingBuffer<const B: usize, const N: usize>: RingBuffer<B, Simd<f64, N>>{
     fn from_f64_buffers(multi_buffers: [&MultiBuffer<B, f64>; N]) -> Self;
 }
-#[cfg(feature = "portable_simd")]
 impl<const B: usize, const N: usize> SimdRingBuffer<B, N> for MultiBuffer<B, Simd<f64, N>>{
     fn from_f64_buffers(multi_buffers: [&MultiBuffer<B, f64>; N]) -> Self {
         let capacity = multi_buffers[0].get_capacity();
@@ -97,7 +96,6 @@ pub trait SimdMirrorBuffer<const B: usize, const N: usize>: MirrorBuffer<B, Simd
     fn from_f64_buffers(multi_buffers: [&MultiBuffer<B, f64>; N]) -> Self;
 }
 
-#[cfg(feature = "portable_simd")]
 impl<const B: usize, const N: usize> SimdMirrorBuffer<B, N> for MultiBuffer<B, Simd<f64, N>> {
     fn from_f64_buffers(multi_buffers: [&MultiBuffer<B, f64>; N]) -> Self {
         let capacity = multi_buffers[0].get_capacity();

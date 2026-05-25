@@ -60,7 +60,7 @@ impl<const N: usize> Buffer<Simd<f64, N>> {
 pub trait SimdRingBuffer<const N: usize>: RingBuffer<Simd<f64, N>> {
     fn from_f64_buffers(f64_buffers: Vec<&Buffer<f64>>) -> Self;
 }
-#[cfg(feature = "portable_simd")]
+
 impl<const N: usize> SimdRingBuffer<N> for Buffer<Simd<f64, N>> {
     fn from_f64_buffers(buffers: Vec<&Buffer<f64>>) -> Self {
         debug_assert_eq!(buffers.len(), N, "Number of buffers must match SIMD width");

@@ -26,8 +26,6 @@ pub trait MirrorBuffer<const B: usize, T: BufferElement = f64> {
     fn from_slice(vals: [&[T]; B], capacity: usize) -> Self;
     fn to_single_buffers(&self) -> [SingleBuffer<T>; B];
 }
-#[cfg(feature = "portable_simd")]
-
 impl<const B: usize, T: BufferElement> MirrorBuffer<B, T> for MultiBuffer<B, T> {
     fn new(capacity: usize) -> Self {
         Self {

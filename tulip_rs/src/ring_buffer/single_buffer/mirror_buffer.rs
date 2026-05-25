@@ -25,7 +25,6 @@ pub trait MirrorBuffer<T: BufferElement = f64> {
     fn to_non_mirrors_by_periods<const N: usize>(&self, periods: [usize; N]) -> [Buffer<T>; N];
     fn sync_mirrors(&mut self);
 }
-#[cfg(feature = "portable_simd")]
 
 impl<T: BufferElement> MirrorBuffer<T> for Buffer<T> {
     fn new(capacity: usize) -> Self {

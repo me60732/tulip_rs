@@ -11,7 +11,7 @@
     tulip_rs = { git = "https://github.com/me60732/tulip_rs" }
     ```
 
-    TulipRS uses the `portable_simd` feature, which requires a **nightly** Rust toolchain. The correct nightly version is pinned automatically via the `rust-toolchain.toml` file at the root of the repository — no manual toolchain management is needed.
+    TulipRS uses the `portable_simd` nightly language feature internally and requires a **nightly** Rust toolchain. The correct nightly version is pinned automatically via the `rust-toolchain.toml` file at the root of the repository — no manual toolchain management is needed.
 
 === "Python"
 
@@ -37,15 +37,16 @@
 
 | Feature | Default | Description |
 |---|---|---|
-| `portable_simd` | ✅ on | Enables the Rust `portable_simd` nightly feature required for SIMD support |
 | `simd_assets` | ✅ on | Compiles `indicator_by_assets::<N>` for every indicator |
 | `simd_options` | ✅ on | Compiles `indicator_by_options::<N>` for every indicator |
-
 
 !!! note "Nightly toolchain"
     The nightly toolchain version is pinned automatically by `rust-toolchain.toml` in the repository root. You do not need to run `rustup override set nightly` manually — Cargo will select the correct toolchain when you build inside the workspace.
 
-To disable SIMD entirely (e.g. for a `stable` toolchain build):
+!!! warning "`portable_simd` is always required"
+    `portable_simd` is a nightly language feature used throughout the core indicator engine — including scalar indicators — and cannot be disabled. A nightly toolchain is therefore always required regardless of which Cargo features are enabled.
+
+To disable the SIMD multi-asset and multi-option variants (e.g. to reduce compile time):
 
 ```toml
 [dependencies]

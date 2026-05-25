@@ -69,7 +69,7 @@ To turn off a mode, disable the default features and re-enable only what you nee
 tulip_rs = { git = "https://github.com/me60732/tulip_rs", default-features = false, features = ["simd_assets"] }
 ```
 
-Both modes require the `portable_simd` nightly feature, which is enabled automatically when either `simd_assets` or `simd_options` is active.
+Both modes require a nightly toolchain. `portable_simd` is a core language feature used throughout the crate and is always active — it does not need to be enabled separately.
 
 ---
 

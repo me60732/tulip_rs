@@ -23,7 +23,6 @@ pub mod atr;
 pub mod avgprice;
 pub mod bbands;
 pub mod bop;
-#[cfg(feature = "portable_simd")]
 pub mod candlestick;
 pub mod cci;
 pub mod cmo;
@@ -85,5 +84,5 @@ pub mod willr;
 pub mod wma;
 pub mod zlema;
 
-#[cfg(feature = "portable_simd")]
+
 pub mod simd_indicators;

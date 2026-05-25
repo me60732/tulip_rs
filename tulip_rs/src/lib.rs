@@ -1,6 +1,5 @@
 #![allow(clippy::all)]
-#![cfg_attr(feature = "portable_simd", feature(portable_simd))]
-//#![cfg_attr(feature = "portable_simd")]
+#![feature(portable_simd)]
 
 pub mod candle_indicators;
 //pub mod candle_types;

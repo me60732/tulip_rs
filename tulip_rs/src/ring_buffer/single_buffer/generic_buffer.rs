@@ -1,7 +1,6 @@
 //use crate::indicators::max::{find_max_scalar, find_max_simd, State as MaxState};
 //use crate::indicators::min::{find_min_scalar, find_min_simd, State as MinState};
 use crate::ring_buffer::buffer::period_to_idx;
-#[cfg(feature = "portable_simd")]
 pub use crate::ring_buffer::{
     buffer::BufferElement,
     single_buffer::{
