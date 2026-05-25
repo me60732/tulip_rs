@@ -6,6 +6,20 @@ TulipRS is a production-ready Rust library implementing 100+ technical indicator
 
 ---
 
+## Why TulipRS?
+
+Most technical analysis libraries are wrappers around the same scalar C code written decades ago. TulipRS is built differently, with several capabilities that compound into meaningfully faster and more practical pipelines:
+
+**SIMD acceleration** — rather than looping over one asset or one parameter set at a time, TulipRS can process N assets or N option sets simultaneously in a single CPU pass using portable SIMD intrinsics. On AVX2 hardware that is 4× the throughput for the same wall-clock time. See [SIMD](simd.md).
+
+**Stateful streaming** — built for live systems — every indicator returns an `IndicatorState` alongside its outputs. Feed it new bars as they arrive and computation resumes from where it left off — no reprocessing of historical data, no O(n) cost per tick. State is fully serialisable to JSON and other Serde formats for persistence across restarts. See [State Management](state_management.md).
+
+**Optional outputs at no extra cost** — many indicators compute intermediate series (sub-EMAs, TR, AD line, etc.) as a natural part of their calculation. TulipRS can return those alongside the primary output in the same pass. C Tulip and TA-Lib require a separate function call — and a full extra data scan — for each one. TulipRS is **1.3× – 8.7× faster** when you need those intermediate values. See [Indicator API](indicators/indicator_api.md).
+
+**Accuracy-aware warm-up** — `min_data_accuracy(options, decimals)` tells you exactly how many bars an EMA-based indicator needs before its output has converged to a given decimal precision. Use it to scan thousands of assets for signal events (MACD crossovers, RSI thresholds) by fetching only the minimum required window from your database instead of full history. See [Indicator API](indicators/indicator_api.md#min_data_accuracy--minimum-input-for-decimal-accuracy).
+
+---
+
 ## Features at a Glance
 
 | Capability | Detail |
