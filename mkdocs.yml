@@ -48,6 +48,7 @@ nav:
     - Getting Started: getting_started.md
     - Indicators:
           - Overview: indicators/index.md
+          - Indicator API: indicators/indicator_api.md
           - Moving Averages: indicators/moving_averages.md
           - Oscillators: indicators/oscillators.md
           - Trend: indicators/trend.md
@@ -55,7 +56,6 @@ nav:
           - Volume: indicators/volume.md
           - Price & Statistical: indicators/price_statistical.md
     - Candlestick Patterns: candlestick_patterns.md
-    - Indicator API: indicator_api.md
     - SIMD: simd.md
     - State Management: state_management.md
     - Language Bindings: language_bindings.md
