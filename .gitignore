@@ -8,3 +8,4 @@
 candle_indicators_old
 /tulip_test/
 .env
+test_candle_examples.py

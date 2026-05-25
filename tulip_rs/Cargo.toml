@@ -23,8 +23,8 @@ default = ["portable_simd", "simd_options", "simd_assets"] #, "candle_deep_analy
 portable_simd = []
 simd_options = ["portable_simd"]
 simd_assets = ["portable_simd"]
-perf-stats = []
-# TODO figure out how to do a deep analysis to eliminate pattern clashes and pull out only one match, would be a cool feature 
+
+# TODO figure out how to do a deep analysis to eliminate pattern clashes and pull out only one match, would be a cool feature
 # candle_deep_analysis = []
 
 [dev-dependencies]

@@ -55,7 +55,7 @@ use crate::candle_indicators::common::{
     cdl_gap, BODY_GAP_DOWN, BODY_GAP_UP, NO_GAP, WICK_GAP_DOWN, WICK_GAP_UP,
 };
 use crate::candle_indicators::pattern_test::EmaState;
-use crate::candle_indicators::perf_stats::PERF_COUNTERS;
+
 use crate::candle_indicators::types::{CandleStick, CandleTypePattern, CandleTypes, ForecastType};
 use serde::{Deserialize, Serialize};
 
@@ -1052,8 +1052,6 @@ impl CandleBits {
     }
 
     pub fn matches(&self, pattern: &PatternMask) -> bool {
-        PERF_COUNTERS.record_bit_match_call();
-
         let candle_type_part = pattern.mandatory_mask & CandleBits::CANDLE_TYPE_MASK;
 
         // For candle types: match if ANY bit matches (OR logic)
@@ -1074,9 +1072,7 @@ impl CandleBits {
         let lazy_match = (self.lazy_value & lazy_part) == (pattern.lazy_value & lazy_part);
 
         let result = candle_match && mandatory_match && lazy_match;
-        if result {
-            PERF_COUNTERS.record_bit_match_success();
-        }
+
         result
     }
 
@@ -1775,24 +1771,19 @@ impl<const N: usize> PatternDefinition<N> {
     }
 
     pub fn matches_bars(&self, bars: &[CandleBits]) -> bool {
-        PERF_COUNTERS.record_matches_bars_call();
-
         // When check_prev_bar is false, bars[0] is wildcard (skip mask[0] and bars[0])
         // When check_prev_bar is true, bars[0] must match mask[0]
         if bars.len() < self.bars.len() {
-            PERF_COUNTERS.record_early_exit();
             return false;
         }
 
         let start = if self.check_prev_bar { 0 } else { 1 };
         for i in (start..self.bars.len()).rev() {
             if !self.bars[i].matches(&bars[i]) {
-                PERF_COUNTERS.record_early_exit();
                 return false;
             }
         }
 
-        PERF_COUNTERS.record_matches_bars_success();
         true
     }
 }
@@ -1918,7 +1909,6 @@ macro_rules! check_bar_group {
             let window_start = $bars.len() - $window_size;
             let window = &mut $bars[window_start..];
             for pattern_def in $patterns {
-                PERF_COUNTERS.record_pattern_checked();
                 if pattern_def.lazy_bits_mask != 0 {
                     // Two-pass: reject on compulsory bits first (cheap), then
                     // compute lazy bits and do the full match.
@@ -1937,9 +1927,7 @@ macro_rules! check_bar_group {
                 if !pattern_def.matches_bars(window) {
                     continue;
                 }
-                PERF_COUNTERS.record_calc_call();
                 if pattern_def.pattern.calc($inputs, $i, $state, window) {
-                    PERF_COUNTERS.record_calc_success();
                     $matched
                         .get_or_insert_with(|| Vec::with_capacity(1))
                         .push(pattern_def.pattern);

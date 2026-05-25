@@ -3,6 +3,6 @@ pub mod candle_types;
 pub mod common;
 pub mod macros;
 pub mod pattern_test;
-pub mod perf_stats;
+
 pub mod registry;
 pub mod types;
