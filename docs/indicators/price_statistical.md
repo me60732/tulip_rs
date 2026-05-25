@@ -469,6 +469,23 @@ The percentage change between the current price and the price `period` bars ago.
     println!("{:?}", outputs[0]);
     ```
 
+    ### Optional Outputs
+
+    `roc` exposes 1 optional output: `mom`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::roc::indicator;
+
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
+                     83.15, 82.84, 83.99, 84.55, 84.36_f64];
+
+    let mask = [true]; // one per optional output
+    let (outputs, _state) = indicator(&[close.as_slice()], &[10.0], Some(&mask)).unwrap();
+
+    let roc = &outputs[0]; // roc (primary)
+    let mom = &outputs[1]; // mom (optional — requested)
+    ```
+
     ### SIMD
 
     **By assets** — same options, N assets in parallel:
@@ -496,6 +513,24 @@ The percentage change between the current price and the price `period` bars ago.
     ```python
     outputs, state = tulip_rs.indicators.roc.indicator([close], [10.0])
     print(outputs[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.roc.indicator(
+        [close], [10.0],
+        optional_outputs=[True],
+    )
+
+    roc = outputs[0]  # roc (primary)
+    mom = outputs[1]  # mom (optional — requested)
     ```
 
     ### SIMD
@@ -655,6 +690,24 @@ The end-point of a least-squares linear regression line fitted to the last `peri
     println!("{:?}", outputs[0]);
     ```
 
+    ### Optional Outputs
+
+    `linreg` exposes 2 optional outputs: `linregslope`, `linregintercept`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::linreg::indicator;
+
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
+                     83.15, 82.84, 83.99, 84.55, 84.36_f64];
+
+    let mask = [true, true]; // one per optional output
+    let (outputs, _state) = indicator(&[close.as_slice()], &[14.0], Some(&mask)).unwrap();
+
+    let linreg          = &outputs[0]; // linreg (primary)
+    let linregslope     = &outputs[1]; // linregslope (optional — requested)
+    let linregintercept = &outputs[2]; // linregintercept (optional — requested)
+    ```
+
     ### SIMD
 
     **By assets** — same options, N assets in parallel:
@@ -682,6 +735,25 @@ The end-point of a least-squares linear regression line fitted to the last `peri
     ```python
     outputs, state = tulip_rs.indicators.linreg.indicator([close], [14.0])
     print(outputs[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.linreg.indicator(
+        [close], [14.0],
+        optional_outputs=[True, True],
+    )
+
+    linreg          = outputs[0]  # linreg (primary)
+    linregslope     = outputs[1]  # linregslope (optional — requested)
+    linregintercept = outputs[2]  # linregintercept (optional — requested)
     ```
 
     ### SIMD
@@ -719,6 +791,25 @@ Projects the linear regression line one bar forward, giving a one-period-ahead p
     println!("{:?}", outputs[0]);
     ```
 
+    ### Optional Outputs
+
+    `tsf` exposes 3 optional outputs: `linreg`, `linregslope`, `linregintercept`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::tsf::indicator;
+
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
+                     83.15, 82.84, 83.99, 84.55, 84.36_f64];
+
+    let mask = [true, true, false]; // one per optional output
+    let (outputs, _state) = indicator(&[close.as_slice()], &[14.0], Some(&mask)).unwrap();
+
+    let tsf         = &outputs[0]; // tsf (primary)
+    let linreg      = &outputs[1]; // linreg (optional — requested)
+    let linregslope = &outputs[2]; // linregslope (optional — requested)
+    // linregintercept not requested
+    ```
+
     ### SIMD
 
     **By assets** — same options, N assets in parallel:
@@ -746,6 +837,26 @@ Projects the linear regression line one bar forward, giving a one-period-ahead p
     ```python
     outputs, state = tulip_rs.indicators.tsf.indicator([close], [14.0])
     print(outputs[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.tsf.indicator(
+        [close], [14.0],
+        optional_outputs=[True, True, False],
+    )
+
+    tsf         = outputs[0]  # tsf (primary)
+    linreg      = outputs[1]  # linreg (optional — requested)
+    linregslope = outputs[2]  # linregslope (optional — requested)
+    # linregintercept not requested
     ```
 
     ### SIMD
@@ -783,6 +894,24 @@ The 1-period percentage rate of change of a triple-smoothed EMA. Useful as a mom
     println!("{:?}", outputs[0]);
     ```
 
+    ### Optional Outputs
+
+    `trix` exposes 3 optional outputs: `tema`, `dema`, `ema`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::trix::indicator;
+
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
+                     83.15, 82.84, 83.99, 84.55, 84.36_f64];
+
+    let mask = [false, false, true]; // one per optional output
+    let (outputs, _state) = indicator(&[close.as_slice()], &[5.0], Some(&mask)).unwrap();
+
+    let trix = &outputs[0]; // trix (primary)
+    let ema  = &outputs[1]; // ema (optional — requested)
+    // tema not requested, dema not requested
+    ```
+
     ### SIMD
 
     **By assets** — same options, N assets in parallel:
@@ -810,6 +939,25 @@ The 1-period percentage rate of change of a triple-smoothed EMA. Useful as a mom
     ```python
     outputs, state = tulip_rs.indicators.trix.indicator([close], [14.0])
     print(outputs[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.trix.indicator(
+        [close], [5.0],
+        optional_outputs=[False, False, True],
+    )
+
+    trix = outputs[0]  # trix (primary)
+    ema  = outputs[1]  # ema (optional — requested)
+    # tema not requested, dema not requested
     ```
 
     ### SIMD
@@ -847,6 +995,23 @@ Removes the trend from price by comparing it to a displaced moving average, high
     println!("{:?}", outputs[0]);
     ```
 
+    ### Optional Outputs
+
+    `dpo` exposes 1 optional output: `sma`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::dpo::indicator;
+
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
+                     83.15, 82.84, 83.99, 84.55, 84.36_f64];
+
+    let mask = [true]; // one per optional output
+    let (outputs, _state) = indicator(&[close.as_slice()], &[14.0], Some(&mask)).unwrap();
+
+    let dpo = &outputs[0]; // dpo (primary)
+    let sma = &outputs[1]; // sma (optional — requested)
+    ```
+
     ### SIMD
 
     **By assets** — same options, N assets in parallel:
@@ -874,6 +1039,24 @@ Removes the trend from price by comparing it to a displaced moving average, high
     ```python
     outputs, state = tulip_rs.indicators.dpo.indicator([close], [14.0])
     print(outputs[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.dpo.indicator(
+        [close], [14.0],
+        optional_outputs=[True],
+    )
+
+    dpo = outputs[0]  # dpo (primary)
+    sma = outputs[1]  # sma (optional — requested)
     ```
 
     ### SIMD
@@ -990,6 +1173,23 @@ The mean of the absolute deviations of each bar from the rolling mean over `peri
     println!("{:?}", outputs[0]);
     ```
 
+    ### Optional Outputs
+
+    `md` exposes 1 optional output: `sma`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::md::indicator;
+
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
+                     83.15, 82.84, 83.99, 84.55, 84.36_f64];
+
+    let mask = [true]; // one per optional output
+    let (outputs, _state) = indicator(&[close.as_slice()], &[10.0], Some(&mask)).unwrap();
+
+    let md  = &outputs[0]; // md (primary)
+    let sma = &outputs[1]; // sma (optional — requested)
+    ```
+
     ### SIMD
 
     **By assets** — same options, N assets in parallel:
@@ -1017,6 +1217,24 @@ The mean of the absolute deviations of each bar from the rolling mean over `peri
     ```python
     outputs, state = tulip_rs.indicators.md.indicator([close], [14.0])
     print(outputs[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.md.indicator(
+        [close], [10.0],
+        optional_outputs=[True],
+    )
+
+    md  = outputs[0]  # md (primary)
+    sma = outputs[1]  # sma (optional — requested)
     ```
 
     ### SIMD

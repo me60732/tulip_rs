@@ -153,6 +153,31 @@ The difference between a short and long EMA of the A/D line, used to confirm pri
     println!("{:?}", continued[0]);
     ```
 
+    ### Optional Outputs
+
+    `adosc` exposes 3 optional outputs: `short_ema`, `long_ema`, `ad`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::adosc::indicator;
+
+    let close  = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
+    let high   = close.iter().map(|x| x + 1.0).collect::<Vec<_>>();
+    let low    = close.iter().map(|x| x - 1.0).collect::<Vec<_>>();
+    let volume = vec![10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0, 11800.0, 10200.0_f64];
+
+    let mask = [true, false, true];
+    let (outputs, _state) = indicator(
+        &[high.as_slice(), low.as_slice(), close.as_slice(), volume.as_slice()],
+        &[6.0, 20.0],
+        Some(&mask),
+    ).unwrap();
+
+    let adosc     = &outputs[0]; // adosc (primary)
+    let short_ema = &outputs[1]; // short_ema (optional — requested)
+    let long_ema  = &outputs[2]; // long_ema (optional — not requested)
+    let ad        = &outputs[3]; // ad (optional — requested)
+    ```
+
     ### SIMD
 
     **By assets** — same options, N assets in parallel:
@@ -214,6 +239,28 @@ The difference between a short and long EMA of the A/D line, used to confirm pri
     new_volume = np.array([1550.0], dtype=np.float64)
     continued = state.batch_indicator([new_high, new_low, new_close, new_volume])
     print(continued[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close  = np.array([81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+    high   = close + 1.0
+    low    = close - 1.0
+    volume = np.array([10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0, 11800.0, 10200.0], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.adosc.indicator(
+        [high, low, close, volume], [6.0, 20.0],
+        optional_outputs=[True, False, True],
+    )
+
+    adosc     = outputs[0]  # adosc (primary)
+    short_ema = outputs[1]  # short_ema (optional — requested)
+    long_ema  = outputs[2]  # long_ema (optional — not requested)
+    ad        = outputs[3]  # ad (optional — requested)
     ```
 
     ### SIMD
@@ -380,6 +427,29 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
     println!("{:?}", continued[0]);
     ```
 
+    ### Optional Outputs
+
+    `mfi` exposes 1 optional output: `typprice`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::mfi::indicator;
+
+    let close  = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
+    let high   = close.iter().map(|x| x + 1.0).collect::<Vec<_>>();
+    let low    = close.iter().map(|x| x - 1.0).collect::<Vec<_>>();
+    let volume = vec![10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0, 11800.0, 10200.0_f64];
+
+    let mask = [true];
+    let (outputs, _state) = indicator(
+        &[high.as_slice(), low.as_slice(), close.as_slice(), volume.as_slice()],
+        &[14.0],
+        Some(&mask),
+    ).unwrap();
+
+    let mfi      = &outputs[0]; // mfi (primary)
+    let typprice = &outputs[1]; // typprice (optional — requested)
+    ```
+
     ### SIMD
 
     **By assets** — same options, N assets in parallel:
@@ -438,6 +508,26 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
     new_volume = np.array([1550.0], dtype=np.float64)
     continued = state.batch_indicator([new_high, new_low, new_close, new_volume])
     print(continued[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close  = np.array([81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+    high   = close + 1.0
+    low    = close - 1.0
+    volume = np.array([10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0, 11800.0, 10200.0], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.mfi.indicator(
+        [high, low, close, volume], [14.0],
+        optional_outputs=[True],
+    )
+
+    mfi      = outputs[0]  # mfi (primary)
+    typprice = outputs[1]  # typprice (optional — requested)
     ```
 
     ### SIMD
@@ -687,6 +777,23 @@ The percentage difference between two volume moving averages. Expanding volume o
     println!("{:?}", continued[0]);
     ```
 
+    ### Optional Outputs
+
+    `vosc` exposes 2 optional outputs: `short_sma`, `long_sma`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::vosc::indicator;
+
+    let volume = vec![10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0, 11800.0, 10200.0_f64];
+
+    let mask = [true, true];
+    let (outputs, _state) = indicator(&[volume.as_slice()], &[5.0, 20.0], Some(&mask)).unwrap();
+
+    let vosc      = &outputs[0]; // vosc (primary)
+    let short_sma = &outputs[1]; // short_sma (optional — requested)
+    let long_sma  = &outputs[2]; // long_sma (optional — requested)
+    ```
+
     ### SIMD
 
     **By assets** — same options, N assets in parallel:
@@ -737,6 +844,24 @@ The percentage difference between two volume moving averages. Expanding volume o
     new_volume = np.array([1600.0, 1250.0], dtype=np.float64)
     continued = state.batch_indicator([new_volume])
     print(continued[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    volume = np.array([10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0, 11800.0, 10200.0], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.vosc.indicator(
+        [volume], [5.0, 20.0],
+        optional_outputs=[True, True],
+    )
+
+    vosc      = outputs[0]  # vosc (primary)
+    short_sma = outputs[1]  # short_sma (optional — requested)
+    long_sma  = outputs[2]  # long_sma (optional — requested)
     ```
 
     ### SIMD
@@ -806,6 +931,30 @@ Identifies long-term money flow trends while remaining sensitive enough to detec
     println!("{:?}", continued[0]);
     ```
 
+    ### Optional Outputs
+
+    `kvo` exposes 2 optional outputs: `short_ema`, `long_ema`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::kvo::indicator;
+
+    let close  = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
+    let high   = close.iter().map(|x| x + 1.0).collect::<Vec<_>>();
+    let low    = close.iter().map(|x| x - 1.0).collect::<Vec<_>>();
+    let volume = vec![10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0, 11800.0, 10200.0_f64];
+
+    let mask = [true, false];
+    let (outputs, _state) = indicator(
+        &[high.as_slice(), low.as_slice(), close.as_slice(), volume.as_slice()],
+        &[9.0, 26.0],
+        Some(&mask),
+    ).unwrap();
+
+    let kvo       = &outputs[0]; // kvo (primary)
+    let short_ema = &outputs[1]; // short_ema (optional — requested)
+    let long_ema  = &outputs[2]; // long_ema (optional — not requested)
+    ```
+
     ### SIMD
 
     **By assets** — same options, N assets in parallel:
@@ -867,6 +1016,27 @@ Identifies long-term money flow trends while remaining sensitive enough to detec
     new_volume = np.array([1550.0], dtype=np.float64)
     continued = state.batch_indicator([new_high, new_low, new_close, new_volume])
     print(continued[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close  = np.array([81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+    high   = close + 1.0
+    low    = close - 1.0
+    volume = np.array([10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0, 11800.0, 10200.0], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.kvo.indicator(
+        [high, low, close, volume], [9.0, 26.0],
+        optional_outputs=[True, False],
+    )
+
+    kvo       = outputs[0]  # kvo (primary)
+    short_ema = outputs[1]  # short_ema (optional — requested)
+    long_ema  = outputs[2]  # long_ema (optional — not requested)
     ```
 
     ### SIMD
@@ -933,6 +1103,29 @@ Relates price change to volume, indicating how easily a price moves. High values
     println!("{:?}", continued[0]);
     ```
 
+    ### Optional Outputs
+
+    `emv` exposes 1 optional output: `medprice`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::emv::indicator;
+
+    let close  = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
+    let high   = close.iter().map(|x| x + 1.0).collect::<Vec<_>>();
+    let low    = close.iter().map(|x| x - 1.0).collect::<Vec<_>>();
+    let volume = vec![10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0, 11800.0, 10200.0_f64];
+
+    let mask = [true];
+    let (outputs, _state) = indicator(
+        &[high.as_slice(), low.as_slice(), volume.as_slice()],
+        &[],
+        Some(&mask),
+    ).unwrap();
+
+    let emv      = &outputs[0]; // emv (primary)
+    let medprice = &outputs[1]; // medprice (optional — requested)
+    ```
+
     ### SIMD
 
     **By assets** — same options, N assets in parallel:
@@ -978,6 +1171,26 @@ Relates price change to volume, indicating how easily a price moves. High values
     new_volume = np.array([1550.0], dtype=np.float64)
     continued = state.batch_indicator([new_high, new_low, new_volume])
     print(continued[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close  = np.array([81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+    high   = close + 1.0
+    low    = close - 1.0
+    volume = np.array([10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0, 11800.0, 10200.0], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.emv.indicator(
+        [high, low, volume], [],
+        optional_outputs=[True],
+    )
+
+    emv      = outputs[0]  # emv (primary)
+    medprice = outputs[1]  # medprice (optional — requested)
     ```
 
     ### SIMD

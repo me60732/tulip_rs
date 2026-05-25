@@ -160,6 +160,31 @@ Measures market volatility by averaging the true range (the greatest of: high-lo
     println!("{:?}", continued[0]);
     ```
 
+    ### Optional Outputs
+
+    `atr` exposes 1 optional output: `"tr"`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::atr::indicator;
+
+    let high  = vec![82.59, 82.06, 83.87, 84.00, 84.61,
+                     84.15, 83.84, 84.99, 85.55, 85.36_f64];
+    let low   = vec![80.59, 80.06, 81.87, 82.00, 82.61,
+                     82.15, 81.84, 82.99, 83.55, 83.36_f64];
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
+                     83.15, 82.84, 83.99, 84.55, 84.36_f64];
+
+    let mask = [true]; // request tr
+    let (outputs, _state) = indicator(
+        &[high.as_slice(), low.as_slice(), close.as_slice()],
+        &[14.0],
+        Some(&mask),
+    ).unwrap();
+
+    let atr = &outputs[0]; // atr (primary)
+    let tr  = &outputs[1]; // tr  (optional — requested)
+    ```
+
     ### SIMD
 
     **By assets** — same options, N assets in parallel:
@@ -215,6 +240,28 @@ Measures market volatility by averaging the true range (the greatest of: high-lo
     new_close = np.array([85.00], dtype=np.float64)
     continued = state.batch_indicator([new_high, new_low, new_close])
     print(continued[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    high  = np.array([82.59, 82.06, 83.87, 84.00, 84.61,
+                      84.15, 83.84, 84.99, 85.55, 85.36], dtype=np.float64)
+    low   = np.array([80.59, 80.06, 81.87, 82.00, 82.61,
+                      82.15, 81.84, 82.99, 83.55, 83.36], dtype=np.float64)
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.atr.indicator(
+        [high, low, close], [14.0],
+        optional_outputs=[True],
+    )
+
+    atr = outputs[0]  # atr (primary)
+    tr  = outputs[1]  # tr  (optional — requested)
     ```
 
     ### SIMD
@@ -281,6 +328,32 @@ ATR expressed as a percentage of the closing price, making it comparable across 
     println!("{:?}", continued[0]);
     ```
 
+    ### Optional Outputs
+
+    `natr` exposes 2 optional outputs: `"atr"`, `"tr"`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::natr::indicator;
+
+    let high  = vec![82.59, 82.06, 83.87, 84.00, 84.61,
+                     84.15, 83.84, 84.99, 85.55, 85.36_f64];
+    let low   = vec![80.59, 80.06, 81.87, 82.00, 82.61,
+                     82.15, 81.84, 82.99, 83.55, 83.36_f64];
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
+                     83.15, 82.84, 83.99, 84.55, 84.36_f64];
+
+    let mask = [true, true]; // request atr, tr
+    let (outputs, _state) = indicator(
+        &[high.as_slice(), low.as_slice(), close.as_slice()],
+        &[14.0],
+        Some(&mask),
+    ).unwrap();
+
+    let natr = &outputs[0]; // natr (primary)
+    let atr  = &outputs[1]; // atr  (optional — requested)
+    let tr   = &outputs[2]; // tr   (optional — requested)
+    ```
+
     ### SIMD
 
     **By assets** — same options, N assets in parallel:
@@ -336,6 +409,29 @@ ATR expressed as a percentage of the closing price, making it comparable across 
     new_close = np.array([85.00], dtype=np.float64)
     continued = state.batch_indicator([new_high, new_low, new_close])
     print(continued[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    high  = np.array([82.59, 82.06, 83.87, 84.00, 84.61,
+                      84.15, 83.84, 84.99, 85.55, 85.36], dtype=np.float64)
+    low   = np.array([80.59, 80.06, 81.87, 82.00, 82.61,
+                      82.15, 81.84, 82.99, 83.55, 83.36], dtype=np.float64)
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.natr.indicator(
+        [high, low, close], [14.0],
+        optional_outputs=[True, True],
+    )
+
+    natr = outputs[0]  # natr (primary)
+    atr  = outputs[1]  # atr  (optional — requested)
+    tr   = outputs[2]  # tr   (optional — requested)
     ```
 
     ### SIMD
@@ -494,6 +590,23 @@ Rolling standard deviation of the price series over `period` bars.
     println!("{:?}", continued[0]);
     ```
 
+    ### Optional Outputs
+
+    `stddev` exposes 1 optional output: `"sma"`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::stddev::indicator;
+
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
+                     83.15, 82.84, 83.99, 84.55, 84.36_f64];
+
+    let mask = [true]; // request sma
+    let (outputs, _state) = indicator(&[close.as_slice()], &[5.0], Some(&mask)).unwrap();
+
+    let stddev = &outputs[0]; // stddev (primary)
+    let sma    = &outputs[1]; // sma    (optional — requested)
+    ```
+
     ### SIMD
 
     **By assets** — same options, N assets in parallel:
@@ -543,6 +656,24 @@ Rolling standard deviation of the price series over `period` bars.
     new_close = np.array([85.10, 85.72], dtype=np.float64)
     continued = state.batch_indicator([new_close])
     print(continued[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.stddev.indicator(
+        [close], [5.0],
+        optional_outputs=[True],
+    )
+
+    stddev = outputs[0]  # stddev (primary)
+    sma    = outputs[1]  # sma    (optional — requested)
     ```
 
     ### SIMD

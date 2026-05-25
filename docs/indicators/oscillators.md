@@ -164,6 +164,26 @@ Shows the relationship between two EMAs of different periods. The histogram visu
     println!("Continued Histogram: {:?}", continued[2]);
     ```
 
+    ### Optional Outputs
+
+    `macd` exposes 2 optional outputs: `short_ema`, `long_ema`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::macd::indicator;
+
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
+                     83.15, 82.84, 83.99, 84.55, 84.36_f64];
+
+    let mask = [true, true]; // one per optional output
+    let (outputs, _state) = indicator(&[close.as_slice()], &[12.0, 26.0, 9.0], Some(&mask)).unwrap();
+
+    let macd_line   = &outputs[0]; // macd_line (primary)
+    let signal_line = &outputs[1]; // signal_line (primary)
+    let histogram   = &outputs[2]; // histogram (primary)
+    let short_ema   = &outputs[3]; // short_ema (optional — requested)
+    let long_ema    = &outputs[4]; // long_ema (optional — requested)
+    ```
+
     ### SIMD
 
     **By assets** — same options applied to 4 assets in parallel:
@@ -239,6 +259,27 @@ Shows the relationship between two EMAs of different periods. The histogram visu
     print("Continued MACD:      ", continued[0])
     print("Continued Signal:    ", continued[1])
     print("Continued Histogram: ", continued[2])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.macd.indicator(
+        [close], [12.0, 26.0, 9.0],
+        optional_outputs=[True, True],
+    )
+
+    macd_line   = outputs[0]  # macd_line (primary)
+    signal_line = outputs[1]  # signal_line (primary)
+    histogram   = outputs[2]  # histogram (primary)
+    short_ema   = outputs[3]  # short_ema (optional — requested)
+    long_ema    = outputs[4]  # long_ema (optional — requested)
     ```
 
     ### SIMD
@@ -487,6 +528,23 @@ Applies the Stochastic Oscillator formula to RSI values rather than price, produ
     println!("Continued StochRSI: {:?}", continued[0]);
     ```
 
+    ### Optional Outputs
+
+    `stochrsi` exposes 1 optional output: `rsi`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::stochrsi::indicator;
+
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
+                     83.15, 82.84, 83.99, 84.55, 84.36_f64];
+
+    let mask = [true]; // one per optional output
+    let (outputs, _state) = indicator(&[close.as_slice()], &[14.0], Some(&mask)).unwrap();
+
+    let stochrsi = &outputs[0]; // stochrsi (primary)
+    let rsi      = &outputs[1]; // rsi (optional — requested)
+    ```
+
     ### SIMD
 
     **By assets** — same period applied to 4 assets in parallel:
@@ -548,6 +606,24 @@ Applies the Stochastic Oscillator formula to RSI values rather than price, produ
     new_close = close[8:]
     continued = state.batch_indicator([new_close])
     print("Continued StochRSI:", continued[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.stochrsi.indicator(
+        [close], [14.0],
+        optional_outputs=[True],
+    )
+
+    stochrsi = outputs[0]  # stochrsi (primary)
+    rsi      = outputs[1]  # rsi (optional — requested)
     ```
 
     ### SIMD
@@ -770,6 +846,30 @@ Measures how far the typical price deviates from its simple moving average, norm
     println!("Continued CCI: {:?}", continued[0]);
     ```
 
+    ### Optional Outputs
+
+    `cci` exposes 3 optional outputs: `sma`, `md`, `typprice`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::cci::indicator;
+
+    let high  = vec![82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00_f64];
+    let low   = vec![81.29, 80.64, 81.31, 82.65, 83.07,
+                     83.11, 82.49, 82.30, 84.15, 84.11_f64];
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
+                     83.15, 82.84, 83.99, 84.55, 84.36_f64];
+
+    let mask = [true, true, true]; // one per optional output
+    let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+    let (outputs, _state) = indicator(&inputs, &[20.0], Some(&mask)).unwrap();
+
+    let cci      = &outputs[0]; // cci (primary)
+    let sma      = &outputs[1]; // sma (optional — requested)
+    let md       = &outputs[2]; // md (optional — requested)
+    let typprice = &outputs[3]; // typprice (optional — requested)
+    ```
+
     ### SIMD
 
     **By assets** — same period applied to 4 assets in parallel:
@@ -839,6 +939,30 @@ Measures how far the typical price deviates from its simple moving average, norm
     outputs2, state = tulip_rs.indicators.cci.indicator([high[:8], low[:8], close[:8]], [20.0])
     continued = state.batch_indicator([high[8:], low[8:], close[8:]])
     print("Continued CCI:", continued[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    high  = np.array([82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00], dtype=np.float64)
+    low   = np.array([81.29, 80.64, 81.31, 82.65, 83.07,
+                      83.11, 82.49, 82.30, 84.15, 84.11], dtype=np.float64)
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.cci.indicator(
+        [high, low, close], [20.0],
+        optional_outputs=[True, True, True],
+    )
+
+    cci      = outputs[0]  # cci (primary)
+    sma      = outputs[1]  # sma (optional — requested)
+    md       = outputs[2]  # md (optional — requested)
+    typprice = outputs[3]  # typprice (optional — requested)
     ```
 
     ### SIMD
@@ -1216,6 +1340,30 @@ Measures market momentum as the difference between a 5-period and 34-period simp
     println!("Continued AO: {:?}", continued[0]);
     ```
 
+    ### Optional Outputs
+
+    `ao` exposes 3 optional outputs: `short_sma`, `long_sma`, `medprice`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::ao::indicator;
+
+    let high = vec![82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                    85.90, 86.58, 86.98, 88.00, 87.87, 88.10, 88.50, 89.00, 89.40, 89.80,
+                    90.10, 90.50, 91.00, 91.50, 91.80, 92.00, 92.40, 92.80, 93.10, 93.50,
+                    93.80, 94.20, 94.60, 95.00, 95.30_f64];
+    let low  = vec![81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                    84.03, 85.39, 85.76, 87.17, 87.01, 87.50, 87.90, 88.30, 88.70, 89.10,
+                    89.40, 89.80, 90.20, 90.60, 91.00, 91.30, 91.70, 92.10, 92.40, 92.80,
+                    93.10, 93.50, 93.90, 94.30, 94.60_f64];
+
+    let mask = [true, false, false]; // one per optional output
+    let (outputs, _state) = indicator(&[high.as_slice(), low.as_slice()], &[], Some(&mask)).unwrap();
+
+    let ao        = &outputs[0]; // ao (primary)
+    let short_sma = &outputs[1]; // short_sma (optional — requested)
+    // long_sma and medprice not requested
+    ```
+
     ### SIMD
 
     **By assets** — applied to 4 assets in parallel:
@@ -1276,6 +1424,31 @@ Measures market momentum as the difference between a 5-period and 34-period simp
     outputs2, state = tulip_rs.indicators.ao.indicator([high[:30], low[:30]], [])
     continued = state.batch_indicator([high[30:], low[30:]])
     print("Continued AO:", continued[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    high = np.array([82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                     85.90, 86.58, 86.98, 88.00, 87.87, 88.10, 88.50, 89.00, 89.40, 89.80,
+                     90.10, 90.50, 91.00, 91.50, 91.80, 92.00, 92.40, 92.80, 93.10, 93.50,
+                     93.80, 94.20, 94.60, 95.00, 95.30], dtype=np.float64)
+    low  = np.array([81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                     84.03, 85.39, 85.76, 87.17, 87.01, 87.50, 87.90, 88.30, 88.70, 89.10,
+                     89.40, 89.80, 90.20, 90.60, 91.00, 91.30, 91.70, 92.10, 92.40, 92.80,
+                     93.10, 93.50, 93.90, 94.30, 94.60], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.ao.indicator(
+        [high, low], [],
+        optional_outputs=[True, False, False],
+    )
+
+    ao        = outputs[0]  # ao (primary)
+    short_sma = outputs[1]  # short_sma (optional — requested)
+    # long_sma and medprice not requested
     ```
 
     ### SIMD
@@ -1490,6 +1663,25 @@ Measures the percentage difference between the current price and the linear regr
     println!("Continued FOSC: {:?}", continued[0]);
     ```
 
+    ### Optional Outputs
+
+    `fosc` exposes 4 optional outputs: `tsf`, `linreg`, `linregslope`, `linregintercept`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::fosc::indicator;
+
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
+                     83.15, 82.84, 83.99, 84.55, 84.36_f64];
+
+    let mask = [true, true, false, false]; // one per optional output
+    let (outputs, _state) = indicator(&[close.as_slice()], &[14.0], Some(&mask)).unwrap();
+
+    let fosc   = &outputs[0]; // fosc (primary)
+    let tsf    = &outputs[1]; // tsf (optional — requested)
+    let linreg = &outputs[2]; // linreg (optional — requested)
+    // linregslope and linregintercept not requested
+    ```
+
     ### SIMD
 
     **By assets** — same period applied to 4 assets in parallel:
@@ -1551,6 +1743,26 @@ Measures the percentage difference between the current price and the linear regr
     new_close = close[8:]
     continued = state.batch_indicator([new_close])
     print("Continued FOSC:", continued[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.fosc.indicator(
+        [close], [14.0],
+        optional_outputs=[True, True, False, False],
+    )
+
+    fosc   = outputs[0]  # fosc (primary)
+    tsf    = outputs[1]  # tsf (optional — requested)
+    linreg = outputs[2]  # linreg (optional — requested)
+    # linregslope and linregintercept not requested
     ```
 
     ### SIMD

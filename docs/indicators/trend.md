@@ -30,6 +30,23 @@ Expresses the MACD as a percentage of the slow EMA, making it comparable across 
     println!("{:?}", continued[0]);
     ```
 
+    ### Optional Outputs
+
+    `ppo` exposes 2 optional outputs: `short_ema`, `long_ema`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::ppo::indicator;
+
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
+
+    let mask = [true, true];
+    let (outputs, _state) = indicator(&[close.as_slice()], &[5.0, 20.0], Some(&mask)).unwrap();
+
+    let ppo       = &outputs[0]; // PPO values (primary)
+    let short_ema = &outputs[1]; // short_ema (optional — requested)
+    let long_ema  = &outputs[2]; // long_ema (optional — requested)
+    ```
+
     ### SIMD
 
     **By assets** — same options, N assets in parallel:
@@ -80,6 +97,24 @@ Expresses the MACD as a percentage of the slow EMA, making it comparable across 
     new_close = np.array([85.10, 85.72], dtype=np.float64)
     continued = state.batch_indicator([new_close])
     print(continued[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.ppo.indicator(
+        [close], [5.0, 20.0],
+        optional_outputs=[True, True],
+    )
+
+    ppo       = outputs[0]  # PPO values (primary)
+    short_ema = outputs[1]  # short_ema (optional — requested)
+    long_ema  = outputs[2]  # long_ema (optional — requested)
     ```
 
     ### SIMD
@@ -135,6 +170,23 @@ The raw difference between two EMAs (short minus long). Positive values indicate
     println!("{:?}", continued[0]);
     ```
 
+    ### Optional Outputs
+
+    `apo` exposes 2 optional outputs: `short_ema`, `long_ema`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::apo::indicator;
+
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
+
+    let mask = [true, true];
+    let (outputs, _state) = indicator(&[close.as_slice()], &[5.0, 20.0], Some(&mask)).unwrap();
+
+    let apo       = &outputs[0]; // APO values (primary)
+    let short_ema = &outputs[1]; // short_ema (optional — requested)
+    let long_ema  = &outputs[2]; // long_ema (optional — requested)
+    ```
+
     ### SIMD
 
     **By assets** — same options, N assets in parallel:
@@ -185,6 +237,24 @@ The raw difference between two EMAs (short minus long). Positive values indicate
     new_close = np.array([85.10, 85.72], dtype=np.float64)
     continued = state.batch_indicator([new_close])
     print(continued[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.apo.indicator(
+        [close], [5.0, 20.0],
+        optional_outputs=[True, True],
+    )
+
+    apo       = outputs[0]  # APO values (primary)
+    short_ema = outputs[1]  # short_ema (optional — requested)
+    long_ema  = outputs[2]  # long_ema (optional — requested)
     ```
 
     ### SIMD
@@ -249,6 +319,30 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
     println!("{:?}", continued[0]);
     ```
 
+    ### Optional Outputs
+
+    `adx` exposes 3 optional outputs: `dx`, `atr`, `tr`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::adx::indicator;
+
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
+    let high  = close.iter().map(|x| x + 1.0).collect::<Vec<_>>();
+    let low   = close.iter().map(|x| x - 1.0).collect::<Vec<_>>();
+
+    let mask = [true, true, false];
+    let (outputs, _state) = indicator(
+        &[high.as_slice(), low.as_slice(), close.as_slice()],
+        &[14.0],
+        Some(&mask),
+    ).unwrap();
+
+    let adx = &outputs[0]; // adx (primary)
+    let dx  = &outputs[1]; // dx (optional — requested)
+    let atr = &outputs[2]; // atr (optional — requested)
+    // tr not requested — omitted from outputs
+    ```
+
     ### SIMD
 
     **By assets** — same options, N assets in parallel:
@@ -304,6 +398,27 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
     new_close = np.array([85.00], dtype=np.float64)
     continued = state.batch_indicator([new_high, new_low, new_close])
     print(continued[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+    high  = close + 1.0
+    low   = close - 1.0
+
+    outputs, state = tulip_rs.indicators.adx.indicator(
+        [high, low, close], [14.0],
+        optional_outputs=[True, True, False],
+    )
+
+    adx = outputs[0]  # adx (primary)
+    dx  = outputs[1]  # dx (optional — requested)
+    atr = outputs[2]  # atr (optional — requested)
+    # tr not requested — omitted from outputs
     ```
 
     ### SIMD
@@ -370,6 +485,29 @@ A smoothed version of ADX, calculated as the average of the current ADX and the 
     println!("{:?}", continued[0]);
     ```
 
+    ### Optional Outputs
+
+    `adxr` exposes 4 optional outputs: `adx`, `dx`, `atr`, `tr`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::adxr::indicator;
+
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
+    let high  = close.iter().map(|x| x + 1.0).collect::<Vec<_>>();
+    let low   = close.iter().map(|x| x - 1.0).collect::<Vec<_>>();
+
+    let mask = [true, false, false, false];
+    let (outputs, _state) = indicator(
+        &[high.as_slice(), low.as_slice(), close.as_slice()],
+        &[14.0],
+        Some(&mask),
+    ).unwrap();
+
+    let adxr = &outputs[0]; // adxr (primary)
+    let adx  = &outputs[1]; // adx (optional — requested)
+    // dx, atr, tr not requested — omitted from outputs
+    ```
+
     ### SIMD
 
     **By assets** — same options, N assets in parallel:
@@ -425,6 +563,26 @@ A smoothed version of ADX, calculated as the average of the current ADX and the 
     new_close = np.array([85.00], dtype=np.float64)
     continued = state.batch_indicator([new_high, new_low, new_close])
     print(continued[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+    high  = close + 1.0
+    low   = close - 1.0
+
+    outputs, state = tulip_rs.indicators.adxr.indicator(
+        [high, low, close], [14.0],
+        optional_outputs=[True, False, False, False],
+    )
+
+    adxr = outputs[0]  # adxr (primary)
+    adx  = outputs[1]  # adx (optional — requested)
+    # dx, atr, tr not requested — omitted from outputs
     ```
 
     ### SIMD
@@ -614,6 +772,30 @@ Smoothed directional movement expressed as a percentage of ATR. +DI and -DI cros
     println!("-DI continued: {:?}", continued[1]);
     ```
 
+    ### Optional Outputs
+
+    `di` exposes 2 optional outputs: `atr`, `tr`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::di::indicator;
+
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
+    let high  = close.iter().map(|x| x + 1.0).collect::<Vec<_>>();
+    let low   = close.iter().map(|x| x - 1.0).collect::<Vec<_>>();
+
+    let mask = [true, true];
+    let (outputs, _state) = indicator(
+        &[high.as_slice(), low.as_slice(), close.as_slice()],
+        &[14.0],
+        Some(&mask),
+    ).unwrap();
+
+    let plus_di  = &outputs[0]; // plus_di (primary)
+    let minus_di = &outputs[1]; // minus_di (primary)
+    let atr      = &outputs[2]; // atr (optional — requested)
+    let tr       = &outputs[3]; // tr (optional — requested)
+    ```
+
     ### SIMD
 
     **By assets** — same options, N assets in parallel:
@@ -673,6 +855,27 @@ Smoothed directional movement expressed as a percentage of ATR. +DI and -DI cros
     continued = state.batch_indicator([new_high, new_low, new_close])
     print(continued[0])  # Plus DI continued
     print(continued[1])  # Minus DI continued
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+    high  = close + 1.0
+    low   = close - 1.0
+
+    outputs, state = tulip_rs.indicators.di.indicator(
+        [high, low, close], [14.0],
+        optional_outputs=[True, True],
+    )
+
+    plus_di  = outputs[0]  # plus_di (primary)
+    minus_di = outputs[1]  # minus_di (primary)
+    atr      = outputs[2]  # atr (optional — requested)
+    tr       = outputs[3]  # tr (optional — requested)
     ```
 
     ### SIMD
@@ -741,6 +944,29 @@ The ratio of the difference to the sum of +DI and -DI, expressing directional mo
     println!("{:?}", continued[0]);
     ```
 
+    ### Optional Outputs
+
+    `dx` exposes 2 optional outputs: `atr`, `tr`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::dx::indicator;
+
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
+    let high  = close.iter().map(|x| x + 1.0).collect::<Vec<_>>();
+    let low   = close.iter().map(|x| x - 1.0).collect::<Vec<_>>();
+
+    let mask = [true, false];
+    let (outputs, _state) = indicator(
+        &[high.as_slice(), low.as_slice(), close.as_slice()],
+        &[14.0],
+        Some(&mask),
+    ).unwrap();
+
+    let dx  = &outputs[0]; // dx (primary)
+    let atr = &outputs[1]; // atr (optional — requested)
+    // tr not requested — omitted from outputs
+    ```
+
     ### SIMD
 
     **By assets** — same options, N assets in parallel:
@@ -796,6 +1022,26 @@ The ratio of the difference to the sum of +DI and -DI, expressing directional mo
     new_close = np.array([85.00], dtype=np.float64)
     continued = state.batch_indicator([new_high, new_low, new_close])
     print(continued[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+    high  = close + 1.0
+    low   = close - 1.0
+
+    outputs, state = tulip_rs.indicators.dx.indicator(
+        [high, low, close], [14.0],
+        optional_outputs=[True, False],
+    )
+
+    dx  = outputs[0]  # dx (primary)
+    atr = outputs[1]  # atr (optional — requested)
+    # tr not requested — omitted from outputs
     ```
 
     ### SIMD
@@ -980,6 +1226,29 @@ The difference between Aroon Up and Aroon Down. Positive values indicate bullish
     println!("{:?}", continued[0]);
     ```
 
+    ### Optional Outputs
+
+    `aroonosc` exposes 2 optional outputs: `aroon_down`, `aroon_up`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::aroonosc::indicator;
+
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
+    let high  = close.iter().map(|x| x + 1.0).collect::<Vec<_>>();
+    let low   = close.iter().map(|x| x - 1.0).collect::<Vec<_>>();
+
+    let mask = [true, true];
+    let (outputs, _state) = indicator(
+        &[high.as_slice(), low.as_slice()],
+        &[25.0],
+        Some(&mask),
+    ).unwrap();
+
+    let aroonosc  = &outputs[0]; // aroonosc (primary)
+    let aroon_down = &outputs[1]; // aroon_down (optional — requested)
+    let aroon_up   = &outputs[2]; // aroon_up (optional — requested)
+    ```
+
     ### SIMD
 
     **By assets** — same options, N assets in parallel:
@@ -1032,6 +1301,26 @@ The difference between Aroon Up and Aroon Down. Positive values indicate bullish
     new_low  = np.array([84.60], dtype=np.float64)
     continued = state.batch_indicator([new_high, new_low])
     print(continued[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+    high  = close + 1.0
+    low   = close - 1.0
+
+    outputs, state = tulip_rs.indicators.aroonosc.indicator(
+        [high, low], [25.0],
+        optional_outputs=[True, True],
+    )
+
+    aroonosc   = outputs[0]  # aroonosc (primary)
+    aroon_down = outputs[1]  # aroon_down (optional — requested)
+    aroon_up   = outputs[2]  # aroon_up (optional — requested)
     ```
 
     ### SIMD

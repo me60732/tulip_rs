@@ -294,6 +294,24 @@ Moving average where each bar is weighted linearly, the most recent bar receivin
     println!("Continued WMA: {:?}", continued[0]);
     ```
 
+    ### Optional Outputs
+
+    `wma` exposes 1 optional output: `"sma"`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::wma::indicator;
+
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
+                     83.15, 82.84, 83.99, 84.55, 84.36_f64];
+
+    // Request the SMA alongside the WMA
+    let mask = [true]; // one per optional output
+    let (outputs, _state) = indicator(&[close.as_slice()], &[5.0], Some(&mask)).unwrap();
+
+    let wma = &outputs[0]; // wma (primary)
+    let sma = &outputs[1]; // "sma" (optional — requested)
+    ```
+
     ### SIMD
 
     **By assets** — same period applied to 4 assets in parallel:
@@ -355,6 +373,25 @@ Moving average where each bar is weighted linearly, the most recent bar receivin
     new_close = close[8:]
     continued = state.batch_indicator([new_close])
     print("Continued WMA:", continued[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+
+    # Request the SMA alongside the WMA
+    outputs, state = tulip_rs.indicators.wma.indicator(
+        [close], [5.0],
+        optional_outputs=[True],
+    )
+
+    wma = outputs[0]  # wma (primary)
+    sma = outputs[1]  # "sma" (optional — requested)
     ```
 
     ### SIMD
@@ -420,6 +457,24 @@ Reduces EMA lag by applying a second EMA and combining the results: `2 * EMA - E
     println!("Continued DEMA: {:?}", continued[0]);
     ```
 
+    ### Optional Outputs
+
+    `dema` exposes 1 optional output: `"ema"`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::dema::indicator;
+
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
+                     83.15, 82.84, 83.99, 84.55, 84.36_f64];
+
+    // Request the EMA alongside the DEMA
+    let mask = [true]; // one per optional output
+    let (outputs, _state) = indicator(&[close.as_slice()], &[5.0], Some(&mask)).unwrap();
+
+    let dema = &outputs[0]; // dema (primary)
+    let ema  = &outputs[1]; // "ema" (optional — requested)
+    ```
+
     ### SIMD
 
     **By assets** — same period applied to 4 assets in parallel:
@@ -481,6 +536,25 @@ Reduces EMA lag by applying a second EMA and combining the results: `2 * EMA - E
     new_close = close[8:]
     continued = state.batch_indicator([new_close])
     print("Continued DEMA:", continued[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+
+    # Request the EMA alongside the DEMA
+    outputs, state = tulip_rs.indicators.dema.indicator(
+        [close], [5.0],
+        optional_outputs=[True],
+    )
+
+    dema = outputs[0]  # dema (primary)
+    ema  = outputs[1]  # "ema" (optional — requested)
     ```
 
     ### SIMD
@@ -546,6 +620,25 @@ Further reduces lag with three EMA layers: `3 * EMA - 3 * EMA(EMA) + EMA(EMA(EMA
     println!("Continued TEMA: {:?}", continued[0]);
     ```
 
+    ### Optional Outputs
+
+    `tema` exposes 2 optional outputs: `"dema"`, `"ema"`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::tema::indicator;
+
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
+                     83.15, 82.84, 83.99, 84.55, 84.36_f64];
+
+    // Request dema but not ema
+    let mask = [true, false]; // one per optional output
+    let (outputs, _state) = indicator(&[close.as_slice()], &[5.0], Some(&mask)).unwrap();
+
+    let tema = &outputs[0]; // tema (primary)
+    let dema = &outputs[1]; // "dema" (optional — requested)
+                            // "ema" not requested
+    ```
+
     ### SIMD
 
     **By assets** — same period applied to 4 assets in parallel:
@@ -607,6 +700,26 @@ Further reduces lag with three EMA layers: `3 * EMA - 3 * EMA(EMA) + EMA(EMA(EMA
     new_close = close[8:]
     continued = state.batch_indicator([new_close])
     print("Continued TEMA:", continued[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+
+    # Request dema but not ema
+    outputs, state = tulip_rs.indicators.tema.indicator(
+        [close], [5.0],
+        optional_outputs=[True, False],
+    )
+
+    tema = outputs[0]  # tema (primary)
+    dema = outputs[1]  # "dema" (optional — requested)
+                       # "ema" not requested
     ```
 
     ### SIMD
@@ -1177,6 +1290,27 @@ Similar to KAMA but uses the Chande Momentum Oscillator as its efficiency measur
     println!("Continued VIDYA: {:?}", continued[0]);
     ```
 
+    ### Optional Outputs
+
+    `vidya` exposes 4 optional outputs: `"short_sma"`, `"long_sma"`, `"short_sdtdev"`, `"long_sdtdev"`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::vidya::indicator;
+
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
+                     83.15, 82.84, 83.99, 84.55, 84.36_f64];
+
+    // Request short_sma and long_sma but not the stddev outputs
+    let mask = [true, true, false, false]; // one per optional output
+    let (outputs, _state) = indicator(&[close.as_slice()], &[5.0, 20.0, 0.2], Some(&mask)).unwrap();
+
+    let vidya     = &outputs[0]; // vidya (primary)
+    let short_sma = &outputs[1]; // "short_sma" (optional — requested)
+    let long_sma  = &outputs[2]; // "long_sma" (optional — requested)
+                                 // "short_sdtdev" not requested
+                                 // "long_sdtdev" not requested
+    ```
+
     ### SIMD
 
     **By assets** — same options applied to 4 assets in parallel:
@@ -1244,6 +1378,28 @@ Similar to KAMA but uses the Chande Momentum Oscillator as its efficiency measur
     new_close = close[8:]
     continued = state.batch_indicator([new_close])
     print("Continued VIDYA:", continued[0])
+    ```
+
+    ### Optional Outputs
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+
+    # Request short_sma and long_sma but not the stddev outputs
+    outputs, state = tulip_rs.indicators.vidya.indicator(
+        [close], [5.0, 20.0, 0.2],
+        optional_outputs=[True, True, False, False],
+    )
+
+    vidya     = outputs[0]  # vidya (primary)
+    short_sma = outputs[1]  # "short_sma" (optional — requested)
+    long_sma  = outputs[2]  # "long_sma" (optional — requested)
+                             # "short_sdtdev" not requested
+                             # "long_sdtdev" not requested
     ```
 
     ### SIMD
