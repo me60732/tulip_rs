@@ -83,7 +83,7 @@ pub struct Info<'a> {
 
 Many indicators compute intermediate series as part of their normal calculation. Rather than discarding these values, TulipRS can return them alongside the primary outputs — at **no extra computation cost**, since they were calculated anyway.
 
-This is a meaningful advantage over C Tulip and TA-Lib, which require a **separate function call** for each intermediate result, each re-reading the input data from scratch. TulipRS computes the primary output and every optional output in a **single pass** through the data. Depending on the indicator, requesting all optional outputs via TulipRS is **1.3× – 8.7× faster** than equivalent multi-call C code — see the [Optional Outputs benchmark](../benchmarks.md#4-optional-outputs-single-pass-computation-advantage) for full numbers per indicator.
+This is a meaningful advantage over C Tulip and TA-Lib, which require a **separate function call** for each intermediate result, each re-reading the input data from scratch. TulipRS computes the primary output and every optional output in a **single pass** through the data. Depending on the indicator, requesting all optional outputs via TulipRS is **1.3× – 8.7× faster** than equivalent multi-call C code — see the [Optional Outputs benchmark](../benchmarks/results.md) for full numbers per indicator.
 
 Optional outputs are **off by default**. Requesting them never changes the primary output values; it only captures values that would otherwise be thrown away.
 
@@ -221,7 +221,7 @@ Optional output masks work the same way with `batch_indicator()`. Pass the same 
 
 Optional outputs are computed as part of the indicator's normal calculation loop — requesting them adds **zero algorithmic overhead**. The only cost is the memory allocation for the extra output vectors and the store instructions to write them. Passing `None` (or an all-`false` mask) allows the compiler to elide those stores entirely, which is why `None` is the default.
 
-The performance difference between requesting all optional outputs and requesting none is documented in the [Benchmarks](../benchmarks.md#optional-outputs-single-pass) page — typically 5–15% depending on the indicator.
+The performance difference between requesting all optional outputs and requesting none is documented in the [Benchmarks](../benchmarks/results.md) page — typically 5–15% depending on the indicator.
 
 ---
 

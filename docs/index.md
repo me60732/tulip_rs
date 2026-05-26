@@ -16,7 +16,7 @@ Most technical analysis libraries are wrappers around the same scalar C code wri
 
 **Optional outputs at no extra cost** — many indicators compute intermediate series (sub-EMAs, TR, AD line, etc.) as a natural part of their calculation. TulipRS can return those alongside the primary output in the same pass. C Tulip and TA-Lib require a separate function call — and a full extra data scan — for each one. TulipRS is **1.3× – 8.7× faster** when you need those intermediate values. See [Indicator API](indicators/indicator_api.md).
 
-**Accuracy-aware warm-up** — `min_data_accuracy(options, decimals)` tells you exactly how many bars an EMA-based indicator needs before its output has converged to a given decimal precision. Use it to scan thousands of assets for signal events (MACD crossovers, RSI thresholds) by fetching only the minimum required window from your database instead of full history. See [Indicator API](indicators/indicator_api.md#min_data_accuracy--minimum-input-for-decimal-accuracy).
+**Accuracy-aware warm-up** — `min_data_accuracy(options, decimals)` tells you exactly how many bars an EMA-based indicator needs before its output has converged to a given decimal precision. Use it to scan thousands of assets for signal events (MACD crossovers, RSI thresholds) by fetching only the minimum required window from your database instead of full history. See [Indicator API](indicators/indicator_api.md).
 
 ---
 
@@ -81,7 +81,7 @@ Most technical analysis libraries are wrappers around the same scalar C code wri
 | [SIMD](simd.md) | Conceptual overview: by-assets and by-options modes, lane counts, when to use each |
 | [State Management](state_management.md) | Streaming computation, chunked processing, JSON serialisation |
 | [Language Bindings](language_bindings.md) | Python (PyO3/maturin) details, result object API, planned bindings |
-| [Benchmarks](benchmarks.md) | Comparison against Tulip Indicators (C) and TA-Lib, methodology, how to run |
+| [Benchmarks](benchmarks/results.md) | Comparison against Tulip Indicators (C) and TA-Lib, methodology, how to run |
 
 ---
 
