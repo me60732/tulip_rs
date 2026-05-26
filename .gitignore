@@ -7,5 +7,6 @@
 !docs/*.md
 !docs/**/*.md
 !pattern_authoring_guide.md
+!/README.md
 candle_indicators_old
 test_candle_examples.py
