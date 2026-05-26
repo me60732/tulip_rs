@@ -1,13 +1,24 @@
 [package]
 name = "tulip_rs"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 build = "build.rs"
 description = "High-performance technical analysis library — 100+ indicators and 60+ candlestick patterns with SIMD acceleration"
 license = "MIT"
 repository = "https://github.com/me60732/tulip_rs"
 documentation = "https://me60732.github.io/tulip_rs"
+readme = "../README.md"
 
+[package.metadata.docs.rs]
+features = ["simd_options", "simd_assets"]
+rustdoc-args = ["--cfg", "docsrs"]
+all-features = false
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+    "x86_64-apple-darwin",
+]
 
 [build-dependencies]
 # No dependencies needed for the simple file scanning build script
