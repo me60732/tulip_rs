@@ -1,6 +1,6 @@
 [package]
 name = "tulip_rs"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 build = "build.rs"
 description = "High-performance technical analysis library — 100+ indicators and 60+ candlestick patterns with SIMD acceleration"
@@ -17,10 +17,6 @@ serde = { version = "1.0.225", features = ["derive"] }
 serde_json = "1.0.145"
 tulip_rs_macros = { path = "../tulip_rs_macros", version = "0.1.0" }
 tulip_rs_shared = { path = "../tulip_rs_shared", version = "0.1.0" }
-
-
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
 
 
 [features]
