@@ -1,0 +1,94 @@
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/mark/Documents/resilio_sync/Development/tulip_rs/tulip_rs/Cargo.toml
+workspace: /home/mark/Documents/resilio_sync/Development/tulip_rs/Cargo.toml
+warning: /home/mark/Documents/resilio_sync/Development/tulip_rs/tulip_rs/Cargo.toml: unused manifest key: build
+help: build is a valid .cargo/config.toml key
+warning: /home/mark/Documents/resilio_sync/Development/tulip_rs/Cargo.toml: unused manifest key: build
+help: build is a valid .cargo/config.toml key
+warning: tulip_rs@0.1.0: Generated pattern registry with 77 patterns
+warning: unexpected `cfg` condition name: `rust_analyzer`
+  --> tulip_rs/src/candle_indicators/candle_patterns.rs:75:11
+   |
+75 | #[cfg(not(rust_analyzer))]
+   |           ^^^^^^^^^^^^^
+   |
+   = help: expected names are: `docsrs`, `feature`, and `test` and 32 more
+   = help: consider using a Cargo feature instead
+   = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+            [lints.rust]
+            unexpected_cfgs = { level = "warn", check-cfg = ['cfg(rust_analyzer)'] }
+   = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(rust_analyzer)");` to the top of the `build.rs`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+   = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unexpected `cfg` condition name: `rust_analyzer`
+  --> tulip_rs/src/candle_indicators/candle_patterns.rs:78:7
+   |
+78 | #[cfg(rust_analyzer)]
+   |       ^^^^^^^^^^^^^
+   |
+   = help: consider using a Cargo feature instead
+   = help: or consider adding in `Cargo.toml` the `check-cfg` lint config for the lint:
+            [lints.rust]
+            unexpected_cfgs = { level = "warn", check-cfg = ['cfg(rust_analyzer)'] }
+   = help: or consider adding `println!("cargo::rustc-check-cfg=cfg(rust_analyzer)");` to the top of the `build.rs`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: tulip_test@0.1.0: In function 'ti_stoch':
+warning: tulip_test@0.1.0: cc1: warning: iteration 2147483646 invokes undefined behavior [-Waggressive-loop-optimizations]
+warning: tulip_test@0.1.0: tulip_indicators/tiamalgamation.c:4137:23: note: within this loop
+warning: tulip_test@0.1.0:  4137 |             while(++j <= i) {
+warning: tulip_test@0.1.0:       |                   ~~~~^~~~
+warning: `tulip_rs` (lib) generated 2 warnings
+   Compiling tulip_test v0.1.0 (/home/mark/Documents/resilio_sync/Development/tulip_rs/tulip_test)
+warning: unexpected `cfg` condition value: `perf-stats`
+   --> tulip_test/benches/benchmark_candle_stick_indicators.rs:177:7
+    |
+177 | #[cfg(feature = "perf-stats")]
+    |       ^^^^^^^^^^^^^^^^^^^^^^ help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `perf-stats` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unexpected `cfg` condition value: `perf-stats`
+   --> tulip_test/benches/benchmark_candle_stick_indicators.rs:128:15
+    |
+128 |         #[cfg(feature = "perf-stats")]
+    |               ^^^^^^^^^^^^^^^^^^^^^^ help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `perf-stats` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `perf-stats`
+   --> tulip_test/benches/benchmark_candle_stick_indicators.rs:162:15
+    |
+162 |         #[cfg(feature = "perf-stats")]
+    |               ^^^^^^^^^^^^^^^^^^^^^^ help: remove the condition
+    |
+    = note: no expected values for `feature`
+    = help: consider adding `perf-stats` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: `tulip_test` (bench "benchmark_candle_stick_indicators") generated 3 warnings
+    Finished `bench` profile [optimized] target(s) in 18.29s
+     Running benches/benchmark_candle_stick_indicators.rs (/home/mark/Documents/resilio_sync/Development/tulip_rs/target/release/deps/benchmark_candle_stick_indicators-a849716147b73518)
+Fetched 6705 records for BHP on ASX
+Fetched 6705 records for CBA on ASX
+Fetched 6705 records for AAPL on NYSE
+Fetched 6705 records for MSFT on NYSE
+Loaded 4 stocks for benchmarking:
+  BHP_ASX: 6705 data points
+  CBA_ASX: 6705 data points
+  AAPL_NYSE: 6705 data points
+  MSFT_NYSE: 6705 data points
+Loaded 75 indicators into cache
+Started benchmark run with ID: 10111
+Logged: Rust_Candlestick BearishReversal [5.0, 10.0, 3.0] - 1437942ns
+Logged: Rust_Candlestick BullishReversal [5.0, 10.0, 3.0] - 1228631ns
+Logged: Rust_Candlestick BearishContinuation [5.0, 10.0, 3.0] - 573039ns
+Logged: Rust_Candlestick BullishContinuation [5.0, 10.0, 3.0] - 549078ns
+Logged: Rust_Candlestick BearishReversalOrContinuation [5.0, 10.0, 3.0] - 279353ns
+Logged: Rust_Candlestick BullishReversalOrContinuation [5.0, 10.0, 3.0] - 317854ns

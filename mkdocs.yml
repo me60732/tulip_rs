@@ -59,6 +59,9 @@ nav:
     - SIMD: simd.md
     - State Management: state_management.md
     - Language Bindings: language_bindings.md
-    - Benchmarks: benchmarks.md
+    - Benchmarks:
+          - Results: benchmarks/results.md
+          - Running Benchmarks: benchmarks/setup.md
+          - Benchmark Database: benchmarks/database.md
 
 docs_dir: docs

@@ -1,0 +1,322 @@
+[package]
+name = "tulip_test"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[build-dependencies]
+cc = "1.0"
+
+[dev-dependencies]
+criterion = { version = "0.4.0", features = ["html_reports"] }
+float-cmp = "0.9"
+
+[dependencies]
+tulip_rs = {path = "../tulip_rs"}
+tokio = { version = "1.0", features = ["full"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "chrono", "bigdecimal"] }
+chrono = { version = "0.4", features = ["serde"] }
+dotenv = "0.15"
+bigdecimal = "0.4"
+serde_json = "1.0"
+num_cpus = "1.0"
+gethostname = "0.4"
+criterion = { version = "0.4.0", features = ["html_reports"] }
+bincode = { version = "2.0.1", features = ["serde"] }
+
+[features]
+default = []
+talib = []
+
+[[bench]]
+name = "benchmark_candle_stick_indicators"
+harness = false
+
+[[bench]]
+name = "benchmark_macd"
+harness = false
+
+[[bench]]
+name = "benchmark_fisher"
+harness = false
+
+[[bench]]
+name = "benchmark_hma"
+harness = false
+
+[[bench]]
+name = "benchmark_sma"
+harness = false
+
+[[bench]]
+name = "benchmark_adx"
+harness = false
+
+
+[[bench]]
+name = "benchmark_adxr"
+harness = false
+
+[[bench]]
+name = "benchmark_kama"
+harness = false
+
+[[bench]]
+name = "benchmark_ad"
+harness = false
+
+[[bench]]
+name = "benchmark_adosc"
+harness = false
+
+[[bench]]
+name = "benchmark_ao"
+harness = false
+
+[[bench]]
+name = "benchmark_ao_medprice"
+harness = false
+
+[[bench]]
+name = "benchmark_apo"
+harness = false
+
+[[bench]]
+name = "benchmark_aroon"
+harness = false
+
+[[bench]]
+name = "benchmark_aroonosc"
+harness = false
+
+[[bench]]
+name = "benchmark_atr"
+harness = false
+
+[[bench]]
+name = "benchmark_natr"
+harness = false
+
+[[bench]]
+name = "benchmark_avgprice"
+harness = false
+
+[[bench]]
+name = "benchmark_bbands"
+harness = false
+
+[[bench]]
+name = "benchmark_bop"
+harness = false
+
+[[bench]]
+name = "benchmark_cci"
+harness = false
+
+[[bench]]
+name = "benchmark_cmo"
+harness = false
+
+[[bench]]
+name = "benchmark_cvi"
+harness = false
+
+[[bench]]
+name = "benchmark_dema"
+harness = false
+
+[[bench]]
+name = "benchmark_di"
+harness = false
+
+[[bench]]
+name = "benchmark_dm"
+harness = false
+
+[[bench]]
+name = "benchmark_dpo"
+harness = false
+
+[[bench]]
+name = "benchmark_dx"
+harness = false
+
+[[bench]]
+name = "benchmark_ema"
+harness = false
+
+[[bench]]
+name = "benchmark_emv"
+harness = false
+
+[[bench]]
+name = "benchmark_fosc"
+harness = false
+
+[[bench]]
+name = "benchmark_kvo"
+harness = false
+
+[[bench]]
+name = "benchmark_linreg"
+harness = false
+
+[[bench]]
+name = "benchmark_marketfi"
+harness = false
+
+[[bench]]
+name = "benchmark_mass"
+harness = false
+
+[[bench]]
+name = "benchmark_max"
+harness = false
+
+[[bench]]
+name = "benchmark_min"
+harness = false
+
+[[bench]]
+name = "benchmark_md"
+harness = false
+
+[[bench]]
+name = "benchmark_medprice"
+harness = false
+
+[[bench]]
+name = "benchmark_mfi"
+harness = false
+
+[[bench]]
+name = "benchmark_mom"
+harness = false
+
+[[bench]]
+name = "benchmark_msw"
+harness = false
+
+[[bench]]
+name = "benchmark_obv"
+harness = false
+
+[[bench]]
+name = "benchmark_ppo"
+harness = false
+
+[[bench]]
+name = "benchmark_psar"
+harness = false
+
+[[bench]]
+name = "benchmark_pvi"
+harness = false
+
+[[bench]]
+name = "benchmark_nvi"
+harness = false
+
+[[bench]]
+name = "benchmark_qstick"
+harness = false
+
+[[bench]]
+name = "benchmark_roc"
+harness = false
+
+[[bench]]
+name = "benchmark_rocr"
+harness = false
+
+[[bench]]
+name = "benchmark_rsi"
+harness = false
+
+[[bench]]
+name = "benchmark_stddev"
+harness = false
+
+[[bench]]
+name = "benchmark_stoch"
+harness = false
+
+[[bench]]
+name = "benchmark_stochrsi"
+harness = false
+
+[[bench]]
+name = "benchmark_tema"
+harness = false
+
+[[bench]]
+name = "benchmark_trima"
+harness = false
+
+[[bench]]
+name = "benchmark_trix"
+harness = false
+
+[[bench]]
+name = "benchmark_tsf"
+harness = false
+
+[[bench]]
+name = "benchmark_typprice"
+harness = false
+
+[[bench]]
+name = "benchmark_ultosc"
+harness = false
+
+[[bench]]
+name = "benchmark_vhf"
+harness = false
+
+[[bench]]
+name = "benchmark_vidya"
+harness = false
+
+[[bench]]
+name = "benchmark_volatility"
+harness = false
+
+[[bench]]
+name = "benchmark_vosc"
+harness = false
+
+[[bench]]
+name = "benchmark_vwma"
+harness = false
+
+[[bench]]
+name = "benchmark_wad"
+harness = false
+
+[[bench]]
+name = "benchmark_wcprice"
+harness = false
+
+[[bench]]
+name = "benchmark_wilders"
+harness = false
+
+[[bench]]
+name = "benchmark_willr"
+harness = false
+
+[[bench]]
+name = "benchmark_wma"
+harness = false
+
+[[bench]]
+name = "benchmark_zlema"
+harness = false
+
+[[bench]]
+name = "benchmark_tr"
+harness = false
+
+#[[bench]]
+#name = "benchmark_candle_stick_indicators"
+#harness = false

@@ -1,4 +1,4 @@
-# Benchmarks
+# Benchmark Results
 
 `tulip_rs` is benchmarked against two established C technical-analysis libraries across four scenarios:
 
@@ -655,5 +655,3 @@ Consider computing `tema` with all its sub-indicators (`dema`, `ema`) across **4
     | 8 | `willr` | 474× | Rolling high/low window scan |
     | 9 | `stoch` | 431× | Rolling high/low window scan |
     | 10 | `psar` | 415× | Parabolic SAR iterates entire history in batch |
-
-

@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+    db:
+        image: postgres:16
+        environment:
+            # Use the postgres superuser so the init scripts can freely run
+            # DROP DATABASE / CREATE DATABASE for both `stocks` and `indicator_benchmark`.
+            # The `tulip` application user is created by the init scripts themselves
+            # with the minimum required privileges.
+            POSTGRES_USER: postgres
+            POSTGRES_PASSWORD: postgres
+            # Connect init scripts to the default `postgres` database so they are not
+            # attached to `stocks` when they try to DROP / CREATE it.
+            POSTGRES_DB: postgres
+        ports:
+            - "${POSTGRES_PORT:-5432}:5432"
+        volumes:
+            # Mount init scripts in numbered order; PostgreSQL runs them alphabetically.
+            - ./scripts/01_init_stocks_db.sql:/docker-entrypoint-initdb.d/01_init_stocks_db.sql:ro
+            - ./scripts/02_init_benchmark_db.sql:/docker-entrypoint-initdb.d/02_init_benchmark_db.sql:ro
+            # Named volume so data survives container restarts.
+            - pg_data:/var/lib/postgresql/data
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U postgres"]
+            interval: 5s
+            timeout: 5s
+            retries: 10
+        restart: unless-stopped
+
+volumes:
+    pg_data:
