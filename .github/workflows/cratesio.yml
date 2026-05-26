@@ -4,6 +4,8 @@ on:
     push:
         tags:
             - "v*.*.*"
+env:
+    FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
     publish:
@@ -11,7 +13,7 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v5
+              uses: actions/checkout@v4
 
             - name: Install Rust toolchain
               uses: dtolnay/rust-toolchain@master
