@@ -2,6 +2,10 @@
 name = "tulip_rs_shared"
 version = "0.1.0"
 edition = "2021"
+description = "Shared constants and helpers for the TulipRS technical analysis library"
+license = "MIT"
+repository = "https://github.com/me60732/tulip_rs"
+
 
 [dependencies]
 # No dependencies - this is a pure constants/helper crate
