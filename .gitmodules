@@ -1,0 +1,3 @@
+[submodule "tulip_test/tulip_indicators"]
+	path = tulip_test/tulip_indicators
+	url = https://github.com/TulipCharts/tulipindicators
