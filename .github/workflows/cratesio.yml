@@ -24,7 +24,8 @@ jobs:
               env:
                   CARGO_REGISTRY_TOKEN: ${{ secrets.CRATESIOTULIP }}
               run: cargo publish --manifest-path tulip_rs_shared/Cargo.toml --verbose
-
+              continue-on-error: true
+               
             - name: Wait for tulip_rs_shared to be indexed
               run: sleep 30
 
@@ -32,7 +33,8 @@ jobs:
               env:
                   CARGO_REGISTRY_TOKEN: ${{ secrets.CRATESIOTULIP }}
               run: cargo publish --manifest-path tulip_rs_macros/Cargo.toml --verbose
-
+              continue-on-error: true
+              
             - name: Wait for tulip_rs_macros to be indexed
               run: sleep 30
 
