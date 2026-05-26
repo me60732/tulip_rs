@@ -1,5 +1,9 @@
 # TulipRS
 
+[![Crates.io](https://img.shields.io/crates/v/tulip_rs.svg)](https://crates.io/crates/tulip_rs)
+[![docs.rs](https://img.shields.io/docsrs/tulip_rs)](https://docs.rs/tulip_rs)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 **High-performance technical analysis in Rust.**
 
 TulipRS implements 100+ technical indicators and 77+ candlestick patterns with
@@ -31,7 +35,14 @@ TulipRS is **1.3× – 8.7× faster** than running the equivalent TA-Lib calls.
 
 ### Rust
 
-Add TulipRS to your `Cargo.toml`. The crate is distributed via Git:
+Add TulipRS to your `Cargo.toml`:
+
+```toml
+[dependencies]
+tulip_rs = "0.1.6"
+```
+
+To get the very latest unreleased changes, use the Git source directly:
 
 ```toml
 [dependencies]
@@ -42,10 +53,10 @@ tulip_rs = { git = "https://github.com/me60732/tulip_rs" }
 > version is pinned automatically by `rust-toolchain.toml` — no manual
 > toolchain management needed.
 
-To disable the SIMD multi-asset / multi-option variants (reduces compile time):
+To disable the SIMD variants (reduces compile time):
 
 ```toml
-tulip_rs = { git = "https://github.com/me60732/tulip_rs", default-features = false }
+tulip_rs = { version = "0.1.6", default-features = false }
 ```
 
 ### Python

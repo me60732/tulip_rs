@@ -4,7 +4,14 @@
 
 === "Rust"
 
-    Add TulipRS to your `Cargo.toml`. Because the crate is currently distributed via Git, reference it directly:
+    Add TulipRS to your `Cargo.toml`:
+
+    ```toml
+    [dependencies]
+    tulip_rs = "0.1.6"
+    ```
+
+    To get the very latest unreleased changes, use the Git source directly:
 
     ```toml
     [dependencies]
