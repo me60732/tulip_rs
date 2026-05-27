@@ -101,9 +101,6 @@ This is a meaningful advantage over C Tulip and TA-Lib, which require a **separa
 
 Optional outputs are **off by default**. Requesting them never changes the primary output values; it only captures values that would otherwise be thrown away.
 
-!!! note "Node.js"
-    The Node.js binding (`tulip-rs-node`) does not currently expose the optional outputs mask. All primary outputs are always returned. Optional output support is planned for a future release.
-
 ### Which optional outputs does an indicator have?
 
 Call `info()` and inspect the `optional_outputs` field:
@@ -183,6 +180,22 @@ The third argument to `indicator()` is `optional_outputs: Option<&[bool]>`. Each
     ad_line    = outputs[3]   # optional output at index 2
     ```
 
+=== "Node.js"
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    // info().optionalOutputs == ['short_ema', 'long_ema', 'ad']
+    //                             index 0       index 1    index 2
+
+    // Request only the AD line (index 2); skip short_ema and long_ema
+    const [outputs] = ti.adosc.indicator([high, low, close, volume], [6, 20], [false, false, true]);
+
+    const adoscLine = outputs[0]; // primary output — always present
+    // outputs[1] and outputs[2] are empty (not requested)
+    const adLine    = outputs[3]; // optional output at index 2
+    ```
+
 ### All optional outputs at once
 
 Pass a mask of all `true` to capture every intermediate series:
@@ -215,6 +228,18 @@ Pass a mask of all `true` to capture every intermediate series:
     ad_line        = outputs[3]
     ```
 
+=== "Node.js"
+
+    ```javascript
+    // adosc has 3 optional outputs
+    const [outputs] = ti.adosc.indicator([high, low, close, volume], [6, 20], [true, true, true]);
+
+    const adoscLine    = outputs[0]; // adosc     (primary)
+    const shortEmaLine = outputs[1]; // short_ema (optional 0)
+    const longEmaLine  = outputs[2]; // long_ema  (optional 1)
+    const adLine       = outputs[3]; // ad        (optional 2)
+    ```
+
 ### Optional outputs in streaming mode
 
 Optional output masks work the same way with `batch_indicator()`. Pass the same mask you used in the initial `indicator()` call:
@@ -233,6 +258,22 @@ Optional output masks work the same way with `batch_indicator()`. Pass the same 
     let new_adosc = &continued[0];
     let new_ad    = &continued[3];
     ```
+
+=== "Node.js"
+
+    ```javascript
+    // Initial batch — request AD line
+    const [outputs, state] = ti.adosc.indicator([high, low, close, volume], [6, 20], [false, false, true]);
+
+    // Continue streaming — same mask
+    const continued = state.batchIndicator([newHigh, newLow, newClose, newVol], [false, false, true]);
+
+    const newAdosc = continued[0];
+    const newAd    = continued[3];
+    ```
+
+    !!! note
+        Pass the same boolean mask to `batchIndicator` that you used in the initial `indicator()` call.
 
 ### Performance note
 

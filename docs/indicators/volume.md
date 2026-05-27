@@ -111,6 +111,45 @@ A cumulative indicator that uses price and volume to assess whether a security i
 
     _This indicator has no options, so by-options SIMD does not apply._
 
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const high   = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87];
+    const low    = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
+    const close  = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29];
+    const volume = [5653100, 6447400, 7690900, 3831400, 4455100, 3798000, 3936200, 4732000, 4841300, 3915300, 6830800, 6694100, 5293600, 7985800, 4807900];
+
+    const [outputs, state] = ti.ad.indicator([high, low, close, volume], []);
+    console.log('AD:', outputs[0]);
+
+    // State continuation
+    const n = high.length - 5;
+    const [, state2] = ti.ad.indicator([high.slice(0, n), low.slice(0, n), close.slice(0, n), volume.slice(0, n)], []);
+    const continued = state2.batchIndicator([high.slice(n), low.slice(n), close.slice(n), volume.slice(n)]);
+    console.log('Continued AD:', continued[0]);
+    ```
+
+    ### SIMD
+
+    **By assets** — applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...high], [...low], [...close], [...volume]],
+        [high.map(v => v * 1.1), low.map(v => v * 1.1), close.map(v => v * 1.1), volume.map(v => v * 1.1)],
+        [high.map(v => v * 0.9), low.map(v => v * 0.9), close.map(v => v * 0.9), volume.map(v => v * 0.9)],
+        [high.map(v => v * 1.02), low.map(v => v * 1.02), close.map(v => v * 1.02), volume.map(v => v * 1.02)],
+    ];
+    const [results] = ti.ad.simdByAssets(simdInputs, []);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    _This indicator has no options, so by-options SIMD does not apply._
+
 ---
 
 ## ADOSC — Accumulation/Distribution Oscillator
@@ -290,6 +329,63 @@ The difference between a short and long EMA of the A/D line, used to confirm pri
         print(f"Option set {i+1}: {out[0]}")
     ```
 
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const high   = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87];
+    const low    = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
+    const close  = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29];
+    const volume = [5653100, 6447400, 7690900, 3831400, 4455100, 3798000, 3936200, 4732000, 4841300, 3915300, 6830800, 6694100, 5293600, 7985800, 4807900];
+
+    const [outputs, state] = ti.adosc.indicator([high, low, close, volume], [3, 10]);
+    console.log('ADOSC:', outputs[0]);
+
+    // State continuation
+    const n = high.length - 5;
+    const [, state2] = ti.adosc.indicator([high.slice(0, n), low.slice(0, n), close.slice(0, n), volume.slice(0, n)], [3, 10]);
+    const continued = state2.batchIndicator([high.slice(n), low.slice(n), close.slice(n), volume.slice(n)]);
+    console.log('Continued ADOSC:', continued[0]);
+    ```
+
+    ### Optional Outputs
+
+    `adosc` exposes 3 optional outputs: `short_ema`, `long_ema`, `ad`.
+
+    ```javascript
+    const [allOut] = ti.adosc.indicator([high, low, close, volume], [3, 10], [true, true, true]);
+    const adosc    = allOut[0]; // primary
+    const shortEma = allOut[1]; // optional 0: short_ema
+    const longEma  = allOut[2]; // optional 1: long_ema
+    const ad       = allOut[3]; // optional 2: ad
+    ```
+
+    ### SIMD
+
+    **By assets** — same options applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...high], [...low], [...close], [...volume]],
+        [high.map(v => v * 1.1), low.map(v => v * 1.1), close.map(v => v * 1.1), volume.map(v => v * 1.1)],
+        [high.map(v => v * 0.9), low.map(v => v * 0.9), close.map(v => v * 0.9), volume.map(v => v * 0.9)],
+        [high.map(v => v * 1.02), low.map(v => v * 1.02), close.map(v => v * 1.02), volume.map(v => v * 1.02)],
+    ];
+    const [results] = ti.adosc.simdByAssets(simdInputs, [3, 10]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```javascript
+    const simdOptions = [[2, 5], [3, 10], [5, 20], [7, 28]];
+    const [results] = ti.adosc.simdByOptions([high, low, close, volume], simdOptions);
+    results.forEach((out, i) => console.log(`Option set ${i + 1}:`, out[0]));
+    ```
+
 ---
 
 ## OBV — On Balance Volume
@@ -382,6 +478,43 @@ Cumulative volume indicator: adds volume on up-days and subtracts on down-days. 
     outputs_list, states = tulip_rs.indicators.obv.simd_by_assets(simd_inputs, [])
     for i, asset_outputs in enumerate(outputs_list):
         print(f"Asset {i+1}: {asset_outputs[0]}")
+    ```
+
+    _This indicator has no options, so by-options SIMD does not apply._
+
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const close  = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29];
+    const volume = [5653100, 6447400, 7690900, 3831400, 4455100, 3798000, 3936200, 4732000, 4841300, 3915300, 6830800, 6694100, 5293600, 7985800, 4807900];
+
+    const [outputs, state] = ti.obv.indicator([close, volume], []);
+    console.log('OBV:', outputs[0]);
+
+    // State continuation
+    const n = close.length - 5;
+    const [, state2] = ti.obv.indicator([close.slice(0, n), volume.slice(0, n)], []);
+    const continued = state2.batchIndicator([close.slice(n), volume.slice(n)]);
+    console.log('Continued OBV:', continued[0]);
+    ```
+
+    ### SIMD
+
+    **By assets** — applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...close], [...volume]],
+        [close.map(v => v * 1.1), volume.map(v => v * 1.1)],
+        [close.map(v => v * 0.9), volume.map(v => v * 0.9)],
+        [close.map(v => v * 1.02), volume.map(v => v * 1.02)],
+    ];
+    const [results] = ti.obv.simdByAssets(simdInputs, []);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
     ```
 
     _This indicator has no options, so by-options SIMD does not apply._
@@ -557,6 +690,61 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
         print(f"Period {simd_options[i][0]}: {out[0]}")
     ```
 
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const high   = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87];
+    const low    = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
+    const close  = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29];
+    const volume = [5653100, 6447400, 7690900, 3831400, 4455100, 3798000, 3936200, 4732000, 4841300, 3915300, 6830800, 6694100, 5293600, 7985800, 4807900];
+
+    const [outputs, state] = ti.mfi.indicator([high, low, close, volume], [14]);
+    console.log('MFI(14):', outputs[0]);
+
+    // State continuation
+    const n = high.length - 5;
+    const [, state2] = ti.mfi.indicator([high.slice(0, n), low.slice(0, n), close.slice(0, n), volume.slice(0, n)], [14]);
+    const continued = state2.batchIndicator([high.slice(n), low.slice(n), close.slice(n), volume.slice(n)]);
+    console.log('Continued MFI:', continued[0]);
+    ```
+
+    ### Optional Outputs
+
+    `mfi` exposes 1 optional output: `typprice`.
+
+    ```javascript
+    const [allOut] = ti.mfi.indicator([high, low, close, volume], [14], [true]);
+    const mfi      = allOut[0]; // primary
+    const typprice = allOut[1]; // optional 0: typprice
+    ```
+
+    ### SIMD
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...high], [...low], [...close], [...volume]],
+        [high.map(v => v * 1.1), low.map(v => v * 1.1), close.map(v => v * 1.1), volume.map(v => v * 1.1)],
+        [high.map(v => v * 0.9), low.map(v => v * 0.9), close.map(v => v * 0.9), volume.map(v => v * 0.9)],
+        [high.map(v => v * 1.02), low.map(v => v * 1.02), close.map(v => v * 1.02), volume.map(v => v * 1.02)],
+    ];
+    const [results] = ti.mfi.simdByAssets(simdInputs, [14]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```javascript
+    const simdOptions = [[7], [14], [21], [28]];
+    const [results] = ti.mfi.simdByOptions([high, low, close, volume], simdOptions);
+    results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]}:`, out[0]));
+    ```
+
 ---
 
 ## NVI — Negative Volume Index
@@ -653,6 +841,43 @@ Tracks price changes on days when volume decreases, based on the theory that sma
 
     _This indicator has no options, so by-options SIMD does not apply._
 
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const close  = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29];
+    const volume = [5653100, 6447400, 7690900, 3831400, 4455100, 3798000, 3936200, 4732000, 4841300, 3915300, 6830800, 6694100, 5293600, 7985800, 4807900];
+
+    const [outputs, state] = ti.nvi.indicator([close, volume], []);
+    console.log('NVI:', outputs[0]);
+
+    // State continuation
+    const n = close.length - 5;
+    const [, state2] = ti.nvi.indicator([close.slice(0, n), volume.slice(0, n)], []);
+    const continued = state2.batchIndicator([close.slice(n), volume.slice(n)]);
+    console.log('Continued NVI:', continued[0]);
+    ```
+
+    ### SIMD
+
+    **By assets** — applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...close], [...volume]],
+        [close.map(v => v * 1.1), volume.map(v => v * 1.1)],
+        [close.map(v => v * 0.9), volume.map(v => v * 0.9)],
+        [close.map(v => v * 1.02), volume.map(v => v * 1.02)],
+    ];
+    const [results] = ti.nvi.simdByAssets(simdInputs, []);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    _This indicator has no options, so by-options SIMD does not apply._
+
 ---
 
 ## PVI — Positive Volume Index
@@ -745,6 +970,43 @@ Tracks price changes on days when volume increases. Complements NVI.
     outputs_list, states = tulip_rs.indicators.pvi.simd_by_assets(simd_inputs, [])
     for i, asset_outputs in enumerate(outputs_list):
         print(f"Asset {i+1}: {asset_outputs[0]}")
+    ```
+
+    _This indicator has no options, so by-options SIMD does not apply._
+
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const close  = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29];
+    const volume = [5653100, 6447400, 7690900, 3831400, 4455100, 3798000, 3936200, 4732000, 4841300, 3915300, 6830800, 6694100, 5293600, 7985800, 4807900];
+
+    const [outputs, state] = ti.pvi.indicator([close, volume], []);
+    console.log('PVI:', outputs[0]);
+
+    // State continuation
+    const n = close.length - 5;
+    const [, state2] = ti.pvi.indicator([close.slice(0, n), volume.slice(0, n)], []);
+    const continued = state2.batchIndicator([close.slice(n), volume.slice(n)]);
+    console.log('Continued PVI:', continued[0]);
+    ```
+
+    ### SIMD
+
+    **By assets** — applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...close], [...volume]],
+        [close.map(v => v * 1.1), volume.map(v => v * 1.1)],
+        [close.map(v => v * 0.9), volume.map(v => v * 0.9)],
+        [close.map(v => v * 1.02), volume.map(v => v * 1.02)],
+    ];
+    const [results] = ti.pvi.simdByAssets(simdInputs, []);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
     ```
 
     _This indicator has no options, so by-options SIMD does not apply._
@@ -887,6 +1149,59 @@ The percentage difference between two volume moving averages. Expanding volume o
     outputs_list, states = tulip_rs.indicators.vosc.simd_by_options([volume], simd_options)
     for i, out in enumerate(outputs_list):
         print(f"Option set {i+1}: {out[0]}")
+    ```
+
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const volume = [5653100, 6447400, 7690900, 3831400, 4455100, 3798000, 3936200, 4732000, 4841300, 3915300, 6830800, 6694100, 5293600, 7985800, 4807900];
+
+    const [outputs, state] = ti.vosc.indicator([volume], [5, 10]);
+    console.log('VOSC:', outputs[0]);
+
+    // State continuation
+    const n = volume.length - 5;
+    const [, state2] = ti.vosc.indicator([volume.slice(0, n)], [5, 10]);
+    const continued = state2.batchIndicator([volume.slice(n)]);
+    console.log('Continued VOSC:', continued[0]);
+    ```
+
+    ### Optional Outputs
+
+    `vosc` exposes 2 optional outputs: `short_sma`, `long_sma`.
+
+    ```javascript
+    const [allOut] = ti.vosc.indicator([volume], [5, 10], [true, true]);
+    const vosc     = allOut[0]; // primary
+    const shortSma = allOut[1]; // optional 0: short_sma
+    const longSma  = allOut[2]; // optional 1: long_sma
+    ```
+
+    ### SIMD
+
+    **By assets** — same options applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...volume]],
+        [volume.map(v => v * 1.1)],
+        [volume.map(v => v * 0.9)],
+        [volume.map(v => v * 1.02)],
+    ];
+    const [results] = ti.vosc.simdByAssets(simdInputs, [5, 10]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```javascript
+    const simdOptions = [[3, 6], [5, 10], [8, 16], [12, 24]];
+    const [results] = ti.vosc.simdByOptions([volume], simdOptions);
+    results.forEach((out, i) => console.log(`Option set ${i + 1}:`, out[0]));
     ```
 
 ---
@@ -1066,6 +1381,62 @@ Identifies long-term money flow trends while remaining sensitive enough to detec
         print(f"Option set {i+1}: {out[0]}")
     ```
 
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const high   = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87];
+    const low    = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
+    const close  = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29];
+    const volume = [5653100, 6447400, 7690900, 3831400, 4455100, 3798000, 3936200, 4732000, 4841300, 3915300, 6830800, 6694100, 5293600, 7985800, 4807900];
+
+    const [outputs, state] = ti.kvo.indicator([high, low, close, volume], [34, 55]);
+    console.log('KVO:', outputs[0]);
+
+    // State continuation
+    const n = high.length - 5;
+    const [, state2] = ti.kvo.indicator([high.slice(0, n), low.slice(0, n), close.slice(0, n), volume.slice(0, n)], [34, 55]);
+    const continued = state2.batchIndicator([high.slice(n), low.slice(n), close.slice(n), volume.slice(n)]);
+    console.log('Continued KVO:', continued[0]);
+    ```
+
+    ### Optional Outputs
+
+    `kvo` exposes 2 optional outputs: `short_ema`, `long_ema`.
+
+    ```javascript
+    const [allOut] = ti.kvo.indicator([high, low, close, volume], [34, 55], [true, true]);
+    const kvo      = allOut[0]; // primary
+    const shortEma = allOut[1]; // optional 0: short_ema
+    const longEma  = allOut[2]; // optional 1: long_ema
+    ```
+
+    ### SIMD
+
+    **By assets** — same options applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...high], [...low], [...close], [...volume]],
+        [high.map(v => v * 1.1), low.map(v => v * 1.1), close.map(v => v * 1.1), volume.map(v => v * 1.1)],
+        [high.map(v => v * 0.9), low.map(v => v * 0.9), close.map(v => v * 0.9), volume.map(v => v * 0.9)],
+        [high.map(v => v * 1.02), low.map(v => v * 1.02), close.map(v => v * 1.02), volume.map(v => v * 1.02)],
+    ];
+    const [results] = ti.kvo.simdByAssets(simdInputs, [34, 55]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```javascript
+    const simdOptions = [[13, 21], [21, 34], [34, 55], [55, 89]];
+    const [results] = ti.kvo.simdByOptions([high, low, close, volume], simdOptions);
+    results.forEach((out, i) => console.log(`Option set ${i + 1}:`, out[0]));
+    ```
+
 ---
 
 ## EMV — Ease of Movement
@@ -1211,6 +1582,54 @@ Relates price change to volume, indicating how easily a price moves. High values
 
     _This indicator has no options, so by-options SIMD does not apply._
 
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const high   = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87];
+    const low    = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
+    const volume = [5653100, 6447400, 7690900, 3831400, 4455100, 3798000, 3936200, 4732000, 4841300, 3915300, 6830800, 6694100, 5293600, 7985800, 4807900];
+
+    const [outputs, state] = ti.emv.indicator([high, low, volume], []);
+    console.log('EMV:', outputs[0]);
+
+    // State continuation
+    const n = high.length - 5;
+    const [, state2] = ti.emv.indicator([high.slice(0, n), low.slice(0, n), volume.slice(0, n)], []);
+    const continued = state2.batchIndicator([high.slice(n), low.slice(n), volume.slice(n)]);
+    console.log('Continued EMV:', continued[0]);
+    ```
+
+    ### Optional Outputs
+
+    `emv` exposes 1 optional output: `medprice`.
+
+    ```javascript
+    const [allOut] = ti.emv.indicator([high, low, volume], [], [true]);
+    const emv      = allOut[0]; // primary
+    const medprice = allOut[1]; // optional 0: medprice
+    ```
+
+    ### SIMD
+
+    **By assets** — applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...high], [...low], [...volume]],
+        [high.map(v => v * 1.1), low.map(v => v * 1.1), volume.map(v => v * 1.1)],
+        [high.map(v => v * 0.9), low.map(v => v * 0.9), volume.map(v => v * 0.9)],
+        [high.map(v => v * 1.02), low.map(v => v * 1.02), volume.map(v => v * 1.02)],
+    ];
+    const [results] = ti.emv.simdByAssets(simdInputs, []);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    _This indicator has no options, so by-options SIMD does not apply._
+
 ---
 
 ## WAD — Williams Accumulation/Distribution
@@ -1309,6 +1728,44 @@ A cumulative indicator that compares each close to the previous close to assess 
     outputs_list, states = tulip_rs.indicators.wad.simd_by_assets(simd_inputs, [])
     for i, asset_outputs in enumerate(outputs_list):
         print(f"Asset {i+1}: {asset_outputs[0]}")
+    ```
+
+    _This indicator has no options, so by-options SIMD does not apply._
+
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const high  = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87];
+    const low   = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29];
+
+    const [outputs, state] = ti.wad.indicator([high, low, close], []);
+    console.log('WAD:', outputs[0]);
+
+    // State continuation
+    const n = high.length - 5;
+    const [, state2] = ti.wad.indicator([high.slice(0, n), low.slice(0, n), close.slice(0, n)], []);
+    const continued = state2.batchIndicator([high.slice(n), low.slice(n), close.slice(n)]);
+    console.log('Continued WAD:', continued[0]);
+    ```
+
+    ### SIMD
+
+    **By assets** — applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...high], [...low], [...close]],
+        [high.map(v => v * 1.1), low.map(v => v * 1.1), close.map(v => v * 1.1)],
+        [high.map(v => v * 0.9), low.map(v => v * 0.9), close.map(v => v * 0.9)],
+        [high.map(v => v * 1.02), low.map(v => v * 1.02), close.map(v => v * 1.02)],
+    ];
+    const [results] = ti.wad.simdByAssets(simdInputs, []);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
     ```
 
     _This indicator has no options, so by-options SIMD does not apply._

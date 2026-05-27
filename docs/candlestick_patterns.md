@@ -171,8 +171,31 @@ Pass a `forecast_type` argument to return only patterns with a specific forecast
                 print(f"Bar {i}: {p['full_name']} — {p['forecast']}")
     ```
 
-!!! note "Node.js"
-    Forecast type filtering is not currently available in `tulip-rs-node`. All matched patterns are always returned. Filtering support is planned for a future release.
+=== "Node.js"
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const options = [5, 1, 1];
+
+    // Only bullish reversal patterns — pass the filter string as the third argument
+    const [result] = ti.candlestick.indicator([open, high, low, close], options, 'BullishReversal');
+
+    result.forEach((patterns, i) => {
+        if (patterns && patterns.length > 0) {
+            patterns.forEach(p => console.log(`Bar ${i}: ${p.fullName} — ${p.forecast}`));
+        }
+    });
+
+    // Other available filter strings:
+    // 'BearishReversal'
+    // 'BullishContinuation'
+    // 'BearishContinuation'
+    // 'BullishReversalOrContinuation'
+    // 'BearishReversalOrContinuation'
+    ```
+
+    Omit the third argument (or pass `undefined`) to return all trend-matching patterns.
 
 When `forecast_type` is omitted (or `None`), all matched patterns are returned regardless of their forecast direction.
 
@@ -259,7 +282,12 @@ Like every other indicator in TulipRS, the candlestick engine returns a `state` 
     const newLow   = [83.20];
     const newClose = [83.50];
 
+    // Continue without filter
     const newResult = state.batchIndicator([newOpen, newHigh, newLow, newClose]);
+
+    // Or with a forecast filter
+    const bullishOnly = state.batchIndicator([newOpen, newHigh, newLow, newClose], 'BullishReversal');
+
     const entry = newResult[0];
     if (entry && entry.length > 0) {
         entry.forEach(p => {

@@ -137,6 +137,49 @@ The arithmetic mean of the last `period` values. The simplest and most widely us
         print(f"Period set {i + 1}: {out[0]}")
     ```
 
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61,
+                   83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29];
+
+    const [outputs, state] = ti.sma.indicator([close], [5]);
+    console.log('SMA(5):', outputs[0]);
+
+    // State continuation
+    const [, state2] = ti.sma.indicator([close.slice(0, -5)], [5]);
+    const continued = state2.batchIndicator([close.slice(-5)]);
+    console.log('Continued SMA:', continued[0]);
+    ```
+
+    ### SIMD
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...close]],
+        [close.map(v => v * 1.1)],
+        [close.map(v => v * 0.9)],
+        [close.map(v => v * 1.02)],
+    ];
+    const [results] = ti.sma.simdByAssets(simdInputs, [5]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```javascript
+    const simdOptions = [[50], [100], [200], [300]];
+    const [results] = ti.sma.simdByOptions([close], simdOptions);
+    results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]}:`, out[0]));
+    ```
+
 ---
 
 ## EMA — Exponential Moving Average
@@ -261,6 +304,49 @@ Weighted moving average that gives more weight to recent prices via an exponenti
     outputs_list, states = tulip_rs.indicators.ema.simd_by_options([close], simd_options)
     for i, out in enumerate(outputs_list):
         print(f"Period set {i + 1}: {out[0]}")
+    ```
+
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61,
+                   83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29];
+
+    const [outputs, state] = ti.ema.indicator([close], [14]);
+    console.log('EMA(14):', outputs[0]);
+
+    // State continuation
+    const [, state2] = ti.ema.indicator([close.slice(0, -5)], [14]);
+    const continued = state2.batchIndicator([close.slice(-5)]);
+    console.log('Continued EMA:', continued[0]);
+    ```
+
+    ### SIMD
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...close]],
+        [close.map(v => v * 1.1)],
+        [close.map(v => v * 0.9)],
+        [close.map(v => v * 1.02)],
+    ];
+    const [results] = ti.ema.simdByAssets(simdInputs, [14]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```javascript
+    const simdOptions = [[5], [10], [14], [20]];
+    const [results] = ti.ema.simdByOptions([close], simdOptions);
+    results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]}:`, out[0]));
     ```
 
 ---
@@ -426,6 +512,60 @@ Moving average where each bar is weighted linearly, the most recent bar receivin
         print(f"Period set {i + 1}: {out[0]}")
     ```
 
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61,
+                   83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29];
+
+    const [outputs, state] = ti.wma.indicator([close], [14]);
+    console.log('WMA(14):', outputs[0]);
+
+    // State continuation
+    const [, state2] = ti.wma.indicator([close.slice(0, -5)], [14]);
+    const continued = state2.batchIndicator([close.slice(-5)]);
+    console.log('Continued WMA:', continued[0]);
+    ```
+
+    ### Optional Outputs
+
+    `wma` exposes 1 optional output: `sma`. Pass a boolean mask as the third argument.
+
+    ```javascript
+    // Request the SMA alongside the WMA
+    const [allOut] = ti.wma.indicator([close], [5], [true]);
+    const wma = allOut[0]; // primary
+    const sma = allOut[1]; // optional: sma
+    ```
+
+    ### SIMD
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...close]],
+        [close.map(v => v * 1.1)],
+        [close.map(v => v * 0.9)],
+        [close.map(v => v * 1.02)],
+    ];
+    const [results] = ti.wma.simdByAssets(simdInputs, [14]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```javascript
+    const simdOptions = [[5], [10], [14], [20]];
+    const [results] = ti.wma.simdByOptions([close], simdOptions);
+    results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]}:`, out[0]));
+    ```
+
 ---
 
 ## DEMA — Double Exponential Moving Average
@@ -587,6 +727,60 @@ Reduces EMA lag by applying a second EMA and combining the results: `2 * EMA - E
     outputs_list, states = tulip_rs.indicators.dema.simd_by_options([close], simd_options)
     for i, out in enumerate(outputs_list):
         print(f"Period set {i + 1}: {out[0]}")
+    ```
+
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61,
+                   83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29];
+
+    const [outputs, state] = ti.dema.indicator([close], [14]);
+    console.log('DEMA(14):', outputs[0]);
+
+    // State continuation
+    const [, state2] = ti.dema.indicator([close.slice(0, -5)], [14]);
+    const continued = state2.batchIndicator([close.slice(-5)]);
+    console.log('Continued DEMA:', continued[0]);
+    ```
+
+    ### Optional Outputs
+
+    `dema` exposes 1 optional output: `ema`. Pass a boolean mask as the third argument.
+
+    ```javascript
+    // Request the EMA alongside the DEMA
+    const [allOut] = ti.dema.indicator([close], [5], [true]);
+    const dema = allOut[0]; // primary
+    const ema  = allOut[1]; // optional: ema
+    ```
+
+    ### SIMD
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...close]],
+        [close.map(v => v * 1.1)],
+        [close.map(v => v * 0.9)],
+        [close.map(v => v * 1.02)],
+    ];
+    const [results] = ti.dema.simdByAssets(simdInputs, [14]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```javascript
+    const simdOptions = [[5], [10], [14], [20]];
+    const [results] = ti.dema.simdByOptions([close], simdOptions);
+    results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]}:`, out[0]));
     ```
 
 ---
@@ -754,6 +948,64 @@ Further reduces lag with three EMA layers: `3 * EMA - 3 * EMA(EMA) + EMA(EMA(EMA
         print(f"Period set {i + 1}: {out[0]}")
     ```
 
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61,
+                   83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29];
+
+    const [outputs, state] = ti.tema.indicator([close], [14]);
+    console.log('TEMA(14):', outputs[0]);
+
+    // State continuation
+    const [, state2] = ti.tema.indicator([close.slice(0, -5)], [14]);
+    const continued = state2.batchIndicator([close.slice(-5)]);
+    console.log('Continued TEMA:', continued[0]);
+    ```
+
+    ### Optional Outputs
+
+    `tema` exposes 2 optional outputs: `dema`, `ema`. Pass a boolean mask — one bool per optional output.
+
+    ```javascript
+    // Request all optional outputs
+    const [allOut] = ti.tema.indicator([close], [5], [true, true]);
+    const tema = allOut[0]; // primary
+    const dema = allOut[1]; // optional 0: dema
+    const ema  = allOut[2]; // optional 1: ema
+
+    // Request only dema
+    const [partial] = ti.tema.indicator([close], [5], [true, false]);
+    ```
+
+    ### SIMD
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...close]],
+        [close.map(v => v * 1.1)],
+        [close.map(v => v * 0.9)],
+        [close.map(v => v * 1.02)],
+    ];
+    const [results] = ti.tema.simdByAssets(simdInputs, [14]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```javascript
+    const simdOptions = [[5], [10], [14], [20]];
+    const [results] = ti.tema.simdByOptions([close], simdOptions);
+    results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]}:`, out[0]));
+    ```
+
 ---
 
 ## TRIMA — Triangular Moving Average
@@ -878,6 +1130,49 @@ A double-smoothed SMA (the SMA of an SMA), placing more weight on the middle of 
     outputs_list, states = tulip_rs.indicators.trima.simd_by_options([close], simd_options)
     for i, out in enumerate(outputs_list):
         print(f"Period set {i + 1}: {out[0]}")
+    ```
+
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61,
+                   83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29];
+
+    const [outputs, state] = ti.trima.indicator([close], [14]);
+    console.log('TRIMA(14):', outputs[0]);
+
+    // State continuation
+    const [, state2] = ti.trima.indicator([close.slice(0, -5)], [14]);
+    const continued = state2.batchIndicator([close.slice(-5)]);
+    console.log('Continued TRIMA:', continued[0]);
+    ```
+
+    ### SIMD
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...close]],
+        [close.map(v => v * 1.1)],
+        [close.map(v => v * 0.9)],
+        [close.map(v => v * 1.02)],
+    ];
+    const [results] = ti.trima.simdByAssets(simdInputs, [14]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```javascript
+    const simdOptions = [[5], [10], [14], [20]];
+    const [results] = ti.trima.simdByOptions([close], simdOptions);
+    results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]}:`, out[0]));
     ```
 
 ---
@@ -1006,6 +1301,49 @@ Uses weighted moving averages of different periods to dramatically reduce lag wh
         print(f"Period set {i + 1}: {out[0]}")
     ```
 
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61,
+                   83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29];
+
+    const [outputs, state] = ti.hma.indicator([close], [14]);
+    console.log('HMA(14):', outputs[0]);
+
+    // State continuation
+    const [, state2] = ti.hma.indicator([close.slice(0, -5)], [14]);
+    const continued = state2.batchIndicator([close.slice(-5)]);
+    console.log('Continued HMA:', continued[0]);
+    ```
+
+    ### SIMD
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...close]],
+        [close.map(v => v * 1.1)],
+        [close.map(v => v * 0.9)],
+        [close.map(v => v * 1.02)],
+    ];
+    const [results] = ti.hma.simdByAssets(simdInputs, [14]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```javascript
+    const simdOptions = [[5], [10], [14], [20]];
+    const [results] = ti.hma.simdByOptions([close], simdOptions);
+    results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]}:`, out[0]));
+    ```
+
 ---
 
 ## ZLEMA — Zero Lag Exponential Moving Average
@@ -1132,6 +1470,49 @@ Adjusts the input data to compensate for EMA lag before applying the EMA, result
         print(f"Period set {i + 1}: {out[0]}")
     ```
 
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61,
+                   83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29];
+
+    const [outputs, state] = ti.zlema.indicator([close], [14]);
+    console.log('ZLEMA(14):', outputs[0]);
+
+    // State continuation
+    const [, state2] = ti.zlema.indicator([close.slice(0, -5)], [14]);
+    const continued = state2.batchIndicator([close.slice(-5)]);
+    console.log('Continued ZLEMA:', continued[0]);
+    ```
+
+    ### SIMD
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...close]],
+        [close.map(v => v * 1.1)],
+        [close.map(v => v * 0.9)],
+        [close.map(v => v * 1.02)],
+    ];
+    const [results] = ti.zlema.simdByAssets(simdInputs, [14]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```javascript
+    const simdOptions = [[5], [10], [14], [20]];
+    const [results] = ti.zlema.simdByOptions([close], simdOptions);
+    results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]}:`, out[0]));
+    ```
+
 ---
 
 ## KAMA — Kaufman Adaptive Moving Average
@@ -1256,6 +1637,49 @@ Adapts its smoothing speed based on the market's efficiency ratio — fast-movin
     outputs_list, states = tulip_rs.indicators.kama.simd_by_options([close], simd_options)
     for i, out in enumerate(outputs_list):
         print(f"Period set {i + 1}: {out[0]}")
+    ```
+
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61,
+                   83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29];
+
+    const [outputs, state] = ti.kama.indicator([close], [14]);
+    console.log('KAMA(14):', outputs[0]);
+
+    // State continuation
+    const [, state2] = ti.kama.indicator([close.slice(0, -5)], [14]);
+    const continued = state2.batchIndicator([close.slice(-5)]);
+    console.log('Continued KAMA:', continued[0]);
+    ```
+
+    ### SIMD
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...close]],
+        [close.map(v => v * 1.1)],
+        [close.map(v => v * 0.9)],
+        [close.map(v => v * 1.02)],
+    ];
+    const [results] = ti.kama.simdByAssets(simdInputs, [14]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```javascript
+    const simdOptions = [[5], [10], [14], [20]];
+    const [results] = ti.kama.simdByOptions([close], simdOptions);
+    results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]}:`, out[0]));
     ```
 
 ---
@@ -1439,6 +1863,66 @@ Similar to KAMA but uses the Chande Momentum Oscillator as its efficiency measur
         print(f"Option set {i + 1}: {out[0]}")
     ```
 
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61,
+                   83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29];
+
+    const [outputs, state] = ti.vidya.indicator([close], [2, 5, 0.2]);
+    console.log('VIDYA:', outputs[0]);
+
+    // State continuation
+    const [, state2] = ti.vidya.indicator([close.slice(0, -5)], [2, 5, 0.2]);
+    const continued = state2.batchIndicator([close.slice(-5)]);
+    console.log('Continued VIDYA:', continued[0]);
+    ```
+
+    ### Optional Outputs
+
+    `vidya` exposes 4 optional outputs: `short_sma`, `long_sma`, `short_stddev`, `long_stddev`.
+
+    ```javascript
+    // Request all optional outputs
+    const [allOut] = ti.vidya.indicator([close], [2, 5, 0.2], [true, true, true, true]);
+    const vidya       = allOut[0]; // primary
+    const shortSma    = allOut[1]; // optional 0: short_sma
+    const longSma     = allOut[2]; // optional 1: long_sma
+    const shortStddev = allOut[3]; // optional 2: short_stddev
+    const longStddev  = allOut[4]; // optional 3: long_stddev
+
+    // Request only the SMAs
+    const [partial] = ti.vidya.indicator([close], [2, 5, 0.2], [true, true, false, false]);
+    ```
+
+    ### SIMD
+
+    **By assets** — same options applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...close]],
+        [close.map(v => v * 1.1)],
+        [close.map(v => v * 0.9)],
+        [close.map(v => v * 1.02)],
+    ];
+    const [results] = ti.vidya.simdByAssets(simdInputs, [2, 5, 0.2]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```javascript
+    const simdOptions = [[2, 5, 0.2], [3, 7, 0.3], [4, 9, 0.4], [5, 11, 0.5]];
+    const [results] = ti.vidya.simdByOptions([close], simdOptions);
+    results.forEach((out, i) => console.log(`Option set ${i + 1}:`, out[0]));
+    ```
+
 ---
 
 ## VWMA — Volume Weighted Moving Average
@@ -1597,6 +2081,53 @@ Moving average weighted by trading volume so that high-volume bars have more inf
         print(f"Period set {i + 1}: {out[0]}")
     ```
 
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const close  = [81.59, 81.06, 82.87, 83.00, 83.61,
+                    83.15, 82.84, 83.99, 84.55, 84.36,
+                    85.53, 86.54, 86.89, 87.77, 87.29];
+    const volume = [5653100, 6447400, 7690900, 3831400, 4455100,
+                    3798000, 3936200, 4732000, 4841300, 3915300,
+                    6830800, 6694100, 5293600, 7985800, 4807900];
+
+    const [outputs, state] = ti.vwma.indicator([close, volume], [14]);
+    console.log('VWMA(14):', outputs[0]);
+
+    // State continuation
+    const n = close.length - 5;
+    const [, state2] = ti.vwma.indicator([close.slice(0, n), volume.slice(0, n)], [14]);
+    const continued = state2.batchIndicator([close.slice(n), volume.slice(n)]);
+    console.log('Continued VWMA:', continued[0]);
+    ```
+
+    ### SIMD
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...close], [...volume]],
+        [close.map(v => v * 1.1), volume.map(v => v * 1.1)],
+        [close.map(v => v * 0.9), volume.map(v => v * 0.9)],
+        [close.map(v => v * 1.02), volume.map(v => v * 1.02)],
+    ];
+    const [results] = ti.vwma.simdByAssets(simdInputs, [14]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```javascript
+    const simdOptions = [[5], [10], [14], [20]];
+    const [results] = ti.vwma.simdByOptions([close, volume], simdOptions);
+    results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]}:`, out[0]));
+    ```
+
 ---
 
 ## Wilders — Wilder's Smoothing
@@ -1721,4 +2252,47 @@ The smoothing method developed by J. Welles Wilder, used internally by RSI, ATR,
     outputs_list, states = tulip_rs.indicators.wilders.simd_by_options([close], simd_options)
     for i, out in enumerate(outputs_list):
         print(f"Period set {i + 1}: {out[0]}")
+    ```
+
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61,
+                   83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29];
+
+    const [outputs, state] = ti.wilders.indicator([close], [14]);
+    console.log('Wilders(14):', outputs[0]);
+
+    // State continuation
+    const [, state2] = ti.wilders.indicator([close.slice(0, -5)], [14]);
+    const continued = state2.batchIndicator([close.slice(-5)]);
+    console.log('Continued Wilders:', continued[0]);
+    ```
+
+    ### SIMD
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...close]],
+        [close.map(v => v * 1.1)],
+        [close.map(v => v * 0.9)],
+        [close.map(v => v * 1.02)],
+    ];
+    const [results] = ti.wilders.simdByAssets(simdInputs, [14]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```javascript
+    const simdOptions = [[5], [10], [14], [20]];
+    const [results] = ti.wilders.simdByOptions([close], simdOptions);
+    results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]}:`, out[0]));
     ```

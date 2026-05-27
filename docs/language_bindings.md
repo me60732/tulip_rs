@@ -218,6 +218,13 @@ result.forEach((patterns, bar) => {
         });
     }
 });
+
+// Filter to bullish reversals only
+const [bullish] = ti.candlestick.indicator(
+    [open, high, low, close],
+    [5, 1, 1],
+    'BullishReversal'
+);
 ```
 
 **SIMD — multiple assets:**
@@ -257,7 +264,7 @@ The `state` returned by every call to `indicator()` exposes the following API:
 
 | Method / Property | Signature | Description |
 |---|---|---|
-| `batchIndicator` | `(inputs: number[][]) => number[][]` | Continue computation on new bars; returns new output values only |
+| `batchIndicator` | `(inputs: number[][], optionalOutputsMask?: boolean[]) => number[][]` | Continue computation on new bars; pass the same optional outputs mask used in `indicator()` |
 | `toJson` | `() => string` | Serialise state to a JSON string |
 | `toBuffer` | `() => Buffer` | Serialise state to a binary Buffer (faster than JSON) |
 
@@ -298,6 +305,31 @@ const info = ti.sma.info;
 ti.sma.minData([5]);            // minimum bars needed to produce output
 ti.sma.minDataAccuracy([5], 6); // bars needed for 6-decimal accuracy
 ```
+
+---
+
+### Optional Outputs
+
+Indicators that expose optional intermediate series accept a boolean mask as the third argument to `indicator()` and `batchIndicator()`:
+
+```javascript
+// ADX exposes optional outputs: dx, atr, tr
+// Request all three
+const [allOut] = ti.adx.indicator([high, low, close], [14], [true, true, true]);
+const adx = allOut[0]; // primary
+const dx  = allOut[1]; // optional 0: dx
+const atr = allOut[2]; // optional 1: atr
+const tr  = allOut[3]; // optional 2: tr
+
+// Request only the first optional output (dx)
+const [partial] = ti.adx.indicator([high, low, close], [14], [true, false, false]);
+const dxOnly = partial[1];
+
+// Pass the same mask to batchIndicator
+const continued = state.batchIndicator([newHigh, newLow, newClose], [true, false, false]);
+```
+
+Use `ti.adx.info.optionalOutputs` to discover which optional outputs an indicator has and in what order.
 
 ---
 

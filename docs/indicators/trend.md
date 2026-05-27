@@ -142,6 +142,55 @@ Expresses the MACD as a percentage of the slow EMA, making it comparable across 
         print(f"Option set {i+1}: {out[0]}")
     ```
 
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61,
+                   83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29];
+
+    const [outputs, state] = ti.ppo.indicator([close], [12, 26]);
+    console.log('PPO:', outputs[0]);
+
+    // State continuation
+    const [, state2] = ti.ppo.indicator([close.slice(0, -3)], [12, 26]);
+    const continued = state2.batchIndicator([close.slice(-3)]);
+    console.log('Continued PPO:', continued[0]);
+    ```
+
+    ### Optional Outputs
+
+    `ppo` exposes 2 optional outputs: `short_ema`, `long_ema`.
+
+    ```javascript
+    const [allOut] = ti.ppo.indicator([close], [12, 26], [true, true]);
+    const ppo      = allOut[0]; // primary
+    const shortEma = allOut[1]; // optional 0: short_ema
+    const longEma  = allOut[2]; // optional 1: long_ema
+    ```
+
+    ### SIMD
+
+    **By assets** — same options applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [[[...close]], [close.map(v => v * 1.1)], [close.map(v => v * 0.9)], [close.map(v => v * 1.02)]];
+    const [results] = ti.ppo.simdByAssets(simdInputs, [12, 26]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```javascript
+    const simdOptions = [[6, 13], [12, 26], [19, 39], [24, 52]];
+    const [results] = ti.ppo.simdByOptions([close], simdOptions);
+    results.forEach((out, i) => console.log(`Option set ${i + 1}:`, out[0]));
+    ```
+
 ---
 
 ## APO — Absolute Price Oscillator
@@ -280,6 +329,55 @@ The raw difference between two EMAs (short minus long). Positive values indicate
     outputs_list, states = tulip_rs.indicators.apo.simd_by_options([close], simd_options)
     for i, out in enumerate(outputs_list):
         print(f"Option set {i+1}: {out[0]}")
+    ```
+
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61,
+                   83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29];
+
+    const [outputs, state] = ti.apo.indicator([close], [12, 26]);
+    console.log('APO:', outputs[0]);
+
+    // State continuation
+    const [, state2] = ti.apo.indicator([close.slice(0, -3)], [12, 26]);
+    const continued = state2.batchIndicator([close.slice(-3)]);
+    console.log('Continued APO:', continued[0]);
+    ```
+
+    ### Optional Outputs
+
+    `apo` exposes 2 optional outputs: `short_ema`, `long_ema`.
+
+    ```javascript
+    const [allOut] = ti.apo.indicator([close], [12, 26], [true, true]);
+    const apo      = allOut[0]; // primary
+    const shortEma = allOut[1]; // optional 0: short_ema
+    const longEma  = allOut[2]; // optional 1: long_ema
+    ```
+
+    ### SIMD
+
+    **By assets** — same options applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [[[...close]], [close.map(v => v * 1.1)], [close.map(v => v * 0.9)], [close.map(v => v * 1.02)]];
+    const [results] = ti.apo.simdByAssets(simdInputs, [12, 26]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```javascript
+    const simdOptions = [[6, 13], [12, 26], [19, 39], [24, 52]];
+    const [results] = ti.apo.simdByOptions([close], simdOptions);
+    results.forEach((out, i) => console.log(`Option set ${i + 1}:`, out[0]));
     ```
 
 ---
@@ -448,6 +546,65 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
         print(f"Period {simd_options[i][0]}: {out[0]}")
     ```
 
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const high  = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87];
+    const low   = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29];
+
+    const [outputs, state] = ti.adx.indicator([high, low, close], [14]);
+    console.log('ADX(14):', outputs[0]);
+
+    // State continuation
+    const n = high.length - 5;
+    const [, state2] = ti.adx.indicator([high.slice(0, n), low.slice(0, n), close.slice(0, n)], [14]);
+    const continued = state2.batchIndicator([high.slice(n), low.slice(n), close.slice(n)]);
+    console.log('Continued ADX:', continued[0]);
+    ```
+
+    ### Optional Outputs
+
+    `adx` exposes 3 optional outputs: `dx`, `atr`, `tr`.
+
+    ```javascript
+    const [allOut] = ti.adx.indicator([high, low, close], [14], [true, true, true]);
+    const adx = allOut[0]; // primary
+    const dx  = allOut[1]; // optional 0: dx
+    const atr = allOut[2]; // optional 1: atr
+    const tr  = allOut[3]; // optional 2: tr
+
+    // Request only dx
+    const [partial] = ti.adx.indicator([high, low, close], [14], [true, false, false]);
+    ```
+
+    ### SIMD
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...high], [...low], [...close]],
+        [high.map(v => v * 1.1), low.map(v => v * 1.1), close.map(v => v * 1.1)],
+        [high.map(v => v * 0.9), low.map(v => v * 0.9), close.map(v => v * 0.9)],
+        [high.map(v => v * 1.02), low.map(v => v * 1.02), close.map(v => v * 1.02)],
+    ];
+    const [results] = ti.adx.simdByAssets(simdInputs, [14]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```javascript
+    const simdOptions = [[7], [14], [21], [28]];
+    const [results] = ti.adx.simdByOptions([high, low, close], simdOptions);
+    results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]}:`, out[0]));
+    ```
+
 ---
 
 ## ADXR — Average Directional Movement Index Rating
@@ -612,6 +769,63 @@ A smoothed version of ADX, calculated as the average of the current ADX and the 
         print(f"Period {simd_options[i][0]}: {out[0]}")
     ```
 
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const high  = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87];
+    const low   = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29];
+
+    const [outputs, state] = ti.adxr.indicator([high, low, close], [14]);
+    console.log('ADXR(14):', outputs[0]);
+
+    // State continuation
+    const n = high.length - 5;
+    const [, state2] = ti.adxr.indicator([high.slice(0, n), low.slice(0, n), close.slice(0, n)], [14]);
+    const continued = state2.batchIndicator([high.slice(n), low.slice(n), close.slice(n)]);
+    console.log('Continued ADXR:', continued[0]);
+    ```
+
+    ### Optional Outputs
+
+    `adxr` exposes 4 optional outputs: `adx`, `dx`, `atr`, `tr`.
+
+    ```javascript
+    const [allOut] = ti.adxr.indicator([high, low, close], [14], [true, true, true, true]);
+    const adxr = allOut[0]; // primary
+    const adx  = allOut[1]; // optional 0: adx
+    const dx   = allOut[2]; // optional 1: dx
+    const atr  = allOut[3]; // optional 2: atr
+    const tr   = allOut[4]; // optional 3: tr
+    ```
+
+    ### SIMD
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...high], [...low], [...close]],
+        [high.map(v => v * 1.1), low.map(v => v * 1.1), close.map(v => v * 1.1)],
+        [high.map(v => v * 0.9), low.map(v => v * 0.9), close.map(v => v * 0.9)],
+        [high.map(v => v * 1.02), low.map(v => v * 1.02), close.map(v => v * 1.02)],
+    ];
+    const [results] = ti.adxr.simdByAssets(simdInputs, [14]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```javascript
+    const simdOptions = [[7], [14], [21], [28]];
+    const [results] = ti.adxr.simdByOptions([high, low, close], simdOptions);
+    results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]}:`, out[0]));
+    ```
+
 ---
 
 ## DM — Directional Movement
@@ -731,6 +945,50 @@ Raw directional movement values before smoothing. +DM captures upward movement; 
     for i, out in enumerate(outputs_list):
         print(f"Period {simd_options[i][0]} +DM: {out[0]}")
         print(f"Period {simd_options[i][0]} -DM: {out[1]}")
+    ```
+
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const high = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87];
+    const low  = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
+
+    const [outputs, state] = ti.dm.indicator([high, low], [14]);
+    console.log('+DM:', outputs[0]);
+    console.log('-DM:', outputs[1]);
+
+    // State continuation
+    const n = high.length - 5;
+    const [, state2] = ti.dm.indicator([high.slice(0, n), low.slice(0, n)], [14]);
+    const continued = state2.batchIndicator([high.slice(n), low.slice(n)]);
+    console.log('Continued +DM:', continued[0]);
+    ```
+
+    ### SIMD
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...high], [...low]],
+        [high.map(v => v * 1.1), low.map(v => v * 1.1)],
+        [high.map(v => v * 0.9), low.map(v => v * 0.9)],
+        [high.map(v => v * 1.02), low.map(v => v * 1.02)],
+    ];
+    const [results] = ti.dm.simdByAssets(simdInputs, [14]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1} +DM:`, out[0], '-DM:', out[1]));
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```javascript
+    const simdOptions = [[7], [14], [21], [28]];
+    const [results] = ti.dm.simdByOptions([high, low], simdOptions);
+    results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]} +DM:`, out[0], '-DM:', out[1]));
     ```
 
 ---
@@ -907,6 +1165,63 @@ Smoothed directional movement expressed as a percentage of ATR. +DI and -DI cros
         print(f"Period {simd_options[i][0]} -DI: {out[1]}")
     ```
 
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const high  = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87];
+    const low   = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29];
+
+    const [outputs, state] = ti.di.indicator([high, low, close], [14]);
+    console.log('+DI:', outputs[0]);
+    console.log('-DI:', outputs[1]);
+
+    // State continuation
+    const n = high.length - 5;
+    const [, state2] = ti.di.indicator([high.slice(0, n), low.slice(0, n), close.slice(0, n)], [14]);
+    const continued = state2.batchIndicator([high.slice(n), low.slice(n), close.slice(n)]);
+    console.log('Continued +DI:', continued[0]);
+    ```
+
+    ### Optional Outputs
+
+    `di` exposes 2 optional outputs: `atr`, `tr`.
+
+    ```javascript
+    const [allOut] = ti.di.indicator([high, low, close], [14], [true, true]);
+    const plusDI  = allOut[0]; // primary: +di
+    const minusDI = allOut[1]; // primary: -di
+    const atr     = allOut[2]; // optional 0: atr
+    const tr      = allOut[3]; // optional 1: tr
+    ```
+
+    ### SIMD
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...high], [...low], [...close]],
+        [high.map(v => v * 1.1), low.map(v => v * 1.1), close.map(v => v * 1.1)],
+        [high.map(v => v * 0.9), low.map(v => v * 0.9), close.map(v => v * 0.9)],
+        [high.map(v => v * 1.02), low.map(v => v * 1.02), close.map(v => v * 1.02)],
+    ];
+    const [results] = ti.di.simdByAssets(simdInputs, [14]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1} +DI:`, out[0], '-DI:', out[1]));
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```javascript
+    const simdOptions = [[7], [14], [21], [28]];
+    const [results] = ti.di.simdByOptions([high, low, close], simdOptions);
+    results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]} +DI:`, out[0], '-DI:', out[1]));
+    ```
+
 ---
 
 ## DX — Directional Movement Index
@@ -1071,6 +1386,61 @@ The ratio of the difference to the sum of +DI and -DI, expressing directional mo
         print(f"Period {simd_options[i][0]}: {out[0]}")
     ```
 
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const high  = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87];
+    const low   = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29];
+
+    const [outputs, state] = ti.dx.indicator([high, low, close], [14]);
+    console.log('DX(14):', outputs[0]);
+
+    // State continuation
+    const n = high.length - 5;
+    const [, state2] = ti.dx.indicator([high.slice(0, n), low.slice(0, n), close.slice(0, n)], [14]);
+    const continued = state2.batchIndicator([high.slice(n), low.slice(n), close.slice(n)]);
+    console.log('Continued DX:', continued[0]);
+    ```
+
+    ### Optional Outputs
+
+    `dx` exposes 2 optional outputs: `atr`, `tr`.
+
+    ```javascript
+    const [allOut] = ti.dx.indicator([high, low, close], [14], [true, true]);
+    const dx  = allOut[0]; // primary
+    const atr = allOut[1]; // optional 0: atr
+    const tr  = allOut[2]; // optional 1: tr
+    ```
+
+    ### SIMD
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...high], [...low], [...close]],
+        [high.map(v => v * 1.1), low.map(v => v * 1.1), close.map(v => v * 1.1)],
+        [high.map(v => v * 0.9), low.map(v => v * 0.9), close.map(v => v * 0.9)],
+        [high.map(v => v * 1.02), low.map(v => v * 1.02), close.map(v => v * 1.02)],
+    ];
+    const [results] = ti.dx.simdByAssets(simdInputs, [14]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```javascript
+    const simdOptions = [[7], [14], [21], [28]];
+    const [results] = ti.dx.simdByOptions([high, low, close], simdOptions);
+    results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]}:`, out[0]));
+    ```
+
 ---
 
 ## Aroon
@@ -1190,6 +1560,50 @@ Measures how recently the highest high and lowest low occurred within the lookba
     for i, out in enumerate(outputs_list):
         print(f"Period {simd_options[i][0]} Aroon Down: {out[0]}")
         print(f"Period {simd_options[i][0]} Aroon Up:   {out[1]}")
+    ```
+
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const high = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87];
+    const low  = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
+
+    const [outputs, state] = ti.aroon.indicator([high, low], [25]);
+    console.log('Aroon Down:', outputs[0]);
+    console.log('Aroon Up:',  outputs[1]);
+
+    // State continuation
+    const n = high.length - 5;
+    const [, state2] = ti.aroon.indicator([high.slice(0, n), low.slice(0, n)], [25]);
+    const continued = state2.batchIndicator([high.slice(n), low.slice(n)]);
+    console.log('Continued Aroon Down:', continued[0]);
+    ```
+
+    ### SIMD
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...high], [...low]],
+        [high.map(v => v * 1.1), low.map(v => v * 1.1)],
+        [high.map(v => v * 0.9), low.map(v => v * 0.9)],
+        [high.map(v => v * 1.02), low.map(v => v * 1.02)],
+    ];
+    const [results] = ti.aroon.simdByAssets(simdInputs, [25]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1} Down:`, out[0], 'Up:', out[1]));
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```javascript
+    const simdOptions = [[5], [10], [25], [50]];
+    const [results] = ti.aroon.simdByOptions([high, low], simdOptions);
+    results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]} Down:`, out[0], 'Up:', out[1]));
     ```
 
 ---
@@ -1350,6 +1764,60 @@ The difference between Aroon Up and Aroon Down. Positive values indicate bullish
         print(f"Period {simd_options[i][0]}: {out[0]}")
     ```
 
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const high = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87];
+    const low  = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
+
+    const [outputs, state] = ti.aroonosc.indicator([high, low], [25]);
+    console.log('Aroon Oscillator:', outputs[0]);
+
+    // State continuation
+    const n = high.length - 5;
+    const [, state2] = ti.aroonosc.indicator([high.slice(0, n), low.slice(0, n)], [25]);
+    const continued = state2.batchIndicator([high.slice(n), low.slice(n)]);
+    console.log('Continued AroonOsc:', continued[0]);
+    ```
+
+    ### Optional Outputs
+
+    `aroonosc` exposes 2 optional outputs: `aroon_down`, `aroon_up`.
+
+    ```javascript
+    const [allOut] = ti.aroonosc.indicator([high, low], [25], [true, true]);
+    const aroonosc  = allOut[0]; // primary
+    const aroonDown = allOut[1]; // optional 0: aroon_down
+    const aroonUp   = allOut[2]; // optional 1: aroon_up
+    ```
+
+    ### SIMD
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...high], [...low]],
+        [high.map(v => v * 1.1), low.map(v => v * 1.1)],
+        [high.map(v => v * 0.9), low.map(v => v * 0.9)],
+        [high.map(v => v * 1.02), low.map(v => v * 1.02)],
+    ];
+    const [results] = ti.aroonosc.simdByAssets(simdInputs, [25]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```javascript
+    const simdOptions = [[5], [10], [25], [50]];
+    const [results] = ti.aroonosc.simdByOptions([high, low], simdOptions);
+    results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]}:`, out[0]));
+    ```
+
 ---
 
 ## PSAR — Parabolic SAR
@@ -1463,4 +1931,47 @@ A trailing stop-and-reverse indicator. The SAR dot flips below or above price to
     outputs_list, states = tulip_rs.indicators.psar.simd_by_options([high, low], simd_options)
     for i, out in enumerate(outputs_list):
         print(f"Step/Max {simd_options[i][0]}/{simd_options[i][1]}: {out[0]}")
+    ```
+
+=== "Node.js"
+
+    ### Basic
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const high = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87];
+    const low  = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
+
+    const [outputs, state] = ti.psar.indicator([high, low], [0.02, 0.2]);
+    console.log('PSAR:', outputs[0]);
+
+    // State continuation
+    const n = high.length - 5;
+    const [, state2] = ti.psar.indicator([high.slice(0, n), low.slice(0, n)], [0.02, 0.2]);
+    const continued = state2.batchIndicator([high.slice(n), low.slice(n)]);
+    console.log('Continued PSAR:', continued[0]);
+    ```
+
+    ### SIMD
+
+    **By assets** — same options applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [[...high], [...low]],
+        [high.map(v => v * 1.1), low.map(v => v * 1.1)],
+        [high.map(v => v * 0.9), low.map(v => v * 0.9)],
+        [high.map(v => v * 1.02), low.map(v => v * 1.02)],
+    ];
+    const [results] = ti.psar.simdByAssets(simdInputs, [0.02, 0.2]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```javascript
+    const simdOptions = [[0.01, 0.1], [0.02, 0.2], [0.03, 0.3], [0.04, 0.4]];
+    const [results] = ti.psar.simdByOptions([high, low], simdOptions);
+    results.forEach((out, i) => console.log(`Step ${simdOptions[i][0]}:`, out[0]));
     ```
