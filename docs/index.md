@@ -2,7 +2,7 @@
 
 **High-performance technical analysis in Rust.**
 
-TulipRS is a production-ready Rust library implementing 100+ technical indicators and 60+ candlestick patterns with first-class SIMD acceleration. Indicators run on scalar data or on multiple assets / multiple option sets simultaneously using portable SIMD intrinsics. Every indicator returns a serialisable `IndicatorState` alongside its outputs, enabling incremental streaming computation without reprocessing historical data. Native Rust and Python are both fully supported; additional language bindings are planned.
+TulipRS is a production-ready Rust library implementing 100+ technical indicators and 60+ candlestick patterns with first-class SIMD acceleration. Indicators run on scalar data or on multiple assets / multiple option sets simultaneously using portable SIMD intrinsics. Every indicator returns a serialisable `IndicatorState` alongside its outputs, enabling incremental streaming computation without reprocessing historical data. Native Rust, Python, and Node.js are all fully supported; additional language bindings are planned.
 
 ---
 
@@ -29,7 +29,7 @@ Most technical analysis libraries are wrappers around the same scalar C code wri
 | **SIMD — by assets** | Same options applied to N assets in one CPU pass (`indicator_by_assets::<N>`) |
 | **SIMD — by options** | N option sets applied to one asset in one CPU pass (`indicator_by_options::<N>`) |
 | **State management** | Every indicator returns a serialisable `IndicatorState` for streaming / incremental use |
-| **Languages** | Rust (native), Python (`tulip_rs_python` via PyO3) |
+| **Languages** | Rust (native), Python (`tulip_rs_python` via PyO3), Node.js (`tulip-rs-node` via napi-rs) |
 
 ---
 
@@ -62,6 +62,19 @@ Most technical analysis libraries are wrappers around the same scalar C code wri
     print(outputs[0])  # SMA(5) values
     ```
 
+=== "Node.js"
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61,
+                   83.15, 82.84, 83.99, 84.55, 84.36];
+
+    const [outputs, state] = ti.sma.indicator([close], [5]);
+
+    console.log(outputs[0]); // SMA(5) values
+    ```
+
 ---
 
 ## Documentation Pages
@@ -91,6 +104,6 @@ Most technical analysis libraries are wrappers around the same scalar C code wri
 |---|---|---|
 | **Rust** | ✅ Native | `tulip_rs` (this crate) |
 | **Python** | ✅ Supported | [`tulip_rs_python`](https://github.com/me60732/tulip_rs_python) |
-| Node.js / WASM | 🔜 Planned | — |
+| **Node.js** | ✅ Supported | [`tulip-rs-node`](https://github.com/me60732/tulip-rs-node) |
 | R | 🔜 Planned | — |
 | Julia | 🔜 Planned | — |

@@ -49,6 +49,25 @@ This design makes TulipRS well-suited for **streaming** and **incremental** pipe
     print("Continued outputs:", continued[0])
     ```
 
+=== "Node.js"
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61,
+                   83.15, 82.84, 83.99, 84.55, 84.36];
+
+    // Step 1: compute on historical data, capture state
+    const n = 8;
+    const [outputs, state] = ti.sma.indicator([close.slice(0, n)], [5]);
+    console.log('History outputs:', outputs[0]);
+
+    // Step 2: feed new bars via state.batchIndicator
+    const newClose = [85.53, 86.54];
+    const continued = state.batchIndicator([newClose]);
+    console.log('Continued outputs:', continued[0]);
+    ```
+
 !!! note
     `batch_indicator` accepts **new bars only** — it does not want the full history. Pass only the bars that arrived since the last call.
 
@@ -103,6 +122,29 @@ For very long historical series, chunked processing lets you control memory usag
     print(f"Total output bars: {len(all_sma)}")
     ```
 
+=== "Node.js"
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const close = [/* very long series */];
+    const chunkSize = 500;
+    const period = 5;
+
+    // Seed on the first chunk
+    const [outputs, state] = ti.sma.indicator([close.slice(0, chunkSize)], [period]);
+    const allSma = [...outputs[0]];
+
+    // Continue chunk by chunk
+    for (let start = chunkSize; start < close.length; start += chunkSize) {
+        const chunk = close.slice(start, start + chunkSize);
+        const result = state.batchIndicator([chunk]);
+        allSma.push(...result[0]);
+    }
+
+    console.log(`Total output bars: ${allSma.length}`);
+    ```
+
 ---
 
 ## JSON Serialisation
@@ -146,6 +188,22 @@ State can be serialised to JSON for persistence and restored later. This is usef
     # Continue from restored state
     new_bars = np.array([87.10, 88.25], dtype=np.float64)
     result = restored_state.batch_indicator([new_bars])
+    ```
+
+=== "Node.js"
+
+    ```javascript
+    // Serialise
+    const json = state.toJson();
+
+    // Persist json to disk / database...
+
+    // Restore
+    const restored = ti.sma.State.fromJson(json);
+
+    // Continue from restored state
+    const newBars = [87.10, 88.25];
+    const result = restored.batchIndicator([newBars]);
     ```
 
 !!! warning "State is indicator-, option-, and asset-specific"
@@ -195,6 +253,25 @@ State works identically for indicators with multiple output series. Bollinger Ba
     new_lower  = continued[0]
     new_middle = continued[1]
     new_upper  = continued[2]
+    ```
+
+=== "Node.js"
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    // options: [period, stddev_multiplier]
+    const [outputs, state] = ti.bbands.indicator([close.slice(0, n)], [20, 2]);
+
+    const lower  = outputs[0];
+    const middle = outputs[1];
+    const upper  = outputs[2];
+
+    // Continue — all three output series are extended together
+    const continued = state.batchIndicator([newClose]);
+    const newLower  = continued[0];
+    const newMiddle = continued[1];
+    const newUpper  = continued[2];
     ```
 
 ---

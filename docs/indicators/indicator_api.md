@@ -57,6 +57,20 @@ pub struct Info<'a> {
     print(meta.optional_outputs)  # ['short_ema', 'long_ema', 'ad']
     ```
 
+=== "Node.js"
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const info = ti.adosc.info;
+    console.log(info.name);             // adosc
+    console.log(info.fullName);         // Accumulation/Distribution Oscillator
+    console.log(info.inputs);           // ['high', 'low', 'close', 'volume']
+    console.log(info.options);          // ['short_period', 'long_period']
+    console.log(info.outputs);          // ['adosc']
+    console.log(info.optionalOutputs);  // ['short_ema', 'long_ema', 'ad']
+    ```
+
 ### What each field means
 
 | Field | Description |
@@ -86,6 +100,9 @@ Many indicators compute intermediate series as part of their normal calculation.
 This is a meaningful advantage over C Tulip and TA-Lib, which require a **separate function call** for each intermediate result, each re-reading the input data from scratch. TulipRS computes the primary output and every optional output in a **single pass** through the data. Depending on the indicator, requesting all optional outputs via TulipRS is **1.3× – 8.7× faster** than equivalent multi-call C code — see the [Optional Outputs benchmark](../benchmarks/results.md) for full numbers per indicator.
 
 Optional outputs are **off by default**. Requesting them never changes the primary output values; it only captures values that would otherwise be thrown away.
+
+!!! note "Node.js"
+    The Node.js binding (`tulip-rs-node`) does not currently expose the optional outputs mask. All primary outputs are always returned. Optional output support is planned for a future release.
 
 ### Which optional outputs does an indicator have?
 
@@ -266,6 +283,21 @@ The value depends on the indicator's options because period-based indicators req
         outputs, state = tulip_rs.indicators.adx.indicator([high, low, close], [14.0])
     ```
 
+=== "Node.js"
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const minimum = ti.adx.minData([14]);
+    console.log(`Min data: ${minimum}`); // 28
+
+    if (close.length < minimum) {
+        console.error(`Not enough data: have ${close.length}, need ${minimum}`);
+    } else {
+        const [outputs, state] = ti.adx.indicator([high, low, close], [14]);
+    }
+    ```
+
 ---
 
 ## `min_data_accuracy()` — Minimum Input for Decimal Accuracy
@@ -328,6 +360,26 @@ The most practical use of `min_data_accuracy` is **event scanning across a large
         signal    = outputs[1]
         if macd_line[-1] > signal[-1]:
             print(f"{asset}: MACD crossover detected")
+    ```
+
+=== "Node.js"
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const options = [12, 26, 9];
+    const window = ti.macd.minDataAccuracy(options, 6);
+
+    for (const asset of universe) {
+        const close = db.fetchLastNBars(asset, window);
+        const [outputs] = ti.macd.indicator([close], options);
+
+        const macdLine = outputs[0];
+        const signal   = outputs[1];
+        if (macdLine[macdLine.length - 1] > signal[signal.length - 1]) {
+            console.log(`${asset}: MACD crossover detected`);
+        }
+    }
     ```
 
 ### When to use `min_data_accuracy`

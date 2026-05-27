@@ -78,6 +78,32 @@ The candlestick engine accepts three options in the following order:
                 print(f"Bar {i}: {p['full_name']} ({p['japanese_name']}) — {p['forecast']}")
     ```
 
+=== "Node.js"
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const open  = [81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25,
+                   84.03, 85.45, 86.18, 88.00, 87.30, 87.30, 86.40, 84.30, 85.60];
+    const high  = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                   85.90, 86.58, 86.98, 88.00, 87.31, 87.30, 86.40, 85.50, 85.65];
+    const low   = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                   84.03, 85.39, 85.76, 87.17, 87.20, 86.30, 85.30, 84.00, 83.85];
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29, 86.30, 85.30, 84.00, 83.90];
+    const options = [5, 1, 1]; // candle_period, trend_period, trend_signal_period
+
+    const [result, state] = ti.candlestick.indicator([open, high, low, close], options);
+
+    result.forEach((patterns, i) => {
+        if (patterns && patterns.length > 0) {
+            patterns.forEach(p => {
+                console.log(`Bar ${i}: ${p.fullName} (${p.japaneseName}), bars: ${p.bars}, forecast: ${p.forecast}`);
+            });
+        }
+    });
+    ```
+
 Each matched pattern is returned as a dict (Python) or a struct (Rust) with the following fields:
 
 | Field | Type | Description |
@@ -144,6 +170,9 @@ Pass a `forecast_type` argument to return only patterns with a specific forecast
             for p in bar_patterns:
                 print(f"Bar {i}: {p['full_name']} — {p['forecast']}")
     ```
+
+!!! note "Node.js"
+    Forecast type filtering is not currently available in `tulip-rs-node`. All matched patterns are always returned. Filtering support is planned for a future release.
 
 When `forecast_type` is omitted (or `None`), all matched patterns are returned regardless of their forecast direction.
 
@@ -212,6 +241,33 @@ Like every other indicator in TulipRS, the candlestick engine returns a `state` 
     if entry:
         for p in entry:
             print(f"{p['full_name']} — {p['forecast']}")
+    ```
+
+=== "Node.js"
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    const options = [5, 1, 1];
+
+    // Step 1: run on historical data and capture state
+    const [, state] = ti.candlestick.indicator([open, high, low, close], options);
+
+    // Step 2: feed only the new bar
+    const newOpen  = [84.00];
+    const newHigh  = [84.50];
+    const newLow   = [83.20];
+    const newClose = [83.50];
+
+    const newResult = state.batchIndicator([newOpen, newHigh, newLow, newClose]);
+    const entry = newResult[0];
+    if (entry && entry.length > 0) {
+        entry.forEach(p => {
+            console.log(`${p.fullName} (${p.japaneseName}), bars: ${p.bars}, forecast: ${p.forecast}`);
+        });
+    } else {
+        console.log('No patterns on new bar.');
+    }
     ```
 
 ---

@@ -143,12 +143,169 @@ min_bars = tulip_rs.indicators.sma.min_data([5.0])  # returns 5
 
 ---
 
+## Node.js
+
+**Repository:** [github.com/me60732/tulip-rs-node](https://github.com/me60732/tulip-rs-node)
+
+The Node.js binding is built with [napi-rs](https://napi.rs/) and distributed as a prebuilt native addon via npm. It exposes every indicator, both SIMD modes, state management, and candlestick patterns with a clean, idiomatic JavaScript interface. Prebuilt binaries are provided for Linux x64, macOS x64, and macOS arm64 — no Rust toolchain required for end users.
+
+### Installation
+
+**From npm (recommended):**
+
+```bash
+npm install tulip-rs-node
+```
+
+**From source (for development or native CPU optimisations):**
+
+```bash
+git clone https://github.com/me60732/tulip-rs-node
+cd tulip-rs-node
+npm install
+npm run build
+```
+
+**Requirements:** Node.js 18+, Rust nightly (only needed when building from source)
+
+---
+
+### Quick Examples
+
+**SMA — single input, single output:**
+
+```javascript
+import * as ti from 'tulip-rs-node';
+
+const close = [81.59, 81.06, 82.87, 83.00, 83.61,
+               83.15, 82.84, 83.99, 84.55, 84.36];
+
+const [outputs, state] = ti.sma.indicator([close], [5]);
+const smaValues = outputs[0]; // number[]
+```
+
+**MACD — three outputs:**
+
+```javascript
+const [outputs, state] = ti.macd.indicator([close], [12, 26, 9]);
+
+const macdLine  = outputs[0]; // MACD line
+const signal    = outputs[1]; // Signal line
+const histogram = outputs[2]; // Histogram
+```
+
+**ADX — multiple inputs:**
+
+```javascript
+const [outputs, state] = ti.adx.indicator([high, low, close], [14]);
+const adxValues = outputs[0];
+```
+
+**Candlestick pattern detection:**
+
+```javascript
+const options = [5, 1, 1]; // candle_period, trend_period, trend_signal_period
+
+const [result, state] = ti.candlestick.indicator(
+    [open, high, low, close],
+    options
+);
+
+result.forEach((patterns, bar) => {
+    if (patterns && patterns.length > 0) {
+        patterns.forEach(p => {
+            console.log(`Bar ${bar}: ${p.fullName} (${p.forecast})`);
+        });
+    }
+});
+```
+
+**SIMD — multiple assets:**
+
+```javascript
+const simdInputs = [
+    [asset1Close],  // asset 1 — array of input arrays
+    [asset2Close],  // asset 2
+    [asset3Close],  // asset 3
+    [asset4Close],  // asset 4
+];
+
+const [results, states] = ti.sma.simdByAssets(simdInputs, [14]);
+
+results.forEach((output, i) => {
+    console.log(`Asset ${i + 1} SMA:`, output[0]);
+});
+```
+
+**SIMD — multiple option sets:**
+
+```javascript
+const simdOptions = [[2], [5], [8], [10]]; // 4 period values
+
+const [results, states] = ti.sma.simdByOptions([close], simdOptions);
+
+results.forEach((output, i) => {
+    console.log(`Period ${simdOptions[i][0]} SMA:`, output[0]);
+});
+```
+
+---
+
+### State Object API
+
+The `state` returned by every call to `indicator()` exposes the following API:
+
+| Method / Property | Signature | Description |
+|---|---|---|
+| `batchIndicator` | `(inputs: number[][]) => number[][]` | Continue computation on new bars; returns new output values only |
+| `toJson` | `() => string` | Serialise state to a JSON string |
+| `toBuffer` | `() => Buffer` | Serialise state to a binary Buffer (faster than JSON) |
+
+**Restoring state:**
+
+```javascript
+// From JSON
+const json = state.toJson();
+const restored = ti.sma.State.fromJson(json);
+
+// From Buffer (faster)
+const buf = state.toBuffer();
+const restored = ti.sma.State.fromBuffer(buf);
+
+// Continue from restored state
+const result = restored.batchIndicator([newBars]);
+```
+
+---
+
+### Indicator Info
+
+Every indicator exposes a static `info` property and utility functions:
+
+```javascript
+const info = ti.sma.info;
+// {
+//   name: 'sma',
+//   fullName: 'Simple Moving Average',
+//   indicatorType: 'Trend',
+//   displayType: 'Overlay',
+//   inputs: ['real'],
+//   options: ['period'],
+//   outputs: ['sma'],
+//   optionalOutputs: []
+// }
+
+ti.sma.minData([5]);            // minimum bars needed to produce output
+ti.sma.minDataAccuracy([5], 6); // bars needed for 6-decimal accuracy
+```
+
+---
+
 ## Planned Bindings
 
 | Language / Platform | Status | Notes |
 |---|---|---|
 | **Python** | ✅ Available | `tulip_rs_python` — PyO3 + maturin |
-| **Node.js / WASM** | 🔜 Planned | `wasm-bindgen` or `napi-rs` |
 | **R** | 🔜 Planned | `extendr` |
 | **Julia** | 🔜 Planned | `CxxWrap.jl` or FFI |
 
