@@ -93,4 +93,4 @@ TulipRS's build script emits `-C target-cpu=native` when compiling with SIMD fea
 
 ## Code Examples
 
-Code examples for both SIMD modes are included on each indicator's own documentation page alongside the scalar example. See the [Moving Averages](indicators/moving_averages.md), [Oscillators](indicators/oscillators.md), and other indicator pages for concrete usage patterns.
+Code examples for both SIMD modes are included on each indicator's own documentation page alongside the scalar example. See the [Moving Averages](indicators/moving_averages/sma.md), [Oscillators](indicators/oscillators/rsi.md), and other indicator pages for concrete usage patterns.

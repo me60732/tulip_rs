@@ -83,12 +83,12 @@ Most technical analysis libraries are wrappers around the same scalar C code wri
 |---|---|
 | [Getting Started](getting_started.md) | Installation, feature flags, calling convention, and first examples |
 | [Indicators — Overview](indicators/index.md) | Full indicator index with inputs, options, and output counts |
-| [Moving Averages](indicators/moving_averages.md) | SMA, EMA, WMA, DEMA, TEMA, TRIMA, HMA, ZLEMA, KAMA, VIDYA, VWMA, Wilders |
-| [Oscillators](indicators/oscillators.md) | RSI, MACD, Stoch, StochRSI, Williams %R, CCI, CMO, UltOsc, AO, Fisher, FOSC, MSW |
-| [Trend](indicators/trend.md) | PPO, APO, ADX, ADXR, DM, DI, DX, Aroon, AroonOsc, PSAR |
-| [Volatility](indicators/volatility.md) | BBands, ATR, NATR, TR, StdDev, Volatility, VHF, CVI |
-| [Volume](indicators/volume.md) | AD, ADOSC, OBV, MFI, NVI, PVI, VOSC, KVO, EMV, WAD |
-| [Price & Statistical](indicators/price_statistical.md) | AvgPrice, MedPrice, TypPrice, WCPrice, Max, Min, MOM, ROC, ROCR, BOP, LinReg, TSF, TRIX, DPO, Mass, MD, MarketFi, QStick, PivotPoint |
+| [Moving Averages](indicators/moving_averages/sma.md) | SMA, EMA, WMA, DEMA, TEMA, TRIMA, HMA, ZLEMA, KAMA, VIDYA, VWMA, Wilders |
+| [Oscillators](indicators/oscillators/rsi.md) | RSI, MACD, Stoch, StochRSI, Williams %R, CCI, CMO, UltOsc, AO, Fisher, FOSC, MSW |
+| [Trend](indicators/trend/adx.md) | PPO, APO, ADX, ADXR, DM, DI, DX, Aroon, AroonOsc, PSAR |
+| [Volatility](indicators/volatility/bbands.md) | BBands, ATR, NATR, TR, StdDev, Volatility, VHF, CVI |
+| [Volume](indicators/volume/ad.md) | AD, ADOSC, OBV, MFI, NVI, PVI, VOSC, KVO, EMV, WAD |
+| [Price & Statistical](indicators/price_statistical/avgprice.md) | AvgPrice, MedPrice, TypPrice, WCPrice, Max, Min, MOM, ROC, ROCR, BOP, LinReg, TSF, TRIX, DPO, Mass, MD, MarketFi, QStick, PivotPoint |
 | [Candlestick Patterns](candlestick_patterns.md) | 60+ patterns, forecast types, Rust and Python usage |
 | [Indicator API](indicators/indicator_api.md) | `info()`, optional outputs, `min_data`, `min_data_accuracy` |
 | [SIMD](simd.md) | Conceptual overview: by-assets and by-options modes, lane counts, when to use each |

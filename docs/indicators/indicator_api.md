@@ -275,6 +275,101 @@ Optional output masks work the same way with `batch_indicator()`. Pass the same 
     !!! note
         Pass the same boolean mask to `batchIndicator` that you used in the initial `indicator()` call.
 
+### Optional outputs in SIMD mode
+
+The SIMD functions `indicator_by_assets<N>` and `indicator_by_options<N>` accept exactly the same `optional_outputs: Option<&[bool]>` argument as the scalar `indicator()`, with identical semantics. The mask applies uniformly across all N assets or option sets, and each lane's output vector follows the same layout — primary outputs first, then optional outputs in declaration order.
+
+The return type is `(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>)`. Index the outer `Vec` to select an asset or option set; the inner `Vec<Vec<f64>>` is the same layout as the scalar `indicator()` return.
+
+=== "Rust"
+
+    ```rust
+    use tulip_rs::indicators::adosc;
+
+    // indicator_by_assets: 4 assets, same options, same optional-output mask
+    let mask = [false, false, true]; // request the AD line only
+    let (all_outputs, _states) = adosc::indicator_by_assets::<4>(
+        &[&inputs_a, &inputs_b, &inputs_c, &inputs_d],
+        &[6.0, 20.0],
+        Some(&mask),
+    ).unwrap();
+
+    // all_outputs[0] is asset A's output Vec — same layout as scalar indicator()
+    let adosc_a = &all_outputs[0][0]; // primary output
+    let ad_a    = &all_outputs[0][3]; // optional output at index 2 (AD line)
+
+    // indicator_by_options: 1 asset, 4 option sets, same optional-output mask
+    let (all_outputs, _states) = adosc::indicator_by_options::<4>(
+        &inputs,
+        &[&[3.0, 10.0], &[6.0, 20.0], &[12.0, 26.0], &[20.0, 50.0]],
+        Some(&mask),
+    ).unwrap();
+
+    let adosc_set2 = &all_outputs[1][0]; // option set 1 primary output
+    let ad_set2    = &all_outputs[1][3]; // option set 1 AD line
+    ```
+
+=== "Python"
+
+    ```python
+    import tulip_rs
+
+    # simd_by_assets: 4 assets, same options, same optional-output mask
+    mask = [False, False, True]  # request the AD line only
+    all_outputs, states = tulip_rs.indicators.adosc.simd_by_assets(
+        [[high_a, low_a, close_a, vol_a],
+         [high_b, low_b, close_b, vol_b],
+         [high_c, low_c, close_c, vol_c],
+         [high_d, low_d, close_d, vol_d]],
+        [6.0, 20.0],
+        optional_outputs=mask,
+    )
+    # all_outputs[0] is asset A — same layout as scalar indicator()
+    adosc_a = all_outputs[0][0]  # primary output
+    ad_a    = all_outputs[0][3]  # AD line
+
+    # simd_by_options: 1 asset, 4 option sets, same mask
+    all_outputs, states = tulip_rs.indicators.adosc.simd_by_options(
+        [high, low, close, vol],
+        [[3.0, 10.0], [6.0, 20.0], [12.0, 26.0], [20.0, 50.0]],
+        optional_outputs=mask,
+    )
+    adosc_set2 = all_outputs[1][0]
+    ad_set2    = all_outputs[1][3]
+    ```
+
+=== "Node.js"
+
+    ```javascript
+    import * as ti from 'tulip-rs-node';
+
+    // simdByAssets: 4 assets, same options, same optional-output mask
+    const mask = [false, false, true]; // request the AD line only
+    const [allOutputs] = ti.adosc.simdByAssets(
+        [[highA, lowA, closeA, volA],
+         [highB, lowB, closeB, volB],
+         [highC, lowC, closeC, volC],
+         [highD, lowD, closeD, volD]],
+        [6, 20],
+        mask,
+    );
+    // allOutputs[0] is asset A — same layout as scalar indicator()
+    const adoscA = allOutputs[0][0]; // primary output
+    const adA    = allOutputs[0][3]; // AD line
+
+    // simdByOptions: 1 asset, 4 option sets, same mask
+    const [allOutputs2] = ti.adosc.simdByOptions(
+        [high, low, close, volume],
+        [[3, 10], [6, 20], [12, 26], [20, 50]],
+        mask,
+    );
+    const adoscSet2 = allOutputs2[1][0];
+    const adSet2    = allOutputs2[1][3];
+    ```
+
+!!! note
+    The boolean mask is shared across all lanes — you cannot request different optional outputs for different assets or option sets in a single SIMD call.
+
 ### Performance note
 
 Optional outputs are computed as part of the indicator's normal calculation loop — requesting them adds **zero algorithmic overhead**. The only cost is the memory allocation for the extra output vectors and the store instructions to write them. Passing `None` (or an all-`false` mask) allows the compiler to elide those stores entirely, which is why `None` is the default.
