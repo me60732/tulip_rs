@@ -74,10 +74,6 @@ name = "benchmark_ao"
 harness = false
 
 [[bench]]
-name = "benchmark_ao_medprice"
-harness = false
-
-[[bench]]
 name = "benchmark_apo"
 harness = false
 
