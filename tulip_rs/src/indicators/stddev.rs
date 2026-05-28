@@ -161,7 +161,7 @@ pub fn info() -> Info<'static> {
 /// # Returns
 ///
 /// The minimum number of input bars required, identical to [`min_data`].
-pub fn min_data_accuracy(options: &[f64; OPTIONS_WIDTH], _decimals: usize) -> usize {
+pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
 /// Returns the minimum amount of data required for the STDDEV indicator.
