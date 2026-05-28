@@ -107,10 +107,6 @@ name = "ti_pivotpoint_example"
 path = "examples/indicators/ti_pivotpoint_example.rs"
 
 [[example]]
-name = "ti_range_example"
-path = "examples/indicators/ti_range_example.rs"
-
-[[example]]
 name = "ti_wma_example"
 path = "examples/indicators/ti_wma_example.rs"
 
@@ -141,10 +137,6 @@ path = "examples/indicators/ti_qstick_example.rs"
 [[example]]
 name = "ti_nvi_example"
 path = "examples/indicators/ti_nvi_example.rs"
-
-[[example]]
-name = "ti_rema_example"
-path = "examples/indicators/ti_rema_example.rs"
 
 [[example]]
 name = "ti_atr_example"
