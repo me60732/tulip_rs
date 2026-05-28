@@ -1,6 +1,6 @@
 [package]
 name = "tulip_rs"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2021"
 build = "build.rs"
 description = "High-performance technical analysis library — 100+ indicators and 60+ candlestick patterns with SIMD acceleration"
