@@ -15,7 +15,6 @@ pub mod adosc;
 pub mod adx;
 pub mod adxr;
 pub mod ao;
-pub mod ao_medprice;
 pub mod apo;
 pub mod aroon;
 pub mod aroonosc;

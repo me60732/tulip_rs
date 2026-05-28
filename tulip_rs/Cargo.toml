@@ -334,9 +334,6 @@ path = "examples/indicators/ti_aroonosc_example.rs"
 name = "ti_fisher_example"
 path = "examples/indicators/ti_fisher_example.rs"
 
-[[example]]
-name = "ti_ao_medprice_example"
-path = "examples/indicators/ti_ao_medprice_example.rs"
 
 #------------------------ Candle Stick 1 bar ----------------------------------------
 [[example]]
