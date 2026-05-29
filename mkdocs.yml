@@ -73,6 +73,7 @@ nav:
                 - Fisher Transform: indicators/oscillators/fisher_transform.md
                 - FOSC: indicators/oscillators/fosc.md
                 - MSW: indicators/oscillators/msw.md
+                - TRIX: indicators/oscillators/trix.md
           - Trend:
                 - PPO: indicators/trend/ppo.md
                 - APO: indicators/trend/apo.md
@@ -104,6 +105,7 @@ nav:
                 - KVO: indicators/volume/kvo.md
                 - EMV: indicators/volume/emv.md
                 - WAD: indicators/volume/wad.md
+                - Market Facilitation Index: indicators/volume/marketfi.md
           - Price & Statistical:
                 - Average Price: indicators/price_statistical/avgprice.md
                 - Median Price: indicators/price_statistical/medprice.md
@@ -117,11 +119,9 @@ nav:
                 - BOP: indicators/price_statistical/bop.md
                 - LinReg: indicators/price_statistical/linreg.md
                 - TSF: indicators/price_statistical/tsf.md
-                - TRIX: indicators/price_statistical/trix.md
                 - DPO: indicators/price_statistical/dpo.md
                 - Mass Index: indicators/price_statistical/mass.md
                 - MD: indicators/price_statistical/md.md
-                - Market Facilitation Index: indicators/price_statistical/marketfi.md
                 - QStick: indicators/price_statistical/qstick.md
                 - Pivot Point: indicators/price_statistical/pivotpoint.md
     - Candlestick Patterns: candlestick_patterns.md
