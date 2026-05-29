@@ -76,6 +76,28 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
     console.log('Continued ADX:', continued[0]);
     ```
 
+=== "WASM"
+
+    ```javascript
+    import { init } from 'tulip-rs-wasm';
+    import * as ti from 'tulip-rs-wasm';
+
+    await init(); // bundler resolves the WASM asset automatically
+
+    const high  = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87];
+    const low   = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29];
+
+    const [outputs, state] = ti.adx.indicator([high, low, close], [14]);
+    console.log('ADX(14):', outputs[0]);
+
+    // State continuation
+    const n = high.length - 5;
+    const [, state2] = ti.adx.indicator([high.slice(0, n), low.slice(0, n), close.slice(0, n)], [14]);
+    const continued = state2.batchIndicator([high.slice(n), low.slice(n), close.slice(n)]);
+    console.log('Continued ADX:', continued[0]);
+    ```
+
 ### Optional Outputs
 
 === "Rust"

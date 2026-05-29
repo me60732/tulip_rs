@@ -18,6 +18,8 @@ Most technical analysis libraries are wrappers around the same scalar C code wri
 
 **Accuracy-aware warm-up** — `min_data_accuracy(options, decimals)` tells you exactly how many bars an EMA-based indicator needs before its output has converged to a given decimal precision. Use it to scan thousands of assets for signal events (MACD crossovers, RSI thresholds) by fetching only the minimum required window from your database instead of full history. See [Indicator API](indicators/indicator_api.md).
 
+**Browser-native via WebAssembly** — the full indicator library compiles to a WebAssembly module via `wasm-pack`, bringing the same computation to any modern browser with zero server round-trips and zero native dependencies. Pair it with [`tulip-rs-lwc`](https://www.npmjs.com/package/tulip-rs-lwc) for drop-in TradingView Lightweight Charts overlays and oscillators, or use [`tulip-rs-wasm`](https://www.npmjs.com/package/tulip-rs-wasm) directly for headless browser-side computation. See [Live Demo](demo.md).
+
 ---
 
 ## Features at a Glance
@@ -29,7 +31,8 @@ Most technical analysis libraries are wrappers around the same scalar C code wri
 | **SIMD — by assets** | Same options applied to N assets in one CPU pass (`indicator_by_assets::<N>`) |
 | **SIMD — by options** | N option sets applied to one asset in one CPU pass (`indicator_by_options::<N>`) |
 | **State management** | Every indicator returns a serialisable `IndicatorState` for streaming / incremental use |
-| **Languages** | Rust (native), Python (`tulip_rs_python` via PyO3), Node.js (`tulip-rs-node` via napi-rs) |
+| **Browser / WASM** | Full indicator set compiled to WebAssembly — runs in any modern browser, no server needed ([`tulip-rs-wasm`](https://www.npmjs.com/package/tulip-rs-wasm)) |
+| **Languages** | Rust (native), Python (`tulip_rs_python` via PyO3), Node.js (`tulip-rs-node` via napi-rs), Browser (WASM) |
 
 ---
 
@@ -75,6 +78,22 @@ Most technical analysis libraries are wrappers around the same scalar C code wri
     console.log(outputs[0]); // SMA(5) values
     ```
 
+=== "WASM"
+
+    ```javascript
+    import { init } from 'tulip-rs-wasm';
+    import * as ti from 'tulip-rs-wasm';
+
+    await init(); // bundler resolves the WASM asset automatically
+
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61,
+                   83.15, 82.84, 83.99, 84.55, 84.36];
+
+    const [outputs, state] = ti.sma.indicator([close], [5]);
+
+    console.log(outputs[0]); // SMA(5) values
+    ```
+
 ---
 
 ## Documentation Pages
@@ -105,5 +124,4 @@ Most technical analysis libraries are wrappers around the same scalar C code wri
 | **Rust** | ✅ Native | `tulip_rs` (this crate) |
 | **Python** | ✅ Supported | [`tulip_rs_python`](https://github.com/me60732/tulip_rs_python) |
 | **Node.js** | ✅ Supported | [`tulip-rs-node`](https://github.com/me60732/tulip-rs-node) |
-| R | 🔜 Planned | — |
-| Julia | 🔜 Planned | — |
+| **Browser (WASM)** | ✅ Supported | [`tulip-rs-wasm`](https://www.npmjs.com/package/tulip-rs-wasm) · [`tulip-rs-lwc`](https://www.npmjs.com/package/tulip-rs-lwc) |

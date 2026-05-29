@@ -41,6 +41,27 @@
     console.log('Continued MedPrice:', continued[0]);
     ```
 
+=== "WASM"
+
+    ```javascript
+    import { init } from 'tulip-rs-wasm';
+    import * as ti from 'tulip-rs-wasm';
+
+    await init(); // bundler resolves the WASM asset automatically
+
+    const high = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87];
+    const low  = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
+
+    const [outputs, state] = ti.medprice.indicator([high, low], []);
+    console.log('MedPrice:', outputs[0]);
+
+    // State continuation
+    const n = high.length - 5;
+    const [, state2] = ti.medprice.indicator([high.slice(0, n), low.slice(0, n)], []);
+    const continued = state2.batchIndicator([high.slice(n), low.slice(n)]);
+    console.log('Continued MedPrice:', continued[0]);
+    ```
+
 ### SIMD
 
 === "Rust"

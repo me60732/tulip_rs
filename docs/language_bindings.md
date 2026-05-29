@@ -333,13 +333,156 @@ Use `ti.adx.info.optionalOutputs` to discover which optional outputs an indicato
 
 ---
 
-## Planned Bindings
+## Browser (WebAssembly)
 
-| Language / Platform | Status | Notes |
+**Package:** [`tulip-rs-wasm`](https://www.npmjs.com/package/tulip-rs-wasm) &nbsp;|&nbsp; **LWC plugin:** [`tulip-rs-lwc`](https://www.npmjs.com/package/tulip-rs-lwc)
+
+The WebAssembly binding is built with [wasm-pack](https://rustwasm.github.io/wasm-pack/) and published to npm. It brings the full indicator set to any modern browser with no server round-trips and no native dependencies. The API mirrors the Node.js binding closely — the same `indicator()` / `batchIndicator()` / `info` patterns apply.
+
+### Installation
+
+```bash
+npm install tulip-rs-wasm
+```
+
+For charting with [TradingView Lightweight Charts v5](https://www.tradingview.com/lightweight-charts/), install the plugin instead — it wraps `tulip-rs-wasm` and handles overlay/oscillator rendering automatically:
+
+```bash
+npm install tulip-rs-lwc
+```
+
+---
+
+### Initialisation
+
+The WASM module must be compiled and instantiated before any indicator calls. How you do this depends on your build setup:
+
+=== "Vite (vite-plugin-wasm)"
+
+    `vite-plugin-wasm` resolves the `.wasm` asset URL automatically, but you must still call `init()` to trigger async compilation and instantiation:
+
+    ```javascript
+    import { init } from 'tulip-rs-wasm';
+    import * as ti from 'tulip-rs-wasm';
+
+    await init(); // no URL needed — bundler resolves the asset
+    ```
+
+    ```javascript
+    // vite.config.js
+    import wasm from 'vite-plugin-wasm';
+    export default { plugins: [wasm()] };
+    ```
+
+=== "webpack 5"
+
+    With `asyncWebAssembly: true`, webpack instantiates the WASM module automatically on import — no `init()` call needed:
+
+    ```javascript
+    import * as ti from 'tulip-rs-wasm';
+    // ready to use immediately — no init() required
+    ```
+
+    ```javascript
+    // webpack.config.js
+    module.exports = { experiments: { asyncWebAssembly: true } };
+    ```
+
+=== "CDN / plain HTML"
+
+    Without a bundler, pass the full URL of the `.wasm` binary to `init()`:
+
+    ```javascript
+    import { init } from 'tulip-rs-wasm';
+    import * as ti from 'tulip-rs-wasm';
+
+    await init('https://cdn.jsdelivr.net/npm/tulip-rs-wasm@0.1.4/pkg/tulip_rs_wasm_bg.wasm');
+    ```
+
+---
+
+### Quick Examples
+
+**SMA — single input, single output:**
+
+```javascript
+import { init } from 'tulip-rs-wasm';
+import * as ti from 'tulip-rs-wasm';
+
+await init(); // Vite setup — see Initialisation above
+
+const close = [81.59, 81.06, 82.87, 83.00, 83.61,
+               83.15, 82.84, 83.99, 84.55, 84.36];
+
+const [outputs, state] = ti.sma.indicator([close], [5]);
+console.log('SMA(5):', outputs[0]);
+```
+
+**MACD — three outputs:**
+
+```javascript
+const [outputs, state] = ti.macd.indicator([close], [12, 26, 9]);
+
+const macdLine  = outputs[0];
+const signal    = outputs[1];
+const histogram = outputs[2];
+```
+
+**Multi-input (ADX):**
+
+```javascript
+const [outputs, state] = ti.adx.indicator([high, low, close], [14]);
+console.log('ADX:', outputs[0]);
+```
+
+**State continuation — O(1) streaming:**
+
+```javascript
+// Initial computation
+const [, state] = ti.sma.indicator([close], [5]);
+
+// Feed one new bar at a time — no history reprocessing
+const newValues = state.batchIndicator([[newClose]]);
+console.log('New SMA value:', newValues[0]);
+```
+
+---
+
+### State Object API
+
+Identical to the Node.js binding:
+
+| Method | Signature | Description |
 |---|---|---|
-| **Python** | ✅ Available | `tulip_rs_python` — PyO3 + maturin |
-| **R** | 🔜 Planned | `extendr` |
-| **Julia** | 🔜 Planned | `CxxWrap.jl` or FFI |
+| `batchIndicator` | `(inputs: number[][], mask?: boolean[]) => number[][]` | Continue computation on new bars |
+| `toJson` | `() => string` | Serialise state to JSON for persistence |
+
+---
+
+### Lightweight Charts Plugin
+
+[`tulip-rs-lwc`](https://www.npmjs.com/package/tulip-rs-lwc) wraps `tulip-rs-wasm` and renders any indicator directly onto a [Lightweight Charts v5](https://www.tradingview.com/lightweight-charts/) chart — overlays as canvas primitives, oscillators in auto-managed panes — with O(1) streaming via `appendBar()`:
+
+```javascript
+import { init, addIndicator } from 'tulip-rs-lwc';
+
+await init(); // same init — re-exported from tulip-rs-wasm
+
+const sma  = addIndicator(chart, candles, 'sma',  ohlcv, [20]);
+const rsi  = addIndicator(chart, candles, 'rsi',  ohlcv, [14]);
+const psar = addIndicator(chart, candles, 'psar', ohlcv, [0.02, 0.2]);
+
+// O(1) incremental update on each new bar
+ws.onmessage = ({ data }) => {
+  const bar = JSON.parse(data);
+  candles.update(bar);
+  sma.appendBar(bar);
+  rsi.appendBar(bar);
+  psar.appendBar(bar);
+};
+```
+
+See the [Live Demo](demo.md) and the [`tulip-rs-lwc` docs](https://me60732.github.io/tulip-rs-lwc/) for the full API.
 
 ---
 

@@ -46,6 +46,27 @@ The highest value in the input series over a rolling `period` window.
     console.log('Continued Max:', continued[0]);
     ```
 
+=== "WASM"
+
+    ```javascript
+    import { init } from 'tulip-rs-wasm';
+    import * as ti from 'tulip-rs-wasm';
+
+    await init(); // bundler resolves the WASM asset automatically
+
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61,
+                   83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29];
+
+    const [outputs, state] = ti.max.indicator([close], [14]);
+    console.log('Max(14):', outputs[0]);
+
+    // State continuation
+    const [, state2] = ti.max.indicator([close.slice(0, -5)], [14]);
+    const continued = state2.batchIndicator([close.slice(-5)]);
+    console.log('Continued Max:', continued[0]);
+    ```
+
 ### SIMD
 
 === "Rust"

@@ -60,6 +60,26 @@ The percentage difference between two volume moving averages. Expanding volume o
     console.log('Continued VOSC:', continued[0]);
     ```
 
+=== "WASM"
+
+    ```javascript
+    import { init } from 'tulip-rs-wasm';
+    import * as ti from 'tulip-rs-wasm';
+
+    await init(); // bundler resolves the WASM asset automatically
+
+    const volume = [5653100, 6447400, 7690900, 3831400, 4455100, 3798000, 3936200, 4732000, 4841300, 3915300, 6830800, 6694100, 5293600, 7985800, 4807900];
+
+    const [outputs, state] = ti.vosc.indicator([volume], [5, 10]);
+    console.log('VOSC:', outputs[0]);
+
+    // State continuation
+    const n = volume.length - 5;
+    const [, state2] = ti.vosc.indicator([volume.slice(0, n)], [5, 10]);
+    const continued = state2.batchIndicator([volume.slice(n)]);
+    console.log('Continued VOSC:', continued[0]);
+    ```
+
 ### Optional Outputs
 
 === "Rust"

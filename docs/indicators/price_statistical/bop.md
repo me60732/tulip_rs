@@ -43,6 +43,29 @@ Measures the strength of buyers vs sellers: `(Close - Open) / (High - Low)`.
     console.log('Continued BOP:', continued[0]);
     ```
 
+=== "WASM"
+
+    ```javascript
+    import { init } from 'tulip-rs-wasm';
+    import * as ti from 'tulip-rs-wasm';
+
+    await init(); // bundler resolves the WASM asset automatically
+
+    const open_ = [81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25, 84.03, 85.45, 86.18, 88.00, 87.30];
+    const high  = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87];
+    const low   = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29];
+
+    const [outputs, state] = ti.bop.indicator([open_, high, low, close], []);
+    console.log('BOP:', outputs[0]);
+
+    // State continuation
+    const n = high.length - 5;
+    const [, state2] = ti.bop.indicator([open_.slice(0, n), high.slice(0, n), low.slice(0, n), close.slice(0, n)], []);
+    const continued = state2.batchIndicator([open_.slice(n), high.slice(n), low.slice(n), close.slice(n)]);
+    console.log('Continued BOP:', continued[0]);
+    ```
+
 ### SIMD
 
 === "Rust"

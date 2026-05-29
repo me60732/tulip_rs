@@ -59,6 +59,27 @@ Identifies whether the market is trending or ranging. Higher values indicate a t
     console.log('Continued VHF:', continued[0]);
     ```
 
+=== "WASM"
+
+    ```javascript
+    import { init } from 'tulip-rs-wasm';
+    import * as ti from 'tulip-rs-wasm';
+
+    await init(); // bundler resolves the WASM asset automatically
+
+    const close = [81.59, 81.06, 82.87, 83.00, 83.61,
+                   83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29];
+
+    const [outputs, state] = ti.vhf.indicator([close], [28]);
+    console.log('VHF(28):', outputs[0]);
+
+    // State continuation
+    const [, state2] = ti.vhf.indicator([close.slice(0, -5)], [28]);
+    const continued = state2.batchIndicator([close.slice(-5)]);
+    console.log('Continued VHF:', continued[0]);
+    ```
+
 ### SIMD
 
 === "Rust"

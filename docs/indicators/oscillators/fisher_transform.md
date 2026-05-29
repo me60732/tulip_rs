@@ -73,6 +73,28 @@ Converts prices into a Gaussian normal distribution. Sharp moves in the Fisher v
     console.log('Continued Fisher:', continued[0]);
     ```
 
+=== "WASM"
+
+    ```javascript
+    import { init } from 'tulip-rs-wasm';
+    import * as ti from 'tulip-rs-wasm';
+
+    await init(); // bundler resolves the WASM asset automatically
+
+    const high = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87];
+    const low  = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
+
+    const [outputs, state] = ti.fisher.indicator([high, low], [9]);
+    console.log('Fisher:', outputs[0]);
+    console.log('Signal:', outputs[1]);
+
+    // State continuation
+    const n = high.length - 5;
+    const [, state2] = ti.fisher.indicator([high.slice(0, n), low.slice(0, n)], [9]);
+    const continued = state2.batchIndicator([high.slice(n), low.slice(n)]);
+    console.log('Continued Fisher:', continued[0]);
+    ```
+
 ### SIMD
 
 === "Rust"

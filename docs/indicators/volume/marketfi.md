@@ -49,6 +49,28 @@
     console.log('Continued MarketFi:', continued[0]);
     ```
 
+=== "WASM"
+
+    ```javascript
+    import { init } from 'tulip-rs-wasm';
+    import * as ti from 'tulip-rs-wasm';
+
+    await init(); // bundler resolves the WASM asset automatically
+
+    const high   = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87];
+    const low    = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
+    const volume = [5653100, 6447400, 7690900, 3831400, 4455100, 3798000, 3936200, 4732000, 4841300, 3915300, 6830800, 6694100, 5293600, 7985800, 4807900];
+
+    const [outputs, state] = ti.marketfi.indicator([high, low, volume], []);
+    console.log('MarketFi:', outputs[0]);
+
+    // State continuation
+    const n = high.length - 5;
+    const [, state2] = ti.marketfi.indicator([high.slice(0, n), low.slice(0, n), volume.slice(0, n)], []);
+    const continued = state2.batchIndicator([high.slice(n), low.slice(n), volume.slice(n)]);
+    console.log('Continued MarketFi:', continued[0]);
+    ```
+
 ### SIMD
 
 === "Rust"
