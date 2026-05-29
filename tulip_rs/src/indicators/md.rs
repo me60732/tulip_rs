@@ -52,7 +52,7 @@ use std::simd::{num::SimdFloat, Simd};
 pub fn info() -> Info<'static> {
     Info {
         name: "md",
-        display_type: DisplayType::Math,
+        display_type: DisplayType::Indicator,
         indicator_type: IndicatorType::Volatility,
         full_name: "Mean Deviation",
         inputs: &["real"],

@@ -32,7 +32,7 @@ pub fn info() -> Info<'static> {
     Info {
         name: "ad",
         full_name: "Accumulation/Distribution Line",
-        indicator_type: IndicatorType::Trend,
+        indicator_type: IndicatorType::Volume,
         display_type: DisplayType::Indicator,
         inputs: &["high", "low", "close", "volume"],
         options: &[],

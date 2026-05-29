@@ -33,7 +33,7 @@ pub fn info() -> Info<'static> {
     Info {
         name: "bop",
         full_name: "Balance of Power",
-        indicator_type: IndicatorType::Price,
+        indicator_type: IndicatorType::Momentum,
         display_type: DisplayType::Indicator,
         inputs: &["open", "high", "low", "close"],
         options: &[],

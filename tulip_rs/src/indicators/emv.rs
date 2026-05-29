@@ -76,7 +76,7 @@ pub fn info() -> Info<'static> {
     Info {
         name: "emv",
         display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Momentum,
+        indicator_type: IndicatorType::Volume,
         full_name: "Ease of Movement",
         inputs: &["high", "low", "volume"],
         options: &[],

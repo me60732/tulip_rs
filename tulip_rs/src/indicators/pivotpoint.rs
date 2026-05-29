@@ -15,7 +15,7 @@ pub const OPTIONS_WIDTH: usize = 1;
 /// An `Info` struct containing metadata about the Pivot Point indicator.
 pub fn info() -> Info<'static> {
     Info {
-        name: "pivitpoint",
+        name: "pivotpoint",
         full_name: "Pivot Point",
         indicator_type: IndicatorType::Trend,
         display_type: DisplayType::Overlay,

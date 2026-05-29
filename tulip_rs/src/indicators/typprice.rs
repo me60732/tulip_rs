@@ -43,7 +43,7 @@ impl TIndicatorState<3> for IndicatorState {
 /// An `Info` struct containing metadata about the TYPPRICE indicator.
 pub fn info() -> Info<'static> {
     Info {
-        name: "TYPPRICE",
+        name: "typprice",
         full_name: "Typical Price",
         display_type: DisplayType::Overlay,
         indicator_type: IndicatorType::Price,

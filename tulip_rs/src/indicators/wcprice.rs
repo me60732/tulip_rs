@@ -41,7 +41,7 @@ pub fn info() -> Info<'static> {
         name: "wcprice",
         full_name: "Weighted Close Price",
         display_type: DisplayType::Overlay,
-        indicator_type: IndicatorType::Trend,
+        indicator_type: IndicatorType::Price,
         // Use only the necessary inputs: high, low, close.
         inputs: &["high", "low", "close"],
         // No options.

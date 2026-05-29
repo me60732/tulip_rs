@@ -102,7 +102,7 @@ pub fn info() -> Info<'static> {
     Info {
         name: "cvi",
         display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Trend,
+        indicator_type: IndicatorType::Volatility,
         full_name: "Chaikin Volatility Indicator",
         inputs: &["high", "low"],
         options: &["period"],

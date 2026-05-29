@@ -51,7 +51,7 @@ pub fn info() -> Info<'static> {
     Info {
         name: "adosc",
         full_name: "Accumulation/Distribution Oscillator",
-        indicator_type: IndicatorType::Trend,
+        indicator_type: IndicatorType::Volume,
         display_type: DisplayType::Indicator,
         inputs: &["high", "low", "close", "volume"],
         options: &["short_period", "long_period"],

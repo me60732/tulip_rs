@@ -111,7 +111,7 @@ pub fn info() -> Info<'static> {
     Info {
         name: "min",
         full_name: "minimum",
-        display_type: DisplayType::Math,
+        display_type: DisplayType::Overlay,
         indicator_type: IndicatorType::Price,
         inputs: &["real"],
         options: &["period"],

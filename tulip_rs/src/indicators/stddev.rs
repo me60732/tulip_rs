@@ -139,7 +139,7 @@ impl State {
 pub fn info() -> Info<'static> {
     Info {
         name: "stddev",
-        display_type: DisplayType::Math,
+        display_type: DisplayType::Indicator,
         indicator_type: IndicatorType::Volatility,
         full_name: "Standard Deviation",
         inputs: &["real"],

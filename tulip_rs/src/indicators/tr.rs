@@ -58,7 +58,7 @@ impl TIndicatorState<3> for IndicatorState {
 /// An `Info` struct containing metadata about the TR indicator.
 pub fn info() -> Info<'static> {
     Info {
-        name: "TR",
+        name: "tr",
         full_name: "True Range",
         display_type: DisplayType::Indicator,
         indicator_type: IndicatorType::Volatility,

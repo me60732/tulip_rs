@@ -106,7 +106,7 @@ pub fn info() -> Info<'static> {
     Info {
         name: "max",
         full_name: "maximum",
-        display_type: DisplayType::Math,
+        display_type: DisplayType::Overlay,
         indicator_type: IndicatorType::Price,
         inputs: &["real"],
         options: &["period"],

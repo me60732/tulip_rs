@@ -104,7 +104,7 @@ pub fn info() -> Info<'static> {
         name: "qstick",
         full_name: "QStick",
         display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Trend,
+        indicator_type: IndicatorType::Momentum,
         inputs: &["open", "close"],
         options: &["period"],
         outputs: &["qstick"],

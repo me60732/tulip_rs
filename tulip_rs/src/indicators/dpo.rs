@@ -106,7 +106,7 @@ pub fn info() -> Info<'static> {
     Info {
         name: "dpo",
         display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Other,
+        indicator_type: IndicatorType::Cycle,
         full_name: "Detrended Price Oscillator",
         inputs: &["real"],
         options: &["period"],

@@ -46,7 +46,7 @@ pub fn info() -> Info<'static> {
     Info {
         name: "marketfi",
         display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Volatility,
+        indicator_type: IndicatorType::Volume,
         full_name: "Market Facilitation Index",
         inputs: &["high", "low", "volume"],
         options: &[],

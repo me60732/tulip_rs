@@ -46,7 +46,7 @@ pub fn info() -> Info<'static> {
     Info {
         name: "avgprice",
         full_name: "Average Price",
-        indicator_type: IndicatorType::Other,
+        indicator_type: IndicatorType::Price,
         display_type: DisplayType::Overlay,
         inputs: &["open", "high", "low", "close"],
         options: &[],
