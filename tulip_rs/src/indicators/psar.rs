@@ -51,7 +51,7 @@ pub fn info() -> Info<'static> {
         name: "psar",
         full_name: "Parabolic SAR",
         indicator_type: IndicatorType::Trend,
-        display_type: DisplayType::Indicator,
+        display_type: DisplayType::Overlay,
         inputs: &["high", "low"],
         options: &["acceleration_factor", "max_acceleration_factor"],
         outputs: &["psar"],

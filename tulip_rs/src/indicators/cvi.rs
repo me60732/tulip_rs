@@ -101,7 +101,7 @@ impl TIndicatorState<2> for IndicatorState {
 pub fn info() -> Info<'static> {
     Info {
         name: "cvi",
-        display_type: DisplayType::Overlay,
+        display_type: DisplayType::Indicator,
         indicator_type: IndicatorType::Trend,
         full_name: "Chaikin Volatility Indicator",
         inputs: &["high", "low"],
