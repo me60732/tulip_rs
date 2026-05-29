@@ -335,7 +335,7 @@ Use `ti.adx.info.optionalOutputs` to discover which optional outputs an indicato
 
 ## Browser (WebAssembly)
 
-**Package:** [`tulip-rs-wasm`](https://www.npmjs.com/package/tulip-rs-wasm) &nbsp;|&nbsp; **LWC plugin:** [`tulip-rs-lwc`](https://www.npmjs.com/package/tulip-rs-lwc)
+**Package:** [`tulip-rs-wasm`](https://www.npmjs.com/package/tulip-rs-wasm)
 
 The WebAssembly binding is built with [wasm-pack](https://rustwasm.github.io/wasm-pack/) and published to npm. It brings the full indicator set to any modern browser with no server round-trips and no native dependencies. The API mirrors the Node.js binding closely — the same `indicator()` / `batchIndicator()` / `info` patterns apply.
 
@@ -343,12 +343,6 @@ The WebAssembly binding is built with [wasm-pack](https://rustwasm.github.io/was
 
 ```bash
 npm install tulip-rs-wasm
-```
-
-For charting with [TradingView Lightweight Charts v5](https://www.tradingview.com/lightweight-charts/), install the plugin instead — it wraps `tulip-rs-wasm` and handles overlay/oscillator rendering automatically:
-
-```bash
-npm install tulip-rs-lwc
 ```
 
 ---
@@ -458,31 +452,6 @@ Identical to the Node.js binding:
 | `toJson` | `() => string` | Serialise state to JSON for persistence |
 
 ---
-
-### Lightweight Charts Plugin
-
-[`tulip-rs-lwc`](https://www.npmjs.com/package/tulip-rs-lwc) wraps `tulip-rs-wasm` and renders any indicator directly onto a [Lightweight Charts v5](https://www.tradingview.com/lightweight-charts/) chart — overlays as canvas primitives, oscillators in auto-managed panes — with O(1) streaming via `appendBar()`:
-
-```javascript
-import { init, addIndicator } from 'tulip-rs-lwc';
-
-await init(); // same init — re-exported from tulip-rs-wasm
-
-const sma  = addIndicator(chart, candles, 'sma',  ohlcv, [20]);
-const rsi  = addIndicator(chart, candles, 'rsi',  ohlcv, [14]);
-const psar = addIndicator(chart, candles, 'psar', ohlcv, [0.02, 0.2]);
-
-// O(1) incremental update on each new bar
-ws.onmessage = ({ data }) => {
-  const bar = JSON.parse(data);
-  candles.update(bar);
-  sma.appendBar(bar);
-  rsi.appendBar(bar);
-  psar.appendBar(bar);
-};
-```
-
-See the [Live Demo](demo.md) and the [`tulip-rs-lwc` docs](https://me60732.github.io/tulip-rs-lwc/) for the full API.
 
 ---
 
