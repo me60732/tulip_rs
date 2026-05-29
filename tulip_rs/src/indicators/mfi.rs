@@ -50,7 +50,7 @@ pub mod by_options {
 pub fn info() -> Info<'static> {
     Info {
         name: "mfi",
-        display_type: DisplayType::Overlay,
+        display_type: DisplayType::Indicator,
         indicator_type: IndicatorType::Volume,
         full_name: "Money Flow Index",
         inputs: &["high", "low", "close", "volume"],

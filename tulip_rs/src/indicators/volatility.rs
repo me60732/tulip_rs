@@ -46,7 +46,7 @@ pub fn info() -> Info<'static> {
     Info {
         name: "volatility",
         full_name: "Volatility Indicator",
-        display_type: DisplayType::Overlay,
+        display_type: DisplayType::Indicator,
         indicator_type: IndicatorType::Volatility,
         inputs: &["real"],
         options: &["period"],

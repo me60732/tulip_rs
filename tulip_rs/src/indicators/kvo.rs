@@ -52,7 +52,7 @@ pub mod by_options {
 pub fn info() -> Info<'static> {
     Info {
         name: "kvo",
-        display_type: DisplayType::Overlay,
+        display_type: DisplayType::Indicator,
         indicator_type: IndicatorType::Volume,
         full_name: "Klinger Volume Oscillator",
         inputs: &["high", "low", "close", "volume"],

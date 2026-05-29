@@ -93,7 +93,7 @@ pub fn info() -> Info<'static> {
     Info {
         name: "trix",
         full_name: "Triple Exponential Oscillator (TRIX)",
-        display_type: DisplayType::Overlay,
+        display_type: DisplayType::Indicator,
         indicator_type: IndicatorType::Trend,
         inputs: &["real"],
         options: &["period"],
