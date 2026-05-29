@@ -152,7 +152,7 @@ impl State {
 pub fn info() -> Info<'static> {
     Info {
         name: "fosc",
-        display_type: DisplayType::Overlay,
+        display_type: DisplayType::Indicator,
         indicator_type: IndicatorType::Trend,
         full_name: "Forecast Oscillator",
         inputs: &["real"],
