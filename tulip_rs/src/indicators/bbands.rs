@@ -2,7 +2,7 @@ use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::stddev::calc as stddev_calc;
 pub use crate::indicators::stddev::{multiplier, State};
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -48,18 +48,21 @@ pub mod by_options {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the BBANDS indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "bbands",
-        full_name: "Bollinger Bands",
-        indicator_type: IndicatorType::Volatility,
+pub const INFO: Info = Info {
+    name: "bbands",
+    full_name: "Bollinger Bands",
+    indicator_type: IndicatorType::Volatility,
+    inputs: &["real"],
+    options: &["period", "std_dev"],
+    outputs: &["bbands_lower", "bbands_middle", "bbands_upper"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "bbands",
+        label: "BBANDS",
         display_type: DisplayType::Overlay,
-        inputs: &["real"],
-        options: &["period", "std_dev"],
         outputs: &["bbands_lower", "bbands_middle", "bbands_upper"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     real: Vec<f64>,

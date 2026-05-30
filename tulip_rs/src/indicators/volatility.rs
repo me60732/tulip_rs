@@ -3,7 +3,7 @@ pub use crate::indicator_types::TIndicatorState;
 pub use crate::indicators::stddev::multiplier;
 use crate::indicators::stddev::{calc as stddev_calc, State as StddevState};
 use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
@@ -42,18 +42,21 @@ pub mod by_options {
 }
 const ANNUAL: f64 = 15.874507866387544; // 252_f64.sqrt()
 
-pub fn info() -> Info<'static> {
-    Info {
-        name: "volatility",
-        full_name: "Volatility Indicator",
+pub const INFO: Info = Info {
+    name: "volatility",
+    full_name: "Volatility Indicator",
+    indicator_type: IndicatorType::Volatility,
+    inputs: &["real"],
+    options: &["period"],
+    outputs: &["volatility"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "volatility",
+        label: "VOLATILITY",
         display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Volatility,
-        inputs: &["real"],
-        options: &["period"],
         outputs: &["volatility"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {

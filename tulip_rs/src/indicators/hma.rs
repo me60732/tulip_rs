@@ -2,7 +2,7 @@ use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::wma::{calc as calc_wma, multiplier as wma_multiplier, State as WMAState};
 use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
@@ -46,18 +46,21 @@ pub mod by_options {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the HMA indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "hma",
+pub const INFO: Info = Info {
+    name: "hma",
+    indicator_type: IndicatorType::Trend,
+    full_name: "Hull Moving Average",
+    inputs: &["real"],
+    options: &["period"],
+    outputs: &["hma"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "hma",
+        label: "HMA",
         display_type: DisplayType::Overlay,
-        indicator_type: IndicatorType::Trend,
-        full_name: "Hull Moving Average",
-        inputs: &["real"],
-        options: &["period"],
         outputs: &["hma"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {

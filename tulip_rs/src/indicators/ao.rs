@@ -5,7 +5,7 @@ use crate::indicators::sma::{
     calc as sma_calc, multiplier as sma_multiplier, output_length as sma_output_length,
 };
 use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -36,18 +36,29 @@ pub mod by_assets {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the AO indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "ao",
-        full_name: "Awesome Oscillator",
-        indicator_type: IndicatorType::Momentum,
-        display_type: DisplayType::Indicator,
-        inputs: &["high", "low"],
-        options: &[],
-        outputs: &["ao"],
-        optional_outputs: &["short_sma", "long_sma", "medprice"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "ao",
+    full_name: "Awesome Oscillator",
+    indicator_type: IndicatorType::Momentum,
+    inputs: &["high", "low"],
+    options: &[],
+    outputs: &["ao"],
+    optional_outputs: &["short_sma", "long_sma", "medprice"],
+    display_groups: &[
+        DisplayGroup {
+            id: "ao",
+            label: "AO",
+            display_type: DisplayType::Indicator,
+            outputs: &["ao"],
+        },
+        DisplayGroup {
+            id: "short_sma_long_sma_medprice",
+            label: "Median Price",
+            display_type: DisplayType::Overlay,
+            outputs: &["short_sma", "long_sma", "medprice"],
+        },
+    ],
+};
 
 #[derive(Serialize, Deserialize)]
 pub struct State {

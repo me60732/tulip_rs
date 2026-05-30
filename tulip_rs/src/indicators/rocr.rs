@@ -1,6 +1,6 @@
 use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -41,18 +41,21 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::rocr_simd::indicator_by_options as indicator;
 }
 /// Returns information about the Rate of Change Ratio (ROCR) indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "rocr",
-        full_name: "Rate of Change Ratio",
-        indicator_type: IndicatorType::Momentum,
+pub const INFO: Info = Info {
+    name: "rocr",
+    full_name: "Rate of Change Ratio",
+    indicator_type: IndicatorType::Momentum,
+    inputs: &["real"],
+    options: &["period"],
+    outputs: &["rocr"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "rocr",
+        label: "ROCR",
         display_type: DisplayType::Indicator,
-        inputs: &["real"],
-        options: &["period"],
         outputs: &["rocr"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     real: Vec<f64>,

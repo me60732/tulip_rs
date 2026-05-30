@@ -4,7 +4,9 @@ use crate::indicators::dema::output_length as dema_output_length;
 use crate::indicators::ema::output_length as ema_output_length;
 use crate::indicators::tema::{calc as tema_calc, output_length as tema_output_length};
 pub use crate::indicators::tema::{multiplier, State};
-use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
+use crate::types::{
+    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -89,18 +91,29 @@ impl TIndicatorState<1> for IndicatorState {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about TRIX.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "trix",
-        full_name: "Triple Exponential Oscillator (TRIX)",
-        display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Trend,
-        inputs: &["real"],
-        options: &["period"],
-        outputs: &["trix"],
-        optional_outputs: &["tema", "dema", "ema"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "trix",
+    full_name: "Triple Exponential Oscillator (TRIX)",
+    indicator_type: IndicatorType::Trend,
+    inputs: &["real"],
+    options: &["period"],
+    outputs: &["trix"],
+    optional_outputs: &["tema", "dema", "ema"],
+    display_groups: &[
+        DisplayGroup {
+            id: "trix",
+            label: "TRIX",
+            display_type: DisplayType::Indicator,
+            outputs: &["trix"],
+        },
+        DisplayGroup {
+            id: "tema_dema_ema",
+            label: "EMAs",
+            display_type: DisplayType::Overlay,
+            outputs: &["tema", "dema", "ema"],
+        },
+    ],
+};
 /// Returns the minimum number of input bars required to produce results
 /// accurate to `decimals` decimal places.
 ///

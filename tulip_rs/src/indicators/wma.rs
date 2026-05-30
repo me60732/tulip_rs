@@ -1,7 +1,7 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::sma::{calc as calc_sma, multiplier as sma_multiplier};
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -135,18 +135,23 @@ impl State {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the WMA indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "wma",
-        display_type: DisplayType::Overlay,
-        indicator_type: IndicatorType::Trend,
-        full_name: "Weighted Moving Average",
-        inputs: &["real"],
-        options: &["period"],
-        outputs: &["wma"],
-        optional_outputs: &["sma"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "wma",
+    indicator_type: IndicatorType::Trend,
+    full_name: "Weighted Moving Average",
+    inputs: &["real"],
+    options: &["period"],
+    outputs: &["wma"],
+    optional_outputs: &["sma"],
+    display_groups: &[
+        DisplayGroup {
+            id: "wma",
+            label: "Moving Averages",
+            display_type: DisplayType::Overlay,
+            outputs: &["wma", "sma"],
+        },
+    ],
+};
 /// Returns the minimum number of input bars required to produce accurate results.
 ///
 /// For this indicator accuracy does not depend on decimal precision, so

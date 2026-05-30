@@ -1,6 +1,6 @@
 use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -46,18 +46,21 @@ pub mod by_options {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the PSAR indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "psar",
-        full_name: "Parabolic SAR",
-        indicator_type: IndicatorType::Trend,
+pub const INFO: Info = Info {
+    name: "psar",
+    full_name: "Parabolic SAR",
+    indicator_type: IndicatorType::Trend,
+    inputs: &["high", "low"],
+    options: &["acceleration_factor", "max_acceleration_factor"],
+    outputs: &["psar"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "psar",
+        label: "PSAR",
         display_type: DisplayType::Overlay,
-        inputs: &["high", "low"],
-        options: &["acceleration_factor", "max_acceleration_factor"],
         outputs: &["psar"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     state: State,

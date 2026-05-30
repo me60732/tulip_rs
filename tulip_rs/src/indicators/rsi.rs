@@ -2,7 +2,9 @@ use crate::common::{min_process, validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 pub(crate) use crate::indicators::cmo::up_down;
 pub use crate::indicators::sma::multiplier;
-use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
+use crate::types::{
+    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -48,18 +50,21 @@ pub mod by_options {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the RSI indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "rsi",
+pub const INFO: Info = Info {
+    name: "rsi",
+    indicator_type: IndicatorType::Momentum,
+    full_name: "Relative Strength Index",
+    inputs: &["real"],
+    options: &["period"],
+    outputs: &["rsi"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "rsi",
+        label: "RSI",
         display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Momentum,
-        full_name: "Relative Strength Index",
-        inputs: &["real"],
-        options: &["period"],
         outputs: &["rsi"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
@@ -140,7 +145,7 @@ pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
         options,
         Some((decimals, 0)),
         &[multiplier(options[0] as usize)],
-        IndicatorInfoOrInteger::Info(&info()),
+        IndicatorInfoOrInteger::Info(INFO),
         min_data,
     )
 }

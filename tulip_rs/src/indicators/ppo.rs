@@ -3,7 +3,9 @@ pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::ema::{
     calc as calc_ema, multiplier as ema_multiplier, output_length as ema_output_length,
 };
-use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
+use crate::types::{
+    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -116,18 +118,29 @@ impl State {
     }
 }
 /// Returns information about the Percentage Price Oscillator (PPO) indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "ppo",
-        full_name: "Percentage Price Oscillator",
-        indicator_type: IndicatorType::Momentum,
-        display_type: DisplayType::Indicator,
-        inputs: &["real"],
-        options: &["short_period", "long_period"],
-        outputs: &["ppo"],
-        optional_outputs: &["short_ema", "long_ema"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "ppo",
+    full_name: "Percentage Price Oscillator",
+    indicator_type: IndicatorType::Momentum,
+    inputs: &["real"],
+    options: &["short_period", "long_period"],
+    outputs: &["ppo"],
+    optional_outputs: &["short_ema", "long_ema"],
+    display_groups: &[
+        DisplayGroup {
+            id: "ppo",
+            label: "PPO",
+            display_type: DisplayType::Indicator,
+            outputs: &["ppo"],
+        },
+        DisplayGroup {
+            id: "short_ema_long_ema",
+            label: "EMAs",
+            display_type: DisplayType::Overlay,
+            outputs: &["short_ema", "long_ema"],
+        },
+    ],
+};
 /// Returns the minimum number of input bars required to produce results
 /// accurate to `decimals` decimal places.
 ///

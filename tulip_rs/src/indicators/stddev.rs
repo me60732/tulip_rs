@@ -42,7 +42,7 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::stddev_simd::indicator_by_options as indicator;
 }
 
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
@@ -136,18 +136,29 @@ impl State {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the STDDEV indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "stddev",
-        display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Volatility,
-        full_name: "Standard Deviation",
-        inputs: &["real"],
-        options: &["period"],
-        outputs: &["stddev"],
-        optional_outputs: &["sma"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "stddev",
+    indicator_type: IndicatorType::Volatility,
+    full_name: "Standard Deviation",
+    inputs: &["real"],
+    options: &["period"],
+    outputs: &["stddev"],
+    optional_outputs: &["sma"],
+    display_groups: &[
+        DisplayGroup {
+            id: "stddev",
+            label: "STDDEV",
+            display_type: DisplayType::Indicator,
+            outputs: &["stddev"],
+        },
+        DisplayGroup {
+            id: "sma",
+            label: "SMA",
+            display_type: DisplayType::Overlay,
+            outputs: &["sma"],
+        },
+    ],
+};
 /// Returns the minimum number of input bars required to produce accurate results.
 ///
 /// For this indicator accuracy does not depend on decimal precision, so

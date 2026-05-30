@@ -2,7 +2,7 @@ use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::linreg::State as LinregState;
 use crate::indicators::tsf::{calc as calc_tsf, output_length as tsf_output_length};
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -149,18 +149,35 @@ impl State {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the FOSC indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "fosc",
-        display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Trend,
-        full_name: "Forecast Oscillator",
-        inputs: &["real"],
-        options: &["period"],
-        outputs: &["fosc"],
-        optional_outputs: &["tsf", "linreg", "linregslope", "linregintercept"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "fosc",
+    indicator_type: IndicatorType::Trend,
+    full_name: "Forecast Oscillator",
+    inputs: &["real"],
+    options: &["period"],
+    outputs: &["fosc"],
+    optional_outputs: &["tsf", "linreg", "linregslope", "linregintercept"],
+    display_groups: &[
+        DisplayGroup {
+            id: "fosc",
+            label: "FOSC",
+            display_type: DisplayType::Indicator,
+            outputs: &["fosc"],
+        },
+        DisplayGroup {
+            id: "tsf_linreg_linregintercept",
+            label: "Regression",
+            display_type: DisplayType::Overlay,
+            outputs: &["tsf", "linreg", "linregintercept"],
+        },
+        DisplayGroup {
+            id: "linregslope",
+            label: "LinReg Slope",
+            display_type: DisplayType::Indicator,
+            outputs: &["linregslope"],
+        },
+    ]
+};
 /// Returns the minimum number of input bars required to produce accurate results.
 ///
 /// For this indicator accuracy does not depend on decimal precision, so

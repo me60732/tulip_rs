@@ -1,6 +1,6 @@
 use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -24,18 +24,21 @@ pub mod by_assets {
     pub use crate::indicators::simd_indicators::wad_simd::indicator_by_assets as indicator;
 }
 
-pub fn info() -> Info<'static> {
-    Info {
-        name: "wad",
-        full_name: "WAD Indicator",
+pub const INFO: Info = Info {
+    name: "wad",
+    full_name: "WAD Indicator",
+    indicator_type: IndicatorType::Trend,
+    inputs: &["high", "low", "close"],
+    options: &[],
+    outputs: &["wad"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "wad",
+        label: "WAD",
         display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Trend,
-        inputs: &["high", "low", "close"],
-        options: &[],
         outputs: &["wad"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     pub prev_close: f64,

@@ -1,6 +1,6 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -39,21 +39,24 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::vwma_simd::indicator_by_options as indicator;
 }
 
-pub fn info() -> Info<'static> {
-    Info {
-        name: "vwma",
-        full_name: "Volume Weighted Moving Average",
+pub const INFO: Info = Info {
+    name: "vwma",
+    full_name: "Volume Weighted Moving Average",
+    indicator_type: IndicatorType::Trend,
+    // Two inputs: close and volume.
+    inputs: &["close", "volume"],
+    // One option: period.
+    options: &["period"],
+    outputs: &["vwma"],
+    // No optional outputs.
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "vwma",
+        label: "VWMA",
         display_type: DisplayType::Overlay,
-        indicator_type: IndicatorType::Trend,
-        // Two inputs: close and volume.
-        inputs: &["close", "volume"],
-        // One option: period.
-        options: &["period"],
         outputs: &["vwma"],
-        // No optional outputs.
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {

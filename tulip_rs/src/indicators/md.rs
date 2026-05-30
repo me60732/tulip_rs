@@ -2,7 +2,7 @@ use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::sma::calc as sma_calc;
 pub use crate::indicators::sma::{init_state, multiplier};
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -49,18 +49,21 @@ use std::simd::{num::SimdFloat, Simd};
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the MD indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "md",
+pub const INFO: Info = Info {
+    name: "md",
+    indicator_type: IndicatorType::Volatility,
+    full_name: "Mean Deviation",
+    inputs: &["real"],
+    options: &["period"],
+    outputs: &["md"],
+    optional_outputs: &["sma"],
+    display_groups: &[DisplayGroup {
+        id: "md",
+        label: "MD",
         display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Volatility,
-        full_name: "Mean Deviation",
-        inputs: &["real"],
-        options: &["period"],
         outputs: &["md"],
-        optional_outputs: &["sma"],
-    }
-}
+    }],
+};
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {

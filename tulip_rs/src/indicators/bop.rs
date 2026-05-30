@@ -1,6 +1,6 @@
 use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 4;
@@ -29,18 +29,21 @@ pub mod by_assets {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the BOP indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "bop",
-        full_name: "Balance of Power",
-        indicator_type: IndicatorType::Momentum,
+pub const INFO: Info = Info {
+    name: "bop",
+    full_name: "Balance of Power",
+    indicator_type: IndicatorType::Momentum,
+    inputs: &["open", "high", "low", "close"],
+    options: &[],
+    outputs: &["bop"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "bop",
+        label: "BOP",
         display_type: DisplayType::Indicator,
-        inputs: &["open", "high", "low", "close"],
-        options: &[],
         outputs: &["bop"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct IndicatorState;

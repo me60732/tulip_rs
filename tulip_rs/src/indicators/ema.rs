@@ -1,7 +1,9 @@
 use crate::common::{min_process, validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 
-use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
+use crate::types::{
+    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+};
 use serde::{Deserialize, Serialize};
 //use wide::*;
 
@@ -87,18 +89,21 @@ impl TIndicatorState<1> for IndicatorState {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the EMA indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "ema",
-        full_name: "Exponential Moving Average",
+pub const INFO: Info = Info {
+    name: "ema",
+    full_name: "Exponential Moving Average",
+    indicator_type: IndicatorType::Trend,
+    inputs: &["real"],
+    options: &["period"],
+    outputs: &["ema"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "ema",
+        label: "EMA",
         display_type: DisplayType::Overlay,
-        indicator_type: IndicatorType::Trend,
-        inputs: &["real"],
-        options: &["period"],
         outputs: &["ema"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 /// Returns the number of output values produced by the EMA indicator given input data length and options.
 ///
 /// # Arguments
@@ -133,7 +138,7 @@ pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
         options,
         Some((decimals, 0)),
         &[multiplier(options[0] as usize).0],
-        IndicatorInfoOrInteger::Info(&info()),
+        IndicatorInfoOrInteger::Info(INFO),
         min_data,
     )
 }

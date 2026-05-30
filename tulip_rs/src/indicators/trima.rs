@@ -1,6 +1,6 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -44,18 +44,21 @@ pub mod by_options {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the TRIMA indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "trima",
-        full_name: "Triangular Moving Average",
+pub const INFO: Info = Info {
+    name: "trima",
+    full_name: "Triangular Moving Average",
+    indicator_type: IndicatorType::Trend,
+    inputs: &["real"],
+    options: &["period"],
+    outputs: &["trima"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "trima",
+        label: "TRIMA",
         display_type: DisplayType::Overlay,
-        indicator_type: IndicatorType::Trend,
-        inputs: &["real"],
-        options: &["period"],
         outputs: &["trima"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {

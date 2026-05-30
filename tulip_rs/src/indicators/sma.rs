@@ -1,6 +1,6 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -96,18 +96,21 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the SMA indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "sma",
-        full_name: "Simple Moving Average",
+pub const INFO: Info = Info {
+    name: "sma",
+    full_name: "Simple Moving Average",
+    indicator_type: IndicatorType::Trend,
+    inputs: &["real"],
+    options: &["period"],
+    outputs: &["sma"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "sma",
+        label: "SMA",
         display_type: DisplayType::Overlay,
-        indicator_type: IndicatorType::Trend,
-        inputs: &["real"],
-        options: &["period"],
         outputs: &["sma"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 /// Returns the minimum number of input bars required to produce accurate results.
 ///
 /// For this indicator accuracy does not depend on decimal precision, so

@@ -6,7 +6,7 @@ use crate::indicators::max::{
 use crate::indicators::min::{
     calc as calc_min, calc_unchecked as calc_min_unchecked, State as MinState,
 };
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -110,18 +110,21 @@ impl State {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the VHF indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "vhf",
-        full_name: "Vertical Horizontal Filter",
-        indicator_type: IndicatorType::Trend,
+pub const INFO: Info = Info {
+    name: "vhf",
+    full_name: "Vertical Horizontal Filter",
+    indicator_type: IndicatorType::Trend,
+    inputs: &["real"],
+    options: &["period"],
+    outputs: &["vhf"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "vhf",
+        label: "VHF",
         display_type: DisplayType::Indicator,
-        inputs: &["real"],
-        options: &["period"],
         outputs: &["vhf"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 /// Returns the minimum number of input bars required to produce accurate results.
 ///
 /// For this indicator accuracy does not depend on decimal precision, so

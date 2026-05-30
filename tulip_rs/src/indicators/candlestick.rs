@@ -3,7 +3,7 @@ use crate::candle_indicators::pattern_test::{State, MAX_PATTERN_LENGTH};
 pub use crate::candle_indicators::types::ForecastType;
 use crate::common::{validate_inputs, validate_options};
 use crate::indicators::ema::{min_data as ema_min_data, multiplier as ema_multiplier};
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 4;
@@ -16,18 +16,21 @@ pub const OPTIONS_WIDTH: usize = 3;
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the Candlestick Pattern indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "candlestick",
-        full_name: "Candle Stick Indicator",
-        indicator_type: IndicatorType::CandleStick,
+pub const INFO: Info = Info {
+    name: "candlestick",
+    full_name: "Candle Stick Indicator",
+    indicator_type: IndicatorType::CandleStick,
+    inputs: &["open", "high", "low", "close"],
+    options: &["candle_period", "trend_period", "trend_signal_period"],
+    outputs: &["cdl_pattern"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "candlestick",
+        label: "CANDLESTICK",
         display_type: DisplayType::Overlay,
-        inputs: &["open", "high", "low", "close"],
-        options: &["candle_period", "trend_period", "trend_signal_period"],
         outputs: &["cdl_pattern"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 
 /// Returns the minimum amount of data required for the Candlestick Pattern indicator.
 ///

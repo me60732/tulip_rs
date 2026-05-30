@@ -3,7 +3,7 @@ pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::sma::{
     calc as sma_calc, multiplier as sma_multiplier, output_length as sma_output_length,
 };
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -42,19 +42,30 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::vosc_simd::indicator_by_options as indicator;
 }
 
-pub fn info() -> Info<'static> {
-    Info {
-        name: "vosc",
-        full_name: "Volume Oscillator",
-        display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Volume,
-        inputs: &["volume"],
-        // Two options: short_period and long_period.
-        options: &["short_period", "long_period"],
-        outputs: &["vosc"],
-        optional_outputs: &["short_sma", "long_sma"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "vosc",
+    full_name: "Volume Oscillator",
+    indicator_type: IndicatorType::Volume,
+    inputs: &["volume"],
+    // Two options: short_period and long_period.
+    options: &["short_period", "long_period"],
+    outputs: &["vosc"],
+    optional_outputs: &["short_sma", "long_sma"],
+    display_groups: &[
+        DisplayGroup {
+            id: "vosc",
+            label: "VOSC",
+            display_type: DisplayType::Indicator,
+            outputs: &["vosc"],
+        },
+        DisplayGroup {
+            id: "short_sma_long_sma",
+            label: "Volume SMAs",
+            display_type: DisplayType::Volume,
+            outputs: &["short_sma", "long_sma"],
+        },
+    ],
+};
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     volume: Vec<f64>,

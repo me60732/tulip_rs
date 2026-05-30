@@ -5,7 +5,7 @@ use crate::indicators::md::{calc_md, calc_md_simd, output_length as md_output_le
 use crate::indicators::sma::calc as calc_sma;
 use crate::indicators::typprice::calc as typprice_calc;
 use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -51,18 +51,35 @@ pub mod by_options {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the CCI indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "cci",
-        display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Momentum,
-        full_name: "Commodity Channel Index",
-        inputs: &["high", "low", "close"],
-        options: &["period"],
-        outputs: &["cci"],
-        optional_outputs: &["sma", "md", "typprice"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "cci",
+    indicator_type: IndicatorType::Momentum,
+    full_name: "Commodity Channel Index",
+    inputs: &["high", "low", "close"],
+    options: &["period"],
+    outputs: &["cci"],
+    optional_outputs: &["sma", "md", "typprice"],
+    display_groups: &[
+        DisplayGroup {
+            id: "cci",
+            label: "CCI",
+            display_type: DisplayType::Indicator,
+            outputs: &["cci"],
+        },
+        DisplayGroup {
+            id: "sma_typprice",
+            label: "Typical Price",
+            display_type: DisplayType::Overlay,
+            outputs: &["sma", "typprice"],
+        },
+        DisplayGroup {
+            id: "md",
+            label: "Mean Deviation",
+            display_type: DisplayType::Indicator,
+            outputs: &["md"],
+        }
+    ],
+};
 #[derive(Serialize, Deserialize)]
 pub struct State {
     pub buffer: Buffer,

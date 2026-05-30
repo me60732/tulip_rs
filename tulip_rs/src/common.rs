@@ -1,4 +1,4 @@
-use crate::types::{IndicatorInfoOrInteger, IndicatorError};
+use crate::types::{IndicatorError, IndicatorInfoOrInteger};
 
 pub(crate) fn min_process(
     options: &[f64],
@@ -9,9 +9,9 @@ pub(crate) fn min_process(
 ) -> usize {
     if let Some((acc, _)) = recent_only {
         let integers = match indicator_info {
-            IndicatorInfoOrInteger::Info(info_ref) => {
+            IndicatorInfoOrInteger::Info(info) => {
                 // Automatically assign based on expected inputs.
-                let inputs = info_ref.inputs;
+                let inputs = info.inputs;
                 let mut ints = 3;
                 for &input in inputs.iter() {
                     if input == "volume" {
@@ -94,7 +94,10 @@ pub(crate) fn min_data_accuracy(
 ///
 /// `true` if the inputs are valid, `false` otherwise.
 //#[inline(always)]
-pub(crate) fn validate_inputs(inputs: &[&[f64]], min_data_length: usize) -> Result<(), IndicatorError> {
+pub(crate) fn validate_inputs(
+    inputs: &[&[f64]],
+    min_data_length: usize,
+) -> Result<(), IndicatorError> {
     let first_len = inputs[0].len();
     if first_len < min_data_length {
         return Err(IndicatorError::NotEnoughData);

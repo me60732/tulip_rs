@@ -1,6 +1,6 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 3;
@@ -13,18 +13,21 @@ pub const OPTIONS_WIDTH: usize = 1;
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the Pivot Point indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "pivotpoint",
-        full_name: "Pivot Point",
-        indicator_type: IndicatorType::Trend,
+pub const INFO: Info = Info {
+    name: "pivotpoint",
+    full_name: "Pivot Point",
+    indicator_type: IndicatorType::Trend,
+    inputs: &["high", "low", "close"],
+    options: &["period"],
+    outputs: &["s3", "s2", "s1", "pp", "r1", "r2", "r3"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "pivotpoint",
+        label: "PIVOTPOINT",
         display_type: DisplayType::Overlay,
-        inputs: &["high", "low", "close"],
-        options: &["period"],
         outputs: &["s3", "s2", "s1", "pp", "r1", "r2", "r3"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 #[derive(Serialize, Deserialize, Clone)]
 pub struct IndicatorState {
     high: Vec<f64>,

@@ -7,7 +7,7 @@ use crate::indicators::max::{
 use crate::indicators::min::{
     calc as calc_min, calc_unchecked as calc_min_uncheked, State as MinState,
 };
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -137,20 +137,25 @@ impl State {
         state
     }
 }
-pub fn info() -> Info<'static> {
-    Info {
-        name: "willr",
-        full_name: "Williams %R",
-        display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Momentum,
-        // Three inputs: high, low, close.
-        inputs: &["high", "low", "close"],
-        // One option: period.
-        options: &["period"],
-        outputs: &["willr"],
-        optional_outputs: &[],
-    }
-}
+pub const INFO: Info = Info {
+    name: "willr",
+    full_name: "Williams %R",
+    indicator_type: IndicatorType::Momentum,
+    // Three inputs: high, low, close.
+    inputs: &["high", "low", "close"],
+    // One option: period.
+    options: &["period"],
+    outputs: &["willr"],
+    optional_outputs: &[],
+    display_groups: &[
+        DisplayGroup {
+            id: "willr",
+            label: "WILLR",
+            display_type: DisplayType::Indicator,
+            outputs: &["willr"],
+        },
+    ],
+};
 /// Returns the minimum number of input bars required to produce accurate results.
 ///
 /// For this indicator accuracy does not depend on decimal precision, so

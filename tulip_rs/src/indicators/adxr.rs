@@ -8,7 +8,9 @@ use crate::indicators::adx::{
 use crate::indicators::dx::output_length as dx_output_length;
 use crate::indicators::tr::output_length as tr_output_length;
 use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
-use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
+use crate::types::{
+    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -54,18 +56,29 @@ pub mod by_options {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the ADXR indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "adxr",
-        full_name: "Average Directional Movement Rating",
-        indicator_type: IndicatorType::Trend,
-        display_type: DisplayType::Indicator,
-        inputs: &["high", "low", "close"],
-        options: &["period"],
-        outputs: &["adxr"],
-        optional_outputs: &["adx", "dx", "atr", "tr"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "adxr",
+    full_name: "Average Directional Movement Rating",
+    indicator_type: IndicatorType::Trend,
+    inputs: &["high", "low", "close"],
+    options: &["period"],
+    outputs: &["adxr"],
+    optional_outputs: &["adx", "dx", "atr", "tr"],
+    display_groups: &[
+        DisplayGroup {
+            id: "adxr_adx_dx",
+            label: "Directional Index",
+            display_type: DisplayType::Indicator,
+            outputs: &["adxr", "adx", "dx"],
+        },
+        DisplayGroup {
+            id: "true_range",
+            label: "True Range",
+            display_type: DisplayType::Indicator,
+            outputs: &["atr", "tr"],
+        },
+    ],
+};
 #[derive(Serialize, Deserialize)]
 pub struct State {
     pub adx_state: AdxState,

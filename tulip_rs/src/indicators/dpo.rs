@@ -3,7 +3,7 @@ pub use crate::indicator_types::TIndicatorState;
 pub use crate::indicators::sma::init_state;
 pub use crate::indicators::sma::multiplier;
 use crate::indicators::sma::{calc as calc_sma, output_length as sma_output_length};
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -102,18 +102,29 @@ impl TIndicatorState<1> for IndicatorState {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the DPO indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "dpo",
-        display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Cycle,
-        full_name: "Detrended Price Oscillator",
-        inputs: &["real"],
-        options: &["period"],
-        outputs: &["dpo"],
-        optional_outputs: &["sma"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "dpo",
+    indicator_type: IndicatorType::Cycle,
+    full_name: "Detrended Price Oscillator",
+    inputs: &["real"],
+    options: &["period"],
+    outputs: &["dpo"],
+    optional_outputs: &["sma"],
+    display_groups: &[
+        DisplayGroup {
+            id: "dpo",
+            label: "DPO",
+            display_type: DisplayType::Indicator,
+            outputs: &["dpo"],
+        },
+        DisplayGroup {
+            id: "sma",
+            label: "SMA",
+            display_type: DisplayType::Overlay,
+            outputs: &["sma"],
+        },
+    ],
+};
 /// Returns the minimum number of input bars required to produce accurate results.
 ///
 /// For this indicator accuracy does not depend on decimal precision, so

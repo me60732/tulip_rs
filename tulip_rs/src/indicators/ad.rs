@@ -1,6 +1,6 @@
 use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 4;
@@ -28,18 +28,21 @@ pub mod by_assets {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the AD indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "ad",
-        full_name: "Accumulation/Distribution Line",
-        indicator_type: IndicatorType::Volume,
+pub const INFO: Info = Info {
+    name: "ad",
+    full_name: "Accumulation/Distribution Line",
+    indicator_type: IndicatorType::Volume,
+    inputs: &["high", "low", "close", "volume"],
+    options: &[],
+    outputs: &["ad"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "ad",
+        label: "AD",
         display_type: DisplayType::Indicator,
-        inputs: &["high", "low", "close", "volume"],
-        options: &[],
         outputs: &["ad"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndicatorState {
     ad: f64,

@@ -1,6 +1,13 @@
 # StochRSI — Stochastic RSI
 
-Applies the Stochastic Oscillator formula to RSI values rather than price, producing an extremely sensitive momentum indicator that oscillates between 0 and 1.
+Applies the Stochastic Oscillator formula to RSI values rather than price, producing an extremely sensitive momentum indicator that oscillates between 0 and 100.
+
+!!! note "Scaling differs from most libraries"
+    In the original publication — Chande & Kroll, *The New Technical Trader* (1994) — the
+    StochRSI formula was printed without the ×100 scaling factor. This typesetting error
+    led most indicator libraries to adopt a 0–1 ratio instead. This implementation uses
+    the corrected 0–100 scale, consistent with the standard Stochastic Oscillator (%K).
+    Users migrating from other libraries should divide their expected values by 100.
 
 **Inputs:** `[real]` &nbsp;|&nbsp; **Options:** `[period]` &nbsp;|&nbsp; **Outputs:** `[stochrsi]`
 

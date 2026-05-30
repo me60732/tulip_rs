@@ -3,7 +3,7 @@ pub use crate::indicator_types::TIndicatorState;
 pub use crate::indicators::aroon::State;
 use crate::indicators::aroon::{calc as calc_aroon, calc_unchecked as calc_unchecked_aroon};
 pub use crate::indicators::aroon::{multiplier, OPTIONS_WIDTH};
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -124,18 +124,29 @@ impl TIndicatorState<2> for IndicatorState {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the Aroon Oscillator indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "aroonosc",
-        full_name: "Aroon Oscillator",
-        display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Trend,
-        inputs: &["high", "low"],
-        options: &["period"],
-        outputs: &["aroonosc"],
-        optional_outputs: &["aroon_down", "aroon_up"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "aroonosc",
+    full_name: "Aroon Oscillator",
+    indicator_type: IndicatorType::Trend,
+    inputs: &["high", "low"],
+    options: &["period"],
+    outputs: &["aroonosc"],
+    optional_outputs: &["aroon_down", "aroon_up"],
+    display_groups: &[
+        DisplayGroup {
+            id: "aroonosc",
+            label: "AROONOSC",
+            display_type: DisplayType::Indicator,
+            outputs: &["aroonosc"],
+        },
+        DisplayGroup {
+            id: "aroon_down_aroon_up",
+            label: "Aroon",
+            display_type: DisplayType::Indicator,
+            outputs: &["aroon_down", "aroon_up"],
+        }
+    ],
+};
 /// Returns the minimum number of input bars required to produce accurate results.
 ///
 /// For this indicator accuracy does not depend on decimal precision, so

@@ -1,6 +1,6 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -82,18 +82,21 @@ impl TIndicatorState<1> for IndicatorState {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the CMO indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "cmo",
+pub const INFO: Info = Info {
+    name: "cmo",
+    indicator_type: IndicatorType::Momentum,
+    full_name: "Chande Momentum Oscillator",
+    inputs: &["real"],
+    options: &["period"],
+    outputs: &["cmo"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "cmo",
+        label: "CMO",
         display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Momentum,
-        full_name: "Chande Momentum Oscillator",
-        inputs: &["real"],
-        options: &["period"],
         outputs: &["cmo"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 #[derive(Serialize, Deserialize)]
 pub struct State {
     pub up_sum: f64,

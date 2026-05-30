@@ -8,7 +8,9 @@ use crate::indicators::rsi::{
 };
 use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
 use crate::ring_buffer::single_buffer::mirror_buffer::{MinMaxBuffer, MirrorBuffer};
-use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
+use crate::types::{
+    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -153,18 +155,21 @@ impl State {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the Stochastic RSI indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "stochrsi",
-        full_name: "Stochastic RSI",
+pub const INFO: Info = Info {
+    name: "stochrsi",
+    full_name: "Stochastic RSI",
+    indicator_type: IndicatorType::Momentum,
+    inputs: &["real"],
+    options: &["period"],
+    outputs: &["stochrsi"],
+    optional_outputs: &["rsi"],
+    display_groups: &[DisplayGroup {
+        id: "stochrsi",
+        label: "STOCHRSI",
         display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Momentum,
-        inputs: &["real"],
-        options: &["period"],
-        outputs: &["stochrsi"],
-        optional_outputs: &["rsi"],
-    }
-}
+        outputs: &["stochrsi", "rsi"],
+    }],
+};
 /// Returns the minimum number of input bars required to produce results
 /// accurate to `decimals` decimal places.
 ///
@@ -186,7 +191,7 @@ pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
         options,
         Some((decimals, 0)),
         &[multiplier(options[0] as usize)],
-        IndicatorInfoOrInteger::Info(&info()),
+        IndicatorInfoOrInteger::Info(INFO),
         min_data,
     )
 }
@@ -349,6 +354,19 @@ fn cycle_stochrsi<const N: usize>(
 /// # Returns
 ///
 /// A tuple `(kfast, rsi)` where `kfast` is the Stochastic RSI value and `rsi` is the current RSI value.
+///
+/// # Note on scaling
+///
+/// This implementation outputs StochRSI on a 0–100 scale, matching the
+/// standard Stochastic Oscillator (%K).
+///
+/// In the original publication — Chande & Kroll, “The New Technical Trader”
+/// (1994) — the StochRSI formula was printed without the ×100 scaling
+/// factor. This omission was a typesetting error, but it led most
+/// indicator libraries to adopt a 0–1 ratio instead.
+///
+/// Users migrating from libraries that follow the misprinted 0–1 convention
+/// should be aware of this difference.
 #[inline(always)]
 pub fn calc<const N: usize>(
     state: &mut State,

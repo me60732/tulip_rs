@@ -1,6 +1,6 @@
 use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -42,18 +42,21 @@ impl TIndicatorState<4> for IndicatorState {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the AvgPrice indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "avgprice",
-        full_name: "Average Price",
-        indicator_type: IndicatorType::Price,
+pub const INFO: Info = Info {
+    name: "avgprice",
+    full_name: "Average Price",
+    indicator_type: IndicatorType::Price,
+    inputs: &["open", "high", "low", "close"],
+    options: &[],
+    outputs: &["avgprice"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "avgprice",
+        label: "AVGPRICE",
         display_type: DisplayType::Overlay,
-        inputs: &["open", "high", "low", "close"],
-        options: &[],
         outputs: &["avgprice"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 /// Returns the minimum number of input bars required to produce accurate results.
 ///
 /// For this indicator accuracy does not depend on decimal precision, so

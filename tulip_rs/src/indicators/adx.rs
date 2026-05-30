@@ -6,7 +6,9 @@ use crate::indicators::dx::{
 use crate::indicators::tr::output_length as tr_output_length;
 use crate::indicators::wilders::calc as calc_wilders;
 pub use crate::indicators::wilders::multiplier;
-use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
+use crate::types::{
+    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+};
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 3;
@@ -51,18 +53,29 @@ pub mod by_options {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the ADX indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "adx",
-        full_name: "Average Directional Index",
-        indicator_type: IndicatorType::Trend,
-        display_type: DisplayType::Indicator,
-        inputs: &["high", "low", "close"],
-        options: &["period"],
-        outputs: &["adx"],
-        optional_outputs: &["dx", "atr", "tr"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "adx",
+    full_name: "Average Directional Index",
+    indicator_type: IndicatorType::Trend,
+    inputs: &["high", "low", "close"],
+    options: &["period"],
+    outputs: &["adx"],
+    optional_outputs: &["dx", "atr", "tr"],
+    display_groups: &[
+        DisplayGroup {
+            id: "adx_dx",
+            label: "Directional Index",
+            display_type: DisplayType::Indicator,
+            outputs: &["adx", "dx"],
+        },
+        DisplayGroup {
+            id: "true_range",
+            label: "True Range",
+            display_type: DisplayType::Indicator,
+            outputs: &["atr", "tr"],
+        },
+    ],
+};
 #[derive(Serialize, Deserialize)]
 pub struct State {
     pub dx_state: DxState,

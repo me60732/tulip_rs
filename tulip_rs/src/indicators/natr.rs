@@ -4,7 +4,9 @@ use crate::indicators::atr::calc as calc_atr;
 pub use crate::indicators::atr::multiplier;
 pub use crate::indicators::atr::State;
 use crate::indicators::tr::output_length as tr_output_length;
-use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
+use crate::types::{
+    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -46,18 +48,29 @@ pub mod by_options {
 }
 
 /// Returns information about the Normalized Average True Range (NATR) indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "natr",
-        full_name: "Normalized Average True Range",
-        indicator_type: IndicatorType::Volatility,
-        display_type: DisplayType::Indicator,
-        inputs: &["high", "low", "close"],
-        options: &["period"],
-        outputs: &["natr"],
-        optional_outputs: &["atr", "tr"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "natr",
+    full_name: "Normalized Average True Range",
+    indicator_type: IndicatorType::Volatility,
+    inputs: &["high", "low", "close"],
+    options: &["period"],
+    outputs: &["natr"],
+    optional_outputs: &["atr", "tr"],
+    display_groups: &[
+        DisplayGroup {
+            id: "natr",
+            label: "NATR",
+            display_type: DisplayType::Indicator,
+            outputs: &["natr"],
+        },
+        DisplayGroup {
+            id: "atr_tr",
+            label: "True Range",
+            display_type: DisplayType::Indicator,
+            outputs: &["atr", "tr"],
+        },
+    ],
+};
 /// Returns the minimum number of input bars required to produce results
 /// accurate to `decimals` decimal places.
 ///

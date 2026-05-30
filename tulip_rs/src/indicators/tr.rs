@@ -1,6 +1,6 @@
 use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -56,18 +56,21 @@ impl TIndicatorState<3> for IndicatorState {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the TR indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "tr",
-        full_name: "True Range",
+pub const INFO: Info = Info {
+    name: "tr",
+    full_name: "True Range",
+    indicator_type: IndicatorType::Volatility,
+    inputs: &["high", "low", "close"],
+    options: &[],
+    outputs: &["tr"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "tr",
+        label: "TR",
         display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Volatility,
-        inputs: &["high", "low", "close"],
-        options: &[],
         outputs: &["tr"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 /// Returns the minimum number of input bars required to produce accurate results.
 ///
 /// For this indicator accuracy does not depend on decimal precision, so

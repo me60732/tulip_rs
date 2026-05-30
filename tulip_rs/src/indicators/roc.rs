@@ -2,7 +2,7 @@ use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::mom::calc as calc_mom;
 use crate::indicators::rocr::calc as calc_rocr;
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -44,18 +44,29 @@ pub mod by_options {
 }
 
 /// Returns information about the Rate of Change (ROC) indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "roc",
-        full_name: "Rate of Change",
-        indicator_type: IndicatorType::Momentum,
-        display_type: DisplayType::Indicator,
-        inputs: &["real"],
-        options: &["period"],
-        outputs: &["roc"],
-        optional_outputs: &["mom"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "roc",
+    full_name: "Rate of Change",
+    indicator_type: IndicatorType::Momentum,
+    inputs: &["real"],
+    options: &["period"],
+    outputs: &["roc"],
+    optional_outputs: &["mom"],
+    display_groups: &[
+        DisplayGroup {
+            id: "roc",
+            label: "ROC",
+            display_type: DisplayType::Indicator,
+            outputs: &["roc"],
+        },
+        DisplayGroup {
+            id: "mom",
+            label: "Momentum",
+            display_type: DisplayType::Indicator,
+            outputs: &["mom"],
+        },
+    ],
+};
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     real: Vec<f64>,

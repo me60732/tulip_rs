@@ -2,7 +2,7 @@ use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::typprice::calc as calc_typprice;
 use crate::ring_buffer::multi_buffer::multi_buffer::{MultiBuffer as Buffer, RingBuffer};
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 4;
@@ -47,18 +47,29 @@ pub mod by_options {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the MFI indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "mfi",
-        display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Volume,
-        full_name: "Money Flow Index",
-        inputs: &["high", "low", "close", "volume"],
-        options: &["period"],
-        outputs: &["mfi"],
-        optional_outputs: &["typprice"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "mfi",
+    indicator_type: IndicatorType::Volume,
+    full_name: "Money Flow Index",
+    inputs: &["high", "low", "close", "volume"],
+    options: &["period"],
+    outputs: &["mfi"],
+    optional_outputs: &["typprice"],
+    display_groups: &[
+        DisplayGroup {
+            id: "mfi",
+            label: "MFI",
+            display_type: DisplayType::Indicator,
+            outputs: &["mfi"],
+        },
+        DisplayGroup {
+            id: "typprice",
+            label: "Typical Price",
+            display_type: DisplayType::Overlay,
+            outputs: &["typprice"],
+        },
+    ],
+};
 /*#[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     state: State,

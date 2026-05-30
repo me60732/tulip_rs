@@ -5,7 +5,7 @@ use crate::indicators::min::{calc as calc_min, calc_unchecked as calc_min_unchec
 pub use crate::indicators::{max::State as MaxState, min::State as MinState};
 
 use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 3;
@@ -194,18 +194,21 @@ impl State {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the Stochastic Oscillator indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "stoch",
-        full_name: "Stochastic Oscillator",
+pub const INFO: Info = Info {
+    name: "stoch",
+    full_name: "Stochastic Oscillator",
+    indicator_type: IndicatorType::Momentum,
+    inputs: &["high", "low", "close"],
+    options: &["k_period", "k_slow", "d_period"],
+    outputs: &["stoch_k", "stoch_d"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "stoch",
+        label: "STOCH",
         display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Momentum,
-        inputs: &["high", "low", "close"],
-        options: &["k_period", "k_slow", "d_period"],
         outputs: &["stoch_k", "stoch_d"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 /// Returns the minimum number of input bars required to produce accurate results.
 ///
 /// For this indicator accuracy does not depend on decimal precision, so

@@ -3,7 +3,9 @@ pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::ema::calc as calc_ema;
 pub use crate::indicators::ema::multiplier;
 pub use crate::ring_buffer::single_buffer::generic_buffer::{Buffer as State, RingBuffer};
-use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
+use crate::types::{
+    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -98,18 +100,21 @@ impl TIndicatorState<2> for IndicatorState {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the CVI indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "cvi",
+pub const INFO: Info = Info {
+    name: "cvi",
+    indicator_type: IndicatorType::Volatility,
+    full_name: "Chaikin Volatility Indicator",
+    inputs: &["high", "low"],
+    options: &["period"],
+    outputs: &["cvi"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "cvi",
+        label: "CVI",
         display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Volatility,
-        full_name: "Chaikin Volatility Indicator",
-        inputs: &["high", "low"],
-        options: &["period"],
         outputs: &["cvi"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 /// Returns the minimum number of input bars required to produce results
 /// accurate to `decimals` decimal places.
 ///

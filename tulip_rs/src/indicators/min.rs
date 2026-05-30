@@ -1,6 +1,6 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 //use std::slice::
 /// Number of input price series required by this indicator.
@@ -107,18 +107,21 @@ impl TIndicatorState<1> for IndicatorState {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the min indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "min",
-        full_name: "minimum",
+pub const INFO: Info = Info {
+    name: "min",
+    full_name: "minimum",
+    indicator_type: IndicatorType::Price,
+    inputs: &["real"],
+    options: &["period"],
+    outputs: &["min"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "min",
+        label: "MIN",
         display_type: DisplayType::Overlay,
-        indicator_type: IndicatorType::Price,
-        inputs: &["real"],
-        options: &["period"],
         outputs: &["min"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 /// Returns the minimum number of input bars required to produce accurate results.
 ///
 /// For this indicator accuracy does not depend on decimal precision, so

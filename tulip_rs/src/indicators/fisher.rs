@@ -7,7 +7,7 @@ use crate::indicators::medprice::calc as calc_medprice;
 use crate::indicators::min::State as MinState;
 use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
 use crate::ring_buffer::single_buffer::mirror_buffer::{MinMaxBuffer, MirrorBuffer};
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -153,18 +153,21 @@ impl State {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the Fisher Transform indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "fisher",
-        full_name: "Fisher Transform",
+pub const INFO: Info = Info {
+    name: "fisher",
+    full_name: "Fisher Transform",
+    indicator_type: IndicatorType::Momentum,
+    inputs: &["high", "low"],
+    options: &["period"],
+    outputs: &["fisher", "fisher_signal"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "fisher",
+        label: "FISHER",
         display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Momentum,
-        inputs: &["high", "low"],
-        options: &["period"],
         outputs: &["fisher", "fisher_signal"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 
 /// Returns the minimum number of input bars required to produce accurate results.
 ///

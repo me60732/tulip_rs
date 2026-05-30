@@ -1,7 +1,7 @@
 use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::medprice::calc as calc_medprice;
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -72,18 +72,29 @@ impl TIndicatorState<3> for IndicatorState {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the EMV indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "emv",
-        display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Volume,
-        full_name: "Ease of Movement",
-        inputs: &["high", "low", "volume"],
-        options: &[],
-        outputs: &["emv"],
-        optional_outputs: &["medprice"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "emv",
+    indicator_type: IndicatorType::Volume,
+    full_name: "Ease of Movement",
+    inputs: &["high", "low", "volume"],
+    options: &[],
+    outputs: &["emv"],
+    optional_outputs: &["medprice"],
+    display_groups: &[
+        DisplayGroup {
+            id: "emv",
+            label: "EMV",
+            display_type: DisplayType::Indicator,
+            outputs: &["emv"],
+        },
+        DisplayGroup {
+            id: "medprice",
+            label: "Median Price",
+            display_type: DisplayType::Overlay,
+            outputs: &["medprice"],
+        },
+    ],
+};
 /// Returns the minimum number of input bars required to produce accurate results.
 ///
 /// For this indicator accuracy does not depend on decimal precision, so

@@ -4,7 +4,9 @@ use crate::indicators::atr::{partial_calc as partial_calc_atr, State as AtrState
 use crate::indicators::dm::{calc as calc_dm, State as DMState};
 use crate::indicators::tr::output_length as tr_output_length;
 pub use crate::indicators::wilders::multiplier;
-use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
+use crate::types::{
+    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -50,18 +52,29 @@ pub mod by_options {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the DI indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "di",
-        full_name: "Directional Indicator",
-        indicator_type: IndicatorType::Trend,
-        display_type: DisplayType::Indicator,
-        inputs: &["high", "low", "close"],
-        options: &["period"],
-        outputs: &["plus_di", "minus_di"],
-        optional_outputs: &["atr", "tr"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "di",
+    full_name: "Directional Indicator",
+    indicator_type: IndicatorType::Trend,
+    inputs: &["high", "low", "close"],
+    options: &["period"],
+    outputs: &["plus_di", "minus_di"],
+    optional_outputs: &["atr", "tr"],
+    display_groups: &[
+        DisplayGroup {
+            id: "di",
+            label: "DI",
+            display_type: DisplayType::Indicator,
+            outputs: &["plus_di", "minus_di"],
+        },
+        DisplayGroup {
+            id: "atr_tr",
+            label: "True Range",
+            display_type: DisplayType::Indicator,
+            outputs: &["atr", "tr"],
+        },
+    ],
+};
 #[derive(Serialize, Deserialize)]
 pub struct State {
     pub di_state: DMState,

@@ -1,7 +1,7 @@
 //use std::vec;
 use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -27,18 +27,21 @@ pub mod by_assets {
 }
 
 /// Returns information about the On-Balance Volume (OBV) indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "obv",
-        full_name: "On-Balance Volume",
-        indicator_type: IndicatorType::Volume,
+pub const INFO: Info = Info {
+    name: "obv",
+    full_name: "On-Balance Volume",
+    indicator_type: IndicatorType::Volume,
+    inputs: &["close", "volume"],
+    options: &[],
+    outputs: &["obv"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "obv",
+        label: "OBV",
         display_type: DisplayType::Indicator,
-        inputs: &["close", "volume"],
-        options: &[],
         outputs: &["obv"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     pub obv: f64,

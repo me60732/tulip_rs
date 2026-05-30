@@ -3,7 +3,9 @@ pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::ema::{
     calc as calc_ema, multiplier as ema_multiplier, output_length as ema_output_length,
 };
-use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
+use crate::types::{
+    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+};
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
@@ -48,18 +50,29 @@ pub mod by_options {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the MACD indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "macd",
-        full_name: "Moving Average Convergence Divergence",
-        display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Trend,
-        inputs: &["real"],
-        options: &["short_period", "long_period", "signal_period"],
-        outputs: &["macd_line", "signal_line", "histogram"],
-        optional_outputs: &["short_ema", "long_ema"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "macd",
+    full_name: "Moving Average Convergence Divergence",
+    indicator_type: IndicatorType::Trend,
+    inputs: &["real"],
+    options: &["short_period", "long_period", "signal_period"],
+    outputs: &["macd_line", "signal_line", "histogram"],
+    optional_outputs: &["short_ema", "long_ema"],
+    display_groups: &[
+        DisplayGroup {
+            id: "macd",
+            label: "MACD",
+            display_type: DisplayType::Indicator,
+            outputs: &["macd_line", "signal_line", "histogram"],
+        },
+        DisplayGroup {
+            id: "short_ema_long_ema",
+            label: "EMAs",
+            display_type: DisplayType::Overlay,
+            outputs: &["short_ema", "long_ema"],
+        },
+    ],
+};
 #[derive(Default, Serialize, Deserialize)]
 pub struct IndicatorState {
     multipliers: ((f64, f64), (f64, f64), (f64, f64)),

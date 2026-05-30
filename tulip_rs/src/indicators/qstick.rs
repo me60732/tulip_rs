@@ -1,7 +1,7 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 pub use crate::indicators::sma::multiplier;
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -99,18 +99,21 @@ impl TIndicatorState<2> for IndicatorState {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the QStick indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "qstick",
-        full_name: "QStick",
+pub const INFO: Info = Info {
+    name: "qstick",
+    full_name: "QStick",
+    indicator_type: IndicatorType::Momentum,
+    inputs: &["open", "close"],
+    options: &["period"],
+    outputs: &["qstick"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "qstick",
+        label: "QSTICK",
         display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Momentum,
-        inputs: &["open", "close"],
-        options: &["period"],
         outputs: &["qstick"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 /// Returns the minimum number of input bars required to produce accurate results.
 ///
 /// For this indicator accuracy does not depend on decimal precision, so

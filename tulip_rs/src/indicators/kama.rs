@@ -1,7 +1,9 @@
 use crate::common::{min_process, validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::ema::multiplier as ema_multiplier;
-use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
+use crate::types::{
+    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -46,18 +48,21 @@ pub mod by_options {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the KAMA indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "kama",
+pub const INFO: Info = Info {
+    name: "kama",
+    indicator_type: IndicatorType::Trend,
+    full_name: "Kaufman's Adaptive Moving Average",
+    inputs: &["real"],
+    options: &["period"],
+    outputs: &["kama"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "kama",
+        label: "KAMA",
         display_type: DisplayType::Overlay,
-        indicator_type: IndicatorType::Trend,
-        full_name: "Kaufman's Adaptive Moving Average",
-        inputs: &["real"],
-        options: &["period"],
         outputs: &["kama"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     real: Vec<f64>,
@@ -186,7 +191,7 @@ pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
             options,
             Some((decimals, 0)),
             &[ema_multiplier(options[0] as usize).0, alpha],
-            IndicatorInfoOrInteger::Info(&info()),
+            IndicatorInfoOrInteger::Info(INFO),
             min_data,
         );
     }
@@ -194,7 +199,7 @@ pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
         options,
         Some((decimals, 0)),
         &[ema_multiplier(options[0] as usize).0],
-        IndicatorInfoOrInteger::Info(&info()),
+        IndicatorInfoOrInteger::Info(INFO),
         min_data,
     )
 }

@@ -7,7 +7,9 @@ use crate::indicators::{
         output_length as stddev_output_length, State as StddevState,
     },
 };
-use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
+use crate::types::{
+    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -225,20 +227,37 @@ impl State {
         (self.prev_vidya, sma_short, sma_long, sd_short, sd_long)
     }
 }
-pub fn info() -> Info<'static> {
-    Info {
-        name: "vidya",
-        full_name: "Variable Index Dynamic Average",
-        display_type: DisplayType::Overlay,
-        indicator_type: IndicatorType::Trend,
-        inputs: &["real"],
-        // Three options: short_period, long_period, alpha.
-        options: &["short_period", "long_period", "alpha"],
-        outputs: &["vidya"],
-        // Optional outputs: sma_fast and sma_slow are taken from the STDDEV calc.
-        optional_outputs: &["short_sma", "long_sma", "short_sdtdev", "long_sdtdev"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "vidya",
+    full_name: "Variable Index Dynamic Average",
+    indicator_type: IndicatorType::Trend,
+    inputs: &["real"],
+    // Three options: short_period, long_period, alpha.
+    options: &["short_period", "long_period", "alpha"],
+    outputs: &["vidya"],
+    // Optional outputs: sma_fast and sma_slow are taken from the STDDEV calc.
+    optional_outputs: &["short_sma", "long_sma", "short_stddev", "long_stddev"],
+    display_groups: &[
+        DisplayGroup {
+            id: "vidya",
+            label: "VIDYA",
+            display_type: DisplayType::Overlay,
+            outputs: &["vidya"],
+        },
+        DisplayGroup {
+            id: "short_sma_long_sma",
+            label: "SMAs",
+            display_type: DisplayType::Overlay,
+            outputs: &["short_sma", "long_sma"],
+        },
+        DisplayGroup {
+            id: "short_stddev_long_stddev",
+            label: "Standard Deviation",
+            display_type: DisplayType::Indicator,
+            outputs: &["short_stddev", "long_stddev"],
+        },
+    ],
+};
 /// Returns the minimum number of input bars required to produce results
 /// accurate to `decimals` decimal places.
 ///
@@ -262,7 +281,7 @@ pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
             options,
             Some((decimals, 0)),
             &[long_multiplier],
-            IndicatorInfoOrInteger::Info(&info()),
+            IndicatorInfoOrInteger::Info(INFO),
             min_data,
         )
     } else {
@@ -270,7 +289,7 @@ pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
             options,
             Some((decimals, 0)),
             &[long_multiplier, short_multiplier],
-            IndicatorInfoOrInteger::Info(&info()),
+            IndicatorInfoOrInteger::Info(INFO),
             min_data,
         )
     }

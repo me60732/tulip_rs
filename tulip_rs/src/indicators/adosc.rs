@@ -7,7 +7,9 @@ pub use crate::indicators::ad::INPUTS_WIDTH;
 use crate::indicators::ema::{
     calc as calc_ema, multiplier as ema_multiplier, output_length as ema_output_length,
 };
-use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
+use crate::types::{
+    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+};
 use serde::{Deserialize, Serialize};
 /// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 2;
@@ -42,23 +44,41 @@ pub mod by_options {
     /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::adosc_simd::indicator_by_options as indicator;
 }
+
 /// Returns information about the Accumulation/Distribution Oscillator (ADOSC) indicator.
 ///
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the ADOSC indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "adosc",
-        full_name: "Accumulation/Distribution Oscillator",
-        indicator_type: IndicatorType::Volume,
-        display_type: DisplayType::Indicator,
-        inputs: &["high", "low", "close", "volume"],
-        options: &["short_period", "long_period"],
-        outputs: &["adosc"],
-        optional_outputs: &["short_ema", "long_ema", "ad"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "adosc",
+    full_name: "Accumulation/Distribution Oscillator",
+    indicator_type: IndicatorType::Volume,
+    inputs: &["high", "low", "close", "volume"],
+    options: &["short_period", "long_period"],
+    outputs: &["adosc"],
+    optional_outputs: &["short_ema", "long_ema", "ad"],
+    display_groups: &[
+        DisplayGroup {
+            id: "adosc",
+            label: "ADOSC",
+            display_type: DisplayType::Indicator,
+            outputs: &["adosc"],
+        },
+        DisplayGroup {
+            id: "emas",
+            label: "AD EMAs",
+            display_type: DisplayType::Indicator,
+            outputs: &["short_ema", "long_ema"],
+        },
+        DisplayGroup {
+            id: "ad",
+            label: "AD Line",
+            display_type: DisplayType::Indicator,
+            outputs: &["ad"],
+        },
+    ],
+};
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     multipliers: ((f64, f64), (f64, f64)),
@@ -197,7 +217,7 @@ pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
         options,
         Some((decimals, 0)),
         &[long_multiplier.0],
-        IndicatorInfoOrInteger::Info(&info()),
+        IndicatorInfoOrInteger::Info(INFO),
         min_data,
     )
 }

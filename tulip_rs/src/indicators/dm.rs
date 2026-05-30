@@ -1,6 +1,8 @@
 use crate::common::{min_process, validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
-use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
+use crate::types::{
+    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -45,18 +47,21 @@ pub mod by_options {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the DM indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "dm",
-        full_name: "Directional Movement",
-        indicator_type: IndicatorType::Trend,
+pub const INFO: Info = Info {
+    name: "dm",
+    full_name: "Directional Movement",
+    indicator_type: IndicatorType::Trend,
+    inputs: &["high", "low"],
+    options: &["period"],
+    outputs: &["plus_dm", "minus_dm"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "dm",
+        label: "DM",
         display_type: DisplayType::Indicator,
-        inputs: &["high", "low"],
-        options: &["period"],
         outputs: &["plus_dm", "minus_dm"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 #[derive(Serialize, Deserialize)]
 pub struct State {
     pub dmup: f64,

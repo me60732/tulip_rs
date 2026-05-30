@@ -1,6 +1,6 @@
 use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -36,21 +36,24 @@ impl TIndicatorState<3> for IndicatorState {
         process(inputs)
     }
 }
-pub fn info() -> Info<'static> {
-    Info {
-        name: "wcprice",
-        full_name: "Weighted Close Price",
+pub const INFO: Info = Info {
+    name: "wcprice",
+    full_name: "Weighted Close Price",
+    indicator_type: IndicatorType::Price,
+    // Use only the necessary inputs: high, low, close.
+    inputs: &["high", "low", "close"],
+    // No options.
+    options: &[],
+    outputs: &["wcprice"],
+    // No state required for this indicator.
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "wcprice",
+        label: "WCPRICE",
         display_type: DisplayType::Overlay,
-        indicator_type: IndicatorType::Price,
-        // Use only the necessary inputs: high, low, close.
-        inputs: &["high", "low", "close"],
-        // No options.
-        options: &[],
         outputs: &["wcprice"],
-        // No state required for this indicator.
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 /// Returns the minimum number of input bars required to produce accurate results.
 ///
 /// For this indicator accuracy does not depend on decimal precision, so

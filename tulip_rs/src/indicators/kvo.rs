@@ -3,7 +3,9 @@ pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::ema::{
     calc as calc_ema, multiplier as ema_multiplier, output_length as ema_output_length,
 };
-use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
+use crate::types::{
+    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -49,18 +51,29 @@ pub mod by_options {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the KVO indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "kvo",
-        display_type: DisplayType::Indicator,
-        indicator_type: IndicatorType::Volume,
-        full_name: "Klinger Volume Oscillator",
-        inputs: &["high", "low", "close", "volume"],
-        options: &["short_period", "long_period"],
-        outputs: &["kvo"],
-        optional_outputs: &["short_ema", "long_ema"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "kvo",
+    indicator_type: IndicatorType::Volume,
+    full_name: "Klinger Volume Oscillator",
+    inputs: &["high", "low", "close", "volume"],
+    options: &["short_period", "long_period"],
+    outputs: &["kvo"],
+    optional_outputs: &["short_ema", "long_ema"],
+    display_groups: &[
+        DisplayGroup {
+            id: "kvo",
+            label: "KVO",
+            display_type: DisplayType::Indicator,
+            outputs: &["kvo"],
+        },
+        DisplayGroup {
+            id: "short_ema_long_ema",
+            label: "Volume Force EMAs",
+            display_type: DisplayType::Indicator,
+            outputs: &["short_ema", "long_ema"],
+        },
+    ],
+};
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
@@ -202,7 +215,7 @@ pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
         options,
         Some((decimals, 0)),
         &[multipliers.1 .0],
-        IndicatorInfoOrInteger::Info(&info()),
+        IndicatorInfoOrInteger::Info(INFO),
         min_data,
     )
 }

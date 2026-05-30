@@ -1,7 +1,7 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::math_simd::trig::simd_sin_cos;
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
 use std::simd::{num::SimdFloat, Simd, StdFloat};
@@ -65,18 +65,21 @@ impl<const N: usize> MSWConstants<N> {
 }
 //let j_vals = f64x4::from([i as f64, (i + 1) as f64, (i + 2) as f64, (i + 3) as f64]);
 /// Returns information about the Mesa Sine Wave (MSW) indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "msw",
-        full_name: "Mesa Sine Wave",
-        indicator_type: IndicatorType::Cycle,
+pub const INFO: Info = Info {
+    name: "msw",
+    full_name: "Mesa Sine Wave",
+    indicator_type: IndicatorType::Cycle,
+    inputs: &["real"],
+    options: &["period"],
+    outputs: &["msw_sine", "msw_lead"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "msw",
+        label: "MSW",
         display_type: DisplayType::Indicator,
-        inputs: &["real"],
-        options: &["period"],
         outputs: &["msw_sine", "msw_lead"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     real: Vec<f64>,

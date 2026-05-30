@@ -1,7 +1,9 @@
 use crate::common::{min_process, validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 pub use crate::indicators::ema::multiplier;
-use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
+use crate::types::{
+    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -99,20 +101,23 @@ impl TIndicatorState<1> for IndicatorState {
         Ok(vec![zlema_line])
     }
 }
-pub fn info() -> Info<'static> {
-    Info {
-        name: "zlema",
-        full_name: "Zero Lag Exponential Moving Average",
+pub const INFO: Info = Info {
+    name: "zlema",
+    full_name: "Zero Lag Exponential Moving Average",
+    indicator_type: IndicatorType::Trend,
+    // One input: real (can be any price series).
+    inputs: &["real"],
+    // One option: period.
+    options: &["period"],
+    outputs: &["zlema"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "zlema",
+        label: "ZLEMA",
         display_type: DisplayType::Overlay,
-        indicator_type: IndicatorType::Trend,
-        // One input: real (can be any price series).
-        inputs: &["real"],
-        // One option: period.
-        options: &["period"],
         outputs: &["zlema"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 /// Returns the minimum number of input bars required to produce results
 /// accurate to `decimals` decimal places.
 ///
@@ -134,7 +139,7 @@ pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
         options,
         Some((decimals, 0)),
         &[multiplier(options[0] as usize).0],
-        IndicatorInfoOrInteger::Info(&info()),
+        IndicatorInfoOrInteger::Info(INFO),
         min_data,
     )
 }

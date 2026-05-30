@@ -4,7 +4,9 @@ use crate::indicators::di::calc_diup_didown;
 pub use crate::indicators::di::State;
 use crate::indicators::tr::output_length as tr_output_length;
 pub use crate::indicators::wilders::multiplier;
-use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
+use crate::types::{
+    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -94,18 +96,29 @@ impl TIndicatorState<3> for IndicatorState {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the DX indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "dx",
-        full_name: "Directional Movement Index",
-        indicator_type: IndicatorType::Trend,
-        display_type: DisplayType::Indicator,
-        inputs: &["high", "low", "close"],
-        options: &["period"],
-        outputs: &["dx"],
-        optional_outputs: &["atr", "tr"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "dx",
+    full_name: "Directional Movement Index",
+    indicator_type: IndicatorType::Trend,
+    inputs: &["high", "low", "close"],
+    options: &["period"],
+    outputs: &["dx"],
+    optional_outputs: &["atr", "tr"],
+    display_groups: &[
+        DisplayGroup {
+            id: "dx",
+            label: "DX",
+            display_type: DisplayType::Indicator,
+            outputs: &["dx"],
+        },
+        DisplayGroup {
+            id: "atr_tr",
+            label: "True Range",
+            display_type: DisplayType::Indicator,
+            outputs: &["atr", "tr"],
+        },
+    ],
+};
 /// Returns the minimum number of input bars required to produce results
 /// accurate to `decimals` decimal places.
 ///

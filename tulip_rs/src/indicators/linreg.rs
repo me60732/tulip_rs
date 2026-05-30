@@ -1,6 +1,6 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -46,18 +46,29 @@ pub mod by_options {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the LINREG indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "linreg",
-        display_type: DisplayType::Overlay,
-        indicator_type: IndicatorType::Trend,
-        full_name: "Linear Regression",
-        inputs: &["real"],
-        options: &["period"],
-        outputs: &["linreg"],
-        optional_outputs: &["linregslope", "linregintercept"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "linreg",
+    indicator_type: IndicatorType::Trend,
+    full_name: "Linear Regression",
+    inputs: &["real"],
+    options: &["period"],
+    outputs: &["linreg"],
+    optional_outputs: &["linregslope", "linregintercept"],
+    display_groups: &[
+        DisplayGroup {
+            id: "linreg_linregintercept",
+            label: "Regression",
+            display_type: DisplayType::Overlay,
+            outputs: &["linreg", "linregintercept"],
+        },
+        DisplayGroup {
+            id: "linregslope",
+            label: "Linear Regression Slope",
+            display_type: DisplayType::Indicator,
+            outputs: &["linregslope"],
+        },
+    ],
+};
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {

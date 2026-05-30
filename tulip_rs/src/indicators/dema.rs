@@ -2,7 +2,9 @@ use crate::common::{min_process, validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 pub use crate::indicators::ema::multiplier;
 use crate::indicators::ema::{calc as calc_ema, output_length as ema_output_length};
-use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
+use crate::types::{
+    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -48,18 +50,23 @@ pub mod by_options {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the DEMA indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "dema",
-        display_type: DisplayType::Overlay,
-        indicator_type: IndicatorType::Trend,
-        full_name: "Double Exponential Moving Average",
-        inputs: &["real"],
-        options: &["period"],
-        outputs: &["dema"],
-        optional_outputs: &["ema"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "dema",
+    indicator_type: IndicatorType::Trend,
+    full_name: "Double Exponential Moving Average",
+    inputs: &["real"],
+    options: &["period"],
+    outputs: &["dema"],
+    optional_outputs: &["ema"],
+    display_groups: &[
+        DisplayGroup {
+            id: "dema_ema",
+            label: "EMA",
+            display_type: DisplayType::Overlay,
+            outputs: &["dema", "ema"],
+        },
+    ],
+};
 
 #[derive(Serialize, Deserialize)]
 pub struct State {
@@ -158,7 +165,7 @@ pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
         options,
         Some((decimals, 0)),
         &[multiplier(options[0] as usize).0],
-        IndicatorInfoOrInteger::Info(&info()),
+        IndicatorInfoOrInteger::Info(INFO),
         min_data,
     )
 }

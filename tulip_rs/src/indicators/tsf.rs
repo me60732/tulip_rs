@@ -2,7 +2,7 @@ use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::linreg::calc as calc_linreg;
 pub use crate::indicators::linreg::State;
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -93,18 +93,29 @@ impl TIndicatorState<1> for IndicatorState {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the TSF indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "tsf",
-        display_type: DisplayType::Overlay,
-        indicator_type: IndicatorType::Trend,
-        full_name: "Time Series Forecast",
-        inputs: &["real"],
-        options: &["period"],
-        outputs: &["tsf"],
-        optional_outputs: &["linreg", "linregslope", "linregintercept"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "tsf",
+    indicator_type: IndicatorType::Trend,
+    full_name: "Time Series Forecast",
+    inputs: &["real"],
+    options: &["period"],
+    outputs: &["tsf"],
+    optional_outputs: &["linreg", "linregslope", "linregintercept"],
+    display_groups: &[
+        DisplayGroup {
+            id: "tsf_linreg_linregintercept",
+            label: "Regression",
+            display_type: DisplayType::Overlay,
+            outputs: &["tsf", "linreg", "linregintercept"],
+        },
+        DisplayGroup {
+            id: "linregslope",
+            label: "LinReg Slope",
+            display_type: DisplayType::Indicator,
+            outputs: &["linregslope"],
+        },
+    ],
+};
 /// Returns the minimum number of input bars required to produce accurate results.
 ///
 /// For this indicator accuracy does not depend on decimal precision, so

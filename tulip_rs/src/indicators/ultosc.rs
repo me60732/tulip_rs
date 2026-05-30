@@ -1,7 +1,7 @@
 use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
 use crate::ring_buffer::multi_buffer::multi_buffer::{MultiBuffer as Buffer, RingBuffer};
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 //use wide::*;
 use std::simd::{num::SimdFloat, Simd};
@@ -46,20 +46,23 @@ const MULTIPLIERS: Simd<f64, 2> = Simd::from_array([4.0, 2.0]);
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the ULTOSC indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "ultosc",
-        full_name: "Ultimate Oscillator",
-        indicator_type: IndicatorType::Momentum,
+pub const INFO: Info = Info {
+    name: "ultosc",
+    full_name: "Ultimate Oscillator",
+    indicator_type: IndicatorType::Momentum,
+    // Inputs are expected to be: high, low, close
+    inputs: &["high", "low", "close"],
+    // Options: short_period, medium_period, long_period
+    options: &["short_period", "medium_period", "long_period"],
+    outputs: &["ultosc"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "ultosc",
+        label: "ULTOSC",
         display_type: DisplayType::Indicator,
-        // Inputs are expected to be: high, low, close
-        inputs: &["high", "low", "close"],
-        // Options: short_period, medium_period, long_period
-        options: &["short_period", "medium_period", "long_period"],
         outputs: &["ultosc"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     state: State,

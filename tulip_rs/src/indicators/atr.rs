@@ -3,7 +3,9 @@ pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::tr::{calc as calc_tr, output_length as tr_output_length};
 pub use crate::indicators::wilders::multiplier;
 use crate::indicators::wilders::{calc as calc_wilders, partial_calc as partial_calc_wilders};
-use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
+use crate::types::{
+    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -49,18 +51,23 @@ pub mod by_options {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the ATR indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "atr",
-        full_name: "Average True Range",
-        indicator_type: IndicatorType::Volatility,
-        display_type: DisplayType::Indicator,
-        inputs: &["high", "low", "close"],
-        options: &["period"],
-        outputs: &["atr"],
-        optional_outputs: &["tr"],
-    }
-}
+pub const INFO: Info = Info {
+    name: "atr",
+    full_name: "Average True Range",
+    indicator_type: IndicatorType::Volatility,
+    inputs: &["high", "low", "close"],
+    options: &["period"],
+    outputs: &["atr"],
+    optional_outputs: &["tr"],
+    display_groups: &[
+        DisplayGroup {
+            id: "atr_tr",
+            label: "True Range",
+            display_type: DisplayType::Indicator,
+            outputs: &["atr", "tr"],
+        }
+    ],
+};
 #[derive(Serialize, Deserialize)]
 pub struct State {
     pub atr: f64,

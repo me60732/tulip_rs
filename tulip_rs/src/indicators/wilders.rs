@@ -1,6 +1,8 @@
 use crate::common::{min_process, validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
-use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
+use crate::types::{
+    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -44,18 +46,21 @@ pub mod by_options {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the WILDERS indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "wilders",
-        full_name: "Wilder's Smoothing",
+pub const INFO: Info = Info {
+    name: "wilders",
+    full_name: "Wilder's Smoothing",
+    indicator_type: IndicatorType::Trend,
+    inputs: &["real"],
+    options: &["period"],
+    outputs: &["wilders"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "wilders",
+        label: "WILDERS",
         display_type: DisplayType::Overlay,
-        indicator_type: IndicatorType::Trend,
-        inputs: &["real"],
-        options: &["period"],
         outputs: &["wilders"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     multipliers: (f64, f64),
@@ -126,7 +131,7 @@ pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
         options,
         Some((decimals, 0)),
         &[multiplier(options[0] as usize).0],
-        IndicatorInfoOrInteger::Info(&info()),
+        IndicatorInfoOrInteger::Info(INFO),
         min_data,
     )
 }

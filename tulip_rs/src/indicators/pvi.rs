@@ -1,6 +1,6 @@
 use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
-use crate::types::{DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -26,18 +26,21 @@ pub mod by_assets {
 }
 
 /// Returns information about the Positive Volume Index (PVI) indicator.
-pub fn info() -> Info<'static> {
-    Info {
-        name: "pvi",
-        full_name: "Positive Volume Index",
-        indicator_type: IndicatorType::Volume,
+pub const INFO: Info = Info {
+    name: "pvi",
+    full_name: "Positive Volume Index",
+    indicator_type: IndicatorType::Volume,
+    inputs: &["close", "volume"],
+    options: &[],
+    outputs: &["pvi"],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "pvi",
+        label: "PVI",
         display_type: DisplayType::Indicator,
-        inputs: &["close", "volume"],
-        options: &[],
         outputs: &["pvi"],
-        optional_outputs: &[],
-    }
-}
+    }],
+};
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     pub pvi: f64,

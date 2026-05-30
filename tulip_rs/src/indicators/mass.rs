@@ -4,7 +4,7 @@ use crate::indicators::ema::multiplier as ema_multiplier;
 
 pub use crate::indicator_types::TIndicatorState;
 use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
-use crate::types::{DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -50,18 +50,23 @@ pub mod by_options {
 /// # Returns
 ///
 /// An `Info` struct containing metadata about the Mass indicator.
-pub fn info() -> Info<'static> {
-    Info {
+pub const INFO: Info = Info {
         name: "mass",
-        display_type: DisplayType::Indicator,
         indicator_type: IndicatorType::Trend,
         full_name: "Mass Index",
         inputs: &["high", "low"],
         options: &["period"],
         outputs: &["mass"],
         optional_outputs: &[],
-    }
-}
+        display_groups: &[
+            DisplayGroup {
+                id: "mass",
+                label: "MASS",
+                display_type: DisplayType::Indicator,
+                outputs: &["mass"],
+            },
+        ],
+};
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     state: State,
