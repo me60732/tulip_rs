@@ -130,11 +130,14 @@ info = tulip_rs.indicators.sma.info()
 # {
 #   "name": "sma",
 #   "full_name": "Simple Moving Average",
-#   "indicator_type": "overlay",
+#   "indicator_type": "Trend",
 #   "inputs": ["real"],
 #   "options": ["period"],
 #   "outputs": ["sma"],
-#   "optional_outputs": []
+#   "optional_outputs": [],
+#   "display_groups": [
+#     { "id": "sma", "label": "SMA", "display_type": "Overlay", "outputs": ["sma"] }
+#   ]
 # }
 
 # Minimum number of input bars required for the given options
@@ -295,11 +298,13 @@ const info = ti.sma.info;
 //   name: 'sma',
 //   fullName: 'Simple Moving Average',
 //   indicatorType: 'Trend',
-//   displayType: 'Overlay',
 //   inputs: ['real'],
 //   options: ['period'],
 //   outputs: ['sma'],
-//   optionalOutputs: []
+//   optionalOutputs: [],
+//   displayGroups: [
+//     { id: 'sma', label: 'SMA', displayType: 'Overlay', outputs: ['sma'] }
+//   ]
 // }
 
 ti.sma.minData([5]);            // minimum bars needed to produce output
@@ -390,7 +395,7 @@ The WASM module must be compiled and instantiated before any indicator calls. Ho
     import { init } from 'tulip-rs-wasm';
     import * as ti from 'tulip-rs-wasm';
 
-    await init('https://cdn.jsdelivr.net/npm/tulip-rs-wasm@0.1.4/pkg/tulip_rs_wasm_bg.wasm');
+    await init('https://cdn.jsdelivr.net/npm/tulip-rs-wasm@0.1.10/pkg/tulip_rs_wasm_bg.wasm');
     ```
 
 ---
@@ -442,13 +447,39 @@ console.log('New SMA value:', newValues[0]);
 
 ---
 
+### Indicator Info
+
+Every indicator exposes an `info` lazy getter (populated after `init()`) with the same shape as the Node.js binding:
+
+```javascript
+import { init, sma } from 'tulip-rs-wasm';
+
+await init();
+
+const info = sma.info;
+console.log(info.name);            // 'sma'
+console.log(info.fullName);        // 'Simple Moving Average'
+console.log(info.indicatorType);   // 'Trend'
+console.log(info.inputs);          // ['real']
+console.log(info.options);         // ['period']
+console.log(info.outputs);         // ['sma']
+console.log(info.optionalOutputs); // []
+console.log(info.displayGroups);
+// [ { id: 'sma', label: 'SMA', displayType: 'Overlay', outputs: ['sma'] } ]
+
+sma.minData([5]);            // minimum bars needed to produce output
+sma.minDataAccuracy([5], 6); // bars needed for 6-decimal accuracy
+```
+
+---
+
 ### State Object API
 
-Identical to the Node.js binding:
+Similar to the Node.js binding, with one difference: `batchIndicator` returns `Float64Array[]` (zero-copy WASM memory views) instead of `number[][]`. Use `Array.from(result[0])` to convert to a plain JS array if needed.
 
 | Method | Signature | Description |
 |---|---|---|
-| `batchIndicator` | `(inputs: number[][], mask?: boolean[]) => number[][]` | Continue computation on new bars |
+| `batchIndicator` | `(inputs: number[][], mask?: boolean[]) => Float64Array[]` | Continue computation on new bars |
 | `toJson` | `() => string` | Serialise state to JSON for persistence |
 
 ---

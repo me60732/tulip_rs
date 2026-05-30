@@ -66,16 +66,10 @@ pub const INFO: Info = Info {
             outputs: &["adosc"],
         },
         DisplayGroup {
-            id: "emas",
+            id: "Accumulation/Distribution",
             label: "AD EMAs",
             display_type: DisplayType::Indicator,
-            outputs: &["short_ema", "long_ema"],
-        },
-        DisplayGroup {
-            id: "ad",
-            label: "AD Line",
-            display_type: DisplayType::Indicator,
-            outputs: &["ad"],
+            outputs: &["short_ema", "long_ema", "ad"],
         },
     ],
 };

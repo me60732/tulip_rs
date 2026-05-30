@@ -8,7 +8,7 @@
 
     ```toml
     [dependencies]
-    tulip_rs = "0.1.6"
+    tulip_rs = "0.1.10"
     ```
 
     To get the very latest unreleased changes, use the Git source directly:

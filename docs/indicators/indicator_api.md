@@ -9,15 +9,22 @@ Every TulipRS indicator exposes a consistent set of functions beyond the core `i
 Every indicator module exports an `info()` function that returns a fully-populated `Info` struct describing the indicator. This is the canonical place to discover what an indicator needs and what it produces — without reading source code or docs.
 
 ```rust
-pub struct Info<'a> {
-    pub name:             &'a str,           // short identifier, e.g. "adosc"
-    pub full_name:        &'a str,           // e.g. "Accumulation/Distribution Oscillator"
-    pub indicator_type:   IndicatorType,     // Trend | Momentum | Volume | Volatility | Price | Cycle
-    pub display_type:     DisplayType,       // Overlay | Indicator | Math
-    pub inputs:           &'a [&'a str],     // names of required input series
-    pub options:          &'a [&'a str],     // names of option parameters, in order
-    pub outputs:          &'a [&'a str],     // names of primary output series, in order
-    pub optional_outputs: &'a [&'a str],     // names of optional output series, in order
+pub struct Info {
+    pub name:             &'static str,              // short identifier, e.g. "adosc"
+    pub full_name:        &'static str,              // e.g. "Accumulation/Distribution Oscillator"
+    pub indicator_type:   IndicatorType,             // Trend | Momentum | Volume | Volatility | Price | Cycle
+    pub inputs:           &'static [&'static str],   // names of required input series
+    pub options:          &'static [&'static str],   // names of option parameters, in order
+    pub outputs:          &'static [&'static str],   // names of primary output series, in order
+    pub optional_outputs: &'static [&'static str],   // names of optional output series, in order
+    pub display_groups:   &'static [DisplayGroup],   // display pane groupings
+}
+
+pub struct DisplayGroup {
+    pub id:           &'static str,                // machine-readable key, e.g. "emas"
+    pub label:        &'static str,                // human-readable pane title, e.g. "AD EMAs"
+    pub display_type: DisplayType,                 // Overlay | Indicator | Volume for this pane
+    pub outputs:      &'static [&'static str],     // which outputs belong to this pane
 }
 ```
 
@@ -30,31 +37,41 @@ pub struct Info<'a> {
 
     let meta = adosc::info();
 
-    println!("Name:             {}", meta.name);         // adosc
-    println!("Full name:        {}", meta.full_name);    // Accumulation/Distribution Oscillator
-    println!("Type:             {}", meta.indicator_type); // Trend
-    println!("Display:          {}", meta.display_type);   // Indicator
-    println!("Inputs:           {:?}", meta.inputs);       // ["high", "low", "close", "volume"]
-    println!("Options:          {:?}", meta.options);      // ["short_period", "long_period"]
-    println!("Outputs:          {:?}", meta.outputs);      // ["adosc"]
+    println!("Name:             {}", meta.name);               // adosc
+    println!("Full name:        {}", meta.full_name);          // Accumulation/Distribution Oscillator
+    println!("Type:             {}", meta.indicator_type);     // Volume
+    println!("Inputs:           {:?}", meta.inputs);           // ["high", "low", "close", "volume"]
+    println!("Options:          {:?}", meta.options);          // ["short_period", "long_period"]
+    println!("Outputs:          {:?}", meta.outputs);          // ["adosc"]
     println!("Optional outputs: {:?}", meta.optional_outputs); // ["short_ema", "long_ema", "ad"]
+    for group in meta.display_groups {
+        println!("  Group {}: {} ({:?})", group.id, group.label, group.display_type);
+    }
+    // Group adosc: ADOSC (Indicator)
+    // Group emas: AD EMAs (Indicator)
+    // Group ad: AD Line (Indicator)
     ```
 
 === "Python"
 
-    The Python bindings expose indicator metadata through module-level attributes on each indicator:
+    `info()` returns a plain Python `dict`. Access fields with standard key lookup:
 
     ```python
     import tulip_rs
 
     meta = tulip_rs.indicators.adosc.info()
 
-    print(meta.name)              # adosc
-    print(meta.full_name)         # Accumulation/Distribution Oscillator
-    print(meta.inputs)            # ['high', 'low', 'close', 'volume']
-    print(meta.options)           # ['short_period', 'long_period']
-    print(meta.outputs)           # ['adosc']
-    print(meta.optional_outputs)  # ['short_ema', 'long_ema', 'ad']
+    print(meta["name"])              # adosc
+    print(meta["full_name"])         # Accumulation/Distribution Oscillator
+    print(meta["inputs"])            # ['high', 'low', 'close', 'volume']
+    print(meta["options"])           # ['short_period', 'long_period']
+    print(meta["outputs"])           # ['adosc']
+    print(meta["optional_outputs"])  # ['short_ema', 'long_ema', 'ad']
+    for group in meta["display_groups"]:
+        print(group["id"], group["label"], group["display_type"])
+    # adosc ADOSC Indicator
+    # emas AD EMAs Indicator
+    # ad AD Line Indicator
     ```
 
 === "Node.js"
@@ -63,12 +80,42 @@ pub struct Info<'a> {
     import * as ti from 'tulip-rs-node';
 
     const info = ti.adosc.info;
-    console.log(info.name);             // adosc
-    console.log(info.fullName);         // Accumulation/Distribution Oscillator
-    console.log(info.inputs);           // ['high', 'low', 'close', 'volume']
-    console.log(info.options);          // ['short_period', 'long_period']
-    console.log(info.outputs);          // ['adosc']
-    console.log(info.optionalOutputs);  // ['short_ema', 'long_ema', 'ad']
+    console.log(info.name);              // adosc
+    console.log(info.fullName);          // Accumulation/Distribution Oscillator
+    console.log(info.inputs);            // ['high', 'low', 'close', 'volume']
+    console.log(info.options);           // ['short_period', 'long_period']
+    console.log(info.outputs);           // ['adosc']
+    console.log(info.optionalOutputs);   // ['short_ema', 'long_ema', 'ad']
+    console.log(info.displayGroups);
+    // [
+    //   { id: 'adosc', label: 'ADOSC', displayType: 'Indicator', outputs: ['adosc'] },
+    //   { id: 'emas', label: 'AD EMAs', displayType: 'Indicator', outputs: ['short_ema', 'long_ema'] },
+    //   { id: 'ad', label: 'AD Line', displayType: 'Indicator', outputs: ['ad'] }
+    // ]
+    ```
+
+=== "WASM"
+
+    The `info` property is a lazy getter on each `Indicator` instance — it is fetched from the WASM module on first access after `init()` has been called. The shape is identical to the Node.js binding.
+
+    ```javascript
+    import { init, adosc } from 'tulip-rs-wasm';
+
+    await init();
+
+    const info = adosc.info;
+    console.log(info.name);              // adosc
+    console.log(info.fullName);          // Accumulation/Distribution Oscillator
+    console.log(info.inputs);            // ['high', 'low', 'close', 'volume']
+    console.log(info.options);           // ['short_period', 'long_period']
+    console.log(info.outputs);           // ['adosc']
+    console.log(info.optionalOutputs);   // ['short_ema', 'long_ema', 'ad']
+    console.log(info.displayGroups);
+    // [
+    //   { id: 'adosc', label: 'ADOSC', displayType: 'Indicator', outputs: ['adosc'] },
+    //   { id: 'emas', label: 'AD EMAs', displayType: 'Indicator', outputs: ['short_ema', 'long_ema'] },
+    //   { id: 'ad', label: 'AD Line', displayType: 'Indicator', outputs: ['ad'] }
+    // ]
     ```
 
 ### What each field means
@@ -78,7 +125,7 @@ pub struct Info<'a> {
 | `name` | The short identifier used to locate the module: `tulip_rs::indicators::<name>` |
 | `full_name` | Human-readable name suitable for display in UIs or reports |
 | `indicator_type` | Broad category — useful for filtering or grouping indicators |
-| `display_type` | How the indicator is typically charted: **Overlay** (on the price chart), **Indicator** (sub-chart), **Math** (raw transform) |
+| `display_groups` | One or more display pane groupings, each with an `id`, `label`, `display_type` (Overlay / Indicator), and the `outputs` it contains |
 | `inputs` | Input series names, in the order they must be passed to `indicator()` |
 | `options` | Option parameter names, in the order they must be passed to `indicator()` |
 | `outputs` | Primary output series names. `outputs[i]` corresponds to `indicator_result[i]` |
