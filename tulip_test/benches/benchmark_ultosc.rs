@@ -60,7 +60,7 @@ fn bench_c_ultosc(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let n = high.len();
             let inputs: Vec<*const f64> = vec![high.as_ptr(), low.as_ptr(), close.as_ptr()];
 
@@ -92,7 +92,7 @@ fn bench_c_ultosc(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -104,13 +104,13 @@ fn bench_c_ultosc(c: &mut Criterion) {
             let start_index = unsafe { ti_ultosc_start(options.as_ptr()) };
             let output_len = high_vec.len() - (start_index as usize);
 
-            let mut group = c.benchmark_group(&format!(
+            let mut group = c.benchmark_group(format!(
                 "C ULTOSC {{ {:.1}, {:.1}, {:.1} }}",
                 options[0], options[1], options[2]
             ));
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!(
+                format!(
                     "C ULTOSC {{ {:.1}, {:.1}, {:.1} }}",
                     options[0], options[1], options[2]
                 ),
@@ -144,7 +144,7 @@ fn bench_rust_ultosc(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let n = high.len();
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
@@ -158,7 +158,7 @@ fn bench_rust_ultosc(c: &mut Criterion) {
                     },
                     SAMPLE_SIZE,
                 );
-                log_timing_result("ultosc", "Rust", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("ultosc", "Rust", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -170,13 +170,13 @@ fn bench_rust_ultosc(c: &mut Criterion) {
         ];
 
         for options in OPTIONS_LIST {
-            let mut group = c.benchmark_group(&format!(
+            let mut group = c.benchmark_group(format!(
                 "Rust ULTOSC {{ {:.1}, {:.1}, {:.1} }}",
                 options[0], options[1], options[2]
             ));
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!(
+                format!(
                     "Rust ULTOSC {{ {:.1}, {:.1}, {:.1} }}",
                     options[0], options[1], options[2]
                 ),
@@ -200,7 +200,7 @@ fn bench_rust_ultosc_from_state(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let n = high.len();
 
             for options in OPTIONS_LIST {
@@ -252,7 +252,7 @@ fn bench_rust_ultosc_from_state(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar benchmark ---
@@ -287,7 +287,7 @@ fn bench_rust_ultosc_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
@@ -321,7 +321,7 @@ fn bench_rust_ultosc_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
                 }
             }
@@ -330,7 +330,7 @@ fn bench_rust_ultosc_from_state(c: &mut Criterion) {
         let (high_vec, low_vec, close_vec) = expand_inputs();
 
         for options in OPTIONS_LIST {
-            let mut group = c.benchmark_group(&format!(
+            let mut group = c.benchmark_group(format!(
                 "Rust ULTOSC from state {{ {:.1}, {:.1}, {:.1} }}",
                 options[0], options[1], options[2]
             ));
@@ -392,7 +392,7 @@ fn bench_rust_ultosc_from_state(c: &mut Criterion) {
                 let (_, mut state) =
                     indicator(&new_inputs, &options, None).expect("ULTOSC indicator failed");
 
-                let mut group = c.benchmark_group(&format!(
+                let mut group = c.benchmark_group(format!(
                     "Rust ULTOSC from state 1 bar {{ {:.1}, {:.1}, {:.1} }}",
                     options[0], options[1], options[2]
                 ));
@@ -475,13 +475,13 @@ fn bench_rust_ultosc_simd_by_assets(c: &mut Criterion) {
         ];
 
         for options in OPTIONS_LIST {
-            let mut group = c.benchmark_group(&format!(
+            let mut group = c.benchmark_group(format!(
                 "Rust ULTOSC SIMD by assets {{ {:.1}, {:.1}, {:.1} }}",
                 options[0], options[1], options[2]
             ));
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!(
+                format!(
                     "Rust ULTOSC SIMD by assets {{ {:.1}, {:.1}, {:.1} }}",
                     options[0], options[1], options[2]
                 ),
@@ -514,7 +514,7 @@ fn bench_rust_ultosc_simd_by_options(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data.iter().take(4) {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let n = high.len();
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
@@ -534,7 +534,7 @@ fn bench_rust_ultosc_simd_by_options(c: &mut Criterion) {
                 &[0.0],
                 n,
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {

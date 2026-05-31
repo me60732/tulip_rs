@@ -43,7 +43,7 @@ fn bench_c_ppo(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs: Vec<*const f64> = vec![close.as_ptr()];
             for options in OPTIONS_LIST {
@@ -68,7 +68,7 @@ fn bench_c_ppo(c: &mut Criterion) {
                     },
                     SAMPLE_SIZE,
                 );
-                log_timing_result("ppo", "C_tulip", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("ppo", "C_tulip", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -80,10 +80,10 @@ fn bench_c_ppo(c: &mut Criterion) {
             let output_len = close_vec.len() - (start_index as usize);
 
             let mut group =
-                c.benchmark_group(&format!("C PPO {{ {:.1}, {:.1} }}", options[0], options[1]));
+                c.benchmark_group(format!("C PPO {{ {:.1}, {:.1} }}", options[0], options[1]));
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("C PPO {{ {:.1}, {:.1} }}", options[0], options[1]),
+                format!("C PPO {{ {:.1}, {:.1} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let mut output_vec = vec![0.0_f64; output_len];
@@ -114,7 +114,7 @@ fn bench_rust_ppo(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs = [close.as_slice()];
 
@@ -128,7 +128,7 @@ fn bench_rust_ppo(c: &mut Criterion) {
                     },
                     SAMPLE_SIZE,
                 );
-                log_timing_result("ppo", "Rust", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("ppo", "Rust", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -136,13 +136,13 @@ fn bench_rust_ppo(c: &mut Criterion) {
         let inputs = [close_vec.as_slice()];
 
         for options in OPTIONS_LIST {
-            let mut group = c.benchmark_group(&format!(
+            let mut group = c.benchmark_group(format!(
                 "Rust PPO {{ {:.1}, {:.1} }}",
                 options[0], options[1]
             ));
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust PPO {{ {:.1}, {:.1} }}", options[0], options[1]),
+                format!("Rust PPO {{ {:.1}, {:.1} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let result =
@@ -163,7 +163,7 @@ fn bench_rust_ppo_from_state(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
 
             for options in OPTIONS_LIST {
@@ -201,7 +201,7 @@ fn bench_rust_ppo_from_state(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar benchmark ---
@@ -229,7 +229,7 @@ fn bench_rust_ppo_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
@@ -256,7 +256,7 @@ fn bench_rust_ppo_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
                 }
             }
@@ -267,7 +267,7 @@ fn bench_rust_ppo_from_state(c: &mut Criterion) {
         let _inputs = [&close_vec];
 
         for options in OPTIONS_LIST {
-            let mut group = c.benchmark_group(&format!(
+            let mut group = c.benchmark_group(format!(
                 "Rust PPO from state {{ {:.1}, {:.1} }}",
                 options[0], options[1]
             ));
@@ -309,7 +309,7 @@ fn bench_rust_ppo_from_state(c: &mut Criterion) {
                 let (_, mut state) =
                     indicator(&new_inputs, &options, None).expect("Rust PPO indicator failed");
 
-                let mut group = c.benchmark_group(&format!(
+                let mut group = c.benchmark_group(format!(
                     "Rust PPO from state 1 bar {{ {:.1}, {:.1} }}",
                     options[0], options[1]
                 ));
@@ -338,7 +338,7 @@ fn bench_talib_ppo(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs: Vec<*const f64> = vec![close.as_ptr()];
 
@@ -364,7 +364,7 @@ fn bench_talib_ppo(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("ppo", "talib", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("ppo", "talib", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -380,7 +380,7 @@ fn bench_talib_ppo(c: &mut Criterion) {
             let mut group = c.benchmark_group("ppo_talib");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("TA-Lib PPO {{ {:.1}, {:.1} }}", options[0], options[1]),
+                format!("TA-Lib PPO {{ {:.1}, {:.1} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let mut output_vec = vec![0.0_f64; output_len];
@@ -411,7 +411,7 @@ fn bench_rust_ppo_optional(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs = [close.as_slice()];
 
@@ -432,7 +432,7 @@ fn bench_rust_ppo_optional(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -445,7 +445,7 @@ fn bench_rust_ppo_optional(c: &mut Criterion) {
             let mut group = c.benchmark_group("ppo_rust");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust PPO {{ {}, {} }}", options[0], options[1]),
+                format!("Rust PPO {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let result = indicator(&inputs, &options, Some(&[true, true]))
@@ -513,7 +513,7 @@ fn bench_rust_ppo_simd_by_assets(c: &mut Criterion) {
             let mut group = c.benchmark_group("ppo_rust_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!(
+                format!(
                     "Rust SIMD by assets PPO {{ {}, {} }}",
                     options[0], options[1]
                 ),
@@ -538,7 +538,7 @@ fn bench_rust_ppo_simd_by_options(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close_vec = get_close_array(&stock_data);
+            let close_vec = get_close_array(stock_data);
             let n = close_vec.len();
             let inputs = [close_vec.as_slice()];
 
@@ -565,7 +565,7 @@ fn bench_rust_ppo_simd_by_options(c: &mut Criterion) {
                 &[0.0, 0.0],
                 n,
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {
@@ -594,6 +594,70 @@ fn bench_rust_ppo_simd_by_options(c: &mut Criterion) {
     }
 }
 
+/// Benchmark the `ta` crate (RustTa) implementation of PPO.
+fn bench_rust_ta_ppo(c: &mut Criterion) {
+    use ta::indicators::PercentagePriceOscillator as Ppo;
+    use ta::Next;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("ppo");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let close_vec = get_close_array(stock_data);
+            let n = close_vec.len();
+
+            for options in OPTIONS_LIST {
+                let fast = options[0] as usize;
+                let slow = options[1] as usize;
+                let signal = 9_usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut ppo = Ppo::new(fast, slow, signal).expect("ta PPO new failed");
+                        let mut last = 0.0_f64;
+                        for &price in &close_vec {
+                            let out = ppo.next(price);
+                            last = out.ppo;
+                        }
+                        black_box(last);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result("ppo", "RustTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let fast = options[0] as usize;
+            let slow = options[1] as usize;
+            let signal = 9_usize;
+            let mut group = c.benchmark_group("ppo_rust_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!("RustTa PPO {{ {}/{} }}", options[0], options[1]),
+                |b| {
+                    b.iter(|| {
+                        let mut ppo = Ppo::new(fast, slow, signal).expect("ta PPO new failed");
+                        let mut last = 0.0_f64;
+                        for &price in &close_vec {
+                            let out = ppo.next(price);
+                            last = out.ppo;
+                        }
+                        black_box(last);
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     ppo_benchmarks,
@@ -604,6 +668,7 @@ criterion_group!(
     bench_talib_ppo,
     bench_rust_ppo_from_state,
     bench_rust_ppo_optional,
+    bench_rust_ta_ppo,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -615,5 +680,6 @@ criterion_group!(
     bench_c_ppo,
     bench_rust_ppo_from_state,
     bench_rust_ppo_optional,
+    bench_rust_ta_ppo,
 );
 criterion_main!(ppo_benchmarks);

@@ -69,7 +69,7 @@ fn bench_c_mfi(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close, volume) = get_hlcv_arrays(&stock_data);
+            let (high, low, close, volume) = get_hlcv_arrays(stock_data);
             let n = high.len();
             let inputs: Vec<*const f64> =
                 vec![high.as_ptr(), low.as_ptr(), close.as_ptr(), volume.as_ptr()];
@@ -97,7 +97,7 @@ fn bench_c_mfi(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("mfi", "C_tulip", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("mfi", "C_tulip", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -117,7 +117,7 @@ fn bench_c_mfi(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("mfi_c");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("C MFI {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("C MFI {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -148,7 +148,7 @@ fn bench_rust_mfi(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close, volume) = get_hlcv_arrays(&stock_data);
+            let (high, low, close, volume) = get_hlcv_arrays(stock_data);
             let n = high.len();
             let inputs = [
                 high.as_slice(),
@@ -167,7 +167,7 @@ fn bench_rust_mfi(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("mfi", "Rust", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("mfi", "Rust", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -183,7 +183,7 @@ fn bench_rust_mfi(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("mfi_rust");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust MFI {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust MFI {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result =
                         indicator(&inputs, &options, None).expect("Rust MFI indicator failed");
@@ -203,7 +203,7 @@ fn bench_rust_mfi_from_state(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, close, volume) = get_hlcv_arrays(&stock_data);
+            let (high, low, close, volume) = get_hlcv_arrays(stock_data);
             let n = high.len();
             let inputs = [
                 high.as_slice(),
@@ -265,7 +265,7 @@ fn bench_rust_mfi_from_state(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar benchmark ---
@@ -303,7 +303,7 @@ fn bench_rust_mfi_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
@@ -330,7 +330,7 @@ fn bench_rust_mfi_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
                 }
             }
@@ -342,7 +342,7 @@ fn bench_rust_mfi_from_state(c: &mut Criterion) {
 
         for options in OPTIONS_LIST {
             let mut group =
-                c.benchmark_group(&format!("Rust MFI from state {{ {:.1} }}", options[0]));
+                c.benchmark_group(format!("Rust MFI from state {{ {:.1} }}", options[0]));
             group.sample_size(SAMPLE_SIZE);
 
             group.bench_function("benchmark", |b| {
@@ -409,7 +409,7 @@ fn bench_rust_mfi_from_state(c: &mut Criterion) {
                 let (_, mut state) =
                     indicator(&new_inputs, &options, None).expect("Rust MFI indicator failed");
 
-                let mut group = c.benchmark_group(&format!(
+                let mut group = c.benchmark_group(format!(
                     "Rust MFI from state 1 bar {{ {:.1} }}",
                     options[0]
                 ));
@@ -437,7 +437,7 @@ fn bench_rust_mfi_optional(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close, volume) = get_hlcv_arrays(&stock_data);
+            let (high, low, close, volume) = get_hlcv_arrays(stock_data);
             let n = high.len();
             let inputs = [
                 high.as_slice(),
@@ -463,7 +463,7 @@ fn bench_rust_mfi_optional(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -480,7 +480,7 @@ fn bench_rust_mfi_optional(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("mfi_rust");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust MFI {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust MFI {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result = indicator(&inputs, &options, Some(&[true]))
                         .expect("Rust MFI indicator failed");
@@ -502,7 +502,7 @@ fn bench_talib_mfi(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close, volume) = get_hlcv_arrays(&stock_data);
+            let (high, low, close, volume) = get_hlcv_arrays(stock_data);
             let n = high.len();
             let inputs: Vec<*const f64> =
                 vec![high.as_ptr(), low.as_ptr(), close.as_ptr(), volume.as_ptr()];
@@ -529,7 +529,7 @@ fn bench_talib_mfi(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("mfi", "talib", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("mfi", "talib", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -549,7 +549,7 @@ fn bench_talib_mfi(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("mfi_talib");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("TA-Lib MFI {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("TA-Lib MFI {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -655,7 +655,7 @@ fn bench_rust_mfi_simd_by_assets(c: &mut Criterion) {
             let mut group = c.benchmark_group("mfi_rust_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust SIMD by assets MFI {{ {} }}", options[0]),
+                format!("Rust SIMD by assets MFI {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
                         let result = indicator_by_assets::<4>(&inputs, &options, None)
@@ -685,7 +685,7 @@ fn bench_rust_mfi_simd_by_options(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close, volume) = get_hlcv_arrays(&stock_data);
+            let (high, low, close, volume) = get_hlcv_arrays(stock_data);
             let n = high.len();
             let inputs = [
                 high.as_slice(),
@@ -710,7 +710,7 @@ fn bench_rust_mfi_simd_by_options(c: &mut Criterion) {
                 SAMPLE_SIZE,
             );
 
-            log_timing_result("mfi", "Rust_SIMD", &[0.0], n, &timing, Some(&stock_symbol));
+            log_timing_result("mfi", "Rust_SIMD", &[0.0], n, &timing, Some(stock_symbol));
         }
     } else {
         // Run Criterion benchmark with synthetic data
@@ -741,6 +741,80 @@ fn bench_rust_mfi_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_rust_ta_mfi(c: &mut Criterion) {
+    use ta::indicators::MoneyFlowIndex;
+    use ta::{DataItem, Next};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("mfi");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close, volume) = get_hlcv_arrays(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut mfi = MoneyFlowIndex::new(period).expect("ta MFI new failed");
+                        let mut last = 0.0_f64;
+                        for i in 0..high.len() {
+                            let h = high[i].max(close[i]);
+                            let l = low[i].min(close[i]);
+                            let item = DataItem::builder()
+                                .high(h)
+                                .low(l)
+                                .close(close[i])
+                                .open(close[i])
+                                .volume(volume[i])
+                                .build()
+                                .expect("DataItem build failed");
+                            last = mfi.next(&item);
+                        }
+                        black_box(last);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result("mfi", "RustTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec, volume_vec) = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("mfi_rust_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("RustTa MFI {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut mfi = MoneyFlowIndex::new(period).expect("ta MFI new failed");
+                    let mut last = 0.0_f64;
+                    for i in 0..high_vec.len() {
+                        let h = high_vec[i].max(close_vec[i]);
+                        let l = low_vec[i].min(close_vec[i]);
+                        let item = DataItem::builder()
+                            .high(h)
+                            .low(l)
+                            .close(close_vec[i])
+                            .open(close_vec[i])
+                            .volume(volume_vec[i])
+                            .build()
+                            .expect("DataItem build failed");
+                        last = mfi.next(&item);
+                    }
+                    black_box(last);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -751,6 +825,7 @@ criterion_group!(
     bench_talib_mfi,
     bench_rust_mfi_from_state,
     bench_rust_mfi_optional,
+    bench_rust_ta_mfi,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -762,5 +837,6 @@ criterion_group!(
     bench_c_mfi,
     bench_rust_mfi_from_state,
     bench_rust_mfi_optional,
+    bench_rust_ta_mfi,
 );
 criterion_main!(benches);

@@ -124,7 +124,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for options in OPTIONS_LIST {
                 // C implementation
@@ -213,7 +213,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs_rust = [close.as_slice()];
 
             for options in OPTIONS_LIST {
@@ -662,7 +662,7 @@ mod tests {
                 continue;
             }
 
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get LINREG with slope optional output
@@ -677,7 +677,7 @@ mod tests {
                 let rust_slope = &linreg_result[1];
 
                 // Calculate expected slope using C Tulip ti_linregslope
-                let slope_options = vec![options[0]]; // period
+                let slope_options = [options[0]]; // period
                 let start_index = unsafe { ti_linregslope_start(slope_options.as_ptr()) };
                 assert!(
                     start_index >= 0,
@@ -745,7 +745,7 @@ mod tests {
                 continue;
             }
 
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get LINREG with both slope and intercept optional outputs
@@ -768,7 +768,7 @@ mod tests {
                     .collect();
 
                 // Calculate expected intercept using C Tulip ti_linregintercept
-                let intercept_options = vec![options[0]]; // period
+                let intercept_options = [options[0]]; // period
                 let start_index = unsafe { ti_linregintercept_start(intercept_options.as_ptr()) };
                 assert!(
                     start_index >= 0,
@@ -833,7 +833,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
             // Process all 4 options with 4-wide SIMD
@@ -921,7 +921,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
             // Test with all optional outputs: slope, intercept

@@ -55,7 +55,7 @@ fn bench_c_wma(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs: Vec<*const f64> = vec![close.as_ptr()];
 
@@ -83,7 +83,7 @@ fn bench_c_wma(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("wma", "C_tulip", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("wma", "C_tulip", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -98,7 +98,7 @@ fn bench_c_wma(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("wma_c");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("C WMA {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("C WMA {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -129,7 +129,7 @@ fn bench_rust_wma(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs = [close.as_slice()];
 
@@ -144,7 +144,7 @@ fn bench_rust_wma(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("wma", "Rust", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("wma", "Rust", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -155,7 +155,7 @@ fn bench_rust_wma(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("wma_rust");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust WMA {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust WMA {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result =
                         indicator(&inputs, &options, None).expect("Rust WMA indicator failed");
@@ -175,7 +175,7 @@ fn bench_rust_wma_from_state(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs = [close.as_slice()];
 
@@ -217,7 +217,7 @@ fn bench_rust_wma_from_state(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar benchmark ---
@@ -244,7 +244,7 @@ fn bench_rust_wma_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
@@ -271,7 +271,7 @@ fn bench_rust_wma_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
                 }
             }
@@ -291,7 +291,7 @@ fn bench_rust_wma_from_state(c: &mut Criterion) {
                 indicator(&chunk_inputs, &options, None).expect("WMA indicator failed");
 
             let mut group =
-                c.benchmark_group(&format!("Rust WMA from state {{ {:.1} }}", options[0]));
+                c.benchmark_group(format!("Rust WMA from state {{ {:.1} }}", options[0]));
             group.sample_size(SAMPLE_SIZE);
             group.bench_function("benchmark", |b| {
                 b.iter(|| {
@@ -322,7 +322,7 @@ fn bench_rust_wma_from_state(c: &mut Criterion) {
                 let (_, mut state) =
                     indicator(&new_inputs, &options, None).expect("Rust WMA indicator failed");
 
-                let mut group = c.benchmark_group(&format!(
+                let mut group = c.benchmark_group(format!(
                     "Rust WMA from state 1 bar {{ {:.1} }}",
                     options[0]
                 ));
@@ -350,7 +350,7 @@ fn bench_rust_wma_optional(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs = [close.as_slice()];
 
@@ -371,7 +371,7 @@ fn bench_rust_wma_optional(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -383,7 +383,7 @@ fn bench_rust_wma_optional(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("wma_rust");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust WMA {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust WMA {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result = indicator(&inputs, &options, Some(&[true]))
                         .expect("Rust WMA indicator failed");
@@ -405,7 +405,7 @@ fn bench_talib_wma(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs: Vec<*const f64> = vec![close.as_ptr()];
 
@@ -431,7 +431,7 @@ fn bench_talib_wma(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("wma", "talib", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("wma", "talib", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -446,7 +446,7 @@ fn bench_talib_wma(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("wma_talib");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("TA-Lib WMA {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("TA-Lib WMA {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -522,7 +522,7 @@ fn bench_rust_wma_simd_by_assets(c: &mut Criterion) {
             let mut group = c.benchmark_group("wma_rust_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust SIMD by assets WMA {{ {} }}", options[0]),
+                format!("Rust SIMD by assets WMA {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
                         let result = tulip_rs::indicators::wma::indicator_by_assets::<4>(
@@ -576,7 +576,7 @@ fn bench_rust_wma_simd_by_options(c: &mut Criterion) {
                 &[0.0],
                 close_vec.len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {

@@ -85,7 +85,7 @@ fn bench_c_tr(c: &mut Criterion) {
                 &OPTIONS,
                 high_vec.len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {
@@ -153,7 +153,7 @@ fn bench_rust_tr(c: &mut Criterion) {
                 &OPTIONS,
                 inputs[0].len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {
@@ -249,7 +249,7 @@ fn bench_rust_tr_from_state(c: &mut Criterion) {
                 &OPTIONS,
                 inputs[0].len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
 
             let (_, mut state) =
@@ -272,7 +272,7 @@ fn bench_rust_tr_from_state(c: &mut Criterion) {
                 &OPTIONS,
                 inputs[0].len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
 
             let (_, state) =
@@ -298,7 +298,7 @@ fn bench_rust_tr_from_state(c: &mut Criterion) {
                 &OPTIONS,
                 inputs[0].len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {
@@ -389,7 +389,7 @@ fn bench_talib_tr(c: &mut Criterion) {
                 SAMPLE_SIZE,
             );
 
-            log_timing_result("tr", "talib", &OPTIONS, n, &timing, Some(&stock_symbol));
+            log_timing_result("tr", "talib", &OPTIONS, n, &timing, Some(stock_symbol));
         }
     } else {
         // Run Criterion benchmark with synthetic data
@@ -510,12 +510,84 @@ fn bench_rust_tr_simd_by_assets(c: &mut Criterion) {
     }
 }
 
+fn bench_rust_ta_tr(c: &mut Criterion) {
+    use ta::indicators::TrueRange;
+    use ta::{DataItem, Next};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("tr");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let high: Vec<f64> = stock_data.iter().map(|d| d.high).collect();
+            let low: Vec<f64> = stock_data.iter().map(|d| d.low).collect();
+            let close: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+            let open: Vec<f64> = stock_data.iter().map(|d| d.open).collect();
+            
+            let n = close.len();
+
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let mut tr = TrueRange::new();
+                    let mut last = 0.0_f64;
+                    for i in 0..high.len() {
+                        let item = unsafe { DataItem::builder()
+                            .high(*high.get_unchecked(i))
+                            .low(*low.get_unchecked(i))
+                            .close(*close.get_unchecked(i))
+                            .open(*open.get_unchecked(i))
+                            .volume(1000.0)
+                            .build()
+                            .expect("DataItem build failed")
+                        };
+                        last = tr.next(&item);
+                    }
+                    black_box(last);
+                },
+                SAMPLE_SIZE,
+            );
+
+            log_timing_result("tr", "RustTa", &[], n, &timing, Some(stock_symbol));
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+
+        let mut group = c.benchmark_group("tr_rust_ta");
+        group.sample_size(SAMPLE_SIZE);
+        group.bench_function("RustTa TR", |b| {
+            b.iter(|| {
+                let mut tr = TrueRange::new();
+                let mut last = 0.0_f64;
+                for i in 0..high_vec.len() {
+                    let h = high_vec[i].max(close_vec[i]);
+                    let l = low_vec[i].min(close_vec[i]);
+                    let item = DataItem::builder()
+                        .high(h)
+                        .low(l)
+                        .close(close_vec[i])
+                        .open(close_vec[i])
+                        .volume(1000.0)
+                        .build()
+                        .expect("DataItem build failed");
+                    last = tr.next(&item);
+                }
+                black_box(last);
+            });
+        });
+        group.finish();
+    }
+}
+
 //#[cfg(feature = "nightly")]
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
     bench_rust_tr_simd_by_assets,
     bench_rust_tr,
+    bench_rust_ta_tr,
     bench_c_tr,
     bench_talib_tr,
     bench_rust_tr_from_state,
@@ -528,6 +600,7 @@ criterion_group!(
     bench_rust_tr,
     bench_c_tr,
     bench_rust_tr_from_state,
+    bench_rust_ta_tr,
 );
 
 criterion_main!(benches);

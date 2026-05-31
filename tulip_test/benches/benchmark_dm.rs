@@ -52,7 +52,7 @@ fn bench_c_dm(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let n = high.len();
             let inputs: Vec<*const f64> = vec![high.as_ptr(), low.as_ptr()];
 
@@ -81,7 +81,7 @@ fn bench_c_dm(c: &mut Criterion) {
                     },
                     SAMPLE_SIZE,
                 );
-                log_timing_result("dm", "C_tulip", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("dm", "C_tulip", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -89,7 +89,7 @@ fn bench_c_dm(c: &mut Criterion) {
         let (high, low) = expand_inputs();
 
         for options in OPTIONS_LIST {
-            let mut group = c.benchmark_group(&format!("C DM {{ {:.1} }}", options[0]));
+            let mut group = c.benchmark_group(format!("C DM {{ {:.1} }}", options[0]));
             group.sample_size(SAMPLE_SIZE);
 
             group.bench_function("benchmark", |b| {
@@ -130,7 +130,7 @@ fn bench_rust_dm(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let n = high.len();
             let inputs = [high.as_slice(), low.as_slice()];
 
@@ -143,7 +143,7 @@ fn bench_rust_dm(c: &mut Criterion) {
                     },
                     SAMPLE_SIZE,
                 );
-                log_timing_result("dm", "Rust", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("dm", "Rust", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -151,7 +151,7 @@ fn bench_rust_dm(c: &mut Criterion) {
         let (high, low) = expand_inputs();
 
         for options in OPTIONS_LIST {
-            let mut group = c.benchmark_group(&format!("Rust DM {{ {:.1} }}", options[0]));
+            let mut group = c.benchmark_group(format!("Rust DM {{ {:.1} }}", options[0]));
             group.sample_size(SAMPLE_SIZE);
 
             group.bench_function("benchmark", |b| {
@@ -176,7 +176,7 @@ fn bench_rust_dm_from_state(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let n = high.len();
             let inputs = [high.as_slice(), low.as_slice()];
 
@@ -220,7 +220,7 @@ fn bench_rust_dm_from_state(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar benchmark ---
@@ -247,7 +247,7 @@ fn bench_rust_dm_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
 
                     let (_, state) =
@@ -273,7 +273,7 @@ fn bench_rust_dm_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
                 }
             }
@@ -284,7 +284,7 @@ fn bench_rust_dm_from_state(c: &mut Criterion) {
 
         for options in OPTIONS_LIST {
             let mut group =
-                c.benchmark_group(&format!("Rust DM from state {{ {:.1} }}", options[0]));
+                c.benchmark_group(format!("Rust DM from state {{ {:.1} }}", options[0]));
             group.sample_size(SAMPLE_SIZE);
 
             group.bench_function("benchmark", |b| {
@@ -399,7 +399,7 @@ fn bench_rust_dm_simd_by_assets(c: &mut Criterion) {
             let mut group = c.benchmark_group("dm_rust_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust SIMD by assets DM period {}", options[0]),
+                format!("Rust SIMD by assets DM period {}", options[0]),
                 |b| {
                     b.iter(|| {
                         let result = indicator_by_assets::<4>(&inputs, options, None)
@@ -426,7 +426,7 @@ fn bench_rust_dm_simd_by_options(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high_vec, low_vec) = get_hl_arrays(&stock_data);
+            let (high_vec, low_vec) = get_hl_arrays(stock_data);
             let inputs = [high_vec.as_slice(), low_vec.as_slice()];
 
             let mut timing = TimingMeasurements::new();
@@ -445,7 +445,7 @@ fn bench_rust_dm_simd_by_options(c: &mut Criterion) {
                 &[0.0],
                 high_vec.len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {

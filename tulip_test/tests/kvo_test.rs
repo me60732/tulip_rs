@@ -155,7 +155,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, close, volume) = get_hlcv_arrays(&stock_data);
+            let (high, low, close, volume) = get_hlcv_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 // C implementation
@@ -229,7 +229,7 @@ mod tests {
 
                     if !approx_eq!(f64, c_val, rust_val, epsilon = 1e-3) {
                         //} && stock_symbol != "AAPL_NYSE" {
-                        let start = if i < 10 { 0 } else { i - 10 };
+                        let start = i.saturating_sub(10);
                         println!(
                             "Rust kvo results: {:?} \n\nC KVO Results: {:?} \n\n",
                             &outputs[0][start..(i + 10).min(outputs[0].len())], //[..10.min(simd_aroon_down.len())],
@@ -256,7 +256,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, close, volume) = get_hlcv_arrays(&stock_data);
+            let (high, low, close, volume) = get_hlcv_arrays(stock_data);
             let inputs_rust = [
                 high.as_slice(),
                 low.as_slice(),
@@ -651,11 +651,11 @@ mod tests {
         // Validate lengths match expected EMA lengths (allowing for KVO's specific data requirements)
         // Note: KVO might have different start requirements than pure EMA due to VF calculation
         assert!(
-            rust_short_ema.len() > 0,
+            !rust_short_ema.is_empty(),
             "Short EMA output should not be empty"
         );
         assert!(
-            rust_long_ema.len() > 0,
+            !rust_long_ema.is_empty(),
             "Long EMA output should not be empty"
         );
 
@@ -739,7 +739,7 @@ mod tests {
                 volume.as_slice(),
             ];
 
-            for (_, &options) in OPTIONS_LIST.iter().enumerate() {
+            for &options in OPTIONS_LIST.iter() {
                 // Skip options that require more data than available
                 let min_required = rust_kvo(&inputs[..4].try_into().unwrap(), &options, None)
                     .map(|_| true)
@@ -779,14 +779,14 @@ mod tests {
 
                 // Validate lengths match expected EMA lengths (allowing for KVO's specific requirements)
                 assert!(
-                    rust_short_ema.len() > 0,
+                    !rust_short_ema.is_empty(),
                     "Stock {} with options {:?}: Short EMA length should be positive, got {}",
                     stock_symbol,
                     options,
                     rust_short_ema.len()
                 );
                 assert!(
-                    rust_long_ema.len() > 0,
+                    !rust_long_ema.is_empty(),
                     "Stock {} with options {:?}: Long EMA length should be positive, got {}",
                     stock_symbol,
                     options,
@@ -886,7 +886,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close, volume) = get_hlcv_arrays(&stock_data);
+            let (high, low, close, volume) = get_hlcv_arrays(stock_data);
             let inputs = [
                 high.as_slice(),
                 low.as_slice(),
@@ -917,13 +917,13 @@ mod tests {
             let mut all_simd_results = Vec::new();
 
             // Add 4-wide results
-            for i in 0..4 {
-                all_simd_results.push(simd_results_4[i].clone());
+            for result in &simd_results_4 {
+                all_simd_results.push(result.clone());
             }
 
             // Add 2-wide results
-            for i in 0..2 {
-                all_simd_results.push(simd_results_2[i].clone());
+            for result in &simd_results_2 {
+                all_simd_results.push(result.clone());
             }
 
             // Add single result

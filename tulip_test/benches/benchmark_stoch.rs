@@ -79,7 +79,7 @@ fn bench_c_stoch(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let n = high.len();
             let inputs: Vec<*const f64> = vec![high.as_ptr(), low.as_ptr(), close.as_ptr()];
             for options in OPTIONS_LIST {
@@ -115,7 +115,7 @@ fn bench_c_stoch(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -132,7 +132,7 @@ fn bench_c_stoch(c: &mut Criterion) {
             let mut group = c.benchmark_group("stoch_c");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!(
+                format!(
                     "C STOCH {{ {}, {}, {} }}",
                     options[0], options[1], options[2]
                 ),
@@ -171,7 +171,7 @@ fn bench_rust_stoch(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let n = high.len();
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
@@ -186,7 +186,7 @@ fn bench_rust_stoch(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("stoch", "Rust", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("stoch", "Rust", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -202,7 +202,7 @@ fn bench_rust_stoch(c: &mut Criterion) {
             let mut group = c.benchmark_group("stoch_rust");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!(
+                format!(
                     "Rust STOCH {{ {}, {}, {} }}",
                     options[0], options[1], options[2]
                 ),
@@ -228,7 +228,7 @@ fn bench_rust_stoch_from_state(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let n = high.len();
 
             for options in OPTIONS_LIST {
@@ -277,7 +277,7 @@ fn bench_rust_stoch_from_state(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar benchmark ---
@@ -312,7 +312,7 @@ fn bench_rust_stoch_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
@@ -338,7 +338,7 @@ fn bench_rust_stoch_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
                 }
             }
@@ -349,7 +349,7 @@ fn bench_rust_stoch_from_state(c: &mut Criterion) {
         let _inputs = [&high_vec, &low_vec, &close_vec];
 
         for options in OPTIONS_LIST {
-            let mut group = c.benchmark_group(&format!(
+            let mut group = c.benchmark_group(format!(
                 "Rust STOCH from state {{ {}, {}, {} }}",
                 options[0], options[1], options[2]
             ));
@@ -412,7 +412,7 @@ fn bench_rust_stoch_from_state(c: &mut Criterion) {
                 let (_, mut state) =
                     indicator(&new_inputs, &options, None).expect("Rust STOCH indicator failed");
 
-                let mut group = c.benchmark_group(&format!(
+                let mut group = c.benchmark_group(format!(
                     "Rust STOCH from state 1 bar {{ {}, {}, {} }}",
                     options[0], options[1], options[2]
                 ));
@@ -441,7 +441,7 @@ fn bench_talib_stoch(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let n = high.len();
             let inputs: Vec<*const f64> = vec![high.as_ptr(), low.as_ptr(), close.as_ptr()];
 
@@ -470,7 +470,7 @@ fn bench_talib_stoch(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("stoch", "talib", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("stoch", "talib", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -486,7 +486,7 @@ fn bench_talib_stoch(c: &mut Criterion) {
             let mut group = c.benchmark_group("stoch_talib");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!(
+                format!(
                     "TA-Lib STOCH {{ {}, {}, {} }}",
                     options[0], options[1], options[2]
                 ),
@@ -577,7 +577,7 @@ fn bench_rust_stoch_simd_by_assets(c: &mut Criterion) {
             let mut group = c.benchmark_group("stoch_rust_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!(
+                format!(
                     "SIMD by assets STOCH {{ {:.1}, {:.1}, {:.1} }}",
                     options[0], options[1], options[2]
                 ),
@@ -604,7 +604,7 @@ fn bench_rust_stoch_simd_by_options(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let n = high.len();
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
@@ -634,7 +634,7 @@ fn bench_rust_stoch_simd_by_options(c: &mut Criterion) {
                 &[0.0],
                 n,
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {
@@ -666,6 +666,179 @@ fn bench_rust_stoch_simd_by_options(c: &mut Criterion) {
     }
 }
 
+/// Benchmark the `ta` crate FastStochastic implementation.
+fn bench_rust_ta_fast_stoch(c: &mut Criterion) {
+    use ta::indicators::FastStochastic;
+    use ta::{DataItem, Next};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("stoch");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_hlc_arrays(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut stoch =
+                            FastStochastic::new(period).expect("ta FastStochastic new failed");
+                        let mut last = 0.0_f64;
+                        for i in 0..high.len() {
+                            let h = high[i].max(close[i]);
+                            let l = low[i].min(close[i]);
+                            let item = DataItem::builder()
+                                .high(h)
+                                .low(l)
+                                .close(close[i])
+                                .open(close[i])
+                                .volume(1000.0)
+                                .build()
+                                .expect("DataItem build failed");
+                            last = stoch.next(&item);
+                        }
+                        black_box(last);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result(
+                    "stoch",
+                    "RustTa_Fast",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("stoch_rust_ta_fast");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("RustTa FastStoch {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut stoch =
+                        FastStochastic::new(period).expect("ta FastStochastic new failed");
+                    let mut last = 0.0_f64;
+                    for i in 0..high_vec.len() {
+                        let h = high_vec[i].max(close_vec[i]);
+                        let l = low_vec[i].min(close_vec[i]);
+                        let item = DataItem::builder()
+                            .high(h)
+                            .low(l)
+                            .close(close_vec[i])
+                            .open(close_vec[i])
+                            .volume(1000.0)
+                            .build()
+                            .expect("DataItem build failed");
+                        last = stoch.next(&item);
+                    }
+                    black_box(last);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
+/// Benchmark the `ta` crate SlowStochastic implementation.
+fn bench_rust_ta_slow_stoch(c: &mut Criterion) {
+    use ta::indicators::SlowStochastic;
+    use ta::{DataItem, Next};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("stoch");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_hlc_arrays(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let stoch_period = options[0] as usize;
+                let ema_period = options[1] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut stoch = SlowStochastic::new(stoch_period, ema_period)
+                            .expect("ta SlowStochastic new failed");
+                        let mut last = 0.0_f64;
+                        for i in 0..high.len() {
+                            let h = high[i].max(close[i]);
+                            let l = low[i].min(close[i]);
+                            let item = DataItem::builder()
+                                .high(h)
+                                .low(l)
+                                .close(close[i])
+                                .open(close[i])
+                                .volume(1000.0)
+                                .build()
+                                .expect("DataItem build failed");
+                            last = stoch.next(&item);
+                        }
+                        black_box(last);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result(
+                    "stoch",
+                    "RustTa_Slow",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let stoch_period = options[0] as usize;
+            let ema_period = options[1] as usize;
+            let mut group = c.benchmark_group("stoch_rust_ta_slow");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!("RustTa SlowStoch {{ {}/{} }}", options[0], options[1]),
+                |b| {
+                    b.iter(|| {
+                        let mut stoch = SlowStochastic::new(stoch_period, ema_period)
+                            .expect("ta SlowStochastic new failed");
+                        let mut last = 0.0_f64;
+                        for i in 0..high_vec.len() {
+                            let h = high_vec[i].max(close_vec[i]);
+                            let l = low_vec[i].min(close_vec[i]);
+                            let item = DataItem::builder()
+                                .high(h)
+                                .low(l)
+                                .close(close_vec[i])
+                                .open(close_vec[i])
+                                .volume(1000.0)
+                                .build()
+                                .expect("DataItem build failed");
+                            last = stoch.next(&item);
+                        }
+                        black_box(last);
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -675,6 +848,8 @@ criterion_group!(
     bench_c_stoch,
     bench_talib_stoch,
     bench_rust_stoch_from_state,
+    bench_rust_ta_fast_stoch,
+    bench_rust_ta_slow_stoch,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -685,5 +860,7 @@ criterion_group!(
     bench_rust_stoch,
     bench_c_stoch,
     bench_rust_stoch_from_state,
+    bench_rust_ta_fast_stoch,
+    bench_rust_ta_slow_stoch,
 );
 criterion_main!(benches);

@@ -73,7 +73,7 @@ fn bench_c_wilders(c: &mut Criterion) {
                     &options,
                     close_vec.len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -92,7 +92,7 @@ fn bench_c_wilders(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("wilders_c");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("C WILDERS {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("C WILDERS {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -142,7 +142,7 @@ fn bench_rust_wilders(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -154,7 +154,7 @@ fn bench_rust_wilders(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("wilders_rust");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust WILDERS {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust WILDERS {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result =
                         indicator(&inputs, &options, None).expect("Rust WILDERS indicator failed");
@@ -214,7 +214,7 @@ fn bench_rust_wilders_from_state(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar benchmark ---
@@ -242,7 +242,7 @@ fn bench_rust_wilders_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
@@ -269,7 +269,7 @@ fn bench_rust_wilders_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
                 }
             }
@@ -281,7 +281,7 @@ fn bench_rust_wilders_from_state(c: &mut Criterion) {
 
         for options in OPTIONS_LIST {
             let mut group =
-                c.benchmark_group(&format!("Rust WILDERS from state {{ {} }}", options[0]));
+                c.benchmark_group(format!("Rust WILDERS from state {{ {} }}", options[0]));
             group.sample_size(SAMPLE_SIZE);
 
             group.bench_function("benchmark", |b| {
@@ -320,7 +320,7 @@ fn bench_rust_wilders_from_state(c: &mut Criterion) {
                 let (_, mut state) =
                     indicator(&new_inputs, &options, None).expect("Rust WILDERS indicator failed");
 
-                let mut group = c.benchmark_group(&format!(
+                let mut group = c.benchmark_group(format!(
                     "Rust WILDERS from state 1 bar {{ {} }}",
                     options[0]
                 ));
@@ -396,7 +396,7 @@ fn bench_rust_wilders_simd_by_assets(c: &mut Criterion) {
             let mut group = c.benchmark_group("wilders_rust_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust SIMD by assets WILDERS {{ {} }}", options[0]),
+                format!("Rust SIMD by assets WILDERS {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
                         let result = tulip_rs::indicators::wilders::indicator_by_assets::<4>(
@@ -448,7 +448,7 @@ fn bench_rust_wilders_simd_by_options(c: &mut Criterion) {
                 &[0.0],
                 close_vec.len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {

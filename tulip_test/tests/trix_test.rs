@@ -120,7 +120,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for options in OPTIONS_LIST {
                 // C implementation
@@ -206,7 +206,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for options in OPTIONS_LIST {
                 let inputs_rust = [close.as_slice()];
@@ -298,8 +298,8 @@ mod tests {
                 rust_trix(&inputs_rust, &options, None).expect("Regular TRIX indicator failed");
 
             // Compare each SIMD asset output with regular output
-            for asset_idx in 0..4 {
-                let simd_output = &simd_outputs[asset_idx][0];
+            for (asset_idx, simd_output_data) in simd_outputs.iter().enumerate() {
+                let simd_output = &simd_output_data[0];
                 let regular_output = &regular_outputs[0];
 
                 assert_eq!(
@@ -347,7 +347,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         // Group stocks in sets of 4
-        let stock_data: Vec<_> = data.into_iter().collect();
+        let stock_data: Vec<_> = data.iter().collect();
         let chunks: Vec<_> = stock_data.chunks(4).collect();
 
         for chunk in chunks {
@@ -452,9 +452,9 @@ mod tests {
                     .expect("Regular TRIX indicator with optional outputs failed");
 
             // Compare each SIMD asset output with regular output
-            for asset_idx in 0..4 {
+            for (asset_idx, simd_output_opt_data) in simd_outputs_opt.iter().enumerate() {
                 // Compare TRIX output (index 0)
-                let simd_trix = &simd_outputs_opt[asset_idx][0];
+                let simd_trix = &simd_output_opt_data[0];
                 let regular_trix = &regular_outputs_opt[0];
 
                 assert_eq!(
@@ -589,7 +589,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         // Group stocks in sets of 4
-        let stock_data: Vec<_> = data.into_iter().collect();
+        let stock_data: Vec<_> = data.iter().collect();
         let chunks: Vec<_> = stock_data.chunks(4).collect();
 
         for chunk in chunks {
@@ -738,7 +738,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
             // Process first 4 options with 4-wide SIMD
@@ -760,13 +760,13 @@ mod tests {
             let mut all_simd_results = Vec::new();
 
             // Add 4-wide results
-            for i in 0..4 {
-                all_simd_results.push(simd_results_4[i].clone());
+            for result in &simd_results_4 {
+                all_simd_results.push(result.clone());
             }
 
             // Add 2-wide results
-            for i in 0..2 {
-                all_simd_results.push(simd_results_2[i].clone());
+            for result in &simd_results_2 {
+                all_simd_results.push(result.clone());
             }
 
             // Compare each SIMD result with regular indicator
@@ -828,7 +828,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
             // Test with EMA, DEMA, and TEMA optional outputs
@@ -855,13 +855,13 @@ mod tests {
             let mut all_simd_results = Vec::new();
 
             // Add 4-wide results
-            for i in 0..4 {
-                all_simd_results.push(simd_results_4[i].clone());
+            for result in &simd_results_4 {
+                all_simd_results.push(result.clone());
             }
 
             // Add 2-wide results
-            for i in 0..2 {
-                all_simd_results.push(simd_results_2[i].clone());
+            for result in &simd_results_2 {
+                all_simd_results.push(result.clone());
             }
 
             // Compare each SIMD result with regular indicator
@@ -1336,7 +1336,7 @@ mod tests {
                 continue;
             }
 
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get TRIX with TEMA optional output
@@ -1351,7 +1351,7 @@ mod tests {
                 let rust_tema = &trix_result[1];
 
                 // Calculate expected TEMA using C Tulip ti_tema
-                let tema_options = vec![options[0]];
+                let tema_options = [options[0]];
                 let start_index = unsafe { ti_tema_start(tema_options.as_ptr()) };
                 assert!(start_index >= 0, "ti_tema_start returned a negative index");
                 let output_len_c = close.len() - (start_index as usize);
@@ -1416,7 +1416,7 @@ mod tests {
                 continue;
             }
 
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get TRIX with DEMA optional output
@@ -1431,7 +1431,7 @@ mod tests {
                 let rust_dema = &trix_result[2];
 
                 // Calculate expected DEMA using C Tulip ti_dema
-                let dema_options = vec![options[0]];
+                let dema_options = [options[0]];
                 let start_index = unsafe { ti_dema_start(dema_options.as_ptr()) };
                 assert!(start_index >= 0, "ti_dema_start returned a negative index");
                 let output_len_c = close.len() - (start_index as usize);
@@ -1496,7 +1496,7 @@ mod tests {
                 continue;
             }
 
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get TRIX with EMA optional output
@@ -1511,7 +1511,7 @@ mod tests {
                 let rust_ema = &trix_result[3];
 
                 // Calculate expected EMA using C Tulip ti_ema
-                let ema_options = vec![options[0]];
+                let ema_options = [options[0]];
                 let start_index = unsafe { ti_ema_start(ema_options.as_ptr()) };
                 assert!(start_index >= 0, "ti_ema_start returned a negative index");
                 let output_len_c = close.len() - (start_index as usize);

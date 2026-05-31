@@ -165,7 +165,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 // C implementation
@@ -288,7 +288,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 let inputs_rust = [high.as_slice(), low.as_slice()];
@@ -417,10 +417,8 @@ mod tests {
             {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_high.as_slice(), stock_low.as_slice()];
-                let (regular_outputs, _) = rust_dm(&stock_inputs, options, None).expect(&format!(
-                    "Regular DM failed for {} with options {:?}",
-                    stock_symbol, options
-                ));
+                let (regular_outputs, _) = rust_dm(&stock_inputs, options, None).unwrap_or_else(|_| panic!("Regular DM failed for {} with options {:?}",
+                    stock_symbol, options));
 
                 // Compare number of outputs (should be 2: +DM and -DM)
                 assert_eq!(
@@ -490,7 +488,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let inputs = [high.as_slice(), low.as_slice()];
 
             // Process all 3 options with 3-wide SIMD

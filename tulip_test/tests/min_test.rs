@@ -129,7 +129,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for options in OPTIONS_LIST {
                 // run c code
@@ -310,7 +310,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs_rust = [close.as_slice()];
 
             for options in OPTIONS_LIST {
@@ -387,7 +387,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
             // Process first 4 options with 4-wide SIMD

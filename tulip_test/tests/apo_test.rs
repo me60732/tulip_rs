@@ -118,7 +118,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for options in OPTIONS_LIST {
                 // C implementation
@@ -204,7 +204,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs_rust = [close.as_slice()];
 
             for options in OPTIONS_LIST {
@@ -653,7 +653,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for options in OPTIONS_LIST {
                 println!(
@@ -676,7 +676,7 @@ mod tests {
                 }
 
                 // Get C Tulip EMA output for comparison
-                let ema_inputs_c = vec![close.as_ptr()];
+                let ema_inputs_c = [close.as_ptr()];
                 let ema_options = [options[0]]; // short_period
                 let ema_start_index = unsafe { ti_ema_start(ema_options.as_ptr()) };
                 let ema_output_len = close.len() - (ema_start_index as usize);
@@ -743,7 +743,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for options in OPTIONS_LIST {
                 println!(
@@ -766,7 +766,7 @@ mod tests {
                 }
 
                 // Get C Tulip EMA output for comparison
-                let ema_inputs_c = vec![close.as_ptr()];
+                let ema_inputs_c = [close.as_ptr()];
                 let ema_options = [options[1]]; // long_period
                 let ema_start_index = unsafe { ti_ema_start(ema_options.as_ptr()) };
                 let ema_output_len = close.len() - (ema_start_index as usize);
@@ -834,7 +834,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
             // Process all 4 options with 4-wide SIMD

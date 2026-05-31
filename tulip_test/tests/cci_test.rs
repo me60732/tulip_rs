@@ -138,7 +138,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 // C implementation
@@ -224,7 +224,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
 
             for options in OPTIONS_LIST {
@@ -680,7 +680,7 @@ mod tests {
                 continue;
             }
 
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get CCI with typprice optional output
@@ -761,7 +761,7 @@ mod tests {
                 continue;
             }
 
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get CCI with SMA optional output
@@ -796,7 +796,7 @@ mod tests {
                 }
 
                 // Calculate expected SMA using C Tulip ti_sma on typprice
-                let period_options = vec![options[0]];
+                let period_options = [options[0]];
                 let sma_start_index = unsafe { ti_sma_start(period_options.as_ptr()) };
                 let sma_output_len_c = typprice_output_vec_c.len() - (sma_start_index as usize);
 
@@ -858,7 +858,7 @@ mod tests {
                 continue;
             }
 
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get CCI with MD optional output
@@ -893,7 +893,7 @@ mod tests {
                 }
 
                 // Calculate expected MD using C Tulip ti_md on typprice
-                let period_options = vec![options[0]];
+                let period_options = [options[0]];
                 let md_start_index = unsafe { ti_md_start(period_options.as_ptr()) };
                 let md_output_len_c = typprice_output_vec_c.len() - (md_start_index as usize);
 
@@ -1244,7 +1244,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
             // Process first 4 options with 4-wide SIMD
@@ -1327,7 +1327,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
             // Test with SMA, MD, and typprice optional outputs
@@ -1554,7 +1554,7 @@ mod tests {
         let first_bars = 2000usize;
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let total_len = high.len();
             if total_len == 0 {
                 continue;
@@ -1589,11 +1589,11 @@ mod tests {
 
             // Combine SIMD results for first part and prepare to extend with batch_indicator outputs
             let mut all_simd_results: Vec<Vec<f64>> = Vec::new();
-            for i in 0..4 {
-                all_simd_results.push(simd_results_4[i][0].clone());
+            for result in &simd_results_4 {
+                all_simd_results.push(result[0].clone());
             }
-            for i in 0..2 {
-                all_simd_results.push(simd_results_2[i][0].clone());
+            for result in &simd_results_2 {
+                all_simd_results.push(result[0].clone());
             }
 
             // If there is remaining data, use the returned states to process it

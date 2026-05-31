@@ -98,10 +98,10 @@ pub mod assets {
         pub fn calc_simd<const CHUNK_SIZE: usize>(
             &mut self,
             real: Simd<f64, N>,
-            multiplier: Simd<f64, N>,
+            multipliers: (Simd<f64, N>, Simd<f64, N>),
             period: usize,
         ) -> (Simd<f64, N>, Simd<f64, N>) {
-            let rsi = self.rsi_state.calc_simd(real, multiplier);
+            let rsi = self.rsi_state.calc_simd(real, multipliers);
             self.buffer.push(rsi.to_array());
 
             let (min, _) = self
@@ -206,10 +206,10 @@ pub mod options {
         pub fn calc_simd(
             &mut self,
             real: Simd<f64, N>,
-            multiplier: Simd<f64, N>,
+            multipliers: (Simd<f64, N>, Simd<f64, N>),
             period: Simd<usize, N>,
         ) -> (Simd<f64, N>, Simd<f64, N>) {
-            let rsi = self.rsi_state.calc_simd(real, multiplier);
+            let rsi = self.rsi_state.calc_simd(real, multipliers);
             self.buffer.push(rsi);
 
             let (min, _) = self.buffer.min(&mut self.min_state, rsi, period);
@@ -233,10 +233,10 @@ pub mod options {
         pub unsafe fn calc_simd_unchecked(
             &mut self,
             real: Simd<f64, N>,
-            multiplier: Simd<f64, N>,
+            multipliers: (Simd<f64, N>, Simd<f64, N>),
             period: Simd<usize, N>,
         ) -> (Simd<f64, N>, Simd<f64, N>) {
-            let rsi = self.rsi_state.calc_simd(real, multiplier);
+            let rsi = self.rsi_state.calc_simd(real, multipliers);
             self.buffer.push_unchecked(rsi);
 
             let (min, _) = self.buffer.min(&mut self.min_state, rsi, period);

@@ -55,7 +55,10 @@ pub fn calc_simd<const N: usize>(
 ) -> Simd<f64, N> {
     prev_wilders.mul_add(multiplier, value * (F64Constants::ONE - multiplier))
 }
-
+#[inline(always)]
+pub fn calc_simd_full<const N: usize>(prev_wilders: Simd<f64, N>, value: Simd<f64, N>, multipliers: (Simd<f64, N>, Simd<f64, N>)) -> Simd<f64, N> {
+    prev_wilders.mul_add(multipliers.0, value * multipliers.1)
+}
 /// Computes a partial Wilder's Smoothing step without subtracting the decay residual.
 ///
 /// Applies `prev_wilders * multiplier + value` for each lane, omitting the

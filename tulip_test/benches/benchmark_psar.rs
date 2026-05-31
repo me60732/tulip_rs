@@ -52,7 +52,7 @@ fn bench_c_psar(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let n = high.len();
             let inputs: Vec<*const f64> = vec![high.as_ptr(), low.as_ptr()];
             for options in OPTIONS_LIST {
@@ -77,7 +77,7 @@ fn bench_c_psar(c: &mut Criterion) {
                     },
                     SAMPLE_SIZE,
                 );
-                log_timing_result("psar", "C_tulip", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("psar", "C_tulip", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -88,13 +88,13 @@ fn bench_c_psar(c: &mut Criterion) {
             let start_index = unsafe { ti_psar_start(options.as_ptr()) };
             let output_len = high_vec.len() - (start_index as usize);
 
-            let mut group = c.benchmark_group(&format!(
+            let mut group = c.benchmark_group(format!(
                 "C PSAR {{ {:.2}, {:.1} }}",
                 options[0], options[1]
             ));
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("C PSAR {{ {:.2}, {:.1} }}", options[0], options[1]),
+                format!("C PSAR {{ {:.2}, {:.1} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let mut output_vec = vec![0.0_f64; output_len];
@@ -125,7 +125,7 @@ fn bench_rust_psar(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let n = high.len();
             let inputs = [high.as_slice(), low.as_slice()];
 
@@ -139,7 +139,7 @@ fn bench_rust_psar(c: &mut Criterion) {
                     },
                     SAMPLE_SIZE,
                 );
-                log_timing_result("psar", "Rust", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("psar", "Rust", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -147,13 +147,13 @@ fn bench_rust_psar(c: &mut Criterion) {
         let inputs = [high_vec.as_slice(), low_vec.as_slice()];
 
         for options in OPTIONS_LIST {
-            let mut group = c.benchmark_group(&format!(
+            let mut group = c.benchmark_group(format!(
                 "Rust PSAR {{ {:.2}, {:.1} }}",
                 options[0], options[1]
             ));
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust PSAR {{ {:.2}, {:.1} }}", options[0], options[1]),
+                format!("Rust PSAR {{ {:.2}, {:.1} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let result =
@@ -174,7 +174,7 @@ fn bench_rust_psar_from_state(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let n = high.len();
 
             for options in OPTIONS_LIST {
@@ -217,7 +217,7 @@ fn bench_rust_psar_from_state(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar benchmark ---
@@ -244,7 +244,7 @@ fn bench_rust_psar_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
@@ -270,7 +270,7 @@ fn bench_rust_psar_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
                 }
             }
@@ -281,7 +281,7 @@ fn bench_rust_psar_from_state(c: &mut Criterion) {
         let _inputs = [&high_vec, &low_vec];
 
         for options in OPTIONS_LIST {
-            let mut group = c.benchmark_group(&format!(
+            let mut group = c.benchmark_group(format!(
                 "Rust PSAR from state {{ {:.2}, {:.1} }}",
                 options[0], options[1]
             ));
@@ -332,7 +332,7 @@ fn bench_rust_psar_from_state(c: &mut Criterion) {
                 let (_, mut state) =
                     indicator(&new_inputs, &options, None).expect("Rust PSAR indicator failed");
 
-                let mut group = c.benchmark_group(&format!(
+                let mut group = c.benchmark_group(format!(
                     "Rust PSAR from state 1 bar {{ {:.2}, {:.1} }}",
                     options[0], options[1]
                 ));
@@ -361,7 +361,7 @@ fn bench_talib_psar(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let n = high.len();
             let inputs: Vec<*const f64> = vec![high.as_ptr(), low.as_ptr()];
 
@@ -387,7 +387,7 @@ fn bench_talib_psar(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("psar", "talib", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("psar", "talib", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -403,7 +403,7 @@ fn bench_talib_psar(c: &mut Criterion) {
             let mut group = c.benchmark_group("psar_talib");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("TA-Lib PSAR {{ {:.2}, {:.1} }}", options[0], options[1]),
+                format!("TA-Lib PSAR {{ {:.2}, {:.1} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let mut output_vec = vec![0.0_f64; output_len];
@@ -486,7 +486,7 @@ fn bench_rust_psar_simd_by_assets(c: &mut Criterion) {
             let mut group = c.benchmark_group("psar_rust_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!(
+                format!(
                     "Rust SIMD by assets PSAR {{ {}, {} }}",
                     options[0], options[1]
                 ),
@@ -511,7 +511,7 @@ fn bench_rust_psar_simd_by_options(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high_vec, low_vec) = get_hl_arrays(&stock_data);
+            let (high_vec, low_vec) = get_hl_arrays(stock_data);
             let inputs = [high_vec.as_slice(), low_vec.as_slice()];
 
             let mut timing = TimingMeasurements::new();
@@ -537,7 +537,7 @@ fn bench_rust_psar_simd_by_options(c: &mut Criterion) {
                 &[0.0],
                 high_vec.len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {

@@ -96,7 +96,7 @@ fn bench_c_kvo(c: &mut Criterion) {
                     &options,
                     high_vec.len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -118,7 +118,7 @@ fn bench_c_kvo(c: &mut Criterion) {
             let mut group = c.benchmark_group("kvo_c");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("C KVO {{ {}, {} }}", options[0], options[1]),
+                format!("C KVO {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let mut output_vec = vec![0.0_f64; output_len];
@@ -178,7 +178,7 @@ fn bench_rust_kvo(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -196,7 +196,7 @@ fn bench_rust_kvo(c: &mut Criterion) {
             let mut group = c.benchmark_group("kvo_rust");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust KVO {{ {}, {} }}", options[0], options[1]),
+                format!("Rust KVO {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let result =
@@ -246,7 +246,7 @@ fn bench_rust_kvo_optional(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -264,7 +264,7 @@ fn bench_rust_kvo_optional(c: &mut Criterion) {
             let mut group = c.benchmark_group("kvo_rust");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust KVO optional {{ {}, {} }}", options[0], options[1]),
+                format!("Rust KVO optional {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let result = indicator(&inputs, &options, Some(&[true, true]))
@@ -358,7 +358,7 @@ fn bench_rust_kvo_from_state(c: &mut Criterion) {
                     &options,
                     high.len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 let (_, mut state) =
@@ -381,7 +381,7 @@ fn bench_rust_kvo_from_state(c: &mut Criterion) {
                     &options,
                     high.len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 let (_, state) =
@@ -407,7 +407,7 @@ fn bench_rust_kvo_from_state(c: &mut Criterion) {
                     &options,
                     high.len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -419,7 +419,7 @@ fn bench_rust_kvo_from_state(c: &mut Criterion) {
             let mut group = c.benchmark_group("kvo_rust_from_state");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust KVO from state {{ {}, {} }}", options[0], options[1]),
+                format!("Rust KVO from state {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let min_data_val = min_data(&options).max(CHUNK_SIZE);
@@ -557,7 +557,7 @@ fn bench_rust_kvo_simd_by_assets(c: &mut Criterion) {
             let mut group = c.benchmark_group("kvo_rust_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("SIMD by assets KVO {{ {}, {} }}", options[0], options[1]),
+                format!("SIMD by assets KVO {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let result = indicator_by_assets::<4>(&inputs, &options, None)
@@ -615,7 +615,7 @@ fn bench_rust_kvo_simd_by_options(c: &mut Criterion) {
                 &[0.0], // Use first option as representative
                 inputs[0].len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {

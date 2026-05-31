@@ -49,7 +49,7 @@ fn bench_c_qstick(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (open, close) = get_oc_arrays(&stock_data);
+            let (open, close) = get_oc_arrays(stock_data);
             let n = open.len();
             let inputs: Vec<*const f64> = vec![open.as_ptr(), close.as_ptr()];
 
@@ -81,7 +81,7 @@ fn bench_c_qstick(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -93,9 +93,9 @@ fn bench_c_qstick(c: &mut Criterion) {
             let start_index = unsafe { ti_qstick_start(options.as_ptr()) };
             let output_len = open_vec.len() - (start_index as usize);
 
-            let mut group = c.benchmark_group(&format!("C QSTICK {{ {:.1} }}", options[0]));
+            let mut group = c.benchmark_group(format!("C QSTICK {{ {:.1} }}", options[0]));
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("C QSTICK {{ {:.1} }}", options[0]), |b| {
+            group.bench_function(format!("C QSTICK {{ {:.1} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -124,7 +124,7 @@ fn bench_rust_qstick(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (open, close) = get_oc_arrays(&stock_data);
+            let (open, close) = get_oc_arrays(stock_data);
             let n = open.len();
             let inputs = [open.as_slice(), close.as_slice()];
 
@@ -138,7 +138,7 @@ fn bench_rust_qstick(c: &mut Criterion) {
                     },
                     SAMPLE_SIZE,
                 );
-                log_timing_result("qstick", "Rust", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("qstick", "Rust", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -146,9 +146,9 @@ fn bench_rust_qstick(c: &mut Criterion) {
         let inputs = [open_vec.as_slice(), close_vec.as_slice()];
 
         for options in OPTIONS_LIST {
-            let mut group = c.benchmark_group(&format!("Rust QSTICK {{ {:.1} }}", options[0]));
+            let mut group = c.benchmark_group(format!("Rust QSTICK {{ {:.1} }}", options[0]));
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust QSTICK {{ {:.1} }}", options[0]), |b| {
+            group.bench_function(format!("Rust QSTICK {{ {:.1} }}", options[0]), |b| {
                 b.iter(|| {
                     let result =
                         indicator(&inputs, &options, None).expect("QSTICK indicator failed");
@@ -221,7 +221,7 @@ fn bench_rust_qstick_simd_by_assets(c: &mut Criterion) {
             let mut group = c.benchmark_group("qstick_rust_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust SIMD by assets QSTICK {{ {:.1} }}", options[0]),
+                format!("Rust SIMD by assets QSTICK {{ {:.1} }}", options[0]),
                 |b| {
                     b.iter(|| {
                         let result = indicator_by_assets::<4>(&inputs, &options, None)
@@ -242,7 +242,7 @@ fn bench_rust_qstick_from_state(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (open, close) = get_oc_arrays(&stock_data);
+            let (open, close) = get_oc_arrays(stock_data);
             let n = open.len();
 
             for options in OPTIONS_LIST {
@@ -287,7 +287,7 @@ fn bench_rust_qstick_from_state(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar benchmark ---
@@ -321,7 +321,7 @@ fn bench_rust_qstick_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
@@ -351,7 +351,7 @@ fn bench_rust_qstick_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
                 }
             }
@@ -363,7 +363,7 @@ fn bench_rust_qstick_from_state(c: &mut Criterion) {
 
         for options in OPTIONS_LIST {
             let mut group =
-                c.benchmark_group(&format!("Rust QSTICK from state {{ {:.1} }}", options[0]));
+                c.benchmark_group(format!("Rust QSTICK from state {{ {:.1} }}", options[0]));
             group.sample_size(SAMPLE_SIZE);
 
             group.bench_function("benchmark", |b| {
@@ -407,7 +407,7 @@ fn bench_rust_qstick_from_state(c: &mut Criterion) {
 
         for options in OPTIONS_LIST {
             // Benchmark with 1 bar from state
-            let mut group = c.benchmark_group(&format!(
+            let mut group = c.benchmark_group(format!(
                 "Rust QSTICK from state 1 bar {{ {:.1} }}",
                 options[0]
             ));
@@ -428,7 +428,7 @@ fn bench_rust_qstick_from_state(c: &mut Criterion) {
             group.finish();
 
             // Benchmark with 1 bar from state using JSON serialization
-            let mut group = c.benchmark_group(&format!(
+            let mut group = c.benchmark_group(format!(
                 "Rust QSTICK from state 1 bar JSON {{ {:.1} }}",
                 options[0]
             ));
@@ -490,7 +490,7 @@ fn bench_rust_qstick_simd_by_options(c: &mut Criterion) {
                 &[0.0],
                 n,
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {

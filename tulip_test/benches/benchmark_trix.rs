@@ -76,7 +76,7 @@ fn bench_c_trix(c: &mut Criterion) {
                     &options,
                     close_vec.len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -92,7 +92,7 @@ fn bench_c_trix(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("trix_c");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("C TRIX {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("C TRIX {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -143,7 +143,7 @@ fn bench_rust_trix(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -155,7 +155,7 @@ fn bench_rust_trix(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("trix_rust");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust TRIX {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust TRIX {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result =
                         indicator(&inputs, &options, None).expect("Rust TRIX indicator failed");
@@ -221,7 +221,7 @@ fn bench_rust_trix_from_state(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar benchmark ---
@@ -248,7 +248,7 @@ fn bench_rust_trix_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
@@ -274,7 +274,7 @@ fn bench_rust_trix_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
                 }
             }
@@ -295,7 +295,7 @@ fn bench_rust_trix_from_state(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("trix_rust_from_state");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust TRIX from state {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust TRIX from state {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut close_chunks = close_vec[min_data..].chunks_exact(CHUNK_SIZE);
 
@@ -327,7 +327,7 @@ fn bench_rust_trix_from_state(c: &mut Criterion) {
                 let mut group = c.benchmark_group("trix_rust_from_state_1_bar");
                 group.sample_size(SAMPLE_SIZE);
                 group.bench_function(
-                    &format!("Rust TRIX from state 1 bar {{ {} }}", options[0]),
+                    format!("Rust TRIX from state 1 bar {{ {} }}", options[0]),
                     |b| {
                         b.iter(|| {
                             let result = state
@@ -352,7 +352,7 @@ fn bench_rust_trix_simd_by_assets(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         // Group stocks in sets of 4 for SIMD processing
-        let stock_data: Vec<_> = data.into_iter().collect();
+        let stock_data: Vec<_> = data.iter().collect();
         let chunks: Vec<_> = stock_data.chunks(4).collect();
 
         for chunk in chunks {
@@ -418,7 +418,7 @@ fn bench_rust_trix_simd_by_assets(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("trix_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("SIMD TRIX by assets {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("SIMD TRIX by assets {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result = indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("SIMD TRIX indicator failed");
@@ -440,7 +440,7 @@ fn bench_rust_trix_simd_by_options(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close_vec = get_close_array(&stock_data);
+            let close_vec = get_close_array(stock_data);
             let inputs = [close_vec.as_slice()];
 
             let mut timing = TimingMeasurements::new();
@@ -467,7 +467,7 @@ fn bench_rust_trix_simd_by_options(c: &mut Criterion) {
                 &[0.0],
                 close_vec.len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {
@@ -505,7 +505,7 @@ fn bench_rust_trix_optional(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
             for options in OPTIONS_LIST {
@@ -525,7 +525,7 @@ fn bench_rust_trix_optional(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -537,7 +537,7 @@ fn bench_rust_trix_optional(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("trix_rust");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust TRIX {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust TRIX {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result = indicator(&inputs, &options, Some(&[true, true, true]))
                         .expect("Rust TRIX indicator failed");

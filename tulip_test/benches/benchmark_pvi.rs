@@ -75,7 +75,7 @@ fn bench_c_pvi(c: &mut Criterion) {
                 &OPTIONS,
                 close_vec.len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {
@@ -139,7 +139,7 @@ fn bench_rust_pvi(c: &mut Criterion) {
                 &OPTIONS,
                 inputs[0].len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {
@@ -212,7 +212,7 @@ fn bench_rust_pvi_from_state(c: &mut Criterion) {
                 &OPTIONS,
                 n,
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
 
             // --- Rust_FromState_1_Bar benchmark ---
@@ -245,7 +245,7 @@ fn bench_rust_pvi_from_state(c: &mut Criterion) {
                     &OPTIONS,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar_json benchmark ---
@@ -272,7 +272,7 @@ fn bench_rust_pvi_from_state(c: &mut Criterion) {
                     &OPTIONS,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }

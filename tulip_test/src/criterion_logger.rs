@@ -5,6 +5,12 @@ pub struct TimingMeasurements {
     pub times: Vec<Duration>,
 }
 
+impl Default for TimingMeasurements {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TimingMeasurements {
     pub fn new() -> Self {
         Self {
@@ -42,8 +48,7 @@ impl TimingMeasurements {
         options: &[f64],
         input_size: usize,
     ) -> Option<BenchmarkResult> {
-        if let Some(stats) = calculate_stats(&self.times) {
-            Some(BenchmarkResult {
+        calculate_stats(&self.times).map(|stats| BenchmarkResult {
                 indicator_name: indicator_name.to_string(),
                 implementation_type: implementation_type.to_string(),
                 stock_symbol: stock_symbol.map(|s| s.to_string()),
@@ -56,9 +61,6 @@ impl TimingMeasurements {
                 sample_count: self.times.len() as u32,
                 input_size,
             })
-        } else {
-            None
-        }
     }
 }
 

@@ -49,7 +49,7 @@ fn bench_c_vhf(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs: Vec<*const f64> = vec![close.as_ptr()];
 
@@ -75,7 +75,7 @@ fn bench_c_vhf(c: &mut Criterion) {
                     },
                     SAMPLE_SIZE,
                 );
-                log_timing_result("vhf", "C_tulip", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("vhf", "C_tulip", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -86,9 +86,9 @@ fn bench_c_vhf(c: &mut Criterion) {
             let start_index = unsafe { ti_vhf_start(options.as_ptr()) };
             let output_len = close_vec.len() - (start_index as usize);
 
-            let mut group = c.benchmark_group(&format!("C VHF {{ {:.1} }}", options[0]));
+            let mut group = c.benchmark_group(format!("C VHF {{ {:.1} }}", options[0]));
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("C VHF {{ {:.1} }}", options[0]), |b| {
+            group.bench_function(format!("C VHF {{ {:.1} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -117,7 +117,7 @@ fn bench_rust_vhf(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs = [close.as_slice()];
 
@@ -131,7 +131,7 @@ fn bench_rust_vhf(c: &mut Criterion) {
                     },
                     SAMPLE_SIZE,
                 );
-                log_timing_result("vhf", "Rust", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("vhf", "Rust", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -139,9 +139,9 @@ fn bench_rust_vhf(c: &mut Criterion) {
         let inputs = [close_vec.as_slice()];
 
         for options in OPTIONS_LIST {
-            let mut group = c.benchmark_group(&format!("Rust VHF {{ {:.1} }}", options[0]));
+            let mut group = c.benchmark_group(format!("Rust VHF {{ {:.1} }}", options[0]));
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust VHF {{ {:.1} }}", options[0]), |b| {
+            group.bench_function(format!("Rust VHF {{ {:.1} }}", options[0]), |b| {
                 b.iter(|| {
                     let result = indicator(&inputs, &options, None).expect("VHF indicator failed");
                     black_box(&result);
@@ -160,7 +160,7 @@ fn bench_rust_vhf_from_state(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
 
             for options in OPTIONS_LIST {
@@ -198,7 +198,7 @@ fn bench_rust_vhf_from_state(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar benchmark ---
@@ -226,7 +226,7 @@ fn bench_rust_vhf_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
@@ -253,7 +253,7 @@ fn bench_rust_vhf_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
                 }
             }
@@ -265,7 +265,7 @@ fn bench_rust_vhf_from_state(c: &mut Criterion) {
 
         for options in OPTIONS_LIST {
             let mut group =
-                c.benchmark_group(&format!("Rust VHF from state {{ {:.1} }}", options[0]));
+                c.benchmark_group(format!("Rust VHF from state {{ {:.1} }}", options[0]));
             group.sample_size(SAMPLE_SIZE);
 
             group.bench_function("benchmark", |b| {
@@ -304,7 +304,7 @@ fn bench_rust_vhf_from_state(c: &mut Criterion) {
                 let (_, mut state) =
                     indicator(&new_inputs, &options, None).expect("Rust VHF indicator failed");
 
-                let mut group = c.benchmark_group(&format!(
+                let mut group = c.benchmark_group(format!(
                     "Rust VHF from state 1 bar {{ {:.1} }}",
                     options[0]
                 ));
@@ -378,7 +378,7 @@ fn bench_rust_vhf_simd_by_assets(c: &mut Criterion) {
             let mut group = c.benchmark_group("vhf_rust_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("SIMD by assets VHF {{ {:.1} }}", options[0]),
+                format!("SIMD by assets VHF {{ {:.1} }}", options[0]),
                 |b| {
                     b.iter(|| {
                         let result = tulip_rs::indicators::vhf::indicator_by_assets::<4>(
@@ -402,7 +402,7 @@ fn bench_rust_vhf_simd_by_options(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs = [close.as_slice()];
 
@@ -426,7 +426,7 @@ fn bench_rust_vhf_simd_by_options(c: &mut Criterion) {
                 SAMPLE_SIZE,
             );
 
-            log_timing_result("vhf", "Rust_SIMD", &[0.0], n, &timing, Some(&stock_symbol));
+            log_timing_result("vhf", "Rust_SIMD", &[0.0], n, &timing, Some(stock_symbol));
         }
     } else {
         // Run Criterion benchmark with synthetic data

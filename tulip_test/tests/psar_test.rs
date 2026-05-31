@@ -131,7 +131,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 // C implementation
@@ -217,7 +217,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let inputs_rust = [high.as_slice(), low.as_slice()];
 
             for options in OPTIONS_LIST {
@@ -386,7 +386,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let inputs = [high.as_slice(), low.as_slice()];
 
             // Process all 4 options with 4-wide SIMD

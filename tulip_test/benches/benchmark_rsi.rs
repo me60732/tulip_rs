@@ -3,6 +3,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::rsi::{
     indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState,
 };
+
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_rsi, ti_rsi_start};
@@ -47,7 +48,7 @@ fn bench_c_rsi(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs: Vec<*const f64> = vec![close.as_ptr()];
 
@@ -75,7 +76,7 @@ fn bench_c_rsi(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("rsi", "C_tulip", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("rsi", "C_tulip", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -90,7 +91,7 @@ fn bench_c_rsi(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("rsi_c");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("C RSI {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("C RSI {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -121,7 +122,7 @@ fn bench_rust_rsi(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs = [close.as_slice()];
             for options in OPTIONS_LIST {
@@ -135,7 +136,7 @@ fn bench_rust_rsi(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("rsi", "Rust", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("rsi", "Rust", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -146,7 +147,7 @@ fn bench_rust_rsi(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("rsi_rust");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust RSI {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust RSI {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result =
                         indicator(&inputs, &options, None).expect("Rust RSI indicator failed");
@@ -167,7 +168,7 @@ fn bench_rust_rsi_from_state(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
 
             for options in OPTIONS_LIST {
@@ -207,7 +208,7 @@ fn bench_rust_rsi_from_state(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar benchmark ---
@@ -234,7 +235,7 @@ fn bench_rust_rsi_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
@@ -261,7 +262,7 @@ fn bench_rust_rsi_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
                 }
             }
@@ -272,7 +273,7 @@ fn bench_rust_rsi_from_state(c: &mut Criterion) {
         let _inputs = [&close_vec];
 
         for options in OPTIONS_LIST {
-            let mut group = c.benchmark_group(&format!("Rust RSI from state {{ {} }}", options[0]));
+            let mut group = c.benchmark_group(format!("Rust RSI from state {{ {} }}", options[0]));
             group.sample_size(SAMPLE_SIZE);
 
             group.bench_function("benchmark", |b| {
@@ -313,7 +314,7 @@ fn bench_rust_rsi_from_state(c: &mut Criterion) {
                     indicator(&new_inputs, &options, None).expect("Rust RSI indicator failed");
 
                 let mut group =
-                    c.benchmark_group(&format!("Rust RSI from state 1 bar {{ {} }}", options[0]));
+                    c.benchmark_group(format!("Rust RSI from state 1 bar {{ {} }}", options[0]));
                 group.sample_size(SAMPLE_SIZE);
                 group.bench_function("benchmark", |b| {
                     b.iter(|| {
@@ -338,7 +339,7 @@ fn bench_rust_rsi_simd_by_assets(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         // Group stocks in sets of 4 for SIMD processing
-        let stock_data: Vec<_> = data.into_iter().collect();
+        let stock_data: Vec<_> = data.iter().collect();
         let chunks: Vec<_> = stock_data.chunks(4).collect();
 
         for chunk in chunks {
@@ -404,7 +405,7 @@ fn bench_rust_rsi_simd_by_assets(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("rsi_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("SIMD RSI by assets {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("SIMD RSI by assets {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result = indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("SIMD RSI indicator failed");
@@ -426,7 +427,7 @@ fn bench_talib_rsi(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs: Vec<*const f64> = vec![close.as_ptr()];
 
@@ -452,7 +453,7 @@ fn bench_talib_rsi(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("rsi", "talib", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("rsi", "talib", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -467,7 +468,7 @@ fn bench_talib_rsi(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("rsi_talib");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("TA-Lib RSI {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("TA-Lib RSI {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -502,7 +503,7 @@ fn bench_rust_rsi_simd_by_options(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close_vec = get_close_array(&stock_data);
+            let close_vec = get_close_array(stock_data);
             let n = close_vec.len();
             let inputs = [close_vec.as_slice()];
 
@@ -516,7 +517,7 @@ fn bench_rust_rsi_simd_by_options(c: &mut Criterion) {
                 SAMPLE_SIZE,
             );
 
-            log_timing_result("rsi", "Rust_SIMD", &[0.0], n, &timing, Some(&stock_symbol));
+            log_timing_result("rsi", "Rust_SIMD", &[0.0], n, &timing, Some(stock_symbol));
         }
     } else {
         // Run Criterion benchmark with synthetic data
@@ -537,12 +538,70 @@ fn bench_rust_rsi_simd_by_options(c: &mut Criterion) {
     }
 }
 
+/// Benchmark the `ta` crate (RustTa) implementation of RSI.
+fn bench_rust_ta_rsi(c: &mut Criterion) {
+    use ta::indicators::RelativeStrengthIndex;
+    use ta::Next;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("rsi");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let close_vec = get_close_array(stock_data);
+            let n = close_vec.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut rsi =
+                            RelativeStrengthIndex::new(period).expect("ta RSI new failed");
+                        let mut last = 0.0_f64;
+                        for &price in &close_vec {
+                            last = rsi.next(price);
+                        }
+                        black_box(last);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result("rsi", "RustTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        // Run Criterion benchmark with synthetic data
+        let close_vec = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("rsi_rust_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("RustTa RSI {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut rsi = RelativeStrengthIndex::new(period).expect("ta RSI new failed");
+                    let mut last = 0.0_f64;
+                    for &price in &close_vec {
+                        last = rsi.next(price);
+                    }
+                    black_box(last);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
     bench_rust_rsi_simd_by_options,
     bench_rust_rsi_simd_by_assets,
     bench_rust_rsi,
+    bench_rust_ta_rsi,
     bench_c_rsi,
     bench_talib_rsi,
     bench_rust_rsi_from_state,
@@ -554,6 +613,7 @@ criterion_group!(
     bench_rust_rsi_simd_by_options,
     bench_rust_rsi_simd_by_assets,
     bench_rust_rsi,
+    bench_rust_ta_rsi,
     bench_c_rsi,
     bench_rust_rsi_from_state,
 );

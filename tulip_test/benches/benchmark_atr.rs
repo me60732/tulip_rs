@@ -59,7 +59,7 @@ fn bench_c_atr(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let n = high.len();
             let inputs: Vec<*const f64> = vec![high.as_ptr(), low.as_ptr(), close.as_ptr()];
 
@@ -87,7 +87,7 @@ fn bench_c_atr(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("atr", "C_tulip", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("atr", "C_tulip", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -102,7 +102,7 @@ fn bench_c_atr(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("atr_c");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("C ATR {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("C ATR {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -133,7 +133,7 @@ fn bench_rust_atr(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let n = high.len();
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
@@ -147,7 +147,7 @@ fn bench_rust_atr(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("atr", "Rust", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("atr", "Rust", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -162,7 +162,7 @@ fn bench_rust_atr(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("atr_rust");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust ATR {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust ATR {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result =
                         indicator(&inputs, &options, None).expect("Rust ATR indicator failed");
@@ -183,7 +183,7 @@ fn bench_rust_atr_from_state(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let n = high.len();
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
@@ -237,7 +237,7 @@ fn bench_rust_atr_from_state(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar benchmark ---
@@ -272,7 +272,7 @@ fn bench_rust_atr_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
 
                     let (_, state) =
@@ -298,7 +298,7 @@ fn bench_rust_atr_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
                 }
             }
@@ -311,7 +311,7 @@ fn bench_rust_atr_from_state(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("atr_rust_from_state");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust ATR from state {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust ATR from state {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let min_data_val = min_data(&options).max(CHUNK_SIZE);
                     // First chunk
@@ -365,7 +365,7 @@ fn bench_rust_atr_optional(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let n = high.len();
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
@@ -386,7 +386,7 @@ fn bench_rust_atr_optional(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -402,7 +402,7 @@ fn bench_rust_atr_optional(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("atr_rust");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust ATR {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust ATR {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result = indicator(&inputs, &options, Some(&[true]))
                         .expect("Rust ATR indicator failed");
@@ -424,7 +424,7 @@ fn bench_talib_atr(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let n = high.len();
             let inputs: Vec<*const f64> = vec![high.as_ptr(), low.as_ptr(), close.as_ptr()];
 
@@ -450,7 +450,7 @@ fn bench_talib_atr(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("atr", "talib", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("atr", "talib", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -465,7 +465,7 @@ fn bench_talib_atr(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("atr_talib");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("TA-Lib ATR {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("TA-Lib ATR {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -569,7 +569,7 @@ fn bench_rust_atr_simd_by_assets(c: &mut Criterion) {
             let mut group = c.benchmark_group("atr_rust_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust SIMD by assets ATR period {}", options[0]),
+                format!("Rust SIMD by assets ATR period {}", options[0]),
                 |b| {
                     b.iter(|| {
                         let result = indicator_by_assets::<4>(&inputs, options, None)
@@ -593,7 +593,7 @@ fn bench_rust_atr_simd_by_options(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high_vec, low_vec, close_vec) = get_hlc_arrays(&stock_data);
+            let (high_vec, low_vec, close_vec) = get_hlc_arrays(stock_data);
             let inputs = [
                 high_vec.as_slice(),
                 low_vec.as_slice(),
@@ -623,7 +623,7 @@ fn bench_rust_atr_simd_by_options(c: &mut Criterion) {
                 &[0.0],
                 high_vec.len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {
@@ -655,12 +655,85 @@ fn bench_rust_atr_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_rust_ta_atr(c: &mut Criterion) {
+    use ta::indicators::AverageTrueRange;
+    use ta::{DataItem, Next};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("atr");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_hlc_arrays(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut atr = AverageTrueRange::new(period).expect("ta ATR new failed");
+                        let mut last = 0.0_f64;
+                        for i in 0..high.len() {
+                            let item = DataItem::builder()
+                                .high(high[i])
+                                .low(low[i])
+                                .close(close[i])
+                                .open(close[i])
+                                .volume(1000.0)
+                                .build()
+                                .expect("DataItem build failed");
+                            last = atr.next(&item);
+                        }
+                        black_box(last);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result("atr", "RustTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("atr_rust_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("RustTa ATR {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut atr = AverageTrueRange::new(period).expect("ta ATR new failed");
+                    let mut last = 0.0_f64;
+                    for i in 0..high_vec.len() {
+                        let h = high_vec[i].max(close_vec[i]);
+                        let l = low_vec[i].min(close_vec[i]);
+                        let item = DataItem::builder()
+                            .high(h)
+                            .low(l)
+                            .close(close_vec[i])
+                            .open(close_vec[i])
+                            .volume(1000.0)
+                            .build()
+                            .expect("DataItem build failed");
+                        last = atr.next(&item);
+                    }
+                    black_box(last);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
     bench_rust_atr_simd_by_options,
     bench_rust_atr_simd_by_assets,
     bench_rust_atr,
+    bench_rust_ta_atr,
     bench_c_atr,
     bench_talib_atr,
     bench_rust_atr_from_state,
@@ -673,6 +746,7 @@ criterion_group!(
     bench_rust_atr_simd_by_options,
     bench_rust_atr_simd_by_assets,
     bench_rust_atr,
+    bench_rust_ta_atr,
     bench_c_atr,
     bench_rust_atr_from_state,
     bench_rust_atr_optional,

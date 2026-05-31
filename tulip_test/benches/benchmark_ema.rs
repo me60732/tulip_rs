@@ -49,7 +49,7 @@ fn bench_c_ema(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs: Vec<*const f64> = vec![close.as_ptr()];
 
@@ -77,7 +77,7 @@ fn bench_c_ema(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("ema", "C_tulip", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("ema", "C_tulip", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -92,7 +92,7 @@ fn bench_c_ema(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("ema_c");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("C EMA {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("C EMA {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -123,7 +123,7 @@ fn bench_rust_ema(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
             for options in OPTIONS_LIST {
@@ -141,7 +141,7 @@ fn bench_rust_ema(c: &mut Criterion) {
                     &options,
                     close.len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -153,7 +153,7 @@ fn bench_rust_ema(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("ema_rust");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust EMA {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust EMA {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     indicator(&inputs, &options, None).expect("Rust EMA indicator failed");
                 });
@@ -173,7 +173,7 @@ fn bench_rust_ema_from_state(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs = [close.as_slice()];
 
@@ -214,7 +214,7 @@ fn bench_rust_ema_from_state(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar benchmark ---
@@ -241,7 +241,7 @@ fn bench_rust_ema_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
@@ -268,7 +268,7 @@ fn bench_rust_ema_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
                 }
             }
@@ -288,7 +288,7 @@ fn bench_rust_ema_from_state(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("ema_rust_from_state");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust EMA from state {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust EMA from state {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut close_chunks = close_vec[min_data..].chunks_exact(CHUNK_SIZE);
 
@@ -320,7 +320,7 @@ fn bench_rust_ema_from_state(c: &mut Criterion) {
                 let mut group = c.benchmark_group("ema_rust_from_state_1_bar");
                 group.sample_size(SAMPLE_SIZE);
                 group.bench_function(
-                    &format!("Rust EMA from state 1 bar {{ {} }}", options[0]),
+                    format!("Rust EMA from state 1 bar {{ {} }}", options[0]),
                     |b| {
                         b.iter(|| {
                             let result = state
@@ -346,7 +346,7 @@ fn bench_talib_ema(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs: Vec<*const f64> = vec![close.as_ptr()];
 
@@ -372,7 +372,7 @@ fn bench_talib_ema(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("ema", "talib", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("ema", "talib", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -387,7 +387,7 @@ fn bench_talib_ema(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("ema_talib");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("TA-Lib EMA {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("TA-Lib EMA {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -466,7 +466,7 @@ fn bench_rust_ema_simd_by_assets(c: &mut Criterion) {
             let mut group = c.benchmark_group("ema_rust_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust SIMD by assets EMA {{ {} }}", options[0]),
+                format!("Rust SIMD by assets EMA {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
                         let result = indicator_by_assets::<4>(&inputs, &options, None)
@@ -490,7 +490,7 @@ fn bench_rust_ema_simd_by_options(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs = [close.as_slice()];
 
@@ -511,7 +511,7 @@ fn bench_rust_ema_simd_by_options(c: &mut Criterion) {
                 SAMPLE_SIZE,
             );
 
-            log_timing_result("ema", "Rust_SIMD", &[0.0], n, &timing, Some(&stock_symbol));
+            log_timing_result("ema", "Rust_SIMD", &[0.0], n, &timing, Some(stock_symbol));
         }
     } else {
         // Run Criterion benchmark with synthetic data
@@ -538,12 +538,70 @@ fn bench_rust_ema_simd_by_options(c: &mut Criterion) {
     }
 }
 
+/// Benchmark the `ta` crate (RustTa) implementation of EMA.
+fn bench_rust_ta_ema(c: &mut Criterion) {
+    use ta::indicators::ExponentialMovingAverage;
+    use ta::Next;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("ema");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut ema =
+                            ExponentialMovingAverage::new(period).expect("ta EMA new failed");
+                        let mut last = 0.0_f64;
+                        for &price in &close {
+                            last = ema.next(price);
+                        }
+                        black_box(last);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result("ema", "RustTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        // Run Criterion benchmark with synthetic data
+        let close_vec = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("ema_rust_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("RustTa EMA {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut ema = ExponentialMovingAverage::new(period).expect("ta EMA new failed");
+                    let mut last = 0.0_f64;
+                    for &price in &close_vec {
+                        last = ema.next(price);
+                    }
+                    black_box(last);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
     bench_rust_ema_simd_by_options,
     bench_rust_ema_simd_by_assets,
     bench_rust_ema,
+    bench_rust_ta_ema,
     bench_c_ema,
     bench_rust_ema_from_state,
     bench_talib_ema,
@@ -555,6 +613,7 @@ criterion_group!(
     bench_rust_ema_simd_by_options,
     bench_rust_ema_simd_by_assets,
     bench_rust_ema,
+    bench_rust_ta_ema,
     bench_c_ema,
     bench_rust_ema_from_state,
 );

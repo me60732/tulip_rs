@@ -59,7 +59,7 @@ fn bench_c_mass(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let n = high.len();
             let inputs: Vec<*const f64> = vec![high.as_ptr(), low.as_ptr()];
             for options in OPTIONS_LIST {
@@ -84,7 +84,7 @@ fn bench_c_mass(c: &mut Criterion) {
                     },
                     SAMPLE_SIZE,
                 );
-                log_timing_result("mass", "C_tulip", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("mass", "C_tulip", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -95,9 +95,9 @@ fn bench_c_mass(c: &mut Criterion) {
             let start_index = unsafe { ti_mass_start(options.as_ptr()) };
             let output_len = high_vec.len() - (start_index as usize);
 
-            let mut group = c.benchmark_group(&format!("C MASS {{ {:.1} }}", options[0]));
+            let mut group = c.benchmark_group(format!("C MASS {{ {:.1} }}", options[0]));
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("C MASS {{ {:.1} }}", options[0]), |b| {
+            group.bench_function(format!("C MASS {{ {:.1} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -126,7 +126,7 @@ fn bench_rust_mass(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let n = high.len();
             let inputs = [high.as_slice(), low.as_slice()];
 
@@ -140,7 +140,7 @@ fn bench_rust_mass(c: &mut Criterion) {
                     },
                     SAMPLE_SIZE,
                 );
-                log_timing_result("mass", "Rust", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("mass", "Rust", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -148,9 +148,9 @@ fn bench_rust_mass(c: &mut Criterion) {
         let inputs = [high_vec.as_slice(), low_vec.as_slice()];
 
         for options in OPTIONS_LIST {
-            let mut group = c.benchmark_group(&format!("Rust MASS {{ {:.1} }}", options[0]));
+            let mut group = c.benchmark_group(format!("Rust MASS {{ {:.1} }}", options[0]));
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust MASS {{ {:.1} }}", options[0]), |b| {
+            group.bench_function(format!("Rust MASS {{ {:.1} }}", options[0]), |b| {
                 b.iter(|| {
                     let result = indicator(&inputs, &options, None).expect("MASS indicator failed");
                     black_box(&result);
@@ -168,7 +168,7 @@ fn bench_rust_mass_from_state(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let n = high.len();
             let inputs = [high.as_slice(), low.as_slice()];
 
@@ -216,7 +216,7 @@ fn bench_rust_mass_from_state(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar benchmark ---
@@ -250,7 +250,7 @@ fn bench_rust_mass_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
@@ -280,7 +280,7 @@ fn bench_rust_mass_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
                 }
             }
@@ -292,7 +292,7 @@ fn bench_rust_mass_from_state(c: &mut Criterion) {
 
         for options in OPTIONS_LIST {
             let mut group =
-                c.benchmark_group(&format!("Rust MASS from state {{ {:.1} }}", options[0]));
+                c.benchmark_group(format!("Rust MASS from state {{ {:.1} }}", options[0]));
             group.sample_size(SAMPLE_SIZE);
 
             group.bench_function("benchmark", |b| {
@@ -341,7 +341,7 @@ fn bench_rust_mass_from_state(c: &mut Criterion) {
                 let (_, mut state) =
                     indicator(&new_inputs, &options, None).expect("Rust MASS indicator failed");
 
-                let mut group = c.benchmark_group(&format!(
+                let mut group = c.benchmark_group(format!(
                     "Rust MASS from state 1 bar {{ {:.1} }}",
                     options[0]
                 ));
@@ -425,7 +425,7 @@ fn bench_rust_mass_simd_by_assets(c: &mut Criterion) {
             let mut group = c.benchmark_group("mass_rust_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust SIMD by assets MASS {{ {} }}", options[0]),
+                format!("Rust SIMD by assets MASS {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
                         let result = indicator_by_assets::<4>(&inputs, &options, None)
@@ -454,7 +454,7 @@ fn bench_rust_mass_simd_by_options(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let n = high.len();
             let inputs = [high.as_slice(), low.as_slice()];
 
@@ -468,7 +468,7 @@ fn bench_rust_mass_simd_by_options(c: &mut Criterion) {
                 SAMPLE_SIZE,
             );
 
-            log_timing_result("mass", "Rust_SIMD", &[0.0], n, &timing, Some(&stock_symbol));
+            log_timing_result("mass", "Rust_SIMD", &[0.0], n, &timing, Some(stock_symbol));
         }
     } else {
         // Run Criterion benchmark with synthetic data

@@ -88,7 +88,7 @@ fn bench_c_cci(c: &mut Criterion) {
                     &options,
                     high_vec.len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -104,7 +104,7 @@ fn bench_c_cci(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("cci_c");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("C CCI {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("C CCI {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -160,7 +160,7 @@ fn bench_rust_cci(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -176,7 +176,7 @@ fn bench_rust_cci(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("cci_rust");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust CCI {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust CCI {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result =
                         indicator(&inputs, &options, None).expect("Rust CCI indicator failed");
@@ -249,7 +249,7 @@ fn bench_rust_cci_from_state(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar benchmark ---
@@ -284,7 +284,7 @@ fn bench_rust_cci_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
@@ -311,7 +311,7 @@ fn bench_rust_cci_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
                 }
             }
@@ -335,7 +335,7 @@ fn bench_rust_cci_from_state(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("cci_rust_from_state");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust CCI from state {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust CCI from state {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut high_chunks = high_vec[min_data..].chunks_exact(CHUNK_SIZE);
                     let mut low_chunks = low_vec[min_data..].chunks_exact(CHUNK_SIZE);
@@ -383,7 +383,7 @@ fn bench_rust_cci_from_state(c: &mut Criterion) {
                 let mut group = c.benchmark_group("cci_rust_from_state_1_bar");
                 group.sample_size(SAMPLE_SIZE);
                 group.bench_function(
-                    &format!("Rust CCI from state 1 bar {{ {} }}", options[0]),
+                    format!("Rust CCI from state 1 bar {{ {} }}", options[0]),
                     |b| {
                         b.iter(|| {
                             let result = state
@@ -434,7 +434,7 @@ fn bench_rust_cci_optional(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -450,7 +450,7 @@ fn bench_rust_cci_optional(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("cci_rust");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust CCI {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust CCI {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result = indicator(&inputs, &options, Some(&[true, true, true]))
                         .expect("Rust CCI indicator failed");
@@ -500,7 +500,7 @@ fn bench_talib_cci(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("cci", "talib", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("cci", "talib", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -515,7 +515,7 @@ fn bench_talib_cci(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("cci_talib");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("TA-Lib CCI {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("TA-Lib CCI {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -617,7 +617,7 @@ fn bench_rust_cci_simd_by_assets(c: &mut Criterion) {
             let mut group = c.benchmark_group("cci_rust_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust SIMD by assets CCI {{ {} }}", options[0]),
+                format!("Rust SIMD by assets CCI {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
                         let result = indicator_by_assets::<4>(&inputs, &options, None)
@@ -671,7 +671,7 @@ fn bench_rust_cci_simd_by_options(c: &mut Criterion) {
                 &[0.0],
                 high_vec.len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {
@@ -698,6 +698,83 @@ fn bench_rust_cci_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_rust_ta_cci(c: &mut Criterion) {
+    use ta::indicators::CommodityChannelIndex;
+    use ta::{DataItem, Next};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("cci");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let high: Vec<f64> = stock_data.iter().map(|d| d.high).collect();
+            let low: Vec<f64> = stock_data.iter().map(|d| d.low).collect();
+            let close: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut cci =
+                            CommodityChannelIndex::new(period).expect("ta CCI new failed");
+                        let mut last = 0.0_f64;
+                        for i in 0..high.len() {
+                            let h = high[i].max(close[i]);
+                            let l = low[i].min(close[i]);
+                            let item = DataItem::builder()
+                                .high(h)
+                                .low(l)
+                                .close(close[i])
+                                .open(close[i])
+                                .volume(1000.0)
+                                .build()
+                                .expect("DataItem build failed");
+                            last = cci.next(&item);
+                        }
+                        black_box(last);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result("cci", "RustTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("cci_rust_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("RustTa CCI {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut cci = CommodityChannelIndex::new(period).expect("ta CCI new failed");
+                    let mut last = 0.0_f64;
+                    for i in 0..high_vec.len() {
+                        let h = high_vec[i].max(close_vec[i]);
+                        let l = low_vec[i].min(close_vec[i]);
+                        let item = DataItem::builder()
+                            .high(h)
+                            .low(l)
+                            .close(close_vec[i])
+                            .open(close_vec[i])
+                            .volume(1000.0)
+                            .build()
+                            .expect("DataItem build failed");
+                        last = cci.next(&item);
+                    }
+                    black_box(last);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -708,6 +785,7 @@ criterion_group!(
     bench_talib_cci,
     bench_rust_cci_from_state,
     bench_rust_cci_optional,
+    bench_rust_ta_cci,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -719,5 +797,6 @@ criterion_group!(
     bench_c_cci,
     bench_rust_cci_from_state,
     bench_rust_cci_optional,
+    bench_rust_ta_cci,
 );
 criterion_main!(benches);

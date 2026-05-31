@@ -76,7 +76,7 @@ fn bench_c_sma(c: &mut Criterion) {
                     &options,
                     close_vec.len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -92,7 +92,7 @@ fn bench_c_sma(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("sma_c");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("C SMA {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("C SMA {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -141,7 +141,7 @@ fn bench_rust_sma(c: &mut Criterion) {
                     &options,
                     close_vec.len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -153,7 +153,7 @@ fn bench_rust_sma(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("sma_rust");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust SMA {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust SMA {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     indicator(&inputs, &options, None).expect("Rust SMA indicator failed");
                 });
@@ -216,7 +216,7 @@ fn bench_rust_sma_from_state(_c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar benchmark ---
@@ -245,7 +245,7 @@ fn bench_rust_sma_from_state(_c: &mut Criterion) {
                         &options,
                         inputs[0].len(),
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
 
                     let (_, mut state) =
@@ -267,7 +267,7 @@ fn bench_rust_sma_from_state(_c: &mut Criterion) {
                         &options,
                         inputs[0].len(),
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
                 }
             }
@@ -316,7 +316,7 @@ fn bench_talib_sma(c: &mut Criterion) {
                     &options,
                     close_vec.len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -332,7 +332,7 @@ fn bench_talib_sma(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("sma_talib");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("TA-Lib SMA {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("TA-Lib SMA {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -411,7 +411,7 @@ fn bench_rust_sma_simd_by_assets(c: &mut Criterion) {
             let mut group = c.benchmark_group("sma_rust_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust SIMD by assets SMA {{ {} }}", options[0]),
+                format!("Rust SIMD by assets SMA {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
                         let result = indicator_by_assets::<4>(&inputs, &options, None)
@@ -459,7 +459,7 @@ fn bench_rust_sma_simd(c: &mut Criterion) {
                 &[0.0],
                 close_vec.len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {
@@ -480,6 +480,68 @@ fn bench_rust_sma_simd(c: &mut Criterion) {
     }
 }
 
+/// Benchmark the `ta` crate (RustTa) implementation of SMA.
+fn bench_rust_ta_sma(c: &mut Criterion) {
+    use ta::indicators::SimpleMovingAverage;
+    use ta::Next;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("sma");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let close_vec: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut sma = SimpleMovingAverage::new(period).expect("ta SMA new failed");
+                        let mut last = 0.0_f64;
+                        for &price in &close_vec {
+                            last = sma.next(price);
+                        }
+                        black_box(last);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result(
+                    "sma",
+                    "RustTa",
+                    &options,
+                    close_vec.len(),
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        // Run Criterion benchmark with synthetic data
+        let close_vec = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("sma_rust_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("RustTa SMA {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut sma = SimpleMovingAverage::new(period).expect("ta SMA new failed");
+                    let mut last = 0.0_f64;
+                    for &price in &close_vec {
+                        last = sma.next(price);
+                    }
+                    black_box(last);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 //REPLACE WITH TEST FUNCTIONS
 
 #[cfg(feature = "talib")]
@@ -488,6 +550,7 @@ criterion_group!(
     bench_rust_sma_simd,
     bench_rust_sma_simd_by_assets,
     bench_rust_sma,
+    bench_rust_ta_sma,
     bench_c_sma,
     bench_rust_sma_from_state,
     bench_talib_sma,
@@ -499,6 +562,7 @@ criterion_group!(
     bench_rust_sma_simd,
     bench_rust_sma_simd_by_assets,
     bench_rust_sma,
+    bench_rust_ta_sma,
     bench_c_sma,
     bench_rust_sma_from_state,
 );

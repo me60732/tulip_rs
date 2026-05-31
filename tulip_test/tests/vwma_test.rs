@@ -120,7 +120,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (close, volume) = get_close_volume_arrays(&stock_data);
+            let (close, volume) = get_close_volume_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 // C implementation
@@ -206,7 +206,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (close, volume) = get_close_volume_arrays(&stock_data);
+            let (close, volume) = get_close_volume_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 let inputs_rust = [close.as_slice(), volume.as_slice()];
@@ -397,7 +397,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (close, volume) = get_close_volume_arrays(&stock_data);
+            let (close, volume) = get_close_volume_arrays(stock_data);
             let inputs = [close.as_slice(), volume.as_slice()];
 
             // Process first 4 options with 4-wide SIMD
@@ -417,11 +417,11 @@ mod tests {
 
             // Combine SIMD results
             let mut all_simd_results = Vec::new();
-            for i in 0..4 {
-                all_simd_results.push(simd_results_4[i].clone());
+            for result in &simd_results_4 {
+                all_simd_results.push(result.clone());
             }
-            for i in 0..2 {
-                all_simd_results.push(simd_results_2[i].clone());
+            for result in &simd_results_2 {
+                all_simd_results.push(result.clone());
             }
 
             // Compare each SIMD result with regular indicator

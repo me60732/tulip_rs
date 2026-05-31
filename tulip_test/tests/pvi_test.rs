@@ -119,7 +119,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (close, volume) = get_cv_arrays(&stock_data);
+            let (close, volume) = get_cv_arrays(stock_data);
 
             // C implementation
             let inputs_c: Vec<*const f64> = vec![close.as_ptr(), volume.as_ptr()];
@@ -203,7 +203,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (close, volume) = get_cv_arrays(&stock_data);
+            let (close, volume) = get_cv_arrays(stock_data);
             let inputs_rust = [close.as_slice(), volume.as_slice()];
 
             // Get full output

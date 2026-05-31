@@ -186,7 +186,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             /*if stock_symbol == "BHP_ASX" {
                 println!("const HIGH: [f64; 6705] = {:?}\n\nconst LOW: [f64; 6705] = {:?}", high, low);
             }*/
@@ -324,7 +324,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let inputs_rust = [high.as_slice(), low.as_slice()];
 
             for options in OPTIONS_LIST {
@@ -544,7 +544,7 @@ mod tests {
 
                     // Compare values with high precision
                     if !approx_eq!(f64, simd_val, regular_val, epsilon = 1e-12) {
-                        let start = if i < 10 { 0 } else { i - 10 };
+                        let start = i.saturating_sub(10);
                         println!(
                             "simd aroon up results: {:?} \n\nRegular aroon up Results: {:?} \n\n",
                             &simd_aroon_up[start..(i + 10).min(simd_aroon_down.len())],
@@ -575,7 +575,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let inputs = [high.as_slice(), low.as_slice()];
 
             // Process first 4 options with 4-wide SIMD

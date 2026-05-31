@@ -123,7 +123,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, close, volume) = get_hlcv_arrays(&stock_data);
+            let (high, low, close, volume) = get_hlcv_arrays(stock_data);
 
             let options = [];
             // run c code
@@ -214,7 +214,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, close, volume) = get_hlcv_arrays(&stock_data);
+            let (high, low, close, volume) = get_hlcv_arrays(stock_data);
             let inputs_rust = [
                 high.as_slice(),
                 low.as_slice(),

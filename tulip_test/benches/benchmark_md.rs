@@ -76,7 +76,7 @@ fn bench_c_md(c: &mut Criterion) {
                     &options,
                     close_vec.len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -92,7 +92,7 @@ fn bench_c_md(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("md_c");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("C MD {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("C MD {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -143,7 +143,7 @@ fn bench_rust_md(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -155,7 +155,7 @@ fn bench_rust_md(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("md_rust");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust MD {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust MD {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result =
                         indicator(&inputs, &options, None).expect("Rust MD indicator failed");
@@ -175,7 +175,7 @@ fn bench_rust_md_from_state(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs = [close.as_slice()];
 
@@ -214,7 +214,7 @@ fn bench_rust_md_from_state(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar benchmark ---
@@ -241,7 +241,7 @@ fn bench_rust_md_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
@@ -268,7 +268,7 @@ fn bench_rust_md_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
                 }
             }
@@ -280,7 +280,7 @@ fn bench_rust_md_from_state(c: &mut Criterion) {
 
         for options in OPTIONS_LIST {
             let mut group =
-                c.benchmark_group(&format!("Rust MD from state {{ {:.1} }}", options[0]));
+                c.benchmark_group(format!("Rust MD from state {{ {:.1} }}", options[0]));
             group.sample_size(SAMPLE_SIZE);
 
             group.bench_function("benchmark", |b| {
@@ -321,7 +321,7 @@ fn bench_rust_md_from_state(c: &mut Criterion) {
                     indicator(&new_inputs, &options, None).expect("Rust MD indicator failed");
 
                 let mut group =
-                    c.benchmark_group(&format!("Rust MD from state 1 bar {{ {:.1} }}", options[0]));
+                    c.benchmark_group(format!("Rust MD from state 1 bar {{ {:.1} }}", options[0]));
                 group.sample_size(SAMPLE_SIZE);
                 group.bench_function("benchmark", |b| {
                     b.iter(|| {
@@ -392,7 +392,7 @@ fn bench_rust_md_simd_by_assets(c: &mut Criterion) {
             let mut group = c.benchmark_group("md_rust_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust SIMD by assets MD {{ {} }}", options[0]),
+                format!("Rust SIMD by assets MD {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
                         let result = indicator_by_assets::<4>(&inputs, &options, None)
@@ -415,7 +415,7 @@ fn bench_rust_md_optional(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
             for options in OPTIONS_LIST {
@@ -435,7 +435,7 @@ fn bench_rust_md_optional(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -447,7 +447,7 @@ fn bench_rust_md_optional(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("md_rust");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust MD {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust MD {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result = indicator(&inputs, &options, Some(&[true]))
                         .expect("Rust MD indicator failed");
@@ -488,7 +488,7 @@ fn bench_rust_md_simd_by_options(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close_vec = get_close_array(&stock_data);
+            let close_vec = get_close_array(stock_data);
             let inputs = [close_vec.as_slice()];
 
             let mut timing = TimingMeasurements::new();
@@ -514,7 +514,7 @@ fn bench_rust_md_simd_by_options(c: &mut Criterion) {
                 &[0.0],
                 close_vec.len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {
@@ -541,6 +541,63 @@ fn bench_rust_md_simd_by_options(c: &mut Criterion) {
     }
 }
 
+/// Benchmark the `ta` crate (RustTa) implementation of MAD.
+fn bench_rust_ta_mad(c: &mut Criterion) {
+    use ta::indicators::MeanAbsoluteDeviation;
+    use ta::Next;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("md");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut mad =
+                            MeanAbsoluteDeviation::new(period).expect("ta MAD new failed");
+                        let mut last = 0.0_f64;
+                        for &price in &close {
+                            last = mad.next(price);
+                        }
+                        black_box(last);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result("md", "RustTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        // Run Criterion benchmark with synthetic data
+        let close_vec = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("md_rust_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("RustTa MAD {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut mad = MeanAbsoluteDeviation::new(period).expect("ta MAD new failed");
+                    let mut last = 0.0_f64;
+                    for &price in &close_vec {
+                        last = mad.next(price);
+                    }
+                    black_box(last);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     benches,
     bench_rust_md_simd_by_options,
@@ -549,5 +606,6 @@ criterion_group!(
     bench_c_md,
     bench_rust_md_from_state,
     bench_rust_md_optional,
+    bench_rust_ta_mad,
 );
 criterion_main!(benches);

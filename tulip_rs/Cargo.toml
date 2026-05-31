@@ -31,6 +31,7 @@ tulip_rs_shared = { path = "../tulip_rs_shared", version = "0.1.0" }
 
 
 [features]
+#default = []
 default = ["simd_options", "simd_assets"] #, "candle_deep_analysis"]
 portable_simd = []
 simd_options = []

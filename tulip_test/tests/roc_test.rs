@@ -124,7 +124,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for options in OPTIONS_LIST {
                 // run c code
@@ -210,7 +210,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for options in OPTIONS_LIST {
                 let inputs_rust = [close.as_slice()];
@@ -535,7 +535,7 @@ mod tests {
                 continue;
             }
 
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get ROC with mom optional output
@@ -550,7 +550,7 @@ mod tests {
                 let rust_mom = &roc_result[1];
 
                 // Calculate expected mom using C Tulip ti_mom
-                let mom_options = vec![options[0]];
+                let mom_options = [options[0]];
                 let start_index = unsafe { ti_mom_start(mom_options.as_ptr()) };
                 assert!(start_index >= 0, "ti_mom_start returned a negative index");
                 let output_len_c = close.len() - (start_index as usize);
@@ -609,7 +609,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
             // Process first 4 options with 4-wide SIMD
@@ -635,11 +635,11 @@ mod tests {
 
             // Combine SIMD results
             let mut all_simd_results = Vec::new();
-            for i in 0..4 {
-                all_simd_results.push(simd_results_4[i].clone());
+            for result in &simd_results_4 {
+                all_simd_results.push(result.clone());
             }
-            for i in 0..4 {
-                all_simd_results.push(simd_results_4_second[i].clone());
+            for result in &simd_results_4_second {
+                all_simd_results.push(result.clone());
             }
 
             // Compare each SIMD result with regular indicator

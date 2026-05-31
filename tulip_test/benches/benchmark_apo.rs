@@ -40,7 +40,7 @@ fn bench_c_apo(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs: Vec<*const f64> = vec![close.as_ptr()];
 
@@ -68,7 +68,7 @@ fn bench_c_apo(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("apo", "C_tulip", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("apo", "C_tulip", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -84,7 +84,7 @@ fn bench_c_apo(c: &mut Criterion) {
             let mut group = c.benchmark_group("apo_c");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("C APO {{ {}, {} }}", options[0], options[1]),
+                format!("C APO {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let mut output_vec = vec![0.0_f64; output_len];
@@ -117,7 +117,7 @@ fn bench_rust_apo(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs = [close.as_slice()];
 
@@ -132,7 +132,7 @@ fn bench_rust_apo(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("apo", "Rust", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("apo", "Rust", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -144,7 +144,7 @@ fn bench_rust_apo(c: &mut Criterion) {
             let mut group = c.benchmark_group("apo_rust");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust APO {{ {}, {} }}", options[0], options[1]),
+                format!("Rust APO {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let result =
@@ -167,7 +167,7 @@ fn bench_rust_apo_optional(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs = [close.as_slice()];
 
@@ -188,7 +188,7 @@ fn bench_rust_apo_optional(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -201,7 +201,7 @@ fn bench_rust_apo_optional(c: &mut Criterion) {
             let mut group = c.benchmark_group("apo_rust");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust APO {{ {}, {} }}", options[0], options[1]),
+                format!("Rust APO {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let result = indicator(&inputs, &options, Some(&[true, true]))
@@ -225,7 +225,7 @@ fn bench_rust_apo_from_state(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
             for options in OPTIONS_LIST {
@@ -269,7 +269,7 @@ fn bench_rust_apo_from_state(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 let new_inputs = [&close[..close.len() - 1]];
@@ -295,7 +295,7 @@ fn bench_rust_apo_from_state(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 let (_, state) =
@@ -321,7 +321,7 @@ fn bench_rust_apo_from_state(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -334,7 +334,7 @@ fn bench_rust_apo_from_state(c: &mut Criterion) {
             let mut group = c.benchmark_group("apo_rust_from_state");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust APO from state {{ {}, {} }}", options[0], options[1]),
+                format!("Rust APO from state {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let min_data_val = min_data(&options).max(CHUNK_SIZE);
@@ -426,7 +426,7 @@ fn bench_rust_apo_simd_by_assets(c: &mut Criterion) {
             let mut group = c.benchmark_group("apo_rust_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!(
+                format!(
                     "Rust SIMD by assets APO {{ {}, {} }}",
                     options[0], options[1]
                 ),
@@ -455,7 +455,7 @@ fn bench_talib_apo(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs: Vec<*const f64> = vec![close.as_ptr()];
 
@@ -481,7 +481,7 @@ fn bench_talib_apo(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("apo", "talib", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("apo", "talib", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -497,7 +497,7 @@ fn bench_talib_apo(c: &mut Criterion) {
             let mut group = c.benchmark_group("apo_talib");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("TA-Lib APO {{ {}, {} }}", options[0], options[1]),
+                format!("TA-Lib APO {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let mut output_vec = vec![0.0_f64; output_len];
@@ -556,7 +556,7 @@ fn bench_rust_apo_simd_by_options(c: &mut Criterion) {
                 &[0.0, 0.0],
                 close_vec.len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {

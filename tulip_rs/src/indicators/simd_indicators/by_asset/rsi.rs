@@ -10,7 +10,7 @@ use std::simd::Simd;
 
 /// SIMD driver that advances the Relative Strength Index (RSI) across `N` asset lanes per scheduling epoch.
 struct RsiDriver {
-    multiplier: f64,
+    multipliers: (f64, f64),
 }
 
 impl Driver<State> for RsiDriver {
@@ -27,7 +27,10 @@ impl Driver<State> for RsiDriver {
 
         // Optimization 1: Direct array construction instead of collect+try_into
         let mut state = SimdState::new(&states);
-        let multiplier_simd = Simd::splat(self.multiplier);
+        let multipliers_simd = (
+            Simd::splat(self.multipliers.0),
+            Simd::splat(self.multipliers.1),
+        );
         // Optimization 2: Pre-compute all input and output pointers
         let real_ptrs = crate::extract_input_ptrs!(inputs, N, real_ptrs);
 
@@ -40,7 +43,7 @@ impl Driver<State> for RsiDriver {
                 current @ real_ptrs
             );
 
-            let rsi = state.calc_simd(current, multiplier_simd);
+            let rsi = state.calc_simd(current, multipliers_simd);
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, i,
@@ -82,7 +85,7 @@ pub fn indicator_by_assets<const N: usize>(
     //init ema, sliced inputs and multipliers
     let simd_state = SimdState::init_state(&real, period);
     let states = simd_state.to_states();
-    let multiplier = multiplier(period);
+    let multipliers = multiplier(period);
     let mut road_train = PrimeMover::<N, State>::new();
     let mut output_buffers = Vec::with_capacity(N);
 
@@ -119,12 +122,12 @@ pub fn indicator_by_assets<const N: usize>(
         ));
         output_buffers.push(output_buffer);
     }
-    let mut driver = RsiDriver { multiplier };
+    let mut driver = RsiDriver { multipliers };
     let states_vec = road_train.drive(&mut driver);
 
     let mut states = Vec::with_capacity(N);
     for state in states_vec.into_iter() {
-        states.push(IndicatorState::new(state, multiplier));
+        states.push(IndicatorState::new(state, multipliers));
     }
     Ok((output_buffers, states))
 }

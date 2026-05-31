@@ -125,7 +125,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for options in OPTIONS_LIST {
                 // C implementation
@@ -211,7 +211,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for options in OPTIONS_LIST {
                 let inputs_rust = [close.as_slice()];
@@ -870,7 +870,7 @@ mod tests {
                 continue;
             }
 
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get VIDYA with short_sma optional output
@@ -885,7 +885,7 @@ mod tests {
                 let rust_short_sma = &vidya_result[1];
 
                 // Calculate expected short SMA using C Tulip ti_sma
-                let short_sma_options = vec![options[0]]; // short period
+                let short_sma_options = [options[0]]; // short period
                 let start_index = unsafe { ti_sma_start(short_sma_options.as_ptr()) };
                 assert!(start_index >= 0, "ti_sma_start returned a negative index");
                 let output_len_c = close.len() - (start_index as usize);
@@ -948,7 +948,7 @@ mod tests {
                 continue;
             }
 
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get VIDYA with long_sma optional output
@@ -963,7 +963,7 @@ mod tests {
                 let rust_long_sma = &vidya_result[2];
 
                 // Calculate expected long SMA using C Tulip ti_sma
-                let long_sma_options = vec![options[1]]; // long period
+                let long_sma_options = [options[1]]; // long period
                 let start_index = unsafe { ti_sma_start(long_sma_options.as_ptr()) };
                 assert!(start_index >= 0, "ti_sma_start returned a negative index");
                 let output_len_c = close.len() - (start_index as usize);
@@ -1026,7 +1026,7 @@ mod tests {
                 continue;
             }
 
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get VIDYA with short_stddev optional output
@@ -1041,7 +1041,7 @@ mod tests {
                 let rust_short_stddev = &vidya_result[3];
 
                 // Calculate expected short stddev using C Tulip ti_stddev
-                let short_stddev_options = vec![options[0]]; // short period
+                let short_stddev_options = [options[0]]; // short period
                 let start_index = unsafe { ti_stddev_start(short_stddev_options.as_ptr()) };
                 assert!(
                     start_index >= 0,
@@ -1107,7 +1107,7 @@ mod tests {
                 continue;
             }
 
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get VIDYA with long_stddev optional output
@@ -1122,7 +1122,7 @@ mod tests {
                 let rust_long_stddev = &vidya_result[4];
 
                 // Calculate expected long stddev using C Tulip ti_stddev
-                let long_stddev_options = vec![options[1]]; // long period
+                let long_stddev_options = [options[1]]; // long period
                 let start_index = unsafe { ti_stddev_start(long_stddev_options.as_ptr()) };
                 assert!(
                     start_index >= 0,
@@ -1186,7 +1186,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
             // Process first 4 options with 4-wide SIMD
@@ -1280,7 +1280,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
             // Request all optional outputs: short_sma, long_sma, short_stddev, long_stddev

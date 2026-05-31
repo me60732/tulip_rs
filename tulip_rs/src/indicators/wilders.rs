@@ -63,8 +63,8 @@ pub const INFO: Info = Info {
 };
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
-    multipliers: (f64, f64),
-    wilders: f64,
+    pub multipliers: (f64, f64),
+    pub wilders: f64,
 }
 impl IndicatorState {
     pub fn new(wilders: f64, multipliers: (f64, f64)) -> Self {
@@ -217,7 +217,10 @@ pub fn calc(prev_wilders: f64, value: f64, multiplier: f64) -> f64 {
     //prev_wilders * multiplier + value * (1.0 - multiplier)
     prev_wilders.mul_add(multiplier, value * (1.0 - multiplier))
 }
-
+#[inline(always)]
+pub fn calc_full(prev_wilders: f64, value: f64, multipliers: (f64, f64)) -> f64 {
+    prev_wilders.mul_add(multipliers.0, value * multipliers.1)
+}
 /*#[inline(always)]
 pub fn calc1(prev_wilders: f64, value: f64, multipliers: (f64, f64)) -> f64 {
     prev_wilders * multipliers.0+ value * multipliers.1

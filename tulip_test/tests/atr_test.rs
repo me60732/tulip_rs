@@ -129,7 +129,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 // run c code
@@ -215,7 +215,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
 
             for options in OPTIONS_LIST {
@@ -555,10 +555,8 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) =
-                    indicator(&stock_inputs, options, None).expect(&format!(
-                        "Regular ATR failed for {} with period {}",
-                        stock_symbol, options[0]
-                    ));
+                    indicator(&stock_inputs, options, None).unwrap_or_else(|_| panic!("Regular ATR failed for {} with period {}",
+                        stock_symbol, options[0]));
 
                 // Compare SIMD result with regular result
                 assert_eq!(
@@ -645,10 +643,8 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) = indicator(&stock_inputs, options, optional_outputs)
-                    .expect(&format!(
-                        "Regular ATR with optional outputs failed for {} with period {}",
-                        stock_symbol, options[0]
-                    ));
+                    .unwrap_or_else(|_| panic!("Regular ATR with optional outputs failed for {} with period {}",
+                        stock_symbol, options[0]));
 
                 // Compare number of outputs (should be 2: ATR and TR)
                 assert_eq!(
@@ -720,7 +716,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
             // Process all 4 options with 4-wide SIMD
@@ -795,7 +791,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
             // Test with TR optional output

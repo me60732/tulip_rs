@@ -96,7 +96,7 @@ fn bench_c_adosc(c: &mut Criterion) {
                     &options,
                     high_vec.len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -118,7 +118,7 @@ fn bench_c_adosc(c: &mut Criterion) {
             let mut group = c.benchmark_group("adosc_c");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("C ADOSC {{ {}, {} }}", options[0], options[1]),
+                format!("C ADOSC {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let mut output_vec = vec![0.0_f64; output_len];
@@ -178,7 +178,7 @@ fn bench_rust_adosc(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -196,7 +196,7 @@ fn bench_rust_adosc(c: &mut Criterion) {
             let mut group = c.benchmark_group("adosc_rust");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust ADOSC {{ {}, {} }}", options[0], options[1]),
+                format!("Rust ADOSC {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let result = indicator(&inputs, &options, None)
@@ -247,7 +247,7 @@ fn bench_rust_adosc_optional(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -265,7 +265,7 @@ fn bench_rust_adosc_optional(c: &mut Criterion) {
             let mut group = c.benchmark_group("adosc_rust");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust ADOSC {{ {}, {} }}", options[0], options[1]),
+                format!("Rust ADOSC {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let result = indicator(&inputs, &options, Some(&[true, true, true]))
@@ -365,7 +365,7 @@ fn bench_rust_adosc_from_state(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 let (_, mut state) =
@@ -388,7 +388,7 @@ fn bench_rust_adosc_from_state(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 let (_, state) =
@@ -414,7 +414,7 @@ fn bench_rust_adosc_from_state(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -427,7 +427,7 @@ fn bench_rust_adosc_from_state(c: &mut Criterion) {
             let mut group = c.benchmark_group("adosc_rust_from_state");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust ADOSC from state {{ {}, {} }}", options[0], options[1]),
+                format!("Rust ADOSC from state {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let min_data_val = min_data(&options).max(CHUNK_SIZE);
@@ -567,7 +567,7 @@ fn bench_rust_adosc_simd_by_assets(c: &mut Criterion) {
             let mut group = c.benchmark_group("adosc_rust_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!(
+                format!(
                     "Rust SIMD by assets ADOSC {{ {}, {} }}",
                     options[0], options[1]
                 ),
@@ -626,7 +626,7 @@ fn bench_talib_adosc(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("adosc", "talib", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("adosc", "talib", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -647,7 +647,7 @@ fn bench_talib_adosc(c: &mut Criterion) {
             let mut group = c.benchmark_group("adosc_talib");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("TA-Lib ADOSC {{ {}, {} }}", options[0], options[1]),
+                format!("TA-Lib ADOSC {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let mut output_vec = vec![0.0_f64; output_len];
@@ -714,7 +714,7 @@ fn bench_rust_adosc_simd_by_options(c: &mut Criterion) {
                 &[0.0, 0.0],
                 high_vec.len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {

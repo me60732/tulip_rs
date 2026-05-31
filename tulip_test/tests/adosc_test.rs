@@ -140,7 +140,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, close, volume) = get_hlcv_arrays(&stock_data);
+            let (high, low, close, volume) = get_hlcv_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 // C implementation
@@ -232,7 +232,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, close, volume) = get_hlcv_arrays(&stock_data);
+            let (high, low, close, volume) = get_hlcv_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 let inputs_rust = [
@@ -350,7 +350,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close, volume) = get_hlcv_arrays(&stock_data);
+            let (high, low, close, volume) = get_hlcv_arrays(stock_data);
             let inputs = [
                 high.as_slice(),
                 low.as_slice(),
@@ -435,7 +435,7 @@ mod tests {
         let optional_outputs = &[true, true, true];
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close, volume) = get_hlcv_arrays(&stock_data);
+            let (high, low, close, volume) = get_hlcv_arrays(stock_data);
             let inputs = [
                 high.as_slice(),
                 low.as_slice(),
@@ -1093,7 +1093,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close, volume) = get_hlcv_arrays(&stock_data);
+            let (high, low, close, volume) = get_hlcv_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 println!(
@@ -1123,7 +1123,7 @@ mod tests {
 
                 // Get C Tulip AD output for comparison
                 let ad_inputs_c =
-                    vec![high.as_ptr(), low.as_ptr(), close.as_ptr(), volume.as_ptr()];
+                    [high.as_ptr(), low.as_ptr(), close.as_ptr(), volume.as_ptr()];
                 let ad_start_index = unsafe { ti_ad_start(std::ptr::null()) };
                 let ad_output_len = high.len() - (ad_start_index as usize);
                 let mut c_ad = vec![0.0; ad_output_len];

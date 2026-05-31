@@ -115,7 +115,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for options in OPTIONS_LIST {
                 // run c code
@@ -201,7 +201,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for options in OPTIONS_LIST {
                 let inputs_rust = [close.as_slice()];
@@ -293,8 +293,8 @@ mod tests {
                 rust_cmo(&inputs_rust, &options, None).expect("Regular CMO indicator failed");
 
             // Compare each SIMD asset output with regular output
-            for asset_idx in 0..4 {
-                let simd_output = &simd_outputs[asset_idx][0];
+            for (asset_idx, simd_output_data) in simd_outputs.iter().enumerate() {
+                let simd_output = &simd_output_data[0];
                 let regular_output = &regular_outputs[0];
 
                 assert_eq!(
@@ -342,7 +342,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         // Group stocks in sets of 4
-        let stock_data: Vec<_> = data.into_iter().collect();
+        let stock_data: Vec<_> = data.iter().collect();
         let chunks: Vec<_> = stock_data.chunks(4).collect();
 
         for chunk in chunks {
@@ -431,7 +431,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
             // Process all 4 options with 4-wide SIMD

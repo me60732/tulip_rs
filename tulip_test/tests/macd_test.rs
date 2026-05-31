@@ -197,7 +197,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for options in OPTIONS_LIST {
                 // C implementation
@@ -359,7 +359,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs_rust = [close.as_slice()];
 
             for options in OPTIONS_LIST {
@@ -805,7 +805,7 @@ mod tests {
                 continue;
             }
 
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get MACD with short_ema optional output
@@ -820,7 +820,7 @@ mod tests {
                 let rust_short_ema = &macd_result[3];
 
                 // Calculate expected short EMA using C Tulip ti_ema
-                let short_ema_options = vec![options[0]]; // short period
+                let short_ema_options = [options[0]]; // short period
                 let start_index = unsafe { ti_ema_start(short_ema_options.as_ptr()) };
                 assert!(start_index >= 0, "ti_ema_start returned a negative index");
                 let output_len_c = close.len() - (start_index as usize);
@@ -885,7 +885,7 @@ mod tests {
                 continue;
             }
 
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get MACD with long_ema optional output
@@ -900,7 +900,7 @@ mod tests {
                 let rust_long_ema = &macd_result[4];
 
                 // Calculate expected long EMA using C Tulip ti_ema
-                let long_ema_options = vec![options[1]]; // long period
+                let long_ema_options = [options[1]]; // long period
                 let start_index = unsafe { ti_ema_start(long_ema_options.as_ptr()) };
                 assert!(start_index >= 0, "ti_ema_start returned a negative index");
                 let output_len_c = close.len() - (start_index as usize);
@@ -962,7 +962,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
             // Process first 4 options with 4-wide SIMD
@@ -984,13 +984,13 @@ mod tests {
             let mut all_simd_results = Vec::new();
 
             // Add 4-wide results
-            for i in 0..4 {
-                all_simd_results.push(simd_results_4[i].clone());
+            for result in &simd_results_4 {
+                all_simd_results.push(result.clone());
             }
 
             // Add 2-wide results
-            for i in 0..2 {
-                all_simd_results.push(simd_results_2[i].clone());
+            for result in &simd_results_2 {
+                all_simd_results.push(result.clone());
             }
 
             // Compare each SIMD result with regular indicator
@@ -1065,7 +1065,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
             // Test with all optional outputs: short_ema, long_ema
@@ -1092,13 +1092,13 @@ mod tests {
             let mut all_simd_results = Vec::new();
 
             // Add 4-wide results
-            for i in 0..4 {
-                all_simd_results.push(simd_results_4[i].clone());
+            for result in &simd_results_4 {
+                all_simd_results.push(result.clone());
             }
 
             // Add 2-wide results
-            for i in 0..2 {
-                all_simd_results.push(simd_results_2[i].clone());
+            for result in &simd_results_2 {
+                all_simd_results.push(result.clone());
             }
 
             // Compare each SIMD result with regular indicator

@@ -192,7 +192,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 // C implementation
@@ -302,7 +302,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
@@ -472,7 +472,7 @@ mod tests {
 
                     // Compare values
                     if !approx_eq!(f64, simd_val, regular_val, epsilon = 1e-10) {
-                        let start = if value_idx < 10 { 0 } else { value_idx - 10 };
+                        let start = value_idx.saturating_sub(10);
                         println!(
                             "SIMD STOCH %K results: {:?} \n\nRegular STOCH %K Results: {:?} \n\n",
                             &simd_k_result[start..(value_idx + 10).min(simd_k_result.len())],
@@ -508,7 +508,7 @@ mod tests {
 
                     // Compare values
                     if !approx_eq!(f64, simd_val, regular_val, epsilon = 1e-10) {
-                        let start = if value_idx < 10 { 0 } else { value_idx - 10 };
+                        let start = value_idx.saturating_sub(10);
                         println!(
                             "SIMD STOCH %D results: {:?} \n\nRegular STOCH %D Results: {:?} \n\n",
                             &simd_d_result[start..(value_idx + 10).min(simd_d_result.len())],
@@ -534,7 +534,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
             // Process all 8 options with 8-lane SIMD
@@ -608,7 +608,7 @@ mod tests {
 
                     // Compare values
                     if !approx_eq!(f64, simd_val, regular_val, epsilon = 1e-10) {
-                        let start = if value_idx < 10 { 0 } else { value_idx - 10 };
+                        let start = value_idx.saturating_sub(10);
                         println!(
                             "SIMD STOCH %K results: {:?} \n\nRegular STOCH %K Results: {:?} \n\n",
                             &simd_k_result[start..(value_idx + 10).min(simd_k_result.len())],
@@ -644,7 +644,7 @@ mod tests {
 
                     // Compare values
                     if !approx_eq!(f64, simd_val, regular_val, epsilon = 1e-10) {
-                        let start = if value_idx < 10 { 0 } else { value_idx - 10 };
+                        let start = value_idx.saturating_sub(10);
                         println!(
                             "SIMD STOCH %D results: {:?} \n\nRegular STOCH %D Results: {:?} \n\n",
                             &simd_d_result[start..(value_idx + 10).min(simd_d_result.len())],

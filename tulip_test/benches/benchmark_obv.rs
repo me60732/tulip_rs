@@ -48,7 +48,7 @@ fn bench_rust_obv(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (close, volume) = get_cv_arrays(&stock_data);
+            let (close, volume) = get_cv_arrays(stock_data);
             let n = close.len();
             let inputs = [close.as_slice(), volume.as_slice()];
             let mut timing = TimingMeasurements::new();
@@ -59,7 +59,7 @@ fn bench_rust_obv(c: &mut Criterion) {
                 },
                 SAMPLE_SIZE,
             );
-            log_timing_result("obv", "Rust", &[], n, &timing, Some(&stock_symbol));
+            log_timing_result("obv", "Rust", &[], n, &timing, Some(stock_symbol));
         }
     } else {
         let (close_vec, volume_vec) = expand_inputs();
@@ -84,7 +84,7 @@ fn bench_rust_obv_from_state(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (close, volume) = get_cv_arrays(&stock_data);
+            let (close, volume) = get_cv_arrays(stock_data);
             let n = close.len();
             let _inputs = [&close, &volume];
 
@@ -129,7 +129,7 @@ fn bench_rust_obv_from_state(c: &mut Criterion) {
                 &[],
                 n,
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
 
             // --- Rust_FromState_1_Bar benchmark ---
@@ -163,7 +163,7 @@ fn bench_rust_obv_from_state(c: &mut Criterion) {
                     &[],
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar_json benchmark ---
@@ -193,7 +193,7 @@ fn bench_rust_obv_from_state(c: &mut Criterion) {
                     &[],
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -274,7 +274,7 @@ fn bench_c_obv(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (close, volume) = get_cv_arrays(&stock_data);
+            let (close, volume) = get_cv_arrays(stock_data);
             let n = close.len();
             let inputs: Vec<*const f64> = vec![close.as_ptr(), volume.as_ptr()];
             let mut timing = TimingMeasurements::new();
@@ -298,7 +298,7 @@ fn bench_c_obv(c: &mut Criterion) {
                 },
                 SAMPLE_SIZE,
             );
-            log_timing_result("obv", "C_tulip", &[], n, &timing, Some(&stock_symbol));
+            log_timing_result("obv", "C_tulip", &[], n, &timing, Some(stock_symbol));
         }
     } else {
         let (close_vec, volume_vec) = expand_inputs();
@@ -340,7 +340,7 @@ fn bench_talib_obv(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (close, volume) = get_cv_arrays(&stock_data);
+            let (close, volume) = get_cv_arrays(stock_data);
             let n = close.len();
             let inputs: Vec<*const f64> = vec![close.as_ptr(), volume.as_ptr()];
 
@@ -365,7 +365,7 @@ fn bench_talib_obv(c: &mut Criterion) {
                 SAMPLE_SIZE,
             );
 
-            log_timing_result("obv", "talib", &[], n, &timing, Some(&stock_symbol));
+            log_timing_result("obv", "talib", &[], n, &timing, Some(stock_symbol));
         }
     } else {
         // Run Criterion benchmark with synthetic data
@@ -467,6 +467,70 @@ fn bench_rust_obv_simd_by_assets(c: &mut Criterion) {
     }
 }
 
+fn bench_rust_ta_obv(c: &mut Criterion) {
+    use ta::indicators::OnBalanceVolume;
+    use ta::{DataItem, Next};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("obv");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (close, volume) = get_cv_arrays(stock_data);
+            let n = close.len();
+
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let mut obv = OnBalanceVolume::new();
+                    let mut last = 0.0_f64;
+                    for i in 0..close.len() {
+                        let item = DataItem::builder()
+                            .high(close[i])
+                            .low(close[i])
+                            .close(close[i])
+                            .open(close[i])
+                            .volume(volume[i])
+                            .build()
+                            .expect("DataItem build failed");
+                        last = obv.next(&item);
+                    }
+                    black_box(last);
+                },
+                SAMPLE_SIZE,
+            );
+
+            log_timing_result("obv", "RustTa", &[], n, &timing, Some(stock_symbol));
+        }
+    } else {
+        let (close_vec, volume_vec) = expand_inputs();
+
+        let mut group = c.benchmark_group("obv_rust_ta");
+        group.sample_size(SAMPLE_SIZE);
+        group.bench_function("RustTa OBV", |b| {
+            b.iter(|| {
+                let mut obv = OnBalanceVolume::new();
+                let mut last = 0.0_f64;
+                for i in 0..close_vec.len() {
+                    let item = DataItem::builder()
+                        .high(close_vec[i])
+                        .low(close_vec[i])
+                        .close(close_vec[i])
+                        .open(close_vec[i])
+                        .volume(volume_vec[i])
+                        .build()
+                        .expect("DataItem build failed");
+                    last = obv.next(&item);
+                }
+                black_box(last);
+            });
+        });
+        group.finish();
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -474,7 +538,8 @@ criterion_group!(
     bench_rust_obv,
     bench_rust_obv_from_state,
     bench_c_obv,
-    bench_talib_obv
+    bench_talib_obv,
+    bench_rust_ta_obv,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -484,5 +549,6 @@ criterion_group!(
     bench_rust_obv,
     bench_rust_obv_from_state,
     bench_c_obv,
+    bench_rust_ta_obv,
 );
 criterion_main!(benches);

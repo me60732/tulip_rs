@@ -115,7 +115,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for options in OPTIONS_LIST {
                 // run c code
@@ -202,7 +202,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for options in OPTIONS_LIST {
                 let inputs_rust = [close.as_slice()];
@@ -344,7 +344,7 @@ mod tests {
 
                     // Compare values
                     if !approx_eq!(f64, simd_val, regular_val, epsilon = 1e-12) {
-                        let start = if value_idx < 10 { 0 } else { value_idx - 10 };
+                        let start = value_idx.saturating_sub(10);
                         println!(
                             "simd VHF results: {:?} \n\nRegular VHF Results: {:?} \n\n",
                             &simd_result[start..(value_idx + 10).min(simd_result.len())], //[..10.min(simd_aroon_down.len())],
@@ -368,7 +368,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
             // Process first 4 options with SIMD
@@ -439,7 +439,7 @@ mod tests {
 
                     // Compare values
                     if !approx_eq!(f64, simd_val, regular_val, epsilon = 1e-12) {
-                        let start = if value_idx < 10 { 0 } else { value_idx - 10 };
+                        let start = value_idx.saturating_sub(10);
                         println!(
                             "SIMD VHF results: {:?} \n\nRegular VHF Results: {:?} \n\n",
                             &simd_result[start..(value_idx + 10).min(simd_result.len())],

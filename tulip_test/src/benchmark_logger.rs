@@ -192,7 +192,7 @@ impl BenchmarkLogger {
 // Helper functions
 fn get_rust_version() -> String {
     std::process::Command::new("rustc")
-        .args(&["--version"])
+        .args(["--version"])
         .output()
         .ok()
         .and_then(|output| String::from_utf8(output.stdout).ok())

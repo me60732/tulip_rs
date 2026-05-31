@@ -11,24 +11,28 @@ use std::simd::Simd;
 /// SIMD driver for the Relative Strength Index (RSI) indicator, processing `N` option-set lanes per scheduling epoch.
 struct RsiDriver;
 
-impl Driver<State, f64> for RsiDriver {
+impl Driver<State, (f64, f64)> for RsiDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
         mut states: Vec<&mut State>,
-        options: Vec<Option<&f64>>,
+        options: Vec<Option<&(f64, f64)>>,
     ) {
         let len = outputs[0][0].len();
         let multiplier_simd = {
-            let mut multipliers = [0.0; N];
+            let mut multipliers = ([0.0; N], [0.0; N]);
             for (lane, option) in options.iter().enumerate() {
                 if let Some(&multiplier) = option {
-                    multipliers[lane] = multiplier;
+                    multipliers.0[lane] = multiplier.0;
+                    multipliers.1[lane] = multiplier.1;
                 }
             }
-            Simd::from_array(multipliers)
+            (
+                Simd::from_array(multipliers.0),
+                Simd::from_array(multipliers.1),
+            )
         };
 
         // Optimization 1: Direct array construction instead of collect+try_into
@@ -79,9 +83,9 @@ pub fn indicator_by_options<const N: usize>(
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
     validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
     validate_options(options, None)?;
-    let params: [f64; N] = std::array::from_fn(|i| multiplier(options[i][0] as usize));
+    let params: [(f64, f64); N] = std::array::from_fn(|i| multiplier(options[i][0] as usize));
 
-    let mut road_train = PrimeMover::<N, State, f64>::new();
+    let mut road_train = PrimeMover::<N, State, (f64, f64)>::new();
     let mut output_buffers = Vec::with_capacity(N);
 
     for (i, &option) in options.iter().enumerate() {

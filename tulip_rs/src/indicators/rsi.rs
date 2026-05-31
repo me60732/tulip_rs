@@ -1,7 +1,8 @@
 use crate::common::{min_process, validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 pub(crate) use crate::indicators::cmo::up_down;
-pub use crate::indicators::sma::multiplier;
+pub use crate::indicators::wilders::multiplier;
+use crate::indicators::wilders::calc_full as calc_wilders;
 use crate::types::{
     DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
 };
@@ -69,11 +70,11 @@ pub const INFO: Info = Info {
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     state: State,
-    multiplier: f64,
+    multipliers: (f64, f64),
 }
 impl IndicatorState {
-    pub fn new(state: State, multiplier: f64) -> Self {
-        Self { state, multiplier }
+    pub fn new(state: State, multipliers: (f64, f64)) -> Self {
+        Self { state, multipliers }
     }
 }
 impl TIndicatorState<1> for IndicatorState {
@@ -85,12 +86,12 @@ impl TIndicatorState<1> for IndicatorState {
         validate_inputs(inputs, 1)?;
 
         let mut rsi_line = crate::uninit_vec!(f64, inputs[0].len());
-
-        cycle_rsi(inputs[0], self.multiplier, &mut rsi_line, &mut self.state);
+        cycle_rsi(inputs[0], self.multipliers, &mut rsi_line, &mut self.state);
 
         Ok(vec![rsi_line])
     }
 }
+
 #[derive(Serialize, Deserialize)]
 pub struct State {
     pub up_sum: f64,
@@ -123,6 +124,17 @@ impl State {
             prev_real: real[period],
         }
     }
+    #[inline(always)]
+    pub fn calc(&mut self, cur_real: f64, multipliers: (f64, f64)) -> f64 {
+        let (up, down) = up_down(cur_real, self.prev_real);
+
+        self.up_sum = calc_wilders(self.up_sum, up, multipliers);
+        self.down_sum = calc_wilders(self.down_sum, down, multipliers);
+        
+        self.prev_real = cur_real;
+
+        100.0 * (self.up_sum / (self.up_sum + self.down_sum))
+    }
 }
 /// Returns the minimum number of input bars required to produce results
 /// accurate to `decimals` decimal places.
@@ -144,7 +156,7 @@ pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
     min_process(
         options,
         Some((decimals, 0)),
-        &[multiplier(options[0] as usize)],
+        &[multiplier(options[0] as usize).0],
         IndicatorInfoOrInteger::Info(INFO),
         min_data,
     )
@@ -206,8 +218,8 @@ pub fn indicator(
 ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
     validate_options(options)?;
     let period = options[0] as usize;
-    let multiplier = multiplier(period);
-
+    let multipliers = multiplier(period);
+    
     validate_inputs(inputs, min_data(options))?;
     let mut rsi_line = {
         let capacity = output_length(inputs[0].len(), options);
@@ -218,12 +230,12 @@ pub fn indicator(
 
     cycle_rsi(
         &inputs[0][period + 1..],
-        multiplier,
+        multipliers,
         &mut rsi_line,
         &mut state,
     );
 
-    Ok((vec![rsi_line], IndicatorState { multiplier, state }))
+    Ok((vec![rsi_line], IndicatorState { multipliers, state }))
 }
 
 /// Performs the main calculation loop for the RSI indicator.
@@ -234,22 +246,9 @@ pub fn indicator(
 /// * `multiplier` - The smoothing multiplier for the RSI calculation.
 /// * `rsi_line` - A mutable slice for storing the RSI output values.
 /// * `state` - A mutable reference to the current RSI `State`.
-fn cycle_rsi(real: &[f64], multiplier: f64, rsi_line: &mut [f64], state: &mut State) {
+fn cycle_rsi(real: &[f64], multipliers: (f64, f64), rsi_line: &mut [f64], state: &mut State) {
     for i in 0..real.len() {
-        unsafe { *rsi_line.get_unchecked_mut(i) = calc(state, *real.get_unchecked(i), multiplier) };
+        unsafe { *rsi_line.get_unchecked_mut(i) = state.calc(*real.get_unchecked(i), multipliers) };
     }
 }
-#[inline(always)]
-pub fn calc(state: &mut State, cur_real: f64, multiplier: f64) -> f64 {
-    let (mut up_sum, mut down_sum) = (state.up_sum, state.down_sum);
-    let (up, down) = up_down(cur_real, state.prev_real);
 
-    //up_sum = (up - up_sum) * multiplier + up_sum;
-    up_sum = (up - up_sum).mul_add(multiplier, up_sum);
-    //down_sum = (down - down_sum) * multiplier + down_sum;
-    down_sum = (down - down_sum).mul_add(multiplier, down_sum);
-
-    (state.up_sum, state.down_sum, state.prev_real) = (up_sum, down_sum, cur_real);
-
-    100.0 * (up_sum / (up_sum + down_sum))
-}

@@ -43,7 +43,7 @@ fn bench_c_stddev(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs: Vec<*const f64> = vec![close.as_ptr()];
 
@@ -80,7 +80,7 @@ fn bench_c_stddev(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -99,7 +99,7 @@ fn bench_c_stddev(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("stddev_c");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("C STDDEV {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("C STDDEV {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -130,7 +130,7 @@ fn bench_rust_stddev(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs = [close.as_slice()];
 
@@ -145,7 +145,7 @@ fn bench_rust_stddev(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("stddev", "Rust", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("stddev", "Rust", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -156,7 +156,7 @@ fn bench_rust_stddev(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("stddev_rust");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust STDDEV {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust STDDEV {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result =
                         indicator(&inputs, &options, None).expect("Rust STDDEV indicator failed");
@@ -178,7 +178,7 @@ fn bench_rust_stddev_from_state(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs = [close.as_slice()];
 
@@ -218,7 +218,7 @@ fn bench_rust_stddev_from_state(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar benchmark ---
@@ -246,7 +246,7 @@ fn bench_rust_stddev_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
@@ -273,7 +273,7 @@ fn bench_rust_stddev_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
                 }
             }
@@ -294,7 +294,7 @@ fn bench_rust_stddev_from_state(c: &mut Criterion) {
             let mut group = c.benchmark_group("stddev_rust_from_state");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust STDDEV from state {{ {} }}", options[0]),
+                format!("Rust STDDEV from state {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
                         let mut close_chunks = close_vec[min_data..].chunks_exact(CHUNK_SIZE);
@@ -327,7 +327,7 @@ fn bench_rust_stddev_from_state(c: &mut Criterion) {
                 let mut group = c.benchmark_group("stddev_rust_from_state_1_bar");
                 group.sample_size(SAMPLE_SIZE);
                 group.bench_function(
-                    &format!("Rust STDDEV from state 1 bar {{ {} }}", options[0]),
+                    format!("Rust STDDEV from state 1 bar {{ {} }}", options[0]),
                     |b| {
                         b.iter(|| {
                             let result = state
@@ -398,7 +398,7 @@ fn bench_rust_stddev_simd_by_assets(c: &mut Criterion) {
             let mut group = c.benchmark_group("stddev_rust_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust SIMD by assets STDDEV {{ {} }}", options[0]),
+                format!("Rust SIMD by assets STDDEV {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
                         let result = indicator_by_assets::<4>(&inputs, &options, None)
@@ -421,7 +421,7 @@ fn bench_rust_stddev_optional(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs = [close.as_slice()];
 
@@ -442,7 +442,7 @@ fn bench_rust_stddev_optional(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -454,7 +454,7 @@ fn bench_rust_stddev_optional(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("stddev_rust");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust STDDEV {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust STDDEV {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result = indicator(&inputs, &options, Some(&[true]))
                         .expect("Rust STDDEV indicator failed");
@@ -481,7 +481,7 @@ fn bench_rust_stddev_simd_by_options(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close_vec = get_close_array(&stock_data);
+            let close_vec = get_close_array(stock_data);
             let inputs = [close_vec.as_slice()];
 
             let mut timing = TimingMeasurements::new();
@@ -501,7 +501,7 @@ fn bench_rust_stddev_simd_by_options(c: &mut Criterion) {
                 &[0.0],
                 close_vec.len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {
@@ -524,6 +524,70 @@ fn bench_rust_stddev_simd_by_options(c: &mut Criterion) {
     }
 }
 
+/// Benchmark the `ta` crate (RustTa) implementation of STDDEV.
+fn bench_rust_ta_stddev(c: &mut Criterion) {
+    use ta::indicators::StandardDeviation;
+    use ta::Next;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("stddev");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut stddev =
+                            StandardDeviation::new(period).expect("ta STDDEV new failed");
+                        let mut last = 0.0_f64;
+                        for &price in &close {
+                            last = stddev.next(price);
+                        }
+                        black_box(last);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result(
+                    "stddev",
+                    "RustTa",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        // Run Criterion benchmark with synthetic data
+        let close_vec = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("stddev_rust_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("RustTa STDDEV {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut stddev = StandardDeviation::new(period).expect("ta STDDEV new failed");
+                    let mut last = 0.0_f64;
+                    for &price in &close_vec {
+                        last = stddev.next(price);
+                    }
+                    black_box(last);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     benches,
     bench_rust_stddev_simd_by_assets,
@@ -532,5 +596,6 @@ criterion_group!(
     bench_c_stddev,
     bench_rust_stddev_from_state,
     bench_rust_stddev_optional,
+    bench_rust_ta_stddev,
 );
 criterion_main!(benches);

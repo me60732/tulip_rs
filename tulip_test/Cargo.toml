@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 build = "build.rs"
 
+[lints.clippy]
+type_complexity = "allow"
+
 [build-dependencies]
 cc = "1.0"
 
@@ -23,6 +26,7 @@ num_cpus = "1.0"
 gethostname = "0.4"
 criterion = { version = "0.4.0", features = ["html_reports"] }
 bincode = { version = "2.0.1", features = ["serde"] }
+ta = "0.5"
 
 [features]
 default = []

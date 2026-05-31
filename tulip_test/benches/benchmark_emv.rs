@@ -60,7 +60,7 @@ fn bench_c_emv(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, volume) = get_hlv_arrays(&stock_data);
+            let (high, low, volume) = get_hlv_arrays(stock_data);
             let n = high.len();
             let inputs: Vec<*const f64> = vec![high.as_ptr(), low.as_ptr(), volume.as_ptr()];
 
@@ -90,7 +90,7 @@ fn bench_c_emv(c: &mut Criterion) {
                 &OPTIONS_LIST,
                 n,
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {
@@ -129,7 +129,7 @@ fn bench_rust_emv(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, volume) = get_hlv_arrays(&stock_data);
+            let (high, low, volume) = get_hlv_arrays(stock_data);
             let n = high.len();
             let inputs = [high.as_slice(), low.as_slice(), volume.as_slice()];
 
@@ -148,7 +148,7 @@ fn bench_rust_emv(c: &mut Criterion) {
                 &OPTIONS_LIST,
                 n,
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {
@@ -175,7 +175,7 @@ fn bench_rust_emv_from_state(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, volume) = get_hlv_arrays(&stock_data);
+            let (high, low, volume) = get_hlv_arrays(stock_data);
             let n = high.len();
             let inputs = [high.as_slice(), low.as_slice(), volume.as_slice()];
 
@@ -223,7 +223,7 @@ fn bench_rust_emv_from_state(c: &mut Criterion) {
                 &OPTIONS_LIST,
                 n,
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
 
             // --- Rust_FromState_1_Bar benchmark ---
@@ -258,7 +258,7 @@ fn bench_rust_emv_from_state(c: &mut Criterion) {
                     &OPTIONS_LIST,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar_json benchmark ---
@@ -284,7 +284,7 @@ fn bench_rust_emv_from_state(c: &mut Criterion) {
                     &OPTIONS_LIST,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -428,7 +428,7 @@ fn bench_rust_emv_optional(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, volume) = get_hlv_arrays(&stock_data);
+            let (high, low, volume) = get_hlv_arrays(stock_data);
             let n = high.len();
             let inputs = [high.as_slice(), low.as_slice(), volume.as_slice()];
 
@@ -448,7 +448,7 @@ fn bench_rust_emv_optional(c: &mut Criterion) {
                 &OPTIONS_LIST,
                 n,
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {

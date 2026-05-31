@@ -138,7 +138,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 // C implementation
@@ -224,7 +224,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
@@ -500,7 +500,7 @@ mod tests {
                 continue;
             }
 
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get DX with ATR optional output
@@ -515,7 +515,7 @@ mod tests {
                 let rust_atr = &dx_result[1];
 
                 // Calculate expected ATR using C Tulip ti_atr
-                let atr_options = vec![options[0]];
+                let atr_options = [options[0]];
                 let start_index = unsafe { ti_atr_start(atr_options.as_ptr()) };
                 assert!(start_index >= 0, "ti_atr_start returned a negative index");
                 let output_len_c = high.len() - (start_index as usize);
@@ -578,7 +578,7 @@ mod tests {
                 continue;
             }
 
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get DX with TR optional output
@@ -701,10 +701,8 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_outputs, _) = rust_dx(&stock_inputs, options, None).expect(&format!(
-                    "Regular DX failed for {} with period {}",
-                    stock_symbol, options[0]
-                ));
+                let (regular_outputs, _) = rust_dx(&stock_inputs, options, None).unwrap_or_else(|_| panic!("Regular DX failed for {} with period {}",
+                    stock_symbol, options[0]));
 
                 // Compare SIMD result with regular result
                 assert_eq!(
@@ -791,10 +789,8 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) = rust_dx(&stock_inputs, options, optional_outputs)
-                    .expect(&format!(
-                        "Regular DX with optional ATR failed for {} with period {}",
-                        stock_symbol, options[0]
-                    ));
+                    .unwrap_or_else(|_| panic!("Regular DX with optional ATR failed for {} with period {}",
+                        stock_symbol, options[0]));
 
                 // Compare number of outputs (should be 2: dx, atr)
                 assert_eq!(
@@ -916,10 +912,8 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) = rust_dx(&stock_inputs, options, optional_outputs)
-                    .expect(&format!(
-                        "Regular DX with optional TR failed for {} with period {}",
-                        stock_symbol, options[0]
-                    ));
+                    .unwrap_or_else(|_| panic!("Regular DX with optional TR failed for {} with period {}",
+                        stock_symbol, options[0]));
 
                 // Compare number of outputs (should be 2: dx, tr)
                 assert_eq!(
@@ -989,7 +983,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
             // Process all 4 options with 4-wide SIMD
@@ -1064,7 +1058,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
             // Test with ATR and TR optional outputs

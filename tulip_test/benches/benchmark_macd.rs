@@ -58,7 +58,7 @@ fn bench_c_macd(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs: Vec<*const f64> = vec![close.as_ptr()];
 
@@ -91,7 +91,7 @@ fn bench_c_macd(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("macd", "C_tulip", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("macd", "C_tulip", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -107,7 +107,7 @@ fn bench_c_macd(c: &mut Criterion) {
             let mut group = c.benchmark_group("macd_c");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!(
+                format!(
                     "C MACD {{ {}, {}, {} }}",
                     options[0], options[1], options[2]
                 ),
@@ -151,7 +151,7 @@ fn bench_rust_macd(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs = [close.as_slice()];
             for options in OPTIONS_LIST {
@@ -165,7 +165,7 @@ fn bench_rust_macd(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("macd", "Rust", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("macd", "Rust", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -177,7 +177,7 @@ fn bench_rust_macd(c: &mut Criterion) {
             let mut group = c.benchmark_group("macd_rust");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!(
+                format!(
                     "Rust MACD {{ {}, {}, {} }}",
                     options[0], options[1], options[2]
                 ),
@@ -202,7 +202,7 @@ fn bench_rust_macd_from_state(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs = [close.as_slice()];
 
@@ -243,7 +243,7 @@ fn bench_rust_macd_from_state(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar benchmark ---
@@ -270,7 +270,7 @@ fn bench_rust_macd_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
@@ -297,7 +297,7 @@ fn bench_rust_macd_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
                 }
             }
@@ -308,7 +308,7 @@ fn bench_rust_macd_from_state(c: &mut Criterion) {
         let _inputs = [&close_vec];
 
         for options in OPTIONS_LIST {
-            let mut group = c.benchmark_group(&format!(
+            let mut group = c.benchmark_group(format!(
                 "Rust MACD from state {{ {:.1}, {:.1}, {:.1} }}",
                 options[0], options[1], options[2]
             ));
@@ -351,7 +351,7 @@ fn bench_rust_macd_from_state(c: &mut Criterion) {
                 let (_, mut state) =
                     indicator(&new_inputs, &options, None).expect("Rust MACD indicator failed");
 
-                let mut group = c.benchmark_group(&format!(
+                let mut group = c.benchmark_group(format!(
                     "Rust MACD from state 1 bar {{ {:.1}, {:.1}, {:.1} }}",
                     options[0], options[1], options[2]
                 ));
@@ -380,7 +380,7 @@ fn bench_talib_macd(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs: Vec<*const f64> = vec![close.as_ptr()];
 
@@ -412,7 +412,7 @@ fn bench_talib_macd(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result("macd", "talib", &options, n, &timing, Some(&stock_symbol));
+                log_timing_result("macd", "talib", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -428,7 +428,7 @@ fn bench_talib_macd(c: &mut Criterion) {
             let mut group = c.benchmark_group("macd_talib");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!(
+                format!(
                     "TA-Lib MACD {{ {}, {}, {} }}",
                     options[0], options[1], options[2]
                 ),
@@ -470,7 +470,7 @@ fn bench_rust_macd_optional(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let n = close.len();
             let inputs = [close.as_slice()];
 
@@ -491,7 +491,7 @@ fn bench_rust_macd_optional(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -504,7 +504,7 @@ fn bench_rust_macd_optional(c: &mut Criterion) {
             let mut group = c.benchmark_group("macd_rust");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!(
+                format!(
                     "Rust MACD {{ {}, {}, {} }}",
                     options[0], options[1], options[2]
                 ),
@@ -604,7 +604,7 @@ fn bench_rust_macd_simd_by_options(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close_vec = get_close_array(&stock_data);
+            let close_vec = get_close_array(stock_data);
             let inputs = [close_vec.as_slice()];
 
             let mut timing = TimingMeasurements::new();
@@ -624,7 +624,7 @@ fn bench_rust_macd_simd_by_options(c: &mut Criterion) {
                 &[0.0],
                 close_vec.len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {
@@ -646,7 +646,72 @@ fn bench_rust_macd_simd_by_options(c: &mut Criterion) {
     }
 }
 
-//REPLACE WITH TEST FUNCTIONS
+/// Benchmark the `ta` crate (RustTa) implementation of MACD.
+fn bench_rust_ta_macd(c: &mut Criterion) {
+    use ta::indicators::MovingAverageConvergenceDivergence as Macd;
+    use ta::Next;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("macd");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let close_vec = get_close_array(stock_data);
+            let n = close_vec.len();
+
+            for options in OPTIONS_LIST {
+                let fast = options[0] as usize;
+                let slow = options[1] as usize;
+                let signal = options[2] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut macd = Macd::new(fast, slow, signal).expect("ta MACD new failed");
+                        let mut last = 0.0_f64;
+                        for &price in &close_vec {
+                            let out = macd.next(price);
+                            last = out.macd;
+                        }
+                        black_box(last);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result("macd", "RustTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let fast = options[0] as usize;
+            let slow = options[1] as usize;
+            let signal = options[2] as usize;
+            let mut group = c.benchmark_group("macd_rust_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!(
+                    "RustTa MACD {{ {}/{}/{} }}",
+                    options[0], options[1], options[2]
+                ),
+                |b| {
+                    b.iter(|| {
+                        let mut macd = Macd::new(fast, slow, signal).expect("ta MACD new failed");
+                        let mut last = 0.0_f64;
+                        for &price in &close_vec {
+                            let out = macd.next(price);
+                            last = out.macd;
+                        }
+                        black_box(last);
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
 
 #[cfg(feature = "talib")]
 criterion_group!(
@@ -657,7 +722,8 @@ criterion_group!(
     bench_c_macd,
     bench_talib_macd,
     bench_rust_macd_from_state,
-    bench_rust_macd_optional
+    bench_rust_macd_optional,
+    bench_rust_ta_macd
 );
 
 #[cfg(not(feature = "talib"))]
@@ -668,6 +734,7 @@ criterion_group!(
     bench_rust_macd,
     bench_c_macd,
     bench_rust_macd_from_state,
-    bench_rust_macd_optional
+    bench_rust_macd_optional,
+    bench_rust_ta_macd
 );
 criterion_main!(benches);

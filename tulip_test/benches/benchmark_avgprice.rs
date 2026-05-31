@@ -103,7 +103,7 @@ fn bench_c_avgprice(c: &mut Criterion) {
                     &options,
                     open_vec.len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -187,7 +187,7 @@ fn bench_rust_avgprice(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -289,7 +289,7 @@ fn bench_rust_avgprice_from_state(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar benchmark ---
@@ -326,7 +326,7 @@ fn bench_rust_avgprice_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
@@ -353,7 +353,7 @@ fn bench_rust_avgprice_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
                 }
             }
@@ -590,7 +590,7 @@ fn bench_talib_avgprice(c: &mut Criterion) {
                 SAMPLE_SIZE,
             );
 
-            log_timing_result("avgprice", "talib", &[], n, &timing, Some(&stock_symbol));
+            log_timing_result("avgprice", "talib", &[], n, &timing, Some(stock_symbol));
         }
     } else {
         // Run Criterion benchmark with synthetic data

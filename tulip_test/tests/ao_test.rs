@@ -126,7 +126,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
 
             // C implementation
             let inputs_c: Vec<*const f64> = vec![high.as_ptr(), low.as_ptr()];
@@ -210,7 +210,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let inputs_rust = [high.as_slice(), low.as_slice()];
             let options: [f64; 0] = [];
 
@@ -561,7 +561,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
 
             println!(
                 "Testing AO short SMA optional output with database stock {}",
@@ -583,7 +583,7 @@ mod tests {
             }
 
             // Get C Tulip medprice first
-            let medprice_inputs_c = vec![high.as_ptr(), low.as_ptr()];
+            let medprice_inputs_c = [high.as_ptr(), low.as_ptr()];
             let medprice_start_index = unsafe { ti_medprice_start(std::ptr::null()) };
             let medprice_output_len = high.len() - (medprice_start_index as usize);
             let mut c_medprice = vec![0.0; medprice_output_len];
@@ -604,7 +604,7 @@ mod tests {
             );
 
             // Now calculate SMA on medprice
-            let sma_inputs_c = vec![c_medprice.as_ptr()];
+            let sma_inputs_c = [c_medprice.as_ptr()];
             let sma_options = [5.0]; // short period
             let sma_start_index = unsafe { ti_sma_start(sma_options.as_ptr()) };
             let sma_output_len = c_medprice.len() - (sma_start_index as usize);
@@ -669,7 +669,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
 
             println!(
                 "Testing AO long SMA optional output with database stock {}",
@@ -691,7 +691,7 @@ mod tests {
             }
 
             // Get C Tulip medprice first
-            let medprice_inputs_c = vec![high.as_ptr(), low.as_ptr()];
+            let medprice_inputs_c = [high.as_ptr(), low.as_ptr()];
             let medprice_start_index = unsafe { ti_medprice_start(std::ptr::null()) };
             let medprice_output_len = high.len() - (medprice_start_index as usize);
             let mut c_medprice = vec![0.0; medprice_output_len];
@@ -712,7 +712,7 @@ mod tests {
             );
 
             // Now calculate SMA on medprice
-            let sma_inputs_c = vec![c_medprice.as_ptr()];
+            let sma_inputs_c = [c_medprice.as_ptr()];
             let sma_options = [34.0]; // long period
             let sma_start_index = unsafe { ti_sma_start(sma_options.as_ptr()) };
             let sma_output_len = c_medprice.len() - (sma_start_index as usize);
@@ -777,7 +777,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
 
             println!(
                 "Testing AO medprice optional output with database stock {}",
@@ -799,7 +799,7 @@ mod tests {
             }
 
             // Get C Tulip medprice output for comparison
-            let medprice_inputs_c = vec![high.as_ptr(), low.as_ptr()];
+            let medprice_inputs_c = [high.as_ptr(), low.as_ptr()];
             let medprice_start_index = unsafe { ti_medprice_start(std::ptr::null()) };
             let medprice_output_len = high.len() - (medprice_start_index as usize);
             let mut c_medprice = vec![0.0; medprice_output_len];

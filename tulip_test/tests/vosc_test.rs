@@ -115,7 +115,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let volume = get_volume_array(&stock_data);
+            let volume = get_volume_array(stock_data);
             /*for (i, &v) in volume.iter().enumerate() {
                 if v == 0.0 {
                     panic!(
@@ -208,7 +208,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let volume = get_volume_array(&stock_data);
+            let volume = get_volume_array(stock_data);
 
             for options in OPTIONS_LIST {
                 let inputs_rust = [volume.as_slice()];
@@ -651,7 +651,7 @@ mod tests {
                 continue;
             }
 
-            let volume = get_volume_array(&stock_data);
+            let volume = get_volume_array(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get VOSC with short_sma optional output
@@ -666,7 +666,7 @@ mod tests {
                 let rust_short_sma = &vosc_result[1];
 
                 // Calculate expected short SMA using C Tulip ti_sma
-                let short_sma_options = vec![options[0]]; // short period
+                let short_sma_options = [options[0]]; // short period
                 let start_index = unsafe { ti_sma_start(short_sma_options.as_ptr()) };
                 assert!(start_index >= 0, "ti_sma_start returned a negative index");
                 let output_len_c = volume.len() - (start_index as usize);
@@ -731,7 +731,7 @@ mod tests {
                 continue;
             }
 
-            let volume = get_volume_array(&stock_data);
+            let volume = get_volume_array(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get VOSC with long_sma optional output
@@ -746,7 +746,7 @@ mod tests {
                 let rust_long_sma = &vosc_result[2];
 
                 // Calculate expected long SMA using C Tulip ti_sma
-                let long_sma_options = vec![options[1]]; // long period
+                let long_sma_options = [options[1]]; // long period
                 let start_index = unsafe { ti_sma_start(long_sma_options.as_ptr()) };
                 assert!(start_index >= 0, "ti_sma_start returned a negative index");
                 let output_len_c = volume.len() - (start_index as usize);
@@ -808,7 +808,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let volume = get_volume_array(&stock_data);
+            let volume = get_volume_array(stock_data);
             let inputs = [volume.as_slice()];
 
             // All 4 options at once with 4-wide SIMD
@@ -888,7 +888,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let volume = get_volume_array(&stock_data);
+            let volume = get_volume_array(stock_data);
             let inputs = [volume.as_slice()];
 
             // Request all optional outputs: short_sma, long_sma

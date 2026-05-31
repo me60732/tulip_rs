@@ -5,8 +5,8 @@ pub use crate::indicators::simd_indicators::by_asset::rsi::indicator_by_assets;
 pub use crate::indicators::simd_indicators::by_option::rsi::indicator_by_options;
 
 use crate::indicators::rsi::State;
-use crate::indicators::simd_indicators::{cmo_simd::up_down_simd, simd_types::F64Constants};
-use std::simd::{Simd, StdFloat};
+use crate::indicators::simd_indicators::{cmo_simd::up_down_simd, simd_types::F64Constants, wilders_simd::calc_simd_full as calc_wilders};
+use std::simd::Simd;
 
 /// SIMD-parallel state for the Relative Strength Index (RSI) indicator, holding `N` lanes of per-asset state.
 pub struct SimdState<const N: usize> {
@@ -105,14 +105,11 @@ impl<const N: usize> SimdState<N> {
     ///
     /// RSI values (0–100) for all `N` lanes.
     #[inline(always)]
-    pub fn calc_simd(&mut self, cur_real: Simd<f64, N>, multiplier: Simd<f64, N>) -> Simd<f64, N> {
+    pub fn calc_simd(&mut self, cur_real: Simd<f64, N>, multipliers: (Simd<f64, N>, Simd<f64, N>)) -> Simd<f64, N> {
         let (up, down) = up_down_simd(cur_real, self.prev_real);
-
-        //self.up_sum = (up - self.up_sum) * multiplier + self.up_sum;
-        //self.down_sum = (down - self.down_sum) * multiplier + self.down_sum;
-        self.up_sum = (up - self.up_sum).mul_add(multiplier, self.up_sum);
-        //down_sum = (down - down_sum) * multiplier + down_sum;
-        self.down_sum = (down - self.down_sum).mul_add(multiplier, self.down_sum);
+        self.up_sum = calc_wilders(self.up_sum, up, multipliers);
+        self.down_sum = calc_wilders(self.down_sum, down, multipliers);
+        
         self.prev_real = cur_real;
 
         F64Constants::HUNDRED * (self.up_sum / (self.up_sum + self.down_sum))

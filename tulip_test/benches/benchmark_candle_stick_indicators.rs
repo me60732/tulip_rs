@@ -132,7 +132,7 @@ fn bench_rust_candlestick(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
 
         for (forecast_name, forecast_type) in get_all_forecast_variants() {
-            group.bench_function(&format!("Rust Candlestick - {}", forecast_name), |b| {
+            group.bench_function(format!("Rust Candlestick - {}", forecast_name), |b| {
                 b.iter(|| {
                     let result = indicator(&inputs, &OPTIONS, forecast_type)
                         .expect("Rust candlestick indicator failed");

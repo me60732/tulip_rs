@@ -83,5 +83,4 @@ pub mod willr;
 pub mod wma;
 pub mod zlema;
 
-
 pub mod simd_indicators;

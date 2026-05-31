@@ -130,7 +130,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, volume) = get_hlv_arrays(&stock_data);
+            let (high, low, volume) = get_hlv_arrays(stock_data);
 
             // C implementation
             let inputs_c: Vec<*const f64> = vec![high.as_ptr(), low.as_ptr(), volume.as_ptr()];
@@ -214,7 +214,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, volume) = get_hlv_arrays(&stock_data);
+            let (high, low, volume) = get_hlv_arrays(stock_data);
 
             let inputs_rust = [high.as_slice(), low.as_slice(), volume.as_slice()];
 
@@ -631,7 +631,7 @@ mod tests {
                 continue;
             }
 
-            let (high, low, volume) = get_hlv_arrays(&stock_data);
+            let (high, low, volume) = get_hlv_arrays(stock_data);
 
             // Get EMV with medprice optional output
             let optional_outputs = Some(&[true][..]);

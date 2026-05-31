@@ -55,7 +55,7 @@ fn bench_c_wcprice(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let n = high.len();
             let inputs: Vec<*const f64> = vec![high.as_ptr(), low.as_ptr(), close.as_ptr()];
 
@@ -91,7 +91,7 @@ fn bench_c_wcprice(c: &mut Criterion) {
                 &OPTIONS,
                 n,
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {
@@ -138,7 +138,7 @@ fn bench_rust_wcprice(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let n = high.len();
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
@@ -152,7 +152,7 @@ fn bench_rust_wcprice(c: &mut Criterion) {
                 SAMPLE_SIZE,
             );
 
-            log_timing_result("wcprice", "Rust", &OPTIONS, n, &timing, Some(&stock_symbol));
+            log_timing_result("wcprice", "Rust", &OPTIONS, n, &timing, Some(stock_symbol));
         }
     } else {
         // Run Criterion benchmark with synthetic data
@@ -185,7 +185,7 @@ fn bench_rust_wcprice_from_state(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let n = high.len();
 
             let mut timing = TimingMeasurements::new();
@@ -237,7 +237,7 @@ fn bench_rust_wcprice_from_state(c: &mut Criterion) {
                 &OPTIONS,
                 n,
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
 
             // --- Rust_FromState_1_Bar benchmark ---
@@ -272,7 +272,7 @@ fn bench_rust_wcprice_from_state(c: &mut Criterion) {
                     &OPTIONS,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar_json benchmark ---
@@ -298,7 +298,7 @@ fn bench_rust_wcprice_from_state(c: &mut Criterion) {
                     &OPTIONS,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }

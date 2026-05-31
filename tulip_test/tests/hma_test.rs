@@ -116,7 +116,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for options in OPTIONS_LIST {
                 // run c code
@@ -329,7 +329,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs_rust = [close.as_slice()];
 
             for options in OPTIONS_LIST {
@@ -419,12 +419,10 @@ mod tests {
         stock4_close.extend(&CLOSE);
         stock4_close.extend(&CLOSE);
 
-        let stocks = vec![
-            ("STOCK1", stock1_close.as_slice()),
+        let stocks = [("STOCK1", stock1_close.as_slice()),
             ("STOCK2", stock2_close.as_slice()),
             ("STOCK3", stock3_close.as_slice()),
-            ("STOCK4", stock4_close.as_slice()),
-        ];
+            ("STOCK4", stock4_close.as_slice())];
 
         // Prepare inputs for SIMD processing - we need 4 assets for SIMD width of 4
         let simd_inputs = [
@@ -498,7 +496,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
             if close.is_empty() {
@@ -559,7 +557,7 @@ mod tests {
         let first_bars = 2000usize;
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let total_len = close.len();
             if total_len == 0 {
                 continue;
@@ -588,8 +586,8 @@ mod tests {
 
             // Combine SIMD results for first part and prepare to extend with batch_indicator outputs
             let mut all_simd_results: Vec<Vec<f64>> = Vec::new();
-            for i in 0..4 {
-                all_simd_results.push(simd_results_4[i][0].clone());
+            for result in &simd_results_4 {
+                all_simd_results.push(result[0].clone());
             }
 
             // If there is remaining data, use the returned states to process it

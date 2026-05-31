@@ -303,7 +303,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
@@ -572,7 +572,7 @@ mod tests {
                 continue;
             }
 
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get DI with ATR optional output
@@ -587,7 +587,7 @@ mod tests {
                 let rust_atr = &di_result[2];
 
                 // Calculate expected ATR using C Tulip ti_atr
-                let atr_options = vec![options[0]]; // period
+                let atr_options = [options[0]]; // period
                 let start_index = unsafe { ti_atr_start(atr_options.as_ptr()) };
                 assert!(start_index >= 0, "ti_atr_start returned a negative index");
                 let output_len_c = high.len() - (start_index as usize);
@@ -652,7 +652,7 @@ mod tests {
                 continue;
             }
 
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get DI with TR optional output
@@ -667,7 +667,7 @@ mod tests {
                 let rust_tr = &di_result[3];
 
                 // Calculate expected TR using C Tulip ti_tr
-                let tr_options = vec![1.0]; // TR doesn't use period, but needs a value
+                let tr_options = [1.0]; // TR doesn't use period, but needs a value
                 let start_index = unsafe { ti_tr_start(tr_options.as_ptr()) };
                 assert!(start_index >= 0, "ti_tr_start returned a negative index");
                 let output_len_c = high.len() - (start_index as usize);
@@ -775,10 +775,8 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_outputs, _) = rust_di(&stock_inputs, options, None).expect(&format!(
-                    "Regular DI failed for {} with period {}",
-                    stock_symbol, options[0]
-                ));
+                let (regular_outputs, _) = rust_di(&stock_inputs, options, None).unwrap_or_else(|_| panic!("Regular DI failed for {} with period {}",
+                    stock_symbol, options[0]));
 
                 // Compare SIMD result with regular result for both plus_di and minus_di
                 for output_idx in 0..2 {
@@ -873,10 +871,8 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) = rust_di(&stock_inputs, options, optional_outputs)
-                    .expect(&format!(
-                        "Regular DI with optional ATR failed for {} with period {}",
-                        stock_symbol, options[0]
-                    ));
+                    .unwrap_or_else(|_| panic!("Regular DI with optional ATR failed for {} with period {}",
+                        stock_symbol, options[0]));
 
                 // Compare number of outputs (should be 3: plus_di, minus_di, atr)
                 assert_eq!(
@@ -1022,10 +1018,8 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) = rust_di(&stock_inputs, options, optional_outputs)
-                    .expect(&format!(
-                        "Regular DI with optional TR failed for {} with period {}",
-                        stock_symbol, options[0]
-                    ));
+                    .unwrap_or_else(|_| panic!("Regular DI with optional TR failed for {} with period {}",
+                        stock_symbol, options[0]));
 
                 // Compare number of outputs (should be 3: plus_di, minus_di, tr)
                 assert_eq!(
@@ -1119,7 +1113,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
             // Process all 4 options with 4-wide SIMD
@@ -1240,7 +1234,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
             // Test with ATR and TR optional outputs

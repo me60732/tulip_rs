@@ -136,7 +136,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 // C implementation
@@ -225,7 +225,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
@@ -529,7 +529,7 @@ mod tests {
         ];
 
         for (stock_idx, (_stock_symbol, stock_data)) in data.iter().take(4).enumerate() {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
 
             // Test with SIMD by options (4-wide)
             let inputs = [&high[..], &low[..], &close[..]];
@@ -584,7 +584,7 @@ mod tests {
         ];
 
         for (stock_idx, (_stock_symbol, stock_data)) in data.iter().take(4).enumerate() {
-            let (high, low, close) = get_hlc_arrays(&stock_data);
+            let (high, low, close) = get_hlc_arrays(stock_data);
 
             if high.len() < CHUNK_SIZE {
                 continue; // Skip if not enough data

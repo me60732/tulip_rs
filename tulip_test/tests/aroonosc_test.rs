@@ -139,7 +139,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 // C implementation
@@ -228,7 +228,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let inputs_rust = [high.as_slice(), low.as_slice()];
 
             for options in OPTIONS_LIST {
@@ -441,7 +441,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 println!(
@@ -471,7 +471,7 @@ mod tests {
                 }
 
                 // Get C Tulip Aroon output for comparison (returns both up and down)
-                let aroon_inputs_c = vec![high.as_ptr(), low.as_ptr()];
+                let aroon_inputs_c = [high.as_ptr(), low.as_ptr()];
                 let aroon_start_index = unsafe { ti_aroon_start(options.as_ptr()) };
                 let aroon_output_len = high.len() - (aroon_start_index as usize);
                 let mut c_aroon_up = vec![0.0; aroon_output_len];
@@ -803,7 +803,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let inputs = [high.as_slice(), low.as_slice()];
 
             // Process first 4 options with 4-wide SIMD
@@ -895,7 +895,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let inputs = [high.as_slice(), low.as_slice()];
 
             // Process first 4 options with 4-wide SIMD

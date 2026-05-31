@@ -122,7 +122,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for options in OPTIONS_LIST {
                 // C implementation
@@ -208,7 +208,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for options in OPTIONS_LIST {
                 let inputs_rust = [close.as_slice()];
@@ -811,14 +811,14 @@ mod tests {
         let mut stock_symbols = Vec::new();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             if close.len() >= 1500 && stock_data_vec.len() < 4 {
                 stock_data_vec.push(close);
                 stock_symbols.push(stock_symbol);
             }
         }
 
-        if stock_data_vec.len() == 0 {
+        if stock_data_vec.is_empty() {
             println!("No stocks with sufficient data for state handover test");
             return;
         }
@@ -903,7 +903,7 @@ mod tests {
                 continue;
             }
 
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get FOSC with tsf optional output
@@ -918,7 +918,7 @@ mod tests {
                 let rust_tsf = &fosc_result[1];
 
                 // Calculate expected tsf using C Tulip ti_tsf
-                let tsf_options = vec![options[0]]; // period
+                let tsf_options = [options[0]]; // period
                 let start_index = unsafe { ti_tsf_start(tsf_options.as_ptr()) };
                 assert!(start_index >= 0, "ti_tsf_start returned a negative index");
                 let output_len_c = close.len() - (start_index as usize);
@@ -983,7 +983,7 @@ mod tests {
                 continue;
             }
 
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get FOSC with linreg optional output
@@ -998,7 +998,7 @@ mod tests {
                 let rust_linreg = &fosc_result[2];
 
                 // Calculate expected linreg using C Tulip ti_linreg
-                let linreg_options = vec![options[0]]; // period
+                let linreg_options = [options[0]]; // period
                 let start_index = unsafe { ti_linreg_start(linreg_options.as_ptr()) };
                 assert!(
                     start_index >= 0,
@@ -1066,7 +1066,7 @@ mod tests {
                 continue;
             }
 
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get FOSC with slope optional output
@@ -1081,7 +1081,7 @@ mod tests {
                 let rust_slope = &fosc_result[3];
 
                 // Calculate expected slope using C Tulip ti_linregslope
-                let slope_options = vec![options[0]]; // period
+                let slope_options = [options[0]]; // period
                 let start_index = unsafe { ti_linregslope_start(slope_options.as_ptr()) };
                 assert!(
                     start_index >= 0,
@@ -1149,7 +1149,7 @@ mod tests {
                 continue;
             }
 
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
 
             for &options in &OPTIONS_LIST {
                 // Get FOSC with both slope and intercept optional outputs
@@ -1172,7 +1172,7 @@ mod tests {
                     .collect();
 
                 // Calculate expected intercept using C Tulip ti_linregintercept
-                let intercept_options = vec![options[0]]; // period
+                let intercept_options = [options[0]]; // period
                 let start_index = unsafe { ti_linregintercept_start(intercept_options.as_ptr()) };
                 assert!(
                     start_index >= 0,
@@ -1234,7 +1234,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
             // Process all 4 options with 4-wide SIMD
@@ -1309,7 +1309,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
             // Test with all optional outputs: TSF, linreg, slope, intercept

@@ -1,3 +1,4 @@
+#![allow(clippy::type_complexity)]
 //! Build script for candlestick pattern registry generation
 //!
 //! This script scans all pattern module files for `#[pattern_template]` attributes
@@ -687,20 +688,15 @@ fn generate_registry_code(
         let trend_names = ["DOWN", "UP"];
         let colour_names = ["RED", "GREEN"];
         let fill_names = ["FILL", "HALLOW"];
-        for g in 0..4 {
-            for t in 0..2 {
-                for c in 0..2 {
-                    for f in 0..2 {
+        for (g, group_name) in group_names.iter().enumerate() {
+            for (t, trend_name) in trend_names.iter().enumerate() {
+                for (c, colour_name) in colour_names.iter().enumerate() {
+                    for (f, fill_name) in fill_names.iter().enumerate() {
                         let k = g * 8 + t * 4 + c * 2 + f;
                         if key_counts[k] > 0 {
                             println!(
                                 "cargo:warning=two_bar [{} {} {} {}] key={} count={}",
-                                group_names[g],
-                                trend_names[t],
-                                colour_names[c],
-                                fill_names[f],
-                                k,
-                                key_counts[k]
+                                group_name, trend_name, colour_name, fill_name, k, key_counts[k]
                             );
                         }
                     }

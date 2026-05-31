@@ -118,7 +118,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 // C implementation
@@ -196,7 +196,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 let inputs_rust = [high.as_slice(), low.as_slice()];
@@ -367,7 +367,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let inputs = [high.as_slice(), low.as_slice()];
 
             // Process all 4 options with 4-wide SIMD
@@ -447,7 +447,7 @@ mod tests {
         let first_bars = 2000usize;
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let total_len = high.len();
             if total_len == 0 {
                 continue;
@@ -476,8 +476,8 @@ mod tests {
 
             // Combine SIMD results for first part and prepare to extend with batch_indicator outputs
             let mut all_simd_results: Vec<Vec<f64>> = Vec::new();
-            for i in 0..4 {
-                all_simd_results.push(simd_results_4[i][0].clone());
+            for result in &simd_results_4 {
+                all_simd_results.push(result[0].clone());
             }
 
             // If there is remaining data, use the returned states to process it

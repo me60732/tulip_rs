@@ -61,7 +61,7 @@ fn bench_c_aroonosc(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let n = high.len();
             let inputs: Vec<*const f64> = vec![high.as_ptr(), low.as_ptr()];
 
@@ -98,7 +98,7 @@ fn bench_c_aroonosc(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -117,7 +117,7 @@ fn bench_c_aroonosc(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("aroonosc_c");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("C AROONOSC {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("C AROONOSC {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -148,7 +148,7 @@ fn bench_rust_aroonosc(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let n = high.len();
             let inputs = [high.as_slice(), low.as_slice()];
 
@@ -163,14 +163,7 @@ fn bench_rust_aroonosc(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result(
-                    "aroonosc",
-                    "Rust",
-                    &options,
-                    n,
-                    &timing,
-                    Some(&stock_symbol),
-                );
+                log_timing_result("aroonosc", "Rust", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -181,7 +174,7 @@ fn bench_rust_aroonosc(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("aroonosc_rust");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust AROONOSC {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust AROONOSC {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result =
                         indicator(&inputs, &options, None).expect("Rust AROONOSC indicator failed");
@@ -202,7 +195,7 @@ fn bench_rust_aroonosc_from_state(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let n = high.len();
             let inputs = [high.as_slice(), low.as_slice()];
 
@@ -246,7 +239,7 @@ fn bench_rust_aroonosc_from_state(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar benchmark ---
@@ -273,7 +266,7 @@ fn bench_rust_aroonosc_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
@@ -300,7 +293,7 @@ fn bench_rust_aroonosc_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
                 }
             }
@@ -311,7 +304,7 @@ fn bench_rust_aroonosc_from_state(c: &mut Criterion) {
 
         for options in OPTIONS_LIST {
             let mut group =
-                c.benchmark_group(&format!("Rust AROONOSC from state {{ {:.1} }}", options[0]));
+                c.benchmark_group(format!("Rust AROONOSC from state {{ {:.1} }}", options[0]));
             group.sample_size(SAMPLE_SIZE);
 
             group.bench_function("benchmark", |b| {
@@ -358,7 +351,7 @@ fn bench_rust_aroonosc_optional(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let n = high.len();
             let inputs = [high.as_slice(), low.as_slice()];
 
@@ -379,7 +372,7 @@ fn bench_rust_aroonosc_optional(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -391,7 +384,7 @@ fn bench_rust_aroonosc_optional(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("aroonosc_rust");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust AROONOSC {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust AROONOSC {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result = indicator(&inputs, &options, Some(&[true, true]))
                         .expect("Rust AROONOSC indicator failed");
@@ -413,7 +406,7 @@ fn bench_talib_aroonosc(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let n = high.len();
             let inputs: Vec<*const f64> = vec![high.as_ptr(), low.as_ptr()];
 
@@ -448,7 +441,7 @@ fn bench_talib_aroonosc(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -467,7 +460,7 @@ fn bench_talib_aroonosc(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("aroonosc_talib");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("TA-Lib AROONOSC {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("TA-Lib AROONOSC {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -578,7 +571,7 @@ fn bench_rust_aroonosc_simd_by_options(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let inputs = [high.as_slice(), low.as_slice()];
 
             let mut timing = TimingMeasurements::new();
@@ -599,7 +592,7 @@ fn bench_rust_aroonosc_simd_by_options(c: &mut Criterion) {
                 &[0.0],
                 high.len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {

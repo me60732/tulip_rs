@@ -181,7 +181,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_high_low_arrays(&stock_data);
+            let (high, low) = get_high_low_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 // C implementation
@@ -320,7 +320,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_high_low_arrays(&stock_data);
+            let (high, low) = get_high_low_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 let inputs_rust = [high.as_slice(), low.as_slice()];
@@ -439,7 +439,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_high_low_arrays(&stock_data);
+            let (high, low) = get_high_low_arrays(stock_data);
             let inputs = [high.as_slice(), low.as_slice()];
 
             // Process first 4 options with 4-wide SIMD
@@ -644,7 +644,7 @@ mod tests {
 
                     // Compare values with tolerance
                     if !approx_eq!(f64, simd_val, regular_val, epsilon = EPSILION) {
-                        let start = if i < 10 { 0 } else { i - 10 };
+                        let start = i.saturating_sub(10);
                         println!(
                             "SIMD: {:?}\n\nRegular: {:?}",
                             &simd_fisher_result[start..(i + 10).min(simd_fisher_result.len())],
@@ -705,7 +705,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_high_low_arrays(&stock_data);
+            let (high, low) = get_high_low_arrays(stock_data);
 
             // Skip if data is too small
             if high.len() < 1500 {

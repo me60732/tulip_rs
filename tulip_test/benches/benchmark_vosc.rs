@@ -68,7 +68,7 @@ fn bench_c_vosc(c: &mut Criterion) {
                     &options,
                     volume_vec.len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -85,7 +85,7 @@ fn bench_c_vosc(c: &mut Criterion) {
             let mut group = c.benchmark_group("vosc_c");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("C VOSC {{ {}, {} }}", options[0], options[1]),
+                format!("C VOSC {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let mut output_vec = vec![0.0_f64; output_len];
@@ -138,7 +138,7 @@ fn bench_rust_vosc(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -151,7 +151,7 @@ fn bench_rust_vosc(c: &mut Criterion) {
             let mut group = c.benchmark_group("vosc_rust");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust VOSC {{ {}, {} }}", options[0], options[1]),
+                format!("Rust VOSC {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let result =
@@ -213,7 +213,7 @@ fn bench_rust_vosc_from_state(c: &mut Criterion) {
                     &options,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar benchmark ---
@@ -240,7 +240,7 @@ fn bench_rust_vosc_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
@@ -266,7 +266,7 @@ fn bench_rust_vosc_from_state(c: &mut Criterion) {
                         &options,
                         n,
                         &timing,
-                        Some(&stock_symbol),
+                        Some(stock_symbol),
                     );
                 }
             }
@@ -277,7 +277,7 @@ fn bench_rust_vosc_from_state(c: &mut Criterion) {
         let _inputs = [&volume_vec];
 
         for options in OPTIONS_LIST {
-            let mut group = c.benchmark_group(&format!(
+            let mut group = c.benchmark_group(format!(
                 "Rust VOSC from state {{ {}, {} }}",
                 options[0], options[1]
             ));
@@ -320,7 +320,7 @@ fn bench_rust_vosc_from_state(c: &mut Criterion) {
                 let (_, mut state) =
                     indicator(&new_inputs, &options, None).expect("Rust VOSC indicator failed");
 
-                let mut group = c.benchmark_group(&format!(
+                let mut group = c.benchmark_group(format!(
                     "Rust VOSC from state 1 bar {{ {}, {} }}",
                     options[0], options[1]
                 ));
@@ -348,7 +348,7 @@ fn bench_rust_vosc_simd_by_assets(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         // Group stocks in sets of 4 for SIMD processing
-        let stock_data: Vec<_> = data.into_iter().collect();
+        let stock_data: Vec<_> = data.iter().collect();
         let chunks: Vec<_> = stock_data.chunks(4).collect();
 
         for chunk in chunks {
@@ -416,7 +416,7 @@ fn bench_rust_vosc_simd_by_assets(c: &mut Criterion) {
             let mut group = c.benchmark_group("vosc_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("SIMD VOSC by assets {{ {}, {} }}", options[0], options[1]),
+                format!("SIMD VOSC by assets {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         use tulip_rs::indicators::vosc::indicator_by_assets;
@@ -460,7 +460,7 @@ fn bench_rust_vosc_optional(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -473,7 +473,7 @@ fn bench_rust_vosc_optional(c: &mut Criterion) {
             let mut group = c.benchmark_group("vosc_rust_optional");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust VOSC optional {{ {}, {} }}", options[0], options[1]),
+                format!("Rust VOSC optional {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
                         let result = indicator(&inputs, &options, Some(&[true, true]))
@@ -524,7 +524,7 @@ fn bench_rust_vosc_simd_by_options(c: &mut Criterion) {
                 &[0.0],
                 volume_vec.len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {

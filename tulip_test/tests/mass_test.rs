@@ -126,7 +126,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let inputs_rust = [high.as_slice(), low.as_slice()];
 
             for options in OPTIONS_LIST {
@@ -206,7 +206,7 @@ mod tests {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
 
             for options in OPTIONS_LIST {
                 // C implementation
@@ -385,7 +385,7 @@ mod tests {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let inputs = [high.as_slice(), low.as_slice()];
 
             // Process first 4 options with 4-wide SIMD
@@ -407,13 +407,13 @@ mod tests {
             let mut all_simd_results = Vec::new();
 
             // Add 4-wide results
-            for i in 0..4 {
-                all_simd_results.push(simd_results_4[i].clone());
+            for result in &simd_results_4 {
+                all_simd_results.push(result.clone());
             }
 
             // Add 2-wide results
-            for i in 0..2 {
-                all_simd_results.push(simd_results_2[i].clone());
+            for result in &simd_results_2 {
+                all_simd_results.push(result.clone());
             }
 
             // Compare each SIMD result with regular indicator
@@ -490,7 +490,7 @@ mod tests {
         let first_bars = 2000usize;
 
         for (stock_symbol, stock_data) in data {
-            let (high, low) = get_hl_arrays(&stock_data);
+            let (high, low) = get_hl_arrays(stock_data);
             let total_len = high.len();
             if total_len == 0 {
                 continue;
@@ -525,11 +525,11 @@ mod tests {
 
             // Combine SIMD results for first part and prepare to extend with batch_indicator outputs
             let mut all_simd_results: Vec<Vec<f64>> = Vec::new();
-            for i in 0..4 {
-                all_simd_results.push(simd_results_4[i][0].clone());
+            for result in &simd_results_4 {
+                all_simd_results.push(result[0].clone());
             }
-            for i in 0..2 {
-                all_simd_results.push(simd_results_2[i][0].clone());
+            for result in &simd_results_2 {
+                all_simd_results.push(result[0].clone());
             }
 
             // If there is remaining data, use the returned states to process it

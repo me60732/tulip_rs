@@ -88,7 +88,7 @@ fn bench_c_natr(c: &mut Criterion) {
                     &options,
                     high_vec.len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -104,7 +104,7 @@ fn bench_c_natr(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("natr_c");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("C NATR {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("C NATR {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -161,7 +161,7 @@ fn bench_rust_natr(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -177,7 +177,7 @@ fn bench_rust_natr(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("natr_rust");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust NATR {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust NATR {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result =
                         indicator(&inputs, &options, None).expect("Rust NATR indicator failed");
@@ -264,7 +264,7 @@ fn bench_rust_natr_from_state(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 let (_, mut state) =
@@ -287,7 +287,7 @@ fn bench_rust_natr_from_state(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 let (_, state) =
@@ -313,7 +313,7 @@ fn bench_rust_natr_from_state(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -325,7 +325,7 @@ fn bench_rust_natr_from_state(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("natr_rust_from_state");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust NATR from state {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust NATR from state {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let min_data_val = min_data(&options).max(CHUNK_SIZE);
                     // First chunk
@@ -405,7 +405,7 @@ fn bench_rust_natr_optional(c: &mut Criterion) {
                     &options,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -421,7 +421,7 @@ fn bench_rust_natr_optional(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("natr_rust");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("Rust NATR {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("Rust NATR {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result = indicator(&inputs, &options, Some(&[true, true]))
                         .expect("Rust NATR indicator failed");
@@ -477,7 +477,7 @@ fn bench_talib_natr(c: &mut Criterion) {
                     &options,
                     high_vec.len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -493,7 +493,7 @@ fn bench_talib_natr(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("natr_talib");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(&format!("TA-Lib NATR {{ {} }}", options[0]), |b| {
+            group.bench_function(format!("TA-Lib NATR {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let mut output_vec = vec![0.0_f64; output_len];
                     let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
@@ -595,7 +595,7 @@ fn bench_rust_natr_simd_by_assets(c: &mut Criterion) {
             let mut group = c.benchmark_group("natr_rust_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                &format!("Rust SIMD by assets NATR period {}", options[0]),
+                format!("Rust SIMD by assets NATR period {}", options[0]),
                 |b| {
                     b.iter(|| {
                         let result = indicator_by_assets::<4>(&inputs, options, None)
@@ -650,7 +650,7 @@ fn bench_rust_natr_simd_by_options(c: &mut Criterion) {
                 &[0.0],
                 high_vec.len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {

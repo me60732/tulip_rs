@@ -13,7 +13,7 @@ use std::simd::Simd;
 struct StochrsiDriver {
     want_optional_outputs: bool,
     period: usize,
-    multiplier: f64,
+    multipliers: (f64, f64),
 }
 
 impl Driver<State> for StochrsiDriver {
@@ -27,7 +27,10 @@ impl Driver<State> for StochrsiDriver {
     ) {
         let mut state = SimdState::<N>::new(&mut states);
         let len = inputs[0][0].len();
-        let simd_multiplier = Simd::splat(self.multiplier);
+        let multipliers_simd = (
+            Simd::splat(self.multipliers.0),
+            Simd::splat(self.multipliers.1),
+        );
         let want_rsi = self.want_optional_outputs;
         // Optimization 1: Direct array construction instead of collect+try_into
 
@@ -48,7 +51,7 @@ impl Driver<State> for StochrsiDriver {
                         real @ real_ptrs
                     );
 
-                    let (stochrsi, rsi) = state.calc_simd::<1>(real, simd_multiplier, self.period);
+                    let (stochrsi, rsi) = state.calc_simd::<1>(real, multipliers_simd, self.period);
 
                     // Store results using pre-computed pointers
                     crate::write_simd_at_indices!(N, i,
@@ -68,7 +71,7 @@ impl Driver<State> for StochrsiDriver {
                         real @ real_ptrs
                     );
 
-                    let (stochrsi, rsi) = state.calc_simd::<8>(real, simd_multiplier, self.period);
+                    let (stochrsi, rsi) = state.calc_simd::<8>(real, multipliers_simd, self.period);
 
                     // Store results using pre-computed pointers
                     crate::write_simd_at_indices!(N, i,
@@ -113,7 +116,7 @@ pub fn indicator_by_assets<const N: usize>(
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
     validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
     validate_options(options)?;
-    let (period, multiplier) = {
+    let (period, multipliers) = {
         let period = options[0] as usize;
         (period, multiplier(period))
     };
@@ -178,13 +181,13 @@ pub fn indicator_by_assets<const N: usize>(
     let mut driver = StochrsiDriver {
         period,
         want_optional_outputs,
-        multiplier,
+        multipliers,
     };
     let states_vec = road_train.drive(&mut driver);
 
     let mut states = Vec::with_capacity(N);
     for state in states_vec.into_iter() {
-        states.push(IndicatorState::new(state, period, multiplier));
+        states.push(IndicatorState::new(state, period, multipliers));
     }
     Ok((output_buffers, states))
 }

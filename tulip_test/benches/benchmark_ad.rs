@@ -8,6 +8,9 @@ use tulip_test::database::{get_all_stock_data, init_database_data};
 #[cfg(feature = "talib")]
 use tulip_test::talib_bindings::{ta_ad, ta_ad_start};
 
+/// Four-stock dataset: (symbol, high, low, close, volume)
+type StockDataTuple = (String, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>);
+
 // Sample input data from ad_test.rs
 const CLOSE: [f64; 15] = [
     81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89,
@@ -95,7 +98,7 @@ fn bench_c_ad(c: &mut Criterion) {
                 &OPTIONS,
                 high_vec.len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {
@@ -171,7 +174,7 @@ fn bench_rust_ad(c: &mut Criterion) {
                 &OPTIONS,
                 inputs[0].len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {
@@ -284,7 +287,7 @@ fn bench_rust_ad_from_state(c: &mut Criterion) {
                 &OPTIONS,
                 inputs[0].len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
 
             // --- Rust_FromState_1_Bar benchmark ---
@@ -309,7 +312,7 @@ fn bench_rust_ad_from_state(c: &mut Criterion) {
                     &OPTIONS,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 let (_, state) =
@@ -335,7 +338,7 @@ fn bench_rust_ad_from_state(c: &mut Criterion) {
                     &OPTIONS,
                     inputs[0].len(),
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }
@@ -467,7 +470,7 @@ fn bench_talib_ad(c: &mut Criterion) {
                 SAMPLE_SIZE,
             );
 
-            log_timing_result("ad", "talib", &OPTIONS, n, &timing, Some(&stock_symbol));
+            log_timing_result("ad", "talib", &OPTIONS, n, &timing, Some(stock_symbol));
         }
     } else {
         // Run Criterion benchmark with synthetic data
@@ -512,7 +515,7 @@ fn bench_rust_ad_simd_by_assets(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         // Get first 4 stocks' data
-        let stock_data: Vec<(String, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>)> = data
+        let stock_data: Vec<StockDataTuple> = data
             .iter()
             .take(4)
             .map(|(symbol, data)| {

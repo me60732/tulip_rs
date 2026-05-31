@@ -53,7 +53,7 @@ fn bench_c_marketfi(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, volume) = get_hlv_arrays(&stock_data);
+            let (high, low, volume) = get_hlv_arrays(stock_data);
             let n = high.len();
             let inputs: Vec<*const f64> = vec![high.as_ptr(), low.as_ptr(), volume.as_ptr()];
 
@@ -77,7 +77,7 @@ fn bench_c_marketfi(c: &mut Criterion) {
                 },
                 SAMPLE_SIZE,
             );
-            log_timing_result("marketfi", "C_tulip", &[], n, &timing, Some(&stock_symbol));
+            log_timing_result("marketfi", "C_tulip", &[], n, &timing, Some(stock_symbol));
         }
     } else {
         let (high_vec, low_vec, volume_vec) = expand_inputs();
@@ -117,7 +117,7 @@ fn bench_rust_marketfi(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, volume) = get_hlv_arrays(&stock_data);
+            let (high, low, volume) = get_hlv_arrays(stock_data);
             let n = high.len();
             let inputs = [high.as_slice(), low.as_slice(), volume.as_slice()];
             let mut timing = TimingMeasurements::new();
@@ -128,7 +128,7 @@ fn bench_rust_marketfi(c: &mut Criterion) {
                 },
                 SAMPLE_SIZE,
             );
-            log_timing_result("marketfi", "Rust", &[], n, &timing, Some(&stock_symbol));
+            log_timing_result("marketfi", "Rust", &[], n, &timing, Some(stock_symbol));
         }
     } else {
         let (high_vec, low_vec, volume_vec) = expand_inputs();
@@ -157,7 +157,7 @@ fn bench_rust_marketfi_from_state(c: &mut Criterion) {
 
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
-            let (high, low, volume) = get_hlv_arrays(&stock_data);
+            let (high, low, volume) = get_hlv_arrays(stock_data);
             let n = high.len();
 
             let mut timing = TimingMeasurements::new();
@@ -208,7 +208,7 @@ fn bench_rust_marketfi_from_state(c: &mut Criterion) {
                 &[],
                 n,
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
 
             // --- Rust_FromState_1_Bar benchmark ---
@@ -244,7 +244,7 @@ fn bench_rust_marketfi_from_state(c: &mut Criterion) {
                     &[],
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar_json benchmark ---
@@ -271,7 +271,7 @@ fn bench_rust_marketfi_from_state(c: &mut Criterion) {
                     &[],
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }

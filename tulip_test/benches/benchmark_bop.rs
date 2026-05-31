@@ -70,7 +70,7 @@ fn bench_c_bop(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (open, high, low, close) = get_ohlc_arrays(&stock_data);
+            let (open, high, low, close) = get_ohlc_arrays(stock_data);
             let n = open.len();
 
             let inputs: Vec<*const f64> =
@@ -98,7 +98,7 @@ fn bench_c_bop(c: &mut Criterion) {
                 SAMPLE_SIZE,
             );
 
-            log_timing_result("bop", "C_tulip", &OPTIONS, n, &timing, Some(&stock_symbol));
+            log_timing_result("bop", "C_tulip", &OPTIONS, n, &timing, Some(stock_symbol));
         }
     } else {
         // Run Criterion benchmark with synthetic data
@@ -146,7 +146,7 @@ fn bench_rust_bop(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (open, high, low, close) = get_ohlc_arrays(&stock_data);
+            let (open, high, low, close) = get_ohlc_arrays(stock_data);
             let n = open.len();
             let inputs = [
                 open.as_slice(),
@@ -164,7 +164,7 @@ fn bench_rust_bop(c: &mut Criterion) {
                 SAMPLE_SIZE,
             );
 
-            log_timing_result("bop", "Rust", &OPTIONS, n, &timing, Some(&stock_symbol));
+            log_timing_result("bop", "Rust", &OPTIONS, n, &timing, Some(stock_symbol));
         }
     } else {
         // Run Criterion benchmark with synthetic data
@@ -227,7 +227,7 @@ fn bench_talib_bop(c: &mut Criterion) {
                 SAMPLE_SIZE,
             );
 
-            log_timing_result("bop", "talib", &OPTIONS, n, &timing, Some(&stock_symbol));
+            log_timing_result("bop", "talib", &OPTIONS, n, &timing, Some(stock_symbol));
         }
     } else {
         // Run Criterion benchmark with synthetic data
@@ -273,7 +273,7 @@ fn bench_rust_bop_from_state(c: &mut Criterion) {
         let data = get_all_stock_data().unwrap();
 
         for (stock_symbol, stock_data) in data {
-            let (open, high, low, close) = get_ohlc_arrays(&stock_data);
+            let (open, high, low, close) = get_ohlc_arrays(stock_data);
             let n = open.len();
 
             let mut timing = TimingMeasurements::new();
@@ -333,7 +333,7 @@ fn bench_rust_bop_from_state(c: &mut Criterion) {
                 &OPTIONS,
                 n,
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
 
             // --- Rust_FromState_1_Bar benchmark ---
@@ -370,7 +370,7 @@ fn bench_rust_bop_from_state(c: &mut Criterion) {
                     &OPTIONS,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
 
                 // --- Rust_FromState_1_Bar_json benchmark ---
@@ -397,7 +397,7 @@ fn bench_rust_bop_from_state(c: &mut Criterion) {
                     &OPTIONS,
                     n,
                     &timing,
-                    Some(&stock_symbol),
+                    Some(stock_symbol),
                 );
             }
         }

@@ -14,26 +14,30 @@ struct StochrsiDriver {
     want_optional_outputs: bool,
 }
 
-impl Driver<State, (usize, f64)> for StochrsiDriver {
+impl Driver<State, (usize, (f64, f64))> for StochrsiDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
         mut states: Vec<&mut State>,
-        options: Vec<Option<&(usize, f64)>>,
+        options: Vec<Option<&(usize, (f64, f64))>>,
     ) {
         let len = outputs[0][0].len();
         let (period, multiplier) = {
             let mut period = [0usize; N];
-            let mut multiplier = [0.0; N];
+            let mut multipliers = ([0.0; N], [0.0; N]);
             for (lane, option) in options.iter().enumerate() {
                 if let Some(&(lookback, multi)) = option {
                     period[lane] = lookback;
-                    multiplier[lane] = multi;
+                    multipliers.0[lane] = multi.0;
+                    multipliers.1[lane] = multi.1;
                 }
             }
-            (Simd::from_array(period), Simd::from_array(multiplier))
+            (Simd::from_array(period), (
+                Simd::from_array(multipliers.0),
+                Simd::from_array(multipliers.1),
+            ))
         };
         let mut state = SimdState::<N>::new(&mut states);
         let want_rsi = self.want_optional_outputs;
@@ -88,11 +92,11 @@ pub fn indicator_by_options<const N: usize>(
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
     validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
     validate_options(options, None)?;
-    let params: [(usize, f64); N] = std::array::from_fn(|i| {
+    let params: [(usize, (f64, f64)); N] = std::array::from_fn(|i| {
         let period = options[i][0] as usize;
         (period, multiplier(period))
     });
-    let mut road_train = PrimeMover::<N, State, (usize, f64)>::new();
+    let mut road_train = PrimeMover::<N, State, (usize, (f64, f64))>::new();
     let mut want_optional_outputs = false;
     let mut output_buffers = Vec::with_capacity(N);
     for i in 0..N {

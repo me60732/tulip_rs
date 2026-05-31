@@ -70,7 +70,7 @@ fn bench_c_ao(c: &mut Criterion) {
                 &OPTIONS,
                 high_vec.len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {
@@ -134,7 +134,7 @@ fn bench_rust_ao(c: &mut Criterion) {
                 &OPTIONS,
                 inputs[0].len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {
@@ -183,7 +183,7 @@ fn bench_rust_ao_optional(c: &mut Criterion) {
                 &OPTIONS,
                 inputs[0].len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {
@@ -260,7 +260,7 @@ fn bench_rust_ao_from_state(c: &mut Criterion) {
                 &OPTIONS,
                 inputs[0].len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
 
             let new_inputs = [&high[..high.len() - 1], &low[..low.len() - 1]];
@@ -286,7 +286,7 @@ fn bench_rust_ao_from_state(c: &mut Criterion) {
                 &OPTIONS,
                 inputs[0].len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
 
             let (_, state) =
@@ -312,7 +312,7 @@ fn bench_rust_ao_from_state(c: &mut Criterion) {
                 &OPTIONS,
                 inputs[0].len(),
                 &timing,
-                Some(&stock_symbol),
+                Some(stock_symbol),
             );
         }
     } else {

@@ -111,16 +111,20 @@ SELECT runs.id AS run_id,
     round(avg(CASE WHEN ((results.implementation_type)::text = 'C_tulip'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) AS c_avg_mean_time_ns,
     count(DISTINCT CASE WHEN ((results.implementation_type)::text = 'C_tulip'::text) THEN results.options ELSE NULL::jsonb END) AS c_options_count,
     round(avg(CASE WHEN ((results.implementation_type)::text = 'talib'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) AS talib_avg_mean_time_ns,
+    round(avg(CASE WHEN ((results.implementation_type)::text = 'RustTa'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) AS rustta_avg_mean_time_ns,
     count(DISTINCT CASE WHEN ((results.implementation_type)::text = 'talib'::text) THEN results.options ELSE NULL::jsonb END) AS talib_options_count,
+    count(DISTINCT CASE WHEN ((results.implementation_type)::text = 'RustTa'::text) THEN results.options ELSE NULL::jsonb END) AS rustta_options_count,
     round((avg(CASE WHEN ((results.implementation_type)::text = 'C_tulip'::text) THEN results.mean_time_ns ELSE NULL::bigint END) / avg(CASE WHEN ((results.implementation_type)::text = 'Rust'::text) THEN results.mean_time_ns ELSE NULL::bigint END)), 2) AS c_to_rust_ratio,
     round((((avg(CASE WHEN ((results.implementation_type)::text = 'Rust'::text) THEN results.mean_time_ns ELSE NULL::bigint END) - avg(CASE WHEN ((results.implementation_type)::text = 'C_tulip'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) / avg(CASE WHEN ((results.implementation_type)::text = 'C_tulip'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) * (100)::numeric), 2) AS rust_vs_c_percent_diff,
     round((avg(CASE WHEN ((results.implementation_type)::text = 'talib'::text) THEN results.mean_time_ns ELSE NULL::bigint END) / avg(CASE WHEN ((results.implementation_type)::text = 'Rust'::text) THEN results.mean_time_ns ELSE NULL::bigint END)), 2) AS talib_to_rust_ratio,
-    round((((avg(CASE WHEN ((results.implementation_type)::text = 'Rust'::text) THEN results.mean_time_ns ELSE NULL::bigint END) - avg(CASE WHEN ((results.implementation_type)::text = 'talib'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) / avg(CASE WHEN ((results.implementation_type)::text = 'talib'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) * (100)::numeric), 2) AS rust_vs_talib_percent_diff
+    round((avg(CASE WHEN ((results.implementation_type)::text = 'RustTa'::text) THEN results.mean_time_ns ELSE NULL::bigint END) / avg(CASE WHEN ((results.implementation_type)::text = 'Rust'::text) THEN results.mean_time_ns ELSE NULL::bigint END)), 2) AS rustta_to_rust_ratio,
+    round((((avg(CASE WHEN ((results.implementation_type)::text = 'Rust'::text) THEN results.mean_time_ns ELSE NULL::bigint END) - avg(CASE WHEN ((results.implementation_type)::text = 'talib'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) / avg(CASE WHEN ((results.implementation_type)::text = 'talib'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) * (100)::numeric), 2) AS rust_vs_talib_percent_diff,
+    round((((avg(CASE WHEN ((results.implementation_type)::text = 'Rust'::text) THEN results.mean_time_ns ELSE NULL::bigint END) - avg(CASE WHEN ((results.implementation_type)::text = 'RustTa'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) / avg(CASE WHEN ((results.implementation_type)::text = 'RustTa'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) * (100)::numeric), 2) AS rust_vs_rustta_percent_diff
    FROM ((benchmark_runs runs
      JOIN benchmark_results results ON ((runs.id = results.run_id)))
      JOIN indicators ind ON ((results.indicator_id = ind.id)))
   GROUP BY runs.id, runs.run_timestamp, runs.system_info, ind.name
- HAVING (count(DISTINCT CASE WHEN ((results.implementation_type)::text = ANY ((ARRAY['C_tulip'::character varying, 'Rust'::character varying, 'talib'::character varying])::text[])) THEN results.implementation_type ELSE NULL::character varying END) >= 2)
+ HAVING (count(DISTINCT CASE WHEN ((results.implementation_type)::text = ANY ((ARRAY['C_tulip'::character varying, 'Rust'::character varying, 'talib'::character varying, 'RustTa'::character varying])::text[])) THEN results.implementation_type ELSE NULL::character varying END) >= 2)
   ORDER BY runs.run_timestamp DESC, ind.name;
 
 CREATE VIEW candlestick_simplified_comparison AS
@@ -170,16 +174,20 @@ SELECT runs.id AS run_id,
     max(CASE WHEN ((results.implementation_type)::text = 'C_tulip'::text) THEN results.mean_time_ns ELSE NULL::bigint END) AS c_mean_time_ns,
     max(CASE WHEN ((results.implementation_type)::text = 'C_tulip'::text) THEN results.sample_count ELSE NULL::integer END) AS c_sample_count,
     max(CASE WHEN ((results.implementation_type)::text = 'talib'::text) THEN results.mean_time_ns ELSE NULL::bigint END) AS talib_mean_time_ns,
+    max(CASE WHEN ((results.implementation_type)::text = 'RustTa'::text) THEN results.mean_time_ns ELSE NULL::bigint END) AS rustta_mean_time_ns,
     max(CASE WHEN ((results.implementation_type)::text = 'talib'::text) THEN results.sample_count ELSE NULL::integer END) AS talib_sample_count,
+    max(CASE WHEN ((results.implementation_type)::text = 'RustTa'::text) THEN results.sample_count ELSE NULL::integer END) AS rustta_sample_count,
     round(((max(CASE WHEN ((results.implementation_type)::text = 'C_tulip'::text) THEN results.mean_time_ns ELSE NULL::bigint END))::numeric / (max(CASE WHEN ((results.implementation_type)::text = 'Rust'::text) THEN results.mean_time_ns ELSE NULL::bigint END))::numeric), 2) AS c_to_rust_ratio,
     round(((((max(CASE WHEN ((results.implementation_type)::text = 'Rust'::text) THEN results.mean_time_ns ELSE NULL::bigint END))::numeric - (max(CASE WHEN ((results.implementation_type)::text = 'C_tulip'::text) THEN results.mean_time_ns ELSE NULL::bigint END))::numeric) / (max(CASE WHEN ((results.implementation_type)::text = 'C_tulip'::text) THEN results.mean_time_ns ELSE NULL::bigint END))::numeric) * (100)::numeric), 2) AS rust_vs_c_percent_diff,
     round(((max(CASE WHEN ((results.implementation_type)::text = 'talib'::text) THEN results.mean_time_ns ELSE NULL::bigint END))::numeric / (max(CASE WHEN ((results.implementation_type)::text = 'Rust'::text) THEN results.mean_time_ns ELSE NULL::bigint END))::numeric), 2) AS talib_to_rust_ratio,
-    round(((((max(CASE WHEN ((results.implementation_type)::text = 'Rust'::text) THEN results.mean_time_ns ELSE NULL::bigint END))::numeric - (max(CASE WHEN ((results.implementation_type)::text = 'talib'::text) THEN results.mean_time_ns ELSE NULL::bigint END))::numeric) / (max(CASE WHEN ((results.implementation_type)::text = 'talib'::text) THEN results.mean_time_ns ELSE NULL::bigint END))::numeric) * (100)::numeric), 2) AS rust_vs_talib_percent_diff
+    round(((max(CASE WHEN ((results.implementation_type)::text = 'RustTa'::text) THEN results.mean_time_ns ELSE NULL::bigint END))::numeric / (max(CASE WHEN ((results.implementation_type)::text = 'Rust'::text) THEN results.mean_time_ns ELSE NULL::bigint END))::numeric), 2) AS rustta_to_rust_ratio,
+    round(((((max(CASE WHEN ((results.implementation_type)::text = 'Rust'::text) THEN results.mean_time_ns ELSE NULL::bigint END))::numeric - (max(CASE WHEN ((results.implementation_type)::text = 'talib'::text) THEN results.mean_time_ns ELSE NULL::bigint END))::numeric) / (max(CASE WHEN ((results.implementation_type)::text = 'talib'::text) THEN results.mean_time_ns ELSE NULL::bigint END))::numeric) * (100)::numeric), 2) AS rust_vs_talib_percent_diff,
+    round(((((max(CASE WHEN ((results.implementation_type)::text = 'Rust'::text) THEN results.mean_time_ns ELSE NULL::bigint END))::numeric - (max(CASE WHEN ((results.implementation_type)::text = 'RustTa'::text) THEN results.mean_time_ns ELSE NULL::bigint END))::numeric) / (max(CASE WHEN ((results.implementation_type)::text = 'RustTa'::text) THEN results.mean_time_ns ELSE NULL::bigint END))::numeric) * (100)::numeric), 2) AS rust_vs_rustta_percent_diff
    FROM ((benchmark_runs runs
      JOIN benchmark_results results ON ((runs.id = results.run_id)))
      JOIN indicators ind ON ((results.indicator_id = ind.id)))
   GROUP BY runs.id, runs.run_timestamp, runs.system_info, ind.name, results.stock_symbol, results.data_source, results.input_size, results.options
- HAVING (count(DISTINCT CASE WHEN ((results.implementation_type)::text = ANY ((ARRAY['C_tulip'::character varying, 'Rust'::character varying, 'talib'::character varying])::text[])) THEN results.implementation_type ELSE NULL::character varying END) >= 2)
+ HAVING (count(DISTINCT CASE WHEN ((results.implementation_type)::text = ANY ((ARRAY['C_tulip'::character varying, 'Rust'::character varying, 'talib'::character varying, 'RustTa'::character varying])::text[])) THEN results.implementation_type ELSE NULL::character varying END) >= 2)
   ORDER BY runs.run_timestamp DESC, ind.name, results.stock_symbol;
 
 CREATE VIEW simplified_comparison AS
@@ -194,16 +202,20 @@ SELECT runs.id AS run_id,
     round(avg(CASE WHEN ((results.implementation_type)::text = 'C_tulip'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) AS c_avg_mean_time_ns,
     count(CASE WHEN ((results.implementation_type)::text = 'C_tulip'::text) THEN 1 ELSE NULL::integer END) AS c_symbol_count,
     round(avg(CASE WHEN ((results.implementation_type)::text = 'talib'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) AS talib_avg_mean_time_ns,
+    round(avg(CASE WHEN ((results.implementation_type)::text = 'RustTa'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) AS rustta_avg_mean_time_ns,
     count(CASE WHEN ((results.implementation_type)::text = 'talib'::text) THEN 1 ELSE NULL::integer END) AS talib_symbol_count,
+    count(CASE WHEN ((results.implementation_type)::text = 'RustTa'::text) THEN 1 ELSE NULL::integer END) AS rustta_symbol_count,
     round((avg(CASE WHEN ((results.implementation_type)::text = 'C_tulip'::text) THEN results.mean_time_ns ELSE NULL::bigint END) / avg(CASE WHEN ((results.implementation_type)::text = 'Rust'::text) THEN results.mean_time_ns ELSE NULL::bigint END)), 2) AS c_to_rust_ratio,
     round((((avg(CASE WHEN ((results.implementation_type)::text = 'Rust'::text) THEN results.mean_time_ns ELSE NULL::bigint END) - avg(CASE WHEN ((results.implementation_type)::text = 'C_tulip'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) / avg(CASE WHEN ((results.implementation_type)::text = 'C_tulip'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) * (100)::numeric), 2) AS rust_vs_c_percent_diff,
     round((avg(CASE WHEN ((results.implementation_type)::text = 'talib'::text) THEN results.mean_time_ns ELSE NULL::bigint END) / avg(CASE WHEN ((results.implementation_type)::text = 'Rust'::text) THEN results.mean_time_ns ELSE NULL::bigint END)), 2) AS talib_to_rust_ratio,
-    round((((avg(CASE WHEN ((results.implementation_type)::text = 'Rust'::text) THEN results.mean_time_ns ELSE NULL::bigint END) - avg(CASE WHEN ((results.implementation_type)::text = 'talib'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) / avg(CASE WHEN ((results.implementation_type)::text = 'talib'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) * (100)::numeric), 2) AS rust_vs_talib_percent_diff
+    round((avg(CASE WHEN ((results.implementation_type)::text = 'RustTa'::text) THEN results.mean_time_ns ELSE NULL::bigint END) / avg(CASE WHEN ((results.implementation_type)::text = 'Rust'::text) THEN results.mean_time_ns ELSE NULL::bigint END)), 2) AS rustta_to_rust_ratio,
+    round((((avg(CASE WHEN ((results.implementation_type)::text = 'Rust'::text) THEN results.mean_time_ns ELSE NULL::bigint END) - avg(CASE WHEN ((results.implementation_type)::text = 'talib'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) / avg(CASE WHEN ((results.implementation_type)::text = 'talib'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) * (100)::numeric), 2) AS rust_vs_talib_percent_diff,
+    round((((avg(CASE WHEN ((results.implementation_type)::text = 'Rust'::text) THEN results.mean_time_ns ELSE NULL::bigint END) - avg(CASE WHEN ((results.implementation_type)::text = 'RustTa'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) / avg(CASE WHEN ((results.implementation_type)::text = 'RustTa'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) * (100)::numeric), 2) AS rust_vs_rustta_percent_diff
    FROM ((benchmark_runs runs
      JOIN benchmark_results results ON ((runs.id = results.run_id)))
      JOIN indicators ind ON ((results.indicator_id = ind.id)))
   GROUP BY runs.id, runs.run_timestamp, runs.system_info, ind.name, results.input_size, results.options
- HAVING (count(DISTINCT CASE WHEN ((results.implementation_type)::text = ANY ((ARRAY['C_tulip'::character varying, 'Rust'::character varying, 'talib'::character varying])::text[])) THEN results.implementation_type ELSE NULL::character varying END) >= 2)
+ HAVING (count(DISTINCT CASE WHEN ((results.implementation_type)::text = ANY ((ARRAY['C_tulip'::character varying, 'Rust'::character varying, 'talib'::character varying, 'RustTa'::character varying])::text[])) THEN results.implementation_type ELSE NULL::character varying END) >= 2)
   ORDER BY runs.run_timestamp DESC, ind.name;
 
 CREATE VIEW rust_impl_avg_options_comparison AS
@@ -215,13 +227,14 @@ SELECT runs.id AS run_id,
     round(avg(CASE WHEN ((results.implementation_type)::text = 'Rust_FromState'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) AS rust_fromstate_avg_mean_time_ns,
     round(avg(CASE WHEN ((results.implementation_type)::text = 'Rust_optional'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) AS rust_optional_avg_mean_time_ns,
     round(avg(CASE WHEN ((results.implementation_type)::text = 'Rust_FromState_1_Bar'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) AS rust_fromstate_1_bar_avg_mean_time_ns,
-    round(avg(CASE WHEN ((results.implementation_type)::text = 'Rust_FromState_1_Bar_json'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) AS rust_fromstate_1_bar_json_avg_mean_time_ns
+  round(avg(CASE WHEN ((results.implementation_type)::text = 'Rust_FromState_1_Bar_json'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) AS rust_fromstate_1_bar_json_avg_mean_time_ns,
+  round(avg(CASE WHEN ((results.implementation_type)::text = 'RustTa'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) AS rust_ta_avg_mean_time_ns
    FROM ((benchmark_runs runs
      JOIN benchmark_results results ON ((runs.id = results.run_id)))
      JOIN indicators ind ON ((results.indicator_id = ind.id)))
   WHERE ((ind.category)::text <> 'candlestick'::text)
   GROUP BY runs.id, runs.run_timestamp, runs.system_info, ind.name
- HAVING (count(DISTINCT CASE WHEN ((results.implementation_type)::text = ANY ((ARRAY['Rust'::character varying, 'Rust_FromState'::character varying, 'Rust_optional'::character varying, 'Rust_FromState_1_Bar'::character varying, 'Rust_FromState_1_Bar_json'::character varying])::text[])) THEN results.implementation_type ELSE NULL::character varying END) >= 1)
+ HAVING (count(DISTINCT CASE WHEN ((results.implementation_type)::text = ANY ((ARRAY['Rust'::character varying, 'Rust_FromState'::character varying, 'Rust_optional'::character varying, 'Rust_FromState_1_Bar'::character varying, 'Rust_FromState_1_Bar_json'::character varying, 'RustTa'::character varying])::text[])) THEN results.implementation_type ELSE NULL::character varying END) >= 1)
   ORDER BY runs.run_timestamp DESC, ind.name;
 
 CREATE VIEW rust_impl_performance_comparison AS
@@ -242,13 +255,15 @@ SELECT runs.id AS run_id,
     max(CASE WHEN ((results.implementation_type)::text = 'Rust_FromState_1_Bar'::text) THEN results.mean_time_ns ELSE NULL::bigint END) AS rust_fromstate_1_bar_mean_time_ns,
     max(CASE WHEN ((results.implementation_type)::text = 'Rust_FromState_1_Bar'::text) THEN results.sample_count ELSE NULL::integer END) AS rust_fromstate_1_bar_sample_count,
     max(CASE WHEN ((results.implementation_type)::text = 'Rust_FromState_1_Bar_json'::text) THEN results.mean_time_ns ELSE NULL::bigint END) AS rust_fromstate_1_bar_json_mean_time_ns,
-    max(CASE WHEN ((results.implementation_type)::text = 'Rust_FromState_1_Bar_json'::text) THEN results.sample_count ELSE NULL::integer END) AS rust_fromstate_1_bar_json_sample_count
+    max(CASE WHEN ((results.implementation_type)::text = 'Rust_FromState_1_Bar_json'::text) THEN results.sample_count ELSE NULL::integer END) AS rust_fromstate_1_bar_json_sample_count,
+    max(CASE WHEN ((results.implementation_type)::text = 'RustTa'::text) THEN results.mean_time_ns ELSE NULL::bigint END) AS rust_ta_mean_time_ns,
+    max(CASE WHEN ((results.implementation_type)::text = 'RustTa'::text) THEN results.sample_count ELSE NULL::integer END) AS rust_ta_sample_count
    FROM ((benchmark_runs runs
      JOIN benchmark_results results ON ((runs.id = results.run_id)))
      JOIN indicators ind ON ((results.indicator_id = ind.id)))
   WHERE ((ind.category)::text <> 'candlestick'::text)
   GROUP BY runs.id, runs.run_timestamp, runs.system_info, ind.name, results.stock_symbol, results.data_source, results.input_size, results.options
- HAVING (count(DISTINCT CASE WHEN ((results.implementation_type)::text = ANY ((ARRAY['Rust'::character varying, 'Rust_FromState'::character varying, 'Rust_optional'::character varying, 'Rust_FromState_1_Bar'::character varying, 'Rust_FromState_1_Bar_json'::character varying])::text[])) THEN results.implementation_type ELSE NULL::character varying END) >= 1)
+ HAVING (count(DISTINCT CASE WHEN ((results.implementation_type)::text = ANY ((ARRAY['Rust'::character varying, 'Rust_FromState'::character varying, 'Rust_optional'::character varying, 'Rust_FromState_1_Bar'::character varying, 'Rust_FromState_1_Bar_json'::character varying, 'RustTa'::character varying])::text[])) THEN results.implementation_type ELSE NULL::character varying END) >= 1)
   ORDER BY runs.run_timestamp DESC, ind.name, results.stock_symbol;
 
 CREATE VIEW rust_impl_simplified_comparison AS
@@ -267,13 +282,15 @@ SELECT runs.id AS run_id,
     round(avg(CASE WHEN ((results.implementation_type)::text = 'Rust_FromState_1_Bar'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) AS rust_fromstate_1_bar_avg_mean_time_ns,
     count(CASE WHEN ((results.implementation_type)::text = 'Rust_FromState_1_Bar'::text) THEN 1 ELSE NULL::integer END) AS rust_fromstate_1_bar_symbol_count,
     round(avg(CASE WHEN ((results.implementation_type)::text = 'Rust_FromState_1_Bar_json'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) AS rust_fromstate_1_bar_json_avg_mean_time_ns,
-    count(CASE WHEN ((results.implementation_type)::text = 'Rust_FromState_1_Bar_json'::text) THEN 1 ELSE NULL::integer END) AS rust_fromstate_1_bar_json_symbol_count
+    count(CASE WHEN ((results.implementation_type)::text = 'Rust_FromState_1_Bar_json'::text) THEN 1 ELSE NULL::integer END) AS rust_fromstate_1_bar_json_symbol_count,
+    round(avg(CASE WHEN ((results.implementation_type)::text = 'RustTa'::text) THEN results.mean_time_ns ELSE NULL::bigint END)) AS rust_ta_avg_mean_time_ns,
+    count(CASE WHEN ((results.implementation_type)::text = 'RustTa'::text) THEN 1 ELSE NULL::integer END) AS rust_ta_symbol_count
    FROM ((benchmark_runs runs
      JOIN benchmark_results results ON ((runs.id = results.run_id)))
      JOIN indicators ind ON ((results.indicator_id = ind.id)))
   WHERE ((ind.category)::text <> 'candlestick'::text)
   GROUP BY runs.id, runs.run_timestamp, runs.system_info, ind.name, results.input_size, results.options
- HAVING (count(DISTINCT CASE WHEN ((results.implementation_type)::text = ANY ((ARRAY['Rust'::character varying, 'Rust_FromState'::character varying, 'Rust_optional'::character varying, 'Rust_FromState_1_Bar'::character varying, 'Rust_FromState_1_Bar_json'::character varying])::text[])) THEN results.implementation_type ELSE NULL::character varying END) >= 1)
+ HAVING (count(DISTINCT CASE WHEN ((results.implementation_type)::text = ANY ((ARRAY['Rust'::character varying, 'Rust_FromState'::character varying, 'Rust_optional'::character varying, 'Rust_FromState_1_Bar'::character varying, 'Rust_FromState_1_Bar_json'::character varying, 'RustTa'::character varying])::text[])) THEN results.implementation_type ELSE NULL::character varying END) >= 1)
   ORDER BY runs.run_timestamp DESC, ind.name;
 
 CREATE VIEW rust_simd_performance_comparison AS
@@ -355,20 +372,26 @@ SELECT current_run.run_id,
     current_run.rust_avg_mean_time_ns AS current_rust_avg_time_ns,
     current_run.c_avg_mean_time_ns AS current_c_avg_time_ns,
     current_run.talib_avg_mean_time_ns AS current_talib_avg_time_ns,
+  current_run.rustta_avg_mean_time_ns AS current_rustta_avg_time_ns,
     current_run.c_to_rust_ratio AS current_c_to_rust_ratio,
     current_run.rust_options_count AS current_rust_options_count,
     prev_run.run_id AS prev_run_id,
     prev_run.benchmark_date AS prev_benchmark_date,
     prev_run.rust_avg_mean_time_ns AS prev_rust_avg_time_ns,
     prev_run.talib_avg_mean_time_ns AS prev_talib_avg_time_ns,
+  prev_run.rustta_avg_mean_time_ns AS prev_rustta_avg_time_ns,
     prev_run.c_to_rust_ratio AS prev_c_to_rust_ratio,
     round((((current_run.rust_avg_mean_time_ns - prev_run.rust_avg_mean_time_ns) / prev_run.rust_avg_mean_time_ns) * (100)::numeric), 2) AS rust_performance_change_pct,
     round((((current_run.c_avg_mean_time_ns - prev_run.c_avg_mean_time_ns) / prev_run.c_avg_mean_time_ns) * (100)::numeric), 2) AS c_performance_change_pct,
     round((((current_run.talib_avg_mean_time_ns - prev_run.talib_avg_mean_time_ns) / prev_run.talib_avg_mean_time_ns) * (100)::numeric), 2) AS talib_performance_change_pct,
+    round((((current_run.rustta_avg_mean_time_ns - prev_run.rustta_avg_mean_time_ns) / prev_run.rustta_avg_mean_time_ns) * (100)::numeric), 2) AS rustta_performance_change_pct,
     round((((current_run.c_to_rust_ratio - prev_run.c_to_rust_ratio) / prev_run.c_to_rust_ratio) * (100)::numeric), 2) AS c_ratio_change_pct,
     round((((current_run.talib_to_rust_ratio - prev_run.talib_to_rust_ratio) / prev_run.talib_to_rust_ratio) * (100)::numeric), 2) AS talib_ratio_change_pct,
-    (EXTRACT(epoch FROM (current_run.benchmark_date - prev_run.benchmark_date)) / (86400)::numeric) AS days_between_runs
-   FROM (( SELECT avg_options_comparison.run_id, avg_options_comparison.benchmark_date, avg_options_comparison.hostname, avg_options_comparison.indicator_name, avg_options_comparison.rust_avg_mean_time_ns, avg_options_comparison.rust_options_count, avg_options_comparison.c_avg_mean_time_ns, avg_options_comparison.c_options_count, avg_options_comparison.talib_avg_mean_time_ns, avg_options_comparison.talib_options_count, avg_options_comparison.c_to_rust_ratio, avg_options_comparison.rust_vs_c_percent_diff, avg_options_comparison.talib_to_rust_ratio, avg_options_comparison.rust_vs_talib_percent_diff,
+    (EXTRACT(epoch FROM (current_run.benchmark_date - prev_run.benchmark_date)) / (86400)::numeric) AS days_between_runs,
+    current_run.rustta_to_rust_ratio AS current_rustta_to_rust_ratio,
+    prev_run.rustta_to_rust_ratio AS prev_rustta_to_rust_ratio,
+    round((((current_run.rustta_to_rust_ratio - prev_run.rustta_to_rust_ratio) / prev_run.rustta_to_rust_ratio) * (100)::numeric), 2) AS rustta_ratio_change_pct
+     FROM (( SELECT avg_options_comparison.run_id, avg_options_comparison.benchmark_date, avg_options_comparison.hostname, avg_options_comparison.indicator_name, avg_options_comparison.rust_avg_mean_time_ns, avg_options_comparison.rust_options_count, avg_options_comparison.c_avg_mean_time_ns, avg_options_comparison.c_options_count, avg_options_comparison.talib_avg_mean_time_ns, avg_options_comparison.talib_options_count, avg_options_comparison.c_to_rust_ratio, avg_options_comparison.rust_vs_c_percent_diff, avg_options_comparison.talib_to_rust_ratio, avg_options_comparison.rust_vs_talib_percent_diff, avg_options_comparison.rustta_avg_mean_time_ns, avg_options_comparison.rustta_options_count, avg_options_comparison.rustta_to_rust_ratio, avg_options_comparison.rust_vs_rustta_percent_diff,
             lag(avg_options_comparison.run_id) OVER (PARTITION BY avg_options_comparison.hostname, avg_options_comparison.indicator_name ORDER BY avg_options_comparison.benchmark_date) AS prev_run_id_ref,
             lag(avg_options_comparison.benchmark_date) OVER (PARTITION BY avg_options_comparison.hostname, avg_options_comparison.indicator_name ORDER BY avg_options_comparison.benchmark_date) AS prev_benchmark_date_ref
            FROM avg_options_comparison) current_run
@@ -381,21 +404,27 @@ SELECT current_run.run_id, current_run.benchmark_date, current_run.hostname, cur
     current_run.rust_avg_mean_time_ns AS current_rust_avg_time_ns,
     current_run.c_avg_mean_time_ns AS current_c_avg_time_ns,
     current_run.talib_avg_mean_time_ns AS current_talib_avg_time_ns,
+  current_run.rustta_avg_mean_time_ns AS current_rustta_avg_time_ns,
     current_run.c_to_rust_ratio AS current_c_to_rust_ratio,
     current_run.talib_to_rust_ratio AS current_talib_to_rust_ratio,
     prev_run.run_id AS prev_run_id, prev_run.benchmark_date AS prev_benchmark_date,
     prev_run.rust_avg_mean_time_ns AS prev_rust_avg_time_ns,
     prev_run.c_avg_mean_time_ns AS prev_c_avg_time_ns,
     prev_run.talib_avg_mean_time_ns AS prev_talib_avg_time_ns,
+  prev_run.rustta_avg_mean_time_ns AS prev_rustta_avg_time_ns,
     prev_run.c_to_rust_ratio AS prev_c_to_rust_ratio,
     prev_run.talib_to_rust_ratio AS prev_talib_to_rust_ratio,
     round((((current_run.rust_avg_mean_time_ns - prev_run.rust_avg_mean_time_ns) / prev_run.rust_avg_mean_time_ns) * (100)::numeric), 2) AS rust_performance_change_pct,
     round((((current_run.c_avg_mean_time_ns - prev_run.c_avg_mean_time_ns) / prev_run.c_avg_mean_time_ns) * (100)::numeric), 2) AS c_performance_change_pct,
     round((((current_run.talib_avg_mean_time_ns - prev_run.talib_avg_mean_time_ns) / prev_run.talib_avg_mean_time_ns) * (100)::numeric), 2) AS talib_performance_change_pct,
+    round((((current_run.rustta_avg_mean_time_ns - prev_run.rustta_avg_mean_time_ns) / prev_run.rustta_avg_mean_time_ns) * (100)::numeric), 2) AS rustta_performance_change_pct,
     round((((current_run.c_to_rust_ratio - prev_run.c_to_rust_ratio) / prev_run.c_to_rust_ratio) * (100)::numeric), 2) AS c_ratio_change_pct,
     round((((current_run.talib_to_rust_ratio - prev_run.talib_to_rust_ratio) / prev_run.talib_to_rust_ratio) * (100)::numeric), 2) AS talib_ratio_change_pct,
-    (EXTRACT(epoch FROM (current_run.benchmark_date - prev_run.benchmark_date)) / (86400)::numeric) AS days_between_runs
-   FROM (( SELECT simplified_comparison.run_id, simplified_comparison.benchmark_date, simplified_comparison.hostname, simplified_comparison.indicator_name, simplified_comparison.input_size, simplified_comparison.options, simplified_comparison.rust_avg_mean_time_ns, simplified_comparison.rust_symbol_count, simplified_comparison.c_avg_mean_time_ns, simplified_comparison.c_symbol_count, simplified_comparison.talib_avg_mean_time_ns, simplified_comparison.talib_symbol_count, simplified_comparison.c_to_rust_ratio, simplified_comparison.rust_vs_c_percent_diff, simplified_comparison.talib_to_rust_ratio, simplified_comparison.rust_vs_talib_percent_diff,
+    (EXTRACT(epoch FROM (current_run.benchmark_date - prev_run.benchmark_date)) / (86400)::numeric) AS days_between_runs,
+    current_run.rustta_to_rust_ratio AS current_rustta_to_rust_ratio,
+    prev_run.rustta_to_rust_ratio AS prev_rustta_to_rust_ratio,
+    round((((current_run.rustta_to_rust_ratio - prev_run.rustta_to_rust_ratio) / prev_run.rustta_to_rust_ratio) * (100)::numeric), 2) AS rustta_ratio_change_pct
+     FROM (( SELECT simplified_comparison.run_id, simplified_comparison.benchmark_date, simplified_comparison.hostname, simplified_comparison.indicator_name, simplified_comparison.input_size, simplified_comparison.options, simplified_comparison.rust_avg_mean_time_ns, simplified_comparison.rust_symbol_count, simplified_comparison.c_avg_mean_time_ns, simplified_comparison.c_symbol_count, simplified_comparison.talib_avg_mean_time_ns, simplified_comparison.talib_symbol_count, simplified_comparison.c_to_rust_ratio, simplified_comparison.rust_vs_c_percent_diff, simplified_comparison.talib_to_rust_ratio, simplified_comparison.rust_vs_talib_percent_diff, simplified_comparison.rustta_avg_mean_time_ns, simplified_comparison.rustta_symbol_count, simplified_comparison.rustta_to_rust_ratio, simplified_comparison.rust_vs_rustta_percent_diff,
             lag(simplified_comparison.run_id) OVER (PARTITION BY simplified_comparison.hostname, simplified_comparison.indicator_name, simplified_comparison.input_size, simplified_comparison.options ORDER BY simplified_comparison.benchmark_date) AS prev_run_id_ref,
             lag(simplified_comparison.benchmark_date) OVER (PARTITION BY simplified_comparison.hostname, simplified_comparison.indicator_name, simplified_comparison.input_size, simplified_comparison.options ORDER BY simplified_comparison.benchmark_date) AS prev_benchmark_date_ref
            FROM simplified_comparison) current_run
@@ -421,8 +450,11 @@ SELECT current_run.run_id, current_run.benchmark_date, current_run.hostname, cur
     round((((current_run.rust_optional_avg_mean_time_ns - prev_run.rust_optional_avg_mean_time_ns) / prev_run.rust_optional_avg_mean_time_ns) * (100)::numeric), 2) AS rust_optional_performance_change_pct,
     round((((current_run.rust_fromstate_1_bar_avg_mean_time_ns - prev_run.rust_fromstate_1_bar_avg_mean_time_ns) / prev_run.rust_fromstate_1_bar_avg_mean_time_ns) * (100)::numeric), 2) AS rust_fromstate_1_bar_performance_change_pct,
     round((((current_run.rust_fromstate_1_bar_json_avg_mean_time_ns - prev_run.rust_fromstate_1_bar_json_avg_mean_time_ns) / prev_run.rust_fromstate_1_bar_json_avg_mean_time_ns) * (100)::numeric), 2) AS rust_fromstate_1_bar_json_performance_change_pct,
-    (EXTRACT(epoch FROM (current_run.benchmark_date - prev_run.benchmark_date)) / (86400)::numeric) AS days_between_runs
-   FROM (( SELECT rust_impl_avg_options_comparison.run_id, rust_impl_avg_options_comparison.benchmark_date, rust_impl_avg_options_comparison.hostname, rust_impl_avg_options_comparison.indicator_name, rust_impl_avg_options_comparison.rust_avg_mean_time_ns, rust_impl_avg_options_comparison.rust_fromstate_avg_mean_time_ns, rust_impl_avg_options_comparison.rust_optional_avg_mean_time_ns, rust_impl_avg_options_comparison.rust_fromstate_1_bar_avg_mean_time_ns, rust_impl_avg_options_comparison.rust_fromstate_1_bar_json_avg_mean_time_ns,
+  (EXTRACT(epoch FROM (current_run.benchmark_date - prev_run.benchmark_date)) / (86400)::numeric) AS days_between_runs,
+  current_run.rust_ta_avg_mean_time_ns AS current_rust_ta_avg_time_ns,
+  prev_run.rust_ta_avg_mean_time_ns AS prev_rust_ta_avg_time_ns,
+  round((((current_run.rust_ta_avg_mean_time_ns - prev_run.rust_ta_avg_mean_time_ns) / prev_run.rust_ta_avg_mean_time_ns) * (100)::numeric), 2) AS rust_ta_performance_change_pct
+   FROM (( SELECT rust_impl_avg_options_comparison.run_id, rust_impl_avg_options_comparison.benchmark_date, rust_impl_avg_options_comparison.hostname, rust_impl_avg_options_comparison.indicator_name, rust_impl_avg_options_comparison.rust_avg_mean_time_ns, rust_impl_avg_options_comparison.rust_fromstate_avg_mean_time_ns, rust_impl_avg_options_comparison.rust_optional_avg_mean_time_ns, rust_impl_avg_options_comparison.rust_fromstate_1_bar_avg_mean_time_ns, rust_impl_avg_options_comparison.rust_fromstate_1_bar_json_avg_mean_time_ns, rust_impl_avg_options_comparison.rust_ta_avg_mean_time_ns,
             lag(rust_impl_avg_options_comparison.run_id) OVER (PARTITION BY rust_impl_avg_options_comparison.hostname, rust_impl_avg_options_comparison.indicator_name ORDER BY rust_impl_avg_options_comparison.benchmark_date) AS prev_run_id_ref,
             lag(rust_impl_avg_options_comparison.benchmark_date) OVER (PARTITION BY rust_impl_avg_options_comparison.hostname, rust_impl_avg_options_comparison.indicator_name ORDER BY rust_impl_avg_options_comparison.benchmark_date) AS prev_benchmark_date_ref
            FROM rust_impl_avg_options_comparison) current_run
@@ -448,8 +480,11 @@ SELECT current_run.run_id, current_run.benchmark_date, current_run.hostname, cur
     round((((current_run.rust_optional_avg_mean_time_ns - prev_run.rust_optional_avg_mean_time_ns) / prev_run.rust_optional_avg_mean_time_ns) * (100)::numeric), 2) AS rust_optional_performance_change_pct,
     round((((current_run.rust_fromstate_1_bar_avg_mean_time_ns - prev_run.rust_fromstate_1_bar_avg_mean_time_ns) / prev_run.rust_fromstate_1_bar_avg_mean_time_ns) * (100)::numeric), 2) AS rust_fromstate_1_bar_performance_change_pct,
     round((((current_run.rust_fromstate_1_bar_json_avg_mean_time_ns - prev_run.rust_fromstate_1_bar_json_avg_mean_time_ns) / prev_run.rust_fromstate_1_bar_json_avg_mean_time_ns) * (100)::numeric), 2) AS rust_fromstate_1_bar_json_performance_change_pct,
-    (EXTRACT(epoch FROM (current_run.benchmark_date - prev_run.benchmark_date)) / (86400)::numeric) AS days_between_runs
-   FROM (( SELECT rust_impl_simplified_comparison.run_id, rust_impl_simplified_comparison.benchmark_date, rust_impl_simplified_comparison.hostname, rust_impl_simplified_comparison.indicator_name, rust_impl_simplified_comparison.input_size, rust_impl_simplified_comparison.options, rust_impl_simplified_comparison.rust_avg_mean_time_ns, rust_impl_simplified_comparison.rust_symbol_count, rust_impl_simplified_comparison.rust_fromstate_avg_mean_time_ns, rust_impl_simplified_comparison.rust_fromstate_symbol_count, rust_impl_simplified_comparison.rust_optional_avg_mean_time_ns, rust_impl_simplified_comparison.rust_optional_symbol_count, rust_impl_simplified_comparison.rust_fromstate_1_bar_avg_mean_time_ns, rust_impl_simplified_comparison.rust_fromstate_1_bar_symbol_count, rust_impl_simplified_comparison.rust_fromstate_1_bar_json_avg_mean_time_ns, rust_impl_simplified_comparison.rust_fromstate_1_bar_json_symbol_count,
+  (EXTRACT(epoch FROM (current_run.benchmark_date - prev_run.benchmark_date)) / (86400)::numeric) AS days_between_runs,
+  current_run.rust_ta_avg_mean_time_ns AS current_rust_ta_avg_time_ns,
+  prev_run.rust_ta_avg_mean_time_ns AS prev_rust_ta_avg_time_ns,
+  round((((current_run.rust_ta_avg_mean_time_ns - prev_run.rust_ta_avg_mean_time_ns) / prev_run.rust_ta_avg_mean_time_ns) * (100)::numeric), 2) AS rust_ta_performance_change_pct
+   FROM (( SELECT rust_impl_simplified_comparison.run_id, rust_impl_simplified_comparison.benchmark_date, rust_impl_simplified_comparison.hostname, rust_impl_simplified_comparison.indicator_name, rust_impl_simplified_comparison.input_size, rust_impl_simplified_comparison.options, rust_impl_simplified_comparison.rust_avg_mean_time_ns, rust_impl_simplified_comparison.rust_symbol_count, rust_impl_simplified_comparison.rust_fromstate_avg_mean_time_ns, rust_impl_simplified_comparison.rust_fromstate_symbol_count, rust_impl_simplified_comparison.rust_optional_avg_mean_time_ns, rust_impl_simplified_comparison.rust_optional_symbol_count, rust_impl_simplified_comparison.rust_fromstate_1_bar_avg_mean_time_ns, rust_impl_simplified_comparison.rust_fromstate_1_bar_symbol_count, rust_impl_simplified_comparison.rust_fromstate_1_bar_json_avg_mean_time_ns, rust_impl_simplified_comparison.rust_fromstate_1_bar_json_symbol_count, rust_impl_simplified_comparison.rust_ta_avg_mean_time_ns, rust_impl_simplified_comparison.rust_ta_symbol_count,
             lag(rust_impl_simplified_comparison.run_id) OVER (PARTITION BY rust_impl_simplified_comparison.hostname, rust_impl_simplified_comparison.indicator_name, rust_impl_simplified_comparison.input_size, rust_impl_simplified_comparison.options ORDER BY rust_impl_simplified_comparison.benchmark_date) AS prev_run_id_ref,
             lag(rust_impl_simplified_comparison.benchmark_date) OVER (PARTITION BY rust_impl_simplified_comparison.hostname, rust_impl_simplified_comparison.indicator_name, rust_impl_simplified_comparison.input_size, rust_impl_simplified_comparison.options ORDER BY rust_impl_simplified_comparison.benchmark_date) AS prev_benchmark_date_ref
            FROM rust_impl_simplified_comparison) current_run
@@ -512,10 +547,12 @@ SELECT run_id, benchmark_date, hostname, indicator_name, input_size,
 CREATE VIEW rust_impl_slower_indicators AS
 SELECT run_id, benchmark_date, hostname, indicator_name,
     current_rust_avg_time_ns, current_rust_fromstate_avg_time_ns, current_rust_optional_avg_time_ns,
-    current_rust_fromstate_1_bar_avg_time_ns, current_rust_fromstate_1_bar_json_avg_time_ns,
+  current_rust_fromstate_1_bar_avg_time_ns, current_rust_fromstate_1_bar_json_avg_time_ns,
     rust_performance_change_pct, rust_fromstate_performance_change_pct, rust_optional_performance_change_pct,
-    rust_fromstate_1_bar_performance_change_pct, rust_fromstate_1_bar_json_performance_change_pct,
-    days_between_runs
+  rust_fromstate_1_bar_performance_change_pct, rust_fromstate_1_bar_json_performance_change_pct,
+  days_between_runs,
+  current_rust_ta_avg_time_ns,
+  rust_ta_performance_change_pct
    FROM ( SELECT rust_impl_prev_avg_run_comparison.*,
             row_number() OVER (PARTITION BY rust_impl_prev_avg_run_comparison.hostname, rust_impl_prev_avg_run_comparison.indicator_name ORDER BY rust_impl_prev_avg_run_comparison.benchmark_date DESC) AS rn
            FROM rust_impl_prev_avg_run_comparison) latest_runs
@@ -524,15 +561,18 @@ SELECT run_id, benchmark_date, hostname, indicator_name,
 
 CREATE VIEW rust_slower_indicators AS
 SELECT run_id, benchmark_date, hostname, indicator_name,
-    current_rust_avg_time_ns, current_c_avg_time_ns, current_talib_avg_time_ns, current_c_to_rust_ratio,
+  current_rust_avg_time_ns, current_c_avg_time_ns, current_talib_avg_time_ns, current_rustta_avg_time_ns, current_c_to_rust_ratio,
     rust_performance_change_pct, talib_performance_change_pct, talib_ratio_change_pct,
     CASE WHEN ((current_c_avg_time_ns IS NOT NULL) AND (current_rust_avg_time_ns > current_c_avg_time_ns)) THEN round((((current_rust_avg_time_ns - current_c_avg_time_ns) / current_c_avg_time_ns) * (100)::numeric), 2) ELSE NULL::numeric END AS rust_slower_than_c_by_pct,
     CASE WHEN ((current_talib_avg_time_ns IS NOT NULL) AND (current_rust_avg_time_ns > current_talib_avg_time_ns)) THEN round((((current_rust_avg_time_ns - current_talib_avg_time_ns) / current_talib_avg_time_ns) * (100)::numeric), 2) ELSE NULL::numeric END AS rust_slower_than_talib_by_pct,
-    days_between_runs
+    days_between_runs,
+    rustta_performance_change_pct,
+    rustta_ratio_change_pct,
+    CASE WHEN ((current_rustta_avg_time_ns IS NOT NULL) AND (current_rust_avg_time_ns > current_rustta_avg_time_ns)) THEN round((((current_rust_avg_time_ns - current_rustta_avg_time_ns) / current_rustta_avg_time_ns) * (100)::numeric), 2) ELSE NULL::numeric END AS rust_slower_than_rustta_by_pct
    FROM ( SELECT prev_avg_run_comparison.*,
             row_number() OVER (PARTITION BY prev_avg_run_comparison.hostname, prev_avg_run_comparison.indicator_name ORDER BY prev_avg_run_comparison.benchmark_date DESC) AS rn
            FROM prev_avg_run_comparison) latest_runs
-  WHERE ((rn = 1) AND (((current_c_avg_time_ns IS NOT NULL) AND (current_rust_avg_time_ns > current_c_avg_time_ns)) OR ((current_talib_avg_time_ns IS NOT NULL) AND (current_rust_avg_time_ns > current_talib_avg_time_ns))))
+  WHERE ((rn = 1) AND (((current_c_avg_time_ns IS NOT NULL) AND (current_rust_avg_time_ns > current_c_avg_time_ns)) OR ((current_talib_avg_time_ns IS NOT NULL) AND (current_rust_avg_time_ns > current_talib_avg_time_ns)) OR ((current_rustta_avg_time_ns IS NOT NULL) AND (current_rust_avg_time_ns > current_rustta_avg_time_ns))))
   ORDER BY hostname, indicator_name;
 
 CREATE VIEW rust_simd_avg_comparison AS
