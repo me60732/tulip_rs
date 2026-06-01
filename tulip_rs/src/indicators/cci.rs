@@ -160,22 +160,21 @@ impl TIndicatorState<3> for IndicatorState {
             cci_line = crate::uninit_vec!(f64, capacity);
         };
 
-        if self.period > 20 {
-            cycle::<true>(
+        match self.period {
+            1..=50 => cycle::<1>(
                 (inputs[0], inputs[1], inputs[2]),
                 self.multiplier,
                 &mut self.state,
                 &mut cci_line,
                 (&mut sma_line, &mut md_line, &mut typprice_line),
-            );
-        } else {
-            cycle::<false>(
+            ),
+            _ => cycle::<8>(
                 (inputs[0], inputs[1], inputs[2]),
                 self.multiplier,
                 &mut self.state,
                 &mut cci_line,
                 (&mut sma_line, &mut md_line, &mut typprice_line),
-            );
+            ),
         }
 
         Ok(vec![cci_line, sma_line, md_line, typprice_line])
@@ -297,22 +296,21 @@ pub fn indicator(
         let from = period * 2 - 2;
         (&high[from..], &low[from..], &close[from..])
     };
-    if period > 20 {
-        cycle::<true>(
+    match period {
+        1..=50 => cycle::<1>(
             inputs,
             multiplier,
             &mut state,
             &mut cci_line,
             optional_outputs,
-        );
-    } else {
-        cycle::<false>(
+        ),
+        _ => cycle::<8>(
             inputs,
             multiplier,
             &mut state,
             &mut cci_line,
             optional_outputs,
-        );
+        ),
     }
 
     Ok((
@@ -330,10 +328,10 @@ pub fn indicator(
 /// * `buffer` - Mutable reference to the indicator state (ring buffer and running sum).
 /// * `cci_line` - Mutable slice to write the CCI output values into.
 /// * `out_vecs` - A tuple of `(sma_line, md_line, typprice_line)` for optional outputs.
-fn cycle<const SIMD: bool>(
+fn cycle<const N: usize>(
     inputs: (&[f64], &[f64], &[f64]),
     multiplier: f64,
-    buffer: &mut State,
+    state: &mut State,
     cci_line: &mut [f64],
     out_vecs: (&mut [f64], &mut [f64], &mut [f64]),
 ) {
@@ -351,12 +349,7 @@ fn cycle<const SIMD: bool>(
                 close.get_unchecked(i),
             )
         };
-        let (cci, sma, md, typprice);
-        if SIMD {
-            (cci, sma, md, typprice) = unsafe { calc_unchecked_simd(buffer, h, l, c, multiplier) };
-        } else {
-            (cci, sma, md, typprice) = unsafe { calc_unchecked(buffer, h, l, c, multiplier) };
-        }
+        let (cci, sma, md, typprice) = unsafe { calc_unchecked::<N>(state, h, l, c, multiplier) };
 
         unsafe { *cci_line.get_unchecked_mut(i) = cci };
         if has_optional {
@@ -398,29 +391,14 @@ pub fn calc(
         let md = calc_md(state.buffer.get_slice(), sma, multiplier);
 
         let cci = (typprice - sma) / (0.015 * md);
+        if md == 0.0 {
+            return (0.0, sma, md, typprice);
+        }
         return (cci, sma, md, typprice);
     }
 
     state.sum += typprice;
     (0.0, 0.0, 0.0, typprice)
-}
-#[inline(always)]
-pub(crate) unsafe fn calc_unchecked(
-    state: &mut State,
-    high: &f64,
-    low: &f64,
-    close: &f64,
-    multiplier: f64,
-) -> (f64, f64, f64, f64) {
-    let typprice = typprice_calc(high, low, close);
-
-    let old = state.buffer.push_with_info_unchecked(typprice);
-
-    let sma = calc_sma(&mut state.sum, &typprice, &old, &multiplier);
-    let md = calc_md(state.buffer.get_slice(), sma, multiplier);
-
-    let cci = (typprice - sma) / (0.015 * md);
-    (cci, sma, md, typprice)
 }
 /// Calculates the CCI value using SIMD-accelerated mean deviation.
 ///
@@ -440,7 +418,7 @@ pub(crate) unsafe fn calc_unchecked(
 ///
 /// A tuple `(cci, sma, md, typprice)`.
 #[inline(always)]
-pub(crate) unsafe fn calc_unchecked_simd(
+pub(crate) unsafe fn calc_unchecked<const N: usize>(
     state: &mut State,
     high: &f64,
     low: &f64,
@@ -452,8 +430,14 @@ pub(crate) unsafe fn calc_unchecked_simd(
     let old = state.buffer.push_with_info_unchecked(typprice);
     let sma = calc_sma(&mut state.sum, &typprice, &old, &multiplier);
 
-    let md = calc_md_simd::<4>(state.buffer.get_slice(), sma, multiplier);
-
+    let md = if N == 1 {
+        calc_md(state.buffer.get_slice(), sma, multiplier)
+    } else {
+        calc_md_simd::<N>(state.buffer.get_slice(), sma, multiplier)
+    };
+    if md == 0.0 {
+        return (0.0, sma, md, typprice);
+    }
     let cci = (typprice - sma) / (0.015 * md);
     (cci, sma, md, typprice)
 }

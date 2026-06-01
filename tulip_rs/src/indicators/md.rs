@@ -102,15 +102,38 @@ impl TIndicatorState<1> for IndicatorState {
                 ),
             )
         };
-
-        self.sum = cycle_md(
-            &self.real,
-            self.sum,
-            self.period,
-            self.multiplier,
-            &mut md_line,
-            &mut sma_line,
-        );
+        match self.period {
+            1..=4 => {
+                self.sum = cycle_md::<1>(
+                    &self.real,
+                    self.sum,
+                    self.period,
+                    self.multiplier,
+                    &mut md_line,
+                    &mut sma_line,
+                )
+            }
+            5..=200 => {
+                self.sum = cycle_md::<4>(
+                    &self.real,
+                    self.sum,
+                    self.period,
+                    self.multiplier,
+                    &mut md_line,
+                    &mut sma_line,
+                )
+            }
+            _ => {
+                self.sum = cycle_md::<8>(
+                    &self.real,
+                    self.sum,
+                    self.period,
+                    self.multiplier,
+                    &mut md_line,
+                    &mut sma_line,
+                )
+            }
+        }
 
         self.real.drain(..self.real.len() - self.period);
         Ok(vec![md_line, sma_line])
@@ -212,7 +235,11 @@ pub fn indicator(
         )
     };
 
-    sum = cycle_md(real, sum, period, multiplier, &mut md_line, &mut sma_line);
+    match period {
+        1..=4 => sum = cycle_md::<1>(real, sum, period, multiplier, &mut md_line, &mut sma_line),
+        5..=200 => sum = cycle_md::<4>(real, sum, period, multiplier, &mut md_line, &mut sma_line),
+        _ => sum = cycle_md::<8>(real, sum, period, multiplier, &mut md_line, &mut sma_line),
+    }
 
     Ok((
         vec![md_line, sma_line],
@@ -234,7 +261,7 @@ pub fn indicator(
 /// # Returns
 ///
 /// The updated running sum.
-fn cycle_md(
+fn cycle_md<const N: usize>(
     real: &[f64],
     mut sum: f64,
     period: usize,
@@ -253,7 +280,11 @@ fn cycle_md(
             )
         };
 
-        let (md, sma) = calc_simd::<4>(value, prev_value, prev_slice, &mut sum, multiplier);
+        let (md, sma) = if N == 1 {
+            calc(value, prev_value, prev_slice, &mut sum, multiplier)
+        } else {
+            calc_simd::<N>(value, prev_value, prev_slice, &mut sum, multiplier)
+        };
         unsafe { *md_line.get_unchecked_mut(j) = md };
 
         if want_sma {
@@ -310,12 +341,8 @@ pub(crate) fn calc_md_simd<const N: usize>(slice: &[f64], sma: f64, multiplier: 
     //let mut abs_dev_sum = 0.0;
     let sma_vec = Simd::<f64, N>::splat(sma);
 
-    // Process 4 elements at a time
-    let chunks = slice.chunks_exact(N);
-    let remainder = chunks.remainder();
-
     let mut sum_vec = Simd::splat(0.0);
-    for chunk in chunks {
+    for chunk in slice.chunks_exact(N) {
         let vals = Simd::from_slice(chunk);
         //let abs_diff = (vals - sma_vec).abs();
         sum_vec += (vals - sma_vec).abs();
@@ -326,15 +353,15 @@ pub(crate) fn calc_md_simd<const N: usize>(slice: &[f64], sma: f64, multiplier: 
     //let mut abs_dev_sum = sum_vec.to_array().iter().sum::<f64>();
     let mut abs_dev_sum = sum_vec.reduce_sum();
     // Handle remainder
+    let processed_len = (slice.len() / N) * N;
+    let remainder = &slice[processed_len..];
     for &x in remainder {
         abs_dev_sum += (x - sma).abs();
     }
 
-    let md = abs_dev_sum * multiplier;
-    md.max(f64::EPSILON)
+    abs_dev_sum * multiplier
 }
 #[inline(always)]
 pub(crate) fn calc_md(real: &[f64], sma: f64, multiplier: f64) -> f64 {
-    let md = real.iter().map(|&x| (x - sma).abs()).sum::<f64>() * multiplier;
-    md.max(f64::EPSILON)
+    real.iter().map(|&x| (x - sma).abs()).sum::<f64>() * multiplier
 }

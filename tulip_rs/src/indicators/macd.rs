@@ -150,7 +150,6 @@ impl State {
         let (has_optional, _, _) = crate::calc_want_flags!(short_ema_line, long_ema_line);
         let mut count = 0;
         for i in 1..long_period + signal_period - 2 {
-            // was -2
             let (macd, _, _) = calc(&mut state, &real[i], multipliers);
             if i == long_period - 1 {
                 state.signal = macd;

@@ -9,10 +9,11 @@ mod tests {
         81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89,
         87.77, 87.29,
     ];
-
+    /// Note: 2nd option set [13.0, 25.0, 9.0] do not use [12.0, 26.0, 9.0] tulip overides the multipliers with hard coded values at lines 2755 - 2758
+    /// Seriously WTF would you do that it is mathematically incorrect!!! but then C tulip is full of bugs like that!
     const OPTIONS_LIST: [[f64; 3]; 6] = [
         [2.0, 5.0, 9.0],
-        [12.0, 26.0, 9.0],
+        [13.0, 25.0, 9.0],
         [5.0, 13.0, 8.0],
         [19.0, 39.0, 9.0],
         [10.0, 30.0, 10.0],
@@ -273,8 +274,8 @@ mod tests {
                             index, macd_output_vec_c, outputs[0], options, stock_symbol
                         );
                         panic!(
-                            "MACD mismatch at index {}: C = {}, Rust = {}, Options = {:?}",
-                            index, c_val, rust_val, options
+                            "MACD mismatch at index {}: C = {}, Rust = {}, Options = {:?}, Stock: {}",
+                            index, c_val, rust_val, options, stock_symbol
                         );
                     }
                 }

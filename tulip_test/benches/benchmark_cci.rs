@@ -26,7 +26,7 @@ const CLOSE: [f64; 15] = [
 ];
 
 // Options for CCI
-//const OPTIONS_LIST: [[f64; 1]; 6] = [[5.0], [14.0], [20.0], [25.0], [30.0], [50.0]];
+//const OPTIONS_LIST: [[f64; 1]; 10] = [[5.0], [14.0], [20.0], [25.0], [30.0], [40.0], [50.0], [80.0], [100.0], [200.0]];
 const OPTIONS_LIST: [[f64; 1]; 4] = [[20.0], [25.0], [30.0], [50.0]];
 // Chunk size for batched processing
 const CHUNK_SIZE: usize = 100;
@@ -781,11 +781,11 @@ criterion_group!(
     bench_rust_cci_simd_by_assets,
     bench_rust_cci_simd_by_options,
     bench_rust_cci,
+    bench_rust_ta_cci,
     bench_c_cci,
     bench_talib_cci,
     bench_rust_cci_from_state,
     bench_rust_cci_optional,
-    bench_rust_ta_cci,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -794,9 +794,9 @@ criterion_group!(
     bench_rust_cci_simd_by_assets,
     bench_rust_cci_simd_by_options,
     bench_rust_cci,
+    bench_rust_ta_cci,
     bench_c_cci,
     bench_rust_cci_from_state,
     bench_rust_cci_optional,
-    bench_rust_ta_cci,
 );
 criterion_main!(benches);

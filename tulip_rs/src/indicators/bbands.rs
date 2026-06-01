@@ -260,7 +260,7 @@ fn cycle_bbands(
     for (j, i) in (period..real.len()).enumerate() {
         let prev_value = unsafe { real.get_unchecked(i - period) };
         //let prev_value = &real[i - period];
-        let (lower, middle, upper) = calc(state, &std_dev, multiplier, &real[i], prev_value);
+        let (lower, middle, upper) = calc(state, &std_dev, multiplier, unsafe { real.get_unchecked(i) }, prev_value);
         unsafe {
             *middle_band.get_unchecked_mut(j) = middle;
             *upper_band.get_unchecked_mut(j) = upper;
@@ -294,8 +294,8 @@ pub fn calc(
     (sd, sma) = stddev_calc(state, value, prev_value, multiplier);
 
     let upper_band = std_dev.mul_add(sd, sma);
-    //let upper_band = sma + std_dev * sd;
-    //let lower_band = sma - std_dev * sd;
+    //let upper_band = sma + sd * std_dev;
     let lower_band = (-std_dev).mul_add(sd, sma);
+    //let lower_band = sma - sd * std_dev;
     (lower_band, sma, upper_band)
 }

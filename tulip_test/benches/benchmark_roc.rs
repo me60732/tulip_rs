@@ -673,11 +673,12 @@ criterion_group!(
     bench_rust_roc_simd_by_assets,
     bench_rust_roc_simd_by_options,
     bench_rust_roc,
+    bench_rust_ta_roc,
     bench_c_roc,
     bench_talib_roc,
     bench_rust_roc_from_state,
     bench_rust_roc_optional,
-    bench_rust_ta_roc,
+   
 );
 
 #[cfg(not(feature = "talib"))]
@@ -686,9 +687,9 @@ criterion_group!(
     bench_rust_roc_simd_by_assets,
     bench_rust_roc_simd_by_options,
     bench_rust_roc,
+    bench_rust_ta_roc,
     bench_c_roc,
     bench_rust_roc_from_state,
     bench_rust_roc_optional,
-    bench_rust_ta_roc,
 );
 criterion_main!(benches);

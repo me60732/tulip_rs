@@ -821,11 +821,11 @@ criterion_group!(
     bench_rust_mfi_simd_by_assets,
     bench_rust_mfi_simd_by_options,
     bench_rust_mfi,
+    bench_rust_ta_mfi,
     bench_c_mfi,
     bench_talib_mfi,
     bench_rust_mfi_from_state,
     bench_rust_mfi_optional,
-    bench_rust_ta_mfi,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -834,9 +834,9 @@ criterion_group!(
     bench_rust_mfi_simd_by_assets,
     bench_rust_mfi_simd_by_options,
     bench_rust_mfi,
+    bench_rust_ta_mfi,
     bench_c_mfi,
     bench_rust_mfi_from_state,
     bench_rust_mfi_optional,
-    bench_rust_ta_mfi,
 );
 criterion_main!(benches);

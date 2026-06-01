@@ -593,9 +593,10 @@ criterion_group!(
     bench_rust_stddev_simd_by_assets,
     bench_rust_stddev_simd_by_options,
     bench_rust_stddev,
+    bench_rust_ta_stddev,
     bench_c_stddev,
     bench_rust_stddev_from_state,
     bench_rust_stddev_optional,
-    bench_rust_ta_stddev,
+    
 );
 criterion_main!(benches);

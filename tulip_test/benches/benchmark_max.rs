@@ -583,10 +583,10 @@ criterion_group!(
     bench_rust_max_simd_by_options,
     bench_rust_max_simd_by_assets,
     bench_rust_max,
+    bench_rust_ta_max,
     bench_c_max,
     bench_talib_max,
     bench_rust_max_from_state,
-    bench_rust_ta_max,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -595,8 +595,8 @@ criterion_group!(
     bench_rust_max_simd_by_options,
     bench_rust_max_simd_by_assets,
     bench_rust_max,
+    bench_rust_ta_max,
     bench_c_max,
     bench_rust_max_from_state,
-    bench_rust_ta_max,
 );
 criterion_main!(benches);

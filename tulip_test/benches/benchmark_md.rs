@@ -603,9 +603,9 @@ criterion_group!(
     bench_rust_md_simd_by_options,
     bench_rust_md_simd_by_assets,
     bench_rust_md,
+    bench_rust_ta_mad,
     bench_c_md,
     bench_rust_md_from_state,
-    bench_rust_md_optional,
-    bench_rust_ta_mad,
+    bench_rust_md_optional
 );
 criterion_main!(benches);

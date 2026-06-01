@@ -622,11 +622,18 @@ fn bench_rust_ta_bbands(c: &mut Criterion) {
                         let mut bb =
                             BollingerBands::new(period, multiplier).expect("ta BBands new failed");
                         let mut last = 0.0_f64;
+                        let mut upper = 0.0_f64;
+                        let mut lower = 0.0_f64;
                         for &price in &close {
                             let out = bb.next(price);
+                            
                             last = out.average;
+                            upper = out.upper;
+                            lower = out.lower;
                         }
                         black_box(last);
+                        black_box(upper);
+                        black_box(lower);
                     },
                     SAMPLE_SIZE,
                 );
@@ -656,11 +663,18 @@ fn bench_rust_ta_bbands(c: &mut Criterion) {
                         let mut bb =
                             BollingerBands::new(period, multiplier).expect("ta BBands new failed");
                         let mut last = 0.0_f64;
+                        let mut upper = 0.0_f64;
+                        let mut lower = 0.0_f64;
                         for &price in &close_vec {
                             let out = bb.next(price);
+                            
                             last = out.average;
+                            upper = out.upper;
+                            lower = out.lower;
                         }
                         black_box(last);
+                        black_box(upper);
+                        black_box(lower);
                     });
                 },
             );
@@ -675,10 +689,10 @@ criterion_group!(
     bench_rust_bbands_simd_by_assets,
     bench_rust_bbands_simd_by_options,
     bench_rust_bbands,
+    bench_rust_ta_bbands,
     bench_c_bbands,
     bench_talib_bbands,
     bench_rust_bbands_from_state,
-    bench_rust_ta_bbands,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -687,8 +701,8 @@ criterion_group!(
     bench_rust_bbands_simd_by_assets,
     bench_rust_bbands_simd_by_options,
     bench_rust_bbands,
+    bench_rust_ta_bbands,
     bench_c_bbands,
     bench_rust_bbands_from_state,
-    bench_rust_ta_bbands,
 );
 criterion_main!(benches);

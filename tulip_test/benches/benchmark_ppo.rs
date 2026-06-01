@@ -664,11 +664,12 @@ criterion_group!(
     bench_rust_ppo_simd_by_options,
     bench_rust_ppo_simd_by_assets,
     bench_rust_ppo,
+    bench_rust_ta_ppo,
     bench_c_ppo,
     bench_talib_ppo,
     bench_rust_ppo_from_state,
     bench_rust_ppo_optional,
-    bench_rust_ta_ppo,
+
 );
 
 #[cfg(not(feature = "talib"))]
@@ -677,9 +678,9 @@ criterion_group!(
     bench_rust_ppo_simd_by_options,
     bench_rust_ppo_simd_by_assets,
     bench_rust_ppo,
+    bench_rust_ta_ppo,
     bench_c_ppo,
     bench_rust_ppo_from_state,
     bench_rust_ppo_optional,
-    bench_rust_ta_ppo,
 );
 criterion_main!(ppo_benchmarks);

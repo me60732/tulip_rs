@@ -536,10 +536,10 @@ criterion_group!(
     benches,
     bench_rust_obv_simd_by_assets,
     bench_rust_obv,
+    bench_rust_ta_obv,
     bench_rust_obv_from_state,
     bench_c_obv,
     bench_talib_obv,
-    bench_rust_ta_obv,
 );
 
 #[cfg(not(feature = "talib"))]
