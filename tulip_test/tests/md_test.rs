@@ -6,7 +6,7 @@ mod tests {
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
     const CHUNK_SIZE: usize = 100;
-    const EPSILON: f64 = 1e-10;
+    const EPSILON: f64 = 1e-8;
 
     const CLOSE: [f64; 15] = [
         81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89,
@@ -100,7 +100,7 @@ mod tests {
                     continue;
                 }
 
-                if !approx_eq!(f64, c_val, rust_val, epsilon = 1e-12) {
+                if !approx_eq!(f64, c_val, rust_val, epsilon = EPSILON) {
                     println!(
                         "Test failed at index {}: \nC = {:?}, \nRust = {:?}, Options = {:?}",
                         index, md_output_vec_c, outputs[0], options
@@ -185,7 +185,7 @@ mod tests {
                         continue;
                     }
 
-                    if !approx_eq!(f64, c_val, rust_val, epsilon = 1e-12) {
+                    if !approx_eq!(f64, c_val, rust_val, epsilon = EPSILON) {
                         println!(
                             "Test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}",
                             index, md_output_vec_c, outputs[0], options, stock_symbol

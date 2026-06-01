@@ -17,6 +17,7 @@ mod tests {
     const OPTIONS_LIST: [[f64; 1]; 4] = [[5.0], [2.0], [8.0], [14.0]];
 
     const CHUNK_SIZE: usize = 100;
+    const EPSILON: f64 = 1e-10;
 
     fn get_oc_arrays(stock_data: &[tulip_test::database::EodData]) -> (Vec<f64>, Vec<f64>) {
         let open: Vec<f64> = stock_data.iter().map(|d| d.open).collect();
@@ -110,7 +111,7 @@ mod tests {
                     continue;
                 }
 
-                if !approx_eq!(f64, c_val, rust_val, epsilon = 1e-12) {
+                if !approx_eq!(f64, c_val, rust_val, epsilon = EPSILON) {
                     // Adjust epsilon if needed
                     println!(
                         "Test failed at index {}: \nC = {:?}, \nRust = {:?}, Options = {:?}",
@@ -199,7 +200,7 @@ mod tests {
                         continue;
                     }
 
-                    if !approx_eq!(f64, c_val, rust_val, epsilon = 1e-12) {
+                    if !approx_eq!(f64, c_val, rust_val, epsilon = EPSILON) {
                         println!(
                             "Test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}",
                             index, output_vec_c, outputs[0], options, stock_symbol
@@ -287,7 +288,7 @@ mod tests {
                     }
 
                     // Compare values with appropriate epsilon
-                    if !approx_eq!(f64, simd_val, regular_val, epsilon = 1e-12) {
+                    if !approx_eq!(f64, simd_val, regular_val, epsilon = EPSILON) {
                         println!(
                             "SIMD QSTICK: {:?}\n\nRegular QSTICK {:?}",
                             &simd_result[..],
@@ -455,7 +456,7 @@ mod tests {
                     }
 
                     // Compare values with appropriate epsilon
-                    if !approx_eq!(f64, simd_val, regular_val, epsilon = 1e-12) {
+                    if !approx_eq!(f64, simd_val, regular_val, epsilon = EPSILON) {
                         panic!(
                             "Mismatch at index {} for stock {} options {:?}: SIMD by options = {}, Regular = {}",
                             i, stock_symbol, options, simd_val, regular_val

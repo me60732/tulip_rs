@@ -1,7 +1,7 @@
 use bigdecimal::BigDecimal;
 use sqlx::{PgPool, Row};
 use std::env;
-const LIMIT: i64 = 6705;//7500;
+const LIMIT: i64 = 6705; //7500;
 #[derive(Debug, Clone)]
 pub struct EodData {
     pub code: String,
@@ -147,9 +147,72 @@ use tokio::runtime::Runtime;
 // Global storage for database data - using OnceLock for thread safety
 static STOCK_DATA: OnceLock<Vec<(String, Vec<EodData>)>> = OnceLock::new();
 
-/// Initialize database data once
+/// Initialize database data once.
+///
+/// When `BENCHMARK_LOG_TO_DB` is not `"1"` (e.g. in CI), the real database is
+/// skipped and synthetic data is returned instead — the standard 15-point test
+/// arrays repeated 100 times (1 500 rows) under the symbol `"SYNTHETIC"`.
+/// This keeps all `_database` tests running and exercising real code paths
+/// without needing a live PostgreSQL connection.
 pub fn init_database_data() {
     STOCK_DATA.get_or_init(|| {
+        if !crate::benchmark_logger::should_log_to_db() {
+            // Build synthetic EodData from the canonical hardcoded test arrays.
+            const OPEN: [f64; 15] = [
+                81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25, 84.03, 85.45,
+                86.18, 88.00, 87.60,
+            ];
+            const HIGH: [f64; 15] = [
+                82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58,
+                86.98, 88.00, 87.87,
+            ];
+            const LOW: [f64; 15] = [
+                81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39,
+                85.76, 87.17, 87.01,
+            ];
+            const CLOSE: [f64; 15] = [
+                81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54,
+                86.89, 87.77, 87.29,
+            ];
+            const VOLUME: [f64; 15] = [
+                5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0, 3798000.0, 3936200.0,
+                4732000.0, 4841300.0, 3915300.0, 6830800.0, 6694100.0, 5293600.0, 7985800.0,
+                4807900.0,
+            ];
+
+            let base_date = chrono::NaiveDate::from_ymd_opt(2020, 1, 1).unwrap();
+
+            // Mirror the 4 symbols the real DB query returns so that tests
+            // which index stock_data[0..3] always find all 4 entries.
+            let symbols = ["BHP_ASX", "CBA_ASX", "AAPL_NYSE", "MSFT_NYSE"];
+            let mut all_stocks: Vec<(String, Vec<EodData>)> = Vec::with_capacity(4);
+
+            for symbol in symbols {
+                let mut eod_data: Vec<EodData> = Vec::with_capacity(15 * 100);
+                for rep in 0..100_i64 {
+                    for i in 0..15_usize {
+                        eod_data.push(EodData {
+                            code: symbol.to_string(),
+                            ts: base_date + chrono::Duration::days(rep * 15 + i as i64),
+                            open: OPEN[i],
+                            high: HIGH[i],
+                            low: LOW[i],
+                            close: CLOSE[i],
+                            volume: VOLUME[i],
+                        });
+                    }
+                }
+                all_stocks.push((symbol.to_string(), eod_data));
+            }
+
+            println!(
+                "Using synthetic data: {} stocks, {} data points each",
+                all_stocks.len(),
+                15 * 100
+            );
+            return all_stocks;
+        }
+
         let rt = Runtime::new().expect("Failed to create Tokio runtime");
         match rt.block_on(fetch_multiple_stocks_data()) {
             Ok(data) => {

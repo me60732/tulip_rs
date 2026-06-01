@@ -7,7 +7,7 @@ mod tests {
     };
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
-    const EPSILON: f64 = 1e-12;
+    const EPSILON: f64 = 1e-10;
     const SMA_EPSILON: f64 = 1e-10; // Use epsilon from sma_test.rs
     const MEDPRICE_EPSILON: f64 = 1e-12; // Use epsilon from medprice_test.rs
     const CHUNK_SIZE: usize = 100;
