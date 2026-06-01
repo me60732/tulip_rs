@@ -8,18 +8,42 @@ on:
 
 env:
     FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-    BENCHMARK_LOG_TO_DB: "0"
+    BENCHMARK_LOG_TO_DB: "1"
+    DATABASE_URL: "postgresql://tulip:tulip@localhost:5432/stocks"
+    BENCHMARK_DATABASE_URL: "postgresql://tulip:tulip@localhost:5432/indicator_benchmark"
 
 jobs:
     build-and-test:
         name: Build & Test
         runs-on: ubuntu-latest
 
+        services:
+            postgres:
+                image: postgres:16
+                env:
+                    POSTGRES_USER: postgres
+                    POSTGRES_PASSWORD: postgres
+                    POSTGRES_DB: postgres
+                ports:
+                    - 5432:5432
+                options: >-
+                    --health-cmd pg_isready
+                    --health-interval 10s
+                    --health-timeout 5s
+                    --health-retries 5
+
         steps:
             - name: Checkout (with submodules)
               uses: actions/checkout@v4
               with:
                   submodules: recursive
+
+            - name: Initialise databases
+              env:
+                  PGPASSWORD: postgres
+              run: |
+                  psql -h localhost -U postgres -d postgres -f tulip_test/docker/scripts/01_init_stocks_db.sql
+                  psql -h localhost -U postgres -d postgres -f tulip_test/docker/scripts/02_init_benchmark_db.sql
 
             - name: Install nightly Rust toolchain
               uses: dtolnay/rust-toolchain@master
