@@ -234,11 +234,6 @@ pub fn calc(value: &f64, prev_ema: f64, multipliers: (f64, f64)) -> f64 {
     prev_ema.mul_add(inv_multiplier, value * multiplier)
 }
 
-///partial calc for batch calculating ema, correct final result by * multiplier; multiplier(period).0
-#[inline(always)]
-pub fn partial_calc(value: f64, prev_ema: f64, multipliers: (f64, f64)) -> f64 {
-    prev_ema.mul_add(multipliers.0, value) // or is it multipliers.1
-}
 #[inline(always)]
 pub fn multiplier(period: usize) -> (f64, f64) {
     let per = 2.0 / (period as f64 + 1.0);

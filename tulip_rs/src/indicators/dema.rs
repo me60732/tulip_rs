@@ -78,30 +78,28 @@ impl State {
         Self { ema1, ema2 }
     }
     pub fn init_state(real: &[f64], capacity: usize, period: usize, ema_line: &mut [f64]) -> Self {
-        let mut remaining = real.len();
-        let mut i = 1;
-        let mut ema1 = real[0];
-        let mut state = Self::new(0.0, 0.0);
-
         let multiplier = multiplier(period);
-        while capacity < remaining - 1 {
-            if i < period {
-                ema1 = calc_ema(&real[i], ema1, multiplier);
-                state.ema1 = ema1;
-                state.ema2 = ema1;
-            } else if i >= period {
-                _ = calc(&mut state, &real[i], multiplier);
-            }
-
-            crate::init_store_optional_outputs!(i, real.len(),
-                ema_line => state.ema1
-            );
-            i += 1;
-            remaining -= 1;
+        let init_bars = real.len() - capacity - 1;  // = period * 2 - 3
+    
+        // Phase 1: build ema1 over first `period` bars (seed + period-1 calcs)
+        let mut ema1 = real[0];
+        for i in 1..period {
+            ema1 = calc_ema(&real[i], ema1, multiplier);
+            crate::init_store_optional_outputs!(i, real.len(), ema_line => ema1);
         }
-
+    
+        // Seed ema2 once, at the transition point
+        let mut state = Self::new(ema1, ema1);
+    
+        // Phase 2: run full DEMA calc for the remaining init bars
+        for i in period..=init_bars {
+            _ = calc(&mut state, &real[i], multiplier);
+            crate::init_store_optional_outputs!(i, real.len(), ema_line => state.ema1);
+        }
+    
         state
     }
+
 }
 
 #[derive(Serialize, Deserialize)]

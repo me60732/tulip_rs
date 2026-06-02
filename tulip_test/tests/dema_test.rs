@@ -99,10 +99,10 @@ mod tests {
                 }
 
                 if !approx_eq!(f64, c_val, rust_val, epsilon = 1e-12) {
-                    println!(
+                    /*println!(
                         "Test failed at index {}: \n\n\nC = {:?}, \n\n\nRust = {:?}, Options = {:?}",
                         index, dema_output_vec_c, outputs[0], options
-                    );
+                    );*/
                     panic!(
                         "Mismatch at index {}: C = {}, Rust = {}, Options = {:?}",
                         index, c_val, rust_val, options
@@ -184,10 +184,10 @@ mod tests {
                     }
 
                     if !approx_eq!(f64, c_val, rust_val, epsilon = 1e-12) {
-                        println!(
+                        /*println!(
                             "Test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}",
                             index, dema_output_vec_c, outputs[0], options, stock_symbol
-                        );
+                        );*/
                         panic!(
                             "Mismatch at index {}: C = {}, Rust = {}, Options = {:?}",
                             index, c_val, rust_val, options
