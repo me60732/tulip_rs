@@ -1,8 +1,6 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
-use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
-};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -42,24 +40,24 @@ pub mod by_options {
     /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::ef_simd::indicator_by_options as indicator;
 }
-/// Returns information about the Kaufman's Adaptive Moving Average (KAMA) indicator.
+/// Returns information about the Kaufman's Efficiency Ratio (EF) indicator.
 ///
 /// # Returns
 ///
-/// An `Info` struct containing metadata about the KAMA indicator.
+/// An `Info` struct containing metadata about the EF indicator.
 pub const INFO: Info = Info {
-    name: "kama",
+    name: "ef",
     indicator_type: IndicatorType::Trend,
-    full_name: "Kaufman's Adaptive Moving Average",
+    full_name: "Efficiency Ratio",
     inputs: &["real"],
     options: &["period"],
-    outputs: &["kama"],
+    outputs: &["ef"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
-        id: "kama",
-        label: "KAMA",
+        id: "ef",
+        label: "EF",
         display_type: DisplayType::Overlay,
-        outputs: &["kama"],
+        outputs: &["ef"],
     }],
 };
 #[derive(Serialize, Deserialize)]
@@ -86,20 +84,15 @@ impl TIndicatorState<1> for IndicatorState {
         validate_inputs(inputs, 1)?;
         self.real.extend_from_slice(inputs[0]);
 
-        let mut kama_line = {
+        let mut ef_line = {
             let capacity = inputs[0].len();
             crate::uninit_vec!(f64, capacity)
         };
 
-        cycle_ef(
-            &self.real,
-            &mut self.sum,
-            self.period,
-            &mut kama_line,
-        );
+        cycle_ef(&self.real, &mut self.sum, self.period, &mut ef_line);
         self.real.drain(..self.real.len() - self.period - 1);
 
-        Ok(vec![kama_line])
+        Ok(vec![ef_line])
     }
 }
 
@@ -119,54 +112,52 @@ pub fn init(real: &[f64], period: usize, ef_line: &mut [f64]) -> f64 {
     sum
 }
 
-
 /// Returns the minimum number of input bars required to produce results
 /// accurate to `decimals` decimal places.
 ///
-/// For indicators with exponential smoothing the seed value's influence
-/// must decay below the requested precision, so this value grows with
-/// `decimals`. Internally uses `min_process` with the smoothing
-/// multiplier to calculate the required lookback.
+/// EF is a bounded ratio with no exponential seed decay, so accuracy is
+/// independent of `decimals`. This always returns the same value as
+/// [`min_data`].
 ///
 /// # Arguments
 ///
 /// * `options` - A slice containing the indicator options (e.g. period).
-/// * `decimals` - The number of decimal places of accuracy required.
+/// * `_decimals` - Unused; accuracy is independent of decimal precision for this indicator.
 ///
 /// # Returns
 ///
-/// The minimum number of input bars needed for the requested accuracy.
+/// The minimum number of input bars needed, identical to [`min_data`].
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
-/// Returns the minimum amount of data required for the KAMA indicator.
+/// Returns the minimum amount of data required for the EF indicator.
 ///
 /// # Arguments
 ///
-/// * `options` - A slice containing the options for the KAMA calculation.
+/// * `options` - A slice containing the options for the EF calculation.
 ///
 /// # Returns
 ///
-/// The minimum amount of data required.
+/// The minimum amount of data required (`period + 1`).
 pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize + 1
 }
 
-/// Returns the number of output values produced by the KAMA indicator given input data length and options.
+/// Returns the number of output values produced by the EF indicator given input data length and options.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the KAMA calculation.
+/// * `options` - A slice containing the options for the EF calculation.
 ///
 /// # Returns
 ///
-/// The number of output values.
+/// The number of output values (`data_len - min_data(options) + 1`).
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
 
-/// Calculates the Kaufman's Adaptive Moving Average (KAMA) indicator for an entire dataset.
+/// Calculates the Efficiency Ratio (EF) indicator for an entire dataset.
 ///
 /// # Inputs
 ///
@@ -178,17 +169,17 @@ pub fn output_length(data_len: usize, options: &[f64]) -> usize {
 ///
 /// # Outputs
 ///
-/// * `outputs[0]` — `kama` line
+/// * `outputs[0]` — `ef` line (values in the range \[0.0, 1.0\])
 ///
 /// # Arguments
 ///
 /// * `inputs` - Array of input price slices (see Inputs above).
 /// * `options` - Array of indicator options (see Options above).
-/// * `_optional_outputs` - Unused; KAMA has no optional outputs.
+/// * `_optional_outputs` - Unused; EF has no optional outputs.
 ///
 /// # Returns
 ///
-/// `Ok((outputs, state))` where `outputs[0]` is the `kama` line and
+/// `Ok((outputs, state))` where `outputs[0]` is the `ef` line and
 /// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
@@ -208,30 +199,20 @@ pub fn indicator(
     };
 
     let mut sum = init(real, period, &mut ef_line);
-    // Perform the main KAMA calculation
     cycle_ef(real, &mut sum, period, &mut ef_line[1..]);
 
-    Ok((
-        vec![ef_line],
-        IndicatorState::new(real, sum, period),
-    ))
+    Ok((vec![ef_line], IndicatorState::new(real, sum, period)))
 }
 
-/// Performs the main calculation loop for the KAMA indicator.
+/// Performs the main calculation loop for the EF indicator.
 ///
 /// # Arguments
 ///
-/// * `real` - A slice of input data.
-/// * `state` - A mutable reference to the indicator state.
-/// * `period` - The period for the KAMA calculation.
-/// * `multipliers` - A tuple of `(fast_ema, slow_ema)` smoothing constants.
-/// * `kama_line` - A mutable slice for storing the KAMA output values.
-fn cycle_ef(
-    real: &[f64],
-    sum: &mut f64,
-    period: usize,
-    ef_line: &mut [f64],
-) {
+/// * `real` - A slice of input data (full series including the lookback window).
+/// * `sum` - A mutable reference to the rolling absolute-movement accumulator.
+/// * `period` - The lookback period.
+/// * `ef_line` - A mutable slice for storing the EF output values (length = `real.len() - period - 1`).
+fn cycle_ef(real: &[f64], sum: &mut f64, period: usize, ef_line: &mut [f64]) {
     //real.iter().enumerate().skip(start).for_each(|(i, value)| {
     for (j, i) in (period + 1..real.len()).enumerate() {
         let values = unsafe {
@@ -248,26 +229,27 @@ fn cycle_ef(
     }
 }
 
-/// Calculates the KAMA value for a single bar.
+/// Computes Kaufman’s Efficiency Ratio (ER), defined as:
 ///
-/// # Arguments
+///     ER = |price[t] - price[t-n]| / sum(|Δprice[i]|)
 ///
-/// * `state` - A mutable reference to the indicator state.
-/// * `values` - A tuple of price references: `(value, prev_value, last_value, old_value)`.
-/// * `multipliers` - A tuple of `(fast_ema, slow_ema)` smoothing constants.
-/// * `period` - The period for the KAMA calculation.
-/// * `i` - The current index in the full data slice (used to gate the rolling-sum subtraction).
+/// The numerator measures the net directional movement over the lookback
+/// window, while the denominator measures the total absolute movement (noise).
+/// ER therefore ranges from:
 ///
-/// # Returns
+///   • 1.0 → perfectly efficient trend (straight-line movement)
+///   • 0.0 → completely inefficient movement (pure noise or no movement)
 ///
-/// The calculated KAMA value.
+/// If the denominator is zero—meaning price did not move at all, or every
+/// up‑move was exactly cancelled by a down‑move—the ER is defined as **0.0**.
+/// This reflects a regime of maximum noise and zero trend efficiency.
+///
+/// ER must **not** be forced to 1.0 in this case.  Treating “no movement” as a
+/// “perfect trend” would invert the intended behaviour of adaptive indicators
+/// such as KAMA, which rely on ER to slow down during noisy or stagnant
+/// conditions and speed up only when a genuine trend is present.
 #[inline(always)]
-pub fn calc(
-    sum: &mut f64,
-    values: (&f64, &f64, &f64, &f64),
-    period: usize,
-    i: usize,
-) -> f64 {
+pub fn calc(sum: &mut f64, values: (&f64, &f64, &f64, &f64), period: usize, i: usize) -> f64 {
     let mut s = *sum;
     let (value, prev_value, last_value, old_value) = values;
     s += (value - prev_value).abs();
@@ -278,8 +260,6 @@ pub fn calc(
     if s != 0.0 {
         (value - last_value).abs() / s
     } else {
-        1.0
+        0.0
     }
-    
 }
-

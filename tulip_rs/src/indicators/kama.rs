@@ -160,6 +160,29 @@ impl State {
 
         state
     }
+    /// Kaufman’s Efficiency Ratio (ER) is defined as:
+    /// 
+    ///     ER = |price[t] - price[t-n]| / sum(|Δprice[i]|)
+    ///
+    /// If the denominator (the sum of absolute price changes) is zero, the ER is
+    /// defined as **0.0**.  This condition occurs when price has not moved at all
+    /// over the lookback window, or when every up‑move is exactly cancelled by a
+    /// down‑move.  In either case, the market exhibits **maximum noise and zero
+    /// trend efficiency**, so ER = 0.0 is the correct interpretation.
+    /// 
+    /// ER must **not** be forced to 1.0 in this case.  Doing so would imply a
+    /// perfectly efficient trend despite *no net movement*, which in turn would
+    /// cause KAMA to switch into its fastest smoothing regime—opposite of the
+    /// intended behaviour. (yet another bug in c tulip! and many other indicator libraries)
+    /// 
+    /// In this implementation, an ER of 0.0 is completely safe: the KAMA smoothing
+    /// constant is computed as:
+    ///
+    ///     SC = (ER * (fast - slow) + slow).powi(2)
+    ///
+    /// Because `slow` is always greater than zero, the smoothing constant can never
+    /// collapse to 0.0.  When ER = 0.0, KAMA simply falls back to its slowest
+    /// possible smoothing, exactly as Kaufman designed.
     #[inline(always)]
     pub fn calc(
         &mut self,
