@@ -1,0 +1,4856 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="High-performance technical analysis library in Rust — 100+ indicators, 60+ candlestick patterns, SIMD acceleration">
+      
+      
+      
+        <link rel="canonical" href="https://me60732.github.io/tulip_rs/benchmarks/database/">
+      
+      
+        <link rel="prev" href="../setup/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Benchmark Database - TulipRS</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#benchmark-database" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="TulipRS" class="md-header__button md-logo" aria-label="TulipRS" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TulipRS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Benchmark Database
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/me60732/tulip_rs" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    me60732/tulip_rs
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../getting_started/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Getting Started
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../indicators/" class="md-tabs__link">
+          
+  
+  
+  Indicators
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../candlestick_patterns/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Candlestick Patterns
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../simd/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  SIMD
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../state_management/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  State Management
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../language_bindings/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Language Bindings
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../demo/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Live Demo
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../results/" class="md-tabs__link">
+          
+  
+  
+  Benchmarks
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="TulipRS" class="md-nav__button md-logo" aria-label="TulipRS" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    TulipRS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/me60732/tulip_rs" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    me60732/tulip_rs
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting_started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Indicators
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Indicators
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/indicator_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Indicator API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Moving Averages
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Moving Averages
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/moving_averages/sma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SMA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/moving_averages/ema/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    EMA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/moving_averages/wma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    WMA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/moving_averages/dema/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DEMA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/moving_averages/tema/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TEMA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/moving_averages/trima/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TRIMA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/moving_averages/hma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HMA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/moving_averages/zlema/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ZLEMA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/moving_averages/kama/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    KAMA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/moving_averages/vidya/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VIDYA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/moving_averages/vwma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VWMA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/moving_averages/wilders/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Wilders
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Oscillators
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Oscillators
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/oscillators/rsi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RSI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/oscillators/macd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MACD
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/oscillators/stochastic_oscillator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stochastic Oscillator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/oscillators/stochrsi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    StochRSI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/oscillators/williams_r/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Williams %R
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/oscillators/cci/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CCI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/oscillators/cmo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CMO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/oscillators/ultimate_oscillator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ultimate Oscillator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/oscillators/ao/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/oscillators/fisher_transform/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fisher Transform
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/oscillators/fosc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FOSC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/oscillators/msw/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MSW
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/oscillators/trix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TRIX
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Trend
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Trend
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/trend/ppo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PPO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/trend/apo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    APO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/trend/adx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADX
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/trend/adxr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADXR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/trend/dm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DM
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/trend/di/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/trend/dx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DX
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/trend/aroon/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Aroon
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/trend/aroon_oscillator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Aroon Oscillator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/trend/psar/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PSAR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Volatility
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Volatility
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/volatility/bbands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BBands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/volatility/atr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ATR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/volatility/natr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NATR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/volatility/tr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/volatility/stddev/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    StdDev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/volatility/volatility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Volatility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/volatility/vhf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VHF
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/volatility/cvi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CVI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_7" id="__nav_3_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Volume
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Volume
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/volume/ad/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AD
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/volume/adosc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADOSC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/volume/obv/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OBV
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/volume/mfi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MFI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/volume/nvi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NVI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/volume/pvi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PVI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/volume/vosc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VOSC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/volume/kvo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    KVO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/volume/emv/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    EMV
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/volume/wad/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    WAD
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/volume/marketfi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Market Facilitation Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_8" id="__nav_3_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Price & Statistical
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Price & Statistical
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/price_statistical/avgprice/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Average Price
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/price_statistical/medprice/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Median Price
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/price_statistical/typprice/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Typical Price
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/price_statistical/wcprice/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Weighted Close Price
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/price_statistical/max/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Max
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/price_statistical/min/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Min
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/price_statistical/mom/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MOM
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/price_statistical/roc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ROC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/price_statistical/rocr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ROCR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/price_statistical/bop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BOP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/price_statistical/linreg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LinReg
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/price_statistical/tsf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TSF
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/price_statistical/dpo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DPO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/price_statistical/mass/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Mass Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/price_statistical/md/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MD
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/price_statistical/qstick/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    QStick
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../indicators/price_statistical/pivotpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pivot Point
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../candlestick_patterns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Candlestick Patterns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../simd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SIMD
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../state_management/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    State Management
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../language_bindings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Language Bindings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live Demo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Benchmarks
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Results
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Running Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmark Database
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmark Database
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#which-view-do-i-need" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which View Do I Need?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Overview">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#implementation-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implementation Types
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#base-tables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Base Tables
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#views" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Views
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Views">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#indicator_summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        indicator_summary
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#performance_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        performance_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#simplified_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        simplified_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#avg_options_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        avg_options_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#candlestick_simplified_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        candlestick_simplified_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_impl_performance_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_impl_performance_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_impl_simplified_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_impl_simplified_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_impl_avg_options_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_impl_avg_options_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_simd_performance_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_simd_performance_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_simd_asset_performance_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_simd_asset_performance_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_simd_c_tulip_performance_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_simd_c_tulip_performance_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#prev_run_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        prev_run_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#prev_avg_run_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        prev_avg_run_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_impl_prev_run_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_impl_prev_run_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_impl_prev_avg_run_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_impl_prev_avg_run_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_simd_simplified_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_simd_simplified_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_simd_asset_simplified_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_simd_asset_simplified_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_simd_c_tulip_simplified_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_simd_c_tulip_simplified_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_slower_indicators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_slower_indicators
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_impl_slower_indicators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_impl_slower_indicators
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_simd_avg_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_simd_avg_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_simd_asset_avg_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_simd_asset_avg_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_simd_c_tulip_avg_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_simd_c_tulip_avg_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_simd_prev_run_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_simd_prev_run_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_simd_asset_prev_run_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_simd_asset_prev_run_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_simd_c_tulip_prev_run_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_simd_c_tulip_prev_run_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-query-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common Query Patterns
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Common Query Patterns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#latest-run-id" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Latest Run ID
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#standard-benchmark-results-for-the-latest-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standard Benchmark Results for the Latest Run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#streaming-efficiency-batch-time-vs-1-bar-update-cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Streaming Efficiency: Batch Time vs 1-Bar Update Cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#find-indicators-where-rust-is-slower-than-c" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Find Indicators Where Rust Is Slower Than C
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#regression-check-what-changed-between-the-last-two-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Regression Check: What Changed Between the Last Two Runs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#simd-by-options-top-performers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SIMD by-Options: Top Performers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#simd-by-assets-vs-all-competitors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SIMD by-Assets vs All Competitors
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#view-dependency-map" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        View Dependency Map
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#which-view-do-i-need" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which View Do I Need?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Overview">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#implementation-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implementation Types
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#base-tables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Base Tables
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#views" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Views
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Views">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#indicator_summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        indicator_summary
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#performance_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        performance_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#simplified_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        simplified_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#avg_options_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        avg_options_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#candlestick_simplified_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        candlestick_simplified_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_impl_performance_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_impl_performance_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_impl_simplified_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_impl_simplified_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_impl_avg_options_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_impl_avg_options_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_simd_performance_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_simd_performance_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_simd_asset_performance_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_simd_asset_performance_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_simd_c_tulip_performance_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_simd_c_tulip_performance_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#prev_run_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        prev_run_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#prev_avg_run_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        prev_avg_run_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_impl_prev_run_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_impl_prev_run_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_impl_prev_avg_run_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_impl_prev_avg_run_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_simd_simplified_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_simd_simplified_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_simd_asset_simplified_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_simd_asset_simplified_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_simd_c_tulip_simplified_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_simd_c_tulip_simplified_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_slower_indicators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_slower_indicators
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_impl_slower_indicators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_impl_slower_indicators
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_simd_avg_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_simd_avg_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_simd_asset_avg_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_simd_asset_avg_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_simd_c_tulip_avg_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_simd_c_tulip_avg_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_simd_prev_run_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_simd_prev_run_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_simd_asset_prev_run_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_simd_asset_prev_run_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rust_simd_c_tulip_prev_run_comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        rust_simd_c_tulip_prev_run_comparison
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-query-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common Query Patterns
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Common Query Patterns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#latest-run-id" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Latest Run ID
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#standard-benchmark-results-for-the-latest-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standard Benchmark Results for the Latest Run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#streaming-efficiency-batch-time-vs-1-bar-update-cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Streaming Efficiency: Batch Time vs 1-Bar Update Cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#find-indicators-where-rust-is-slower-than-c" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Find Indicators Where Rust Is Slower Than C
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#regression-check-what-changed-between-the-last-two-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Regression Check: What Changed Between the Last Two Runs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#simd-by-options-top-performers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SIMD by-Options: Top Performers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#simd-by-assets-vs-all-competitors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SIMD by-Assets vs All Competitors
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#view-dependency-map" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        View Dependency Map
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="benchmark-database">Benchmark Database<a class="headerlink" href="#benchmark-database" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>The <code>indicator_benchmark</code> PostgreSQL database stores raw timing results for every benchmark run and exposes a layered set of views that progressively aggregate and compare that data. Set <code>BENCHMARK_LOG_TO_DB=1</code> in <code>tulip_test/.env</code> before running <code>cargo bench</code> to write results into the database — see <a href="../setup/">Running Benchmarks</a> for setup instructions.</p>
+</blockquote>
+<h2 id="which-view-do-i-need">Which View Do I Need?<a class="headerlink" href="#which-view-do-i-need" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Question</th>
+<th>View</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>What indicators have been benchmarked?</td>
+<td><code>indicator_summary</code></td>
+</tr>
+<tr>
+<td>How does Rust compare to C and TA-Lib for a specific run?</td>
+<td><code>avg_options_comparison</code></td>
+</tr>
+<tr>
+<td>Same, but per option set?</td>
+<td><code>simplified_comparison</code></td>
+</tr>
+<tr>
+<td>Per option set AND per stock symbol?</td>
+<td><code>performance_comparison</code></td>
+</tr>
+<tr>
+<td>How do all five Rust variants compare (batch, streaming, optional)?</td>
+<td><code>rust_impl_avg_options_comparison</code></td>
+</tr>
+<tr>
+<td>How fast is the 1-bar streaming update?</td>
+<td><code>rust_impl_avg_options_comparison</code></td>
+</tr>
+<tr>
+<td>SIMD by-options: speedup over 4× sequential Rust?</td>
+<td><code>rust_simd_avg_comparison</code></td>
+</tr>
+<tr>
+<td>SIMD by-assets: speedup over 4× sequential (Rust + C + TA-Lib)?</td>
+<td><code>rust_simd_asset_avg_comparison</code></td>
+</tr>
+<tr>
+<td>Which indicators is Rust currently slower than C on?</td>
+<td><code>rust_slower_indicators</code></td>
+</tr>
+<tr>
+<td>What changed since the last benchmark run?</td>
+<td><code>prev_avg_run_comparison</code></td>
+</tr>
+<tr>
+<td>Did SIMD performance change between runs?</td>
+<td><code>rust_simd_prev_run_comparison</code></td>
+</tr>
+<tr>
+<td>Candlestick pattern scan performance?</td>
+<td><code>candlestick_simplified_comparison</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<p><strong>Database</strong>: <code>indicator_benchmark</code> (PostgreSQL)<br />
+<strong>Schema script</strong>: <code>scripts/init_benchmark_db.sql</code></p>
+<h3 id="implementation-types">Implementation Types<a class="headerlink" href="#implementation-types" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th><code>implementation_type</code></th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Rust</code></td>
+<td>Standard Rust batch computation over the full dataset</td>
+</tr>
+<tr>
+<td><code>C_tulip</code></td>
+<td>C tulip indicators library, batch</td>
+</tr>
+<tr>
+<td><code>talib</code></td>
+<td>TA-Lib, batch</td>
+</tr>
+<tr>
+<td><code>Rust_FromState</code></td>
+<td>Rust stateful path, processing the full dataset via saved state</td>
+</tr>
+<tr>
+<td><code>Rust_optional</code></td>
+<td>Rust with optional outputs (computes intermediate values in a single pass)</td>
+</tr>
+<tr>
+<td><code>Rust_FromState_1_Bar</code></td>
+<td>Rust streaming: cost of updating one new bar using saved state</td>
+</tr>
+<tr>
+<td><code>Rust_FromState_1_Bar_json</code></td>
+<td>Same as above, but state is serialized/deserialized as JSON</td>
+</tr>
+<tr>
+<td><code>Rust_SIMD</code></td>
+<td>Rust SIMD: one asset processed with 4 different option sets simultaneously</td>
+</tr>
+<tr>
+<td><code>Rust_SIMD_by_assets</code></td>
+<td>Rust SIMD: 4 different assets processed with identical options simultaneously</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition info">
+<p class="admonition-title">Interpreting ratios</p>
+<ul>
+<li><strong>Ratio &gt; 1.0</strong> — the competitor is slower than Rust by that factor (Rust wins)</li>
+<li><strong>Ratio &lt; 1.0</strong> — Rust is slower than the competitor</li>
+<li><strong>Percent diff</strong> — positive = Rust is slower, negative = Rust is faster</li>
+</ul>
+</div>
+<h2 id="base-tables">Base Tables<a class="headerlink" href="#base-tables" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Table</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>indicators</code></td>
+<td>Catalog of all indicators — name, category, input/output counts</td>
+</tr>
+<tr>
+<td><code>benchmark_runs</code></td>
+<td>Metadata per run: timestamp, Rust version, system info (JSON), notes</td>
+</tr>
+<tr>
+<td><code>benchmark_results</code></td>
+<td>Raw timing rows: one row per indicator × implementation × stock × options × run</td>
+</tr>
+</tbody>
+</table>
+<h2 id="views">Views<a class="headerlink" href="#views" title="Permanent link">&para;</a></h2>
+<p>Views are created in dependency order (Level 1 → 4). Higher-level views build on lower ones.</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:4"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><input id="__tabbed_1_4" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Level 1 — Raw Aggregations</label><label for="__tabbed_1_2">Level 2 — Cross-Run Aggregations</label><label for="__tabbed_1_3">Level 3 — Actionable Filters</label><label for="__tabbed_1_4">Level 4 — SIMD Regression Tracking</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<h3 id="indicator_summary"><code>indicator_summary</code><a class="headerlink" href="#indicator_summary" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: Catalogue view of every indicator with its metadata and how many benchmark results exist for it.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>Checking which indicators have been benchmarked, when they were last run, and what category/input-output counts they have.</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">indicator_summary</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">category</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;momentum&#39;</span><span class="p">;</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">indicator_summary</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">last_benchmarked</span><span class="w"> </span><span class="k">IS</span><span class="w"> </span><span class="k">NULL</span><span class="p">;</span><span class="w"> </span><span class="c1">-- never benchmarked</span>
+</code></pre></div>
+<p>Key columns: <code>name</code>, <code>category</code>, <code>input_count</code>, <code>output_count</code>, <code>has_options</code>, <code>benchmark_count</code>, <code>last_benchmarked</code></p>
+<hr />
+<h3 id="performance_comparison"><code>performance_comparison</code><a class="headerlink" href="#performance_comparison" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: Side-by-side raw mean times for <code>Rust</code>, <code>C_tulip</code>, and <code>talib</code> for each combination of run × indicator × stock symbol × input_size × options. Only rows where at least two implementations are present are included.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>Drilling into a specific stock symbol or option set to see exact timing numbers and ratios for a given run.</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">performance_comparison</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">indicator_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;ema&#39;</span><span class="w"> </span><span class="k">AND</span><span class="w"> </span><span class="n">run_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">stock_symbol</span><span class="p">;</span>
+</code></pre></div>
+<p>Key columns: <code>rust_mean_time_ns</code>, <code>c_mean_time_ns</code>, <code>talib_mean_time_ns</code>, <code>c_to_rust_ratio</code>, <code>talib_to_rust_ratio</code>, <code>rust_vs_c_percent_diff</code>, <code>rust_vs_talib_percent_diff</code></p>
+<hr />
+<h3 id="simplified_comparison"><code>simplified_comparison</code><a class="headerlink" href="#simplified_comparison" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: Averages <code>Rust</code>, <code>C_tulip</code>, and <code>talib</code> times across all stock symbols, grouped by run × indicator × input_size × options. Ratios and percent differences are computed from those averages.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>You want a cleaner per-indicator-per-options summary without the per-symbol noise. Good starting point for comparing implementations.</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">simplified_comparison</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">indicator_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;rsi&#39;</span><span class="w"> </span><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">benchmark_date</span><span class="w"> </span><span class="k">DESC</span><span class="p">;</span>
+</code></pre></div>
+<p>Key columns: <code>rust_avg_mean_time_ns</code>, <code>c_avg_mean_time_ns</code>, <code>talib_avg_mean_time_ns</code>, <code>rust_symbol_count</code>, <code>c_to_rust_ratio</code>, <code>talib_to_rust_ratio</code></p>
+<hr />
+<h3 id="avg_options_comparison"><code>avg_options_comparison</code><a class="headerlink" href="#avg_options_comparison" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: Further averages <code>simplified_comparison</code> across all option sets, giving one row per run × indicator. Shows how many distinct option sets were tested for each implementation.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>You need a quick headline comparison across all indicators for a given run — the broadest aggregate of batch performance.</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span><span class="w"> </span><span class="n">rust_avg_mean_time_ns</span><span class="p">,</span><span class="w"> </span><span class="n">c_avg_mean_time_ns</span><span class="p">,</span><span class="w"> </span><span class="n">c_to_rust_ratio</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="k">FROM</span><span class="w"> </span><span class="n">avg_options_comparison</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">run_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="k">SELECT</span><span class="w"> </span><span class="k">MAX</span><span class="p">(</span><span class="n">id</span><span class="p">)</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">benchmark_runs</span><span class="p">)</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">c_to_rust_ratio</span><span class="w"> </span><span class="k">DESC</span><span class="p">;</span>
+</code></pre></div>
+<p>Key columns: <code>rust_avg_mean_time_ns</code>, <code>c_avg_mean_time_ns</code>, <code>talib_avg_mean_time_ns</code>, <code>rust_options_count</code>, <code>c_to_rust_ratio</code>, <code>talib_to_rust_ratio</code>, <code>rust_vs_c_percent_diff</code></p>
+<hr />
+<h3 id="candlestick_simplified_comparison"><code>candlestick_simplified_comparison</code><a class="headerlink" href="#candlestick_simplified_comparison" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: Aggregates results specifically for the <code>Rust_Candlestick</code> indicator (which scans all candle patterns in one pass). Groups by implementation type, input size, and options.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>Evaluating the single-scan candlestick approach — how fast it is across different datasets and how timing varies by option set.</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">candlestick_simplified_comparison</span><span class="w"> </span><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">benchmark_date</span><span class="w"> </span><span class="k">DESC</span><span class="p">;</span>
+</code></pre></div>
+<p>Key columns: <code>forecast_name</code> (implementation type), <code>input_size</code>, <code>avg_mean_time_ns</code>, <code>symbol_count</code>, <code>avg_std_dev_ns</code></p>
+<hr />
+<h3 id="rust_impl_performance_comparison"><code>rust_impl_performance_comparison</code><a class="headerlink" href="#rust_impl_performance_comparison" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: Side-by-side raw mean times for all five Rust implementation variants (<code>Rust</code>, <code>Rust_FromState</code>, <code>Rust_optional</code>, <code>Rust_FromState_1_Bar</code>, <code>Rust_FromState_1_Bar_json</code>) per run × indicator × stock × input_size × options. Excludes candlestick indicators.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>Comparing every Rust strategy at the per-symbol level — e.g., how much the streaming 1-bar path costs vs the full batch path for a specific stock.</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span><span class="w"> </span><span class="n">stock_symbol</span><span class="p">,</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">       </span><span class="n">rust_mean_time_ns</span><span class="p">,</span><span class="w"> </span><span class="n">rust_fromstate_1_bar_mean_time_ns</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="k">FROM</span><span class="w"> </span><span class="n">rust_impl_performance_comparison</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">run_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span><span class="w"> </span><span class="k">AND</span><span class="w"> </span><span class="n">indicator_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;macd&#39;</span><span class="p">;</span>
+</code></pre></div>
+<p>Key columns: <code>rust_mean_time_ns</code>, <code>rust_fromstate_mean_time_ns</code>, <code>rust_optional_mean_time_ns</code>, <code>rust_fromstate_1_bar_mean_time_ns</code>, <code>rust_fromstate_1_bar_json_mean_time_ns</code></p>
+<hr />
+<h3 id="rust_impl_simplified_comparison"><code>rust_impl_simplified_comparison</code><a class="headerlink" href="#rust_impl_simplified_comparison" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: Averages all five Rust implementation variants across stock symbols, grouped by run × indicator × input_size × options. Excludes candlestick indicators.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>Comparing streaming vs batch vs optional output costs across option sets without per-symbol noise.</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span><span class="w"> </span><span class="n">input_size</span><span class="p">,</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">       </span><span class="n">rust_avg_mean_time_ns</span><span class="p">,</span><span class="w"> </span><span class="n">rust_fromstate_1_bar_avg_mean_time_ns</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="k">FROM</span><span class="w"> </span><span class="n">rust_impl_simplified_comparison</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">run_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span><span class="w"> </span><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">;</span>
+</code></pre></div>
+<hr />
+<h3 id="rust_impl_avg_options_comparison"><code>rust_impl_avg_options_comparison</code><a class="headerlink" href="#rust_impl_avg_options_comparison" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: Further averages all Rust variants across option sets, giving one row per run × indicator. Excludes candlestick indicators.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>You need a headline streaming performance summary per indicator — the source for the streaming benchmarks report.</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">       </span><span class="n">rust_avg_mean_time_ns</span><span class="w">           </span><span class="k">AS</span><span class="w"> </span><span class="n">batch_ns</span><span class="p">,</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">       </span><span class="n">rust_fromstate_1_bar_avg_mean_time_ns</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">streaming_1bar_ns</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="k">FROM</span><span class="w"> </span><span class="n">rust_impl_avg_options_comparison</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">run_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="k">SELECT</span><span class="w"> </span><span class="k">MAX</span><span class="p">(</span><span class="n">id</span><span class="p">)</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">benchmark_runs</span><span class="p">)</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">rust_fromstate_1_bar_avg_mean_time_ns</span><span class="p">;</span>
+</code></pre></div>
+<p>Key columns: <code>rust_avg_mean_time_ns</code>, <code>rust_fromstate_avg_mean_time_ns</code>, <code>rust_optional_avg_mean_time_ns</code>, <code>rust_fromstate_1_bar_avg_mean_time_ns</code>, <code>rust_fromstate_1_bar_json_avg_mean_time_ns</code></p>
+<hr />
+<h3 id="rust_simd_performance_comparison"><code>rust_simd_performance_comparison</code><a class="headerlink" href="#rust_simd_performance_comparison" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: Per run × indicator × stock × input_size: compares <code>Rust_SIMD</code> (4 option sets simultaneously) against the <strong>sum</strong> of 4 separate <code>Rust</code> runs. Computes speedup factor and percent improvement.</p>
+<p>A <code>simd_speedup_factor</code> of 3.5 means SIMD processes 4 option sets in the time it would take to do 3.5 sequential Rust runs.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>Evaluating whether SIMD-by-options gives a real throughput benefit vs running 4 individual Rust calls sequentially.</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span><span class="w"> </span><span class="n">stock_symbol</span><span class="p">,</span><span class="w"> </span><span class="n">simd_speedup_factor</span><span class="p">,</span><span class="w"> </span><span class="n">simd_vs_rust_percent_improvement</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="k">FROM</span><span class="w"> </span><span class="n">rust_simd_performance_comparison</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">run_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span><span class="w"> </span><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">simd_speedup_factor</span><span class="w"> </span><span class="k">DESC</span><span class="p">;</span>
+</code></pre></div>
+<p>Key columns: <code>rust_total_mean_time_ns</code> (sum of 4 Rust runs), <code>rust_simd_mean_time_ns</code>, <code>simd_to_rust_ratio</code>, <code>simd_vs_rust_percent_improvement</code>, <code>simd_speedup_factor</code></p>
+<hr />
+<h3 id="rust_simd_asset_performance_comparison"><code>rust_simd_asset_performance_comparison</code><a class="headerlink" href="#rust_simd_asset_performance_comparison" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: Per run × indicator × options × data_source: compares <code>Rust_SIMD_by_assets</code> (4 different assets simultaneously) against the <strong>sum</strong> of 4 separate single-asset runs for <code>Rust</code>, <code>C_tulip</code>, and <code>talib</code>. Computes percent improvement over each competitor.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>Evaluating the asset-parallel SIMD strategy — does processing 4 stocks at once beat 4 sequential calls, and by how much vs C and talib?</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span><span class="w"> </span><span class="k">options</span><span class="p">,</span><span class="w"> </span><span class="n">simd_asset_to_rust_ratio</span><span class="p">,</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">       </span><span class="n">simd_asset_vs_rust_percent_improvement</span><span class="p">,</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">       </span><span class="n">simd_asset_vs_c_tulip_percent_improvement</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="k">FROM</span><span class="w"> </span><span class="n">rust_simd_asset_performance_comparison</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">run_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span><span class="p">;</span>
+</code></pre></div>
+<p>Key columns: <code>rust_total_mean_time_ns</code>, <code>c_tulip_total_mean_time_ns</code>, <code>talib_total_mean_time_ns</code>, <code>rust_simd_asset_mean_time_ns</code>, <code>simd_asset_to_rust_ratio</code>, <code>simd_asset_vs_rust_percent_improvement</code>, <code>simd_asset_vs_c_tulip_percent_improvement</code>, <code>simd_asset_vs_talib_percent_improvement</code></p>
+<hr />
+<h3 id="rust_simd_c_tulip_performance_comparison"><code>rust_simd_c_tulip_performance_comparison</code><a class="headerlink" href="#rust_simd_c_tulip_performance_comparison" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: Per run × indicator × stock × input_size: compares <code>Rust_SIMD</code> (by options) against the <strong>sum</strong> of 4 separate <code>C_tulip</code> runs. Computes speedup and percent improvement vs C.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>You need a direct SIMD vs C comparison — does Rust SIMD beat C running 4 sequential option sets?</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span><span class="w"> </span><span class="n">simd_speedup_vs_c_tulip</span><span class="p">,</span><span class="w"> </span><span class="n">simd_vs_c_tulip_percent_improvement</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="k">FROM</span><span class="w"> </span><span class="n">rust_simd_c_tulip_performance_comparison</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">run_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span><span class="w"> </span><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">simd_speedup_vs_c_tulip</span><span class="w"> </span><span class="k">DESC</span><span class="p">;</span>
+</code></pre></div>
+<p>Key columns: <code>rust_simd_mean_time_ns</code>, <code>c_tulip_total_mean_time_ns</code>, <code>c_tulip_to_simd_ratio</code>, <code>simd_vs_c_tulip_percent_improvement</code>, <code>simd_speedup_vs_c_tulip</code></p>
+</div>
+<div class="tabbed-block">
+<h3 id="prev_run_comparison"><code>prev_run_comparison</code><a class="headerlink" href="#prev_run_comparison" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: For each indicator × input_size × options × hostname, compares the current run to the immediately preceding run (using window functions). Shows the percent change in avg time for Rust, C, and talib, and how the C/talib-to-Rust ratios shifted.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>Spotting performance regressions or improvements between two consecutive benchmark runs, at the per-options level.</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span><span class="w"> </span><span class="n">input_size</span><span class="p">,</span><span class="w"> </span><span class="n">rust_performance_change_pct</span><span class="p">,</span><span class="w"> </span><span class="n">c_ratio_change_pct</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="k">FROM</span><span class="w"> </span><span class="n">prev_run_comparison</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">run_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span><span class="w"> </span><span class="k">AND</span><span class="w"> </span><span class="n">rust_performance_change_pct</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">5</span><span class="w">  </span><span class="c1">-- Rust got slower</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">rust_performance_change_pct</span><span class="w"> </span><span class="k">DESC</span><span class="p">;</span>
+</code></pre></div>
+<p>Key columns: <code>current_rust_avg_time_ns</code>, <code>prev_rust_avg_time_ns</code>, <code>rust_performance_change_pct</code>, <code>c_performance_change_pct</code>, <code>talib_performance_change_pct</code>, <code>c_ratio_change_pct</code>, <code>days_between_runs</code></p>
+<hr />
+<h3 id="prev_avg_run_comparison"><code>prev_avg_run_comparison</code><a class="headerlink" href="#prev_avg_run_comparison" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: Same as <code>prev_run_comparison</code> but uses <code>avg_options_comparison</code> as input — so results are already averaged across option sets. One row per run × indicator × hostname.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>You need higher-level regression tracking across runs without worrying about which specific option set changed.</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span><span class="w"> </span><span class="n">rust_performance_change_pct</span><span class="p">,</span><span class="w"> </span><span class="n">talib_ratio_change_pct</span><span class="p">,</span><span class="w"> </span><span class="n">days_between_runs</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="k">FROM</span><span class="w"> </span><span class="n">prev_avg_run_comparison</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">run_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span><span class="w"> </span><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">rust_performance_change_pct</span><span class="w"> </span><span class="k">DESC</span><span class="p">;</span>
+</code></pre></div>
+<hr />
+<h3 id="rust_impl_prev_run_comparison"><code>rust_impl_prev_run_comparison</code><a class="headerlink" href="#rust_impl_prev_run_comparison" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: For each indicator × input_size × options × hostname, compares all five Rust implementation variants between the current and previous run.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>Checking whether any particular Rust strategy (e.g., <code>Rust_FromState_1_Bar</code>) regressed between runs, independent of the C/talib comparison.</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span><span class="w"> </span><span class="n">rust_performance_change_pct</span><span class="p">,</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">       </span><span class="n">rust_fromstate_1_bar_performance_change_pct</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="k">FROM</span><span class="w"> </span><span class="n">rust_impl_prev_run_comparison</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">run_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span><span class="p">;</span>
+</code></pre></div>
+<hr />
+<h3 id="rust_impl_prev_avg_run_comparison"><code>rust_impl_prev_avg_run_comparison</code><a class="headerlink" href="#rust_impl_prev_avg_run_comparison" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: Same as <code>rust_impl_prev_run_comparison</code> but averaged across option sets (one row per run × indicator × hostname).</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>You need headline Rust-only regression tracking across all five variants.</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">       </span><span class="n">current_rust_avg_time_ns</span><span class="p">,</span><span class="w"> </span><span class="n">prev_rust_avg_time_ns</span><span class="p">,</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="w">       </span><span class="n">rust_performance_change_pct</span><span class="p">,</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="w">       </span><span class="n">rust_fromstate_1_bar_performance_change_pct</span>
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="k">FROM</span><span class="w"> </span><span class="n">rust_impl_prev_avg_run_comparison</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">run_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span><span class="p">;</span>
+</code></pre></div>
+<hr />
+<h3 id="rust_simd_simplified_comparison"><code>rust_simd_simplified_comparison</code><a class="headerlink" href="#rust_simd_simplified_comparison" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: Aggregates <code>rust_simd_performance_comparison</code> across all stock symbols, grouped by run × indicator × input_size. Produces average, min, and max speedup/improvement figures.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>Getting a representative SIMD-by-options speedup number per indicator and input size, without per-symbol detail.</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span><span class="w"> </span><span class="n">input_size</span><span class="p">,</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">       </span><span class="n">avg_simd_speedup_factor</span><span class="p">,</span><span class="w"> </span><span class="n">min_simd_speedup</span><span class="p">,</span><span class="w"> </span><span class="n">max_simd_speedup</span>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="k">FROM</span><span class="w"> </span><span class="n">rust_simd_simplified_comparison</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">run_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span><span class="p">;</span>
+</code></pre></div>
+<p>Key columns: <code>rust_avg_total_time_ns</code>, <code>rust_simd_avg_time_ns</code>, <code>avg_simd_to_rust_ratio</code>, <code>avg_simd_improvement_pct</code>, <code>avg_simd_speedup_factor</code>, <code>min_simd_improvement_pct</code>, <code>max_simd_improvement_pct</code></p>
+<hr />
+<h3 id="rust_simd_asset_simplified_comparison"><code>rust_simd_asset_simplified_comparison</code><a class="headerlink" href="#rust_simd_asset_simplified_comparison" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: Aggregates <code>rust_simd_asset_performance_comparison</code> across options, grouped by run × indicator × data_source. Gives average improvement figures vs Rust, C_tulip, and talib.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>You need a summary SIMD-by-assets improvement per indicator, showing whether the asset-parallel strategy is consistently beneficial.</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">       </span><span class="n">avg_simd_asset_vs_rust_improvement_pct</span><span class="p">,</span>
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="w">       </span><span class="n">avg_simd_asset_vs_c_tulip_improvement_pct</span>
+<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="k">FROM</span><span class="w"> </span><span class="n">rust_simd_asset_simplified_comparison</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">run_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span><span class="p">;</span>
+</code></pre></div>
+<hr />
+<h3 id="rust_simd_c_tulip_simplified_comparison"><code>rust_simd_c_tulip_simplified_comparison</code><a class="headerlink" href="#rust_simd_c_tulip_simplified_comparison" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: Aggregates <code>rust_simd_c_tulip_performance_comparison</code> across stock symbols, grouped by run × indicator × input_size. Gives average, min, and max SIMD speedup vs C_tulip.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>Summarizing whether Rust SIMD (4 option sets) consistently beats 4 sequential C_tulip calls.</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span><span class="w"> </span><span class="n">avg_simd_speedup_vs_c_tulip</span><span class="p">,</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="w">       </span><span class="n">min_simd_speedup_vs_c_tulip</span><span class="p">,</span><span class="w"> </span><span class="n">max_simd_speedup_vs_c_tulip</span>
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="k">FROM</span><span class="w"> </span><span class="n">rust_simd_c_tulip_simplified_comparison</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">run_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">5</span><span class="p">;</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<h3 id="rust_slower_indicators"><code>rust_slower_indicators</code><a class="headerlink" href="#rust_slower_indicators" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: Filters <code>prev_avg_run_comparison</code> to only the <strong>latest</strong> run per indicator × hostname, then keeps only rows where Rust is currently <strong>slower</strong> than C_tulip or talib. Shows exactly how much slower Rust is (as a percent).</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>Immediately spotting which indicators need optimization work — the actionable regression list.</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">rust_slower_indicators</span><span class="w"> </span><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">rust_slower_than_c_by_pct</span><span class="w"> </span><span class="k">DESC</span><span class="w"> </span><span class="n">NULLS</span><span class="w"> </span><span class="k">LAST</span><span class="p">;</span>
+</code></pre></div>
+<p>Key columns: <code>rust_slower_than_c_by_pct</code>, <code>rust_slower_than_talib_by_pct</code>, <code>current_rust_avg_time_ns</code>, <code>current_c_avg_time_ns</code>, <code>rust_performance_change_pct</code></p>
+<hr />
+<h3 id="rust_impl_slower_indicators"><code>rust_impl_slower_indicators</code><a class="headerlink" href="#rust_impl_slower_indicators" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: Filters <code>rust_impl_prev_avg_run_comparison</code> to the <strong>latest</strong> run per indicator × hostname. Shows performance change percentages for all five Rust variants.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>Tracking whether any Rust implementation variant (streaming, optional, etc.) has regressed since the last run, even if it isn't slower than C or talib.</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">rust_impl_slower_indicators</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">rust_fromstate_1_bar_performance_change_pct</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">10</span><span class="w"> </span><span class="c1">-- streaming got 10%+ slower</span>
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">rust_fromstate_1_bar_performance_change_pct</span><span class="w"> </span><span class="k">DESC</span><span class="p">;</span>
+</code></pre></div>
+<p>Key columns: <code>current_rust_avg_time_ns</code>, <code>current_rust_fromstate_1_bar_avg_time_ns</code>, <code>rust_performance_change_pct</code>, <code>rust_fromstate_1_bar_performance_change_pct</code>, etc.</p>
+<hr />
+<h3 id="rust_simd_avg_comparison"><code>rust_simd_avg_comparison</code><a class="headerlink" href="#rust_simd_avg_comparison" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: Aggregates <code>rust_simd_simplified_comparison</code> across input sizes, giving one overall row per run × indicator × hostname. Includes best-case and worst-case speedup bounds.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>You need the headline SIMD-by-options number per indicator — "does SIMD help for this indicator, and by how much on average?"</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span><span class="w"> </span><span class="n">overall_simd_improvement_pct</span><span class="p">,</span><span class="w"> </span><span class="n">overall_simd_speedup_factor</span><span class="p">,</span>
+<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="w">       </span><span class="n">best_case_speedup</span><span class="p">,</span><span class="w"> </span><span class="n">worst_case_speedup</span>
+<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="k">FROM</span><span class="w"> </span><span class="n">rust_simd_avg_comparison</span>
+<a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">run_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="k">SELECT</span><span class="w"> </span><span class="k">MAX</span><span class="p">(</span><span class="n">id</span><span class="p">)</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">benchmark_runs</span><span class="p">)</span>
+<a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">overall_simd_speedup_factor</span><span class="w"> </span><span class="k">DESC</span><span class="p">;</span>
+</code></pre></div>
+<hr />
+<h3 id="rust_simd_asset_avg_comparison"><code>rust_simd_asset_avg_comparison</code><a class="headerlink" href="#rust_simd_asset_avg_comparison" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: Aggregates <code>rust_simd_asset_simplified_comparison</code> further, giving one row per run × indicator × hostname. Overall improvement percentages vs Rust, C_tulip, and talib.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>Comparing the SIMD-by-assets strategy against all three competitors in a single summary query.</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span>
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="w">       </span><span class="n">overall_simd_asset_vs_rust_improvement_pct</span><span class="p">,</span>
+<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a><span class="w">       </span><span class="n">overall_simd_asset_vs_c_tulip_improvement_pct</span><span class="p">,</span>
+<a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="w">       </span><span class="n">overall_simd_asset_vs_talib_improvement_pct</span>
+<a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a><span class="k">FROM</span><span class="w"> </span><span class="n">rust_simd_asset_avg_comparison</span>
+<a id="__codelineno-21-6" name="__codelineno-21-6" href="#__codelineno-21-6"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">run_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="k">SELECT</span><span class="w"> </span><span class="k">MAX</span><span class="p">(</span><span class="n">id</span><span class="p">)</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">benchmark_runs</span><span class="p">);</span>
+</code></pre></div>
+<hr />
+<h3 id="rust_simd_c_tulip_avg_comparison"><code>rust_simd_c_tulip_avg_comparison</code><a class="headerlink" href="#rust_simd_c_tulip_avg_comparison" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: Aggregates <code>rust_simd_c_tulip_simplified_comparison</code> further per run × indicator × hostname. Headline SIMD vs C_tulip speedup with best/worst case bounds.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>Answering "is Rust SIMD (4 option sets) faster than running C_tulip 4 times sequentially, and by how much?"</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span><span class="w"> </span><span class="n">overall_simd_vs_c_tulip_improvement_pct</span><span class="p">,</span>
+<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="w">       </span><span class="n">overall_simd_speedup_vs_c_tulip</span><span class="p">,</span>
+<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="w">       </span><span class="n">best_case_simd_speedup_vs_c_tulip</span><span class="p">,</span><span class="w"> </span><span class="n">worst_case_simd_speedup_vs_c_tulip</span>
+<a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="k">FROM</span><span class="w"> </span><span class="n">rust_simd_c_tulip_avg_comparison</span>
+<a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">run_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="k">SELECT</span><span class="w"> </span><span class="k">MAX</span><span class="p">(</span><span class="n">id</span><span class="p">)</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">benchmark_runs</span><span class="p">);</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<h3 id="rust_simd_prev_run_comparison"><code>rust_simd_prev_run_comparison</code><a class="headerlink" href="#rust_simd_prev_run_comparison" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: Compares <code>rust_simd_avg_comparison</code> between the current and previous run. Shows how the SIMD speedup factor and improvement percentage shifted between runs.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>Detecting whether SIMD performance is trending better or worse across benchmark runs.</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span>
+<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="w">       </span><span class="n">current_simd_speedup_factor</span><span class="p">,</span><span class="w"> </span><span class="n">prev_simd_speedup_factor</span><span class="p">,</span>
+<a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="w">       </span><span class="n">simd_speedup_change_pct</span><span class="p">,</span><span class="w"> </span><span class="n">simd_improvement_change_pct</span><span class="p">,</span>
+<a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a><span class="w">       </span><span class="n">days_between_runs</span>
+<a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a><span class="k">FROM</span><span class="w"> </span><span class="n">rust_simd_prev_run_comparison</span><span class="w"> </span><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">benchmark_date</span><span class="w"> </span><span class="k">DESC</span><span class="p">;</span>
+</code></pre></div>
+<p>Key columns: <code>current_simd_avg_time_ns</code>, <code>prev_simd_avg_time_ns</code>, <code>simd_performance_change_pct</code>, <code>simd_improvement_change_pct</code>, <code>simd_speedup_change_pct</code></p>
+<hr />
+<h3 id="rust_simd_asset_prev_run_comparison"><code>rust_simd_asset_prev_run_comparison</code><a class="headerlink" href="#rust_simd_asset_prev_run_comparison" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: Compares <code>rust_simd_asset_avg_comparison</code> between the current and previous run. Shows changes in SIMD-by-assets improvement ratios vs Rust, C_tulip, and talib.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>Tracking whether the asset-parallel strategy is getting more or less effective over time.</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span>
+<a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="w">       </span><span class="n">simd_asset_performance_change_pct</span><span class="p">,</span>
+<a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="w">       </span><span class="n">simd_asset_vs_rust_improvement_change_pct</span><span class="p">,</span>
+<a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a><span class="w">       </span><span class="n">simd_asset_vs_c_tulip_improvement_change_pct</span>
+<a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a><span class="k">FROM</span><span class="w"> </span><span class="n">rust_simd_asset_prev_run_comparison</span><span class="w"> </span><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">benchmark_date</span><span class="w"> </span><span class="k">DESC</span><span class="p">;</span>
+</code></pre></div>
+<hr />
+<h3 id="rust_simd_c_tulip_prev_run_comparison"><code>rust_simd_c_tulip_prev_run_comparison</code><a class="headerlink" href="#rust_simd_c_tulip_prev_run_comparison" title="Permanent link">&para;</a></h3>
+<p><strong>What it shows</strong>: Compares <code>rust_simd_c_tulip_avg_comparison</code> between the current and previous run. Shows how the SIMD-vs-C speedup changed.</p>
+<div class="admonition tip">
+<p class="admonition-title">Use this view when...</p>
+<p>Tracking whether Rust SIMD is widening or narrowing its lead over C_tulip across runs.</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span>
+<a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="w">       </span><span class="n">current_simd_vs_c_tulip_improvement_pct</span><span class="p">,</span>
+<a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a><span class="w">       </span><span class="n">prev_simd_vs_c_tulip_improvement_pct</span><span class="p">,</span>
+<a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a><span class="w">       </span><span class="n">simd_vs_c_tulip_improvement_change_pct</span><span class="p">,</span>
+<a id="__codelineno-25-5" name="__codelineno-25-5" href="#__codelineno-25-5"></a><span class="w">       </span><span class="n">simd_speedup_vs_c_tulip_change_pct</span>
+<a id="__codelineno-25-6" name="__codelineno-25-6" href="#__codelineno-25-6"></a><span class="k">FROM</span><span class="w"> </span><span class="n">rust_simd_c_tulip_prev_run_comparison</span><span class="w"> </span><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">benchmark_date</span><span class="w"> </span><span class="k">DESC</span><span class="p">;</span>
+</code></pre></div>
+</div>
+</div>
+</div>
+<h2 id="common-query-patterns">Common Query Patterns<a class="headerlink" href="#common-query-patterns" title="Permanent link">&para;</a></h2>
+<h3 id="latest-run-id">Latest Run ID<a class="headerlink" href="#latest-run-id" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="k">MAX</span><span class="p">(</span><span class="n">id</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">latest_run</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">benchmark_runs</span><span class="p">;</span>
+<a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a><span class="c1">-- or with metadata:</span>
+<a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="n">run_timestamp</span><span class="p">,</span><span class="w"> </span><span class="n">rust_version</span><span class="p">,</span><span class="w"> </span><span class="n">system_info</span><span class="o">-&gt;&gt;</span><span class="s1">&#39;hostname&#39;</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="k">host</span>
+<a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a><span class="k">FROM</span><span class="w"> </span><span class="n">benchmark_runs</span><span class="w"> </span><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">run_timestamp</span><span class="w"> </span><span class="k">DESC</span><span class="w"> </span><span class="k">LIMIT</span><span class="w"> </span><span class="mi">5</span><span class="p">;</span>
+</code></pre></div>
+<h3 id="standard-benchmark-results-for-the-latest-run">Standard Benchmark Results for the Latest Run<a class="headerlink" href="#standard-benchmark-results-for-the-latest-run" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span><span class="w"> </span><span class="n">rust_avg_mean_time_ns</span><span class="p">,</span><span class="w"> </span><span class="n">c_avg_mean_time_ns</span><span class="p">,</span><span class="w"> </span><span class="n">c_to_rust_ratio</span>
+<a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a><span class="k">FROM</span><span class="w"> </span><span class="n">avg_options_comparison</span>
+<a id="__codelineno-27-3" name="__codelineno-27-3" href="#__codelineno-27-3"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">run_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="k">SELECT</span><span class="w"> </span><span class="k">MAX</span><span class="p">(</span><span class="n">id</span><span class="p">)</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">benchmark_runs</span><span class="p">)</span>
+<a id="__codelineno-27-4" name="__codelineno-27-4" href="#__codelineno-27-4"></a><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">c_to_rust_ratio</span><span class="w"> </span><span class="k">DESC</span><span class="p">;</span>
+</code></pre></div>
+<h3 id="streaming-efficiency-batch-time-vs-1-bar-update-cost">Streaming Efficiency: Batch Time vs 1-Bar Update Cost<a class="headerlink" href="#streaming-efficiency-batch-time-vs-1-bar-update-cost" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span>
+<a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a><span class="w">       </span><span class="n">rust_avg_mean_time_ns</span><span class="w">                    </span><span class="k">AS</span><span class="w"> </span><span class="n">batch_ns</span><span class="p">,</span>
+<a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a><span class="w">       </span><span class="n">rust_fromstate_1_bar_avg_mean_time_ns</span><span class="w">    </span><span class="k">AS</span><span class="w"> </span><span class="n">streaming_1bar_ns</span><span class="p">,</span>
+<a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a><span class="w">       </span><span class="n">round</span><span class="p">(</span><span class="n">rust_avg_mean_time_ns</span><span class="p">::</span><span class="nb">numeric</span><span class="w"> </span><span class="o">/</span>
+<a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a><span class="w">             </span><span class="k">NULLIF</span><span class="p">(</span><span class="n">rust_fromstate_1_bar_avg_mean_time_ns</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">),</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">speedup</span>
+<a id="__codelineno-28-6" name="__codelineno-28-6" href="#__codelineno-28-6"></a><span class="k">FROM</span><span class="w"> </span><span class="n">rust_impl_avg_options_comparison</span>
+<a id="__codelineno-28-7" name="__codelineno-28-7" href="#__codelineno-28-7"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">run_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="k">SELECT</span><span class="w"> </span><span class="k">MAX</span><span class="p">(</span><span class="n">id</span><span class="p">)</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">benchmark_runs</span><span class="p">)</span>
+<a id="__codelineno-28-8" name="__codelineno-28-8" href="#__codelineno-28-8"></a><span class="w">  </span><span class="k">AND</span><span class="w"> </span><span class="n">rust_fromstate_1_bar_avg_mean_time_ns</span><span class="w"> </span><span class="k">IS</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span>
+<a id="__codelineno-28-9" name="__codelineno-28-9" href="#__codelineno-28-9"></a><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">speedup</span><span class="w"> </span><span class="k">DESC</span><span class="p">;</span>
+</code></pre></div>
+<h3 id="find-indicators-where-rust-is-slower-than-c">Find Indicators Where Rust Is Slower Than C<a class="headerlink" href="#find-indicators-where-rust-is-slower-than-c" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">rust_slower_indicators</span><span class="w"> </span><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">rust_slower_than_c_by_pct</span><span class="w"> </span><span class="k">DESC</span><span class="w"> </span><span class="n">NULLS</span><span class="w"> </span><span class="k">LAST</span><span class="p">;</span>
+</code></pre></div>
+<h3 id="regression-check-what-changed-between-the-last-two-runs">Regression Check: What Changed Between the Last Two Runs<a class="headerlink" href="#regression-check-what-changed-between-the-last-two-runs" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span><span class="w"> </span><span class="n">rust_performance_change_pct</span><span class="p">,</span><span class="w"> </span><span class="n">c_ratio_change_pct</span><span class="p">,</span><span class="w"> </span><span class="n">days_between_runs</span>
+<a id="__codelineno-30-2" name="__codelineno-30-2" href="#__codelineno-30-2"></a><span class="k">FROM</span><span class="w"> </span><span class="n">prev_avg_run_comparison</span>
+<a id="__codelineno-30-3" name="__codelineno-30-3" href="#__codelineno-30-3"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">run_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="k">SELECT</span><span class="w"> </span><span class="k">MAX</span><span class="p">(</span><span class="n">id</span><span class="p">)</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">benchmark_runs</span><span class="p">)</span>
+<a id="__codelineno-30-4" name="__codelineno-30-4" href="#__codelineno-30-4"></a><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="k">ABS</span><span class="p">(</span><span class="n">rust_performance_change_pct</span><span class="p">)</span><span class="w"> </span><span class="k">DESC</span><span class="p">;</span>
+</code></pre></div>
+<h3 id="simd-by-options-top-performers">SIMD by-Options: Top Performers<a class="headerlink" href="#simd-by-options-top-performers" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span><span class="w"> </span><span class="n">overall_simd_speedup_factor</span><span class="p">,</span><span class="w"> </span><span class="n">best_case_speedup</span>
+<a id="__codelineno-31-2" name="__codelineno-31-2" href="#__codelineno-31-2"></a><span class="k">FROM</span><span class="w"> </span><span class="n">rust_simd_avg_comparison</span>
+<a id="__codelineno-31-3" name="__codelineno-31-3" href="#__codelineno-31-3"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">run_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="k">SELECT</span><span class="w"> </span><span class="k">MAX</span><span class="p">(</span><span class="n">id</span><span class="p">)</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">benchmark_runs</span><span class="p">)</span>
+<a id="__codelineno-31-4" name="__codelineno-31-4" href="#__codelineno-31-4"></a><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">overall_simd_speedup_factor</span><span class="w"> </span><span class="k">DESC</span><span class="p">;</span>
+</code></pre></div>
+<h3 id="simd-by-assets-vs-all-competitors">SIMD by-Assets vs All Competitors<a class="headerlink" href="#simd-by-assets-vs-all-competitors" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">indicator_name</span><span class="p">,</span>
+<a id="__codelineno-32-2" name="__codelineno-32-2" href="#__codelineno-32-2"></a><span class="w">       </span><span class="n">overall_simd_asset_vs_rust_improvement_pct</span><span class="w">    </span><span class="k">AS</span><span class="w"> </span><span class="n">vs_rust_pct</span><span class="p">,</span>
+<a id="__codelineno-32-3" name="__codelineno-32-3" href="#__codelineno-32-3"></a><span class="w">       </span><span class="n">overall_simd_asset_vs_c_tulip_improvement_pct</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">vs_c_pct</span><span class="p">,</span>
+<a id="__codelineno-32-4" name="__codelineno-32-4" href="#__codelineno-32-4"></a><span class="w">       </span><span class="n">overall_simd_asset_vs_talib_improvement_pct</span><span class="w">   </span><span class="k">AS</span><span class="w"> </span><span class="n">vs_talib_pct</span>
+<a id="__codelineno-32-5" name="__codelineno-32-5" href="#__codelineno-32-5"></a><span class="k">FROM</span><span class="w"> </span><span class="n">rust_simd_asset_avg_comparison</span>
+<a id="__codelineno-32-6" name="__codelineno-32-6" href="#__codelineno-32-6"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">run_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="k">SELECT</span><span class="w"> </span><span class="k">MAX</span><span class="p">(</span><span class="n">id</span><span class="p">)</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">benchmark_runs</span><span class="p">)</span>
+<a id="__codelineno-32-7" name="__codelineno-32-7" href="#__codelineno-32-7"></a><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">vs_rust_pct</span><span class="w"> </span><span class="k">DESC</span><span class="p">;</span>
+</code></pre></div>
+<h2 id="view-dependency-map">View Dependency Map<a class="headerlink" href="#view-dependency-map" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a>Base tables: indicators, benchmark_runs, benchmark_results
+<a id="__codelineno-33-2" name="__codelineno-33-2" href="#__codelineno-33-2"></a>│
+<a id="__codelineno-33-3" name="__codelineno-33-3" href="#__codelineno-33-3"></a>├── Level 1 (direct table queries)
+<a id="__codelineno-33-4" name="__codelineno-33-4" href="#__codelineno-33-4"></a>│   ├── indicator_summary
+<a id="__codelineno-33-5" name="__codelineno-33-5" href="#__codelineno-33-5"></a>│   ├── performance_comparison
+<a id="__codelineno-33-6" name="__codelineno-33-6" href="#__codelineno-33-6"></a>│   ├── simplified_comparison
+<a id="__codelineno-33-7" name="__codelineno-33-7" href="#__codelineno-33-7"></a>│   ├── avg_options_comparison
+<a id="__codelineno-33-8" name="__codelineno-33-8" href="#__codelineno-33-8"></a>│   ├── candlestick_simplified_comparison
+<a id="__codelineno-33-9" name="__codelineno-33-9" href="#__codelineno-33-9"></a>│   ├── rust_impl_performance_comparison
+<a id="__codelineno-33-10" name="__codelineno-33-10" href="#__codelineno-33-10"></a>│   ├── rust_impl_simplified_comparison
+<a id="__codelineno-33-11" name="__codelineno-33-11" href="#__codelineno-33-11"></a>│   ├── rust_impl_avg_options_comparison
+<a id="__codelineno-33-12" name="__codelineno-33-12" href="#__codelineno-33-12"></a>│   ├── rust_simd_performance_comparison
+<a id="__codelineno-33-13" name="__codelineno-33-13" href="#__codelineno-33-13"></a>│   ├── rust_simd_asset_performance_comparison
+<a id="__codelineno-33-14" name="__codelineno-33-14" href="#__codelineno-33-14"></a>│   └── rust_simd_c_tulip_performance_comparison
+<a id="__codelineno-33-15" name="__codelineno-33-15" href="#__codelineno-33-15"></a>│
+<a id="__codelineno-33-16" name="__codelineno-33-16" href="#__codelineno-33-16"></a>├── Level 2 (build on Level 1)
+<a id="__codelineno-33-17" name="__codelineno-33-17" href="#__codelineno-33-17"></a>│   ├── prev_run_comparison               ← simplified_comparison
+<a id="__codelineno-33-18" name="__codelineno-33-18" href="#__codelineno-33-18"></a>│   ├── prev_avg_run_comparison           ← avg_options_comparison
+<a id="__codelineno-33-19" name="__codelineno-33-19" href="#__codelineno-33-19"></a>│   ├── rust_impl_prev_run_comparison     ← rust_impl_simplified_comparison
+<a id="__codelineno-33-20" name="__codelineno-33-20" href="#__codelineno-33-20"></a>│   ├── rust_impl_prev_avg_run_comparison ← rust_impl_avg_options_comparison
+<a id="__codelineno-33-21" name="__codelineno-33-21" href="#__codelineno-33-21"></a>│   ├── rust_simd_simplified_comparison   ← rust_simd_performance_comparison
+<a id="__codelineno-33-22" name="__codelineno-33-22" href="#__codelineno-33-22"></a>│   ├── rust_simd_asset_simplified_comparison ← rust_simd_asset_performance_comparison
+<a id="__codelineno-33-23" name="__codelineno-33-23" href="#__codelineno-33-23"></a>│   └── rust_simd_c_tulip_simplified_comparison ← rust_simd_c_tulip_performance_comparison
+<a id="__codelineno-33-24" name="__codelineno-33-24" href="#__codelineno-33-24"></a>│
+<a id="__codelineno-33-25" name="__codelineno-33-25" href="#__codelineno-33-25"></a>├── Level 3 (build on Level 2)
+<a id="__codelineno-33-26" name="__codelineno-33-26" href="#__codelineno-33-26"></a>│   ├── rust_slower_indicators            ← prev_avg_run_comparison
+<a id="__codelineno-33-27" name="__codelineno-33-27" href="#__codelineno-33-27"></a>│   ├── rust_impl_slower_indicators       ← rust_impl_prev_avg_run_comparison
+<a id="__codelineno-33-28" name="__codelineno-33-28" href="#__codelineno-33-28"></a>│   ├── rust_simd_avg_comparison          ← rust_simd_simplified_comparison
+<a id="__codelineno-33-29" name="__codelineno-33-29" href="#__codelineno-33-29"></a>│   ├── rust_simd_asset_avg_comparison    ← rust_simd_asset_simplified_comparison
+<a id="__codelineno-33-30" name="__codelineno-33-30" href="#__codelineno-33-30"></a>│   └── rust_simd_c_tulip_avg_comparison  ← rust_simd_c_tulip_simplified_comparison
+<a id="__codelineno-33-31" name="__codelineno-33-31" href="#__codelineno-33-31"></a>│
+<a id="__codelineno-33-32" name="__codelineno-33-32" href="#__codelineno-33-32"></a>└── Level 4 (build on Level 3)
+<a id="__codelineno-33-33" name="__codelineno-33-33" href="#__codelineno-33-33"></a>    ├── rust_simd_prev_run_comparison          ← rust_simd_avg_comparison
+<a id="__codelineno-33-34" name="__codelineno-33-34" href="#__codelineno-33-34"></a>    ├── rust_simd_asset_prev_run_comparison    ← rust_simd_asset_avg_comparison
+<a id="__codelineno-33-35" name="__codelineno-33-35" href="#__codelineno-33-35"></a>    └── rust_simd_c_tulip_prev_run_comparison  ← rust_simd_c_tulip_avg_comparison
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.tabs.link", "content.code.copy", "content.code.annotate", "navigation.tabs", "navigation.top", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
