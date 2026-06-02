@@ -100,9 +100,9 @@ pub fn calc_simd<const N: usize>(
     high: Simd<f64, N>,
     low: Simd<f64, N>,
     close: Simd<f64, N>,
-    multiplier: Simd<f64, N>,
+    multipliers: (Simd<f64, N>, Simd<f64, N>),
 ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
-    let (dx, atr, tr) = dx_calc_simd(&mut state.dx_state, high, low, close, multiplier);
-    state.adx = wilders_calc_simd(state.adx, dx, multiplier);
+    let (dx, atr, tr) = dx_calc_simd(&mut state.dx_state, high, low, close, multipliers);
+    state.adx = wilders_calc_simd(state.adx, dx, multipliers);
     (state.adx, dx, atr, tr)
 }

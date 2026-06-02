@@ -108,10 +108,11 @@ pub fn output_length(data_len: usize, options: &[f64]) -> usize {
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     state: State,
+    multipliers: (f64, f64)
 }
 impl IndicatorState {
-    pub fn new(state: State) -> Self {
-        Self { state }
+    pub fn new(state: State, multipliers: (f64, f64)) -> Self {
+        Self { state, multipliers }
     }
 }
 impl TIndicatorState<3> for IndicatorState {
@@ -138,6 +139,7 @@ impl TIndicatorState<3> for IndicatorState {
             &mut natr_line,
             (&mut atr_line, &mut tr_line),
             &mut self.state,
+            self.multipliers,
         );
 
         Ok(vec![natr_line, atr_line, tr_line])
@@ -177,7 +179,7 @@ pub fn indicator(
 ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
     validate_options(options)?;
     let period = options[0] as usize;
-
+    let multipliers = multiplier(period);
     validate_inputs(inputs, min_data(options))?;
     let (mut natr_line, mut atr_line, mut tr_line);
     {
@@ -202,11 +204,12 @@ pub fn indicator(
         &mut natr_line,
         (&mut atr_line, &mut tr_line[offset..]),
         &mut state,
+        multipliers,
     );
 
     Ok((
         vec![natr_line, atr_line, tr_line],
-        IndicatorState { state: state },
+        IndicatorState::new(state, multipliers),
     ))
 }
 
@@ -217,6 +220,7 @@ fn cycle_natr(
     natr_line: &mut [f64],
     out_vecs: (&mut [f64], &mut [f64]),
     state: &mut State,
+    multipliers: (f64, f64),
 ) {
     let (high, low, close) = inputs;
     let (atr_line, tr_line) = out_vecs;
@@ -230,7 +234,7 @@ fn cycle_natr(
                 *close.get_unchecked(i),
             )
         };
-        let (natr, atr, tr) = calc(state, h, l, c);
+        let (natr, atr, tr) = calc(state, h, l, c, multipliers);
         unsafe { *natr_line.get_unchecked_mut(i) = natr };
 
         if has_optional {
@@ -244,7 +248,7 @@ fn cycle_natr(
 
 /// Performs the core calculation for the Normalized Average True Range (NATR) indicator.
 #[inline(always)]
-pub fn calc(state: &mut State, high: f64, low: f64, close: f64) -> (f64, f64, f64) {
-    let (atr, tr) = calc_atr(state, high, low, close);
+pub fn calc(state: &mut State, high: f64, low: f64, close: f64, multipliers: (f64, f64)) -> (f64, f64, f64) {
+    let (atr, tr) = calc_atr(state, high, low, close, multipliers);
     ((atr / close) * 100.0, atr, tr)
 }

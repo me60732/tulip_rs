@@ -94,9 +94,9 @@ pub fn calc_simd<const N: usize>(
     high: Simd<f64, N>,
     low: Simd<f64, N>,
     close: Simd<f64, N>,
-    multiplier: Simd<f64, N>,
+    multipliers: (Simd<f64, N>, Simd<f64, N>)
 ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
-    let (dmup, dmdown, atr, tr) = calc_diup_didown_simd(state, high, low, close, multiplier);
+    let (dmup, dmdown, atr, tr) = calc_diup_didown_simd(state, high, low, close, multipliers);
     let atr_inv = F64Constants::HUNDRED / atr;
     let mut pdi = dmup * atr_inv; // multiplication
     let mut mdi = dmdown * atr_inv;
@@ -120,9 +120,9 @@ pub fn calc_diup_didown_simd<const N: usize>(
     high: Simd<f64, N>,
     low: Simd<f64, N>,
     close: Simd<f64, N>,
-    multiplier: Simd<f64, N>,
+    multipliers: (Simd<f64, N>, Simd<f64, N>),
 ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
-    let (atr, tr) = atr_partial_calc_simd(&mut state.atr_state, high, low, close, multiplier);
-    let (dmup, dmdown) = dm_calc_simd(&mut state.di_state, high, low, multiplier);
+    let (atr, tr) = atr_partial_calc_simd(&mut state.atr_state, high, low, close, multipliers);
+    let (dmup, dmdown) = dm_calc_simd(&mut state.di_state, high, low, multipliers.0);
     (dmup, dmdown, atr, tr)
 }

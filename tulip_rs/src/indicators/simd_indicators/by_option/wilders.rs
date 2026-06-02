@@ -11,14 +11,14 @@ use std::simd::Simd;
 /// SIMD driver for the Wilder's Smoothing (WILDERS) indicator, processing `N` option-set lanes per scheduling epoch.
 struct WildersDriver {}
 
-impl Driver<f64, f64> for WildersDriver {
+impl Driver<f64, (f64, f64)> for WildersDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
         mut states: Vec<&mut f64>,
-        options: Vec<Option<&f64>>,
+        options: Vec<Option<&(f64, f64)>>,
     ) {
         let len = outputs[0][0].len();
 
@@ -27,14 +27,19 @@ impl Driver<f64, f64> for WildersDriver {
             **states.get_unchecked(i)
         }));
 
-        let multiplier_simd = {
-            let mut multipliers = [0.0; N];
+        let multipliers = {
+            let mut multipliers = ([0.0; N], [0.0; N]);
             for (lane, option) in options.iter().enumerate() {
                 if let Some(&multiplier) = option {
-                    multipliers[lane] = multiplier;
+                    //println!("{:?}", outputs[lane][0].len());
+                    multipliers.0[lane] = multiplier.0;
+                    multipliers.1[lane] = multiplier.1;
                 }
             }
-            Simd::from_array(multipliers)
+            (
+                Simd::from_array(multipliers.0),
+                Simd::from_array(multipliers.1),
+            )
         };
 
         // Optimization 2: Pre-compute all input and output pointers
@@ -47,7 +52,7 @@ impl Driver<f64, f64> for WildersDriver {
                 new @ input_ptrs
             );
 
-            wilders = calc_simd(wilders, real, multiplier_simd);
+            wilders = calc_simd(wilders, real, multipliers);
 
             crate::write_simd_at_indices!(N, i,
                 output_ptrs => wilders
@@ -86,7 +91,7 @@ pub fn indicator_by_options<const N: usize>(
     validate_options(options, None)?;
     let params: [(f64, f64); N] = std::array::from_fn(|i| multiplier(options[i][0] as usize));
 
-    let mut road_train = PrimeMover::<N, f64, f64>::new();
+    let mut road_train = PrimeMover::<N, f64, (f64, f64)>::new();
     let mut output_buffers: Vec<Vec<Vec<f64>>> = (0..N)
         .map(|i| {
             vec![{
@@ -116,7 +121,7 @@ pub fn indicator_by_options<const N: usize>(
                 period,
                 0,
                 state,
-                Some(&params[i].0),
+                Some(&params[i]),
             ));
         }
     }
@@ -129,49 +134,3 @@ pub fn indicator_by_options<const N: usize>(
     }
     Ok((output_buffers, states))
 }
-
-/*pub fn indicator_by_assets_from_state<const N: usize>(
-    inputs: &[ &[ &[f64]; INPUTS_WIDTH]; N],
-    states: &mut [IndicatorState; N],
-    _optional_outputs: Option<&[bool]>,
-) -> Result<[Vec<Vec<f64>>; N], IndicatorError>
-{
-    let len = inputs[0][0].len();
-
-    // Validate all inputs have same length
-    for i in 0..N {
-        if inputs[i][0].len() != len {
-            return Err(IndicatorError::InvalidInputs);
-        }
-    }
-
-    // Extract EMAs and multipliers from states
-    let mut emas = Simd::from_array(std::array::from_fn(|i| states[i].get_ema()));
-    let multipliers = states[0].get_multipliers();
-    let multipliers_simd = (Simd::splat(multipliers.0), Simd::splat(multipliers.1));
-
-    // Create output arrays and process directly
-    let mut ema_lines: [Vec<Vec<f64>>; N] = std::array::from_fn(|_| {
-        vec![crate::uninit_vec!(f64, len)]
-    });
-
-    for i in 0..len {
-        //let values: [f64; N] = (0..N).map(|j| inputs[j][0][i]).collect::<Vec<_>>().try_into().unwrap();
-        let values: [f64; N] = std::array::from_fn(|j| inputs[j][0][i]);
-
-        let vals = Simd::from_array(values);
-        emas = calc_simd(vals, emas, multipliers_simd);
-        let outputs = emas.to_array();
-        for j in 0..N {
-            unsafe { *ema_lines[j].get_unchecked_mut(0).get_unchecked_mut(i) = outputs[j] }
-        }
-    }
-
-    // Update states with final EMA values
-    let final_emas = emas.to_array();
-    for i in 0..N {
-        states[i].set_ema(final_emas[i]);
-    }
-
-    Ok(ema_lines)
-}*/

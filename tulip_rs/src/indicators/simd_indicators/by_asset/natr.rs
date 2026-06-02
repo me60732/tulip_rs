@@ -12,7 +12,7 @@ use crate::{common::validate_options, common_simd::assets::validate_inputs};
 
 /// SIMD driver that advances the Normalized Average True Range (NATR) across `N` asset lanes per scheduling epoch.
 struct NatrDriver {
-    multiplier: f64,
+    multipliers: (f64, f64),
     want_optional_outputs: (bool, bool, bool),
 }
 
@@ -27,7 +27,7 @@ impl Driver<State> for NatrDriver {
     ) {
         let mut state = SimdState::<N>::new(&states);
         let len = inputs[0][0].len();
-        let multipliers = Simd::splat(self.multiplier);
+        let multipliers = (Simd::splat(self.multipliers.0), Simd::splat(self.multipliers.1));
 
         //collect outputs
         let (natr_line_ptr, atr_line_ptr, tr_line_ptr) =
@@ -95,7 +95,7 @@ pub fn indicator_by_assets<const N: usize>(
     validate_options(options)?;
     let period = options[0] as usize;
 
-    let (multiplier, _) = multiplier(period);
+    let multipliers = multiplier(period);
 
     let mut road_train = PrimeMover::<N, State>::new();
     let mut want_optional_outputs = (false, false, false);
@@ -163,14 +163,14 @@ pub fn indicator_by_assets<const N: usize>(
     }
 
     let mut driver = NatrDriver {
-        multiplier,
+        multipliers,
         want_optional_outputs,
     };
     let states_vec = road_train.drive(&mut driver);
 
     let mut states = Vec::with_capacity(N);
     for state in states_vec.into_iter() {
-        states.push(IndicatorState::new(state));
+        states.push(IndicatorState::new(state, multipliers));
     }
     Ok((output_buffers, states))
 }

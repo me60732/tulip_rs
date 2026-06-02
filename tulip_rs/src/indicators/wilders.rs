@@ -188,17 +188,17 @@ pub fn indicator(
         let capacity = output_length(inputs[0].len(), options);
         crate::uninit_vec!(f64, capacity)
     };
+    let (mut wilders, multipliers) = init_state(inputs[0], period);
 
-    let mut state = {
-        let (wilders, multipliers) = init_state(inputs[0], period);
-        IndicatorState::new(wilders, multipliers)
-    };
     let real = &inputs[0][period..];
     for i in 0..real.len() {
-        unsafe { *wilders_line.get_unchecked_mut(i) = state.calc(*real.get_unchecked(i)) }
+        unsafe {
+            wilders = calc(wilders, *real.get_unchecked(i), multipliers);
+            *wilders_line.get_unchecked_mut(i) = wilders;
+        }
     }
 
-    Ok((vec![wilders_line], state))
+    Ok((vec![wilders_line], IndicatorState::new(wilders, multipliers)))
 }
 
 /// Calculates the current value of Wilder's Smoothing for a single step.
@@ -213,12 +213,7 @@ pub fn indicator(
 ///
 /// The updated WILDERS value.
 #[inline(always)]
-pub fn calc(prev_wilders: f64, value: f64, multiplier: f64) -> f64 {
-    //prev_wilders * multiplier + value * (1.0 - multiplier)
-    prev_wilders.mul_add(multiplier, value * (1.0 - multiplier))
-}
-#[inline(always)]
-pub fn calc_full(prev_wilders: f64, value: f64, multipliers: (f64, f64)) -> f64 {
+pub fn calc(prev_wilders: f64, value: f64, multipliers: (f64, f64)) -> f64 {
     prev_wilders.mul_add(multipliers.0, value * multipliers.1)
 }
 /*#[inline(always)]

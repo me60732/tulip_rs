@@ -1,6 +1,5 @@
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::by_asset::wilders::indicator_by_assets;
-use crate::indicators::simd_indicators::simd_types::F64Constants;
 
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::wilders::indicator_by_options;
@@ -48,15 +47,7 @@ pub fn init_state<'a, const N: usize>(inputs: &[&'a [f64]; N], period: usize) ->
 ///
 /// Updated Wilder's smoothed values for all `N` lanes.
 #[inline(always)]
-pub fn calc_simd<const N: usize>(
-    prev_wilders: Simd<f64, N>,
-    value: Simd<f64, N>,
-    multiplier: Simd<f64, N>,
-) -> Simd<f64, N> {
-    prev_wilders.mul_add(multiplier, value * (F64Constants::ONE - multiplier))
-}
-#[inline(always)]
-pub fn calc_simd_full<const N: usize>(prev_wilders: Simd<f64, N>, value: Simd<f64, N>, multipliers: (Simd<f64, N>, Simd<f64, N>)) -> Simd<f64, N> {
+pub fn calc_simd<const N: usize>(prev_wilders: Simd<f64, N>, value: Simd<f64, N>, multipliers: (Simd<f64, N>, Simd<f64, N>)) -> Simd<f64, N> {
     prev_wilders.mul_add(multipliers.0, value * multipliers.1)
 }
 /// Computes a partial Wilder's Smoothing step without subtracting the decay residual.

@@ -66,17 +66,17 @@ pub const INFO: Info = Info {
 pub struct State {
     pub dmup: f64,
     pub dmdown: f64,
-    multiplier: f64,
     pub prev_high: f64,
     pub prev_low: f64,
 }
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     state: State,
+    multiplier: f64,
 }
 impl IndicatorState {
-    pub fn new(state: State) -> Self {
-        Self { state }
+    pub fn new(state: State, multiplier: f64) -> Self {
+        Self { state, multiplier }
     }
 }
 impl TIndicatorState<2> for IndicatorState {
@@ -99,6 +99,7 @@ impl TIndicatorState<2> for IndicatorState {
             high,
             low,
             &mut self.state,
+            self.multiplier,
             &mut plus_dm_line,
             &mut minus_dm_line,
         );
@@ -107,17 +108,16 @@ impl TIndicatorState<2> for IndicatorState {
     }
 }
 impl State {
-    pub fn new(dmup: f64, dmdown: f64, prev_high: f64, prev_low: f64, multiplier: f64) -> Self {
+    pub fn new(dmup: f64, dmdown: f64, prev_high: f64, prev_low: f64) -> Self {
         Self {
             dmup,
             dmdown,
             prev_high,
             prev_low,
-            multiplier,
         }
     }
     pub fn init_state(high: &[f64], low: &[f64], period: usize) -> State {
-        let mut state = State::new(0.0, 0.0, high[0], low[0], multiplier(period));
+        let mut state = State::new(0.0, 0.0, high[0], low[0]);
         for (&h, &l) in high.iter().zip(low.iter()).take(period).skip(1) {
             let (dp, dm) = calc_dp_dm(&mut state, h, l);
             state.dmup += dp;
@@ -207,7 +207,7 @@ pub fn indicator(
     let period = options[0] as usize;
 
     validate_inputs(inputs, min_data(options))?;
-
+    let multiplier = multiplier(period);
     let (mut plus_dm_line, mut minus_dm_line) = {
         let capacity: usize = output_length(inputs[0].len(), options);
         (
@@ -218,11 +218,11 @@ pub fn indicator(
 
     let mut state = State::init_state(inputs[0], inputs[1], period);
     let (high, low) = (&inputs[0][period..], &inputs[1][period..]);
-    cycle_calc(high, low, &mut state, &mut plus_dm_line, &mut minus_dm_line);
+    cycle_calc(high, low, &mut state, multiplier, &mut plus_dm_line, &mut minus_dm_line);
 
     Ok((
         vec![plus_dm_line, minus_dm_line],
-        IndicatorState { state: state },
+        IndicatorState::new(state, multiplier),
     ))
 }
 /// Performs the main calculation loop for the DM indicator.
@@ -238,13 +238,14 @@ fn cycle_calc(
     high: &[f64],
     low: &[f64],
     state: &mut State,
+    multiplier: f64,
     plus_dm_line: &mut [f64],
     minus_dm_line: &mut [f64],
 ) {
     for i in 0..high.len() {
         unsafe {
             let (h, l) = (*high.get_unchecked(i), *low.get_unchecked(i));
-            let (dmup, dmdown) = calc(state, h, l);
+            let (dmup, dmdown) = calc(state, h, l, multiplier);
             *plus_dm_line.get_unchecked_mut(i) = dmup;
             *minus_dm_line.get_unchecked_mut(i) = dmdown;
         }
@@ -263,9 +264,9 @@ fn cycle_calc(
 ///
 /// A tuple `(plus_dm, minus_dm)` of the smoothed directional movement values.
 #[inline(always)]
-pub fn calc(state: &mut State, high: f64, low: f64) -> (f64, f64) {
+pub fn calc(state: &mut State, high: f64, low: f64, multiplier: f64) -> (f64, f64) {
     let (dp, dm) = calc_dp_dm(state, high, low);
-    let (_, _) = calc_dmup_dmdown(state, dp, dm);
+    let (_, _) = calc_dmup_dmdown(state, dp, dm, multiplier);
     (state.dmup, state.dmdown)
 }
 
@@ -281,11 +282,11 @@ pub fn calc(state: &mut State, high: f64, low: f64) -> (f64, f64) {
 ///
 /// A tuple `(dmup, dmdown)` of the updated smoothed directional movement values.
 #[inline(always)]
-fn calc_dmup_dmdown(state: &mut State, dp: f64, dm: f64) -> (f64, f64) {
+fn calc_dmup_dmdown(state: &mut State, dp: f64, dm: f64, multiplier: f64) -> (f64, f64) {
     //state.dmup = state.multiplier * state.dmup + dp;
-    state.dmup = state.dmup.mul_add(state.multiplier, dp);
+    state.dmup = state.dmup.mul_add(multiplier, dp);
     //state.dmdown = state.multiplier * state.dmdown + dm;
-    state.dmdown = state.dmdown.mul_add(state.multiplier, dm);
+    state.dmdown = state.dmdown.mul_add(multiplier, dm);
     (state.dmup, state.dmdown)
 }
 /// Calculates the raw DM+ and DM- values for the current bar.
@@ -304,8 +305,8 @@ fn calc_dmup_dmdown(state: &mut State, dp: f64, dm: f64) -> (f64, f64) {
 /// A tuple `(dp, dm)` of the raw directional movement values before smoothing.
 #[inline(always)]
 pub fn calc_dp_dm(state: &mut State, high: f64, low: f64) -> (f64, f64) {
-    let mut dp = high - state.prev_high; //.max(0.0);
-    let mut dm = state.prev_low - low; //.max(0.0);
+    let mut dp = high - state.prev_high;
+    let mut dm = state.prev_low - low;
     (state.prev_high, state.prev_low) = (high, low);
 
     if dp < 0.0 {
@@ -322,6 +323,7 @@ pub fn calc_dp_dm(state: &mut State, high: f64, low: f64) -> (f64, f64) {
 
     (dp, dm)
 }
+
 #[inline]
 pub fn multiplier(period: usize) -> f64 {
     ((period - 1) as f64) / period as f64

@@ -8,6 +8,7 @@ use crate::indicators::adx::{
 use crate::indicators::dx::output_length as dx_output_length;
 use crate::indicators::tr::output_length as tr_output_length;
 use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
+
 use crate::types::{
     DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
 };
@@ -87,13 +88,13 @@ pub struct State {
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     state: State,
-    inv_multiplier: f64,
+    multipliers: (f64, f64),
 }
 impl IndicatorState {
-    pub fn new(state: State, inv_multiplier: f64) -> Self {
+    pub fn new(state: State, multipliers: (f64, f64)) -> Self {
         Self {
             state,
-            inv_multiplier,
+            multipliers,
         }
     }
 }
@@ -129,7 +130,7 @@ impl TIndicatorState<3> for IndicatorState {
             &low,
             &close,
             &mut self.state,
-            self.inv_multiplier,
+            self.multipliers,
             &mut adxr_line,
             (&mut adx_line, &mut dx_line, &mut atr_line, &mut tr_line),
         );
@@ -154,14 +155,14 @@ impl State {
         prev_adx.push(adx_state.adx);
 
         let mut i = period * 2 - 1;
-        let (_, inv_multiplier) = multiplier(period);
+        let multipliers = multiplier(period);
         while !prev_adx.is_full() {
-            let (adx, dx, atr, tr) = calc_adx(&mut adx_state, high[i], low[i], close[i]);
+            let (adx, dx, atr, tr) = calc_adx(&mut adx_state, high[i], low[i], close[i], multipliers);
             prev_adx.push(adx);
             crate::init_store_optional_outputs!(i, high.len(),
                 adx_line => adx,
                 dx_line => dx,
-                atr_line => atr * inv_multiplier,
+                atr_line => atr * multipliers.1,
                 tr_line => tr
             );
             i += 1;
@@ -255,7 +256,7 @@ pub fn indicator(
 ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
     validate_options(options)?;
     let period = options[0] as usize;
-
+    let multipliers = multiplier(period);
     validate_inputs(inputs, min_data(options))?;
 
     /*let mut adxr_line: Vec<f64> = Vec::with_capacity(adxr_capacity);
@@ -279,7 +280,7 @@ pub fn indicator(
             ),
         )
     };
-    let inv_multiplier = multiplier(period).1;
+    
     let mut state = State::init_state(
         inputs[0], // high
         inputs[1], //low
@@ -307,17 +308,14 @@ pub fn indicator(
         low,
         close,
         &mut state,
-        inv_multiplier,
+        multipliers,
         &mut adxr_line,
         outputs,
     );
 
     Ok((
         vec![adxr_line, adx_line, dx_line, atr_line, tr_line],
-        IndicatorState {
-            state,
-            inv_multiplier,
-        },
+        IndicatorState::new(state, multipliers),
     ))
 }
 
@@ -338,7 +336,7 @@ fn cycle_adxr(
     low: &[f64],
     close: &[f64],
     state: &mut State,
-    inv_multiplier: f64,
+    multipliers: (f64, f64),
     adxr_line: &mut [f64],
     out_vecs: (&mut [f64], &mut [f64], &mut [f64], &mut [f64]),
 ) {
@@ -355,7 +353,7 @@ fn cycle_adxr(
             )
         };
 
-        let (adxr, adx, dx, atr, tr) = unsafe { calc_unchecked(state, h, l, c) };
+        let (adxr, adx, dx, atr, tr) = unsafe { calc_unchecked(state, h, l, c, multipliers) };
 
         unsafe {
             *adxr_line.get_unchecked_mut(i) = adxr;
@@ -367,15 +365,15 @@ fn cycle_adxr(
                 want_tr, tr_line => tr
             );
             crate::store_optional_outputs_corrected!(i,
-                want_atr, atr_line => corrected(atr, inv_multiplier)
+                want_atr, atr_line => corrected(atr, multipliers.1)
             );
         }
     }
 }
 
 #[inline(always)]
-pub fn calc(state: &mut State, high: f64, low: f64, close: f64) -> (f64, f64, f64, f64, f64) {
-    let (adx, dx, atr, tr) = calc_adx(&mut state.adx_state, high, low, close);
+pub fn calc(state: &mut State, high: f64, low: f64, close: f64, multipliers: (f64, f64)) -> (f64, f64, f64, f64, f64) {
+    let (adx, dx, atr, tr) = calc_adx(&mut state.adx_state, high, low, close, multipliers);
 
     let prev_adx = state.buffer.push_with_info(adx);
     let mut adxr = 0.0;
@@ -391,13 +389,11 @@ pub unsafe fn calc_unchecked(
     high: f64,
     low: f64,
     close: f64,
+    multipliers: (f64, f64),
 ) -> (f64, f64, f64, f64, f64) {
-    let (adx, dx, atr, tr) = calc_adx(&mut state.adx_state, high, low, close);
+    let (adx, dx, atr, tr) = calc_adx(&mut state.adx_state, high, low, close, multipliers);
     let adxr = 0.5 * (adx + state.buffer.push_with_info_unchecked(adx));
 
     (adxr, adx, dx, atr, tr)
 }
-/*#[inline(always)]
-fn multiplier(period: usize) -> f64 {
-    adx_multiplier(period)
-}*/
+

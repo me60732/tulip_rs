@@ -70,10 +70,10 @@ impl<const N: usize> SimdState<N> {
         high: Simd<f64, N>,
         low: Simd<f64, N>,
         close: Simd<f64, N>,
-        multiplier: Simd<f64, N>,
+        multipliers: (Simd<f64, N>, Simd<f64, N>),
     ) -> (Simd<f64, N>, Simd<f64, N>) {
         let tr = calc_tr_simd(high, low, self.prev_close);
-        self.atr = calc_wilders_simd(self.atr, tr, multiplier);
+        self.atr = calc_wilders_simd(self.atr, tr, multipliers);
         self.prev_close = close;
         (self.atr, tr)
     }
@@ -91,10 +91,10 @@ impl<const N: usize> SimdState<N> {
         high: Simd<f64, N>,
         low: Simd<f64, N>,
         close: Simd<f64, N>,
-        multiplier: Simd<f64, N>,
+        multiplier: (Simd<f64, N>, Simd<f64, N>),
     ) -> (Simd<f64, N>, Simd<f64, N>) {
         let tr = calc_tr_simd(high, low, self.prev_close);
-        self.atr = partial_calc_wilders_simd(self.atr, tr, multiplier);
+        self.atr = partial_calc_wilders_simd(self.atr, tr, multiplier.0);
         self.prev_close = close;
         (self.atr, tr)
     }
@@ -106,9 +106,9 @@ pub fn calc_simd<const N: usize>(
     high: Simd<f64, N>,
     low: Simd<f64, N>,
     close: Simd<f64, N>,
-    multiplier: Simd<f64, N>,
+    multipliers: (Simd<f64, N>, Simd<f64, N>),
 ) -> (Simd<f64, N>, Simd<f64, N>) {
-    state.calc_simd(high, low, close, multiplier)
+    state.calc_simd(high, low, close, multipliers)
 }
 #[inline(always)]
 pub fn partial_calc_simd<const N: usize>(
@@ -116,7 +116,7 @@ pub fn partial_calc_simd<const N: usize>(
     high: Simd<f64, N>,
     low: Simd<f64, N>,
     close: Simd<f64, N>,
-    multiplier: Simd<f64, N>,
+    multipliers: (Simd<f64, N>, Simd<f64, N>),
 ) -> (Simd<f64, N>, Simd<f64, N>) {
-    state.partial_calc_simd(high, low, close, multiplier)
+    state.partial_calc_simd(high, low, close, multipliers)
 }

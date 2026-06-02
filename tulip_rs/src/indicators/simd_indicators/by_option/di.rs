@@ -25,7 +25,7 @@ impl Driver<State, (f64, f64)> for DiDriver {
     ) {
         let mut state = SimdState::<N>::new(&mut states);
         let len = outputs[0][0].len();
-        let (multiplier_simd, inv_multiplier_simd) = {
+        let multipliers = {
             let mut multipliers = ([0.0; N], [0.0; N]);
             for (lane, option) in options.iter().enumerate() {
                 if let Some(&multiplier) = option {
@@ -67,7 +67,7 @@ impl Driver<State, (f64, f64)> for DiDriver {
             );
 
             let (plus_di, minus_di, atr, tr) =
-                calc_simd(&mut state, high, low, close, multiplier_simd);
+                calc_simd(&mut state, high, low, close, multipliers);
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, i,
@@ -79,7 +79,7 @@ impl Driver<State, (f64, f64)> for DiDriver {
                     want_tr, tr_line_ptr => tr
                 );
                 crate::store_simd_optional_outputs_corrected!(i, N,
-                    want_atr, atr_line_ptr => corrected(atr, inv_multiplier_simd)
+                    want_atr, atr_line_ptr => corrected(atr, multipliers.1)
                 );
             }
         }
@@ -181,8 +181,8 @@ pub fn indicator_by_options<const N: usize>(
     let states_vec = road_train.drive(&mut driver);
 
     let mut states = Vec::with_capacity(N);
-    for (state, multiplier) in states_vec.into_iter().zip(multipliers.iter()) {
-        states.push(IndicatorState::new(state, multiplier.1));
+    for (state, &multipliers) in states_vec.into_iter().zip(multipliers.iter()) {
+        states.push(IndicatorState::new(state, multipliers));
     }
     Ok((output_buffers, states))
 }

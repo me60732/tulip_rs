@@ -13,8 +13,7 @@ use std::simd::Simd;
 /// SIMD driver that advances the Directional Movement Index (DX) across `N` asset lanes
 /// per scheduling epoch.
 struct DxDriver {
-    multiplier: f64,
-    inv_multiplier: f64,
+    multipliers: (f64, f64),
     want_optional_outputs: (bool, bool, bool),
 }
 
@@ -33,8 +32,8 @@ impl Driver<State> for DxDriver {
     ) {
         let mut state = SimdState::<N>::new(&mut states);
         let len = inputs[0][0].len();
-        let multiplier = Simd::splat(self.multiplier);
-        let inv_multiplier = Simd::splat(self.inv_multiplier);
+        let multipliers = (Simd::splat(self.multipliers.0), Simd::splat(self.multipliers.1));
+
         let (has_optional, want_atr, want_tr) = self.want_optional_outputs;
         //collect outputs
         let (dx_line_ptr, atr_line_ptr, tr_line_ptr) =
@@ -55,7 +54,7 @@ impl Driver<State> for DxDriver {
                 close @ close_ptrs
             );
 
-            let (dx, atr, tr) = calc_simd(&mut state, high, low, close, multiplier);
+            let (dx, atr, tr) = calc_simd(&mut state, high, low, close, multipliers);
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, i,
@@ -66,7 +65,7 @@ impl Driver<State> for DxDriver {
                     want_tr, tr_line_ptr => tr
                 );
                 crate::store_simd_optional_outputs_corrected!(i, N,
-                    want_atr, atr_line_ptr => corrected(atr, inv_multiplier)
+                    want_atr, atr_line_ptr => corrected(atr, multipliers.1)
                 );
             }
         }
@@ -102,7 +101,7 @@ pub fn indicator_by_assets<const N: usize>(
     validate_options(options)?;
     let period = options[0] as usize;
 
-    let (multiplier, inv_multiplier) = multiplier(period);
+    let multipliers = multiplier(period);
 
     let mut road_train = PrimeMover::<N, State>::new();
     let mut want_optional_outputs = (false, false, false);
@@ -173,15 +172,14 @@ pub fn indicator_by_assets<const N: usize>(
     }
 
     let mut driver = DxDriver {
-        multiplier,
-        inv_multiplier,
+        multipliers,
         want_optional_outputs,
     };
     let states_vec = road_train.drive(&mut driver);
 
     let mut states = Vec::with_capacity(N);
     for state in states_vec.into_iter() {
-        states.push(IndicatorState::new(state, inv_multiplier));
+        states.push(IndicatorState::new(state, multipliers));
     }
     Ok((output_buffers, states))
 }

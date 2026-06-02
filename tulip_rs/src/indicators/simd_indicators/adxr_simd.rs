@@ -84,7 +84,7 @@ pub mod assets {
         high: Simd<f64, N>,
         low: Simd<f64, N>,
         close: Simd<f64, N>,
-        multiplier: Simd<f64, N>,
+        multipliers: (Simd<f64, N>, Simd<f64, N>),
     ) -> (
         Simd<f64, N>,
         Simd<f64, N>,
@@ -92,7 +92,7 @@ pub mod assets {
         Simd<f64, N>,
         Simd<f64, N>,
     ) {
-        let (adx, dx, atr, tr) = adx_calc_simd(&mut state.adx_state, high, low, close, multiplier);
+        let (adx, dx, atr, tr) = adx_calc_simd(&mut state.adx_state, high, low, close, multipliers);
 
         let prev_adx = state.buffer.push_with_info(adx);
         let mut adxr = F64Constants::ZERO;
@@ -115,7 +115,7 @@ pub mod assets {
         high: Simd<f64, N>,
         low: Simd<f64, N>,
         close: Simd<f64, N>,
-        multiplier: Simd<f64, N>,
+        multipliers: (Simd<f64, N>, Simd<f64, N>),
     ) -> (
         Simd<f64, N>,
         Simd<f64, N>,
@@ -123,7 +123,7 @@ pub mod assets {
         Simd<f64, N>,
         Simd<f64, N>,
     ) {
-        let (adx, dx, atr, tr) = adx_calc_simd(&mut state.adx_state, high, low, close, multiplier);
+        let (adx, dx, atr, tr) = adx_calc_simd(&mut state.adx_state, high, low, close, multipliers);
         let adxr = F64Constants::HALF * (adx + state.buffer.push_with_info_unchecked(adx));
 
         (adxr, adx, dx, atr, tr)
@@ -194,7 +194,7 @@ pub mod options {
         high: Simd<f64, N>,
         low: Simd<f64, N>,
         close: Simd<f64, N>,
-        multiplier: Simd<f64, N>,
+        multipliers: (Simd<f64, N>, Simd<f64, N>),
     ) -> (
         Simd<f64, N>,
         Simd<f64, N>,
@@ -202,7 +202,7 @@ pub mod options {
         Simd<f64, N>,
         Simd<f64, N>,
     ) {
-        let (adx, dx, atr, tr) = adx_calc_simd(&mut state.adx_state, high, low, close, multiplier);
+        let (adx, dx, atr, tr) = adx_calc_simd(&mut state.adx_state, high, low, close, multipliers);
 
         let (prev_adx, mask) = state.buffer.push_with_info(adx);
 
@@ -222,7 +222,7 @@ pub mod options {
         high: Simd<f64, N>,
         low: Simd<f64, N>,
         close: Simd<f64, N>,
-        multiplier: Simd<f64, N>,
+        multipliers: (Simd<f64, N>, Simd<f64, N>),
     ) -> (
         Simd<f64, N>,
         Simd<f64, N>,
@@ -230,7 +230,7 @@ pub mod options {
         Simd<f64, N>,
         Simd<f64, N>,
     ) {
-        let (adx, dx, atr, tr) = adx_calc_simd(&mut state.adx_state, high, low, close, multiplier);
+        let (adx, dx, atr, tr) = adx_calc_simd(&mut state.adx_state, high, low, close, multipliers);
         let adxr = F64Constants::HALF * (adx + state.buffer.push_with_info_unchecked(adx));
 
         (adxr, adx, dx, atr, tr)

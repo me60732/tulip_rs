@@ -14,26 +14,30 @@ struct AtrDriver {
     want_optional_outputs: bool,
 }
 
-impl Driver<State, f64> for AtrDriver {
+impl Driver<State, (f64, f64)> for AtrDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD. Reads the shared input, applies each lane's options, writes outputs, and updates per-lane states.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
         mut states: Vec<&mut State>,
-        options: Vec<Option<&f64>>,
+        options: Vec<Option<&(f64, f64)>>,
     ) {
         let mut state = SimdState::<N>::new(&states);
         let len = outputs[0][0].len();
-        let multipliers_simd = {
-            let mut multipliers = [0.0; N];
+        let multipliers = {
+            let mut multipliers = ([0.0; N], [0.0; N]);
             for (lane, option) in options.iter().enumerate() {
                 if let Some(&multiplier) = option {
                     //println!("{:?}", outputs[lane][0].len());
-                    multipliers[lane] = multiplier;
+                    multipliers.0[lane] = multiplier.0;
+                    multipliers.1[lane] = multiplier.1;
                 }
             }
-            Simd::from_array(multipliers)
+            (
+                Simd::from_array(multipliers.0),
+                Simd::from_array(multipliers.1),
+            )
         };
 
         //collect outputs
@@ -55,7 +59,7 @@ impl Driver<State, f64> for AtrDriver {
                 close @ close_ptrs
             );
 
-            let (atr, tr) = state.calc_simd(high, low, close, multipliers_simd);
+            let (atr, tr) = state.calc_simd(high, low, close, multipliers);
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, i,
@@ -92,9 +96,9 @@ pub fn indicator_by_options<const N: usize>(
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
     validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
     validate_options(options, None)?;
-    let multipliers: [f64; N] = std::array::from_fn(|i| multiplier(options[i][0] as usize).0);
+    let multipliers: [(f64, f64); N] = std::array::from_fn(|i| multiplier(options[i][0] as usize));
 
-    let mut road_train = PrimeMover::<N, State, f64>::new();
+    let mut road_train = PrimeMover::<N, State, (f64, f64)>::new();
     let mut want_optional_outputs = false;
     let mut output_buffers = Vec::with_capacity(N);
     for i in 0..N {
@@ -155,8 +159,8 @@ pub fn indicator_by_options<const N: usize>(
     let states_vec = road_train.drive(&mut driver);
 
     let mut states = Vec::with_capacity(N);
-    for state in states_vec.into_iter() {
-        states.push(IndicatorState::new(state));
+    for (state, &multipliers) in states_vec.into_iter().zip(multipliers.iter()) {
+        states.push(IndicatorState::new(state, multipliers));
     }
     Ok((output_buffers, states))
 }

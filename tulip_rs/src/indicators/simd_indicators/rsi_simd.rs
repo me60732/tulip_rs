@@ -5,7 +5,7 @@ pub use crate::indicators::simd_indicators::by_asset::rsi::indicator_by_assets;
 pub use crate::indicators::simd_indicators::by_option::rsi::indicator_by_options;
 
 use crate::indicators::rsi::State;
-use crate::indicators::simd_indicators::{cmo_simd::up_down_simd, simd_types::F64Constants, wilders_simd::calc_simd_full as calc_wilders};
+use crate::indicators::simd_indicators::{cmo_simd::up_down_simd, simd_types::F64Constants, wilders_simd::calc_simd as calc_wilders};
 use std::simd::Simd;
 
 /// SIMD-parallel state for the Relative Strength Index (RSI) indicator, holding `N` lanes of per-asset state.

@@ -28,9 +28,9 @@ impl<const N: usize> SimdState<N> {
         high: Simd<f64, N>,
         low: Simd<f64, N>,
         close: Simd<f64, N>,
-        multiplier: Simd<f64, N>,
+        multipliers: (Simd<f64, N>, Simd<f64, N>),
     ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
-        let (atr, tr) = self.calc_simd(high, low, close, multiplier);
+        let (atr, tr) = self.calc_simd(high, low, close, multipliers);
         ((atr / close) * F64Constants::HUNDRED, atr, tr)
     }
 }

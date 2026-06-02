@@ -81,10 +81,10 @@ pub struct State {
     pub atr_state: AtrState,
 }
 impl State {
-    pub fn new(dm_state: (f64, f64, f64, f64), atr_state: (f64, f64), multiplier: f64) -> Self {
+    pub fn new(dm_state: (f64, f64, f64, f64), atr_state: (f64, f64)) -> Self {
         Self {
-            atr_state: AtrState::new(atr_state.0, atr_state.1, multiplier),
-            di_state: DMState::new(dm_state.0, dm_state.1, dm_state.2, dm_state.3, multiplier),
+            atr_state: AtrState::new(atr_state.0, atr_state.1),
+            di_state: DMState::new(dm_state.0, dm_state.1, dm_state.2, dm_state.3),
         }
     }
     pub fn init_state(
@@ -106,13 +106,13 @@ impl State {
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     state: State,
-    inv_multiplier: f64,
+    multipliers: (f64, f64),
 }
 impl IndicatorState {
-    pub fn new(state: State, inv_multiplier: f64) -> Self {
+    pub fn new(state: State, multipliers: (f64, f64)) -> Self {
         Self {
             state,
-            inv_multiplier,
+            multipliers,
         }
     }
 }
@@ -142,7 +142,7 @@ impl TIndicatorState<3> for IndicatorState {
             low,
             close,
             &mut self.state,
-            self.inv_multiplier,
+            self.multipliers,
             (&mut plus_di_line, &mut minus_di_line),
             (&mut atr_line, &mut tr_line),
         );
@@ -233,7 +233,7 @@ pub fn indicator(
 ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
     validate_options(options)?;
     let period = options[0] as usize;
-    let (_, inv_multiplier) = multiplier(period);
+    let multipliers = multiplier(period);
 
     validate_inputs(inputs, min_data(options))?;
     let high = inputs[0];
@@ -265,17 +265,14 @@ pub fn indicator(
         low,
         close,
         &mut state,
-        inv_multiplier,
+        multipliers,
         (&mut plus_di_line, &mut minus_di_line),
         (&mut atr_line, tr),
     );
 
     Ok((
         vec![plus_di_line, minus_di_line, atr_line, tr_line],
-        IndicatorState {
-            state: state,
-            inv_multiplier,
-        },
+        IndicatorState::new(state, multipliers),
     ))
 }
 
@@ -295,7 +292,7 @@ fn cycle_calc(
     low: &[f64],
     close: &[f64],
     state: &mut State,
-    inv_multiplier: f64,
+    multipliers: (f64, f64),
     outputs: (&mut [f64], &mut [f64]),
     out_vecs: (&mut [f64], &mut [f64]),
 ) {
@@ -312,7 +309,7 @@ fn cycle_calc(
             )
         };
 
-        let (pdi, mdi, atr, tr) = calc(state, h, l, c);
+        let (pdi, mdi, atr, tr) = calc(state, h, l, c, multipliers);
 
         unsafe {
             *plus_di_line.get_unchecked_mut(i) = pdi;
@@ -323,7 +320,7 @@ fn cycle_calc(
                 want_tr, tr_line => tr
             );
             crate::store_optional_outputs_corrected!(i,
-                want_atr, atr_line => corrected(atr, inv_multiplier)
+                want_atr, atr_line => corrected(atr, multipliers.1)
             );
         }
     }
@@ -343,14 +340,9 @@ fn cycle_calc(
 /// A tuple `(plus_di, minus_di, atr, tr)` representing the current DI values,
 /// the smoothed ATR, and the raw true range.
 #[inline(always)]
-pub fn calc(state: &mut State, high: f64, low: f64, close: f64) -> (f64, f64, f64, f64) {
-    let (dmup, dmdown, atr, tr) = calc_diup_didown(state, high, low, close);
-    //let pdi = 100.0 * dmup / atr;
-    //let mdi = 100.0 * dmdown / atr;
-    // Fix the division by zero/NaN issue
-    /* if atr <= 0.0 || atr.is_nan() {
-        return (0.0, 0.0, atr, tr);  // Return safe values when ATR is invalid
-    }*/
+pub fn calc(state: &mut State, high: f64, low: f64, close: f64, multipliers: (f64, f64)) -> (f64, f64, f64, f64) {
+    let (dmup, dmdown, atr, tr) = calc_diup_didown(state, high, low, close, multipliers);
+
     let atr_inv = 100.0 / atr;
     let mut pdi = dmup * atr_inv; // multiplication
     let mut mdi = dmdown * atr_inv;
@@ -365,8 +357,9 @@ pub fn calc_diup_didown(
     high: f64,
     low: f64,
     close: f64,
+    multipliers: (f64, f64),
 ) -> (f64, f64, f64, f64) {
-    let (atr, tr) = partial_calc_atr(&mut state.atr_state, high, low, close);
-    let (dmup, dmdown) = calc_dm(&mut state.di_state, high, low);
+    let (atr, tr) = partial_calc_atr(&mut state.atr_state, high, low, close, multipliers);
+    let (dmup, dmdown) = calc_dm(&mut state.di_state, high, low, multipliers.0);
     (dmup, dmdown, atr, tr)
 }

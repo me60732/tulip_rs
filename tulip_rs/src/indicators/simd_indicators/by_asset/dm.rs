@@ -144,7 +144,7 @@ pub fn indicator_by_assets<const N: usize>(
 
     let mut states = Vec::with_capacity(N);
     for state in states_vec.into_iter() {
-        states.push(IndicatorState::new(state));
+        states.push(IndicatorState::new(state, multiplier));
     }
     Ok((output_buffers, states))
 }

@@ -72,23 +72,22 @@ pub const INFO: Info = Info {
 pub struct State {
     pub atr: f64,
     pub prev_close: f64,
-    multiplier: f64,
 }
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     state: State,
+    multipliers: (f64, f64),
 }
 impl IndicatorState {
-    pub fn new(state: State) -> Self {
-        Self { state }
+    pub fn new(state: State, multipliers: (f64, f64)) -> Self {
+        Self { state, multipliers }
     }
 }
 impl State {
-    pub fn new(atr: f64, prev_close: f64, multiplier: f64) -> Self {
+    pub fn new(atr: f64, prev_close: f64) -> Self {
         Self {
             atr,
             prev_close,
-            multiplier,
         }
     }
     pub fn init_state(
@@ -117,20 +116,19 @@ impl State {
         State {
             atr,
             prev_close: close[period - 1],
-            multiplier: multiplier(period).0,
         }
     }
     #[inline(always)]
-    pub fn calc(&mut self, high: f64, low: f64, close: f64) -> (f64, f64) {
+    pub fn calc(&mut self, high: f64, low: f64, close: f64, multipliers: (f64, f64)) -> (f64, f64) {
         let tr = calc_tr(high, low, self.prev_close);
-        self.atr = calc_wilders(self.atr, tr, self.multiplier);
+        self.atr = calc_wilders(self.atr, tr, multipliers);
         self.prev_close = close;
         (self.atr, tr)
     }
     #[inline(always)]
-    pub fn partial_calc(&mut self, high: f64, low: f64, close: f64) -> (f64, f64) {
+    pub fn partial_calc(&mut self, high: f64, low: f64, close: f64, multipliers: (f64, f64)) -> (f64, f64) {
         let tr = calc_tr(high, low, self.prev_close);
-        self.atr = partial_calc_wilders(self.atr, tr, self.multiplier);
+        self.atr = partial_calc_wilders(self.atr, tr, multipliers.0);
         self.prev_close = close;
         (self.atr, tr)
     }
@@ -152,6 +150,7 @@ impl TIndicatorState<3> for IndicatorState {
         cycle_atr(
             (inputs[0], inputs[1], inputs[2]),
             &mut self.state,
+            self.multipliers,
             (&mut atr_line, &mut tr_line),
         );
 
@@ -249,7 +248,7 @@ pub fn indicator(
         let atr_capacity = output_length(high.len(), options);
         crate::uninit_vec!(f64, atr_capacity)
     };
-
+    let multipliers = multiplier(period);
     let mut tr_line = crate::init_optional_outputs_eff!(
         optional_outputs, &[false],
         tr_line: tr_output_length(high.len(), options)
@@ -259,10 +258,11 @@ pub fn indicator(
     cycle_atr(
         (&high[period..], &low[period..], &close[period..]),
         &mut state,
+        multipliers,
         (&mut atr_line, &mut tr_line[tr_offset..]),
     );
 
-    Ok((vec![atr_line, tr_line], IndicatorState { state: state }))
+    Ok((vec![atr_line, tr_line], IndicatorState { state: state, multipliers: multipliers }))
 }
 
 /// Performs the main calculation loop for the ATR indicator.
@@ -275,6 +275,7 @@ pub fn indicator(
 fn cycle_atr(
     inputs: (&[f64], &[f64], &[f64]),
     state: &mut State,
+    multipliers: (f64, f64),
     outputs: (&mut [f64], &mut [f64]),
 ) {
     let (high, low, close) = inputs;
@@ -289,7 +290,7 @@ fn cycle_atr(
                 *low.get_unchecked(i),
                 *close.get_unchecked(i),
             );
-            (atr, tr) = calc(state, h, l, c);
+            (atr, tr) = calc(state, h, l, c, multipliers);
             *atr_line.get_unchecked_mut(i) = atr;
         }
         crate::store_optional_outputs!(i,
@@ -310,12 +311,12 @@ fn cycle_atr(
 ///
 /// A tuple of `(atr, tr)` containing the updated ATR value and current true range.
 #[inline(always)]
-pub fn calc(state: &mut State, high: f64, low: f64, close: f64) -> (f64, f64) {
-    state.calc(high, low, close)
+pub fn calc(state: &mut State, high: f64, low: f64, close: f64, multipliers: (f64, f64)) -> (f64, f64) {
+    state.calc(high, low, close, multipliers)
 }
 #[inline(always)]
-pub fn partial_calc(state: &mut State, high: f64, low: f64, close: f64) -> (f64, f64) {
-    state.partial_calc(high, low, close)
+pub fn partial_calc(state: &mut State, high: f64, low: f64, close: f64, multipliers: (f64, f64)) -> (f64, f64) {
+    state.partial_calc(high, low, close, multipliers)
 }
 
 #[inline(always)]

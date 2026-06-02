@@ -50,13 +50,13 @@ pub mod by_options {
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     state: State,
-    inv_multiplier: f64,
+    multipliers: (f64, f64),
 }
 impl IndicatorState {
-    pub fn new(state: State, inv_multiplier: f64) -> Self {
+    pub fn new(state: State, multipliers: (f64, f64)) -> Self {
         Self {
             state,
-            inv_multiplier,
+            multipliers,
         }
     }
 }
@@ -85,7 +85,7 @@ impl TIndicatorState<3> for IndicatorState {
             low,
             close,
             &mut self.state,
-            self.inv_multiplier,
+            self.multipliers,
             (&mut dx_line, &mut atr_line, &mut tr_line),
         );
         Ok(vec![dx_line, atr_line, tr_line])
@@ -206,7 +206,7 @@ pub fn indicator(
 ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
     validate_options(options)?;
     let period = options[0] as usize;
-    let (_, inv_multiplier) = multiplier(period);
+    let multipliers = multiplier(period);
 
     validate_inputs(inputs, min_data(options))?;
 
@@ -237,16 +237,13 @@ pub fn indicator(
         low,
         close,
         &mut state,
-        inv_multiplier,
+        multipliers,
         (&mut dx_line, &mut atr_line, tr),
     );
 
     Ok((
         vec![dx_line, atr_line, tr_line],
-        IndicatorState {
-            state,
-            inv_multiplier,
-        },
+        IndicatorState::new(state, multipliers),
     ))
 }
 
@@ -266,7 +263,7 @@ fn cycle(
     low: &[f64],
     close: &[f64],
     state: &mut State,
-    inv_multiplier: f64,
+    multipliers: (f64, f64),
     out_vecs: (&mut [f64], &mut [f64], &mut [f64]),
 ) {
     let (dx_line, atr_line, tr_line) = out_vecs;
@@ -281,13 +278,13 @@ fn cycle(
             )
         };
 
-        let (dx, atr, tr) = calc(state, h, l, c);
+        let (dx, atr, tr) = calc(state, h, l, c, multipliers);
         unsafe {
             *dx_line.get_unchecked_mut(i) = dx;
         }
         if has_optional {
             crate::store_optional_outputs_corrected!(i,
-                want_atr, atr_line => corrected(atr, inv_multiplier)
+                want_atr, atr_line => corrected(atr, multipliers.1)
             );
             crate::store_optional_outputs!(i,
                 want_tr, tr_line => tr
@@ -295,6 +292,7 @@ fn cycle(
         }
     }
 }
+
 /// Calculates the current DX, ATR, and TR values for one bar.
 ///
 /// # Arguments
@@ -308,8 +306,8 @@ fn cycle(
 ///
 /// A tuple `(dx, atr, tr)` containing the current DX value, ATR, and True Range.
 #[inline(always)]
-pub fn calc(state: &mut State, high: f64, low: f64, close: f64) -> (f64, f64, f64) {
-    let (_, _, atr, tr) = calc_diup_didown(state, high, low, close);
+pub fn calc(state: &mut State, high: f64, low: f64, close: f64, multipliers: (f64, f64)) -> (f64, f64, f64) {
+    let (_, _, atr, tr) = calc_diup_didown(state, high, low, close, multipliers);
 
     let dx = calc_dx(state);
 
@@ -317,8 +315,8 @@ pub fn calc(state: &mut State, high: f64, low: f64, close: f64) -> (f64, f64, f6
 }
 #[inline(always)]
 pub(crate) fn calc_dx(state: &mut State) -> f64 {
-    let di_up = state.di_state.dmup / state.atr_state.atr;
-    let di_down = state.di_state.dmdown / state.atr_state.atr;
+    let di_up = state.di_state.dmup;// / state.atr_state.atr;
+    let di_down = state.di_state.dmdown;// / state.atr_state.atr;
 
     let dm_diff = (di_up - di_down).abs();
     let dm_sum = di_up + di_down;

@@ -2,7 +2,7 @@ use crate::common::{min_process, validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 pub(crate) use crate::indicators::cmo::up_down;
 pub use crate::indicators::wilders::multiplier;
-use crate::indicators::wilders::calc_full as calc_wilders;
+use crate::indicators::wilders::calc as calc_wilders;
 use crate::types::{
     DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
 };
