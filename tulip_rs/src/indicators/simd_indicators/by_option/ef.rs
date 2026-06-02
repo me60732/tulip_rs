@@ -1,41 +1,36 @@
 use crate::common_simd::options::{validate_inputs, validate_options};
-use crate::indicators::kama::{
-    min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+use crate::indicators::ef::{
+    min_data, output_length, IndicatorState, INPUTS_WIDTH, OPTIONS_WIDTH, init
 };
-use crate::indicators::simd_indicators::kama_simd::{calc_simd, SimdState};
+use crate::indicators::simd_indicators::ef_simd::calc_simd;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
 /// SIMD driver for Kaufman's Adaptive Moving Average (KAMA) indicator, processing `N` option-set lanes per scheduling epoch.
-struct KamaDriver {
-    want_optional_outputs: bool,
-}
+struct EfDriver {}
 
-impl Driver<State, (usize, (f64, f64))> for KamaDriver {
+impl Driver<f64, usize> for EfDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD. Reads the shared input, applies each lane's options, writes outputs, and updates per-lane states.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
-        options: Vec<Option<&(usize, (f64, f64))>>,
+        mut states: Vec<&mut f64>,
+        options: Vec<Option<&usize>>,
     ) {
         let len = outputs[0][0].len();
 
         let input_ptrs = crate::extract_input_ptrs!(inputs, N, input_ptrs);
-        let (kama_line_ptr, ef_line_ptr) = crate::extract_output_ptrs!(outputs, N, kama_line_ptr, ef_line_ptr);
+        let output_ptrs = crate::extract_output_ptrs!(outputs, N, output_ptrs);
 
-        let (mut i, mut prev, mut old, multipliers_simd) = {
-            let mut multipliers = ([0.0; N], [0.0; N]);
+        let (mut i, mut prev, mut old) = {
             let mut i = [0usize; N];
             let mut periods = [0usize; N];
             for (lane, option) in options.iter().enumerate() {
-                if let Some(&(period, multiplier)) = option {
+                if let Some(&period) = option {
                     i[lane] = period + 1;
                     periods[lane] = period;
-                    multipliers.0[lane] = multiplier.0;
-                    multipliers.1[lane] = multiplier.1;
                 }
             }
             (
@@ -44,14 +39,12 @@ impl Driver<State, (usize, (f64, f64))> for KamaDriver {
                     new @ input_ptrs
                 ),
                 crate::extract_simd_inputs_at_index!(0, N, real @ input_ptrs),
-                (
-                    Simd::from_array(multipliers.0),
-                    Simd::from_array(multipliers.1),
-                ),
             )
         };
         // Direct array construction
-        let mut simd_state = SimdState::new(&states);
+        let mut sums = Simd::<f64, N>::from_array(std::array::from_fn(|i| unsafe {
+            **states.get_unchecked(i)
+        }));
 
         // Optimized main loop with minimal overhead
         for j in 0..len {
@@ -59,22 +52,22 @@ impl Driver<State, (usize, (f64, f64))> for KamaDriver {
                 new @ input_ptrs
             );
             let last = crate::extract_simd_inputs_at_index!(j+1, N, real @ input_ptrs);
-            let (kama, ef) = calc_simd(&mut simd_state, (value, prev, last, old), multipliers_simd);
+            let ef = calc_simd(&mut sums, (value, prev, last, old));
             (prev, old) = (value, last);
             // Direct SIMD store if possible, otherwise individual stores
             crate::write_simd_at_indices!(N, j,
-                kama_line_ptr => kama
+                output_ptrs => ef
             );
-            crate::store_simd_optional_outputs!(j, N,
-                self.want_optional_outputs, ef_line_ptr => ef
-            );
-
             for i in i.iter_mut() {
                 *i += 1;
             }
         }
 
-        simd_state.write_states(&mut states);
+        // Update states efficiently
+        let final_sums = sums.as_array();
+        for (i, state) in states.iter_mut().enumerate().take(N) {
+            **state = final_sums[i];
+        }
     }
 }
 
@@ -94,48 +87,36 @@ impl Driver<State, (usize, (f64, f64))> for KamaDriver {
 pub fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[&[f64; OPTIONS_WIDTH]; N],
-    optional_outputs: Option<&[bool]>,
+    _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
     validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
     validate_options(options, None)?;
-    let params: [(usize, (f64, f64)); N] =
-        std::array::from_fn(|i| (options[i][0] as usize, multiplier()));
+    let params: [usize; N] = std::array::from_fn(|i| options[i][0] as usize);
     // Create output buffers OUTSIDE the assets - these will be owned by this function
     let mut output_buffers = Vec::with_capacity(N);
 
-    let mut road_train = PrimeMover::<N, State, (usize, (f64, f64))>::new();
-    let mut want_optional_outputs = false;
-    
+    let mut road_train = PrimeMover::<N, f64, usize>::new();
+
     for i in 0..N {
-        let (mut kama_line, mut ef_line) = {
-            let capacity = output_length(inputs[0].len(), options[i]);
-            (
-                crate::uninit_vec!(f64, capacity),
-                crate::init_optional_outputs!(
-                    optional_outputs, &[false],
-                    ef_line: capacity
-                )
-            )
-        };
+        let len = inputs[0].len();
+        let capacity = output_length(len, options[i]);
+        let mut ef_line = crate::uninit_vec!(f64, capacity);
         let period = options[i][0] as usize;
-        let state = State::init_state(inputs[0], period, &mut kama_line, &mut ef_line);
+        let sum = init(inputs[0], period, &mut ef_line);
         let asset_inputs = vec![inputs[0]];
-        if i == 0 {
-            (_, want_optional_outputs) = crate::calc_want_flags!(ef_line);
-        }
-        let mut output_buffer = vec![kama_line, ef_line];
+
+        let mut output_buffer = vec![ef_line];
+        //let adosc_len = output_buffer[0].len();
         let mut asset_outputs = Vec::with_capacity(output_buffer.len());
 
-        for j in 0..output_buffer.len() {
-            unsafe {
-                //let slice_len = output_buffer.len() - starts[j];
-                // Get a mutable reference to the output buffer for this asset
-                let output_buffer = &mut output_buffer[j];
-                asset_outputs.push(std::slice::from_raw_parts_mut(
-                    output_buffer.as_mut_ptr().add(1), //slice from
-                    output_buffer.len(),               // slice to
-                ));
-            }
+        unsafe {
+            //let slice_len = output_buffer.len() - starts[j];
+            // Get a mutable reference to the output buffer for this asset
+            let output_buffer = &mut output_buffer[0];
+            asset_outputs.push(std::slice::from_raw_parts_mut(
+                output_buffer.as_mut_ptr().add(1), //slice from
+                output_buffer.len(),               // slice to
+            ));
         }
         road_train.add_asset(Asset::new(
             asset_inputs,
@@ -143,19 +124,18 @@ pub fn indicator_by_options<const N: usize>(
             i,
             period + 1,
             period + 1,
-            state,
+            sum,
             Some(&params[i]),
         ));
         output_buffers.push(output_buffer);
     }
 
-    let mut driver = KamaDriver {want_optional_outputs};
+    let mut driver = EfDriver {};
     let final_states = road_train.drive(&mut driver);
 
     let mut states = Vec::with_capacity(N);
-    for (i, state) in final_states.into_iter().enumerate() {
-        let (period, multipliers) = params[i];
-        states.push(IndicatorState::new(inputs[0], period, multipliers, state));
+    for (i, sum) in final_states.into_iter().enumerate() {
+        states.push(IndicatorState::new(inputs[0], sum, params[i]));
     }
     Ok((output_buffers, states))
 }

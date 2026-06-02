@@ -1,9 +1,7 @@
-use crate::common::{min_process, validate_inputs, validate_options};
+use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::ef::calc as calc_ef;
-use crate::indicators::ema::multiplier as ema_multiplier;
 use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
 };
 use serde::{Deserialize, Serialize};
 
@@ -16,12 +14,12 @@ pub const OPTIONS_WIDTH: usize = 1;
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::kama_simd::indicator_by_assets;
+pub use crate::indicators::simd_indicators::ef_simd::indicator_by_assets;
 
 /// SIMD-parallel variant that processes a single asset with `N` different option
 /// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::kama_simd::indicator_by_options;
+pub use crate::indicators::simd_indicators::ef_simd::indicator_by_options;
 
 /// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
 /// allowing SIMD multi-asset computation to be used as a drop-in replacement
@@ -31,7 +29,7 @@ pub use crate::indicators::simd_indicators::kama_simd::indicator_by_options;
 pub mod by_assets {
     /// Processes `N` assets in parallel with shared options.
     /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::kama_simd::indicator_by_assets as indicator;
+    pub use crate::indicators::simd_indicators::ef_simd::indicator_by_assets as indicator;
 }
 
 /// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
@@ -42,7 +40,7 @@ pub mod by_assets {
 pub mod by_options {
     /// Processes a single asset with `N` different option sets in parallel.
     /// See the parent module's [`super::indicator_by_options`] for full documentation.
-    pub use crate::indicators::simd_indicators::kama_simd::indicator_by_options as indicator;
+    pub use crate::indicators::simd_indicators::ef_simd::indicator_by_options as indicator;
 }
 /// Returns information about the Kaufman's Adaptive Moving Average (KAMA) indicator.
 ///
@@ -56,35 +54,25 @@ pub const INFO: Info = Info {
     inputs: &["real"],
     options: &["period"],
     outputs: &["kama"],
-    optional_outputs: &["ef"],
-    display_groups: &[
-        DisplayGroup {
-            id: "kama",
-            label: "KAMA",
-            display_type: DisplayType::Overlay,
-            outputs: &["kama"],
-        },
-        DisplayGroup {
-            id: "ef",
-            label: "Efficiency Ratio",
-            display_type: DisplayType::Indicator,
-            outputs: &["ef"],
-        },
-    ],
+    optional_outputs: &[],
+    display_groups: &[DisplayGroup {
+        id: "kama",
+        label: "KAMA",
+        display_type: DisplayType::Overlay,
+        outputs: &["kama"],
+    }],
 };
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     real: Vec<f64>,
     period: usize,
-    multipliers: (f64, f64),
-    state: State,
+    sum: f64,
 }
 impl IndicatorState {
-    pub fn new(real: &[f64], period: usize, multipliers: (f64, f64), state: State) -> Self {
+    pub fn new(real: &[f64], sum: f64, period: usize) -> Self {
         Self {
             period,
-            multipliers,
-            state,
+            sum,
             real: real[real.len() - period - 1..].to_vec(),
         }
     }
@@ -93,96 +81,45 @@ impl TIndicatorState<1> for IndicatorState {
     fn batch_indicator(
         &mut self,
         inputs: &[&[f64]; INPUTS_WIDTH],
-        optional_outputs: Option<&[bool]>,
+        _optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
         self.real.extend_from_slice(inputs[0]);
 
-        let (mut kama_line, mut ef_line) = {
+        let mut kama_line = {
             let capacity = inputs[0].len();
-            (
-                crate::uninit_vec!(f64, capacity),
-                crate::init_optional_outputs!(
-                    optional_outputs, &[false],
-                    ef_line: capacity
-                ),
-            )
+            crate::uninit_vec!(f64, capacity)
         };
 
-        cycle_kama(
+        cycle_ef(
             &self.real,
-            &mut self.state,
+            &mut self.sum,
             self.period,
-            self.multipliers,
             &mut kama_line,
-            &mut ef_line,
         );
         self.real.drain(..self.real.len() - self.period - 1);
 
-        Ok(vec![kama_line, ef_line])
+        Ok(vec![kama_line])
     }
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct State {
-    pub kama: f64,
-    pub sum: f64,
-}
-impl State {
-    pub fn new(kama: f64, sum: f64) -> Self {
-        Self { kama, sum }
-    }
-    pub fn init_state(
-        real: &[f64],
-        period: usize,
-        kama_line: &mut [f64],
-        ef_line: &mut [f64],
-    ) -> Self {
-        let mut state = Self::new(
-            real[period - 1],
-            (1..period).map(|i| (real[i] - real[i - 1]).abs()).sum(),
-        );
-        let multipliers = multiplier();
-        let values = unsafe {
-            (
-                real.get_unchecked(period),
-                real.get_unchecked(period - 1),
-                real.get_unchecked(0),
-                &0.0,
-            )
-        };
-        let (kama, efficiency_ratio) = state.calc(values, multipliers, period, period);
-        kama_line[0] = kama;
-        let (_, want_ef) = crate::calc_want_flags!(ef_line);
-        crate::store_optional_outputs!(0,
-            want_ef, ef_line => efficiency_ratio
-        );
+pub fn init(real: &[f64], period: usize, ef_line: &mut [f64]) -> f64 {
+    let mut sum = (1..period).map(|i| (real[i] - real[i - 1]).abs()).sum();
+    let values = unsafe {
+        (
+            real.get_unchecked(period),
+            real.get_unchecked(period - 1),
+            real.get_unchecked(0),
+            &0.0,
+        )
+    };
+    let ef = calc(&mut sum, values, period, period);
+    ef_line[0] = ef;
 
-        state
-    }
-    #[inline(always)]
-    pub fn calc(
-        &mut self,
-        values: (&f64, &f64, &f64, &f64),
-        multipliers: (f64, f64),
-        period: usize,
-        i: usize,
-    ) -> (f64, f64) {
-        let (fast_ema, slow_ema) = multipliers;
-        let efficiency_ratio = calc_ef(&mut self.sum, values, period, i);
-        let (value, _, _, _) = values;
-        //let smoothing_constant = (efficiency_ratio * (fast_ema - slow_ema) + slow_ema).powi(2);
-        let smoothing_constant = (fast_ema - slow_ema)
-            .mul_add(efficiency_ratio, slow_ema)
-            .powi(2);
-
-        // Optimized calculation using C-style EMA pattern
-        let per1 = 1.0 - smoothing_constant;
-        //self.kama = self.kama * per1 + value * smoothing_constant;
-        self.kama = self.kama.mul_add(per1, value * smoothing_constant);
-        (self.kama, efficiency_ratio)
-    }
+    sum
 }
+
+
 /// Returns the minimum number of input bars required to produce results
 /// accurate to `decimals` decimal places.
 ///
@@ -199,25 +136,8 @@ impl State {
 /// # Returns
 ///
 /// The minimum number of input bars needed for the requested accuracy.
-pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
-    if options[0] > 12.0 {
-        let (short_multiplier, long_multiplier) = multiplier();
-        let alpha = short_multiplier - long_multiplier;
-        return min_process(
-            options,
-            Some((decimals, 0)),
-            &[ema_multiplier(options[0] as usize).0, alpha],
-            IndicatorInfoOrInteger::Info(INFO),
-            min_data,
-        );
-    }
-    min_process(
-        options,
-        Some((decimals, 0)),
-        &[ema_multiplier(options[0] as usize).0],
-        IndicatorInfoOrInteger::Info(INFO),
-        min_data,
-    )
+pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
+    min_data(options)
 }
 /// Returns the minimum amount of data required for the KAMA indicator.
 ///
@@ -274,48 +194,26 @@ pub fn output_length(data_len: usize, options: &[f64]) -> usize {
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
+    _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
     validate_options(options)?;
     let period = options[0] as usize;
-    let multipliers = multiplier();
 
     validate_inputs(inputs, min_data(options))?;
     let real = inputs[0];
 
-    let (mut kama_line, mut ef_line) = {
+    let mut ef_line = {
         let capacity = output_length(real.len(), options);
-        (
-            crate::uninit_vec!(f64, capacity),
-            crate::init_optional_outputs!(
-                optional_outputs, &[false],
-                ef_line: capacity
-            ),
-        )
+        crate::uninit_vec!(f64, capacity)
     };
-    let mut state = State::init_state(real, period, &mut kama_line, &mut ef_line);
-    let ef = {
-        let (_, want_ef) = crate::calc_want_flags!(ef_line);
-        
-        if want_ef {
-            &mut ef_line[1..]
-        } else {
-            &mut ef_line
-        }
-    };
+
+    let mut sum = init(real, period, &mut ef_line);
     // Perform the main KAMA calculation
-    cycle_kama(
-        real,
-        &mut state,
-        period,
-        multipliers,
-        &mut kama_line[1..],
-        ef,
-    );
+    cycle_ef(real, &mut sum, period, &mut ef_line[1..]);
 
     Ok((
-        vec![kama_line, ef_line],
-        IndicatorState::new(real, period, multipliers, state),
+        vec![ef_line],
+        IndicatorState::new(real, sum, period),
     ))
 }
 
@@ -328,15 +226,13 @@ pub fn indicator(
 /// * `period` - The period for the KAMA calculation.
 /// * `multipliers` - A tuple of `(fast_ema, slow_ema)` smoothing constants.
 /// * `kama_line` - A mutable slice for storing the KAMA output values.
-fn cycle_kama(
+fn cycle_ef(
     real: &[f64],
-    state: &mut State,
+    sum: &mut f64,
     period: usize,
-    multipliers: (f64, f64),
-    kama_line: &mut [f64],
     ef_line: &mut [f64],
 ) {
-    let (_, want_ef) = crate::calc_want_flags!(ef_line);
+    //real.iter().enumerate().skip(start).for_each(|(i, value)| {
     for (j, i) in (period + 1..real.len()).enumerate() {
         let values = unsafe {
             (
@@ -346,13 +242,9 @@ fn cycle_kama(
                 real.get_unchecked(j),
             )
         };
-        let (kama, efficiency_ratio) = state.calc(values, multipliers, period, i);
+        let ef = calc(sum, values, period, i);
 
-        unsafe { *kama_line.get_unchecked_mut(j) = kama };
-
-        crate::store_optional_outputs!(j,
-            want_ef, ef_line => efficiency_ratio
-        );
+        unsafe { *ef_line.get_unchecked_mut(j) = ef };
     }
 }
 
@@ -371,16 +263,23 @@ fn cycle_kama(
 /// The calculated KAMA value.
 #[inline(always)]
 pub fn calc(
-    state: &mut State,
+    sum: &mut f64,
     values: (&f64, &f64, &f64, &f64),
-    multipliers: (f64, f64),
     period: usize,
     i: usize,
-) -> (f64, f64) {
-    state.calc(values, multipliers, period, i)
+) -> f64 {
+    let mut s = *sum;
+    let (value, prev_value, last_value, old_value) = values;
+    s += (value - prev_value).abs();
+    if i > period {
+        s -= (last_value - old_value).abs();
+    }
+    *sum = s;
+    if s != 0.0 {
+        (value - last_value).abs() / s
+    } else {
+        1.0
+    }
+    
 }
 
-#[inline(always)]
-pub fn multiplier() -> (f64, f64) {
-    (ema_multiplier(2).0, ema_multiplier(30).0)
-}

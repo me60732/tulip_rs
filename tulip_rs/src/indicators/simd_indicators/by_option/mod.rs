@@ -20,6 +20,7 @@ pub mod di;
 pub mod dm;
 pub mod dpo;
 pub mod dx;
+pub mod ef;
 pub mod ema;
 pub mod fisher;
 pub mod fosc;

@@ -775,7 +775,8 @@ OVERRIDING SYSTEM VALUE VALUES
     (72,  'pivotpoint',             'Pivot Point',                                                                3, 7, false, 'support_resistance'),
     (158, 'ao_medprice',            'Awesome Oscillator With Medprice Input',                                     1, 1, false, 'momentum'),
     (159, 'fisher',                 'Fisher Transform',                                                           2, 2, true,  'momentum'),
-    (160, 'Rust_Candlestick',       'Single candlestick indicator that scans for all candle patterns',            4, 1, true,  'candlestick');
+    (160, 'Rust_Candlestick',       'Single candlestick indicator that scans for all candle patterns',            4, 1, true,  'candlestick'),
+    (161, 'ef',                     'Efficency Ratio',                                                            1, 1, true,  'trend');
 
 -- Reset sequence to max id + 1
 SELECT setval('indicators_id_seq', (SELECT MAX(id) FROM indicators));

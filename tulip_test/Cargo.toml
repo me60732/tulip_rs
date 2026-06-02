@@ -49,6 +49,10 @@ name = "benchmark_hma"
 harness = false
 
 [[bench]]
+name = "benchmark_ef"
+harness = false
+
+[[bench]]
 name = "benchmark_sma"
 harness = false
 

@@ -519,6 +519,59 @@ fn bench_rust_kama_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_rust_kama_optional(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("kama");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+            let inputs = [close.as_slice()];
+
+            for options in OPTIONS_LIST {
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let result = indicator(&inputs, &options, Some(&[true]))
+                            .expect("Rust KAMA indicator failed");
+                        black_box(&result);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result(
+                    "kama",
+                    "Rust_optional",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        // Run Criterion benchmark with synthetic data
+        let close = expand_inputs();
+        let inputs = [close.as_slice()];
+
+        for options in OPTIONS_LIST {
+            let mut group = c.benchmark_group("kama_rust_optional");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("Rust KAMA optional {{ {:.1} }}", options[0]), |b| {
+                b.iter(|| {
+                    let result = indicator(&inputs, &options, Some(&[true]))
+                        .expect("Rust KAMA indicator failed");
+                    black_box(&result);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     kama_benchmarks,
@@ -527,6 +580,7 @@ criterion_group!(
     bench_rust_kama,
     bench_c_kama,
     bench_talib_kama,
+    bench_rust_kama_optional,
     bench_rust_kama_from_state,
 );
 
@@ -537,6 +591,7 @@ criterion_group!(
     bench_rust_kama_simd_by_options,
     bench_rust_kama,
     bench_c_kama,
+    bench_rust_kama_optional,
     bench_rust_kama_from_state,
 );
 criterion_main!(kama_benchmarks);
