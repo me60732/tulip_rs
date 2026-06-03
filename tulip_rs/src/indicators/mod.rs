@@ -24,6 +24,7 @@ pub mod bbands;
 pub mod bop;
 pub mod candlestick;
 pub mod cci;
+pub mod chandelierexit;
 pub mod cmo;
 pub mod cvi;
 pub mod dema;

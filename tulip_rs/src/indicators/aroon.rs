@@ -246,7 +246,7 @@ pub fn indicator(
     };*/
     let (mut aroon_up_line, mut aroon_down_line) = {
         let capacity = output_length(high.len(), options);
-        (vec![0.0; capacity], vec![0.0; capacity])
+        (crate::uninit_vec!(f64, capacity), crate::uninit_vec!(f64, capacity))
     };
     //let mut aroon_up_line = vec![0.0; capacity];
     //let mut aroon_down_line = vec![0.0; capacity];

@@ -114,6 +114,10 @@ name = "benchmark_bop"
 harness = false
 
 [[bench]]
+name = "benchmark_chandelierexit"
+harness = false
+
+[[bench]]
 name = "benchmark_cci"
 harness = false
 
