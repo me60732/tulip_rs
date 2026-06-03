@@ -2,9 +2,9 @@ use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 
 use crate::indicators::{
-    min::{calc as calc_min, calc_unchecked as calc_min_unchecked, State as MinState},
+    atr::{multiplier as atr_multiplier, output_length as atr_output_length, State as AtrState},
     max::{calc as calc_max, calc_unchecked as calc_max_unchecked, State as MaxState},
-    atr::{output_length as atr_output_length, State as AtrState, multiplier as atr_multiplier},
+    min::{calc as calc_min, calc_unchecked as calc_min_unchecked, State as MinState},
     tr::output_length as tr_output_length,
 };
 
@@ -55,10 +55,16 @@ pub struct IndicatorState {
     low: Vec<f64>,
     state: State,
     periods: (usize, usize),
-    multipliers: (f64, (f64, f64))
+    multipliers: (f64, (f64, f64)),
 }
 impl IndicatorState {
-    pub fn new(high: &[f64], low: &[f64], state: State, periods: (usize, usize), multipliers: (f64, (f64, f64))) -> Self {
+    pub fn new(
+        high: &[f64],
+        low: &[f64],
+        state: State,
+        periods: (usize, usize),
+        multipliers: (f64, (f64, f64)),
+    ) -> Self {
         Self {
             high: high[high.len() - periods.0..].to_vec(),
             low: low[low.len() - periods.0..].to_vec(),
@@ -89,7 +95,7 @@ impl TIndicatorState<3> for IndicatorState {
                     optional_outputs, &[false, false],
                     atr_line: capacity,
                     tr_line: capacity
-                )
+                ),
             )
         };
         match periods.0 {
@@ -100,7 +106,7 @@ impl TIndicatorState<3> for IndicatorState {
                     self.multipliers,
                     (&mut long_line, &mut short_line),
                     &mut self.state,
-                    (&mut atr_line, &mut tr_line)
+                    (&mut atr_line, &mut tr_line),
                 );
             }
             5..25 => {
@@ -110,7 +116,7 @@ impl TIndicatorState<3> for IndicatorState {
                     self.multipliers,
                     (&mut long_line, &mut short_line),
                     &mut self.state,
-                    (&mut atr_line, &mut tr_line)
+                    (&mut atr_line, &mut tr_line),
                 );
             }
             _ => {
@@ -120,7 +126,7 @@ impl TIndicatorState<3> for IndicatorState {
                     self.multipliers,
                     (&mut long_line, &mut short_line),
                     &mut self.state,
-                    (&mut atr_line, &mut tr_line)
+                    (&mut atr_line, &mut tr_line),
                 );
             }
         }
@@ -138,7 +144,13 @@ pub struct State {
     pub atr_state: AtrState,
 }
 impl State {
-    pub fn new(high: &[f64], low: &[f64], close: &[f64], period: usize, tr_line: &mut [f64]) -> Self {
+    pub fn new(
+        high: &[f64],
+        low: &[f64],
+        close: &[f64],
+        period: usize,
+        tr_line: &mut [f64],
+    ) -> Self {
         let min_state = MinState::new(low[0], period);
         let max_state = MaxState::new(high[0], period);
         let atr_state = AtrState::init_state(high, low, close, period, tr_line, false);
@@ -149,11 +161,11 @@ impl State {
         }
     }
 }
-/// Returns information about the Aroon indicator.
+/// Returns information about the Chandelier Exit indicator.
 ///
 /// # Returns
 ///
-/// An `Info` struct containing metadata about the Aroon indicator.
+/// An `Info` struct containing metadata about the Chandelier Exit indicator.
 pub const INFO: Info = Info {
     name: "chandelierexit",
     full_name: "Chandelier Exit",
@@ -174,18 +186,19 @@ pub const INFO: Info = Info {
             label: "True Range",
             display_type: DisplayType::Indicator,
             outputs: &["atr", "tr"],
-        }
-    ]
+        },
+    ],
 };
 /// Returns the minimum number of input bars required to produce accurate results.
 ///
-/// For this indicator accuracy does not depend on decimal precision, so
-/// this always returns the same value as [`min_data`].
+/// The ATR component uses Wilder smoothing (exponential decay), so in principle
+/// accuracy grows with `decimals`. This implementation conservatively returns the
+/// same value as [`min_data`] (i.e. `period + 1`).
 ///
 /// # Arguments
 ///
 /// * `options` - A slice containing the indicator options.
-/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+/// * `_decimals` - Currently unused; see note above.
 ///
 /// # Returns
 ///
@@ -193,11 +206,11 @@ pub const INFO: Info = Info {
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
-/// Returns the minimum amount of data required for the Aroon indicator.
+/// Returns the minimum amount of data required for the Chandelier Exit indicator.
 ///
 /// # Arguments
 ///
-/// * `options` - A slice containing the options for the Aroon calculation.
+/// * `options` - A slice containing the options for the Chandelier Exit calculation.
 ///
 /// # Returns
 ///
@@ -206,41 +219,54 @@ pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize + 1
 }
 
-/// Calculates the output length for the Aroon indicator.
+/// Calculates the output length for the Chandelier Exit indicator.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the Aroon calculation.
+/// * `options` - A slice containing the options for the Chandelier Exit calculation.
 ///
 /// # Returns
 ///
-/// The number of output values produced by the Aroon calculation.
+/// The number of output values produced by the Chandelier Exit calculation.
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
 
-/// Calculates the Aroon indicator over the full input dataset.
+/// Calculates the Chandelier Exit indicator over the full input dataset.
 ///
 /// # Inputs
 ///
 /// * `inputs[0]` — high prices
 /// * `inputs[1]` — low prices
+/// * `inputs[2]` — close prices
 ///
 /// # Options
 ///
-/// * `options[0]` — period
+/// * `options[0]` — period (ATR and highest-high / lowest-low lookback)
+/// * `options[1]` — multiplier applied to ATR for the exit distance
+///
+/// # Outputs
+///
+/// * `outputs[0]` — `long` exit line  (`highest_high - multiplier × ATR`)
+/// * `outputs[1]` — `short` exit line (`lowest_low  + multiplier × ATR`)
+///
+/// # Optional Outputs
+///
+/// * `atr` — the Wilder ATR series used in the calculation
+/// * `tr`  — the True Range series
 ///
 /// # Arguments
 ///
 /// * `inputs` - Array of input price slices (see Inputs above).
 /// * `options` - Array of indicator options (see Options above).
-/// * `_optional_outputs` - Unused; Aroon has no optional outputs.
+/// * `optional_outputs` - Optional flags `[want_atr, want_tr]` to enable extra outputs.
 ///
 /// # Returns
 ///
-/// `Ok((outputs, state))` where `outputs[0]` is `aroon_down`, `outputs[1]` is `aroon_up`,
-/// and `state` can be passed to `IndicatorState::batch_indicator` for streaming.
+/// `Ok((outputs, state))` where `outputs[0]` is `long`, `outputs[1]` is `short`,
+/// `outputs[2]` is `atr` (empty unless requested), `outputs[3]` is `tr` (empty unless
+/// requested), and `state` can be passed to `IndicatorState::batch_indicator` for streaming.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
@@ -269,14 +295,14 @@ pub fn indicator(
                 optional_outputs, &[false, false],
                 atr_line: atr_output_length(len, &[options[0]]),
                 tr_line: tr_output_length(len, &[])
-            )
+            ),
         )
     };
-    
+
     let mut state = State::new(high, low, close, periods.0, &mut tr_line);
     let tr = {
-      let tr_offset = crate::slice_outputs_start!(atr_line.len(), tr_line);
-      &mut tr_line[tr_offset..]
+        let tr_offset = crate::slice_outputs_start!(atr_line.len(), tr_line);
+        &mut tr_line[tr_offset..]
     };
     match periods.0 {
         1..=10 => {
@@ -286,7 +312,7 @@ pub fn indicator(
                 multipliers,
                 (&mut long_line, &mut short_line),
                 &mut state,
-                (&mut atr_line, tr)
+                (&mut atr_line, tr),
             );
         }
         11..=25 => {
@@ -296,7 +322,7 @@ pub fn indicator(
                 multipliers,
                 (&mut long_line, &mut short_line),
                 &mut state,
-                (&mut atr_line, tr)
+                (&mut atr_line, tr),
             );
         }
         _ => {
@@ -306,7 +332,7 @@ pub fn indicator(
                 multipliers,
                 (&mut long_line, &mut short_line),
                 &mut state,
-                (&mut atr_line, tr)
+                (&mut atr_line, tr),
             );
         }
     }
@@ -316,22 +342,24 @@ pub fn indicator(
     ))
 }
 
-/// Performs the main calculation loop for the Aroon indicator.
+/// Performs the main calculation loop for the Chandelier Exit indicator.
 ///
 /// # Arguments
 ///
-/// * `inputs` - A tuple of high and low price slices.
-/// * `period` - The period for the Aroon calculation.
-/// * `multiplier` - The multiplier used to scale Aroon values (100 / period).
-/// * `output_lines` - A tuple of mutable slices for storing the Aroon down and Aroon up lines.
+/// * `inputs` - A tuple of `(high, low, close)` price slices.
+/// * `periods` - A tuple of `(period, multiplier_period)` used for min/max and ATR windowing.
+/// * `multipliers` - A tuple of `(step, atr_multipliers)` where `step` is the ATR multiplier
+///   option and `atr_multipliers` are the Wilder smoothing constants.
+/// * `output_lines` - A tuple of mutable slices for storing the `long` and `short` exit lines.
 /// * `state` - A mutable reference to the current indicator state.
+/// * `optional_outputs` - A tuple of mutable slices for optional `atr` and `tr` outputs.
 fn cycle<const N: usize>(
     inputs: (&[f64], &[f64], &[f64]),
     periods: (usize, usize),
     multipliers: (f64, (f64, f64)),
     output_lines: (&mut [f64], &mut [f64]),
     state: &mut State,
-    optional_outputs: (&mut [f64], &mut [f64])
+    optional_outputs: (&mut [f64], &mut [f64]),
 ) {
     let (high, low, close) = inputs;
     let (long_line, short_line) = output_lines;
@@ -340,7 +368,13 @@ fn cycle<const N: usize>(
     for (j, i) in (periods.0..inputs.0.len()).enumerate() {
         let (long, short, atr, tr);
         unsafe {
-            (long, short, atr, tr) = calc_unchecked::<N>(state, (high, low, *close.get_unchecked(j)), i, periods, multipliers);
+            (long, short, atr, tr) = calc_unchecked::<N>(
+                state,
+                (high, low, *close.get_unchecked(j)),
+                i,
+                periods,
+                multipliers,
+            );
             *long_line.get_unchecked_mut(j) = long;
             *short_line.get_unchecked_mut(j) = short;
         }
@@ -353,7 +387,6 @@ fn cycle<const N: usize>(
             );
         }
     }
-
 }
 #[inline(always)]
 pub fn calc(
@@ -368,13 +401,13 @@ pub fn calc(
     let (min, _) = calc_min(&mut state.min_state, low, i, periods);
     let (max, _) = calc_max(&mut state.max_state, high, i, periods);
 
-    let (atr, tr) = state.atr_state.calc(high[i], low[i], close, atr_multipliers);
+    let (atr, tr) = state
+        .atr_state
+        .calc(high[i], low[i], close, atr_multipliers);
 
-    //let per = atr * step;   
     let long = atr.mul_add(-step, max);
-    //let long = max - per;
-    //let short = min + per;
     let short = atr.mul_add(step, min);
+
     (long, short, atr, tr)
 }
 #[inline(always)]
@@ -390,9 +423,13 @@ pub(crate) unsafe fn calc_unchecked<const N: usize>(
     let (min, _) = calc_min_unchecked::<N>(&mut state.min_state, low, i, periods);
     let (max, _) = calc_max_unchecked::<N>(&mut state.max_state, high, i, periods);
 
-    let (atr, tr) = state.atr_state.calc(*high.get_unchecked(i), *low.get_unchecked(i), close, atr_multipliers);
+    let (atr, tr) = state.atr_state.calc(
+        *high.get_unchecked(i),
+        *low.get_unchecked(i),
+        close,
+        atr_multipliers,
+    );
     let long = atr.mul_add(-step, max);
     let short = atr.mul_add(step, min);
     (long, short, atr, tr)
 }
-

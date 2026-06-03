@@ -231,7 +231,9 @@ fn cycle_ef(real: &[f64], sum: &mut f64, period: usize, ef_line: &mut [f64]) {
 
 /// Computes Kaufman’s Efficiency Ratio (ER), defined as:
 ///
-///     ER = |price[t] - price[t-n]| / sum(|Δprice[i]|)
+/// ```text
+/// ER = |price[t] - price[t-n]| / sum(|Δprice[i]|)
+/// ```
 ///
 /// The numerator measures the net directional movement over the lookback
 /// window, while the denominator measures the total absolute movement (noise).
