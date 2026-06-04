@@ -4,7 +4,7 @@ use crate::indicators::simd_indicators::chandelierexit_simd::{options::Calc, Sim
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::{
     chandelierexit::{
-        min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+        min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH
     },
     tr::output_length as tr_output_length,
 };
@@ -184,8 +184,8 @@ pub fn indicator_by_options<const N: usize>(
             asset_inputs,
             asset_outputs,
             i,
-            params[i].1,
-            params[i].1,
+            params[i].0,
+            params[i].0,
             state,
             Some(&params[i]),
         ));

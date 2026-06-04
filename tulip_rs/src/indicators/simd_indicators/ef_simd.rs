@@ -20,8 +20,8 @@ pub fn calc_simd<const N: usize>(
     values: (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
 ) -> Simd<f64, N> {
     let (value, prev_value, last_value, old_value) = values;
-    let mask = sum.simd_ne(F64Constants::ZERO);
     *sum += (value - prev_value).abs() - (last_value - old_value).abs();
+    let mask = sum.simd_ne(F64Constants::ZERO);
 
     mask.select(
         (value - last_value).abs() / *sum, // When sum != 0.0

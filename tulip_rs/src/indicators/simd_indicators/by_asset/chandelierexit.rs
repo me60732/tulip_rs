@@ -82,7 +82,7 @@ impl ChandelierExitDriver {
                 close @ close_ptrs
             );
             let (long, short, atr, tr) = unsafe {
-                state.calc_unchecked_simd::<N>(
+                state.calc_unchecked_simd::<CHUNK_SIZE>(
                     high_ptrs,
                     low_ptrs,
                     close,

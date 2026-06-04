@@ -7,7 +7,7 @@ use std::simd::Simd;
 use crate::indicators::simd_indicators::keltnerchannel_simd::SimdState;
 use crate::indicators::{
     keltnerchannel::{
-        min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+        min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH, validate_options as vo
     },
     tr::output_length as tr_output_length,
 };
@@ -126,7 +126,7 @@ pub fn indicator_by_options<const N: usize>(
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
     validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
-    validate_options(options, None)?;
+    validate_options(options, Some(vo))?;
 
     let params: [(f64, ((f64, f64), (f64, f64))); N] =
         std::array::from_fn(|i| (options[i][1], multiplier(options[i][0] as usize)));
