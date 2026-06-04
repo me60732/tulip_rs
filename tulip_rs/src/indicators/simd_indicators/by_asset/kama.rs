@@ -114,6 +114,8 @@ pub fn indicator_by_assets<const N: usize>(
         if i == 0 {
             (_, want_optional_outputs) = crate::calc_want_flags!(ef_line);
         }
+        let mut starts = [1; 2];
+        starts[1] = crate::slice_outputs_start!(kama_line.len(), ef_line);
         let mut output_buffer = vec![kama_line, ef_line];
         //let adosc_len = output_buffer[0].len();
         let mut asset_outputs = Vec::with_capacity(output_buffer.len());
@@ -122,8 +124,8 @@ pub fn indicator_by_assets<const N: usize>(
             unsafe {
                 let output_buffer = &mut output_buffer[j];
                 asset_outputs.push(std::slice::from_raw_parts_mut(
-                    output_buffer.as_mut_ptr().add(1), //slice from
-                    output_buffer.len(),               // slice to
+                    output_buffer.as_mut_ptr().add(starts[j]), //slice from
+                    output_buffer.len() - starts[j],               // slice to
                 ));
             }
         }

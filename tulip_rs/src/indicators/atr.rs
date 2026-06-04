@@ -98,7 +98,7 @@ impl State {
         tr_line: &mut [f64],
         composite: bool,
     ) -> State {
-        let mut atr = high[0] - low[0]; //if !composite { high[0] - low[0] } else { 0.0 };
+        let mut atr = high[0] - low[0];
         let mut tr;
         if period < high.len() {
             for (i, (&h, &l)) in high.iter().zip(low.iter()).enumerate().take(period).skip(1) {

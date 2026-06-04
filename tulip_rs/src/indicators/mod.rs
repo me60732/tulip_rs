@@ -39,6 +39,7 @@ pub mod fisher;
 pub mod fosc;
 pub mod hma;
 pub mod kama;
+pub mod keltnerchannel;
 pub mod kvo;
 pub mod linreg;
 pub mod macd;

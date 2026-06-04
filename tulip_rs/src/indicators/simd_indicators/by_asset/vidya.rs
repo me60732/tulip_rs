@@ -196,7 +196,7 @@ pub fn indicator_by_assets<const N: usize>(
                 let output_buffer = &mut output_buffer[j];
                 asset_outputs.push(std::slice::from_raw_parts_mut(
                     output_buffer.as_mut_ptr().add(starts[j]), //slice from
-                    output_buffer.len(),                       // slice to
+                    output_buffer.len() - starts[j],                       // slice to
                 ));
             }
         }

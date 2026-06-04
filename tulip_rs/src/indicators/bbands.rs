@@ -294,8 +294,7 @@ pub fn calc(
     (sd, sma) = stddev_calc(state, value, prev_value, multiplier);
 
     let upper_band = std_dev.mul_add(sd, sma);
-    //let upper_band = sma + sd * std_dev;
     let lower_band = (-std_dev).mul_add(sd, sma);
-    //let lower_band = sma - sd * std_dev;
+    
     (lower_band, sma, upper_band)
 }

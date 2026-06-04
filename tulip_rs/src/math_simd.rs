@@ -267,51 +267,6 @@ pub unsafe fn ln_unchecked<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N> {
     )
 }
 
-
-
-/// High-performance SIMD exponential (e^x)
-#[inline(always)]
-pub fn exp<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N> {
-    // Coefficients for exp polynomial
-    let log2e = Simd::splat(1.44269504088896340736);
-    let ln2 = Simd::splat(0.693147180559945309417);
-
-    let c1 = Simd::splat(1.0);
-    let c2 = Simd::splat(0.5);
-    let c3 = Simd::splat(1.66666666666666019037e-1);
-    let c4 = Simd::splat(4.16666666666666019037e-2);
-    let c5 = Simd::splat(8.33333333333329318027e-3);
-    let c6 = Simd::splat(1.38888888889814059901e-3);
-    let c7 = Simd::splat(1.98412698413242405037e-4);
-
-    // Range reduction
-    let k = (x * log2e).round();
-    let r = x - k * ln2;
-
-    // Polynomial approximation
-    let r2 = r * r;
-    let poly = c1 + r * (c1 + r2 * (c2 + r * (c3 + r * (c4 + r * (c5 + r * (c6 + r * c7))))));
-
-    // Reconstruct with 2^k
-    let k_int = unsafe { k.to_int_unchecked::<i64>() };
-    let scale = Simd::<f64, N>::from_bits(((k_int + Simd::splat(1023)) << 52).cast::<u64>());
-
-    poly * scale
-}
-
-/// SIMD power function (x^y)
-#[inline(always)]
-pub fn pow<const N: usize>(x: Simd<f64, N>, y: Simd<f64, N>) -> Simd<f64, N> {
-    // x^y = exp(y * ln(x))
-    exp(y * ln(x))
-}
-
-/// SIMD square root (already in std::simd but provided for completeness)
-#[inline(always)]
-pub fn sqrt<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N> {
-    x.sqrt() // std::simd has this optimized
-}
-
 pub mod trig {
     use std::simd::{
         cmp::{SimdPartialEq, SimdPartialOrd},

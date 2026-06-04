@@ -37,6 +37,7 @@ pub mod fisher_simd;
 pub mod fosc_simd;
 pub mod hma_simd;
 pub mod kama_simd;
+pub mod keltnerchannel_simd;
 pub mod kvo_simd;
 pub mod linreg_simd;
 pub mod macd_simd;
