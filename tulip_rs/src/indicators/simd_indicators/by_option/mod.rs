@@ -13,6 +13,7 @@ pub mod aroonosc;
 pub mod atr;
 pub mod bbands;
 pub mod cci;
+pub mod chandelierexit;
 pub mod cmo;
 pub mod cvi;
 pub mod dema;

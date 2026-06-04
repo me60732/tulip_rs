@@ -17,6 +17,7 @@ pub mod avgprice;
 pub mod bbands;
 pub mod bop;
 pub mod cci;
+pub mod chandelierexit;
 pub mod cmo;
 pub mod cvi;
 pub mod dema;

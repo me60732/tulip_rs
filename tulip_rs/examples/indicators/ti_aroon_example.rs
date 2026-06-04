@@ -29,7 +29,6 @@ fn main() {
 
     println!("\n=== Running SIMD By-Asset Example ===\n");
     simd_by_asset_example();
-
 }
 
 fn regular_example() {
@@ -141,7 +140,7 @@ fn simd_by_asset_example() {
         println!(
             "Stock {}: Aroon Down first 5: [{:.1}, {:.1}, {:.1}, {:.1}, {:.1}], last: {:.1}",
             stock_idx + 1,
-            aroon_down.get(0).unwrap_or(&0.0),
+            aroon_down.first().unwrap_or(&0.0),
             aroon_down.get(1).unwrap_or(&0.0),
             aroon_down.get(2).unwrap_or(&0.0),
             aroon_down.get(3).unwrap_or(&0.0),
@@ -152,7 +151,7 @@ fn simd_by_asset_example() {
         println!(
             "Stock {}: Aroon Up first 5: [{:.1}, {:.1}, {:.1}, {:.1}, {:.1}], last: {:.1}",
             stock_idx + 1,
-            aroon_up.get(0).unwrap_or(&0.0),
+            aroon_up.first().unwrap_or(&0.0),
             aroon_up.get(1).unwrap_or(&0.0),
             aroon_up.get(2).unwrap_or(&0.0),
             aroon_up.get(3).unwrap_or(&0.0),

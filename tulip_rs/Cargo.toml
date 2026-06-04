@@ -9,6 +9,9 @@ repository = "https://github.com/me60732/tulip_rs"
 documentation = "https://me60732.github.io/tulip_rs"
 readme = "../README.md"
 
+[lints.clippy]
+get_first = "allow"
+
 [package.metadata.docs.rs]
 features = ["simd_options", "simd_assets"]
 rustdoc-args = ["--cfg", "docsrs"]
@@ -647,3 +650,15 @@ path = "examples/candle/fourbar/ti_cdlbearishthreelinestrike_example.rs"
 [[example]]
 name = "ti_cdlconcealingbabyswallow_example"
 path = "examples/candle/fourbar/ti_cdlconcealingbabyswallow_example.rs"
+
+[[example]]
+name = "ti_chandelierexit_example"
+path = "examples/indicators/ti_chandelierexit_example.rs"
+
+[[example]]
+name = "ti_keltnerchannel_example"
+path = "examples/indicators/ti_keltnerchannel_example.rs"
+
+[[example]]
+name = "ti_ef_example"
+path = "examples/indicators/ti_ef_example.rs"

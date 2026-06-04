@@ -55,7 +55,7 @@ fn main() {
     stock4_close.extend(&close);
     stock4_close.extend(&close);
 
-    let stocks = vec![
+    let stocks = [
         ("STOCK1", &stock1_close[..]),
         ("STOCK2", &stock2_close[..]),
         ("STOCK3", &stock3_close[..]),

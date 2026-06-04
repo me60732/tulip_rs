@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::chandelierexit::{indicator, min_data, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::chandelierexit::{indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::criterion_logger::TimingMeasurements;
 use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -465,8 +465,145 @@ fn bench_rust_ta_chandelierexit(c: &mut Criterion) {
     }
 }
 
+
+/// Benchmark the Rust SIMD by-assets implementation of Chandelier Exit.
+fn bench_rust_chandelierexit_simd_by_assets(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("chandelierexit");
+
+        let data = get_all_stock_data().unwrap();
+
+        let stock_data: Vec<(String, Vec<f64>, Vec<f64>, Vec<f64>)> = data
+            .iter()
+            .take(4)
+            .map(|(symbol, eod)| {
+                let (_, high, low, close, _) = get_arrays(eod);
+                (symbol.clone(), high, low, close)
+            })
+            .collect();
+
+        let asset0: [&[f64]; 3] = [&stock_data[0].1, &stock_data[0].2, &stock_data[0].3];
+        let asset1: [&[f64]; 3] = [&stock_data[1].1, &stock_data[1].2, &stock_data[1].3];
+        let asset2: [&[f64]; 3] = [&stock_data[2].1, &stock_data[2].2, &stock_data[2].3];
+        let asset3: [&[f64]; 3] = [&stock_data[3].1, &stock_data[3].2, &stock_data[3].3];
+        let inputs: [&[&[f64]; 3]; 4] = [&asset0, &asset1, &asset2, &asset3];
+
+        for options in OPTIONS_LIST {
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        .expect("Rust SIMD by assets CE indicator failed");
+                    black_box(&result);
+                },
+                SAMPLE_SIZE,
+            );
+
+            log_timing_result(
+                "chandelierexit",
+                "Rust_SIMD_by_assets",
+                &options,
+                stock_data[0].1.len(),
+                &timing,
+                Some("4_Assets"),
+            );
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+
+        let asset: [&[f64]; 3] = [&high_vec, &low_vec, &close_vec];
+        let inputs: [&[&[f64]; 3]; 4] = [&asset, &asset, &asset, &asset];
+
+        for options in OPTIONS_LIST {
+            let mut group = c.benchmark_group("chandelierexit_rust_simd_by_assets");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!(
+                    "Rust SIMD by assets CE {{ {}, {} }}",
+                    options[0], options[1]
+                ),
+                |b| {
+                    b.iter(|| {
+                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                            .expect("Rust SIMD by assets CE indicator failed");
+                        black_box(&result);
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
+
+/// Benchmark the Rust SIMD by-options implementation of Chandelier Exit.
+fn bench_rust_chandelierexit_simd_by_options(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("chandelierexit");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (_, high, low, close, _) = get_arrays(stock_data);
+            let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+            let n = high.len();
+            let options_4 = [
+                &OPTIONS_LIST[0],
+                &OPTIONS_LIST[1],
+                &OPTIONS_LIST[2],
+                &OPTIONS_LIST[3],
+            ];
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                        .expect("Rust SIMD by options CE indicator failed");
+                    black_box(&result);
+                },
+                SAMPLE_SIZE,
+            );
+
+            log_timing_result(
+                "chandelierexit",
+                "Rust_SIMD",
+                &[0.0, 0.0],
+                n,
+                &timing,
+                Some(stock_symbol),
+            );
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+        let inputs = [
+            high_vec.as_slice(),
+            low_vec.as_slice(),
+            close_vec.as_slice(),
+        ];
+
+        let mut group = c.benchmark_group("chandelierexit_rust_simd_by_options");
+        group.sample_size(SAMPLE_SIZE);
+        group.bench_function("Rust SIMD by options CE (4 lanes)", |b| {
+            b.iter(|| {
+                let options_4 = [
+                    &OPTIONS_LIST[0],
+                    &OPTIONS_LIST[1],
+                    &OPTIONS_LIST[2],
+                    &OPTIONS_LIST[3],
+                ];
+                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    .expect("Rust SIMD by options CE indicator failed");
+                black_box(&result);
+            });
+        });
+        group.finish();
+    }
+}
+
 criterion_group!(
     benches,
+    bench_rust_chandelierexit_simd_by_assets,
+    bench_rust_chandelierexit_simd_by_options,
     bench_rust_chandelierexit,
     bench_rust_ta_chandelierexit,
     bench_rust_chandelierexit_from_state,

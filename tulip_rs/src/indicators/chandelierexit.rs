@@ -1,11 +1,12 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 
+pub use crate::indicators::atr::multiplier;
 use crate::indicators::{
-    atr::{multiplier as atr_multiplier, output_length as atr_output_length, State as AtrState},
+    atr::{output_length as atr_output_length, State as AtrState},
     max::{calc as calc_max, calc_unchecked as calc_max_unchecked, State as MaxState},
     min::{calc as calc_min, calc_unchecked as calc_min_unchecked, State as MinState},
-    tr::output_length as tr_output_length,
+    tr::output_length as tr_output_length
 };
 
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
@@ -19,13 +20,13 @@ pub const OPTIONS_WIDTH: usize = 2;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-/*#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::aroon_simd::indicator_by_assets;
+#[cfg(feature = "simd_assets")]
+pub use crate::indicators::simd_indicators::chandelierexit_simd::indicator_by_assets;
 
 /// SIMD-parallel variant that processes a single asset with `N` different option
 /// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::aroon_simd::indicator_by_options;
+pub use crate::indicators::simd_indicators::chandelierexit_simd::indicator_by_options;
 
 /// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
 /// allowing SIMD multi-asset computation to be used as a drop-in replacement
@@ -35,7 +36,7 @@ pub use crate::indicators::simd_indicators::aroon_simd::indicator_by_options;
 pub mod by_assets {
     /// Processes `N` assets in parallel with shared options.
     /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::aroon_simd::indicator_by_assets as indicator;
+    pub use crate::indicators::simd_indicators::chandelierexit_simd::indicator_by_assets as indicator;
 }
 
 /// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
@@ -46,8 +47,8 @@ pub mod by_assets {
 pub mod by_options {
     /// Processes a single asset with `N` different option sets in parallel.
     /// See the parent module's [`super::indicator_by_options`] for full documentation.
-    pub use crate::indicators::simd_indicators::aroon_simd::indicator_by_options as indicator;
-}*/
+    pub use crate::indicators::simd_indicators::chandelierexit_simd::indicator_by_options as indicator;
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
@@ -149,10 +150,11 @@ impl State {
         low: &[f64],
         close: &[f64],
         period: usize,
+        trail: usize,
         tr_line: &mut [f64],
     ) -> Self {
-        let min_state = MinState::new(low[0], period);
-        let max_state = MaxState::new(high[0], period);
+        let min_state = MinState::new(low[0], trail);
+        let max_state = MaxState::new(high[0], trail);
         let atr_state = AtrState::init_state(high, low, close, period, tr_line, false);
         State {
             min_state,
@@ -277,14 +279,10 @@ pub fn indicator(
 
     validate_inputs(inputs, min_data(options))?;
 
-    let periods = (options[0] as usize, options[1] as usize - 1);
-    let multipliers = (options[1], atr_multiplier(periods.0));
+    let periods = (options[0] as usize, options[0] as usize - 1);
+    let multipliers = (options[1], multiplier(periods.0));
     let [high, low, close] = inputs;
 
-    /*let (mut aroon_up_line, mut aroon_down_line) = {
-        let capacity = output_length(high.len(), options);
-        (crate::uninit_vec!(f64, capacity), crate::uninit_vec!(f64, capacity))
-    };*/
     let (mut long_line, mut short_line, (mut atr_line, mut tr_line)) = {
         let len = high.len();
         let capacity = output_length(high.len(), options);
@@ -299,9 +297,9 @@ pub fn indicator(
         )
     };
 
-    let mut state = State::new(high, low, close, periods.0, &mut tr_line);
+    let mut state = State::new(high, low, close, periods.0, periods.1, &mut tr_line);
     let tr = {
-        let tr_offset = crate::slice_outputs_start!(atr_line.len(), tr_line);
+        let tr_offset = crate::slice_outputs_start!(long_line.len(), tr_line);
         &mut tr_line[tr_offset..]
     };
     match periods.0 {

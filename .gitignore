@@ -11,3 +11,4 @@
 *.py
 test_candle_examples.py
 /site/
+* copy.rs

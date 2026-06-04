@@ -23,6 +23,7 @@ pub mod avgprice_simd;
 pub mod bbands_simd;
 pub mod bop_simd;
 pub mod cci_simd;
+pub mod chandelierexit_simd;
 pub mod cmo_simd;
 pub mod cvi_simd;
 pub mod dema_simd;
