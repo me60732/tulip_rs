@@ -6,7 +6,7 @@ use crate::indicators::{
     atr::{output_length as atr_output_length, State as AtrState},
     max::{calc as calc_max, calc_unchecked as calc_max_unchecked, State as MaxState},
     min::{calc as calc_min, calc_unchecked as calc_min_unchecked, State as MinState},
-    tr::output_length as tr_output_length
+    tr::output_length as tr_output_length,
 };
 
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
@@ -59,6 +59,18 @@ pub struct IndicatorState {
     multipliers: (f64, (f64, f64)),
 }
 impl IndicatorState {
+    /// Creates a new `IndicatorState` for streaming continuation.
+    ///
+    /// Retains the trailing `period` high and low bars needed to maintain the sliding
+    /// max/min windows across batch calls.
+    ///
+    /// # Arguments
+    ///
+    /// * `high` - Full high price slice from the just-completed batch.
+    /// * `low` - Full low price slice from the just-completed batch.
+    /// * `state` - Internal min/max and ATR state after the last computed bar.
+    /// * `periods` - Tuple `(period, trail)` where `trail = period - 1`.
+    /// * `multipliers` - Tuple `(step, (atr_alpha, atr_1m_alpha))` used in `calc`.
     pub fn new(
         high: &[f64],
         low: &[f64],
@@ -145,6 +157,19 @@ pub struct State {
     pub atr_state: AtrState,
 }
 impl State {
+    /// Initialises the Chandelier Exit state from the seed bars.
+    ///
+    /// Starts the min/max windows at the first `low`/`high` value and seeds the ATR
+    /// using a Wilder SMA over the first `period` bars.
+    ///
+    /// # Arguments
+    ///
+    /// * `high` - High prices; must contain at least `period` elements.
+    /// * `low` - Low prices; must contain at least `period` elements.
+    /// * `close` - Close prices; must contain at least `period` elements.
+    /// * `period` - ATR lookback (Wilder smoothing period).
+    /// * `trail` - Min/max sliding-window size (`= period - 1`).
+    /// * `tr_line` - Output buffer for raw true-range values written during warm-up.
     pub fn new(
         high: &[f64],
         low: &[f64],
@@ -345,7 +370,8 @@ pub fn indicator(
 /// # Arguments
 ///
 /// * `inputs` - A tuple of `(high, low, close)` price slices.
-/// * `periods` - A tuple of `(period, multiplier_period)` used for min/max and ATR windowing.
+/// * `periods` - A tuple of `(period, trail)` where `period` is the ATR lookback and
+///   `trail` (`= period - 1`) is the sliding window size passed to min/max states.
 /// * `multipliers` - A tuple of `(step, atr_multipliers)` where `step` is the ATR multiplier
 ///   option and `atr_multipliers` are the Wilder smoothing constants.
 /// * `output_lines` - A tuple of mutable slices for storing the `long` and `short` exit lines.
@@ -386,6 +412,23 @@ fn cycle<const N: usize>(
         }
     }
 }
+/// Computes one step of the Chandelier Exit indicator.
+///
+/// Advances the rolling min, max, and ATR states by one bar and returns the long and short
+/// exit lines along with the current ATR and True Range values.
+///
+/// # Arguments
+///
+/// * `state` - Mutable reference to the current min/max/ATR state.
+/// * `inputs` - A tuple of `(high_slice, low_slice, close)` where `close` is the scalar
+///   close for the current bar and `high_slice`/`low_slice` cover the full lookback window.
+/// * `i` - Current bar index into `high_slice`/`low_slice`.
+/// * `periods` - Tuple `(period, trail)` where `trail = period - 1`.
+/// * `multipliers` - Tuple `(step, (atr_alpha, atr_1m_alpha))`.
+///
+/// # Returns
+///
+/// A tuple `(long, short, atr, tr)` for the current bar.
 #[inline(always)]
 pub fn calc(
     state: &mut State,
@@ -408,6 +451,28 @@ pub fn calc(
 
     (long, short, atr, tr)
 }
+/// Unchecked version of [`calc`] that uses SIMD-hint size `N` for the min/max windows.
+///
+/// Identical to [`calc`] but uses `get_unchecked` for all slice accesses and passes the
+/// const generic `N` as a prefetch/SIMD-hint to the min/max helpers.
+///
+/// # Safety
+///
+/// Callers must ensure that `i` is a valid index into `high` and `low` and that the
+/// slice lengths are sufficient for the lookback window (`trail + 1` elements before `i`).
+///
+/// # Arguments
+///
+/// * `state` - Mutable reference to the current min/max/ATR state.
+/// * `inputs` - A tuple of `(high_slice, low_slice, close)` where `close` is the scalar
+///   close for the current bar.
+/// * `i` - Current bar index into `high_slice`/`low_slice`.
+/// * `periods` - Tuple `(period, trail)` where `trail = period - 1`.
+/// * `multipliers` - Tuple `(step, (atr_alpha, atr_1m_alpha))`.
+///
+/// # Returns
+///
+/// A tuple `(long, short, atr, tr)` for the current bar.
 #[inline(always)]
 pub(crate) unsafe fn calc_unchecked<const N: usize>(
     state: &mut State,

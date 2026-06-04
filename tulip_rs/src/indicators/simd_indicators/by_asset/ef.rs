@@ -1,5 +1,5 @@
 use crate::indicators::ef::{
-    min_data, output_length, IndicatorState, INPUTS_WIDTH, OPTIONS_WIDTH, init
+    init, min_data, output_length, IndicatorState, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
 use crate::indicators::simd_indicators::ef_simd::calc_simd;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
@@ -7,7 +7,7 @@ use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
 
-/// SIMD driver that advances the Kaufman's Adaptive Moving Average (KAMA) across `N` asset
+/// SIMD driver that advances the Efficiency Ratio (EF) indicator across `N` asset
 /// lanes per scheduling epoch.
 struct EfDriver {
     period: usize,
@@ -16,8 +16,8 @@ struct EfDriver {
 impl Driver<f64> for EfDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     ///
-    /// Reads from `inputs[asset][0]` (real), writes the KAMA to `outputs[asset][0]`,
-    /// and updates `states[asset]` in place.
+    /// Reads from `inputs[asset][0]` (real prices), writes the EF line to `outputs[asset][0]`,
+    /// and updates `states[asset]` (the rolling absolute-movement sum) in place.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -31,7 +31,7 @@ impl Driver<f64> for EfDriver {
         let mut sums = Simd::<f64, N>::from_array(std::array::from_fn(|i| unsafe {
             **states.get_unchecked(i)
         }));
-        
+
         // Pre-compute pointers for maximum efficiency
         let input_ptrs = crate::extract_input_ptrs!(inputs, N, input_ptrs);
         let output_ptrs = crate::extract_output_ptrs!(outputs, N, output_ptrs);
@@ -64,7 +64,7 @@ impl Driver<f64> for EfDriver {
     }
 }
 
-/// Calculates the Kaufman's Adaptive Moving Average (KAMA) for `N` assets simultaneously
+/// Calculates the Efficiency Ratio (EF) indicator for `N` assets simultaneously
 /// using SIMD parallelism.
 ///
 /// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
@@ -73,10 +73,10 @@ impl Driver<f64> for EfDriver {
 /// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
 ///   containing `[real]` for asset `i`.
 /// * `options` - Shared options slice; `options[0]` is the period.
-/// * `_optional_outputs` - Unused; KAMA has no optional outputs.
+/// * `_optional_outputs` - Unused; EF has no optional outputs.
 ///
 /// # Returns
-/// `Ok((outputs, states))` where `outputs[i][0]` is the KAMA line for asset `i`
+/// `Ok((outputs, states))` where `outputs[i][0]` is the EF line for asset `i`
 /// and `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
@@ -110,7 +110,7 @@ pub fn indicator_by_assets<const N: usize>(
             let output_buffer = &mut output_buffer[0];
             asset_outputs.push(std::slice::from_raw_parts_mut(
                 output_buffer.as_mut_ptr().add(1), //slice from
-                output_buffer.len() - 1,               // slice to
+                output_buffer.len() - 1,           // slice to
             ));
         }
         road_train.add_asset(Asset::new(
@@ -125,18 +125,12 @@ pub fn indicator_by_assets<const N: usize>(
         output_buffers.push(output_buffer);
     }
 
-    let mut driver = EfDriver {
-        period,
-    };
+    let mut driver = EfDriver { period };
     let final_states = road_train.drive(&mut driver);
 
     let mut states = Vec::with_capacity(N);
     for (i, sum) in final_states.into_iter().enumerate() {
-        states.push(IndicatorState::new(
-            inputs[i][0],
-            sum,
-            period,
-        ));
+        states.push(IndicatorState::new(inputs[i][0], sum, period));
     }
     Ok((output_buffers, states))
 }

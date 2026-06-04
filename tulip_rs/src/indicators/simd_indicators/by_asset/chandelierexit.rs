@@ -11,7 +11,7 @@ use crate::indicators::{
 };
 use crate::types::IndicatorError;
 use std::simd::Simd;
-/// SIMD driver that advances the Aroon Indicator (AROON) across `N` asset lanes per scheduling
+/// SIMD driver that advances the Chandelier Exit indicator across `N` asset lanes per scheduling
 /// epoch.
 struct ChandelierExitDriver {
     periods: (usize, usize),
@@ -52,6 +52,13 @@ impl Driver<State> for ChandelierExitDriver {
     }
 }
 impl ChandelierExitDriver {
+    /// Inner SIMD loop for one epoch of the Chandelier Exit computation.
+    ///
+    /// Iterates over `period..data_len` output bars, calling the unchecked SIMD `calc`
+    /// for all `N` asset lanes at each bar, and writing long/short (and optionally atr/tr)
+    /// to the pre-computed output pointers.
+    ///
+    /// `CHUNK_SIZE` is the const-generic SIMD prefetch hint passed down to the min/max helpers.
     fn cycle<const N: usize, const CHUNK_SIZE: usize>(
         &self,
         inputs: ([*const f64; N], [*const f64; N], [*const f64; N]),
@@ -100,6 +107,21 @@ impl ChandelierExitDriver {
     }
 }
 
+/// Calculates the Chandelier Exit indicator for `N` assets simultaneously using SIMD parallelism.
+///
+/// All assets share the same `options`. Uses the [`PrimeMover`] scheduler to batch assets
+/// into SIMD-width groups.
+///
+/// # Arguments
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+///   containing `[high, low, close]` for asset `i`.
+/// * `options` - Shared options applied to all `N` assets: `[period, multiplier]`.
+/// * `optional_outputs` - Optional flags `[want_atr, want_tr]` to enable extra outputs.
+///
+/// # Returns
+/// `Ok((outputs, states))` where `outputs[i]` contains `[long, short, atr?, tr?]`
+/// for asset `i` and `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// Returns `Err(IndicatorError)` if any input is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS_WIDTH],

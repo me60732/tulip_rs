@@ -67,6 +67,13 @@ pub struct IndicatorState {
     sum: f64,
 }
 impl IndicatorState {
+    /// Creates a new `IndicatorState` for streaming continuation.
+    ///
+    /// # Arguments
+    ///
+    /// * `real` - The full real price slice from the just-completed batch.
+    /// * `sum` - The current rolling sum of absolute price changes (carried forward).
+    /// * `period` - The EF lookback period.
     pub fn new(real: &[f64], sum: f64, period: usize) -> Self {
         Self {
             period,
@@ -96,6 +103,21 @@ impl TIndicatorState<1> for IndicatorState {
     }
 }
 
+/// Initialises the EF state and writes the first output value.
+///
+/// Computes the initial rolling sum of absolute changes over `[1, period]` and
+/// uses it to calculate the very first EF value, which is stored in `ef_line[0]`.
+///
+/// # Arguments
+///
+/// * `real` - Input price slice; must contain at least `period + 1` elements.
+/// * `period` - EF lookback period.
+/// * `ef_line` - Output buffer; element `[0]` is written by this call.
+///
+/// # Returns
+///
+/// The initial rolling sum of absolute price changes, ready to be passed to
+/// subsequent calls to [`cycle_ef`] or [`calc`].
 pub fn init(real: &[f64], period: usize, ef_line: &mut [f64]) -> f64 {
     let mut sum = (1..period).map(|i| (real[i] - real[i - 1]).abs()).sum();
     let values = unsafe {
@@ -208,10 +230,13 @@ pub fn indicator(
 ///
 /// # Arguments
 ///
-/// * `real` - A slice of input data (full series including the lookback window).
-/// * `sum` - A mutable reference to the rolling absolute-movement accumulator.
-/// * `period` - The lookback period.
-/// * `ef_line` - A mutable slice for storing the EF output values (length = `real.len() - period - 1`).
+/// * `real` - Full price slice including the lookback window at the front.
+///   The loop iterates `(period+1)..real.len()`, so the number of outputs written
+///   equals `real.len() - period - 1`; `ef_line` must be at least that long.
+/// * `sum` - Mutable reference to the rolling absolute-movement accumulator.
+/// * `period` - The EF lookback period.
+/// * `ef_line` - Output buffer; receives one value per loop iteration (written
+///   starting at index 0).
 fn cycle_ef(real: &[f64], sum: &mut f64, period: usize, ef_line: &mut [f64]) {
     //real.iter().enumerate().skip(start).for_each(|(i, value)| {
     for (j, i) in (period + 1..real.len()).enumerate() {
@@ -229,7 +254,7 @@ fn cycle_ef(real: &[f64], sum: &mut f64, period: usize, ef_line: &mut [f64]) {
     }
 }
 
-/// Computes Kaufman’s Efficiency Ratio (ER), defined as:
+/// Computes Kaufman's Efficiency Ratio (ER), defined as:
 ///
 /// ```text
 /// ER = |price[t] - price[t-n]| / sum(|Δprice[i]|)
@@ -246,10 +271,26 @@ fn cycle_ef(real: &[f64], sum: &mut f64, period: usize, ef_line: &mut [f64]) {
 /// up‑move was exactly cancelled by a down‑move—the ER is defined as **0.0**.
 /// This reflects a regime of maximum noise and zero trend efficiency.
 ///
-/// ER must **not** be forced to 1.0 in this case.  Treating “no movement” as a
-/// “perfect trend” would invert the intended behaviour of adaptive indicators
+/// ER must **not** be forced to 1.0 in this case.  Treating "no movement" as a
+/// "perfect trend" would invert the intended behaviour of adaptive indicators
 /// such as KAMA, which rely on ER to slow down during noisy or stagnant
 /// conditions and speed up only when a genuine trend is present.
+///
+/// # Arguments
+///
+/// * `sum` - Mutable accumulator for the rolling sum of absolute price changes.
+///   Updated in-place on every call.
+/// * `values` - A tuple `(value, prev_value, last_value, old_value)` where:
+///   - `value` — close price at bar `i` (current bar)
+///   - `prev_value` — close price at bar `i - 1` (previous bar, used to update the rolling sum)
+///   - `last_value` — close price at bar `i - period` (left edge of lookback; numerator anchor)
+///   - `old_value` — close price at bar `i - period - 1` (expiring bar, removed from rolling sum)
+/// * `period` - EF lookback period.
+/// * `i` - Current bar index (determines whether the expiring bar should be removed).
+///
+/// # Returns
+///
+/// The Efficiency Ratio for the current bar, in the range `[0.0, 1.0]`.
 #[inline(always)]
 pub fn calc(sum: &mut f64, values: (&f64, &f64, &f64, &f64), period: usize, i: usize) -> f64 {
     let mut s = *sum;

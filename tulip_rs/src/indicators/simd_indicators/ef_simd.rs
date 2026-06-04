@@ -6,12 +6,14 @@ use crate::indicators::simd_indicators::simd_types::F64Constants;
 pub use crate::indicators::simd_indicators::by_option::ef::indicator_by_options;
 
 use std::simd::{cmp::SimdPartialEq, num::SimdFloat, Select, Simd};
-/// Computes one KAMA step across `N` asset/option lanes using SIMD parallelism.
+/// Computes one EF (Efficiency Ratio) step across `N` asset/option lanes using SIMD parallelism.
 ///
-/// Calculates the Efficiency Ratio (|net change| / |total path|) and uses it to
-/// blend the fast and slow EMA smoothing constants. When `sum == 0` (perfectly
-/// efficient or flat market) the smoothing constant defaults to `1.0` (full tracking).
-/// FMA instructions are used throughout to maximise throughput.
+/// Calculates the Efficiency Ratio `|net change| / |total path|` for each lane.
+/// When `sum == 0` (price did not move, or every up-move was exactly cancelled by a
+/// down-move) the ER is defined as `0.0`, matching the scalar implementation.
+/// Forcing `1.0` here would be incorrect: it would signal a perfect trend during
+/// stagnant or noisy conditions, inverting the intended behaviour of adaptive
+/// indicators such as KAMA that consume this value.
 #[inline(always)]
 pub fn calc_simd<const N: usize>(
     sum: &mut Simd<f64, N>,
@@ -23,6 +25,6 @@ pub fn calc_simd<const N: usize>(
 
     mask.select(
         (value - last_value).abs() / *sum, // When sum != 0.0
-        F64Constants::ONE,                // When sum == 0.0, use 1.0
+        F64Constants::ZERO,                // When sum == 0.0, return 0.0 (no efficiency)
     )
 }

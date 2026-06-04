@@ -48,11 +48,11 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::keltnerchannel_simd::indicator_by_options as indicator;
 }
 
-/// Returns information about the Bollinger Bands (BBANDS) indicator.
+/// Returns information about the Keltner Channel indicator.
 ///
 /// # Returns
 ///
-/// An `Info` struct containing metadata about the BBANDS indicator.
+/// An `Info` struct containing metadata about the Keltner Channel indicator.
 pub const INFO: Info = Info {
     name: "keltnerchannel",
     full_name: "Keltner Channel",
@@ -82,6 +82,21 @@ pub struct State {
     pub ema: f64,
 }
 impl State {
+    /// Initialises the Keltner Channel state from the first `period` bars.
+    ///
+    /// Seeds the ATR with the simple-average true range over `[0, period)` and
+    /// seeds the EMA with the exponentially-smoothed close over the same window.
+    /// If `tr_line` is non-empty the raw true-range values for bars `[1, period)` are
+    /// written into it (index 0 = bar 1).
+    ///
+    /// # Arguments
+    ///
+    /// * `high` - High prices; must contain at least `period` elements.
+    /// * `low` - Low prices; must contain at least `period` elements.
+    /// * `close` - Close prices; must contain at least `period` elements.
+    /// * `period` - Lookback period for ATR and EMA initialisation.
+    /// * `multipliers` - Smoothing constants `((atr_alpha, atr_1m_alpha), (ema_alpha, ema_1m_alpha))`.
+    /// * `tr_line` - Optional output buffer for raw true-range values written during warm-up.
     pub fn init_state(
         high: &[f64],
         low: &[f64],
@@ -107,6 +122,22 @@ impl State {
             ema,
         }
     }
+    /// Advances the indicator by one bar and returns the channel values.
+    ///
+    /// Updates the ATR and EMA states, then computes the lower and upper channel
+    /// bands as `EMA ± step × ATR`.
+    ///
+    /// # Arguments
+    ///
+    /// * `high` - High price for the current bar.
+    /// * `low` - Low price for the current bar.
+    /// * `close` - Close price for the current bar.
+    /// * `step` - ATR multiplier controlling channel width.
+    /// * `multipliers` - Smoothing constants `((atr_alpha, atr_1m_alpha), (ema_alpha, ema_1m_alpha))`.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(lower, middle, upper, atr, tr)` where `middle` is the current EMA.
     #[inline(always)]
     pub fn calc(
         &mut self,
@@ -133,6 +164,13 @@ pub struct IndicatorState {
     step: f64,
 }
 impl IndicatorState {
+    /// Creates a new `IndicatorState` for streaming continuation.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - The internal ATR + EMA state after the last computed bar.
+    /// * `step` - ATR multiplier controlling channel width.
+    /// * `multipliers` - Smoothing constants `((atr_alpha, atr_1m_alpha), (ema_alpha, ema_1m_alpha))`.
     pub fn new(state: State, step: f64, multipliers: ((f64, f64), (f64, f64))) -> Self {
         Self {
             state,
@@ -177,17 +215,18 @@ impl TIndicatorState<3> for IndicatorState {
 }
 /// Returns the minimum number of input bars required to produce accurate results.
 ///
-/// For this indicator accuracy does not depend on decimal precision, so
-/// this always returns the same value as [`min_data`].
+/// The EMA (middle band) uses exponential smoothing, so more warm-up bars are needed
+/// to achieve higher decimal precision. This function accounts for EMA convergence time.
 ///
 /// # Arguments
 ///
 /// * `options` - A slice containing the indicator options.
-/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
+/// * `decimals` - The required decimal precision. Higher values increase the returned minimum.
 ///
 /// # Returns
 ///
-/// The minimum number of input bars required, identical to [`min_data`].
+/// The minimum number of input bars required to achieve `decimals` of precision.
+/// Always ≥ [`min_data`].
 pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
     min_process(
         options,
@@ -197,59 +236,78 @@ pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
         min_data,
     )
 }
-/// Returns the minimum amount of data required for the BBANDS indicator.
+/// Returns the minimum amount of data required for the Keltner Channel indicator.
 ///
 /// # Arguments
 ///
-/// * `_options` - A slice containing the options for the BBANDS calculation.
+/// * `options` - A slice containing the options for the Keltner Channel calculation.
 ///
 /// # Returns
 ///
-/// The minimum amount of data required.
+/// The minimum amount of data required (`period + 1`).
 pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize + 1
 }
 
-/// Calculates the output length for the BBANDS indicator.
+/// Calculates the output length for the Keltner Channel indicator.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the BBANDS calculation.
+/// * `options` - A slice containing the options for the Keltner Channel calculation.
 ///
 /// # Returns
 ///
-/// The number of output values produced by the BBANDS calculation.
+/// The number of output values produced by the Keltner Channel calculation (`data_len - period`).
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
+/// Validates Keltner Channel options.
+///
+/// # Errors
+///
+/// Returns `Err(IndicatorError::InvalidOptions)` if `period < 1` or `step ≤ 0`.
 pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), IndicatorError> {
     if options[0] < 1.0 || options[1] <= 0.0 {
         return Err(IndicatorError::InvalidOptions);
     }
     Ok(())
 }
-/// Calculates the Bollinger Bands (BBANDS) indicator over the full input dataset.
+/// Calculates the Keltner Channel indicator over the full input dataset.
 ///
 /// # Inputs
 ///
-/// * `inputs[0]` — real (price) values
+/// * `inputs[0]` — high prices
+/// * `inputs[1]` — low prices
+/// * `inputs[2]` — close prices
 ///
 /// # Options
 ///
-/// * `options[0]` — period
-/// * `options[1]` — std_dev (standard deviation multiplier for the bands)
+/// * `options[0]` — period (lookback for ATR and EMA)
+/// * `options[1]` — step (ATR multiplier controlling channel width)
+///
+/// # Outputs
+///
+/// * `outputs[0]` — `lower` band (`EMA - step × ATR`)
+/// * `outputs[1]` — `middle` band (EMA of close)
+/// * `outputs[2]` — `upper` band (`EMA + step × ATR`)
+///
+/// # Optional Outputs
+///
+/// * `atr` — the Wilder ATR series used in the calculation
+/// * `tr`  — the True Range series
 ///
 /// # Arguments
 ///
 /// * `inputs` - Array of input price slices (see Inputs above).
 /// * `options` - Array of indicator options (see Options above).
-/// * `_optional_outputs` - Unused; BBANDS has no optional outputs.
+/// * `optional_outputs` - Optional flags `[want_atr, want_tr]` to enable extra outputs.
 ///
 /// # Returns
 ///
-/// `Ok((outputs, state))` where `outputs[0]` is `bbands_lower`, `outputs[1]` is `bbands_middle`,
-/// `outputs[2]` is `bbands_upper`, and `state` can be passed to
+/// `Ok((outputs, state))` where `outputs[0]` is `lower`, `outputs[1]` is `middle`,
+/// `outputs[2]` is `upper`, `outputs[3]` is `atr` (empty unless requested),
+/// `outputs[4]` is `tr` (empty unless requested), and `state` can be passed to
 /// `IndicatorState::batch_indicator` for streaming.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
@@ -303,16 +361,16 @@ pub fn indicator(
     ))
 }
 
-/// Performs the main calculation loop for the BBANDS indicator.
+/// Performs the main calculation loop for the Keltner Channel indicator.
 ///
 /// # Arguments
 ///
-/// * `real` - A slice of real prices.
-/// * `period` - The period for the BBANDS calculation.
-/// * `std_dev` - The standard deviation multiplier for the bands.
-/// * `multiplier` - The precomputed period multiplier used in standard deviation calculation.
-/// * `outputs` - A tuple of mutable slices for storing the lower, middle, and upper bands.
+/// * `inputs` - A tuple of `(high, low, close)` price slices (starting at the first output bar).
+/// * `step` - The ATR multiplier controlling channel width.
+/// * `multipliers` - Smoothing constants `((atr_alpha, atr_1m_alpha), (ema_alpha, ema_1m_alpha))`.
+/// * `outputs` - A tuple of mutable slices for storing the `(lower, middle, upper)` channel bands.
 /// * `state` - A mutable reference to the current indicator state.
+/// * `optional_outputs` - A tuple of mutable slices for optional `(atr, tr)` outputs.
 fn cycle(
     inputs: (&[f64], &[f64], &[f64]),
     step: f64,
@@ -349,6 +407,12 @@ fn cycle(
     }
 }
 
+/// Returns the precomputed smoothing constants for the Keltner Channel.
+///
+/// # Returns
+///
+/// A tuple `((atr_alpha, atr_1m_alpha), (ema_alpha, ema_1m_alpha))` where the first pair
+/// contains Wilder ATR smoothing constants and the second pair contains EMA smoothing constants.
 pub fn multiplier(period: usize) -> ((f64, f64), (f64, f64)) {
     (atr_multiplier(period), ema_multiplier(period))
 }

@@ -1,13 +1,13 @@
 use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::ef::{
-    min_data, output_length, IndicatorState, INPUTS_WIDTH, OPTIONS_WIDTH, init
+    init, min_data, output_length, IndicatorState, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
 use crate::indicators::simd_indicators::ef_simd::calc_simd;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
-/// SIMD driver for Kaufman's Adaptive Moving Average (KAMA) indicator, processing `N` option-set lanes per scheduling epoch.
+/// SIMD driver for the Efficiency Ratio (EF) indicator, processing `N` option-set lanes per scheduling epoch.
 struct EfDriver {}
 
 impl Driver<f64, usize> for EfDriver {
@@ -71,17 +71,17 @@ impl Driver<f64, usize> for EfDriver {
     }
 }
 
-/// Calculates Kaufman's Adaptive Moving Average (KAMA) on a single asset with `N` different option
+/// Calculates the Efficiency Ratio (EF) indicator on a single asset with `N` different option
 /// sets simultaneously using SIMD parallelism.
 ///
 /// # Arguments
 /// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
 ///   `[real]`.
 /// * `options` - An array of `N` option sets, one per SIMD lane: `[period]`.
-/// * `optional_outputs` - Unused; KAMA has no optional outputs.
+/// * `_optional_outputs` - Unused; EF has no optional outputs.
 ///
 /// # Returns
-/// `Ok((outputs, states))` where `outputs[i]` contains `[kama]`
+/// `Ok((outputs, states))` where `outputs[i]` contains `[ef]`
 /// and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
@@ -115,7 +115,7 @@ pub fn indicator_by_options<const N: usize>(
             let output_buffer = &mut output_buffer[0];
             asset_outputs.push(std::slice::from_raw_parts_mut(
                 output_buffer.as_mut_ptr().add(1), //slice from
-                output_buffer.len() - 1,               // slice to
+                output_buffer.len() - 1,           // slice to
             ));
         }
         road_train.add_asset(Asset::new(

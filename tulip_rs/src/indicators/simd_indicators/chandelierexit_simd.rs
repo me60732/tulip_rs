@@ -6,18 +6,17 @@ pub use crate::indicators::simd_indicators::by_asset::chandelierexit::indicator_
 pub use crate::indicators::simd_indicators::by_option::chandelierexit::indicator_by_options;
 
 use crate::indicators::simd_indicators::{
-    max_simd::SimdState as SimdMaxState, 
+    atr_simd::SimdState as SimdAtrState, max_simd::SimdState as SimdMaxState,
     min_simd::SimdState as SimdMinState,
-    atr_simd::SimdState as SimdAtrState
 };
 use std::simd::{Simd, StdFloat};
 
-/// SIMD-parallel state for computing the Aroon indicator across `N` assets simultaneously.
-/// Wraps dedicated min/max ring-buffer SIMD states for tracking the lookback window.
+/// SIMD-parallel state for computing the Chandelier Exit indicator across `N` assets or option-sets simultaneously.
+/// Wraps dedicated min/max ring-buffer SIMD states and a Wilder ATR state, one per lane.
 pub struct SimdState<const N: usize> {
     min_state: SimdMinState<N>,
     max_state: SimdMaxState<N>,
-    atr_state: SimdAtrState<N>
+    atr_state: SimdAtrState<N>,
 }
 impl<const N: usize> SimdState<N> {
     /// Gathers `N` scalar [`State`] references into a single `SimdState`,
@@ -26,7 +25,7 @@ impl<const N: usize> SimdState<N> {
         let mut min_state = Vec::with_capacity(N);
         let mut max_state = Vec::with_capacity(N);
         let mut atr_state = Vec::with_capacity(N);
-        
+
         for state in states.iter_mut() {
             min_state.push(&mut state.min_state);
             max_state.push(&mut state.max_state);
@@ -48,7 +47,7 @@ impl<const N: usize> SimdState<N> {
         let mut max_refs = Vec::with_capacity(N);
         let mut min_refs = Vec::with_capacity(N);
         let mut atr_refs = Vec::with_capacity(N);
-        
+
         for state in states.iter_mut() {
             max_refs.push(&mut state.max_state);
             min_refs.push(&mut state.min_state);
@@ -78,6 +77,26 @@ pub mod assets {
     }
 
     impl<const N: usize> Calc<N> for SimdState<N> {
+        /// Advances the Chandelier Exit by one bar across `N` asset lanes simultaneously.
+        ///
+        /// Updates the rolling min/max windows and Wilder ATR, then computes the long and
+        /// short exit lines for all lanes in parallel.
+        ///
+        /// # Safety
+        ///
+        /// `high_ptrs[k]` and `low_ptrs[k]` must point to arrays of at least `i + 1` elements.
+        ///
+        /// # Arguments
+        ///
+        /// * `high_ptrs` / `low_ptrs` - Per-asset pointers into the high/low price arrays.
+        /// * `close` - SIMD vector of current close prices, one per asset lane.
+        /// * `i` - Current bar index (shared across all asset lanes).
+        /// * `look_back` - Min/max sliding-window size (`= period - 1`), shared across lanes.
+        /// * `multipliers` - `(step_splat, (atr_alpha_splat, atr_1m_alpha_splat))`.
+        ///
+        /// # Returns
+        ///
+        /// `(long, short, atr, tr)` as SIMD vectors, one value per asset lane.
         #[inline(always)]
         unsafe fn calc_unchecked_simd<const WINDOW_LANES: usize>(
             &mut self,
@@ -107,7 +126,7 @@ pub mod assets {
 
             let long = atr.mul_add(-step, max);
             let short = atr.mul_add(step, min);
-            
+
             (long, short, atr, tr)
         }
     }
@@ -131,6 +150,28 @@ pub mod options {
     }
 
     impl<const N: usize> Calc<N> for SimdState<N> {
+        /// Advances the Chandelier Exit by one output bar across `N` option-set lanes simultaneously.
+        ///
+        /// Each lane may have a different period and ATR multiplier (encoded in `look_back` and
+        /// `multipliers`), so bar indices and window sizes are SIMD vectors rather than scalars.
+        ///
+        /// # Safety
+        ///
+        /// For each lane `k`, `high_ptrs[k]` and `low_ptrs[k]` must point to arrays of at
+        /// least `i[k] + 1` elements.
+        ///
+        /// # Arguments
+        ///
+        /// * `high_ptrs` / `low_ptrs` - Per-lane pointers into the high/low price arrays.
+        /// * `close` - SIMD vector of current close prices, one per option lane.
+        /// * `i` - Current bar indices, one per lane (lanes with different periods progress
+        ///   through the input at the same rate but started at different offsets).
+        /// * `look_back` - Per-lane min/max window sizes (`= period - 1` for each lane).
+        /// * `multipliers` - `(step_per_lane, (atr_alpha_per_lane, atr_1m_alpha_per_lane))`.
+        ///
+        /// # Returns
+        ///
+        /// `(long, short, atr, tr)` as SIMD vectors, one value per option lane.
         #[inline(always)]
         unsafe fn calc_unchecked_simd(
             &mut self,
@@ -142,12 +183,8 @@ pub mod options {
             multipliers: (Simd<f64, N>, (Simd<f64, N>, Simd<f64, N>)),
         ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
             let (step, atr_multipliers) = multipliers;
-            let (min, _) = self
-                .min_state
-                .calc_unchecked_simd(low_ptrs, i, look_back);
-            let (max, _) = self
-                .max_state
-                .calc_unchecked_simd(high_ptrs, i, look_back);
+            let (min, _) = self.min_state.calc_unchecked_simd(low_ptrs, i, look_back);
+            let (max, _) = self.max_state.calc_unchecked_simd(high_ptrs, i, look_back);
 
             let (high, low) = crate::extract_simd_inputs_at_index_array!(i.as_array(), N,
                 high @ high_ptrs,
@@ -158,7 +195,7 @@ pub mod options {
 
             let long = atr.mul_add(-step, max);
             let short = atr.mul_add(step, min);
-            
+
             (long, short, atr, tr)
         }
     }

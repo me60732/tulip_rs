@@ -4,12 +4,14 @@ pub use crate::indicators::simd_indicators::by_asset::keltnerchannel::indicator_
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::keltnerchannel::indicator_by_options;
 
-use std::simd::Simd;
-pub use crate::indicators::simd_indicators::{
-    atr_simd::SimdState as AtrSimdState,
-    ema_simd::calc_simd as ema_calc_simd
-};
 use crate::indicators::keltnerchannel::State;
+pub use crate::indicators::simd_indicators::{
+    atr_simd::SimdState as AtrSimdState, ema_simd::calc_simd as ema_calc_simd,
+};
+use std::simd::Simd;
+/// SIMD-parallel state for computing the Keltner Channel across `N` assets or option-set lanes.
+///
+/// Holds a Wilder ATR state and an EMA value for each lane packed into SIMD vectors.
 pub struct SimdState<const N: usize> {
     pub atr_state: AtrSimdState<N>,
     pub ema: Simd<f64, N>,
@@ -48,6 +50,21 @@ impl<const N: usize> SimdState<N> {
         }
         self.atr_state.write_states(&mut atr_refs);
     }
+    /// Advances the Keltner Channel by one bar across `N` lanes simultaneously.
+    ///
+    /// Updates the ATR and EMA states for all lanes in parallel, then computes
+    /// the lower and upper channel bands as `EMA ± step × ATR`.
+    ///
+    /// # Arguments
+    ///
+    /// * `high` / `low` / `close` - SIMD vectors of current bar prices, one value per lane.
+    /// * `step` - Per-lane ATR multiplier controlling channel width.
+    /// * `multipliers` - `((atr_alpha, atr_1m_alpha), (ema_alpha, ema_1m_alpha))` per lane.
+    ///
+    /// # Returns
+    ///
+    /// `(lower, middle, upper, atr, tr)` as SIMD vectors, one value per lane,
+    /// where `middle` is the current EMA of close.
     #[inline(always)]
     pub fn calc_simd(
         &mut self,
@@ -56,7 +73,13 @@ impl<const N: usize> SimdState<N> {
         close: Simd<f64, N>,
         step: Simd<f64, N>,
         multipliers: ((Simd<f64, N>, Simd<f64, N>), (Simd<f64, N>, Simd<f64, N>)),
-    ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
+    ) -> (
+        Simd<f64, N>,
+        Simd<f64, N>,
+        Simd<f64, N>,
+        Simd<f64, N>,
+        Simd<f64, N>,
+    ) {
         let (atr, tr) = self.atr_state.calc_simd(high, low, close, multipliers.0);
         self.ema = ema_calc_simd(close, self.ema, multipliers.1);
 
@@ -69,4 +92,3 @@ impl<const N: usize> SimdState<N> {
         (lower, self.ema, upper, atr, tr)
     }
 }
-
