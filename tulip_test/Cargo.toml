@@ -110,11 +110,19 @@ name = "benchmark_bbands"
 harness = false
 
 [[bench]]
+name = "benchmark_smaenvelope"
+harness = false
+
+[[bench]]
 name = "benchmark_bop"
 harness = false
 
 [[bench]]
 name = "benchmark_chandelierexit"
+harness = false
+
+[[bench]]
+name = "benchmark_donchianchannel"
 harness = false
 
 [[bench]]

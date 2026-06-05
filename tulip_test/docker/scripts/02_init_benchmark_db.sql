@@ -777,8 +777,10 @@ OVERRIDING SYSTEM VALUE VALUES
     (159, 'fisher',                 'Fisher Transform',                                                           2, 2, true,  'momentum'),
     (160, 'Rust_Candlestick',       'Single candlestick indicator that scans for all candle patterns',            4, 1, true,  'candlestick'),
     (161, 'ef',                     'Efficency Ratio',                                                            1, 1, true,  'trend'),
-    (162, 'chandelierexit',         'Chandelier Exit',                                                            3, 4, true,  'trend')
-    (162, 'keltnerchannel',         'Keltner Channel',                                                            3, 2, true, 'volatility');
+    (162, 'chandelierexit',         'Chandelier Exit',                                                            3, 4, true,  'trend'),
+    (163, 'keltnerchannel',         'Keltner Channel',                                                            3, 2, true, 'volatility'),
+    (164,  'smaenvelope',            'SMA Envelope',                                                              1, 2, true, 'trend'),
+    (165,  'donchianchannel',       'Donchian Channel',                                                           2, 3, true, 'trend');
 
 -- Reset sequence to max id + 1
 SELECT setval('indicators_id_seq', (SELECT MAX(id) FROM indicators));

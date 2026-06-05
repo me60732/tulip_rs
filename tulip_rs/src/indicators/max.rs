@@ -53,6 +53,14 @@ impl State {
     pub fn new(max: f64, trail: usize) -> Self {
         State { max, trail }
     }
+    pub fn init_state(real: &[f64], period: usize, trail: usize, max_line: &mut [f64]) -> Self {
+        let mut state = Self::new(real[0], trail);
+        let max = calc(&mut state, real, trail, (period, trail)).0;
+        if max_line.len() > 0 {
+            max_line[0] = max;
+        }
+        state
+    }
 }
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {

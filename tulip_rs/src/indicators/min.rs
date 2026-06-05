@@ -58,6 +58,14 @@ impl State {
     pub fn new(min: f64, trail: usize) -> Self {
         State { min, trail }
     }
+    pub fn init_state(real: &[f64], period: usize, trail: usize, min_line: &mut [f64]) -> Self {
+        let mut state = Self::new(real[0], trail);
+        let min = calc(&mut state, real, trail, (period, trail)).0;
+        if min_line.len() > 0 {
+            min_line[0] = min;
+        }
+        state
+    }
 }
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {

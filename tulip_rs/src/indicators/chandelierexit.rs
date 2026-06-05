@@ -1,10 +1,13 @@
-use crate::common::{validate_inputs, validate_options};
+use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
 
 pub use crate::indicators::atr::multiplier;
 use crate::indicators::{
     atr::{output_length as atr_output_length, State as AtrState},
-    max::{calc as calc_max, calc_unchecked as calc_max_unchecked, State as MaxState},
+    max::{
+        calc as calc_max, calc_unchecked as calc_max_unchecked, output_length as max_output_length,
+        State as MaxState,
+    },
     min::{calc as calc_min, calc_unchecked as calc_min_unchecked, State as MinState},
     tr::output_length as tr_output_length,
 };
@@ -99,15 +102,21 @@ impl TIndicatorState<3> for IndicatorState {
         self.high.extend_from_slice(inputs[0]);
         self.low.extend_from_slice(inputs[1]);
         let close = inputs[2];
-        let (mut long_line, mut short_line, (mut atr_line, mut tr_line)) = {
+        let (
+            mut long_line,
+            mut short_line,
+            (mut atr_line, mut tr_line, mut min_line, mut max_line),
+        ) = {
             let capacity = inputs[0].len();
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::uninit_vec!(f64, capacity),
                 crate::init_optional_outputs_eff!(
-                    optional_outputs, &[false, false],
+                    optional_outputs, &[false, false, false, false],
                     atr_line: capacity,
-                    tr_line: capacity
+                    tr_line: capacity,
+                    min_line: capacity,
+                    max_line: capacity
                 ),
             )
         };
@@ -119,7 +128,7 @@ impl TIndicatorState<3> for IndicatorState {
                     self.multipliers,
                     (&mut long_line, &mut short_line),
                     &mut self.state,
-                    (&mut atr_line, &mut tr_line),
+                    (&mut atr_line, &mut tr_line, &mut min_line, &mut max_line),
                 );
             }
             5..25 => {
@@ -129,7 +138,7 @@ impl TIndicatorState<3> for IndicatorState {
                     self.multipliers,
                     (&mut long_line, &mut short_line),
                     &mut self.state,
-                    (&mut atr_line, &mut tr_line),
+                    (&mut atr_line, &mut tr_line, &mut min_line, &mut max_line),
                 );
             }
             _ => {
@@ -139,7 +148,7 @@ impl TIndicatorState<3> for IndicatorState {
                     self.multipliers,
                     (&mut long_line, &mut short_line),
                     &mut self.state,
-                    (&mut atr_line, &mut tr_line),
+                    (&mut atr_line, &mut tr_line, &mut min_line, &mut max_line),
                 );
             }
         }
@@ -147,7 +156,9 @@ impl TIndicatorState<3> for IndicatorState {
         self.high.drain(..self.high.len() - periods.0);
         self.low.drain(..self.low.len() - periods.0);
 
-        Ok(vec![long_line, short_line, atr_line, tr_line])
+        Ok(vec![
+            long_line, short_line, atr_line, tr_line, min_line, max_line,
+        ])
     }
 }
 #[derive(Serialize, Deserialize)]
@@ -169,18 +180,20 @@ impl State {
     /// * `close` - Close prices; must contain at least `period` elements.
     /// * `period` - ATR lookback (Wilder smoothing period).
     /// * `trail` - Min/max sliding-window size (`= period - 1`).
-    /// * `tr_line` - Output buffer for raw true-range values written during warm-up.
+    /// * `optional_outputs` - Output buffers `(tr_line, min_line, max_line)` written during warm-up; pass empty slices if not needed.
     pub fn new(
         high: &[f64],
         low: &[f64],
         close: &[f64],
         period: usize,
         trail: usize,
-        tr_line: &mut [f64],
+        optional_outputs: (&mut [f64], &mut [f64], &mut [f64]),
     ) -> Self {
-        let min_state = MinState::new(low[0], trail);
-        let max_state = MaxState::new(high[0], trail);
+        let (tr_line, min_line, max_line) = optional_outputs;
+        let min_state = MinState::init_state(low, period, trail, min_line);
+        let max_state = MaxState::init_state(high, period, trail, max_line);
         let atr_state = AtrState::init_state(high, low, close, period, tr_line, false);
+
         State {
             min_state,
             max_state,
@@ -200,7 +213,7 @@ pub const INFO: Info = Info {
     inputs: &["high", "low", "close"],
     options: &["period", "multiplier"],
     outputs: &["long", "short"],
-    optional_outputs: &["atr", "tr"],
+    optional_outputs: &["atr", "tr", "min", "max"],
     display_groups: &[
         DisplayGroup {
             id: "long_short",
@@ -214,8 +227,20 @@ pub const INFO: Info = Info {
             display_type: DisplayType::Indicator,
             outputs: &["atr", "tr"],
         },
+        DisplayGroup {
+            id: "min_max",
+            label: "Min & Max",
+            display_type: DisplayType::Overlay,
+            outputs: &["min", "max"],
+        },
     ],
 };
+pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), IndicatorError> {
+    if options[0] < 1.0 || options[1] <= 0.0 {
+        return Err(IndicatorError::InvalidOptions);
+    }
+    Ok(())
+}
 /// Returns the minimum number of input bars required to produce accurate results.
 ///
 /// The ATR component uses Wilder smoothing (exponential decay), so in principle
@@ -282,18 +307,22 @@ pub fn output_length(data_len: usize, options: &[f64]) -> usize {
 ///
 /// * `atr` — the Wilder ATR series used in the calculation
 /// * `tr`  — the True Range series
+/// * `min` — the rolling lowest-low series (same window as the short exit)
+/// * `max` — the rolling highest-high series (same window as the long exit)
 ///
 /// # Arguments
 ///
 /// * `inputs` - Array of input price slices (see Inputs above).
 /// * `options` - Array of indicator options (see Options above).
-/// * `optional_outputs` - Optional flags `[want_atr, want_tr]` to enable extra outputs.
+/// * `optional_outputs` - Optional flags `[want_atr, want_tr, want_min, want_max]` to enable extra outputs.
 ///
 /// # Returns
 ///
 /// `Ok((outputs, state))` where `outputs[0]` is `long`, `outputs[1]` is `short`,
 /// `outputs[2]` is `atr` (empty unless requested), `outputs[3]` is `tr` (empty unless
-/// requested), and `state` can be passed to `IndicatorState::batch_indicator` for streaming.
+/// requested), `outputs[4]` is `min` (empty unless requested), `outputs[5]` is `max`
+/// (empty unless requested), and `state` can be passed to
+/// `IndicatorState::batch_indicator` for streaming.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
@@ -308,24 +337,40 @@ pub fn indicator(
     let multipliers = (options[1], multiplier(periods.0));
     let [high, low, close] = inputs;
 
-    let (mut long_line, mut short_line, (mut atr_line, mut tr_line)) = {
+    let (mut long_line, mut short_line, (mut atr_line, mut tr_line, mut min_line, mut max_line)) = {
         let len = high.len();
-        let capacity = output_length(high.len(), options);
+        let capacity = output_length(len, options);
+        let min_max_capacity = max_output_length(len, options);
         (
             crate::uninit_vec!(f64, capacity),
             crate::uninit_vec!(f64, capacity),
             crate::init_optional_outputs_eff!(
-                optional_outputs, &[false, false],
+                optional_outputs, &[false, false, false, false],
                 atr_line: atr_output_length(len, &[options[0]]),
-                tr_line: tr_output_length(len, &[])
+                tr_line: tr_output_length(len, &[]),
+                min_line: min_max_capacity,
+                max_line: min_max_capacity
             ),
         )
     };
 
-    let mut state = State::new(high, low, close, periods.0, periods.1, &mut tr_line);
-    let tr = {
-        let tr_offset = crate::slice_outputs_start!(long_line.len(), tr_line);
-        &mut tr_line[tr_offset..]
+    let mut state = State::new(
+        high,
+        low,
+        close,
+        periods.0,
+        periods.1,
+        (&mut tr_line, &mut min_line, &mut max_line),
+    );
+    let optional_outputs = {
+        let (tr_offset, min_offset, max_offset) =
+            crate::slice_outputs_start!(long_line.len(), tr_line, min_line, max_line);
+        (
+            atr_line.as_mut_slice(),
+            &mut tr_line[tr_offset..],
+            &mut min_line[min_offset..],
+            &mut max_line[max_offset..],
+        )
     };
     match periods.0 {
         1..=10 => {
@@ -335,7 +380,7 @@ pub fn indicator(
                 multipliers,
                 (&mut long_line, &mut short_line),
                 &mut state,
-                (&mut atr_line, tr),
+                optional_outputs,
             );
         }
         11..=25 => {
@@ -345,7 +390,7 @@ pub fn indicator(
                 multipliers,
                 (&mut long_line, &mut short_line),
                 &mut state,
-                (&mut atr_line, tr),
+                optional_outputs,
             );
         }
         _ => {
@@ -355,12 +400,12 @@ pub fn indicator(
                 multipliers,
                 (&mut long_line, &mut short_line),
                 &mut state,
-                (&mut atr_line, tr),
+                optional_outputs,
             );
         }
     }
     Ok((
-        vec![long_line, short_line, atr_line, tr_line],
+        vec![long_line, short_line, atr_line, tr_line, min_line, max_line],
         IndicatorState::new(high, low, state, periods, multipliers),
     ))
 }
@@ -376,23 +421,24 @@ pub fn indicator(
 ///   option and `atr_multipliers` are the Wilder smoothing constants.
 /// * `output_lines` - A tuple of mutable slices for storing the `long` and `short` exit lines.
 /// * `state` - A mutable reference to the current indicator state.
-/// * `optional_outputs` - A tuple of mutable slices for optional `atr` and `tr` outputs.
+/// * `optional_outputs` - A tuple of mutable slices for optional `atr`, `tr`, `min`, and `max` outputs.
 fn cycle<const N: usize>(
     inputs: (&[f64], &[f64], &[f64]),
     periods: (usize, usize),
     multipliers: (f64, (f64, f64)),
     output_lines: (&mut [f64], &mut [f64]),
     state: &mut State,
-    optional_outputs: (&mut [f64], &mut [f64]),
+    optional_outputs: (&mut [f64], &mut [f64], &mut [f64], &mut [f64]),
 ) {
     let (high, low, close) = inputs;
     let (long_line, short_line) = output_lines;
-    let (atr_line, tr_line) = optional_outputs;
-    let (has_optional, want_atr, want_tr) = crate::calc_want_flags!(atr_line, tr_line);
+    let (atr_line, tr_line, min_line, max_line) = optional_outputs;
+    let (has_optional, want_atr, want_tr, want_min, want_max) =
+        crate::calc_want_flags!(atr_line, tr_line, min_line, max_line);
     for (j, i) in (periods.0..inputs.0.len()).enumerate() {
-        let (long, short, atr, tr);
+        let (long, short, atr, tr, min, max);
         unsafe {
-            (long, short, atr, tr) = calc_unchecked::<N>(
+            (long, short, atr, tr, min, max) = calc_unchecked::<N>(
                 state,
                 (high, low, *close.get_unchecked(j)),
                 i,
@@ -404,10 +450,10 @@ fn cycle<const N: usize>(
         }
         if has_optional {
             crate::store_optional_outputs!(j,
-                want_atr, atr_line => atr
-            );
-            crate::store_optional_outputs!(j,
-                want_tr, tr_line => tr
+                want_atr, atr_line => atr,
+                want_tr, tr_line => tr,
+                want_min, min_line => min,
+                want_max, max_line => max
             );
         }
     }
@@ -436,7 +482,7 @@ pub fn calc(
     i: usize,
     periods: (usize, usize),
     multipliers: (f64, (f64, f64)),
-) -> (f64, f64, f64, f64) {
+) -> (f64, f64, f64, f64, f64, f64) {
     let (high, low, close) = inputs;
     let (step, atr_multipliers) = multipliers;
     let (min, _) = calc_min(&mut state.min_state, low, i, periods);
@@ -449,7 +495,7 @@ pub fn calc(
     let long = atr.mul_add(-step, max);
     let short = atr.mul_add(step, min);
 
-    (long, short, atr, tr)
+    (long, short, atr, tr, min, max)
 }
 /// Unchecked version of [`calc`] that uses SIMD-hint size `N` for the min/max windows.
 ///
@@ -480,7 +526,7 @@ pub(crate) unsafe fn calc_unchecked<const N: usize>(
     i: usize,
     periods: (usize, usize),
     multipliers: (f64, (f64, f64)),
-) -> (f64, f64, f64, f64) {
+) -> (f64, f64, f64, f64, f64, f64) {
     let (high, low, close) = inputs;
     let (step, atr_multipliers) = multipliers;
     let (min, _) = calc_min_unchecked::<N>(&mut state.min_state, low, i, periods);
@@ -494,5 +540,5 @@ pub(crate) unsafe fn calc_unchecked<const N: usize>(
     );
     let long = atr.mul_add(-step, max);
     let short = atr.mul_add(step, min);
-    (long, short, atr, tr)
+    (long, short, atr, tr, min, max)
 }

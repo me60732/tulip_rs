@@ -1,7 +1,7 @@
 use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::stddev::calc as stddev_calc;
-pub use crate::indicators::stddev::{multiplier, State};
+use crate::indicators::sma::{calc as calc_sma, multiplier as sma_multiplier};
+pub use crate::indicators::sma::init_state;
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
@@ -11,15 +11,14 @@ pub const INPUTS_WIDTH: usize = 1;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 2;
 
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
+// SIMD variants are not yet implemented for SMA Envelope.
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::bbands_simd::indicator_by_assets;
+pub use crate::indicators::simd_indicators::smaenvelope_simd::indicator_by_assets;
 
 /// SIMD-parallel variant that processes a single asset with `N` different option
 /// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::bbands_simd::indicator_by_options;
+pub use crate::indicators::simd_indicators::smaenvelope_simd::indicator_by_options;
 
 /// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
 /// allowing SIMD multi-asset computation to be used as a drop-in replacement
@@ -29,7 +28,7 @@ pub use crate::indicators::simd_indicators::bbands_simd::indicator_by_options;
 pub mod by_assets {
     /// Processes `N` assets in parallel with shared options.
     /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::bbands_simd::indicator_by_assets as indicator;
+    pub use crate::indicators::simd_indicators::smaenvelope_simd::indicator_by_assets as indicator;
 }
 
 /// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
@@ -40,45 +39,44 @@ pub mod by_assets {
 pub mod by_options {
     /// Processes a single asset with `N` different option sets in parallel.
     /// See the parent module's [`super::indicator_by_options`] for full documentation.
-    pub use crate::indicators::simd_indicators::bbands_simd::indicator_by_options as indicator;
+    pub use crate::indicators::simd_indicators::smaenvelope_simd::indicator_by_options as indicator;
 }
 
-/// Returns information about the Bollinger Bands (BBANDS) indicator.
+/// Returns static metadata about the SMA Envelope indicator.
 ///
 /// # Returns
 ///
-/// An `Info` struct containing metadata about the BBANDS indicator.
+/// An `Info` struct containing the name, type, input/option/output descriptions,
+/// and display group configuration for the SMA Envelope indicator.
 pub const INFO: Info = Info {
-    name: "bbands",
-    full_name: "Bollinger Bands",
-    indicator_type: IndicatorType::Volatility,
+    name: "smaenvelope",
+    full_name: "SMA Envelope",
+    indicator_type: IndicatorType::Trend,
     inputs: &["real"],
-    options: &["period", "std_dev"],
-    outputs: &["bbands_lower", "bbands_middle", "bbands_upper"],
+    options: &["period", "percentage"],
+    outputs: &["lower", "middle", "upper"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
-        id: "bbands",
-        label: "BBANDS",
+        id: "smaenvelope",
+        label: "SMA Envelope",
         display_type: DisplayType::Overlay,
-        outputs: &["bbands_lower", "bbands_middle", "bbands_upper"],
+        outputs: &["lower", "middle", "upper"],
     }],
 };
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     real: Vec<f64>,
-    state: State,
+    sum: f64,
     period: usize,
-    multiplier: f64,
-    std_dev: f64,
+    multipliers: (f64, f64),
 }
 impl IndicatorState {
-    pub fn new(real: &[f64], state: State, period: usize, multiplier: f64, std_dev: f64) -> Self {
+    pub fn new(real: &[f64], sum: f64, period: usize, multipliers: (f64, f64)) -> Self {
         Self {
             real: real[real.len() - period..].to_vec(),
-            state,
+            sum,
             period,
-            multiplier,
-            std_dev,
+            multipliers,
         }
     }
 }
@@ -88,8 +86,6 @@ impl TIndicatorState<1> for IndicatorState {
         inputs: &[&[f64]; INPUTS_WIDTH],
         _optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
-        let period = self.period;
-
         validate_inputs(inputs, 1)?;
 
         self.real.extend_from_slice(inputs[0]);
@@ -103,16 +99,15 @@ impl TIndicatorState<1> for IndicatorState {
             )
         };
 
-        cycle_bbands(
+        cycle(
             &self.real,
-            period,
-            self.std_dev,
-            self.multiplier,
+            self.period,
+            self.multipliers,
             (&mut lower_band, &mut middle_band, &mut upper_band),
-            &mut self.state,
+            &mut self.sum,
         );
 
-        self.real.drain(..self.real.len() - period);
+        self.real.drain(..self.real.len() - self.period);
 
         Ok(vec![lower_band, middle_band, upper_band])
     }
@@ -133,29 +128,29 @@ impl TIndicatorState<1> for IndicatorState {
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
-/// Returns the minimum amount of data required for the BBANDS indicator.
+/// Returns the minimum number of input bars required for the SMA Envelope indicator.
 ///
 /// # Arguments
 ///
-/// * `_options` - A slice containing the options for the BBANDS calculation.
+/// * `options` - A slice containing the indicator options. `options[0]` is the period.
 ///
 /// # Returns
 ///
-/// The minimum amount of data required.
+/// `period + 1` — the smallest number of bars needed to emit at least one output value.
 pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize + 1
 }
 
-/// Calculates the output length for the BBANDS indicator.
+/// Calculates the number of output values produced by the SMA Envelope indicator.
 ///
 /// # Arguments
 ///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the BBANDS calculation.
+/// * `data_len` - The number of input bars.
+/// * `options` - A slice containing the indicator options. `options[0]` is the period.
 ///
 /// # Returns
 ///
-/// The number of output values produced by the BBANDS calculation.
+/// `data_len - min_data(options) + 1` — the number of values in each output band.
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
@@ -165,7 +160,12 @@ pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), Ind
     }
     Ok(())
 }
-/// Calculates the Bollinger Bands (BBANDS) indicator over the full input dataset.
+/// Calculates the SMA Envelope indicator over the full input dataset.
+///
+/// The SMA Envelope plots three bands around a simple moving average:
+/// - **lower**: `SMA - SMA * (percentage / 100)`
+/// - **middle**: `SMA`
+/// - **upper**: `SMA + SMA * (percentage / 100)`
 ///
 /// # Inputs
 ///
@@ -173,20 +173,20 @@ pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), Ind
 ///
 /// # Options
 ///
-/// * `options[0]` — period
-/// * `options[1]` — std_dev (standard deviation multiplier for the bands)
+/// * `options[0]` — period (SMA look-back window, must be ≥ 1)
+/// * `options[1]` — percentage (envelope width as a percentage of the SMA, must be > 0)
 ///
 /// # Arguments
 ///
 /// * `inputs` - Array of input price slices (see Inputs above).
 /// * `options` - Array of indicator options (see Options above).
-/// * `_optional_outputs` - Unused; BBANDS has no optional outputs.
+/// * `_optional_outputs` - Unused; this indicator has no optional outputs.
 ///
 /// # Returns
 ///
-/// `Ok((outputs, state))` where `outputs[0]` is `bbands_lower`, `outputs[1]` is `bbands_middle`,
-/// `outputs[2]` is `bbands_upper`, and `state` can be passed to
-/// `IndicatorState::batch_indicator` for streaming.
+/// `Ok((outputs, state))` where `outputs[0]` is `lower`, `outputs[1]` is `middle`,
+/// `outputs[2]` is `upper`, and `state` can be passed to
+/// `IndicatorState::batch_indicator` for streaming updates.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
@@ -195,9 +195,9 @@ pub fn indicator(
 ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
     validate_options(options)?;
     let period = options[0] as usize;
-    let std_dev = options[1];
+    let percentage = options[1];
 
-    let multiplier = multiplier(period);
+    let multipliers = multiplier(period, percentage);
 
     validate_inputs(inputs, min_data(options))?;
     let real = inputs[0];
@@ -211,55 +211,48 @@ pub fn indicator(
         )
     };
 
-    let mut state = State::new(
-        real[0..period].iter().sum::<f64>(),
-        real[0..period].iter().map(|&x| x * x).sum::<f64>(),
-    );
-    cycle_bbands(
+    let mut sum = init_state(real, period);
+    cycle(
         real,
         period,
-        std_dev,
-        multiplier,
+        multipliers,
         (&mut lower_band, &mut middle_band, &mut upper_band),
-        &mut state,
+        &mut sum,
     );
 
     Ok((
         vec![lower_band, middle_band, upper_band],
-        IndicatorState {
-            real: real[real.len() - period..].to_vec(),
-            state,
-            period,
-            multiplier,
-            std_dev,
-        },
+        IndicatorState::new(real, sum, period, multipliers),
     ))
 }
 
-/// Performs the main calculation loop for the BBANDS indicator.
+/// Performs the main calculation loop for the SMA Envelope indicator.
+///
+/// Iterates over `real[period..]`, advancing the rolling sum one bar at a time
+/// and writing the lower, middle, and upper band values into `outputs`.
 ///
 /// # Arguments
 ///
-/// * `real` - A slice of real prices.
-/// * `period` - The period for the BBANDS calculation.
-/// * `std_dev` - The standard deviation multiplier for the bands.
-/// * `multiplier` - The precomputed period multiplier used in standard deviation calculation.
-/// * `outputs` - A tuple of mutable slices for storing the lower, middle, and upper bands.
-/// * `state` - A mutable reference to the current indicator state.
-fn cycle_bbands(
+/// * `real` - A slice of real (price) values.
+/// * `period` - The SMA look-back period.
+/// * `multipliers` - Precomputed `(1/period, percentage/100)` tuple.
+/// * `outputs` - A tuple of mutable slices `(lower, middle, upper)` to write into.
+/// * `sum` - The running sum of the current SMA window (updated in place).
+//#[inline(always)]
+fn cycle(
     real: &[f64],
     period: usize,
-    std_dev: f64,
-    multiplier: f64,
+    multipliers: (f64, f64),
     outputs: (&mut [f64], &mut [f64], &mut [f64]),
-    state: &mut State,
+    sum: &mut f64,
 ) {
     let (lower_band, middle_band, upper_band) = outputs;
 
     for (j, i) in (period..real.len()).enumerate() {
-        let prev_value = unsafe { real.get_unchecked(i - period) };
-        //let prev_value = &real[i - period];
-        let (lower, middle, upper) = calc(state, &std_dev, multiplier, unsafe { real.get_unchecked(i) }, prev_value);
+        let (value, prev_value) =
+            unsafe { (real.get_unchecked(i), real.get_unchecked(i - period)) };
+
+        let (lower, middle, upper) = calc(sum, multipliers, value, prev_value);
         unsafe {
             *middle_band.get_unchecked_mut(j) = middle;
             *upper_band.get_unchecked_mut(j) = upper;
@@ -268,32 +261,35 @@ fn cycle_bbands(
     }
 }
 
-/// Calculates the current Bollinger Bands values.
+/// Calculates one output step of the SMA Envelope.
+///
+/// Updates the rolling `sum` by adding `value` and subtracting `prev_value`,
+/// computes the SMA, then derives the envelope bands.
 ///
 /// # Arguments
 ///
-/// * `state` - A mutable reference to the current standard deviation state.
-/// * `std_dev` - The standard deviation multiplier for the bands.
-/// * `multiplier` - The precomputed period multiplier used in standard deviation calculation.
-/// * `value` - The current input value.
-/// * `prev_value` - The previous period's input value (used to update the rolling sum).
+/// * `sum` - The running sum of the current SMA window (updated in place).
+/// * `multipliers` - Precomputed `(1/period, percentage/100)` tuple.
+/// * `value` - The current (newest) input price.
+/// * `prev_value` - The price that is leaving the SMA window.
 ///
 /// # Returns
 ///
-/// A tuple of `(lower_band, middle_band, upper_band)`.
+/// `(lower, middle, upper)` where `middle` is the SMA, and `lower`/`upper`
+/// are `middle ± middle * percentage`.
 #[inline(always)]
 pub fn calc(
-    state: &mut State,
-    std_dev: &f64,
-    multiplier: f64,
+    sum: &mut f64,
+    multipliers: (f64, f64),
     value: &f64,
     prev_value: &f64,
 ) -> (f64, f64, f64) {
-    let (sd, sma);
-    (sd, sma) = stddev_calc(state, value, prev_value, multiplier);
+    let sma = calc_sma(sum, value, prev_value, &multipliers.0);
+    let step = sma * multipliers.1;
 
-    let upper_band = std_dev.mul_add(sd, sma);
-    let lower_band = (-std_dev).mul_add(sd, sma);
-    
-    (lower_band, sma, upper_band)
+    (sma - step, sma, sma + step)
+}
+
+pub fn multiplier(period: usize, percentage: f64) -> (f64, f64) {
+    (sma_multiplier(period), percentage / 100.0)
 }

@@ -5,6 +5,8 @@ mod tests {
     use tulip_rs::indicators::chandelierexit::{
         indicator, indicator_by_assets, indicator_by_options, min_data, TIndicatorState,
     };
+    use tulip_rs::indicators::max::indicator as max_indicator;
+    use tulip_rs::indicators::min::indicator as min_indicator;
     use tulip_rs::indicators::tr::indicator as tr_indicator;
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -314,6 +316,154 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
+    // optional min output vs standalone min indicator
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_chandelierexit_optional_min() {
+        let (high, low, close) = expand_inputs();
+        let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+
+        for options in OPTIONS_LIST {
+            let min_options = [options[0]];
+
+            let (ce_outputs, _) = indicator(&inputs, &options, Some(&[false, false, true, false]))
+                .expect("Rust CE indicator failed");
+            let ce_min = &ce_outputs[4];
+
+            let (min_outputs, _) = min_indicator(&[low.as_slice()], &min_options, None)
+                .expect("Rust MIN indicator failed");
+            let min_line = &min_outputs[0];
+
+            assert_eq!(
+                ce_min.len(),
+                min_line.len(),
+                "CE min vs standalone min length mismatch: options={options:?}"
+            );
+            for (i, (ce_val, min_val)) in ce_min.iter().rev().zip(min_line.iter().rev()).enumerate()
+            {
+                let index = min_line.len() - 1 - i;
+                assert_eq!(
+                    ce_val, min_val,
+                    "CE min vs standalone min mismatch at index {index}: ce={ce_val}, min={min_val}, options={options:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_chandelierexit_optional_min_database() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_arrays(stock_data);
+            let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+
+            for options in OPTIONS_LIST {
+                let min_options = [options[0]];
+
+                let (ce_outputs, _) =
+                    indicator(&inputs, &options, Some(&[false, false, true, false]))
+                        .expect("Rust CE indicator failed");
+                let ce_min = &ce_outputs[4];
+
+                let (min_outputs, _) = min_indicator(&[low.as_slice()], &min_options, None)
+                    .expect("Rust MIN indicator failed");
+                let min_line = &min_outputs[0];
+
+                assert_eq!(
+                    ce_min.len(), min_line.len(),
+                    "CE min vs standalone min length mismatch: options={options:?}, stock={stock_symbol}"
+                );
+                for (i, (ce_val, min_val)) in
+                    ce_min.iter().rev().zip(min_line.iter().rev()).enumerate()
+                {
+                    let index = min_line.len() - 1 - i;
+                    assert_eq!(
+                        ce_val, min_val,
+                        "CE min vs standalone min mismatch at index {index} (from end): ce={ce_val}, min={min_val}, options={options:?}, stock={stock_symbol}"
+                    );
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // optional max output vs standalone max indicator
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_chandelierexit_optional_max() {
+        let (high, low, close) = expand_inputs();
+        let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+
+        for options in OPTIONS_LIST {
+            let max_options = [options[0]];
+
+            let (ce_outputs, _) = indicator(&inputs, &options, Some(&[false, false, false, true]))
+                .expect("Rust CE indicator failed");
+            let ce_max = &ce_outputs[5];
+
+            let (max_outputs, _) = max_indicator(&[high.as_slice()], &max_options, None)
+                .expect("Rust MAX indicator failed");
+            let max_line = &max_outputs[0];
+
+            assert_eq!(
+                ce_max.len(),
+                max_line.len(),
+                "CE max vs standalone max length mismatch: options={options:?}"
+            );
+            for (i, (ce_val, max_val)) in ce_max.iter().rev().zip(max_line.iter().rev()).enumerate()
+            {
+                let index = max_line.len() - 1 - i;
+                assert_eq!(
+                    ce_val, max_val,
+                    "CE max vs standalone max mismatch at index {index}: ce={ce_val}, max={max_val}, options={options:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_chandelierexit_optional_max_database() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_arrays(stock_data);
+            let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+
+            for options in OPTIONS_LIST {
+                let max_options = [options[0]];
+
+                let (ce_outputs, _) =
+                    indicator(&inputs, &options, Some(&[false, false, false, true]))
+                        .expect("Rust CE indicator failed");
+                let ce_max = &ce_outputs[5];
+
+                let (max_outputs, _) = max_indicator(&[high.as_slice()], &max_options, None)
+                    .expect("Rust MAX indicator failed");
+                let max_line = &max_outputs[0];
+
+                assert_eq!(
+                    ce_max.len(), max_line.len(),
+                    "CE max vs standalone max length mismatch: options={options:?}, stock={stock_symbol}"
+                );
+                for (i, (ce_val, max_val)) in
+                    ce_max.iter().rev().zip(max_line.iter().rev()).enumerate()
+                {
+                    let index = max_line.len() - 1 - i;
+                    assert_eq!(
+                        ce_val, max_val,
+                        "CE max vs standalone max mismatch at index {index}: ce={ce_val}, max={max_val}, options={options:?}, stock={stock_symbol}"
+                    );
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // SIMD by-assets == regular indicator (database)
     // -------------------------------------------------------------------------
 
@@ -540,6 +690,316 @@ mod tests {
                             (sv - rv).abs()
                         );
                     }
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // SIMD by-options optional min == scalar optional min (database)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_chandelierexit_simd_by_options_optional_min_database() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_arrays(stock_data);
+            let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+
+            let options_4 = [
+                &OPTIONS_LIST[0],
+                &OPTIONS_LIST[1],
+                &OPTIONS_LIST[2],
+                &OPTIONS_LIST[3],
+            ];
+            // outputs: [long, short, atr(empty), tr(empty), min, max(empty)]
+            let (simd_results, _) =
+                indicator_by_options::<4>(&inputs, &options_4, Some(&[false, false, true, false]))
+                    .expect("SIMD by options CE indicator failed");
+
+            for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
+                let (regular_results, _) =
+                    indicator(&inputs, options, Some(&[false, false, true, false]))
+                        .expect("CE indicator failed");
+
+                let simd_min = &simd_results[opt_idx][4];
+                let regular_min = &regular_results[4];
+
+                assert_eq!(
+                    simd_min.len(),
+                    regular_min.len(),
+                    "SIMD by options min length mismatch: stock={stock_symbol}, options={options:?}"
+                );
+                for (i, (&sv, &rv)) in simd_min
+                    .iter()
+                    .rev()
+                    .zip(regular_min.iter().rev())
+                    .enumerate()
+                {
+                    let index = regular_min.len() - 1 - i;
+                    assert_eq!(
+                        sv, rv,
+                        "SIMD by options CE min mismatch at index {index}: simd={sv}, regular={rv}, stock={stock_symbol}, options={options:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // SIMD by-options optional max == scalar optional max (database)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_chandelierexit_simd_by_options_optional_max_database() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_arrays(stock_data);
+            let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+
+            let options_4 = [
+                &OPTIONS_LIST[0],
+                &OPTIONS_LIST[1],
+                &OPTIONS_LIST[2],
+                &OPTIONS_LIST[3],
+            ];
+            // outputs: [long, short, atr(empty), tr(empty), min(empty), max]
+            let (simd_results, _) =
+                indicator_by_options::<4>(&inputs, &options_4, Some(&[false, false, false, true]))
+                    .expect("SIMD by options CE indicator failed");
+
+            for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
+                let (regular_results, _) =
+                    indicator(&inputs, options, Some(&[false, false, false, true]))
+                        .expect("CE indicator failed");
+
+                let simd_max = &simd_results[opt_idx][5];
+                let regular_max = &regular_results[5];
+
+                assert_eq!(
+                    simd_max.len(),
+                    regular_max.len(),
+                    "SIMD by options max length mismatch: stock={stock_symbol}, options={options:?}"
+                );
+                for (i, (&sv, &rv)) in simd_max
+                    .iter()
+                    .rev()
+                    .zip(regular_max.iter().rev())
+                    .enumerate()
+                {
+                    let index = regular_max.len() - 1 - i;
+                    assert_eq!(
+                        sv, rv,
+                        "SIMD by options CE max mismatch at index {index}: simd={sv}, regular={rv}, stock={stock_symbol}, options={options:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // SIMD by-assets: first 1000 bars via SIMD, rest via batch_indicator
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_chandelierexit_simd_by_assets_state_continuity() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        const FIRST_CHUNK: usize = 1000;
+
+        let stock_data: Vec<(String, Vec<f64>, Vec<f64>, Vec<f64>)> = data
+            .iter()
+            .take(4)
+            .map(|(symbol, eod)| {
+                let (high, low, close) = get_arrays(eod);
+                (symbol.clone(), high, low, close)
+            })
+            .collect();
+
+        for options in OPTIONS_LIST {
+            let asset0: [&[f64]; 3] = [
+                &stock_data[0].1[..FIRST_CHUNK],
+                &stock_data[0].2[..FIRST_CHUNK],
+                &stock_data[0].3[..FIRST_CHUNK],
+            ];
+            let asset1: [&[f64]; 3] = [
+                &stock_data[1].1[..FIRST_CHUNK],
+                &stock_data[1].2[..FIRST_CHUNK],
+                &stock_data[1].3[..FIRST_CHUNK],
+            ];
+            let asset2: [&[f64]; 3] = [
+                &stock_data[2].1[..FIRST_CHUNK],
+                &stock_data[2].2[..FIRST_CHUNK],
+                &stock_data[2].3[..FIRST_CHUNK],
+            ];
+            let asset3: [&[f64]; 3] = [
+                &stock_data[3].1[..FIRST_CHUNK],
+                &stock_data[3].2[..FIRST_CHUNK],
+                &stock_data[3].3[..FIRST_CHUNK],
+            ];
+            let inputs_4: [&[&[f64]; 3]; 4] = [&asset0, &asset1, &asset2, &asset3];
+
+            let (simd_first, mut states) = indicator_by_assets::<4>(&inputs_4, &options, None)
+                .expect("SIMD by assets failed on first chunk");
+
+            for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
+                let mut batch_long = simd_first[asset_idx][0].clone();
+                let mut batch_short = simd_first[asset_idx][1].clone();
+
+                let mut high_chunks = high[FIRST_CHUNK..].chunks_exact(CHUNK_SIZE);
+                let mut low_chunks = low[FIRST_CHUNK..].chunks_exact(CHUNK_SIZE);
+                let mut close_chunks = close[FIRST_CHUNK..].chunks_exact(CHUNK_SIZE);
+
+                for ((hc, lc), cc) in high_chunks
+                    .by_ref()
+                    .zip(low_chunks.by_ref())
+                    .zip(close_chunks.by_ref())
+                {
+                    let chunk_outputs = states[asset_idx]
+                        .batch_indicator(&[hc, lc, cc], None)
+                        .expect("batch_indicator failed");
+                    batch_long.extend_from_slice(&chunk_outputs[0]);
+                    batch_short.extend_from_slice(&chunk_outputs[1]);
+                }
+
+                let high_rem = high_chunks.remainder();
+                let low_rem = low_chunks.remainder();
+                let close_rem = close_chunks.remainder();
+                if !high_rem.is_empty() {
+                    let chunk_outputs = states[asset_idx]
+                        .batch_indicator(&[high_rem, low_rem, close_rem], None)
+                        .expect("batch_indicator failed on remainder");
+                    batch_long.extend_from_slice(&chunk_outputs[0]);
+                    batch_short.extend_from_slice(&chunk_outputs[1]);
+                }
+
+                let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+                let (full_outputs, _) =
+                    indicator(&inputs, &options, None).expect("scalar indicator failed");
+
+                assert_eq!(
+                    full_outputs[0].len(),
+                    batch_long.len(),
+                    "long length mismatch: stock={stock_symbol}, options={options:?}"
+                );
+                assert_eq!(
+                    full_outputs[1].len(),
+                    batch_short.len(),
+                    "short length mismatch: stock={stock_symbol}, options={options:?}"
+                );
+
+                for (i, (&fv, &bv)) in full_outputs[0].iter().zip(batch_long.iter()).enumerate() {
+                    assert!(
+                        approx_eq!(f64, fv, bv, epsilon = EPSILON),
+                        "long mismatch at index {i}: full={fv}, simd+batch={bv}, diff={}, stock={stock_symbol}, options={options:?}",
+                        (fv - bv).abs()
+                    );
+                }
+                for (i, (&fv, &bv)) in full_outputs[1].iter().zip(batch_short.iter()).enumerate() {
+                    assert!(
+                        approx_eq!(f64, fv, bv, epsilon = EPSILON),
+                        "short mismatch at index {i}: full={fv}, simd+batch={bv}, diff={}, stock={stock_symbol}, options={options:?}",
+                        (fv - bv).abs()
+                    );
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // SIMD by-options: first 1000 bars via SIMD, rest via batch_indicator
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_chandelierexit_simd_by_options_state_continuity() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        const FIRST_CHUNK: usize = 1000;
+
+        let options_4 = [
+            &OPTIONS_LIST[0],
+            &OPTIONS_LIST[1],
+            &OPTIONS_LIST[2],
+            &OPTIONS_LIST[3],
+        ];
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_arrays(stock_data);
+
+            let first_inputs = [
+                &high[..FIRST_CHUNK],
+                &low[..FIRST_CHUNK],
+                &close[..FIRST_CHUNK],
+            ];
+            let (simd_first, mut states) =
+                indicator_by_options::<4>(&first_inputs, &options_4, None)
+                    .expect("SIMD by options failed on first chunk");
+
+            for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
+                let mut batch_long = simd_first[opt_idx][0].clone();
+                let mut batch_short = simd_first[opt_idx][1].clone();
+
+                let mut high_chunks = high[FIRST_CHUNK..].chunks_exact(CHUNK_SIZE);
+                let mut low_chunks = low[FIRST_CHUNK..].chunks_exact(CHUNK_SIZE);
+                let mut close_chunks = close[FIRST_CHUNK..].chunks_exact(CHUNK_SIZE);
+
+                for ((hc, lc), cc) in high_chunks
+                    .by_ref()
+                    .zip(low_chunks.by_ref())
+                    .zip(close_chunks.by_ref())
+                {
+                    let chunk_outputs = states[opt_idx]
+                        .batch_indicator(&[hc, lc, cc], None)
+                        .expect("batch_indicator failed");
+                    batch_long.extend_from_slice(&chunk_outputs[0]);
+                    batch_short.extend_from_slice(&chunk_outputs[1]);
+                }
+
+                let high_rem = high_chunks.remainder();
+                let low_rem = low_chunks.remainder();
+                let close_rem = close_chunks.remainder();
+                if !high_rem.is_empty() {
+                    let chunk_outputs = states[opt_idx]
+                        .batch_indicator(&[high_rem, low_rem, close_rem], None)
+                        .expect("batch_indicator failed on remainder");
+                    batch_long.extend_from_slice(&chunk_outputs[0]);
+                    batch_short.extend_from_slice(&chunk_outputs[1]);
+                }
+
+                let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+                let (full_outputs, _) =
+                    indicator(&inputs, options, None).expect("scalar indicator failed");
+
+                assert_eq!(
+                    full_outputs[0].len(),
+                    batch_long.len(),
+                    "long length mismatch: stock={stock_symbol}, options={options:?}"
+                );
+                assert_eq!(
+                    full_outputs[1].len(),
+                    batch_short.len(),
+                    "short length mismatch: stock={stock_symbol}, options={options:?}"
+                );
+
+                for (i, (&fv, &bv)) in full_outputs[0].iter().zip(batch_long.iter()).enumerate() {
+                    assert!(
+                        approx_eq!(f64, fv, bv, epsilon = EPSILON),
+                        "long mismatch at index {i}: full={fv}, simd+batch={bv}, diff={}, stock={stock_symbol}, options={options:?}",
+                        (fv - bv).abs()
+                    );
+                }
+                for (i, (&fv, &bv)) in full_outputs[1].iter().zip(batch_short.iter()).enumerate() {
+                    assert!(
+                        approx_eq!(f64, fv, bv, epsilon = EPSILON),
+                        "short mismatch at index {i}: full={fv}, simd+batch={bv}, diff={}, stock={stock_symbol}, options={options:?}",
+                        (fv - bv).abs()
+                    );
                 }
             }
         }

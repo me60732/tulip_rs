@@ -324,7 +324,7 @@ fn bench_rust_chandelierexit_optional(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, Some(&[true, true]))
+                        let result = indicator(&inputs, &options, Some(&[true, true, true, true]))
                             .expect("Rust ChandExit indicator failed");
                         black_box(&result);
                     },
