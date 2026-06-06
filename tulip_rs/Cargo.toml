@@ -668,5 +668,9 @@ name = "ti_smaenvelope_example"
 path = "examples/indicators/ti_smaenvelope_example.rs"
 
 [[example]]
+name = "ti_elderray_example"
+path = "examples/indicators/ti_elderray_example.rs"
+
+[[example]]
 name = "ti_donchianchannel_example"
 path = "examples/indicators/ti_donchianchannel_example.rs"
