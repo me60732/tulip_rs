@@ -66,7 +66,7 @@ impl Driver<f64> for EmaDriver {
 }
 
 /// Initialises the per-lane SIMD state by computing the seed value for each of the `N` assets.
-fn init_state<'a, const N: usize>(
+pub fn init_state<'a, const N: usize>(
     inputs: &[&'a [f64]; N],
     period: usize,
 ) -> (Vec<f64>, (f64, f64)) {
@@ -160,48 +160,4 @@ pub fn indicator_by_assets<const N: usize>(
         states.push(IndicatorState::new(ema, (multiplier, inv_multiplier)));
     }
     Ok((output_buffers, states))
-}
-
-pub fn indicator_by_assets_from_state<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N],
-    states: &mut [IndicatorState; N],
-    _optional_outputs: Option<&[bool]>,
-) -> Result<[Vec<Vec<f64>>; N], IndicatorError> {
-    let len = inputs[0][0].len();
-
-    // Validate all inputs have same length
-    for i in 0..N {
-        if inputs[i][0].len() != len {
-            return Err(IndicatorError::InvalidInputs);
-        }
-    }
-
-    // Extract EMAs and multipliers from states
-    let mut emas = Simd::from_array(std::array::from_fn(|i| states[i].get_ema()));
-    let multipliers = states[0].get_multipliers();
-    let multipliers_simd = (Simd::splat(multipliers.0), Simd::splat(multipliers.1));
-
-    // Create output arrays and process directly
-    let mut ema_lines: [Vec<Vec<f64>>; N] =
-        std::array::from_fn(|_| vec![crate::uninit_vec!(f64, len)]);
-
-    for i in 0..len {
-        //let values: [f64; N] = (0..N).map(|j| inputs[j][0][i]).collect::<Vec<_>>().try_into().unwrap();
-        let values: [f64; N] = std::array::from_fn(|j| inputs[j][0][i]);
-
-        let vals = Simd::from_array(values);
-        emas = calc_simd(vals, emas, multipliers_simd);
-        let outputs = emas.to_array();
-        for j in 0..N {
-            unsafe { *ema_lines[j].get_unchecked_mut(0).get_unchecked_mut(i) = outputs[j] }
-        }
-    }
-
-    // Update states with final EMA values
-    let final_emas = emas.to_array();
-    for i in 0..N {
-        states[i].set_ema(final_emas[i]);
-    }
-
-    Ok(ema_lines)
 }

@@ -23,6 +23,7 @@ pub mod cvi;
 pub mod dema;
 pub mod di;
 pub mod dm;
+pub mod elderray;
 pub mod donchianchannel;
 pub mod dpo;
 pub mod dx;

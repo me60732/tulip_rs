@@ -33,6 +33,7 @@ pub mod donchianchannel_simd;
 pub mod dpo_simd;
 pub mod dx_simd;
 pub mod ef_simd;
+pub mod elderray_simd;
 pub mod ema_simd;
 pub mod emv_simd;
 pub mod fisher_simd;

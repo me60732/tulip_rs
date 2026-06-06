@@ -122,6 +122,10 @@ name = "benchmark_chandelierexit"
 harness = false
 
 [[bench]]
+name = "benchmark_elderray"
+harness = false
+
+[[bench]]
 name = "benchmark_donchianchannel"
 harness = false
 

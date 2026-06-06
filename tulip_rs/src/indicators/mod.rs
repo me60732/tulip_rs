@@ -34,6 +34,7 @@ pub mod donchianchannel;
 pub mod dpo;
 pub mod dx;
 pub mod ef;
+pub mod elderray;
 pub mod ema;
 pub mod emv;
 pub mod fisher;
