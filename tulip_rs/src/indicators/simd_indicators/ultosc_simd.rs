@@ -219,7 +219,7 @@ pub mod assets {
             low: &Simd<f64, N>,
             close: &Simd<f64, N>,
             periods: (usize, usize),
-        ) -> Simd<f64, N> {
+        ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
             let (short_period, medium_period) = periods;
             let true_low = low.simd_min(self.prev_close);
             let true_high = high.simd_max(self.prev_close);
@@ -244,7 +244,7 @@ pub mod assets {
             let second = F64Constants::TWO * (self.bp_medium_sum / self.tr_medium_sum);
             let third = self.bp_long_sum / self.tr_long_sum;
 
-            (first + second + third) * UltoscF64Constants::DIV
+            (((first + second + third) * UltoscF64Constants::DIV), tr, bp)
         }
     }
 }
@@ -360,45 +360,6 @@ pub mod options {
             }
         }
 
-        /*#[inline(always)]
-        pub fn calc(
-            &mut self,
-            high: f64,
-            low: f64,
-            close: f64,
-        ) -> Simd<f64, N> {
-            let (short_period, medium_period) = periods;
-
-            let true_low = low.min(self.prev_close);
-            let true_high = high.max(self.prev_close);
-            let bp = close - true_low;
-            let tr = true_high - true_low;
-
-            if let Some(old) = self.buffer.push_with_info([bp, tr]) {
-                self.bp_long_sum += bp - old[0];
-                self.tr_long_sum += tr - old[1];
-            } else {
-                self.bp_long_sum += bp;
-                self.tr_long_sum += tr;
-            }
-            let [[bp_short, bp_medium], [tr_short, tr_medium]] = self
-                .buffer
-                .get_by_periods::<2>([short_period, medium_period]);
-            self.bp_short_sum += bp - bp_short;
-            self.bp_medium_sum += bp - bp_medium;
-            self.tr_short_sum += tr - tr_short;
-            self.tr_medium_sum += tr - tr_medium;
-
-            self.prev_close = close;
-
-            if self.buffer.is_full() {
-                let first = F64Constants::FOUR * (self.bp_short_sum / self.tr_short_sum);
-                let second = F64Constants::TWO * (self.bp_medium_sum / self.tr_medium_sum);
-                let third = self.bp_long_sum / self.tr_long_sum;
-                return (first + second + third) * UltoscF64Constants::DIV;
-            }
-            F64Constants::ZERO
-        }*/
         /// Unchecked SIMD variant that computes one ULTOSC bar for `N` option-set lanes simultaneously.
         ///
         /// Accepts scalar `high`, `low`, `close` inputs (shared across all option lanes) and returns
@@ -419,7 +380,7 @@ pub mod options {
         /// The internal ring buffer must be fully initialised (i.e., at least `max(long_period)`
         /// bars have been processed) before calling this function.
         #[inline(always)]
-        pub unsafe fn calc_unchecked(&mut self, high: f64, low: f64, close: f64) -> Simd<f64, N> {
+        pub unsafe fn calc_unchecked(&mut self, high: f64, low: f64, close: f64) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
             let (short_period, medium_period, long_period) = self.periods;
             let true_low = low.min(self.prev_close);
             let true_high = high.max(self.prev_close);
@@ -449,7 +410,7 @@ pub mod options {
             let second = F64Constants::TWO * (self.bp_medium_sum / self.tr_medium_sum);
             let third = self.bp_long_sum / self.tr_long_sum;
 
-            (first + second + third) * UltoscF64Constants::DIV
+            (((first + second + third) * UltoscF64Constants::DIV), tr, bp)
         }
     }
 }

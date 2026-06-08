@@ -556,11 +556,72 @@ fn bench_rust_ultosc_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_rust_ultosc_optional(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("ultosc");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_hlc_arrays(stock_data);
+            let n = high.len();
+            let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+
+            for options in OPTIONS_LIST {
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let result = indicator(&inputs, &options, Some(&[true, true]))
+                            .expect("ULTOSC optional indicator failed");
+                        black_box(&result);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "ultosc",
+                    "Rust_optional",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+        let inputs = [
+            high_vec.as_slice(),
+            low_vec.as_slice(),
+            close_vec.as_slice(),
+        ];
+
+        for options in OPTIONS_LIST {
+            let mut group = c.benchmark_group("ultosc_rust_optional");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!(
+                    "Rust ULTOSC optional TR+BP {{ {:.1}, {:.1}, {:.1} }}",
+                    options[0], options[1], options[2]
+                ),
+                |b| {
+                    b.iter(|| {
+                        let result = indicator(&inputs, &options, Some(&[true, true]))
+                            .expect("ULTOSC optional indicator failed");
+                        black_box(&result);
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     ultosc_benchmarks,
     bench_rust_ultosc_simd_by_assets,
     bench_rust_ultosc_simd_by_options,
     bench_rust_ultosc,
+    bench_rust_ultosc_optional,
     bench_c_ultosc,
     bench_rust_ultosc_from_state,
 );

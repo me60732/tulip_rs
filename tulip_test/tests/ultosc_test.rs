@@ -656,4 +656,293 @@ mod tests {
         let close: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
         (high, low, close)
     }
+
+    // -------------------------------------------------------------------------
+    // Optional outputs: TR and BP length checks; TR matches standalone rust_tr
+    // across the full output range (warmup + main loop).
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_ultosc_optional_outputs() {
+        use tulip_rs::indicators::tr::indicator as rust_tr;
+
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_hlc_arrays(stock_data);
+            let n = high.len();
+            let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+
+            for options in OPTIONS_LIST {
+                if n < min_data(&options) {
+                    continue;
+                }
+
+                // ULTOSC with both optional outputs enabled.
+                let (ultosc_outputs, _) = rust_ultosc(&inputs, &options, Some(&[true, true]))
+                    .expect("ULTOSC with optional outputs failed");
+
+                // Standalone TR (OPTIONS_WIDTH = 0).
+                let (tr_outputs, _) =
+                    rust_tr(&inputs, &[], None).expect("Rust TR indicator failed");
+
+                let expected_tr_len = n - 1;
+
+                // TR and BP cover all bars (warmup + main loop), same length as standalone TR.
+                assert_eq!(
+                    ultosc_outputs[1].len(),
+                    expected_tr_len,
+                    "TR length mismatch: stock={stock_symbol}, options={options:?}"
+                );
+                assert_eq!(
+                    ultosc_outputs[2].len(),
+                    expected_tr_len,
+                    "BP length mismatch: stock={stock_symbol}, options={options:?}"
+                );
+                assert_eq!(
+                    tr_outputs[0].len(),
+                    expected_tr_len,
+                    "standalone TR length mismatch: stock={stock_symbol}, options={options:?}"
+                );
+
+                // TR is filled across the full range — compare all values.
+                for i in 0..expected_tr_len {
+                    if !approx_eq!(f64, ultosc_outputs[1][i], tr_outputs[0][i], epsilon = 1e-12) {
+                        let start = if i >= 10 { i - 10 } else { 0 };
+                        let end = if ultosc_outputs[1].len() - 10 > i {
+                            i + 10
+                        } else {
+                            ultosc_outputs[1].len()
+                        };
+                        println!(
+                            "Test failed at index {i}: \nULTOSC TR = {:?}, \n\nStandalone TR = {:?}, Options = {:?}",
+                            &ultosc_outputs[1][start..end], &tr_outputs[0][start..end], options
+                        );
+                        panic!(
+                            "TR mismatch at index {i}: ultosc_tr={}, standalone_tr={}, stock={stock_symbol}, options={options:?}",
+                            ultosc_outputs[1][i], tr_outputs[0][i]
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // SIMD by-assets optional outputs: TR and BP from indicator_by_assets must
+    // match the scalar indicator's optional TR and BP for every stock.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_ultosc_simd_by_assets_optional_outputs() {
+        use tulip_rs::indicators::ultosc::indicator_by_assets;
+
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        // Collect the first 4 stocks.
+        let stock_data: Vec<(String, Vec<f64>, Vec<f64>, Vec<f64>)> = data
+            .iter()
+            .take(4)
+            .map(|(symbol, d)| {
+                let (high, low, close) = get_hlc_arrays(d);
+                (symbol.clone(), high, low, close)
+            })
+            .collect();
+
+        for options in OPTIONS_LIST {
+            // Build the SIMD by-assets input array.
+            let inputs: [&[&[f64]; 3]; 4] = [
+                &[&stock_data[0].1, &stock_data[0].2, &stock_data[0].3],
+                &[&stock_data[1].1, &stock_data[1].2, &stock_data[1].3],
+                &[&stock_data[2].1, &stock_data[2].2, &stock_data[2].3],
+                &[&stock_data[3].1, &stock_data[3].2, &stock_data[3].3],
+            ];
+
+            // Run SIMD with both optional outputs (TR=true, BP=true).
+            let (simd_results, _) =
+                indicator_by_assets::<4>(&inputs, &options, Some(&[true, true]))
+                    .expect("SIMD by-assets ULTOSC with optional outputs failed");
+
+            for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
+                // Run scalar indicator with both optional outputs enabled.
+                let scalar_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+                let (scalar_results, _) =
+                    rust_ultosc(&scalar_inputs, &options, Some(&[true, true]))
+                        .expect("Scalar ULTOSC with optional outputs failed");
+
+                // --- ULTOSC (primary output) ---
+                let simd_ultosc = &simd_results[asset_idx][0];
+                let scalar_ultosc = &scalar_results[0];
+                assert_eq!(
+                    simd_ultosc.len(),
+                    scalar_ultosc.len(),
+                    "ULTOSC length mismatch: stock={stock_symbol}, options={options:?}"
+                );
+                for (i, (&sv, &rv)) in simd_ultosc.iter().zip(scalar_ultosc).enumerate() {
+                    assert!(
+                        approx_eq!(f64, sv, rv, epsilon = 1e-12),
+                        "ULTOSC mismatch at index {i}: simd={sv}, scalar={rv}, \
+                         stock={stock_symbol}, options={options:?}"
+                    );
+                }
+
+                // --- TR optional output ---
+                let simd_tr = &simd_results[asset_idx][1];
+                let scalar_tr = &scalar_results[1];
+                assert_eq!(
+                    simd_tr.len(),
+                    scalar_tr.len(),
+                    "TR length mismatch: stock={stock_symbol}, options={options:?}"
+                );
+                for (i, (&sv, &rv)) in simd_tr.iter().zip(scalar_tr).enumerate() {
+                    if !approx_eq!(f64, sv, rv, epsilon = 1e-12) {
+                        let start = i.saturating_sub(5);
+                        let end = (i + 6).min(simd_tr.len());
+                        println!(
+                            "TR mismatch at index {i}: simd={:?}, scalar={:?}, options={options:?}",
+                            &simd_tr[start..end],
+                            &scalar_tr[start..end]
+                        );
+                        panic!(
+                            "TR mismatch at index {i}: simd={sv}, scalar={rv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
+                }
+
+                // --- BP optional output ---
+                let simd_bp = &simd_results[asset_idx][2];
+                let scalar_bp = &scalar_results[2];
+                assert_eq!(
+                    simd_bp.len(),
+                    scalar_bp.len(),
+                    "BP length mismatch: stock={stock_symbol}, options={options:?}"
+                );
+                for (i, (&sv, &rv)) in simd_bp.iter().zip(scalar_bp).enumerate() {
+                    if !approx_eq!(f64, sv, rv, epsilon = 1e-12) {
+                        let start = i.saturating_sub(5);
+                        let end = (i + 6).min(simd_bp.len());
+                        println!(
+                            "BP mismatch at index {i}: simd={:?}, scalar={:?}, options={options:?}",
+                            &simd_bp[start..end],
+                            &scalar_bp[start..end]
+                        );
+                        panic!(
+                            "BP mismatch at index {i}: simd={sv}, scalar={rv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
+                }
+
+                println!(
+                    "✓ SIMD by-assets optional outputs match scalar for stock={stock_symbol}, options={options:?}"
+                );
+            }
+        }
+
+        println!("✓ All SIMD by-assets optional output ULTOSC tests passed!");
+    }
+
+    // -------------------------------------------------------------------------
+    // SIMD by-options optional outputs: TR and BP from indicator_by_options must
+    // match the scalar indicator's optional TR and BP for every option set.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_ultosc_simd_by_options_optional_outputs() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        let options_4 = [
+            &OPTIONS_LIST[0],
+            &OPTIONS_LIST[1],
+            &OPTIONS_LIST[2],
+            &OPTIONS_LIST[3],
+        ];
+
+        for (_stock_symbol, stock_data) in data.iter().take(4) {
+            let (high, low, close) = get_hlc_arrays(stock_data);
+            let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+
+            // Run SIMD by-options with both optional outputs enabled.
+            let (simd_results, _) =
+                indicator_by_options::<4>(&inputs, &options_4, Some(&[true, true]))
+                    .expect("SIMD by-options ULTOSC with optional outputs failed");
+
+            for (option_idx, options) in OPTIONS_LIST.iter().enumerate() {
+                // Run scalar indicator for the same option set with optional outputs.
+                let (scalar_results, _) = rust_ultosc(&inputs, options, Some(&[true, true]))
+                    .expect("Scalar ULTOSC with optional outputs failed");
+
+                // --- ULTOSC (primary output) ---
+                let simd_ultosc = &simd_results[option_idx][0];
+                let scalar_ultosc = &scalar_results[0];
+                assert_eq!(
+                    simd_ultosc.len(),
+                    scalar_ultosc.len(),
+                    "ULTOSC length mismatch: option_idx={option_idx}, options={options:?}"
+                );
+                for (i, (&sv, &rv)) in simd_ultosc.iter().zip(scalar_ultosc).enumerate() {
+                    assert!(
+                        approx_eq!(f64, sv, rv, epsilon = 1e-12),
+                        "ULTOSC mismatch at index {i}: simd={sv}, scalar={rv}, option_idx={option_idx}"
+                    );
+                }
+
+                // --- TR optional output ---
+                let simd_tr = &simd_results[option_idx][1];
+                let scalar_tr = &scalar_results[1];
+                assert_eq!(
+                    simd_tr.len(),
+                    scalar_tr.len(),
+                    "TR length mismatch: option_idx={option_idx}, options={options:?}"
+                );
+                for (i, (&sv, &rv)) in simd_tr.iter().zip(scalar_tr).enumerate() {
+                    if !approx_eq!(f64, sv, rv, epsilon = 1e-12) {
+                        let start = i.saturating_sub(5);
+                        let end = (i + 6).min(simd_tr.len());
+                        println!(
+                            "TR mismatch at index {i}: simd={:?}, scalar={:?}, options={options:?}",
+                            &simd_tr[start..end],
+                            &scalar_tr[start..end]
+                        );
+                        panic!(
+                            "TR mismatch at index {i}: simd={sv}, scalar={rv}, option_idx={option_idx}"
+                        );
+                    }
+                }
+
+                // --- BP optional output ---
+                let simd_bp = &simd_results[option_idx][2];
+                let scalar_bp = &scalar_results[2];
+                assert_eq!(
+                    simd_bp.len(),
+                    scalar_bp.len(),
+                    "BP length mismatch: option_idx={option_idx}, options={options:?}"
+                );
+                for (i, (&sv, &rv)) in simd_bp.iter().zip(scalar_bp).enumerate() {
+                    if !approx_eq!(f64, sv, rv, epsilon = 1e-12) {
+                        let start = i.saturating_sub(5);
+                        let end = (i + 6).min(simd_bp.len());
+                        println!(
+                            "BP mismatch at index {i}: simd={:?}, scalar={:?}, options={options:?}",
+                            &simd_bp[start..end],
+                            &scalar_bp[start..end]
+                        );
+                        panic!(
+                            "BP mismatch at index {i}: simd={sv}, scalar={rv}, option_idx={option_idx}"
+                        );
+                    }
+                }
+
+                println!(
+                    "✓ SIMD by-options optional outputs match scalar for option_idx={option_idx}, options={options:?}"
+                );
+            }
+        }
+
+        println!("✓ All SIMD by-options optional output ULTOSC tests passed!");
+    }
 }
