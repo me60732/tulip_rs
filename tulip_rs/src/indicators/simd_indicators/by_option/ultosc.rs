@@ -35,7 +35,7 @@ impl Driver<State, (usize, usize, usize)> for UltoscDriver {
             SimdState::<N>::new(&mut states, (short_periods, medium_periods, long_periods))
         };
         //collect outputs
-        let ultosc_line_ptr = crate::extract_output_ptrs!(outputs, N, cvi_line_ptr);
+        let ultosc_line_ptr = crate::extract_output_ptrs!(outputs, N, ultosc);
 
         let (high_ptrs, low_ptrs, close_ptrs) =
             crate::extract_input_ptrs!(inputs, N, high_ptrs, low_ptrs, close_ptrs);

@@ -16,10 +16,8 @@ pub fn calc_simd<const N: usize>(
     low: Simd<f64, N>,
     prev_close: Simd<f64, N>,
 ) -> Simd<f64, N> {
-    let hc = (high - prev_close).abs();
-    let lc = (low - prev_close).abs();
-    let hl = high - low;
+    let true_low = low.simd_min(prev_close);
+    let true_high = high.simd_max(prev_close);
 
-    // True Range is the maximum of these three values
-    hl.simd_max(hc).simd_max(lc)
+    true_high - true_low
 }

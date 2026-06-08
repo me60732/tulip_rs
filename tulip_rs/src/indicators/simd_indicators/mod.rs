@@ -31,6 +31,7 @@ pub mod di_simd;
 pub mod dm_simd;
 pub mod donchianchannel_simd;
 pub mod dpo_simd;
+pub mod vortex_simd;
 pub mod dx_simd;
 pub mod ef_simd;
 pub mod elderray_simd;

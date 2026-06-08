@@ -1,10 +1,11 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::tr::{indicator, min_data, IndicatorState, TIndicatorState};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
-use tulip_test::benchmark_utils::SAMPLE_SIZE;
+//use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_tr, ti_tr_start};
 use tulip_test::criterion_logger::TimingMeasurements;
 use tulip_test::database::{get_all_stock_data, init_database_data};
+const SAMPLE_SIZE: usize = 1000000;
 #[cfg(feature = "talib")]
 use tulip_test::talib_bindings::{ta_tr, ta_tr_start};
 

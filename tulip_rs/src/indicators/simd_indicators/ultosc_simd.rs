@@ -168,9 +168,9 @@ pub mod assets {
             let bp = close - true_low;
             let tr = true_high - true_low;
 
-            if let Some(old) = self.buffer.push_with_info([bp, tr]) {
-                self.bp_long_sum += bp - old[0];
-                self.tr_long_sum += tr - old[1];
+            if let Some([old_bp, old_tr]) = self.buffer.push_with_info([bp, tr]) {
+                self.bp_long_sum += bp - old_bp;
+                self.tr_long_sum += tr - old_tr;
             } else {
                 self.bp_long_sum += bp;
                 self.tr_long_sum += tr;
@@ -226,9 +226,9 @@ pub mod assets {
             let bp = close - true_low;
             let tr = true_high - true_low;
 
-            let old = self.buffer.push_with_info_unchecked([bp, tr]);
-            self.bp_long_sum += bp - old[0];
-            self.tr_long_sum += tr - old[1];
+            let [old_bp, old_tr] = self.buffer.push_with_info_unchecked([bp, tr]);
+            self.bp_long_sum += bp - old_bp;
+            self.tr_long_sum += tr - old_tr;
 
             let [[bp_short, bp_medium], [tr_short, tr_medium]] = self
                 .buffer

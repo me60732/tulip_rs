@@ -25,7 +25,7 @@ impl Driver<State> for UltoscDriver {
         let len = inputs[0][0].len();
 
         //collect outputs
-        let ultosc_line_ptr = crate::extract_output_ptrs!(outputs, N, cvi_line_ptr);
+        let ultosc_line_ptr = crate::extract_output_ptrs!(outputs, N, ultosc);
 
         let (high_ptrs, low_ptrs, close_ptrs) =
             crate::extract_input_ptrs!(inputs, N, high_ptrs, low_ptrs, close_ptrs);

@@ -66,7 +66,7 @@ pub const INFO: Info = Info {
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
         id: "tr",
-        label: "TR",
+        label: "True Range",
         display_type: DisplayType::Indicator,
         outputs: &["tr"],
     }],
@@ -203,7 +203,6 @@ pub fn calc(high: f64, low: f64, prev_close: f64) -> f64 {
     let hc = (high - prev_close).abs();
     let lc = (low - prev_close).abs();
 
-    // Use branching like C instead of max()
     let mut tr = high - low;
     if hc > tr {
         tr = hc;

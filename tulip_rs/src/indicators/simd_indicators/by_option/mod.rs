@@ -60,6 +60,7 @@ pub mod ultosc;
 pub mod vhf;
 pub mod vidya;
 pub mod volatility;
+pub mod vortex;
 pub mod vosc;
 pub mod vwma;
 pub mod wilders;

@@ -341,6 +341,10 @@ harness = false
 name = "benchmark_tr"
 harness = false
 
+[[bench]]
+name = "benchmark_vortex"
+harness = false
+
 #[[bench]]
 #name = "benchmark_candle_stick_indicators"
 #harness = false
