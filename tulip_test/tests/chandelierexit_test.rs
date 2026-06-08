@@ -1004,4 +1004,72 @@ mod tests {
             }
         }
     }
+
+    // -------------------------------------------------------------------------
+    // SIMD by-assets optional outputs: atr/tr/min/max must match scalar
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_chandelierexit_simd_by_assets_optional_outputs() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        let stock_data: Vec<(String, Vec<f64>, Vec<f64>, Vec<f64>)> = data
+            .iter()
+            .take(4)
+            .map(|(symbol, eod)| {
+                let (high, low, close) = get_arrays(eod);
+                (symbol.clone(), high, low, close)
+            })
+            .collect();
+
+        for options in OPTIONS_LIST {
+            let asset0: [&[f64]; 3] = [&stock_data[0].1, &stock_data[0].2, &stock_data[0].3];
+            let asset1: [&[f64]; 3] = [&stock_data[1].1, &stock_data[1].2, &stock_data[1].3];
+            let asset2: [&[f64]; 3] = [&stock_data[2].1, &stock_data[2].2, &stock_data[2].3];
+            let asset3: [&[f64]; 3] = [&stock_data[3].1, &stock_data[3].2, &stock_data[3].3];
+            let inputs_4: [&[&[f64]; 3]; 4] = [&asset0, &asset1, &asset2, &asset3];
+
+            let (simd_results, _) =
+                indicator_by_assets::<4>(&inputs_4, &options, Some(&[true, true, true, true]))
+                    .expect("SIMD by-assets Chandelier Exit with optional outputs failed");
+
+            for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
+                let scalar_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+                let (scalar_results, _) =
+                    indicator(&scalar_inputs, &options, Some(&[true, true, true, true]))
+                        .expect("Scalar Chandelier Exit with optional outputs failed");
+
+                // Compare all 6 outputs (long, short, atr, tr, min, max)
+                for out_idx in 0..6 {
+                    let simd_out = &simd_results[asset_idx][out_idx];
+                    let scalar_out = &scalar_results[out_idx];
+                    assert_eq!(
+                        simd_out.len(),
+                        scalar_out.len(),
+                        "output[{out_idx}] length mismatch: stock={stock_symbol}, options={options:?}"
+                    );
+                    for (i, (&sv, &rv)) in simd_out.iter().zip(scalar_out).enumerate() {
+                        if !approx_eq!(f64, sv, rv, epsilon = EPSILON) {
+                            let start = i.saturating_sub(5);
+                            let end = (i + 6).min(simd_out.len());
+                            println!(
+                                "output[{out_idx}] mismatch at index {i}: simd={:?}, scalar={:?}, options={options:?}",
+                                &simd_out[start..end],
+                                &scalar_out[start..end]
+                            );
+                            panic!(
+                                "output[{out_idx}] mismatch at index {i}: simd={sv}, scalar={rv}, \
+                                 stock={stock_symbol}, options={options:?}"
+                            );
+                        }
+                    }
+                }
+                println!(
+                    "✓ SIMD by-assets optional outputs match scalar for stock={stock_symbol}, options={options:?}"
+                );
+            }
+        }
+        println!("✓ All SIMD by-assets Chandelier Exit optional output tests passed!");
+    }
 }

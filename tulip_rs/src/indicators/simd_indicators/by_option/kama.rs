@@ -124,7 +124,7 @@ pub fn indicator_by_options<const N: usize>(
             (_, want_optional_outputs) = crate::calc_want_flags!(ef_line);
         }
         let mut starts = [1; 2];
-        starts[1] = crate::slice_outputs_start!(kama_line.len(), ef_line);
+        starts[1] = if !want_optional_outputs { 0 } else { starts[1] };
         let mut output_buffer = vec![kama_line, ef_line];
         let mut asset_outputs = Vec::with_capacity(output_buffer.len());
 

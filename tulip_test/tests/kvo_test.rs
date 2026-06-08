@@ -991,4 +991,89 @@ mod tests {
 
         println!("✓ All SIMD by options vs Regular KVO database tests passed!");
     }
+
+    // -------------------------------------------------------------------------
+    // SIMD by-options optional outputs: short_ema and long_ema must match scalar
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_kvo_simd_by_options_optional_outputs() {
+        use tulip_rs::indicators::kvo::indicator_by_options;
+
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close, volume) = get_hlcv_arrays(stock_data);
+            let inputs = [
+                high.as_slice(),
+                low.as_slice(),
+                close.as_slice(),
+                volume.as_slice(),
+            ];
+
+            // Process first 4 options with 4-wide SIMD
+            let options_4 = [
+                &OPTIONS_LIST[0],
+                &OPTIONS_LIST[1],
+                &OPTIONS_LIST[2],
+                &OPTIONS_LIST[3],
+            ];
+            let (simd_results_4, _) =
+                indicator_by_options::<4>(&inputs, &options_4, Some(&[true, true]))
+                    .expect("SIMD KVO 4-wide with optional outputs failed");
+
+            // Process next 2 options with 2-wide SIMD
+            let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
+            let (simd_results_2, _) =
+                indicator_by_options::<2>(&inputs, &options_2, Some(&[true, true]))
+                    .expect("SIMD KVO 2-wide with optional outputs failed");
+
+            // Process last option with scalar indicator
+            let (simd_results_1, _) = rust_kvo(&inputs, &OPTIONS_LIST[6], Some(&[true, true]))
+                .expect("Scalar KVO with optional outputs failed for last option");
+
+            // Combine results
+            let mut all_simd_results = Vec::new();
+            for result in &simd_results_4 {
+                all_simd_results.push(result.clone());
+            }
+            for result in &simd_results_2 {
+                all_simd_results.push(result.clone());
+            }
+            all_simd_results.push(simd_results_1);
+
+            // Compare each result with scalar indicator
+            for (idx, options) in OPTIONS_LIST.iter().enumerate() {
+                let (scalar_results, _) = rust_kvo(&inputs, options, Some(&[true, true]))
+                    .expect("Scalar KVO with optional outputs failed");
+
+                // Compare all 3 outputs (kvo, short_ema, long_ema)
+                for out_idx in 0..3 {
+                    let simd_out = &all_simd_results[idx][out_idx];
+                    let scalar_out = &scalar_results[out_idx];
+                    assert_eq!(
+                        simd_out.len(), scalar_out.len(),
+                        "output[{out_idx}] length mismatch: stock={stock_symbol}, options={options:?}"
+                    );
+                    for (i, (&sv, &rv)) in simd_out.iter().zip(scalar_out).enumerate() {
+                        if !approx_eq!(f64, sv, rv, epsilon = 1e-4) {
+                            let start = i.saturating_sub(5);
+                            let end = (i + 6).min(simd_out.len());
+                            println!(
+                                "output[{out_idx}] mismatch at index {i}: simd={:?}, scalar={:?}, options={options:?}",
+                                &simd_out[start..end], &scalar_out[start..end]
+                            );
+                            panic!(
+                                "output[{out_idx}] mismatch at index {i}: simd={sv}, scalar={rv}, \
+                                 stock={stock_symbol}, options={options:?}"
+                            );
+                        }
+                    }
+                }
+            }
+            println!("✓ SIMD by-options optional outputs match scalar for stock={stock_symbol}");
+        }
+        println!("✓ All SIMD by-options KVO optional output tests passed!");
+    }
 }

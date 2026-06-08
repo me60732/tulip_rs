@@ -687,8 +687,12 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) =
-                    rust_natr(&stock_inputs, options, None).unwrap_or_else(|_| panic!("Regular NATR failed for {} with period {}",
-                        stock_symbol, options[0]));
+                    rust_natr(&stock_inputs, options, None).unwrap_or_else(|_| {
+                        panic!(
+                            "Regular NATR failed for {} with period {}",
+                            stock_symbol, options[0]
+                        )
+                    });
 
                 // Compare SIMD result with regular result
                 assert_eq!(
@@ -802,5 +806,195 @@ mod tests {
         }
 
         println!("✓ All SIMD by options vs Regular NATR database tests passed!");
+    }
+
+    // -------------------------------------------------------------------------
+    // SIMD by-assets optional outputs: ATR and TR must match scalar
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_natr_simd_by_assets_optional_outputs() {
+        use tulip_rs::indicators::natr::indicator_by_assets;
+
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        let stock_data: Vec<(String, Vec<f64>, Vec<f64>, Vec<f64>)> = data
+            .iter()
+            .take(4)
+            .map(|(symbol, d)| {
+                let (high, low, close) = get_hlc_arrays(d);
+                (symbol.clone(), high, low, close)
+            })
+            .collect();
+
+        for options in OPTIONS_LIST {
+            let inputs_4: [&[&[f64]; 3]; 4] = [
+                &[&stock_data[0].1, &stock_data[0].2, &stock_data[0].3],
+                &[&stock_data[1].1, &stock_data[1].2, &stock_data[1].3],
+                &[&stock_data[2].1, &stock_data[2].2, &stock_data[2].3],
+                &[&stock_data[3].1, &stock_data[3].2, &stock_data[3].3],
+            ];
+
+            let (simd_results, _) =
+                indicator_by_assets::<4>(&inputs_4, &options, Some(&[true, true]))
+                    .expect("SIMD by-assets NATR with optional outputs failed");
+
+            for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
+                let scalar_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+                let (scalar_results, _) = rust_natr(&scalar_inputs, &options, Some(&[true, true]))
+                    .expect("Scalar NATR with optional outputs failed");
+
+                const EPSILON: f64 = 1e-8;
+
+                // Primary natr [0]
+                let simd_natr = &simd_results[asset_idx][0];
+                let scalar_natr = &scalar_results[0];
+                assert_eq!(
+                    simd_natr.len(),
+                    scalar_natr.len(),
+                    "natr length mismatch: stock={stock_symbol}, options={options:?}"
+                );
+                for (i, (&sv, &rv)) in simd_natr.iter().zip(scalar_natr).enumerate() {
+                    assert!(
+                        approx_eq!(f64, sv, rv, epsilon = EPSILON),
+                        "natr mismatch at index {i}: simd={sv}, scalar={rv}, \
+                         stock={stock_symbol}, options={options:?}"
+                    );
+                }
+
+                // ATR optional [1]
+                let simd_atr = &simd_results[asset_idx][1];
+                let scalar_atr = &scalar_results[1];
+                assert_eq!(
+                    simd_atr.len(),
+                    scalar_atr.len(),
+                    "atr length mismatch: stock={stock_symbol}, options={options:?}"
+                );
+                for (i, (&sv, &rv)) in simd_atr.iter().zip(scalar_atr).enumerate() {
+                    if !approx_eq!(f64, sv, rv, epsilon = EPSILON) {
+                        let start = i.saturating_sub(5);
+                        let end = (i + 6).min(simd_atr.len());
+                        println!(
+                            "ATR mismatch at index {i}: simd={:?}, scalar={:?}",
+                            &simd_atr[start..end],
+                            &scalar_atr[start..end]
+                        );
+                        panic!("atr mismatch at index {i}: simd={sv}, scalar={rv}, stock={stock_symbol}, options={options:?}");
+                    }
+                }
+
+                // TR optional [2]
+                let simd_tr = &simd_results[asset_idx][2];
+                let scalar_tr = &scalar_results[2];
+                assert_eq!(
+                    simd_tr.len(),
+                    scalar_tr.len(),
+                    "tr length mismatch: stock={stock_symbol}, options={options:?}"
+                );
+                for (i, (&sv, &rv)) in simd_tr.iter().zip(scalar_tr).enumerate() {
+                    if !approx_eq!(f64, sv, rv, epsilon = EPSILON) {
+                        let start = i.saturating_sub(5);
+                        let end = (i + 6).min(simd_tr.len());
+                        println!(
+                            "TR mismatch at index {i}: simd={:?}, scalar={:?}",
+                            &simd_tr[start..end],
+                            &scalar_tr[start..end]
+                        );
+                        panic!("tr mismatch at index {i}: simd={sv}, scalar={rv}, stock={stock_symbol}, options={options:?}");
+                    }
+                }
+                println!("✓ SIMD by-assets optional outputs match scalar for stock={stock_symbol}, options={options:?}");
+            }
+        }
+        println!("✓ All SIMD by-assets NATR optional output tests passed!");
+    }
+
+    // -------------------------------------------------------------------------
+    // SIMD by-options optional outputs: ATR and TR must match scalar
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_natr_simd_by_options_optional_outputs() {
+        use tulip_rs::indicators::natr::indicator_by_options;
+
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_hlc_arrays(stock_data);
+            let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+
+            // 4-wide SIMD for the first 4 options
+            let options_4 = [
+                &OPTIONS_LIST[0],
+                &OPTIONS_LIST[1],
+                &OPTIONS_LIST[2],
+                &OPTIONS_LIST[3],
+            ];
+            let (simd_results_4, _) =
+                indicator_by_options::<4>(&inputs, &options_4, Some(&[true, true]))
+                    .expect("SIMD NATR 4-wide with optional outputs failed");
+
+            // 2-wide SIMD for the remaining 2 options
+            let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
+            let (simd_results_2, _) =
+                indicator_by_options::<2>(&inputs, &options_2, Some(&[true, true]))
+                    .expect("SIMD NATR 2-wide with optional outputs failed");
+
+            let mut all_simd = simd_results_4;
+            all_simd.extend(simd_results_2);
+
+            const EPSILON: f64 = 1e-8;
+
+            for (idx, options) in OPTIONS_LIST.iter().enumerate() {
+                let (scalar_results, _) = rust_natr(&inputs, options, Some(&[true, true]))
+                    .expect("Scalar NATR with optional outputs failed");
+
+                // ATR optional [1]
+                let simd_atr = &all_simd[idx][1];
+                let scalar_atr = &scalar_results[1];
+                assert_eq!(
+                    simd_atr.len(),
+                    scalar_atr.len(),
+                    "atr length mismatch: stock={stock_symbol}, options={options:?}"
+                );
+                for (i, (&sv, &rv)) in simd_atr.iter().zip(scalar_atr).enumerate() {
+                    if !approx_eq!(f64, sv, rv, epsilon = EPSILON) {
+                        let start = i.saturating_sub(5);
+                        let end = (i + 6).min(simd_atr.len());
+                        println!(
+                            "ATR mismatch at index {i}: simd={:?}, scalar={:?}",
+                            &simd_atr[start..end],
+                            &scalar_atr[start..end]
+                        );
+                        panic!("atr mismatch at index {i}: simd={sv}, scalar={rv}, stock={stock_symbol}, options={options:?}");
+                    }
+                }
+
+                // TR optional [2]
+                let simd_tr = &all_simd[idx][2];
+                let scalar_tr = &scalar_results[2];
+                assert_eq!(
+                    simd_tr.len(),
+                    scalar_tr.len(),
+                    "tr length mismatch: stock={stock_symbol}, options={options:?}"
+                );
+                for (i, (&sv, &rv)) in simd_tr.iter().zip(scalar_tr).enumerate() {
+                    if !approx_eq!(f64, sv, rv, epsilon = EPSILON) {
+                        let start = i.saturating_sub(5);
+                        let end = (i + 6).min(simd_tr.len());
+                        println!(
+                            "TR mismatch at index {i}: simd={:?}, scalar={:?}",
+                            &simd_tr[start..end],
+                            &scalar_tr[start..end]
+                        );
+                        panic!("tr mismatch at index {i}: simd={sv}, scalar={rv}, stock={stock_symbol}, options={options:?}");
+                    }
+                }
+            }
+            println!("✓ SIMD by-options optional outputs match scalar for stock={stock_symbol}");
+        }
+        println!("✓ All SIMD by-options NATR optional output tests passed!");
     }
 }

@@ -904,104 +904,62 @@ mod tests {
         println!("✓ All SIMD by options vs Regular APO database tests passed!");
     }
 
-    /*#[test]
-    fn test_apo_simd_by_options_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::nightly::apo_simd::indicator_by_options;
+    // -------------------------------------------------------------------------
+    // SIMD by-options optional outputs: short_ema and long_ema must match scalar
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_apo_simd_by_options_optional_outputs() {
+        use tulip_rs::indicators::apo::indicator_by_options;
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
-        // Optional outputs: [short_ema, long_ema]
-        let optional_outputs = &[true, true];
+        let options_4 = [
+            &OPTIONS_LIST[0],
+            &OPTIONS_LIST[1],
+            &OPTIONS_LIST[2],
+            &OPTIONS_LIST[3],
+        ];
 
         for (stock_symbol, stock_data) in data {
-            let close = get_close_array(&stock_data);
+            let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
-            // Process all 4 options with 4-wide SIMD
-            let options_4 = [
-                &OPTIONS_LIST[0],
-                &OPTIONS_LIST[1],
-                &OPTIONS_LIST[2],
-                &OPTIONS_LIST[3],
-            ];
-            let (simd_results_4, _) =
-                indicator_by_options::<4>(&inputs, &options_4, Some(optional_outputs))
-                    .expect("SIMD APO 4-wide failed");
+            let (simd_results, _) =
+                indicator_by_options::<4>(&inputs, &options_4, Some(&[true, true]))
+                    .expect("SIMD by-options APO with optional outputs failed");
 
-            // Use SIMD results directly
-            let all_simd_results = simd_results_4;
+            for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
+                let (scalar_results, _) = indicator(&inputs, options, Some(&[true, true]))
+                    .expect("Scalar APO with optional outputs failed");
 
-            // Compare each SIMD result with regular indicator
-            for (idx, options) in OPTIONS_LIST.iter().enumerate() {
-                // Get regular indicator result
-                let (regular_results, _) = indicator(&inputs, options, Some(optional_outputs))
-                    .expect("Regular APO indicator failed");
-
-                let simd_result = &all_simd_results[idx];
-                let regular_result = &regular_results;
-
-                // Should have 3 outputs: [apo, short_ema, long_ema]
-                assert_eq!(simd_result.len(), 3, "SIMD result should have 3 outputs");
-                assert_eq!(
-                    regular_result.len(),
-                    3,
-                    "Regular result should have 3 outputs"
-                );
-
-                // Compare all outputs
-                let output_names = ["APO", "Short EMA", "Long EMA"];
-                let epsilons = [EPSILON, EMA_EPSILON, EMA_EPSILON];
-
-                for (output_idx, (output_name, epsilon)) in
-                    output_names.iter().zip(epsilons.iter()).enumerate()
-                {
-                    let simd_output = &simd_result[output_idx];
-                    let regular_output = &regular_result[output_idx];
-
-                    // Compare output lengths
+                // Compare all 3 outputs (apo, short_ema, long_ema)
+                for out_idx in 0..3 {
+                    let simd_out = &simd_results[opt_idx][out_idx];
+                    let scalar_out = &scalar_results[out_idx];
                     assert_eq!(
-                        simd_output.len(),
-                        regular_output.len(),
-                        "{} output length mismatch for stock {} options {:?}: SIMD={}, Regular={}",
-                        output_name,
-                        stock_symbol,
-                        options,
-                        simd_output.len(),
-                        regular_output.len()
+                        simd_out.len(), scalar_out.len(),
+                        "output[{out_idx}] length mismatch: stock={stock_symbol}, opt_idx={opt_idx}, options={options:?}"
                     );
-
-                    // Compare each value
-                    for (i, (&simd_val, &regular_val)) in
-                        simd_output.iter().zip(regular_output.iter()).enumerate()
-                    {
-                        // Check for NaN/infinity in SIMD result
-                        if simd_val.is_nan() {
-                            panic!(
-                                "SIMD {} has NaN at index {} for stock {}: SIMD = {}, Options = {:?}",
-                                output_name, i, stock_symbol, simd_val, options
+                    for (i, (&sv, &rv)) in simd_out.iter().zip(scalar_out).enumerate() {
+                        if !approx_eq!(f64, sv, rv, epsilon = EPSILON) {
+                            let start = i.saturating_sub(5);
+                            let end = (i + 6).min(simd_out.len());
+                            println!(
+                                "output[{out_idx}] mismatch at index {i}: simd={:?}, scalar={:?}, options={options:?}",
+                                &simd_out[start..end], &scalar_out[start..end]
                             );
-                        }
-
-                        if simd_val.is_infinite() {
                             panic!(
-                                "SIMD {} has infinity at index {} for stock {}: SIMD = {}, Options = {:?}",
-                                output_name, i, stock_symbol, simd_val, options
-                            );
-                        }
-
-                        // Compare values with tolerance
-                        if !approx_eq!(f64, simd_val, regular_val, epsilon = *epsilon) {
-                            panic!(
-                                "{} mismatch at index {} for stock {} options {:?}: SIMD = {}, Regular = {}",
-                                output_name, i, stock_symbol, options, simd_val, regular_val
+                                "output[{out_idx}] mismatch at index {i}: simd={sv}, scalar={rv}, \
+                                 stock={stock_symbol}, opt_idx={opt_idx}"
                             );
                         }
                     }
                 }
             }
+            println!("✓ SIMD by-options optional outputs match scalar for stock={stock_symbol}");
         }
-
-        println!("✓ All SIMD by options vs Regular APO optional outputs database tests passed!");
-    }*/
+        println!("✓ All SIMD by-options APO optional output tests passed!");
+    }
 }

@@ -162,7 +162,7 @@ impl IndicatorState {
         while !state.buffer.is_full() {
             let (_, _, tr) = state.calc(high[i], low[i], close[i]);
             if tr_line.len() > 0 {
-                tr_line[i] = tr;
+                tr_line[i-1] = tr;
             }
             i += 1;
         }

@@ -453,5 +453,232 @@ mod tests {
         println!("✓ All SIMD by options vs Regular KAMA database tests passed!");
     }
 
-    //REPLACE WITH TEST FUNCTIONS
+    // -------------------------------------------------------------------------
+    // Scalar optional ef output == standalone Rust ef indicator (inline data)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_kama_scalar_optional_ef_vs_standalone() {
+        use tulip_rs::indicators::ef::indicator as rust_ef;
+
+        let close = expand_close();
+        let inputs = [close.as_slice()];
+
+        for options in OPTIONS_LIST {
+            let (kama_outputs, _) =
+                rust_kama(&inputs, &options, Some(&[true])).expect("KAMA with optional ef failed");
+            let (ef_outputs, _) =
+                rust_ef(&inputs, &options, None).expect("Standalone EF indicator failed");
+
+            // Both should have length n - period
+            assert_eq!(
+                kama_outputs[1].len(),
+                ef_outputs[0].len(),
+                "ef length mismatch for options={options:?}: kama_ef={}, standalone_ef={}",
+                kama_outputs[1].len(),
+                ef_outputs[0].len()
+            );
+
+            for (i, (&kv, &ev)) in kama_outputs[1].iter().zip(&ef_outputs[0]).enumerate() {
+                assert_eq!(
+                    kv, ev,
+                    "ef mismatch at index {i}: kama_ef={kv}, standalone_ef={ev}, options={options:?}"
+                );
+            }
+        }
+        println!("✓ KAMA scalar optional ef matches standalone ef (inline data)");
+    }
+
+    // -------------------------------------------------------------------------
+    // Scalar optional ef output == standalone Rust ef indicator (database)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_kama_scalar_optional_ef_database() {
+        use tulip_rs::indicators::ef::indicator as rust_ef;
+
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let inputs = [close.as_slice()];
+
+            for options in OPTIONS_LIST {
+                let (kama_outputs, _) = rust_kama(&inputs, &options, Some(&[true]))
+                    .expect("KAMA with optional ef failed");
+                let (ef_outputs, _) =
+                    rust_ef(&inputs, &options, None).expect("Standalone EF indicator failed");
+
+                assert_eq!(
+                    kama_outputs[1].len(),
+                    ef_outputs[0].len(),
+                    "ef length mismatch: stock={stock_symbol}, options={options:?}"
+                );
+
+                for (i, (&kv, &ev)) in kama_outputs[1].iter().zip(&ef_outputs[0]).enumerate() {
+                    assert_eq!(
+                        kv, ev,
+                        "ef mismatch at index {i}: kama_ef={kv}, standalone_ef={ev}, \
+                         stock={stock_symbol}, options={options:?}"
+                    );
+                }
+            }
+        }
+        println!("✓ KAMA scalar optional ef matches standalone ef (database)");
+    }
+
+    // -------------------------------------------------------------------------
+    // SIMD by-assets optional ef: SIMD outputs must match scalar optional ef
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_kama_simd_by_assets_optional_outputs() {
+        use tulip_rs::indicators::kama::indicator_by_assets;
+
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        let stock_data: Vec<(String, Vec<f64>)> = data
+            .iter()
+            .take(4)
+            .map(|(symbol, d)| (symbol.clone(), get_close_array(d)))
+            .collect();
+
+        let inputs: [&[&[f64]; 1]; 4] = [
+            &[&stock_data[0].1],
+            &[&stock_data[1].1],
+            &[&stock_data[2].1],
+            &[&stock_data[3].1],
+        ];
+
+        for options in OPTIONS_LIST {
+            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, Some(&[true]))
+                .expect("SIMD by-assets KAMA with optional outputs failed");
+
+            for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
+                let scalar_inputs = [close.as_slice()];
+                let (scalar_results, _) = rust_kama(&scalar_inputs, &options, Some(&[true]))
+                    .expect("Scalar KAMA with optional outputs failed");
+
+                // Primary output: kama [0]
+                let simd_kama = &simd_results[asset_idx][0];
+                let scalar_kama = &scalar_results[0];
+                assert_eq!(
+                    simd_kama.len(),
+                    scalar_kama.len(),
+                    "kama length mismatch: stock={stock_symbol}, options={options:?}"
+                );
+                for (i, (&sv, &rv)) in simd_kama.iter().zip(scalar_kama).enumerate() {
+                    if !approx_eq!(f64, sv, rv, epsilon = 1e-12) {
+                        panic!(
+                            "kama mismatch at index {i}: simd={sv}, scalar={rv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
+                }
+
+                // Optional ef [1]
+                let simd_ef = &simd_results[asset_idx][1];
+                let scalar_ef = &scalar_results[1];
+                assert_eq!(
+                    simd_ef.len(),
+                    scalar_ef.len(),
+                    "ef length mismatch: stock={stock_symbol}, options={options:?}"
+                );
+                for (i, (&sv, &rv)) in simd_ef.iter().zip(scalar_ef).enumerate() {
+                    if !approx_eq!(f64, sv, rv, epsilon = 1e-12) {
+                        let start = i.saturating_sub(5);
+                        let end = (i + 6).min(simd_ef.len());
+                        println!(
+                            "ef mismatch at index {i}: \nsimd={:?}, \n\nscalar={:?}, options={options:?}",
+                            &simd_ef[start..end],
+                            &scalar_ef[start..end]
+                        );
+                        panic!(
+                            "ef mismatch at index {i}: simd={sv}, scalar={rv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
+                }
+                println!(
+                    "✓ SIMD by-assets optional ef matches scalar for stock={stock_symbol}, options={options:?}"
+                );
+            }
+        }
+        println!("✓ All SIMD by-assets KAMA optional output tests passed!");
+    }
+
+    // -------------------------------------------------------------------------
+    // SIMD by-options optional ef: SIMD outputs must match scalar optional ef
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_kama_simd_by_options_optional_outputs() {
+        use tulip_rs::indicators::kama::indicator_by_options;
+
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        let options_4 = [
+            &OPTIONS_LIST[0],
+            &OPTIONS_LIST[1],
+            &OPTIONS_LIST[2],
+            &OPTIONS_LIST[3],
+        ];
+
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let inputs = [close.as_slice()];
+
+            let (simd_results, _) = indicator_by_options::<4>(&inputs, &options_4, Some(&[true]))
+                .expect("SIMD by-options KAMA with optional outputs failed");
+
+            for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
+                let (scalar_results, _) = rust_kama(&inputs, options, Some(&[true]))
+                    .expect("Scalar KAMA with optional outputs failed");
+
+                // Primary output: kama [0]
+                let simd_kama = &simd_results[opt_idx][0];
+                let scalar_kama = &scalar_results[0];
+                assert_eq!(
+                    simd_kama.len(), scalar_kama.len(),
+                    "kama length mismatch: stock={stock_symbol}, opt_idx={opt_idx}, options={options:?}"
+                );
+                for (i, (&sv, &rv)) in simd_kama.iter().zip(scalar_kama).enumerate() {
+                    if !approx_eq!(f64, sv, rv, epsilon = 1e-12) {
+                        panic!(
+                            "kama mismatch at index {i}: simd={sv}, scalar={rv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
+                }
+
+                // Optional ef [1]
+                let simd_ef = &simd_results[opt_idx][1];
+                let scalar_ef = &scalar_results[1];
+                assert_eq!(
+                    simd_ef.len(), scalar_ef.len(),
+                    "ef length mismatch: stock={stock_symbol}, opt_idx={opt_idx}, options={options:?}"
+                );
+                for (i, (&sv, &rv)) in simd_ef.iter().zip(scalar_ef).enumerate() {
+                    if !approx_eq!(f64, sv, rv, epsilon = 1e-12) {
+                        let start = i.saturating_sub(5);
+                        let end = (i + 6).min(simd_ef.len());
+                        println!(
+                            "ef mismatch at index {i}: simd={:?}, scalar={:?}, options={options:?}",
+                            &simd_ef[start..end],
+                            &scalar_ef[start..end]
+                        );
+                        panic!(
+                            "ef mismatch at index {i}: simd={sv}, scalar={rv}, \
+                             stock={stock_symbol}, opt_idx={opt_idx}"
+                        );
+                    }
+                }
+            }
+            println!("✓ SIMD by-options optional ef matches scalar for stock={stock_symbol}");
+        }
+        println!("✓ All SIMD by-options KAMA optional output tests passed!");
+    }
 }

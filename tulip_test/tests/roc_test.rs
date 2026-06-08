@@ -692,4 +692,81 @@ mod tests {
             }
         }
     }
+
+    // -------------------------------------------------------------------------
+    // SIMD by-options optional outputs: MOM must match scalar
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_roc_simd_by_options_optional_outputs() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let inputs = [close.as_slice()];
+
+            // Process first 4 options with 4-wide SIMD
+            let options_4 = [
+                &OPTIONS_LIST[0],
+                &OPTIONS_LIST[1],
+                &OPTIONS_LIST[2],
+                &OPTIONS_LIST[3],
+            ];
+            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, Some(&[true]))
+                .expect("SIMD ROC 4-wide with optional outputs failed");
+
+            // Process remaining 4 options with 4-wide SIMD
+            let options_4_second = [
+                &OPTIONS_LIST[4],
+                &OPTIONS_LIST[5],
+                &OPTIONS_LIST[6],
+                &OPTIONS_LIST[7],
+            ];
+            let (simd_results_4_second, _) =
+                indicator_by_options::<4>(&inputs, &options_4_second, Some(&[true]))
+                    .expect("SIMD ROC 4-wide second with optional outputs failed");
+
+            // Combine SIMD results
+            let mut all_simd_results = Vec::new();
+            for result in &simd_results_4 {
+                all_simd_results.push(result.clone());
+            }
+            for result in &simd_results_4_second {
+                all_simd_results.push(result.clone());
+            }
+
+            // Compare each SIMD result with scalar indicator
+            for (idx, options) in OPTIONS_LIST.iter().enumerate() {
+                let (scalar_results, _) = rust_roc(&inputs, options, Some(&[true]))
+                    .expect("Scalar ROC with optional outputs failed");
+
+                // Compare all 2 outputs (roc, mom)
+                for out_idx in 0..2 {
+                    let simd_out = &all_simd_results[idx][out_idx];
+                    let scalar_out = &scalar_results[out_idx];
+                    assert_eq!(
+                        simd_out.len(), scalar_out.len(),
+                        "output[{out_idx}] length mismatch: stock={stock_symbol}, options={options:?}"
+                    );
+                    for (i, (&sv, &rv)) in simd_out.iter().zip(scalar_out).enumerate() {
+                        if !approx_eq!(f64, sv, rv, epsilon = 1e-10) {
+                            let start = i.saturating_sub(5);
+                            let end = (i + 6).min(simd_out.len());
+                            println!(
+                                "output[{out_idx}] mismatch at index {i}: simd={:?}, scalar={:?}, options={options:?}",
+                                &simd_out[start..end], &scalar_out[start..end]
+                            );
+                            panic!(
+                                "output[{out_idx}] mismatch at index {i}: simd={sv}, scalar={rv}, \
+                                 stock={stock_symbol}, options={options:?}"
+                            );
+                        }
+                    }
+                }
+            }
+            println!("✓ SIMD by-options optional outputs match scalar for stock={stock_symbol}");
+        }
+        println!("✓ All SIMD by-options ROC optional output tests passed!");
+    }
 }

@@ -609,4 +609,160 @@ mod tests {
             }
         }
     }
+
+    // -------------------------------------------------------------------------
+    // SIMD by-assets optional outputs: TR must match scalar optional TR
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_vortex_simd_by_assets_optional_outputs() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        let stock_data: Vec<(String, Vec<f64>, Vec<f64>, Vec<f64>)> = data
+            .iter()
+            .take(4)
+            .map(|(symbol, eod)| {
+                let (high, low, close) = get_arrays(eod);
+                (symbol.clone(), high, low, close)
+            })
+            .collect();
+
+        for options in OPTIONS_LIST {
+            let asset0: [&[f64]; 3] = [&stock_data[0].1, &stock_data[0].2, &stock_data[0].3];
+            let asset1: [&[f64]; 3] = [&stock_data[1].1, &stock_data[1].2, &stock_data[1].3];
+            let asset2: [&[f64]; 3] = [&stock_data[2].1, &stock_data[2].2, &stock_data[2].3];
+            let asset3: [&[f64]; 3] = [&stock_data[3].1, &stock_data[3].2, &stock_data[3].3];
+            let inputs_4: [&[&[f64]; 3]; 4] = [&asset0, &asset1, &asset2, &asset3];
+
+            let (simd_results, _) = indicator_by_assets::<4>(&inputs_4, &options, Some(&[true]))
+                .expect("SIMD by-assets Vortex with optional outputs failed");
+
+            for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
+                let scalar_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+                let (scalar_outputs, _) = rust_vortex(&scalar_inputs, &options, Some(&[true]))
+                    .expect("Scalar Vortex with optional outputs failed");
+
+                // Primary outputs: vi_up [0], vi_down [1]
+                for out_idx in 0..2 {
+                    let simd_out = &simd_results[asset_idx][out_idx];
+                    let scalar_out = &scalar_outputs[out_idx];
+                    assert_eq!(
+                        simd_out.len(), scalar_out.len(),
+                        "output[{out_idx}] length mismatch: stock={stock_symbol}, options={options:?}"
+                    );
+                    for (i, (&sv, &rv)) in simd_out.iter().zip(scalar_out).enumerate() {
+                        assert_eq!(
+                            sv, rv,
+                            "output[{out_idx}] mismatch at index {i}: simd={sv}, scalar={rv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
+                }
+
+                // TR optional output (index 2)
+                let simd_tr = &simd_results[asset_idx][2];
+                let scalar_tr = &scalar_outputs[2];
+                assert_eq!(
+                    simd_tr.len(),
+                    scalar_tr.len(),
+                    "TR length mismatch: stock={stock_symbol}, options={options:?}"
+                );
+                for (i, (&sv, &rv)) in simd_tr.iter().zip(scalar_tr).enumerate() {
+                    if sv != rv {
+                        let start = i.saturating_sub(5);
+                        let end = (i + 6).min(simd_tr.len());
+                        println!(
+                            "TR mismatch at index {i}: simd={:?}, scalar={:?}, options={options:?}",
+                            &simd_tr[start..end],
+                            &scalar_tr[start..end]
+                        );
+                        panic!(
+                            "TR mismatch at index {i}: simd={sv}, scalar={rv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
+                }
+                println!(
+                    "\u{2713} SIMD by-assets optional outputs match scalar for stock={stock_symbol}, options={options:?}"
+                );
+            }
+        }
+        println!("\u{2713} All SIMD by-assets Vortex optional output tests passed!");
+    }
+
+    // -------------------------------------------------------------------------
+    // SIMD by-options optional outputs: TR must match scalar optional TR
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_vortex_simd_by_options_optional_outputs() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        let options_4 = [
+            &OPTIONS_LIST[0],
+            &OPTIONS_LIST[1],
+            &OPTIONS_LIST[2],
+            &OPTIONS_LIST[3],
+        ];
+
+        for (_stock_symbol, stock_data) in data.iter().take(4) {
+            let (high, low, close) = get_arrays(stock_data);
+            let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+
+            let (simd_results, _) = indicator_by_options::<4>(&inputs, &options_4, Some(&[true]))
+                .expect("SIMD by-options Vortex with optional outputs failed");
+
+            for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
+                let (scalar_outputs, _) = rust_vortex(&inputs, options, Some(&[true]))
+                    .expect("Scalar Vortex with optional outputs failed");
+
+                // Primary outputs: vi_up [0], vi_down [1]
+                for out_idx in 0..2 {
+                    let simd_out = &simd_results[opt_idx][out_idx];
+                    let scalar_out = &scalar_outputs[out_idx];
+                    assert_eq!(
+                        simd_out.len(),
+                        scalar_out.len(),
+                        "output[{out_idx}] length mismatch: opt_idx={opt_idx}, options={options:?}"
+                    );
+                    for (i, (&sv, &rv)) in simd_out.iter().zip(scalar_out).enumerate() {
+                        assert_eq!(
+                            sv, rv,
+                            "output[{out_idx}] mismatch at index {i}: simd={sv}, scalar={rv}, \
+                             opt_idx={opt_idx}"
+                        );
+                    }
+                }
+
+                // TR optional output (index 2)
+                let simd_tr = &simd_results[opt_idx][2];
+                let scalar_tr = &scalar_outputs[2];
+                assert_eq!(
+                    simd_tr.len(),
+                    scalar_tr.len(),
+                    "TR length mismatch: opt_idx={opt_idx}, options={options:?}"
+                );
+                for (i, (&sv, &rv)) in simd_tr.iter().zip(scalar_tr).enumerate() {
+                    if sv != rv {
+                        let start = i.saturating_sub(5);
+                        let end = (i + 6).min(simd_tr.len());
+                        println!(
+                            "TR mismatch at index {i}: simd={:?}, scalar={:?}, options={options:?}",
+                            &simd_tr[start..end],
+                            &scalar_tr[start..end]
+                        );
+                        panic!(
+                            "TR mismatch at index {i}: simd={sv}, scalar={rv}, opt_idx={opt_idx}"
+                        );
+                    }
+                }
+                println!(
+                    "\u{2713} SIMD by-options optional outputs match scalar for opt_idx={opt_idx}, options={options:?}"
+                );
+            }
+        }
+        println!("\u{2713} All SIMD by-options Vortex optional output tests passed!");
+    }
 }
