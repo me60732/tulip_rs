@@ -17,6 +17,7 @@ pub mod chandelierexit;
 pub mod cmo;
 pub mod cvi;
 pub mod dema;
+pub mod trvi;
 pub mod di;
 pub mod dm;
 pub mod donchianchannel;

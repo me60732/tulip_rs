@@ -146,6 +146,10 @@ name = "benchmark_cvi"
 harness = false
 
 [[bench]]
+name = "benchmark_trvi"
+harness = false
+
+[[bench]]
 name = "benchmark_dema"
 harness = false
 

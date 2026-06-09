@@ -66,6 +66,7 @@ pub mod tema;
 pub mod tr;
 pub mod trima;
 pub mod trix;
+pub mod trvi;
 pub mod tsf;
 pub mod typprice;
 pub mod ultosc;

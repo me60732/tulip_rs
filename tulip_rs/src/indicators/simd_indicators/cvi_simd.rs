@@ -44,35 +44,6 @@ pub mod assets {
         }
     }
 
-    /// Advances the Chaikin Volatility Index (CVI) by one bar for `N` assets simultaneously
-    /// (checked variant).
-    ///
-    /// EMA-smooths the high-low range, then measures its rate of change over the lookback period:
-    /// `(ema - old_ema) / old_ema * 100`. Returns `0.0` until the oldest EMA has magnitude
-    /// greater than epsilon.
-    ///
-    /// # Returns
-    ///
-    /// CVI values for all `N` lanes.
-    #[inline]
-    pub fn calc_simd<const N: usize>(
-        buffer: &mut SimdState<N>,
-        high: Simd<f64, N>,
-        low: Simd<f64, N>,
-        multiplier: (Simd<f64, N>, Simd<f64, N>),
-    ) -> Simd<f64, N> {
-        let prev_ema = buffer.back().unwrap();
-        let old_ema = buffer.front().unwrap();
-        let hl_diff = (high - low).simd_max(F64Constants::EPSILON);
-        let ema = ema_calc_simd(hl_diff, prev_ema, multiplier);
-        buffer.push(ema);
-        if old_ema.abs() < F64Constants::EPSILON {
-            F64Constants::ZERO
-        } else {
-            (ema - old_ema) / old_ema * F64Constants::HUNDRED
-        }
-    }
-
     /// Advances the CVI by one bar for `N` assets simultaneously (unchecked variant).
     ///
     /// # Safety
@@ -125,34 +96,6 @@ pub mod options {
                 *states[i] = buffer;
             }
         }
-    }
-
-    /// Advances the CVI by one bar for `N` option lanes simultaneously (checked variant).
-    ///
-    /// Takes a single scalar `(high, low)` pair broadcast to all lanes, EMA-smooths the range,
-    /// and measures its percentage change over each lane's lookback period.
-    /// Returns `0.0` for lanes whose oldest EMA is not yet valid.
-    ///
-    /// # Returns
-    ///
-    /// CVI values for all `N` lanes.
-    #[inline]
-    pub fn calc_simd<const N: usize>(
-        buffer: &mut SimdState<N, f64>,
-        high: f64,
-        low: f64,
-        multiplier: (Simd<f64, N>, Simd<f64, N>),
-    ) -> Simd<f64, N> {
-        let hl_diff = Simd::splat((high - low).max(f64::EPSILON));
-        let prev_ema = buffer.back_unchecked();
-        let (old_ema, old_ema_mask) = buffer.front();
-        let ema = ema_calc_simd(hl_diff, prev_ema, multiplier);
-        buffer.push(ema);
-
-        old_ema_mask.select(
-            (ema - old_ema) / old_ema * F64Constants::HUNDRED,
-            F64Constants::ZERO,
-        )
     }
 
     /// Advances the CVI by one bar for `N` option lanes simultaneously (unchecked variant).
