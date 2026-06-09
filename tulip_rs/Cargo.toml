@@ -674,3 +674,15 @@ path = "examples/indicators/ti_elderray_example.rs"
 [[example]]
 name = "ti_donchianchannel_example"
 path = "examples/indicators/ti_donchianchannel_example.rs"
+
+[[example]]
+name = "ti_chaikinmf_example"
+path = "examples/indicators/ti_chaikinmf_example.rs"
+
+[[example]]
+name = "ti_vortex_example"
+path = "examples/indicators/ti_vortex_example.rs"
+
+[[example]]
+name = "ti_trvi_example"
+path = "examples/indicators/ti_trvi_example.rs"
