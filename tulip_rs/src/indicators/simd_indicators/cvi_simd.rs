@@ -9,7 +9,7 @@ pub(crate) mod import {
     pub(crate) use crate::indicators::simd_indicators::{
         ema_simd::calc_simd as ema_calc_simd, simd_types::F64Constants,
     };
-    pub(crate) use std::simd::{num::SimdFloat, Select, Simd};
+    pub(crate) use std::simd::{num::SimdFloat, Simd};
     pub trait SimdBufferExt {
         fn new(states: &mut [&mut State]) -> Self;
         fn write_states(&self, states: &mut [&mut State]);

@@ -342,7 +342,7 @@ macro_rules! impl_layout {
 
         // ── Serialize ─────────────────────────────────────────────────────────
 
-        impl<$($T: SerdeElement),+> Serialize for MultiTypeBuffer<($($T,)+)>
+        impl<$($T: SerdeElement + BufferElement),+> Serialize for MultiTypeBuffer<($($T,)+)>
         where $($T::Repr: Serialize),+
         {
             fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -363,7 +363,7 @@ macro_rules! impl_layout {
 
         // ── Deserialize ───────────────────────────────────────────────────────
 
-        impl<'de, $($T: SerdeElement),+> Deserialize<'de> for MultiTypeBuffer<($($T,)+)>
+        impl<'de, $($T: SerdeElement + BufferElement),+> Deserialize<'de> for MultiTypeBuffer<($($T,)+)>
         where $($T::Repr: Deserialize<'de>),+
         {
             fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -371,7 +371,7 @@ macro_rules! impl_layout {
 
                 struct MtbVisitor<$($T),+>(std::marker::PhantomData<($($T,)+)>);
 
-                impl<'de, $($T: SerdeElement),+> Visitor<'de> for MtbVisitor<$($T),+>
+                impl<'de, $($T: SerdeElement + BufferElement),+> Visitor<'de> for MtbVisitor<$($T),+>
                 where $($T::Repr: Deserialize<'de>),+
                 {
                     type Value = MultiTypeBuffer<($($T,)+)>;

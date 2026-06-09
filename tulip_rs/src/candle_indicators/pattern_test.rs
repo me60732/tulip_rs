@@ -6,7 +6,7 @@ use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::types::CandleTypes;
 use crate::candle_indicators::types::ForecastType;
 use crate::indicators::simd_indicators::ema_simd::{calc_simd as ema_calc, multiplier_simd};
-use crate::ring_buffer::buffer::BufferElement;
+use crate::ring_buffer::buffer::{BufferElement, SerdeElement};
 use crate::ring_buffer::fixed_single_buffer::FixedMirrorBuffer;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::simd::Simd;
@@ -14,6 +14,12 @@ use std::simd::Simd;
 pub(crate) const MAX_PATTERN_LENGTH: usize = 4;
 pub(crate) const PATTERN_BAR_WINDOW: usize = MAX_PATTERN_LENGTH + 1;
 
+// CandleBits already derives Serialize + Deserialize, so Repr = Self.
+impl SerdeElement for CandleBits {
+    type Repr = CandleBits;
+    #[inline(always)] fn to_repr(self) -> CandleBits { self }
+    #[inline(always)] fn from_repr(r: CandleBits) -> CandleBits { r }
+}
 impl BufferElement for CandleBits {}
 /// Pattern test - the complete pattern of bars
 ///

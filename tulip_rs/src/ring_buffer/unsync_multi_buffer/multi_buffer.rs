@@ -1,19 +1,20 @@
+use crate::ring_buffer::buffer::SerdeElement;
 use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
 pub use crate::ring_buffer::{
     buffer::BufferElement,
     unsync_multi_buffer::{mirror_buffer::MirrorBuffer, ring_buffer::RingBuffer},
 };
 use serde::{Deserialize, Serialize};
-use std::simd::{Mask, Simd, cmp::SimdPartialEq, SimdElement, Select};
+use std::simd::{cmp::SimdPartialEq, Mask, Select, Simd, SimdElement};
 
 pub struct F64Constants<const N: usize>;
-impl<const N: usize> F64Constants<N>{
+impl<const N: usize> F64Constants<N> {
     pub const ZERO: Simd<f64, N> = Simd::splat(0.0);
     pub const ONE: Simd<f64, N> = Simd::splat(1.0);
 }
 
 pub struct UsizeConstants<const N: usize>;
-impl<const N: usize> UsizeConstants<N>{
+impl<const N: usize> UsizeConstants<N> {
     pub const ZERO: Simd<usize, N> = Simd::splat(0);
     pub const ONE: Simd<usize, N> = Simd::splat(1);
 }
@@ -22,8 +23,8 @@ impl<const N: usize> UsizeConstants<N>{
 ///
 /// We implement custom Serialize/Deserialize because `Simd<usize, B>` does not
 /// implement Serde traits; we convert the simd lanes to plain Vec<usize> for
-/// (de)serialization.
-pub struct UnsyncBuffer<const B: usize, T: BufferElement + SimdElement>{
+/// (de)serialization. Val lanes go through T::Repr for the same reason.
+pub struct UnsyncBuffer<const B: usize, T: BufferElement + SimdElement> {
     pub(crate) vals: [Vec<T>; B],
     pub(crate) index: Simd<usize, B>,
     pub(crate) capacity: Simd<usize, B>,
@@ -31,7 +32,7 @@ pub struct UnsyncBuffer<const B: usize, T: BufferElement + SimdElement>{
     pub(crate) prev_idx: Simd<usize, B>,
 }
 
-impl<const B: usize, T: BufferElement + SimdElement> UnsyncBuffer<B, T>{
+impl<const B: usize, T: BufferElement + SimdElement> UnsyncBuffer<B, T> {
     pub(crate) fn to_f64_buffers(&self) -> Vec<Buffer<T>> {
         let mut buffers = Vec::with_capacity(B);
         for (lane, vals) in self.vals.iter().enumerate() {
@@ -82,7 +83,7 @@ impl<const B: usize, T: BufferElement + SimdElement> UnsyncBuffer<B, T>{
             .simd_eq(self.capacity)
             .select(UsizeConstants::ZERO, new_idx)
     }
-    
+
     #[inline(always)]
     pub(crate) fn update_internals_unchecked(&mut self) {
         self.prev_idx = self.index;
@@ -91,10 +92,15 @@ impl<const B: usize, T: BufferElement + SimdElement> UnsyncBuffer<B, T>{
     }
     #[inline(always)]
     fn get_values(&self, idx: Simd<usize, B>) -> Simd<T, B> {
-        let idx = idx.as_array();//idx.to_array();
+        let idx = idx.as_array(); //idx.to_array();
         let mut results = Simd::splat(T::default());
         // zip buffers and results; iteration stops at the shorter of the two
-        for ((buffer, result), &idx) in self.vals.iter().zip(results.as_mut_array().iter_mut()).zip(idx.iter()) {
+        for ((buffer, result), &idx) in self
+            .vals
+            .iter()
+            .zip(results.as_mut_array().iter_mut())
+            .zip(idx.iter())
+        {
             *result = unsafe { *buffer.get_unchecked(idx) };
         }
         results
@@ -143,50 +149,46 @@ impl<const B: usize, T: BufferElement + SimdElement> UnsyncBuffer<B, T>{
     }
 }
 
-// Helper struct for serialization: converts SIMD lanes to Vec<usize> for Serde.
+// Helper struct for serialization: converts SIMD index fields to Vec<usize>
+// and val lanes through T::Repr for Serde compatibility.
 #[derive(Serialize, Deserialize)]
-struct MultiBufferSerde<T> {
-    vals: Vec<Vec<T>>,
+struct MultiBufferSerde<R> {
+    vals: Vec<Vec<R>>,
     index: Vec<usize>,
     capacity: Vec<usize>,
     count: Vec<usize>,
     prev_idx: Vec<usize>,
 }
 
-impl<const B: usize, T> Serialize for UnsyncBuffer<B, T>
-where
-    T: BufferElement + SimdElement + Serialize,
-{
+impl<const B: usize, T: BufferElement + SerdeElement + SimdElement> Serialize for UnsyncBuffer<B, T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        // Convert SIMD fields to Vec<usize> for serialization
-        let index_vec: Vec<usize> = self.index.to_array().into_iter().collect();
-        let capacity_vec: Vec<usize> = self.capacity.to_array().into_iter().collect();
-        let count_vec: Vec<usize> = self.count.to_array().into_iter().collect();
-        let prev_vec: Vec<usize> = self.prev_idx.to_array().into_iter().collect();
-
         let helper = MultiBufferSerde {
-            vals: self.vals.iter().cloned().collect(),
-            index: index_vec,
-            capacity: capacity_vec,
-            count: count_vec,
-            prev_idx: prev_vec,
+            vals: self
+                .vals
+                .iter()
+                .map(|lane| lane.iter().map(|v| T::to_repr(*v)).collect())
+                .collect(),
+            index: self.index.to_array().into_iter().collect(),
+            capacity: self.capacity.to_array().into_iter().collect(),
+            count: self.count.to_array().into_iter().collect(),
+            prev_idx: self.prev_idx.to_array().into_iter().collect(),
         };
         helper.serialize(serializer)
     }
 }
 
-impl<'de, const B: usize, T> Deserialize<'de> for UnsyncBuffer<B, T>
+impl<'de, const B: usize, T: BufferElement + SerdeElement + SimdElement> Deserialize<'de> for UnsyncBuffer<B, T>
 where
-    T: BufferElement + SimdElement + Deserialize<'de>,
+    T::Repr: Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        let helper = MultiBufferSerde::<T>::deserialize(deserializer)
+        let helper = MultiBufferSerde::<T::Repr>::deserialize(deserializer)
             .map_err(|e| serde::de::Error::custom(format!("helper deserialize failed: {}", e)))?;
 
         if helper.vals.len() != B {
@@ -197,7 +199,6 @@ where
             )));
         }
 
-        // Convert helper Vecs back into fixed-size arrays then to Simd
         let index_arr: [usize; B] = helper
             .index
             .try_into()
@@ -217,6 +218,9 @@ where
 
         let vals_array: [Vec<T>; B] = helper
             .vals
+            .into_iter()
+            .map(|lane| lane.into_iter().map(T::from_repr).collect())
+            .collect::<Vec<_>>()
             .try_into()
             .map_err(|_| serde::de::Error::custom("Failed to convert vals to array"))?;
 
@@ -235,8 +239,13 @@ pub(crate) fn write_values<const B: usize, T: BufferElement + SimdElement>(
     buffer: &mut UnsyncBuffer<B, T>,
     values: Simd<T, B>,
 ) {
-    let idx = buffer.index.as_array();//.to_array();
-    for ((buff, &vals), &idx) in buffer.vals.iter_mut().zip(values.as_array().iter()).zip(idx.iter()) {
+    let idx = buffer.index.as_array(); //.to_array();
+    for ((buff, &vals), &idx) in buffer
+        .vals
+        .iter_mut()
+        .zip(values.as_array().iter())
+        .zip(idx.iter())
+    {
         unsafe { *buff.get_unchecked_mut(idx) = vals }
     }
 }
@@ -246,7 +255,7 @@ pub(crate) fn write_values_pop<const B: usize, T: BufferElement + SimdElement>(
     buffer: &mut UnsyncBuffer<B, T>,
     values: Simd<T, B>,
 ) -> Simd<T, B> {
-    let idx = buffer.index.as_array();//.to_array();
+    let idx = buffer.index.as_array(); //.to_array();
     let mut results = Simd::splat(T::default());
     for (((buff, &vals), result), &idx) in buffer
         .vals

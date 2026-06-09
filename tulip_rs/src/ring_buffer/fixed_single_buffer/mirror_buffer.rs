@@ -8,7 +8,7 @@
 //! `CandleBits`) targets the `view` array, updates are never lost across `push`
 //! boundaries and `sync_mirrors()` is a genuine no-op.
 
-use crate::ring_buffer::buffer::{period_to_idx, BufferElement};
+use crate::ring_buffer::buffer::{period_to_idx, BufferElement, SerdeElement};
 use serde::{
     de::{self, MapAccess, Visitor},
     ser::SerializeStruct,
@@ -235,24 +235,28 @@ impl<T: BufferElement, const N: usize> Default for FixedMirrorBuffer<T, N> {
 // ── Serde ─────────────────────────────────────────────────────────────────────
 //
 // Hand-rolled rather than #[derive] because serde's derive generates
-// `where [T; N]: Serialize` bounds the compiler cannot satisfy for generic N.
+// `where [T; N]: Serialize` bounds the compiler cannot satisfy for generic N,
+// and to go through T::Repr so that non-serde types like Simd<f64, N> work.
 //
-// Serialize  — emit both arrays as &[T] slices (always works when T: Serialize).
-// Deserialize — read each array field into Vec<T>, convert via TryFrom (Rust 1.59+).
+// Serialize  — map each element through T::to_repr, emit as Vec<T::Repr>.
+// Deserialize — read Vec<T::Repr>, map through T::from_repr, convert via TryFrom.
 
-impl<T: BufferElement + Serialize, const N: usize> Serialize for FixedMirrorBuffer<T, N> {
+impl<T: BufferElement + SerdeElement, const N: usize> Serialize for FixedMirrorBuffer<T, N> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut state = serializer.serialize_struct("FixedMirrorBuffer", 4)?;
-        state.serialize_field("ring", self.ring.as_slice())?;
-        state.serialize_field("view", self.view.as_slice())?;
+        let ring_repr: Vec<T::Repr> = self.ring.iter().map(|v| T::to_repr(*v)).collect();
+        let view_repr: Vec<T::Repr> = self.view.iter().map(|v| T::to_repr(*v)).collect();
+        state.serialize_field("ring", &ring_repr)?;
+        state.serialize_field("view", &view_repr)?;
         state.serialize_field("index", &self.index)?;
         state.serialize_field("count", &self.count)?;
         state.end()
     }
 }
 
-impl<'de, T: BufferElement + Deserialize<'de>, const N: usize> Deserialize<'de>
-    for FixedMirrorBuffer<T, N>
+impl<'de, T: BufferElement + SerdeElement, const N: usize> Deserialize<'de> for FixedMirrorBuffer<T, N>
+where
+    T::Repr: Deserialize<'de>,
 {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         const FIELDS: &[&str] = &["ring", "view", "index", "count"];
@@ -288,7 +292,10 @@ impl<'de, T: BufferElement + Deserialize<'de>, const N: usize> Deserialize<'de>
 
         struct FMBVisitor<T, const N: usize>(PhantomData<fn() -> T>);
 
-        impl<'de, T: BufferElement + Deserialize<'de>, const N: usize> Visitor<'de> for FMBVisitor<T, N> {
+        impl<'de, T: BufferElement + SerdeElement, const N: usize> Visitor<'de> for FMBVisitor<T, N>
+        where
+            T::Repr: Deserialize<'de>,
+        {
             type Value = FixedMirrorBuffer<T, N>;
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -299,8 +306,8 @@ impl<'de, T: BufferElement + Deserialize<'de>, const N: usize> Deserialize<'de>
                 self,
                 mut map: V,
             ) -> Result<FixedMirrorBuffer<T, N>, V::Error> {
-                let mut ring: Option<Vec<T>> = None;
-                let mut view: Option<Vec<T>> = None;
+                let mut ring: Option<Vec<T::Repr>> = None;
+                let mut view: Option<Vec<T::Repr>> = None;
                 let mut index: Option<usize> = None;
                 let mut count: Option<usize> = None;
 
@@ -333,10 +340,15 @@ impl<'de, T: BufferElement + Deserialize<'de>, const N: usize> Deserialize<'de>
                     }
                 }
 
-                let ring_vec: Vec<T> = ring.ok_or_else(|| de::Error::missing_field("ring"))?;
-                let view_vec: Vec<T> = view.ok_or_else(|| de::Error::missing_field("view"))?;
+                let ring_repr: Vec<T::Repr> =
+                    ring.ok_or_else(|| de::Error::missing_field("ring"))?;
+                let view_repr: Vec<T::Repr> =
+                    view.ok_or_else(|| de::Error::missing_field("view"))?;
                 let index = index.ok_or_else(|| de::Error::missing_field("index"))?;
                 let count = count.ok_or_else(|| de::Error::missing_field("count"))?;
+
+                let ring_vec: Vec<T> = ring_repr.into_iter().map(T::from_repr).collect();
+                let view_vec: Vec<T> = view_repr.into_iter().map(T::from_repr).collect();
 
                 let ring_arr: [T; N] = ring_vec.try_into().map_err(|v: Vec<T>| {
                     de::Error::invalid_length(v.len(), &"ring array of length N")

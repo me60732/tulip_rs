@@ -10,7 +10,7 @@
 //! Use this type when you need a fixed-capacity ring with O(1) lookback but do
 //! **not** need a contiguous ordered window on the hot path.
 
-use crate::ring_buffer::buffer::{period_to_idx, BufferElement};
+use crate::ring_buffer::buffer::{period_to_idx, BufferElement, SerdeElement};
 use serde::{
     de::{self, MapAccess, Visitor},
     ser::SerializeStruct,
@@ -223,24 +223,27 @@ impl<T: BufferElement, const N: usize> Default for FixedRingBuffer<T, N> {
 
 // ── Serde ─────────────────────────────────────────────────────────────────────
 //
-// Same strategy as FixedMirrorBuffer: hand-rolled to avoid the
-// `where [T; N]: Serialize` bound serde's derive generates for generic N.
+// Hand-rolled to avoid the `where [T; N]: Serialize` bound serde's derive
+// generates for generic N, and to go through T::Repr so that non-serde types
+// like Simd<f64, N> are supported.
 //
-// Serialize  — emit `vals` as a &[T] slice.
-// Deserialize — read into Vec<T>, convert to [T; N] via TryFrom (Rust 1.59+).
+// Serialize  — map each element through T::to_repr, emit as a Vec<T::Repr>.
+// Deserialize — read Vec<T::Repr>, map through T::from_repr, convert to [T; N].
 
-impl<T: BufferElement + Serialize, const N: usize> Serialize for FixedRingBuffer<T, N> {
+impl<T: BufferElement + SerdeElement, const N: usize> Serialize for FixedRingBuffer<T, N> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut state = serializer.serialize_struct("FixedRingBuffer", 3)?;
-        state.serialize_field("vals", self.vals.as_slice())?;
+        let repr: Vec<T::Repr> = self.vals.iter().map(|v| T::to_repr(*v)).collect();
+        state.serialize_field("vals", &repr)?;
         state.serialize_field("index", &self.index)?;
         state.serialize_field("count", &self.count)?;
         state.end()
     }
 }
 
-impl<'de, T: BufferElement + Deserialize<'de>, const N: usize> Deserialize<'de>
-    for FixedRingBuffer<T, N>
+impl<'de, T: BufferElement + SerdeElement, const N: usize> Deserialize<'de> for FixedRingBuffer<T, N>
+where
+    T::Repr: Deserialize<'de>,
 {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         const FIELDS: &[&str] = &["vals", "index", "count"];
@@ -274,7 +277,10 @@ impl<'de, T: BufferElement + Deserialize<'de>, const N: usize> Deserialize<'de>
 
         struct FRBVisitor<T, const N: usize>(PhantomData<fn() -> T>);
 
-        impl<'de, T: BufferElement + Deserialize<'de>, const N: usize> Visitor<'de> for FRBVisitor<T, N> {
+        impl<'de, T: BufferElement + SerdeElement, const N: usize> Visitor<'de> for FRBVisitor<T, N>
+        where
+            T::Repr: Deserialize<'de>,
+        {
             type Value = FixedRingBuffer<T, N>;
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -285,7 +291,7 @@ impl<'de, T: BufferElement + Deserialize<'de>, const N: usize> Deserialize<'de>
                 self,
                 mut map: V,
             ) -> Result<FixedRingBuffer<T, N>, V::Error> {
-                let mut vals: Option<Vec<T>> = None;
+                let mut vals: Option<Vec<T::Repr>> = None;
                 let mut index: Option<usize> = None;
                 let mut count: Option<usize> = None;
 
@@ -312,10 +318,12 @@ impl<'de, T: BufferElement + Deserialize<'de>, const N: usize> Deserialize<'de>
                     }
                 }
 
-                let vals_vec: Vec<T> = vals.ok_or_else(|| de::Error::missing_field("vals"))?;
+                let vals_repr: Vec<T::Repr> =
+                    vals.ok_or_else(|| de::Error::missing_field("vals"))?;
                 let index = index.ok_or_else(|| de::Error::missing_field("index"))?;
                 let count = count.ok_or_else(|| de::Error::missing_field("count"))?;
 
+                let vals_vec: Vec<T> = vals_repr.into_iter().map(T::from_repr).collect();
                 let vals_arr: [T; N] = vals_vec.try_into().map_err(|v: Vec<T>| {
                     de::Error::invalid_length(v.len(), &"vals array of length N")
                 })?;

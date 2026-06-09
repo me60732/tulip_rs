@@ -3,13 +3,12 @@ use crate::ring_buffer::multi_buffer::multi_buffer::{
 };
 use std::simd::Simd;
 
-impl<const B: usize, const N: usize> MultiBuffer<B, Simd<f64, N>>{
+impl<const B: usize, const N: usize> MultiBuffer<B, Simd<f64, N>> {
     fn to_simd_buffer(f64_buffers: &[&[&[f64]; B]; N], capacity: usize, mirror: bool) -> Self {
         let actual_capacity = if mirror { capacity * 2 } else { capacity };
 
-        let mut simd_vals: [Vec<Simd<f64, N>>; B] = core::array::from_fn(|_| {
-            Vec::with_capacity(actual_capacity)
-        });
+        let mut simd_vals: [Vec<Simd<f64, N>>; B] =
+            core::array::from_fn(|_| Vec::with_capacity(actual_capacity));
 
         for i in 0..actual_capacity {
             // For each buffer lane (B lanes total)
@@ -70,10 +69,10 @@ impl<const B: usize, const N: usize> MultiBuffer<B, Simd<f64, N>>{
     }
 }
 
-pub trait SimdRingBuffer<const B: usize, const N: usize>: RingBuffer<B, Simd<f64, N>>{
+pub trait SimdRingBuffer<const B: usize, const N: usize>: RingBuffer<B, Simd<f64, N>> {
     fn from_f64_buffers(multi_buffers: [&MultiBuffer<B, f64>; N]) -> Self;
 }
-impl<const B: usize, const N: usize> SimdRingBuffer<B, N> for MultiBuffer<B, Simd<f64, N>>{
+impl<const B: usize, const N: usize> SimdRingBuffer<B, N> for MultiBuffer<B, Simd<f64, N>> {
     fn from_f64_buffers(multi_buffers: [&MultiBuffer<B, f64>; N]) -> Self {
         let capacity = multi_buffers[0].get_capacity();
 
@@ -92,7 +91,7 @@ impl<const B: usize, const N: usize> SimdRingBuffer<B, N> for MultiBuffer<B, Sim
     }
 }
 
-pub trait SimdMirrorBuffer<const B: usize, const N: usize>: MirrorBuffer<B, Simd<f64, N>>{
+pub trait SimdMirrorBuffer<const B: usize, const N: usize>: MirrorBuffer<B, Simd<f64, N>> {
     fn from_f64_buffers(multi_buffers: [&MultiBuffer<B, f64>; N]) -> Self;
 }
 

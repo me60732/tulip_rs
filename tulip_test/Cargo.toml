@@ -142,6 +142,10 @@ name = "benchmark_cmo"
 harness = false
 
 [[bench]]
+name = "benchmark_chaikinmf"
+harness = false
+
+[[bench]]
 name = "benchmark_cvi"
 harness = false
 

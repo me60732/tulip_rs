@@ -52,7 +52,7 @@ pub mod by_options {
 /// An `Info` struct containing metadata about the ADOSC indicator.
 pub const INFO: Info = Info {
     name: "adosc",
-    full_name: "Accumulation/Distribution Oscillator",
+    full_name: "Accumulation/Distribution Oscillator (Chaikin Oscillator)",
     indicator_type: IndicatorType::Volume,
     inputs: &["high", "low", "close", "volume"],
     options: &["short_period", "long_period"],

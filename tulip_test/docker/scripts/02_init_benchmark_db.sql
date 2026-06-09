@@ -783,7 +783,8 @@ OVERRIDING SYSTEM VALUE VALUES
     (165,  'donchianchannel',       'Donchian Channel',                                                           2, 3, true, 'trend'),
     (166,  'elderray',              'Elder-Ray',                                                                  3, 2, true, 'trend'),
     (167,  'vortex',                'Vortex',                                                                     3, 2, true, 'trend'),
-    (168,  'trvi',                  'True Range Volatility Indicator',                                            3, 1, true, 'trend');
+    (168,  'trvi',                  'True Range Volatility Indicator',                                            3, 1, true, 'trend'),
+    (169,  'chaikinmf',             'Chaikin Money Flow',                                                         4, 1, true, 'volume');
 
 -- Reset sequence to max id + 1
 SELECT setval('indicators_id_seq', (SELECT MAX(id) FROM indicators));

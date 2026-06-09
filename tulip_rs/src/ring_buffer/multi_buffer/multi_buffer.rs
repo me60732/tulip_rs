@@ -1,5 +1,12 @@
-pub use crate::ring_buffer::{buffer::BufferElement, multi_buffer::{ring_buffer::RingBuffer, mirror_buffer::MirrorBuffer, simd_buffer::{SimdRingBuffer, SimdBuffer}}};
-use crate::ring_buffer::buffer::period_to_idx;
+use crate::ring_buffer::buffer::{period_to_idx, SerdeElement};
+pub use crate::ring_buffer::{
+    buffer::BufferElement,
+    multi_buffer::{
+        mirror_buffer::MirrorBuffer,
+        ring_buffer::RingBuffer,
+        simd_buffer::{SimdBuffer, SimdRingBuffer},
+    },
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
@@ -10,26 +17,29 @@ pub struct MultiBuffer<const B: usize, T: BufferElement = f64> {
     pub(crate) count: usize,
     pub(crate) prev_idx: usize,
 }
-// Helper struct for serialization
+
+// Helper struct for serialization — uses T::Repr so that non-serde types like
+// Simd<f64, N> are represented as their serde-compatible equivalent.
 #[derive(Serialize, Deserialize)]
-struct MultiBufferSerde<T> {
-    vals: Vec<Vec<T>>,
+struct MultiBufferSerde<R> {
+    vals: Vec<Vec<R>>,
     index: usize,
     capacity: usize,
     count: usize,
     prev_idx: usize,
 }
 
-impl<const N: usize, T> Serialize for MultiBuffer<N, T>
-where
-    T: BufferElement + Serialize,
-{
+impl<const N: usize, T: BufferElement + SerdeElement> Serialize for MultiBuffer<N, T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
         let helper = MultiBufferSerde {
-            vals: self.vals.iter().cloned().collect(),
+            vals: self
+                .vals
+                .iter()
+                .map(|lane| lane.iter().map(|v| T::to_repr(*v)).collect())
+                .collect(),
             index: self.index,
             capacity: self.capacity,
             count: self.count,
@@ -39,15 +49,15 @@ where
     }
 }
 
-impl<'de, const N: usize, T> Deserialize<'de> for MultiBuffer<N, T>
+impl<'de, const N: usize, T: BufferElement + SerdeElement> Deserialize<'de> for MultiBuffer<N, T>
 where
-    T: BufferElement + Deserialize<'de>,
+    T::Repr: Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        let helper = MultiBufferSerde::<T>::deserialize(deserializer)?;
+        let helper = MultiBufferSerde::<T::Repr>::deserialize(deserializer)?;
 
         if helper.vals.len() != N {
             return Err(serde::de::Error::custom(format!(
@@ -59,6 +69,9 @@ where
 
         let vals_array: [Vec<T>; N] = helper
             .vals
+            .into_iter()
+            .map(|lane| lane.into_iter().map(T::from_repr).collect())
+            .collect::<Vec<_>>()
             .try_into()
             .map_err(|_| serde::de::Error::custom("Failed to convert to array"))?;
 
@@ -72,7 +85,6 @@ where
     }
 }
 impl<const B: usize, T: BufferElement> MultiBuffer<B, T> {
-    
     #[inline(always)]
     fn get_values(&self, idx: usize) -> [T; B] {
         let mut results = [T::default(); B];
@@ -114,11 +126,12 @@ impl<const B: usize, T: BufferElement> MultiBuffer<B, T> {
     }
 
     #[inline(always)]
-    pub fn get_by_periods<const N: usize>(&self, periods: [usize; N]) -> [[T; N]; B]{
-        let idxs: [usize; N] = std::array::from_fn(|i| period_to_idx(self.index, self.capacity, periods[i]));
+    pub fn get_by_periods<const N: usize>(&self, periods: [usize; N]) -> [[T; N]; B] {
+        let idxs: [usize; N] =
+            std::array::from_fn(|i| period_to_idx(self.index, self.capacity, periods[i]));
         get_by_periods(self, idxs)
     }
-    
+
     #[inline(always)]
     pub(crate) fn update_internals(&mut self) {
         self.prev_idx = self.index;
@@ -166,15 +179,18 @@ impl<const B: usize, T: BufferElement> MultiBuffer<B, T> {
     }
 }
 #[inline(always)]
-pub fn get_by_periods<const N: usize, const B: usize, T: BufferElement>(buffer: &MultiBuffer<B, T>, idxs: [usize; N]) -> [[T; N]; B] {
+pub fn get_by_periods<const N: usize, const B: usize, T: BufferElement>(
+    buffer: &MultiBuffer<B, T>,
+    idxs: [usize; N],
+) -> [[T; N]; B] {
     let mut results = [[T::default(); N]; B];
-    
+
     for (buffer, buffer_results) in buffer.vals.iter().zip(results.iter_mut()) {
         for (&buffer_idx, results_value) in idxs.iter().zip(buffer_results.iter_mut()) {
             *results_value = unsafe { *buffer.get_unchecked(buffer_idx) }
         }
     }
-    
+
     results
 }
 

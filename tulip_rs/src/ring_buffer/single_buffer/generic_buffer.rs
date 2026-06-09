@@ -1,6 +1,8 @@
-//use crate::indicators::max::{find_max_scalar, find_max_simd, State as MaxState};
-//use crate::indicators::min::{find_min_scalar, find_min_simd, State as MinState};
-use crate::ring_buffer::buffer::period_to_idx;
+use serde::de::{MapAccess, Visitor};
+use serde::ser::SerializeStruct;
+use serde::{Deserialize, Serialize};
+
+use crate::ring_buffer::buffer::{period_to_idx, SerdeElement};
 pub use crate::ring_buffer::{
     buffer::BufferElement,
     single_buffer::{
@@ -9,9 +11,8 @@ pub use crate::ring_buffer::{
         simd_buffer::{SimdBuffer, SimdMirrorBuffer, SimdRingBuffer},
     },
 };
-use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Clone)]
 pub struct Buffer<T: BufferElement = f64> {
     pub(crate) vals: Vec<T>,
     pub(crate) index: usize,
@@ -38,10 +39,9 @@ impl<T: BufferElement> Buffer<T> {
     #[inline(always)]
     pub fn front(&self) -> Option<T> {
         if self.count == 0 {
-            return None
+            return None;
         }
         Some(unsafe { self.front_unchecked() })
-        
     }
 
     #[inline(always)]
@@ -51,7 +51,7 @@ impl<T: BufferElement> Buffer<T> {
     #[inline(always)]
     pub fn back(&self) -> Option<T> {
         if self.count == 0 {
-            return None
+            return None;
         }
         Some(unsafe { self.back_unchecked() })
     }
@@ -145,3 +145,87 @@ pub fn get_by_periods<const N: usize, T: BufferElement>(
 }
 // Type aliases for convenience
 pub type F64Buffer = Buffer<f64>;
+
+// ── Serde ─────────────────────────────────────────────────────────────────────
+//
+// Hand-rolled rather than #[derive] so that Buffer<Simd<f64, N>> is serialisable
+// via T::Repr even though Simd<f64, N> does not implement serde directly.
+//
+// Requires T: BufferElement + SerdeElement (not just BufferElement) so that
+// Buffer<Simd<f64, N>> used transiently in SIMD hot-paths does not accumulate
+// serde bounds for every generic N.
+//
+// Field order matches the struct declaration (vals, index, capacity, count,
+// prev_idx) so the wire format is identical to what #[derive] produced for
+// scalar element types — existing JSON round-trips continue to work unchanged.
+
+impl<T: BufferElement + SerdeElement> Serialize for Buffer<T> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut s = serializer.serialize_struct("Buffer", 5)?;
+        let repr: Vec<T::Repr> = self.vals.iter().map(|v| T::to_repr(*v)).collect();
+        s.serialize_field("vals", &repr)?;
+        s.serialize_field("index", &self.index)?;
+        s.serialize_field("capacity", &self.capacity)?;
+        s.serialize_field("count", &self.count)?;
+        s.serialize_field("prev_idx", &self.prev_idx)?;
+        s.end()
+    }
+}
+
+impl<'de, T: BufferElement + SerdeElement> Deserialize<'de> for Buffer<T>
+where
+    T::Repr: Deserialize<'de>,
+{
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Vis<T>(std::marker::PhantomData<T>);
+
+        impl<'de, T: BufferElement + SerdeElement> Visitor<'de> for Vis<T>
+        where
+            T::Repr: Deserialize<'de>,
+        {
+            type Value = Buffer<T>;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a Buffer struct")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Buffer<T>, A::Error> {
+                let mut vals = None::<Vec<T::Repr>>;
+                let mut index = None::<usize>;
+                let mut capacity = None::<usize>;
+                let mut count = None::<usize>;
+                let mut prev_idx = None::<usize>;
+
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "vals" => vals = Some(map.next_value()?),
+                        "index" => index = Some(map.next_value()?),
+                        "capacity" => capacity = Some(map.next_value()?),
+                        "count" => count = Some(map.next_value()?),
+                        "prev_idx" => prev_idx = Some(map.next_value()?),
+                        _ => {
+                            let _: serde::de::IgnoredAny = map.next_value()?;
+                        }
+                    }
+                }
+
+                Ok(Buffer {
+                    vals: vals
+                        .ok_or_else(|| serde::de::Error::missing_field("vals"))?
+                        .into_iter()
+                        .map(T::from_repr)
+                        .collect(),
+                    index: index.ok_or_else(|| serde::de::Error::missing_field("index"))?,
+                    capacity: capacity
+                        .ok_or_else(|| serde::de::Error::missing_field("capacity"))?,
+                    count: count.ok_or_else(|| serde::de::Error::missing_field("count"))?,
+                    prev_idx: prev_idx
+                        .ok_or_else(|| serde::de::Error::missing_field("prev_idx"))?,
+                })
+            }
+        }
+
+        const FIELDS: &[&str] = &["vals", "index", "capacity", "count", "prev_idx"];
+        deserializer.deserialize_struct("Buffer", FIELDS, Vis::<T>(std::marker::PhantomData))
+    }
+}
