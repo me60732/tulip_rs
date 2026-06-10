@@ -136,6 +136,17 @@ Moving average where each bar is weighted linearly, the most recent bar receivin
     const sma = allOut[1]; // optional: sma
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    // Request the SMA alongside the WMA
+    const [allOut] = ti.wma.indicator([close], [5], [true]);
+    const wma = allOut[0]; // primary
+    const sma = allOut[1]; // optional: sma
+    ```
 ### SIMD
 
 === "Rust"

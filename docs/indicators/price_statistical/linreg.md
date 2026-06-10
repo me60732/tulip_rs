@@ -111,6 +111,17 @@ The end-point of a least-squares linear regression line fitted to the last `peri
     const linregintercept = allOut[2]; // optional 1: linregintercept
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    const [allOut] = ti.linreg.indicator([close], [14], [true, true]);
+    const linreg          = allOut[0]; // primary
+    const linregslope     = allOut[1]; // optional 0: linregslope
+    const linregintercept = allOut[2]; // optional 1: linregintercept
+    ```
 ### SIMD
 
 === "Rust"

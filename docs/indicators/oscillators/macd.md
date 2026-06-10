@@ -156,6 +156,19 @@ Shows the relationship between two EMAs of different periods. The histogram visu
     const longEma  = allOut[4]; // optional 1: long_ema
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    const [allOut] = ti.macd.indicator([close], [12, 26, 9], [true, true]);
+    const macdLine = allOut[0]; // primary
+    const signal   = allOut[1]; // primary
+    const hist     = allOut[2]; // primary
+    const shortEma = allOut[3]; // optional 0: short_ema
+    const longEma  = allOut[4]; // optional 1: long_ema
+    ```
 ### SIMD
 
 === "Rust"

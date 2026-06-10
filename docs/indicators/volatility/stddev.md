@@ -127,6 +127,16 @@ Rolling standard deviation of the price series over `period` bars.
     const sma    = allOut[1]; // optional 0: sma
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    const [allOut] = ti.stddev.indicator([close], [20], [true]);
+    const stddev = allOut[0]; // primary
+    const sma    = allOut[1]; // optional 0: sma
+    ```
 ### SIMD
 
 === "Rust"

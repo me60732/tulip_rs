@@ -153,6 +153,16 @@ Relates price change to volume, indicating how easily a price moves. High values
     const medprice = allOut[1]; // optional 0: medprice
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    const [allOut] = ti.emv.indicator([high, low, volume], [], [true]);
+    const emv      = allOut[0]; // primary
+    const medprice = allOut[1]; // optional 0: medprice
+    ```
 ### SIMD
 
 === "Rust"

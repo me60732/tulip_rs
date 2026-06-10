@@ -1,15 +1,15 @@
-# ADX — Average Directional Movement Index
+# Vortex
 
-Measures the strength of a trend regardless of direction. Values above 25 indicate a strong trend; below 20 suggest a weak or ranging market.
+Identifies trend direction and strength. VM+ = |high − prev_low|, VM− = |low − prev_high|. vi_up = sum(VM+, period) / sum(TR, period), vi_down = sum(VM−, period) / sum(TR, period). vi_up > vi_down signals a bullish trend; the reverse indicates a bearish trend. Optionally emits the raw True Range series.
 
-**Inputs:** `[high, low, close]` | **Options:** `[period]` | **Outputs:** `[adx]`
+**Inputs:** `[high, low, close]` &nbsp;|&nbsp; **Options:** `[period]` &nbsp;|&nbsp; **Outputs:** `[vi_up, vi_down]`
 
 ### Basic
 
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::adx::indicator;
+    use tulip_rs::indicators::vortex::indicator;
 
     let high  = vec![82.15, 81.89, 83.03, 83.30, 83.85,
                      83.90, 83.33, 84.30, 84.84, 85.00_f64];
@@ -20,7 +20,8 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
 
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
     let (outputs, mut state) = indicator(&inputs, &[14.0], None).unwrap();
-    println!("{:?}", outputs[0]); // ADX values
+    println!("VI+: {:?}", outputs[0]); // vi_up values
+    println!("VI-: {:?}", outputs[1]); // vi_down values
 
     // State continuation — feed new bars without reprocessing history
     let new_high  = vec![85.20_f64];
@@ -30,7 +31,8 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
         &[new_high.as_slice(), new_low.as_slice(), new_close.as_slice()],
         None,
     ).unwrap();
-    println!("{:?}", continued[0]);
+    println!("VI+ continued: {:?}", continued[0]);
+    println!("VI- continued: {:?}", continued[1]);
     ```
 
 === "Python"
@@ -46,15 +48,17 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
     close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
                       83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
 
-    outputs, state = tulip_rs.indicators.adx.indicator([high, low, close], [14.0])
-    print(outputs[0])  # ADX values
+    outputs, state = tulip_rs.indicators.vortex.indicator([high, low, close], [14.0])
+    print(outputs[0])  # VI+ values
+    print(outputs[1])  # VI- values
 
     # State continuation
     new_high  = np.array([85.20], dtype=np.float64)
     new_low   = np.array([84.50], dtype=np.float64)
     new_close = np.array([85.00], dtype=np.float64)
     continued = state.batch_indicator([new_high, new_low, new_close])
-    print(continued[0])
+    print(continued[0])  # VI+ continued
+    print(continued[1])  # VI- continued
     ```
 
 === "Node.js"
@@ -66,14 +70,16 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
     const low   = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
     const close = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29];
 
-    const [outputs, state] = ti.adx.indicator([high, low, close], [14]);
-    console.log('ADX(14):', outputs[0]);
+    const [outputs, state] = ti.vortex.indicator([high, low, close], [14]);
+    console.log('VI+(14):', outputs[0]);
+    console.log('VI-(14):', outputs[1]);
 
     // State continuation
     const n = high.length - 5;
-    const [, state2] = ti.adx.indicator([high.slice(0, n), low.slice(0, n), close.slice(0, n)], [14]);
+    const [, state2] = ti.vortex.indicator([high.slice(0, n), low.slice(0, n), close.slice(0, n)], [14]);
     const continued = state2.batchIndicator([high.slice(n), low.slice(n), close.slice(n)]);
-    console.log('Continued ADX:', continued[0]);
+    console.log('Continued VI+:', continued[0]);
+    console.log('Continued VI-:', continued[1]);
     ```
 
 === "WASM"
@@ -88,40 +94,41 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
     const low   = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
     const close = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29];
 
-    const [outputs, state] = ti.adx.indicator([high, low, close], [14]);
-    console.log('ADX(14):', outputs[0]);
+    const [outputs, state] = ti.vortex.indicator([high, low, close], [14]);
+    console.log('VI+(14):', outputs[0]);
+    console.log('VI-(14):', outputs[1]);
 
     // State continuation
     const n = high.length - 5;
-    const [, state2] = ti.adx.indicator([high.slice(0, n), low.slice(0, n), close.slice(0, n)], [14]);
+    const [, state2] = ti.vortex.indicator([high.slice(0, n), low.slice(0, n), close.slice(0, n)], [14]);
     const continued = state2.batchIndicator([high.slice(n), low.slice(n), close.slice(n)]);
-    console.log('Continued ADX:', continued[0]);
+    console.log('Continued VI+:', continued[0]);
+    console.log('Continued VI-:', continued[1]);
     ```
 
 ### Optional Outputs
 
 === "Rust"
 
-    `adx` exposes 3 optional outputs: `dx`, `atr`, `tr`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+    `vortex` exposes 1 optional output: `tr`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::adx::indicator;
+    use tulip_rs::indicators::vortex::indicator;
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
     let high  = close.iter().map(|x| x + 1.0).collect::<Vec<_>>();
     let low   = close.iter().map(|x| x - 1.0).collect::<Vec<_>>();
 
-    let mask = [true, true, false];
+    let mask = [true];
     let (outputs, _state) = indicator(
         &[high.as_slice(), low.as_slice(), close.as_slice()],
         &[14.0],
         Some(&mask),
     ).unwrap();
 
-    let adx = &outputs[0]; // adx (primary)
-    let dx  = &outputs[1]; // dx (optional — requested)
-    let atr = &outputs[2]; // atr (optional — requested)
-    // tr not requested — omitted from outputs
+    let vi_up   = &outputs[0]; // vi_up (primary)
+    let vi_down = &outputs[1]; // vi_down (primary)
+    let tr      = &outputs[2]; // tr (optional — requested)
     ```
 
 === "Python"
@@ -134,30 +141,25 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
     high  = close + 1.0
     low   = close - 1.0
 
-    outputs, state = tulip_rs.indicators.adx.indicator(
+    outputs, state = tulip_rs.indicators.vortex.indicator(
         [high, low, close], [14.0],
-        optional_outputs=[True, True, False],
+        optional_outputs=[True],
     )
 
-    adx = outputs[0]  # adx (primary)
-    dx  = outputs[1]  # dx (optional — requested)
-    atr = outputs[2]  # atr (optional — requested)
-    # tr not requested — omitted from outputs
+    vi_up   = outputs[0]  # vi_up (primary)
+    vi_down = outputs[1]  # vi_down (primary)
+    tr      = outputs[2]  # tr (optional — requested)
     ```
 
 === "Node.js"
 
-    `adx` exposes 3 optional outputs: `dx`, `atr`, `tr`.
+    `vortex` exposes 1 optional output: `tr`.
 
     ```javascript
-    const [allOut] = ti.adx.indicator([high, low, close], [14], [true, true, true]);
-    const adx = allOut[0]; // primary
-    const dx  = allOut[1]; // optional 0: dx
-    const atr = allOut[2]; // optional 1: atr
-    const tr  = allOut[3]; // optional 2: tr
-
-    // Request only dx
-    const [partial] = ti.adx.indicator([high, low, close], [14], [true, false, false]);
+    const [allOut] = ti.vortex.indicator([high, low, close], [14], [true]);
+    const vi_up   = allOut[0]; // primary
+    const vi_down = allOut[1]; // primary
+    const tr      = allOut[2]; // optional 0: tr
     ```
 
 
@@ -166,14 +168,10 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
     The WASM API is identical to Node.js — pass the boolean mask as the third argument.
 
     ```javascript
-    const [allOut] = ti.adx.indicator([high, low, close], [14], [true, true, true]);
-    const adx = allOut[0]; // primary
-    const dx  = allOut[1]; // optional 0: dx
-    const atr = allOut[2]; // optional 1: atr
-    const tr  = allOut[3]; // optional 2: tr
-
-    // Request only dx
-    const [partial] = ti.adx.indicator([high, low, close], [14], [true, false, false]);
+    const [allOut] = ti.vortex.indicator([high, low, close], [14], [true]);
+    const vi_up   = allOut[0]; // primary
+    const vi_down = allOut[1]; // primary
+    const tr      = allOut[2]; // optional 0: tr
     ```
 ### SIMD
 
@@ -182,7 +180,7 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::adx::indicator_by_assets;
+    use tulip_rs::indicators::vortex::indicator_by_assets;
 
     let inputs: [&[&[f64]; 3]; 4] = [
         &[h1.as_slice(), l1.as_slice(), c1.as_slice()],
@@ -192,19 +190,21 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
     ];
     let results = indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
-        println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
+        println!("Asset {} VI+: {:?}", i + 1, asset_outputs[0]);
+        println!("Asset {} VI-: {:?}", i + 1, asset_outputs[1]);
     }
     ```
 
     **By options** — same asset, N option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::adx::indicator_by_options;
+    use tulip_rs::indicators::vortex::indicator_by_options;
 
     let opts: [&[f64; 1]; 4] = [&[7.0], &[14.0], &[21.0], &[28.0]];
     let results = indicator_by_options::<4>(&inputs, &opts, None).unwrap();
     for (i, out) in results.iter().enumerate() {
-        println!("Period {}: {:?}", opts[i][0], out[0]);
+        println!("Period {} VI+: {:?}", opts[i][0], out[0]);
+        println!("Period {} VI-: {:?}", opts[i][0], out[1]);
     }
     ```
 
@@ -219,20 +219,20 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
         [h3, l3, c3],
         [h4, l4, c4],
     ]
-    outputs_list, states = tulip_rs.indicators.adx.simd_by_assets(simd_inputs, [14.0])
+    outputs_list, states = tulip_rs.indicators.vortex.simd_by_assets(simd_inputs, [14.0])
     for i, asset_outputs in enumerate(outputs_list):
-        print(f"Asset {i+1}: {asset_outputs[0]}")
+        print(f"Asset {i+1} VI+: {asset_outputs[0]}")
+        print(f"Asset {i+1} VI-: {asset_outputs[1]}")
     ```
 
     **By options** — same asset, N option sets in parallel:
 
     ```python
     simd_options = [[7.0], [14.0], [21.0], [28.0]]
-    outputs_list, states = tulip_rs.indicators.adx.simd_by_options(
-        [high, low, close], simd_options
-    )
+    outputs_list, states = tulip_rs.indicators.vortex.simd_by_options([high, low, close], simd_options)
     for i, out in enumerate(outputs_list):
-        print(f"Period {simd_options[i][0]}: {out[0]}")
+        print(f"Period {simd_options[i][0]} VI+: {out[0]}")
+        print(f"Period {simd_options[i][0]} VI-: {out[1]}")
     ```
 
 === "Node.js"
@@ -246,14 +246,14 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
         [high.map(v => v * 0.9), low.map(v => v * 0.9), close.map(v => v * 0.9)],
         [high.map(v => v * 1.02), low.map(v => v * 1.02), close.map(v => v * 1.02)],
     ];
-    const [results] = ti.adx.simdByAssets(simdInputs, [14]);
-    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    const [results] = ti.vortex.simdByAssets(simdInputs, [14]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1} VI+:`, out[0], 'VI-:', out[1]));
     ```
 
     **By options** — same asset, 4 different periods in parallel:
 
     ```javascript
     const simdOptions = [[7], [14], [21], [28]];
-    const [results] = ti.adx.simdByOptions([high, low, close], simdOptions);
-    results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]}:`, out[0]));
+    const [results] = ti.vortex.simdByOptions([high, low, close], simdOptions);
+    results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]} VI+:`, out[0], 'VI-:', out[1]));
     ```

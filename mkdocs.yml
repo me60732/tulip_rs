@@ -60,6 +60,7 @@ nav:
                 - VIDYA: indicators/moving_averages/vidya.md
                 - VWMA: indicators/moving_averages/vwma.md
                 - Wilders: indicators/moving_averages/wilders.md
+                - SMA Envelope: indicators/moving_averages/smaenvelope.md
           - Oscillators:
                 - RSI: indicators/oscillators/rsi.md
                 - MACD: indicators/oscillators/macd.md
@@ -85,6 +86,9 @@ nav:
                 - Aroon: indicators/trend/aroon.md
                 - Aroon Oscillator: indicators/trend/aroon_oscillator.md
                 - PSAR: indicators/trend/psar.md
+                - Elder-Ray: indicators/trend/elderray.md
+                - Donchian Channel: indicators/trend/donchianchannel.md
+                - Vortex: indicators/trend/vortex.md
           - Volatility:
                 - BBands: indicators/volatility/bbands.md
                 - ATR: indicators/volatility/atr.md
@@ -94,6 +98,9 @@ nav:
                 - Volatility: indicators/volatility/volatility.md
                 - VHF: indicators/volatility/vhf.md
                 - CVI: indicators/volatility/cvi.md
+                - Chandelier Exit: indicators/volatility/chandelierexit.md
+                - Keltner Channel: indicators/volatility/keltnerchannel.md
+                - TRVI: indicators/volatility/trvi.md
           - Volume:
                 - AD: indicators/volume/ad.md
                 - ADOSC: indicators/volume/adosc.md
@@ -106,6 +113,7 @@ nav:
                 - EMV: indicators/volume/emv.md
                 - WAD: indicators/volume/wad.md
                 - Market Facilitation Index: indicators/volume/marketfi.md
+                - Chaikin Money Flow: indicators/volume/chaikinmf.md
           - Price & Statistical:
                 - Average Price: indicators/price_statistical/avgprice.md
                 - Median Price: indicators/price_statistical/medprice.md

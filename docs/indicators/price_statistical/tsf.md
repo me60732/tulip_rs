@@ -114,6 +114,18 @@ Projects the linear regression line one bar forward, giving a one-period-ahead p
     const linregintercept = allOut[3]; // optional 2: linregintercept
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    const [allOut] = ti.tsf.indicator([close], [14], [true, true, true]);
+    const tsf             = allOut[0]; // primary
+    const linreg          = allOut[1]; // optional 0: linreg
+    const linregslope     = allOut[2]; // optional 1: linregslope
+    const linregintercept = allOut[3]; // optional 2: linregintercept
+    ```
 ### SIMD
 
 === "Rust"

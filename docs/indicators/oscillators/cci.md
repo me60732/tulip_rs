@@ -160,6 +160,21 @@ Measures how far the typical price deviates from its simple moving average, norm
     const [partial] = ti.cci.indicator([high, low, close], [20], [true, false, false]);
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    const [allOut] = ti.cci.indicator([high, low, close], [20], [true, true, true]);
+    const cci      = allOut[0]; // primary
+    const sma      = allOut[1]; // optional 0: sma
+    const md       = allOut[2]; // optional 1: md
+    const typprice = allOut[3]; // optional 2: typprice
+
+    // Request only sma
+    const [partial] = ti.cci.indicator([high, low, close], [20], [true, false, false]);
+    ```
 ### SIMD
 
 === "Rust"

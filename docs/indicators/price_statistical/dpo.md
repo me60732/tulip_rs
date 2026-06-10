@@ -108,6 +108,16 @@ Removes the trend from price by comparing it to a displaced moving average, high
     const sma = allOut[1]; // optional 0: sma
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    const [allOut] = ti.dpo.indicator([close], [14], [true]);
+    const dpo = allOut[0]; // primary
+    const sma = allOut[1]; // optional 0: sma
+    ```
 ### SIMD
 
 === "Rust"

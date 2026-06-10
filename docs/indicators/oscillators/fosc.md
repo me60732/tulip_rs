@@ -143,6 +143,22 @@ Measures the percentage difference between the current price and the linear regr
     const [partial] = ti.fosc.indicator([close], [14], [true, false, false, false]);
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    const [allOut] = ti.fosc.indicator([close], [14], [true, true, true, true]);
+    const fosc            = allOut[0]; // primary
+    const tsf             = allOut[1]; // optional 0: tsf
+    const linreg          = allOut[2]; // optional 1: linreg
+    const linregslope     = allOut[3]; // optional 2: linregslope
+    const linregintercept = allOut[4]; // optional 3: linregintercept
+
+    // Request only tsf
+    const [partial] = ti.fosc.indicator([close], [14], [true, false, false, false]);
+    ```
 ### SIMD
 
 === "Rust"

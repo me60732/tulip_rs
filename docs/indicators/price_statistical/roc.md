@@ -108,6 +108,16 @@ The percentage change between the current price and the price `period` bars ago.
     const mom = allOut[1]; // optional 0: mom
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    const [allOut] = ti.roc.indicator([close], [10], [true]);
+    const roc = allOut[0]; // primary
+    const mom = allOut[1]; // optional 0: mom
+    ```
 ### SIMD
 
 === "Rust"

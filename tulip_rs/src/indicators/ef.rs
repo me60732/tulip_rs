@@ -56,7 +56,7 @@ pub const INFO: Info = Info {
     display_groups: &[DisplayGroup {
         id: "ef",
         label: "EF",
-        display_type: DisplayType::Overlay,
+        display_type: DisplayType::Indicator,
         outputs: &["ef"],
     }],
 };

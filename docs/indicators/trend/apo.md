@@ -130,6 +130,17 @@ The raw difference between two EMAs (short minus long). Positive values indicate
     const longEma  = allOut[2]; // optional 1: long_ema
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    const [allOut] = ti.apo.indicator([close], [12, 26], [true, true]);
+    const apo      = allOut[0]; // primary
+    const shortEma = allOut[1]; // optional 0: short_ema
+    const longEma  = allOut[2]; // optional 1: long_ema
+    ```
 ### SIMD
 
 === "Rust"

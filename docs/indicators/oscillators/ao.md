@@ -179,6 +179,22 @@ Measures market momentum as the difference between a 5-period and 34-period simp
     const [partial] = ti.ao.indicator([high, low], [], [true, false, false]);
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    // Request all optional outputs
+    const [allOut] = ti.ao.indicator([high, low], [], [true, true, true]);
+    const ao       = allOut[0]; // primary
+    const shortSma = allOut[1]; // optional 0: short_sma
+    const longSma  = allOut[2]; // optional 1: long_sma
+    const medprice = allOut[3]; // optional 2: medprice
+
+    // Request only short_sma
+    const [partial] = ti.ao.indicator([high, low], [], [true, false, false]);
+    ```
 ### SIMD
 
 === "Rust"

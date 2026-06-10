@@ -2,7 +2,7 @@
 
 Momentum indicator measuring the current close relative to the highest high over `period` bars, scaled to a range of -100 to 0. Values near 0 indicate overbought conditions; values near -100 indicate oversold conditions.
 
-**Inputs:** `[high, low, close]` &nbsp;|&nbsp; **Options:** `[period]` &nbsp;|&nbsp; **Outputs:** `[willr]`
+**Inputs:** `[high, low, close]` &nbsp;|&nbsp; **Options:** `[period]` &nbsp;|&nbsp; **Outputs:** `[willr]` &nbsp;|&nbsp; **Optional:** `[min, max]`
 
 ### Basic
 
@@ -95,6 +95,79 @@ Momentum indicator measuring the current close relative to the highest high over
     console.log('Continued %R:', continued[0]);
     ```
 
+### Optional Outputs
+
+=== "Rust"
+
+    `willr` exposes 2 optional outputs: `min`, `max`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```rust
+    use tulip_rs::indicators::willr::indicator;
+
+    let high  = vec![82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00_f64];
+    let low   = vec![81.29, 80.64, 81.31, 82.65, 83.07,
+                     83.11, 82.49, 82.30, 84.15, 84.11_f64];
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
+                     83.15, 82.84, 83.99, 84.55, 84.36_f64];
+
+    let mask = [true, true];
+    let (outputs, _state) = indicator(
+        &[high.as_slice(), low.as_slice(), close.as_slice()],
+        &[14.0],
+        Some(&mask),
+    ).unwrap();
+
+    let willr = &outputs[0]; // willr (primary)
+    let min   = &outputs[1]; // min (optional — requested)
+    let max   = &outputs[2]; // max (optional — requested)
+    ```
+
+=== "Python"
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    high  = np.array([82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00], dtype=np.float64)
+    low   = np.array([81.29, 80.64, 81.31, 82.65, 83.07,
+                      83.11, 82.49, 82.30, 84.15, 84.11], dtype=np.float64)
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.willr.indicator(
+        [high, low, close], [14.0],
+        optional_outputs=[True, True],
+    )
+
+    willr = outputs[0]  # willr (primary)
+    min_  = outputs[1]  # min (optional — requested)
+    max_  = outputs[2]  # max (optional — requested)
+    ```
+
+=== "Node.js"
+
+    `willr` exposes 2 optional outputs: `min`, `max`.
+
+    ```javascript
+    const [allOut] = ti.willr.indicator([high, low, close], [14], [true, true]);
+    const willr = allOut[0]; // primary
+    const min   = allOut[1]; // optional 0: min
+    const max   = allOut[2]; // optional 1: max
+    ```
+
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    const [allOut] = ti.willr.indicator([high, low, close], [14], [true, true]);
+    const willr = allOut[0]; // primary
+    const min   = allOut[1]; // optional 0: min
+    const max   = allOut[2]; // optional 1: max
+    ```
 ### SIMD
 
 === "Rust"

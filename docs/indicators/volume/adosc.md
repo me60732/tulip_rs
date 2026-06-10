@@ -172,6 +172,18 @@ The difference between a short and long EMA of the A/D line, used to confirm pri
     const ad       = allOut[3]; // optional 2: ad
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    const [allOut] = ti.adosc.indicator([high, low, close, volume], [3, 10], [true, true, true]);
+    const adosc    = allOut[0]; // primary
+    const shortEma = allOut[1]; // optional 0: short_ema
+    const longEma  = allOut[2]; // optional 1: long_ema
+    const ad       = allOut[3]; // optional 2: ad
+    ```
 ### SIMD
 
 === "Rust"

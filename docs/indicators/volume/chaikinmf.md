@@ -1,15 +1,15 @@
-# MFI — Money Flow Index
+# CMF — Chaikin Money Flow
 
-A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
+Measures buying and selling pressure. For each bar: MFV = ((close − low) − (high − close)) / (high − low) × volume. CMF = sum(MFV, period) / sum(volume, period). Values near +1 indicate strong buying pressure; values near −1 indicate strong selling pressure.
 
-**Inputs:** `[high, low, close, volume]` | **Options:** `[period]` | **Outputs:** `[mfi]`
+**Inputs:** `[high, low, close, volume]` &nbsp;|&nbsp; **Options:** `[period]` &nbsp;|&nbsp; **Outputs:** `[cmf]`
 
 ### Basic
 
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::mfi::indicator;
+    use tulip_rs::indicators::chaikinmf::indicator;
 
     let high   = vec![82.15, 81.89, 83.03, 83.30, 83.85,
                       83.90, 83.33, 84.30, 84.84, 85.00_f64];
@@ -17,12 +17,12 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
                       83.11, 82.49, 82.30, 84.15, 84.11_f64];
     let close  = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                       83.15, 82.84, 83.99, 84.55, 84.36_f64];
-    let volume = vec![1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
-                      900.0, 1500.0, 1800.0, 1000.0, 1700.0_f64];
+    let volume = vec![1200.0, 1500.0, 1300.0, 1100.0, 1600.0,
+                      1400.0, 1200.0, 1700.0, 1800.0, 1500.0_f64];
 
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice(), volume.as_slice()];
     let (outputs, mut state) = indicator(&inputs, &[14.0], None).unwrap();
-    println!("{:?}", outputs[0]); // MFI values
+    println!("{:?}", outputs[0]); // CMF values
 
     // State continuation — feed new bars without reprocessing history
     let new_high   = vec![85.20_f64];
@@ -49,11 +49,11 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
                        83.11, 82.49, 82.30, 84.15, 84.11], dtype=np.float64)
     close  = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
                        83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
-    volume = np.array([1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
-                       900.0, 1500.0, 1800.0, 1000.0, 1700.0], dtype=np.float64)
+    volume = np.array([1200.0, 1500.0, 1300.0, 1100.0, 1600.0,
+                       1400.0, 1200.0, 1700.0, 1800.0, 1500.0], dtype=np.float64)
 
-    outputs, state = tulip_rs.indicators.mfi.indicator([high, low, close, volume], [14.0])
-    print(outputs[0])  # MFI values
+    outputs, state = tulip_rs.indicators.chaikinmf.indicator([high, low, close, volume], [14.0])
+    print(outputs[0])  # CMF values
 
     # State continuation
     new_high   = np.array([85.20], dtype=np.float64)
@@ -72,16 +72,16 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
     const high   = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87];
     const low    = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
     const close  = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29];
-    const volume = [5653100, 6447400, 7690900, 3831400, 4455100, 3798000, 3936200, 4732000, 4841300, 3915300, 6830800, 6694100, 5293600, 7985800, 4807900];
+    const volume = [1200.0, 1500.0, 1300.0, 1100.0, 1600.0, 1400.0, 1200.0, 1700.0, 1800.0, 1500.0, 1350.0, 1650.0, 1450.0, 1750.0, 1600.0];
 
-    const [outputs, state] = ti.mfi.indicator([high, low, close, volume], [14]);
-    console.log('MFI(14):', outputs[0]);
+    const [outputs, state] = ti.chaikinmf.indicator([high, low, close, volume], [14]);
+    console.log('CMF(14):', outputs[0]);
 
     // State continuation
     const n = high.length - 5;
-    const [, state2] = ti.mfi.indicator([high.slice(0, n), low.slice(0, n), close.slice(0, n), volume.slice(0, n)], [14]);
+    const [, state2] = ti.chaikinmf.indicator([high.slice(0, n), low.slice(0, n), close.slice(0, n), volume.slice(0, n)], [14]);
     const continued = state2.batchIndicator([high.slice(n), low.slice(n), close.slice(n), volume.slice(n)]);
-    console.log('Continued MFI:', continued[0]);
+    console.log('Continued CMF:', continued[0]);
     ```
 
 === "WASM"
@@ -95,83 +95,18 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
     const high   = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87];
     const low    = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
     const close  = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29];
-    const volume = [5653100, 6447400, 7690900, 3831400, 4455100, 3798000, 3936200, 4732000, 4841300, 3915300, 6830800, 6694100, 5293600, 7985800, 4807900];
+    const volume = [1200.0, 1500.0, 1300.0, 1100.0, 1600.0, 1400.0, 1200.0, 1700.0, 1800.0, 1500.0, 1350.0, 1650.0, 1450.0, 1750.0, 1600.0];
 
-    const [outputs, state] = ti.mfi.indicator([high, low, close, volume], [14]);
-    console.log('MFI(14):', outputs[0]);
+    const [outputs, state] = ti.chaikinmf.indicator([high, low, close, volume], [14]);
+    console.log('CMF(14):', outputs[0]);
 
     // State continuation
     const n = high.length - 5;
-    const [, state2] = ti.mfi.indicator([high.slice(0, n), low.slice(0, n), close.slice(0, n), volume.slice(0, n)], [14]);
+    const [, state2] = ti.chaikinmf.indicator([high.slice(0, n), low.slice(0, n), close.slice(0, n), volume.slice(0, n)], [14]);
     const continued = state2.batchIndicator([high.slice(n), low.slice(n), close.slice(n), volume.slice(n)]);
-    console.log('Continued MFI:', continued[0]);
+    console.log('Continued CMF:', continued[0]);
     ```
 
-### Optional Outputs
-
-=== "Rust"
-
-    `mfi` exposes 1 optional output: `typprice`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
-
-    ```rust
-    use tulip_rs::indicators::mfi::indicator;
-
-    let close  = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
-    let high   = close.iter().map(|x| x + 1.0).collect::<Vec<_>>();
-    let low    = close.iter().map(|x| x - 1.0).collect::<Vec<_>>();
-    let volume = vec![10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0, 11800.0, 10200.0_f64];
-
-    let mask = [true];
-    let (outputs, _state) = indicator(
-        &[high.as_slice(), low.as_slice(), close.as_slice(), volume.as_slice()],
-        &[14.0],
-        Some(&mask),
-    ).unwrap();
-
-    let mfi      = &outputs[0]; // mfi (primary)
-    let typprice = &outputs[1]; // typprice (optional — requested)
-    ```
-
-=== "Python"
-
-    ```python
-    import numpy as np
-    import tulip_rs
-
-    close  = np.array([81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
-    high   = close + 1.0
-    low    = close - 1.0
-    volume = np.array([10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0, 11800.0, 10200.0], dtype=np.float64)
-
-    outputs, state = tulip_rs.indicators.mfi.indicator(
-        [high, low, close, volume], [14.0],
-        optional_outputs=[True],
-    )
-
-    mfi      = outputs[0]  # mfi (primary)
-    typprice = outputs[1]  # typprice (optional — requested)
-    ```
-
-=== "Node.js"
-
-    `mfi` exposes 1 optional output: `typprice`.
-
-    ```javascript
-    const [allOut] = ti.mfi.indicator([high, low, close, volume], [14], [true]);
-    const mfi      = allOut[0]; // primary
-    const typprice = allOut[1]; // optional 0: typprice
-    ```
-
-
-=== "WASM"
-
-    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
-
-    ```javascript
-    const [allOut] = ti.mfi.indicator([high, low, close, volume], [14], [true]);
-    const mfi      = allOut[0]; // primary
-    const typprice = allOut[1]; // optional 0: typprice
-    ```
 ### SIMD
 
 === "Rust"
@@ -179,7 +114,7 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::mfi::indicator_by_assets;
+    use tulip_rs::indicators::chaikinmf::indicator_by_assets;
 
     let inputs: [&[&[f64]; 4]; 4] = [
         &[h1.as_slice(), l1.as_slice(), c1.as_slice(), v1.as_slice()],
@@ -196,7 +131,7 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
     **By options** — same asset, N option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::mfi::indicator_by_options;
+    use tulip_rs::indicators::chaikinmf::indicator_by_options;
 
     let opts: [&[f64; 1]; 4] = [&[7.0], &[14.0], &[21.0], &[28.0]];
     let results = indicator_by_options::<4>(&inputs, &opts, None).unwrap();
@@ -216,7 +151,7 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
         [h3, l3, c3, v3],
         [h4, l4, c4, v4],
     ]
-    outputs_list, states = tulip_rs.indicators.mfi.simd_by_assets(simd_inputs, [14.0])
+    outputs_list, states = tulip_rs.indicators.chaikinmf.simd_by_assets(simd_inputs, [14.0])
     for i, asset_outputs in enumerate(outputs_list):
         print(f"Asset {i+1}: {asset_outputs[0]}")
     ```
@@ -225,7 +160,7 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
 
     ```python
     simd_options = [[7.0], [14.0], [21.0], [28.0]]
-    outputs_list, states = tulip_rs.indicators.mfi.simd_by_options(
+    outputs_list, states = tulip_rs.indicators.chaikinmf.simd_by_options(
         [high, low, close, volume], simd_options
     )
     for i, out in enumerate(outputs_list):
@@ -243,7 +178,7 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
         [high.map(v => v * 0.9), low.map(v => v * 0.9), close.map(v => v * 0.9), volume.map(v => v * 0.9)],
         [high.map(v => v * 1.02), low.map(v => v * 1.02), close.map(v => v * 1.02), volume.map(v => v * 1.02)],
     ];
-    const [results] = ti.mfi.simdByAssets(simdInputs, [14]);
+    const [results] = ti.chaikinmf.simdByAssets(simdInputs, [14]);
     results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
     ```
 
@@ -251,6 +186,6 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
 
     ```javascript
     const simdOptions = [[7], [14], [21], [28]];
-    const [results] = ti.mfi.simdByOptions([high, low, close, volume], simdOptions);
+    const [results] = ti.chaikinmf.simdByOptions([high, low, close, volume], simdOptions);
     results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]}:`, out[0]));
     ```

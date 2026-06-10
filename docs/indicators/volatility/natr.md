@@ -160,6 +160,17 @@ ATR expressed as a percentage of the closing price, making it comparable across 
     const tr   = allOut[2]; // optional 1: tr
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    const [allOut] = ti.natr.indicator([high, low, close], [14], [true, true]);
+    const natr = allOut[0]; // primary
+    const atr  = allOut[1]; // optional 0: atr
+    const tr   = allOut[2]; // optional 1: tr
+    ```
 ### SIMD
 
 === "Rust"

@@ -156,6 +156,19 @@ A smoothed version of ADX, calculated as the average of the current ADX and the 
     const tr   = allOut[4]; // optional 3: tr
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    const [allOut] = ti.adxr.indicator([high, low, close], [14], [true, true, true, true]);
+    const adxr = allOut[0]; // primary
+    const adx  = allOut[1]; // optional 0: adx
+    const dx   = allOut[2]; // optional 1: dx
+    const atr  = allOut[3]; // optional 2: atr
+    const tr   = allOut[4]; // optional 3: tr
+    ```
 ### SIMD
 
 === "Rust"

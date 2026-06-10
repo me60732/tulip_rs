@@ -157,6 +157,16 @@ Measures market volatility by averaging the true range (the greatest of: high-lo
     const tr  = allOut[1]; // optional 0: tr
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    const [allOut] = ti.atr.indicator([high, low, close], [14], [true]);
+    const atr = allOut[0]; // primary
+    const tr  = allOut[1]; // optional 0: tr
+    ```
 ### SIMD
 
 === "Rust"

@@ -150,6 +150,23 @@ Similar to KAMA but uses the Chande Momentum Oscillator as its efficiency measur
     const [partial] = ti.vidya.indicator([close], [2, 5, 0.2], [true, true, false, false]);
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    // Request all optional outputs
+    const [allOut] = ti.vidya.indicator([close], [2, 5, 0.2], [true, true, true, true]);
+    const vidya       = allOut[0]; // primary
+    const shortSma    = allOut[1]; // optional 0: short_sma
+    const longSma     = allOut[2]; // optional 1: long_sma
+    const shortStddev = allOut[3]; // optional 2: short_stddev
+    const longStddev  = allOut[4]; // optional 3: long_stddev
+
+    // Request only the SMAs
+    const [partial] = ti.vidya.indicator([close], [2, 5, 0.2], [true, true, false, false]);
+    ```
 ### SIMD
 
 === "Rust"

@@ -154,6 +154,17 @@ The ratio of the difference to the sum of +DI and -DI, expressing directional mo
     const tr  = allOut[2]; // optional 1: tr
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    const [allOut] = ti.dx.indicator([high, low, close], [14], [true, true]);
+    const dx  = allOut[0]; // primary
+    const atr = allOut[1]; // optional 0: atr
+    const tr  = allOut[2]; // optional 1: tr
+    ```
 ### SIMD
 
 === "Rust"

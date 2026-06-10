@@ -146,6 +146,17 @@ The difference between Aroon Up and Aroon Down. Positive values indicate bullish
     const aroonUp   = allOut[2]; // optional 1: aroon_up
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    const [allOut] = ti.aroonosc.indicator([high, low], [25], [true, true]);
+    const aroonosc  = allOut[0]; // primary
+    const aroonDown = allOut[1]; // optional 0: aroon_down
+    const aroonUp   = allOut[2]; // optional 1: aroon_up
+    ```
 ### SIMD
 
 === "Rust"

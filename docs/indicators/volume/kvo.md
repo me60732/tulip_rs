@@ -169,6 +169,17 @@ Identifies long-term money flow trends while remaining sensitive enough to detec
     const longEma  = allOut[2]; // optional 1: long_ema
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    const [allOut] = ti.kvo.indicator([high, low, close, volume], [34, 55], [true, true]);
+    const kvo      = allOut[0]; // primary
+    const shortEma = allOut[1]; // optional 0: short_ema
+    const longEma  = allOut[2]; // optional 1: long_ema
+    ```
 ### SIMD
 
 === "Rust"

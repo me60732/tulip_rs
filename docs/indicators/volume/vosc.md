@@ -128,6 +128,17 @@ The percentage difference between two volume moving averages. Expanding volume o
     const longSma  = allOut[2]; // optional 1: long_sma
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    const [allOut] = ti.vosc.indicator([volume], [5, 10], [true, true]);
+    const vosc     = allOut[0]; // primary
+    const shortSma = allOut[1]; // optional 0: short_sma
+    const longSma  = allOut[2]; // optional 1: long_sma
+    ```
 ### SIMD
 
 === "Rust"

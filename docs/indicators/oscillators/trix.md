@@ -112,6 +112,18 @@ The 1-period percentage rate of change of a triple-smoothed EMA. Useful as a mom
     const ema  = allOut[3]; // optional 2: ema
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    const [allOut] = ti.trix.indicator([close], [14], [true, true, true]);
+    const trix = allOut[0]; // primary
+    const tema = allOut[1]; // optional 0: tema
+    const dema = allOut[2]; // optional 1: dema
+    const ema  = allOut[3]; // optional 2: ema
+    ```
 ### SIMD
 
 === "Rust"

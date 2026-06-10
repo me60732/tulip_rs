@@ -1,15 +1,15 @@
-# ADX — Average Directional Movement Index
+# TRVI — True Range Volatility Indicator
 
-Measures the strength of a trend regardless of direction. Values above 25 indicate a strong trend; below 20 suggest a weak or ranging market.
+Similar to CVI but uses True Range instead of high − low. Applies an EMA to TR then outputs the percentage rate of change: (ema_now − ema_old) / ema_old × 100. More responsive to overnight gaps than CVI. Optionally emits the raw True Range series (tr) and the EMA-of-TR series (ema).
 
-**Inputs:** `[high, low, close]` | **Options:** `[period]` | **Outputs:** `[adx]`
+**Inputs:** `[high, low, close]` &nbsp;|&nbsp; **Options:** `[period]` &nbsp;|&nbsp; **Outputs:** `[trvi]`
 
 ### Basic
 
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::adx::indicator;
+    use tulip_rs::indicators::trvi::indicator;
 
     let high  = vec![82.15, 81.89, 83.03, 83.30, 83.85,
                      83.90, 83.33, 84.30, 84.84, 85.00_f64];
@@ -20,7 +20,7 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
 
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
     let (outputs, mut state) = indicator(&inputs, &[14.0], None).unwrap();
-    println!("{:?}", outputs[0]); // ADX values
+    println!("{:?}", outputs[0]); // TRVI values
 
     // State continuation — feed new bars without reprocessing history
     let new_high  = vec![85.20_f64];
@@ -46,8 +46,8 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
     close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
                       83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
 
-    outputs, state = tulip_rs.indicators.adx.indicator([high, low, close], [14.0])
-    print(outputs[0])  # ADX values
+    outputs, state = tulip_rs.indicators.trvi.indicator([high, low, close], [14.0])
+    print(outputs[0])  # TRVI values
 
     # State continuation
     new_high  = np.array([85.20], dtype=np.float64)
@@ -66,14 +66,14 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
     const low   = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
     const close = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29];
 
-    const [outputs, state] = ti.adx.indicator([high, low, close], [14]);
-    console.log('ADX(14):', outputs[0]);
+    const [outputs, state] = ti.trvi.indicator([high, low, close], [14]);
+    console.log('TRVI(14):', outputs[0]);
 
     // State continuation
     const n = high.length - 5;
-    const [, state2] = ti.adx.indicator([high.slice(0, n), low.slice(0, n), close.slice(0, n)], [14]);
+    const [, state2] = ti.trvi.indicator([high.slice(0, n), low.slice(0, n), close.slice(0, n)], [14]);
     const continued = state2.batchIndicator([high.slice(n), low.slice(n), close.slice(n)]);
-    console.log('Continued ADX:', continued[0]);
+    console.log('Continued TRVI:', continued[0]);
     ```
 
 === "WASM"
@@ -88,40 +88,39 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
     const low   = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
     const close = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29];
 
-    const [outputs, state] = ti.adx.indicator([high, low, close], [14]);
-    console.log('ADX(14):', outputs[0]);
+    const [outputs, state] = ti.trvi.indicator([high, low, close], [14]);
+    console.log('TRVI(14):', outputs[0]);
 
     // State continuation
     const n = high.length - 5;
-    const [, state2] = ti.adx.indicator([high.slice(0, n), low.slice(0, n), close.slice(0, n)], [14]);
+    const [, state2] = ti.trvi.indicator([high.slice(0, n), low.slice(0, n), close.slice(0, n)], [14]);
     const continued = state2.batchIndicator([high.slice(n), low.slice(n), close.slice(n)]);
-    console.log('Continued ADX:', continued[0]);
+    console.log('Continued TRVI:', continued[0]);
     ```
 
 ### Optional Outputs
 
 === "Rust"
 
-    `adx` exposes 3 optional outputs: `dx`, `atr`, `tr`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+    `trvi` exposes 2 optional outputs: `tr`, `ema`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::adx::indicator;
+    use tulip_rs::indicators::trvi::indicator;
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
     let high  = close.iter().map(|x| x + 1.0).collect::<Vec<_>>();
     let low   = close.iter().map(|x| x - 1.0).collect::<Vec<_>>();
 
-    let mask = [true, true, false];
+    let mask = [true, true];
     let (outputs, _state) = indicator(
         &[high.as_slice(), low.as_slice(), close.as_slice()],
         &[14.0],
         Some(&mask),
     ).unwrap();
 
-    let adx = &outputs[0]; // adx (primary)
-    let dx  = &outputs[1]; // dx (optional — requested)
-    let atr = &outputs[2]; // atr (optional — requested)
-    // tr not requested — omitted from outputs
+    let trvi = &outputs[0]; // trvi (primary)
+    let tr   = &outputs[1]; // tr (optional — requested)
+    let ema  = &outputs[2]; // ema (optional — requested)
     ```
 
 === "Python"
@@ -134,30 +133,28 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
     high  = close + 1.0
     low   = close - 1.0
 
-    outputs, state = tulip_rs.indicators.adx.indicator(
+    outputs, state = tulip_rs.indicators.trvi.indicator(
         [high, low, close], [14.0],
-        optional_outputs=[True, True, False],
+        optional_outputs=[True, True],
     )
 
-    adx = outputs[0]  # adx (primary)
-    dx  = outputs[1]  # dx (optional — requested)
-    atr = outputs[2]  # atr (optional — requested)
-    # tr not requested — omitted from outputs
+    trvi = outputs[0]  # trvi (primary)
+    tr   = outputs[1]  # tr (optional — requested)
+    ema  = outputs[2]  # ema (optional — requested)
     ```
 
 === "Node.js"
 
-    `adx` exposes 3 optional outputs: `dx`, `atr`, `tr`.
+    `trvi` exposes 2 optional outputs: `tr`, `ema`.
 
     ```javascript
-    const [allOut] = ti.adx.indicator([high, low, close], [14], [true, true, true]);
-    const adx = allOut[0]; // primary
-    const dx  = allOut[1]; // optional 0: dx
-    const atr = allOut[2]; // optional 1: atr
-    const tr  = allOut[3]; // optional 2: tr
+    const [allOut] = ti.trvi.indicator([high, low, close], [14], [true, true]);
+    const trvi = allOut[0]; // primary
+    const tr   = allOut[1]; // optional 0: tr
+    const ema  = allOut[2]; // optional 1: ema
 
-    // Request only dx
-    const [partial] = ti.adx.indicator([high, low, close], [14], [true, false, false]);
+    // Request only tr
+    const [partial] = ti.trvi.indicator([high, low, close], [14], [true, false]);
     ```
 
 
@@ -166,14 +163,13 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
     The WASM API is identical to Node.js — pass the boolean mask as the third argument.
 
     ```javascript
-    const [allOut] = ti.adx.indicator([high, low, close], [14], [true, true, true]);
-    const adx = allOut[0]; // primary
-    const dx  = allOut[1]; // optional 0: dx
-    const atr = allOut[2]; // optional 1: atr
-    const tr  = allOut[3]; // optional 2: tr
+    const [allOut] = ti.trvi.indicator([high, low, close], [14], [true, true]);
+    const trvi = allOut[0]; // primary
+    const tr   = allOut[1]; // optional 0: tr
+    const ema  = allOut[2]; // optional 1: ema
 
-    // Request only dx
-    const [partial] = ti.adx.indicator([high, low, close], [14], [true, false, false]);
+    // Request only tr
+    const [partial] = ti.trvi.indicator([high, low, close], [14], [true, false]);
     ```
 ### SIMD
 
@@ -182,7 +178,7 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::adx::indicator_by_assets;
+    use tulip_rs::indicators::trvi::indicator_by_assets;
 
     let inputs: [&[&[f64]; 3]; 4] = [
         &[h1.as_slice(), l1.as_slice(), c1.as_slice()],
@@ -199,9 +195,9 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
     **By options** — same asset, N option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::adx::indicator_by_options;
+    use tulip_rs::indicators::trvi::indicator_by_options;
 
-    let opts: [&[f64; 1]; 4] = [&[7.0], &[14.0], &[21.0], &[28.0]];
+    let opts: [&[f64; 1]; 4] = [&[5.0], &[10.0], &[14.0], &[20.0]];
     let results = indicator_by_options::<4>(&inputs, &opts, None).unwrap();
     for (i, out) in results.iter().enumerate() {
         println!("Period {}: {:?}", opts[i][0], out[0]);
@@ -219,7 +215,7 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
         [h3, l3, c3],
         [h4, l4, c4],
     ]
-    outputs_list, states = tulip_rs.indicators.adx.simd_by_assets(simd_inputs, [14.0])
+    outputs_list, states = tulip_rs.indicators.trvi.simd_by_assets(simd_inputs, [14.0])
     for i, asset_outputs in enumerate(outputs_list):
         print(f"Asset {i+1}: {asset_outputs[0]}")
     ```
@@ -227,10 +223,8 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
     **By options** — same asset, N option sets in parallel:
 
     ```python
-    simd_options = [[7.0], [14.0], [21.0], [28.0]]
-    outputs_list, states = tulip_rs.indicators.adx.simd_by_options(
-        [high, low, close], simd_options
-    )
+    simd_options = [[5.0], [10.0], [14.0], [20.0]]
+    outputs_list, states = tulip_rs.indicators.trvi.simd_by_options([high, low, close], simd_options)
     for i, out in enumerate(outputs_list):
         print(f"Period {simd_options[i][0]}: {out[0]}")
     ```
@@ -246,14 +240,14 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
         [high.map(v => v * 0.9), low.map(v => v * 0.9), close.map(v => v * 0.9)],
         [high.map(v => v * 1.02), low.map(v => v * 1.02), close.map(v => v * 1.02)],
     ];
-    const [results] = ti.adx.simdByAssets(simdInputs, [14]);
+    const [results] = ti.trvi.simdByAssets(simdInputs, [14]);
     results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
     ```
 
     **By options** — same asset, 4 different periods in parallel:
 
     ```javascript
-    const simdOptions = [[7], [14], [21], [28]];
-    const [results] = ti.adx.simdByOptions([high, low, close], simdOptions);
+    const simdOptions = [[5], [10], [14], [20]];
+    const [results] = ti.trvi.simdByOptions([high, low, close], simdOptions);
     results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]}:`, out[0]));
     ```

@@ -142,6 +142,21 @@ Further reduces lag with three EMA layers: `3 * EMA - 3 * EMA(EMA) + EMA(EMA(EMA
     const [partial] = ti.tema.indicator([close], [5], [true, false]);
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    // Request all optional outputs
+    const [allOut] = ti.tema.indicator([close], [5], [true, true]);
+    const tema = allOut[0]; // primary
+    const dema = allOut[1]; // optional 0: dema
+    const ema  = allOut[2]; // optional 1: ema
+
+    // Request only dema
+    const [partial] = ti.tema.indicator([close], [5], [true, false]);
+    ```
 ### SIMD
 
 === "Rust"

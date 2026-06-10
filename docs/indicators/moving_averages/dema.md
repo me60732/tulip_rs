@@ -136,6 +136,17 @@ Reduces EMA lag by applying a second EMA and combining the results: `2 * EMA - E
     const ema  = allOut[1]; // optional: ema
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    // Request the EMA alongside the DEMA
+    const [allOut] = ti.dema.indicator([close], [5], [true]);
+    const dema = allOut[0]; // primary
+    const ema  = allOut[1]; // optional: ema
+    ```
 ### SIMD
 
 === "Rust"

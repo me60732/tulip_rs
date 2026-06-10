@@ -211,7 +211,7 @@ pub const INFO: Info = Info {
     full_name: "Chandelier Exit",
     indicator_type: IndicatorType::Trend,
     inputs: &["high", "low", "close"],
-    options: &["period", "multiplier"],
+    options: &["period", "step"],
     outputs: &["long", "short"],
     optional_outputs: &["atr", "tr", "min", "max"],
     display_groups: &[

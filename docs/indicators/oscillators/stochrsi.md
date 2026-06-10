@@ -140,6 +140,16 @@ Applies the Stochastic Oscillator formula to RSI values rather than price, produ
     const rsi      = allOut[1]; // optional 0: rsi
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    const [allOut] = ti.stochrsi.indicator([close], [14], [true]);
+    const stochrsi = allOut[0]; // primary
+    const rsi      = allOut[1]; // optional 0: rsi
+    ```
 ### SIMD
 
 === "Rust"

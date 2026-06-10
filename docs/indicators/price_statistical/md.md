@@ -108,6 +108,16 @@ The mean of the absolute deviations of each bar from the rolling mean over `peri
     const sma = allOut[1]; // optional 0: sma
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    const [allOut] = ti.md.indicator([close], [14], [true]);
+    const md  = allOut[0]; // primary
+    const sma = allOut[1]; // optional 0: sma
+    ```
 ### SIMD
 
 === "Rust"

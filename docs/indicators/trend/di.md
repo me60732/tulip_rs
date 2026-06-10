@@ -163,6 +163,18 @@ Smoothed directional movement expressed as a percentage of ATR. +DI and -DI cros
     const tr      = allOut[3]; // optional 1: tr
     ```
 
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    const [allOut] = ti.di.indicator([high, low, close], [14], [true, true]);
+    const plusDI  = allOut[0]; // primary: +di
+    const minusDI = allOut[1]; // primary: -di
+    const atr     = allOut[2]; // optional 0: atr
+    const tr      = allOut[3]; // optional 1: tr
+    ```
 ### SIMD
 
 === "Rust"
