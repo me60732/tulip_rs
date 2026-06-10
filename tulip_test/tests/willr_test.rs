@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
+    use tulip_rs::indicators::max::indicator as max_indicator;
+    use tulip_rs::indicators::min::indicator as min_indicator;
     use tulip_rs::indicators::willr::{indicator as rust_willr, min_data, TIndicatorState};
     use tulip_test::c_bindings::{ti_willr, ti_willr_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -470,6 +472,391 @@ mod tests {
         }
 
         println!("✓ All 8 SIMD by options vs Regular WILLR database tests passed!");
+    }
+
+    // -------------------------------------------------------------------------
+    // optional min output vs standalone min indicator
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_willr_optional_min() {
+        let (high, low, close) = expand_inputs();
+        let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+
+        for options in OPTIONS_LIST {
+            let min_options = [options[0]];
+
+            let (willr_outputs, _) = rust_willr(&inputs, &options, Some(&[true, false]))
+                .expect("Rust WILLR indicator failed");
+            let willr_min = &willr_outputs[1];
+
+            let (min_outputs, _) = min_indicator(&[low.as_slice()], &min_options, None)
+                .expect("Rust MIN indicator failed");
+            let min_line = &min_outputs[0];
+
+            assert_eq!(
+                willr_min.len(),
+                min_line.len(),
+                "WILLR min vs standalone min length mismatch: options={options:?}"
+            );
+            for (i, (willr_val, min_val)) in willr_min.iter().zip(min_line.iter()).enumerate() {
+                assert_eq!(
+                    willr_val, min_val,
+                    "WILLR min vs standalone min mismatch at index {i}: willr_min={willr_val}, min={min_val}, options={options:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_willr_optional_min_database() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_hlc_arrays(stock_data);
+            let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+
+            for options in OPTIONS_LIST {
+                let min_options = [options[0]];
+
+                let (willr_outputs, _) = rust_willr(&inputs, &options, Some(&[true, false]))
+                    .expect("Rust WILLR indicator failed");
+                let willr_min = &willr_outputs[1];
+
+                let (min_outputs, _) = min_indicator(&[low.as_slice()], &min_options, None)
+                    .expect("Rust MIN indicator failed");
+                let min_line = &min_outputs[0];
+
+                assert_eq!(
+                    willr_min.len(),
+                    min_line.len(),
+                    "WILLR min vs standalone min length mismatch: options={options:?}, stock={stock_symbol}"
+                );
+                for (i, (willr_val, min_val)) in willr_min.iter().zip(min_line.iter()).enumerate() {
+                    assert_eq!(
+                        willr_val, min_val,
+                        "WILLR min vs standalone min mismatch at index {i}: willr_min={willr_val}, min={min_val}, options={options:?}, stock={stock_symbol}"
+                    );
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // optional max output vs standalone max indicator
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_willr_optional_max() {
+        let (high, low, close) = expand_inputs();
+        let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+
+        for options in OPTIONS_LIST {
+            let max_options = [options[0]];
+
+            let (willr_outputs, _) = rust_willr(&inputs, &options, Some(&[false, true]))
+                .expect("Rust WILLR indicator failed");
+            let willr_max = &willr_outputs[2];
+
+            let (max_outputs, _) = max_indicator(&[high.as_slice()], &max_options, None)
+                .expect("Rust MAX indicator failed");
+            let max_line = &max_outputs[0];
+
+            assert_eq!(
+                willr_max.len(),
+                max_line.len(),
+                "WILLR max vs standalone max length mismatch: options={options:?}"
+            );
+            for (i, (willr_val, max_val)) in willr_max.iter().zip(max_line.iter()).enumerate() {
+                assert_eq!(
+                    willr_val, max_val,
+                    "WILLR max vs standalone max mismatch at index {i}: willr_max={willr_val}, max={max_val}, options={options:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_willr_optional_max_database() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_hlc_arrays(stock_data);
+            let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+
+            for options in OPTIONS_LIST {
+                let max_options = [options[0]];
+
+                let (willr_outputs, _) = rust_willr(&inputs, &options, Some(&[false, true]))
+                    .expect("Rust WILLR indicator failed");
+                let willr_max = &willr_outputs[2];
+
+                let (max_outputs, _) = max_indicator(&[high.as_slice()], &max_options, None)
+                    .expect("Rust MAX indicator failed");
+                let max_line = &max_outputs[0];
+
+                assert_eq!(
+                    willr_max.len(),
+                    max_line.len(),
+                    "WILLR max vs standalone max length mismatch: options={options:?}, stock={stock_symbol}"
+                );
+                for (i, (willr_val, max_val)) in willr_max.iter().zip(max_line.iter()).enumerate() {
+                    assert_eq!(
+                        willr_val, max_val,
+                        "WILLR max vs standalone max mismatch at index {i}: willr_max={willr_val}, max={max_val}, options={options:?}, stock={stock_symbol}"
+                    );
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // SIMD by-assets state continuation == full scalar indicator
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_willr_simd_by_assets_state_continuity() {
+        use tulip_rs::indicators::willr::indicator_by_assets;
+
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        const FIRST_CHUNK: usize = 1000;
+
+        let stock_data: Vec<(String, Vec<f64>, Vec<f64>, Vec<f64>)> = data
+            .iter()
+            .take(4)
+            .map(|(symbol, eod)| {
+                let (high, low, close) = get_hlc_arrays(eod);
+                (symbol.clone(), high, low, close)
+            })
+            .collect();
+
+        for options in OPTIONS_LIST {
+            let asset0: [&[f64]; 3] = [
+                &stock_data[0].1[..FIRST_CHUNK],
+                &stock_data[0].2[..FIRST_CHUNK],
+                &stock_data[0].3[..FIRST_CHUNK],
+            ];
+            let asset1: [&[f64]; 3] = [
+                &stock_data[1].1[..FIRST_CHUNK],
+                &stock_data[1].2[..FIRST_CHUNK],
+                &stock_data[1].3[..FIRST_CHUNK],
+            ];
+            let asset2: [&[f64]; 3] = [
+                &stock_data[2].1[..FIRST_CHUNK],
+                &stock_data[2].2[..FIRST_CHUNK],
+                &stock_data[2].3[..FIRST_CHUNK],
+            ];
+            let asset3: [&[f64]; 3] = [
+                &stock_data[3].1[..FIRST_CHUNK],
+                &stock_data[3].2[..FIRST_CHUNK],
+                &stock_data[3].3[..FIRST_CHUNK],
+            ];
+            let inputs_4: [&[&[f64]; 3]; 4] = [&asset0, &asset1, &asset2, &asset3];
+
+            let (simd_first, mut states) = indicator_by_assets::<4>(&inputs_4, &options, None)
+                .expect("SIMD by assets failed on first chunk");
+
+            for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
+                let mut batch_output = simd_first[asset_idx][0].clone();
+
+                let mut high_chunks = high[FIRST_CHUNK..].chunks_exact(CHUNK_SIZE);
+                let mut low_chunks = low[FIRST_CHUNK..].chunks_exact(CHUNK_SIZE);
+                let mut close_chunks = close[FIRST_CHUNK..].chunks_exact(CHUNK_SIZE);
+
+                for ((hc, lc), cc) in high_chunks
+                    .by_ref()
+                    .zip(low_chunks.by_ref())
+                    .zip(close_chunks.by_ref())
+                {
+                    let chunk_outputs = states[asset_idx]
+                        .batch_indicator(&[hc, lc, cc], None)
+                        .expect("batch_indicator failed");
+                    batch_output.extend_from_slice(&chunk_outputs[0]);
+                }
+
+                let high_rem = high_chunks.remainder();
+                let low_rem = low_chunks.remainder();
+                let close_rem = close_chunks.remainder();
+                if !high_rem.is_empty() {
+                    let chunk_outputs = states[asset_idx]
+                        .batch_indicator(&[high_rem, low_rem, close_rem], None)
+                        .expect("batch_indicator failed on remainder");
+                    batch_output.extend_from_slice(&chunk_outputs[0]);
+                }
+
+                let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+                let (full_outputs, _) =
+                    rust_willr(&inputs, &options, None).expect("scalar WILLR indicator failed");
+
+                assert_eq!(
+                    full_outputs[0].len(),
+                    batch_output.len(),
+                    "Output length mismatch for stock={stock_symbol}, options={options:?}"
+                );
+
+                for (i, (&full_val, &batch_val)) in
+                    full_outputs[0].iter().zip(batch_output.iter()).enumerate()
+                {
+                    assert_eq!(
+                        full_val, batch_val,
+                        "State continuation mismatch at index {i}: full={full_val}, simd+batch={batch_val}, stock={stock_symbol}, options={options:?}"
+                    );
+                }
+            }
+        }
+        println!("✓ All SIMD by assets WILLR state continuation tests passed!");
+    }
+
+    // -------------------------------------------------------------------------
+    // SIMD by-options state continuation == full scalar indicator
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_willr_simd_by_options_state_continuity() {
+        use tulip_rs::indicators::willr::indicator_by_options;
+
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        const FIRST_CHUNK: usize = 1000;
+
+        let options_4 = [
+            &OPTIONS_LIST[0],
+            &OPTIONS_LIST[1],
+            &OPTIONS_LIST[2],
+            &OPTIONS_LIST[3],
+        ];
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_hlc_arrays(stock_data);
+
+            let first_inputs = [
+                &high[..FIRST_CHUNK],
+                &low[..FIRST_CHUNK],
+                &close[..FIRST_CHUNK],
+            ];
+            let (simd_first, mut states) =
+                indicator_by_options::<4>(&first_inputs, &options_4, None)
+                    .expect("SIMD by options failed on first chunk");
+
+            for (opt_idx, options) in OPTIONS_LIST[..4].iter().enumerate() {
+                let mut batch_output = simd_first[opt_idx][0].clone();
+
+                let mut high_chunks = high[FIRST_CHUNK..].chunks_exact(CHUNK_SIZE);
+                let mut low_chunks = low[FIRST_CHUNK..].chunks_exact(CHUNK_SIZE);
+                let mut close_chunks = close[FIRST_CHUNK..].chunks_exact(CHUNK_SIZE);
+
+                for ((hc, lc), cc) in high_chunks
+                    .by_ref()
+                    .zip(low_chunks.by_ref())
+                    .zip(close_chunks.by_ref())
+                {
+                    let chunk_outputs = states[opt_idx]
+                        .batch_indicator(&[hc, lc, cc], None)
+                        .expect("batch_indicator failed");
+                    batch_output.extend_from_slice(&chunk_outputs[0]);
+                }
+
+                let high_rem = high_chunks.remainder();
+                let low_rem = low_chunks.remainder();
+                let close_rem = close_chunks.remainder();
+                if !high_rem.is_empty() {
+                    let chunk_outputs = states[opt_idx]
+                        .batch_indicator(&[high_rem, low_rem, close_rem], None)
+                        .expect("batch_indicator failed on remainder");
+                    batch_output.extend_from_slice(&chunk_outputs[0]);
+                }
+
+                let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+                let (full_outputs, _) =
+                    rust_willr(&inputs, options, None).expect("scalar WILLR indicator failed");
+
+                assert_eq!(
+                    full_outputs[0].len(),
+                    batch_output.len(),
+                    "Output length mismatch for stock={stock_symbol}, options={options:?}"
+                );
+
+                for (i, (&full_val, &batch_val)) in
+                    full_outputs[0].iter().zip(batch_output.iter()).enumerate()
+                {
+                    assert_eq!(
+                        full_val, batch_val,
+                        "State continuation mismatch at index {i}: full={full_val}, simd+batch={batch_val}, stock={stock_symbol}, options={options:?}"
+                    );
+                }
+            }
+        }
+        println!("✓ All SIMD by options WILLR state continuation tests passed!");
+    }
+
+    // -------------------------------------------------------------------------
+    // SIMD by-assets optional outputs (min/max) match scalar
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_willr_simd_by_assets_optional_outputs() {
+        use tulip_rs::indicators::willr::indicator_by_assets;
+
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        let stock_data: Vec<(String, Vec<f64>, Vec<f64>, Vec<f64>)> = data
+            .iter()
+            .take(4)
+            .map(|(symbol, eod)| {
+                let (high, low, close) = get_hlc_arrays(eod);
+                (symbol.clone(), high, low, close)
+            })
+            .collect();
+
+        for options in OPTIONS_LIST {
+            let asset0: [&[f64]; 3] = [&stock_data[0].1, &stock_data[0].2, &stock_data[0].3];
+            let asset1: [&[f64]; 3] = [&stock_data[1].1, &stock_data[1].2, &stock_data[1].3];
+            let asset2: [&[f64]; 3] = [&stock_data[2].1, &stock_data[2].2, &stock_data[2].3];
+            let asset3: [&[f64]; 3] = [&stock_data[3].1, &stock_data[3].2, &stock_data[3].3];
+            let inputs_4: [&[&[f64]; 3]; 4] = [&asset0, &asset1, &asset2, &asset3];
+
+            let (simd_results, _) =
+                indicator_by_assets::<4>(&inputs_4, &options, Some(&[true, true]))
+                    .expect("SIMD by-assets WILLR with optional outputs failed");
+
+            for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
+                let scalar_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+                let (scalar_results, _) = rust_willr(&scalar_inputs, &options, Some(&[true, true]))
+                    .expect("Scalar WILLR with optional outputs failed");
+
+                // Compare all 3 outputs: willr (0), min (1), max (2)
+                for out_idx in 0..3 {
+                    let simd_out = &simd_results[asset_idx][out_idx];
+                    let scalar_out = &scalar_results[out_idx];
+                    assert_eq!(
+                        simd_out.len(),
+                        scalar_out.len(),
+                        "output[{out_idx}] length mismatch: stock={stock_symbol}, options={options:?}"
+                    );
+                    for (i, (&sv, &rv)) in simd_out.iter().zip(scalar_out).enumerate() {
+                        if !approx_eq!(f64, sv, rv, epsilon = 1e-12) {
+                            let start = i.saturating_sub(5);
+                            let end = (i + 6).min(simd_out.len());
+                            println!(
+                                "output[{out_idx}] mismatch at index {i}: simd={:?}, scalar={:?}, options={options:?}",
+                                &simd_out[start..end],
+                                &scalar_out[start..end]
+                            );
+                            panic!(
+                                "output[{out_idx}] mismatch at index {i}: simd={sv}, scalar={rv}, stock={stock_symbol}, options={options:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        println!("✓ All SIMD by-assets WILLR optional output tests passed!");
     }
 
     fn get_hlc_arrays(

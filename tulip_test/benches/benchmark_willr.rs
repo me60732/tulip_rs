@@ -587,6 +587,68 @@ fn bench_rust_willr_simd_by_assets(c: &mut Criterion) {
     }
 }
 
+fn bench_rust_willr_optional(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("willr");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let high_vec: Vec<f64> = stock_data.iter().map(|d| d.high).collect();
+            let low_vec: Vec<f64> = stock_data.iter().map(|d| d.low).collect();
+            let close_vec: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+            let inputs = [
+                high_vec.as_slice(),
+                low_vec.as_slice(),
+                close_vec.as_slice(),
+            ];
+            let n = high_vec.len();
+
+            for options in OPTIONS_LIST {
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let result = indicator(&inputs, &options, Some(&[true, true]))
+                            .expect("Rust WILLR optional indicator failed");
+                        black_box(&result);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result(
+                    "willr",
+                    "Rust_optional",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+        let inputs = [
+            high_vec.as_slice(),
+            low_vec.as_slice(),
+            close_vec.as_slice(),
+        ];
+
+        for options in OPTIONS_LIST {
+            let mut group = c.benchmark_group("willr_rust_optional");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("Rust WILLR optional {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let result = indicator(&inputs, &options, Some(&[true, true]))
+                        .expect("Rust WILLR optional indicator failed");
+                    black_box(&result);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 fn bench_rust_willr_simd_by_options(c: &mut Criterion) {
     if should_log_to_db() {
         init_database_data();
@@ -621,14 +683,7 @@ fn bench_rust_willr_simd_by_options(c: &mut Criterion) {
                 SAMPLE_SIZE,
             );
 
-            log_timing_result(
-                "willr",
-                "Rust_SIMD",
-                &[0.0],
-                n,
-                &timing,
-                Some(stock_symbol),
-            );
+            log_timing_result("willr", "Rust_SIMD", &[0.0], n, &timing, Some(stock_symbol));
         }
     } else {
         // Run Criterion benchmark with synthetic data
@@ -665,6 +720,7 @@ criterion_group!(
     bench_rust_willr_simd_by_options,
     bench_rust_willr_simd_by_assets,
     bench_rust_willr,
+    bench_rust_willr_optional,
     bench_c_willr,
     bench_talib_willr,
     bench_rust_willr_from_state,
@@ -676,6 +732,7 @@ criterion_group!(
     bench_rust_willr_simd_by_options,
     bench_rust_willr_simd_by_assets,
     bench_rust_willr,
+    bench_rust_willr_optional,
     bench_c_willr,
     bench_rust_willr_from_state,
 );

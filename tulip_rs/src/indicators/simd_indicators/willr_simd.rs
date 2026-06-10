@@ -69,7 +69,7 @@ pub mod assets {
             close: Simd<f64, N>,
             i: usize,
             look_back: usize,
-        ) -> Simd<f64, N>;
+        ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
     }
 
     impl<const N: usize> Calc<N> for SimdState<N> {
@@ -81,7 +81,7 @@ pub mod assets {
             close: Simd<f64, N>,
             i: usize,
             look_back: usize,
-        ) -> Simd<f64, N> {
+        ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
             // Update the minimum and maximum for the rolling window.
             let (min, _) = self
                 .min_state
@@ -91,8 +91,12 @@ pub mod assets {
                 .calc_unchecked_simd::<CHUNK_SIZE>(high, i, look_back);
 
             let mm = max - min;
-            mm.simd_lt(Simd::splat(f64::EPSILON))
-                .select(Simd::splat(0.0), Simd::splat(100.0) * (max - close) / mm)
+            (
+                mm.simd_lt(Simd::splat(f64::EPSILON))
+                    .select(Simd::splat(0.0), Simd::splat(100.0) * (max - close) / mm),
+                min,
+                max,
+            )
         }
     }
 }
@@ -118,7 +122,7 @@ pub mod options {
             close: Simd<f64, N>,
             i: Simd<usize, N>,
             look_back: Simd<usize, N>,
-        ) -> Simd<f64, N>;
+        ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
     }
 
     impl<const N: usize> Calc<N> for SimdState<N> {
@@ -130,14 +134,18 @@ pub mod options {
             close: Simd<f64, N>,
             i: Simd<usize, N>,
             look_back: Simd<usize, N>,
-        ) -> Simd<f64, N> {
+        ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
             // Update the minimum and maximum for the rolling window.
             let (min, _) = self.min_state.calc_unchecked_simd(low, i, look_back);
             let (max, _) = self.max_state.calc_unchecked_simd(high, i, look_back);
 
             let mm = max - min;
-            mm.simd_lt(Simd::splat(f64::EPSILON))
-                .select(Simd::splat(0.0), Simd::splat(100.0) * (max - close) / mm)
+            (
+                mm.simd_lt(Simd::splat(f64::EPSILON))
+                    .select(Simd::splat(0.0), Simd::splat(100.0) * (max - close) / mm),
+                min,
+                max,
+            )
         }
     }
 }

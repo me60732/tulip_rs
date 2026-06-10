@@ -2,13 +2,16 @@
 use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::simd_indicators::willr_simd::{options::Calc, SimdState};
-use crate::indicators::willr::{
-    min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+use crate::indicators::{
+    willr::{min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH},
+    max::output_length as max_output_length
 };
 use crate::types::IndicatorError;
 use std::simd::Simd;
 /// SIMD driver for the Williams %R (WILLR) indicator, processing `N` option-set lanes per scheduling epoch.
-struct WillrDriver {}
+struct WillrDriver {
+    want_optional_outputs: (bool, bool, bool),
+}
 
 impl Driver<State, usize> for WillrDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
@@ -34,11 +37,13 @@ impl Driver<State, usize> for WillrDriver {
         };
 
         //collect outputs
-        let willr_ptr = crate::extract_output_ptrs!(outputs, N, willr_ptr);
+        let (willr_line_ptr, min_line_ptr, max_line_ptr) =
+            crate::extract_output_ptrs!(outputs, N, willr_ptr, min_ptr, max_ptr);
 
         let (high_ptrs, low_ptrs, close_ptrs) =
             crate::extract_input_ptrs!(inputs, N, high_ptrs, low_ptrs, close_ptrs);
 
+        let (has_optional, want_min, want_max) = self.want_optional_outputs;
         let mut state = SimdState::new(&mut states);
         let one_splat = Simd::splat(1);
         //println!("start: {:?}, N: {:?}, LEN: {:?}", start, N, real.len());
@@ -46,13 +51,19 @@ impl Driver<State, usize> for WillrDriver {
             let close = crate::extract_simd_inputs_at_index_splat!(i_simd[0], N,
                 close @ close_ptrs
             );
-            let willr =
+            let (willr, min, max) =
                 unsafe { state.calc_unchecked_simd(high_ptrs, low_ptrs, close, i_simd, look_back) };
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, j,
-                willr_ptr => willr
+                willr_line_ptr => willr
             );
+            if has_optional {
+                crate::store_simd_optional_outputs!(j, N,
+                    want_min, min_line_ptr => min,
+                    want_max, max_line_ptr => max
+                );
+            }
             i_simd += one_splat;
         }
         // Update states efficiently
@@ -79,30 +90,42 @@ impl Driver<State, usize> for WillrDriver {
 pub fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[&[f64; OPTIONS_WIDTH]; N],
-    _optional_outputs: Option<&[bool]>,
+    optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
     validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
     validate_options(options, None)?;
     let params: [usize; N] = std::array::from_fn(|i| options[i][0] as usize);
     let mut road_train = PrimeMover::<N, State, usize>::new();
     let mut output_buffers = Vec::with_capacity(N);
-
+    let mut want_optional_outputs = (false, false, false);
+    
+    let [high, low, close] = *inputs;
     for i in 0..N {
-        let asset_inputs = vec![
-            inputs[0], // high
-            inputs[1], // low
-            inputs[2], // close
-        ];
+        let asset_inputs = vec![high, low, close];
 
-        let willr_line = {
-            let len = inputs[0].len();
+        let (willr_line, (mut min_line, mut max_line)) = {
+            let len = high.len();
             let capacity = output_length(len, options[i]);
-            crate::uninit_vec!(f64, capacity)
+            let min_max_capacity = max_output_length(len, options[i]);
+            (
+                crate::uninit_vec!(f64, capacity),
+                crate::init_optional_outputs_eff!(
+                    optional_outputs, &[false, false],
+                    min_line: min_max_capacity,
+                    max_line: min_max_capacity
+                ),
+            )
         };
 
-        let mut output_buffer = vec![willr_line];
+        let state = State::init_state(high, low, params[i], (&mut min_line, &mut max_line));
+        let mut starts = [0; 3];
+        (starts[1], starts[2]) =
+            crate::slice_outputs_start!(willr_line.len(), min_line, max_line);
 
-        let state = State::init_state(inputs[0], inputs[1], params[i]);
+        if i == 0 {
+            want_optional_outputs = crate::calc_want_flags!(min_line, max_line);
+        }
+        let mut output_buffer = vec![willr_line, min_line, max_line];
 
         let mut asset_outputs = Vec::with_capacity(output_buffer.len());
 
@@ -112,8 +135,8 @@ pub fn indicator_by_options<const N: usize>(
                 // Get a mutable reference to the output buffer for this asset
                 let output_buffer = &mut output_buffer[j];
                 asset_outputs.push(std::slice::from_raw_parts_mut(
-                    output_buffer.as_mut_ptr(), //slice from
-                    output_buffer.len(),               // slice to
+                    output_buffer.as_mut_ptr().add(starts[j]), //slice from
+                    output_buffer.len() - starts[j],        // slice to
                 ));
             }
         }
@@ -130,7 +153,9 @@ pub fn indicator_by_options<const N: usize>(
         output_buffers.push(output_buffer);
     }
 
-    let mut driver = WillrDriver {};
+    let mut driver = WillrDriver {
+        want_optional_outputs
+    };
     let states_vec = road_train.drive(&mut driver);
     let mut states = Vec::with_capacity(N);
     for (i, state) in states_vec.into_iter().enumerate() {

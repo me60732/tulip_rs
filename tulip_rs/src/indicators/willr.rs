@@ -2,7 +2,8 @@ use crate::common::{validate_inputs, validate_options};
 //use crate::indicators::aroon::State;
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::max::{
-    calc as calc_max, calc_unchecked as calc_max_uncheked, State as MaxState,
+    calc as calc_max, calc_unchecked as calc_max_uncheked, output_length as max_output_length,
+    State as MaxState,
 };
 use crate::indicators::min::{
     calc as calc_min, calc_unchecked as calc_min_uncheked, State as MinState,
@@ -67,16 +68,25 @@ impl TIndicatorState<3> for IndicatorState {
     fn batch_indicator(
         &mut self,
         inputs: &[&[f64]; INPUTS_WIDTH],
-        _optional_outputs: Option<&[bool]>,
+        optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
         // Merge stored tails with new inputs.
-        self.high.extend_from_slice(inputs[0]);
-        self.low.extend_from_slice(inputs[1]);
+        let [high, low, close] = *inputs;
+        self.high.extend_from_slice(high);
+        self.low.extend_from_slice(low);
 
-        let close = inputs[2];
-
-        let mut willr_line: Vec<f64> = crate::uninit_vec!(f64, inputs[0].len());
+        let (mut willr_line, (mut min_line, mut max_line)) = {
+            let len = high.len();
+            (
+                crate::uninit_vec!(f64, len),
+                crate::init_optional_outputs_eff!(
+                    optional_outputs, &[false, false],
+                    min_line: len,
+                    max_line: len
+                ),
+            )
+        };
         match self.period {
             1..=13 => {
                 cycle_willr::<1>(
@@ -86,6 +96,7 @@ impl TIndicatorState<3> for IndicatorState {
                     self.period,
                     &mut self.state,
                     &mut willr_line,
+                    (&mut min_line, &mut max_line)
                 );
             }
             14..30 => {
@@ -96,6 +107,7 @@ impl TIndicatorState<3> for IndicatorState {
                     self.period,
                     &mut self.state,
                     &mut willr_line,
+                    (&mut min_line, &mut max_line)
                 );
             }
             _ => {
@@ -106,6 +118,7 @@ impl TIndicatorState<3> for IndicatorState {
                     self.period,
                     &mut self.state,
                     &mut willr_line,
+                    (&mut min_line, &mut max_line)
                 );
             }
         }
@@ -113,7 +126,7 @@ impl TIndicatorState<3> for IndicatorState {
         self.high.drain(..self.high.len() - self.period);
         self.low.drain(..self.low.len() - self.period);
 
-        Ok(vec![willr_line])
+        Ok(vec![willr_line, min_line, max_line])
     }
 }
 #[derive(Serialize, Deserialize)]
@@ -128,13 +141,20 @@ impl State {
             max_state: MaxState::new(max_state.0, max_state.1),
         }
     }
-    pub fn init_state(high: &[f64], low: &[f64], period: usize) -> Self {
-        let mut state = State::new((low[0], period - 1), (high[0], period - 1));
+    pub fn init_state(
+        high: &[f64],
+        low: &[f64],
+        period: usize,
+        min_max: (&mut [f64], &mut [f64]),
+    ) -> Self {
+        let (min_line, max_line) = min_max;
+        let min_state = MinState::init_state(low, period, period - 1, min_line);
+        let max_state = MaxState::init_state(high, period, period - 1, max_line);
 
-        _ = calc_min(&mut state.min_state, low, period - 1, (period, period - 1));
-        _ = calc_max(&mut state.max_state, high, period - 1, (period, period - 1));
-
-        state
+        Self {
+            min_state,
+            max_state,
+        }
     }
 }
 pub const INFO: Info = Info {
@@ -146,13 +166,19 @@ pub const INFO: Info = Info {
     // One option: period.
     options: &["period"],
     outputs: &["willr"],
-    optional_outputs: &[],
+    optional_outputs: &["min", "max"],
     display_groups: &[
         DisplayGroup {
             id: "willr",
             label: "WILLR",
             display_type: DisplayType::Indicator,
             outputs: &["willr"],
+        },
+        DisplayGroup {
+            id: "min_max",
+            label: "Min & Max",
+            display_type: DisplayType::Overlay,
+            outputs: &["min", "max"],
         },
     ],
 };
@@ -225,7 +251,7 @@ pub fn output_length(data_len: usize, options: &[f64]) -> usize {
 pub fn indicator(
     inputs: &[&[f64]; INPUTS_WIDTH],
     options: &[f64; OPTIONS_WIDTH],
-    _optional_outputs: Option<&[bool]>,
+    optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
     validate_options(options)?;
     let period = options[0] as usize;
@@ -235,13 +261,26 @@ pub fn indicator(
     let low = inputs[1];
     let close = inputs[2];
 
-    let mut willr_line = {
-        let capacity = output_length(close.len(), options);
-        crate::uninit_vec!(f64, capacity)
+    let (mut willr_line, (mut min_line, mut max_line)) = {
+        let len = high.len();
+        let capacity = output_length(len, options);
+        let min_max_capacity = max_output_length(len, options);
+        (
+            crate::uninit_vec!(f64, capacity),
+            crate::init_optional_outputs_eff!(
+                optional_outputs, &[false, false],
+                min_line: min_max_capacity,
+                max_line: min_max_capacity
+            ),
+        )
     };
 
-    let mut state = State::init_state(high, low, period);
-
+    let mut state = State::init_state(high, low, period, (&mut min_line, &mut max_line));
+    let optional_outputs = {
+        let (min_offset, max_offset) =
+            crate::slice_outputs_start!(willr_line.len(), min_line, max_line);
+        (&mut min_line[min_offset..], &mut max_line[max_offset..])
+    };
     // The first valid calculation is at index period - 1 within the slice.
     match period {
         1..=13 => {
@@ -252,6 +291,7 @@ pub fn indicator(
                 period,
                 &mut state,
                 &mut willr_line,
+                optional_outputs,
             );
         }
         14..25 => {
@@ -262,6 +302,7 @@ pub fn indicator(
                 period,
                 &mut state,
                 &mut willr_line,
+                optional_outputs,
             );
         }
         _ => {
@@ -272,12 +313,13 @@ pub fn indicator(
                 period,
                 &mut state,
                 &mut willr_line,
+                optional_outputs,
             );
         }
     }
 
     Ok((
-        vec![willr_line],
+        vec![willr_line, min_line, max_line],
         IndicatorState::new(state, high, low, period),
     ))
 }
@@ -299,14 +341,27 @@ fn cycle_willr<const N: usize>(
     period: usize,
     state: &mut State,
     willr_line: &mut [f64],
+    optional_outputs: (&mut [f64], &mut [f64]),
 ) {
-    //let shift = low.len() - close.len();
+    let (min_line, max_line) = optional_outputs;
+    let (has_optional, want_min, want_max) = crate::calc_want_flags!(min_line, max_line);
+    
     let periods = (period, period - 1);
     let mut i = period;
-    for (close, willr) in close.iter().zip(willr_line.iter_mut()) {
+    for (j, (close, willr)) in close.iter().zip(willr_line.iter_mut()).enumerate() {
+        let (min, max);
         unsafe {
-            *willr = calc_unchecked::<N>(state, high, low, close, i, periods);
+            (*willr, min, max) = calc_unchecked::<N>(state, high, low, close, i, periods);
         }
+
+        if has_optional {
+            crate::store_optional_outputs!(j,
+                want_min, min_line => min,
+                want_max, max_line => max
+            );
+        }
+
+        
         i += 1;
     }
 }
@@ -322,16 +377,16 @@ pub fn calc(
     close: &f64,
     i: usize,
     periods: (usize, usize),
-) -> f64 {
+) -> (f64, f64, f64) {
     // Update the minimum and maximum for the rolling window.
     let (min, _) = calc_min(&mut state.min_state, low, i, periods);
     let (max, _) = calc_max(&mut state.max_state, high, i, periods);
 
     if (max - min).abs() < f64::EPSILON {
-        return 0.0;
+        return (0.0, min, max);
     }
 
-    100.0 * (max - close) / (max - min)
+    (100.0 * (max - close) / (max - min), min, max)
 }
 /// Calculates Williams %R for a single bar using unchecked min/max access.
 ///
@@ -359,13 +414,13 @@ pub unsafe fn calc_unchecked<const N: usize>(
     close: &f64,
     i: usize,
     periods: (usize, usize),
-) -> f64 {
+) -> (f64, f64, f64) {
     // Update the minimum and maximum for the rolling window.
     let (min, _) = calc_min_uncheked::<N>(&mut state.min_state, low, i, periods);
     let (max, _) = calc_max_uncheked::<N>(&mut state.max_state, high, i, periods);
 
     if (max - min).abs() < f64::EPSILON {
-        return 0.0;
+        return (0.0, min, max);
     }
-    100.0 * (max - close) / (max - min)
+    (100.0 * (max - close) / (max - min), min, max)
 }
