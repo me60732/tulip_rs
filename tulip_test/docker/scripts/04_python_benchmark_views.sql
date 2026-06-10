@@ -1,16 +1,23 @@
 -- =============================================================================
--- 03_python_benchmark_views.sql
+-- 04_python_benchmark_views.sql
 -- Adds Python-comparison views to the existing indicator_benchmark database.
 -- Does NOT recreate the database or touch existing tables/views.
 --
--- Apply to a running database:
+-- Applied automatically by Docker on first init.
+-- Comment out the volume mount in docker-compose.yaml to skip these views.
+--
+-- Run manually:
 --   psql -U postgres -h localhost -d indicator_benchmark \
---        -f scripts/03_python_benchmark_views.sql
+--        -f scripts/04_python_benchmark_views.sql
 --
 -- Implementation types written by the Python benchmarks:
 --   'tulip_rs_python'  — tulip-rs called via the PyO3/maturin Python binding
 --   'ta'               — bukosabino/ta (pure Python + numpy/pandas reference)
 -- =============================================================================
+
+\c indicator_benchmark
+
+\echo '>>> Creating Python benchmark views...'
 
 -- Drop in reverse-dependency order so re-running is safe
 DROP VIEW IF EXISTS python_avg_options_comparison;
@@ -126,3 +133,5 @@ WHERE res.implementation_type IN ('tulip_rs_python', 'ta')
 GROUP BY runs.id, runs.run_timestamp, runs.system_info, ind.name
 HAVING count(DISTINCT res.implementation_type) >= 2
 ORDER BY runs.run_timestamp DESC, ind.name;
+
+\echo '>>> Python benchmark views ready.'

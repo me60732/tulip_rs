@@ -19,7 +19,10 @@ services:
             # Mount init scripts in numbered order; PostgreSQL runs them alphabetically.
             - ./scripts/01_init_stocks_db.sql:/docker-entrypoint-initdb.d/01_init_stocks_db.sql:ro
             - ./scripts/02_init_benchmark_db.sql:/docker-entrypoint-initdb.d/02_init_benchmark_db.sql:ro
-            - ./scripts/03_python_benchmark_views.sql:/docker-entrypoint-initdb.d/03_python_benchmark_views.sql:ro
+            # Comment out the line below to exclude Rust benchmark views.
+            - ./scripts/03_rust_benchmark_views.sql:/docker-entrypoint-initdb.d/03_rust_benchmark_views.sql:ro
+            # Comment out the line below to exclude Python benchmark views.
+            - ./scripts/04_python_benchmark_views.sql:/docker-entrypoint-initdb.d/04_python_benchmark_views.sql:ro
             # Named volume so data survives container restarts.
             - pg_data:/var/lib/postgresql/data
         healthcheck:
