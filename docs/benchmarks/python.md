@@ -132,7 +132,7 @@ python -m tulip_rs_bench.run_all
 | **Option sets** | 4 per indicator (same sets as the Rust benchmarks); results averaged across all 4 |
 | **Timing harness** | Python `timeit` — 10 back-to-back calls per sample, 30 independent samples |
 | **Pre-conversion** | `pd.Series` (`ta`) and contiguous `np.ndarray` (`tulip_rs_python`) are built **before** the timed region — data-conversion cost is excluded |
-| **Indicator count** | 20 indicators — the subset that `ta` implements |
+| **Indicator count** | 35 indicators — the subset that `ta` implements |
 
 !!! info "PyO3 call overhead"
     Each call from Python into Rust carries a fixed overhead of roughly **5–25 µs** for GIL
