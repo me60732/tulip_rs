@@ -150,3 +150,61 @@ Single asset, averaged across 4 option sets. Ratios show how many times slower t
         | **Closest** | `macd` | 1.12× |
         | | `bbands` | 1.14× |
         | | `cci` | 1.17× |
+
+=== "Python Binding"
+
+    Competitor: **ta** (bukosabino/ta, pandas-based), called via the **`tulip_rs_python`** PyO3 binding.
+    Rust native times are shown for reference — they reflect the underlying computation cost before PyO3 overhead is added.
+    See [Python Binding](python.md) for setup and how to run.
+
+    | Indicator | Rust native (ns) | tulip_rs_python (ns) | ta (ns) | ta / Python |
+    |-----------|----------------:|---------------------:|--------:|------------:|
+    | `adx` | 9,999 | 73,016 | 21,614,163 | 296× |
+    | `aroon` | 17,988 | 28,550 | 9,948,383 | 348× |
+    | `atr` | 4,559 | 11,568 | 11,790,602 | 1,019× |
+    | `bbands` | 7,114 | 44,420 | 223,019 | 5× |
+    | `cci` | 55,726 | 61,333 | 25,369,244 | 414× |
+    | `dema` | 5,993 | 31,385 | 128,668 | 4× |
+    | `ema` | 4,547 | 11,580 | 55,041 | 5× |
+    | `hma` | 8,114 | 17,732 | 9,804,501 | 553× |
+    | `kama` | 6,892 | 27,573 | 4,406,904 | 160× |
+    | `macd` | 7,045 | 36,534 | 187,478 | 5× |
+    | `mfi` | 7,513 | 16,246 | 29,430,878 | 1,812× |
+    | `mom` | 838 | 1,369 | 16,278 | 12× |
+    | `obv` | 3,325 | 5,354 | 118,355 | 22× |
+    | `roc` | 2,294 | 3,418 | 92,821 | 27× |
+    | `rsi` | 4,719 | 23,930 | 458,800 | 19× |
+    | `sma` | 2,451 | 3,213 | 67,586 | 21× |
+    | `stoch` | 20,391 | 29,884 | 283,062 | 9× |
+    | `tema` | 6,734 | 63,276 | 205,292 | 3× |
+    | `willr` | 17,218 | 23,233 | 279,294 | 12× |
+    | `wma` | 6,155 | 7,087 | 3,267,976 | 461× |
+
+    ??? success "Notable results"
+
+        `tulip_rs_python` beats `ta` on **all 20 compared indicators**. Median speedup: **~22×**.
+
+        The size of the win depends entirely on how `ta` implements each indicator:
+
+        **`ta` falls back to pure-Python loops** — `tulip_rs_python` wins by the largest margin:
+
+        | Indicator | ta / Python | ta implementation |
+        |-----------|:-----------:|-------------------|
+        | `mfi` | **1,812×** | Pure-Python loop |
+        | `atr` | **1,019×** | Pure-Python loop |
+        | `hma` | **553×** | Pure-Python loop |
+        | `wma` | **461×** | Pure-Python loop |
+        | `cci` | **414×** | Pure-Python loop |
+        | `aroon` | **348×** | Pure-Python loop |
+        | `adx` | **296×** | Pure-Python loop |
+        | `kama` | **160×** | Pure-Python loop |
+
+        **`ta` uses pandas/numpy C paths** — the gap narrows because both sides use compiled code; PyO3 call overhead (~5–25 µs) is visible here:
+
+        | Indicator | Rust native (ns) | tulip_rs_python (ns) | ta (ns) | ta / Python |
+        |-----------|----------------:|---------------------:|--------:|:-----------:|
+        | `tema` | 6,734 | 63,276 | 205,292 | **3×** |
+        | `dema` | 5,993 | 31,385 | 128,668 | **4×** |
+        | `ema` | 4,547 | 11,580 | 55,041 | **5×** |
+        | `bbands` | 7,114 | 44,420 | 223,019 | **5×** |
+        | `macd` | 7,045 | 36,534 | 187,478 | **5×** |

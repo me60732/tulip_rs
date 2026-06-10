@@ -20,6 +20,7 @@ All timings are **nanoseconds (ns) — lower is better**. Ratios > 1.00 mean Rus
 | [SIMD](simd.md) | 4-asset parallel (`by_assets`) and 4-option-set parallel (`by_options`) vectorised performance |
 | [Optional Outputs](optional-outputs.md) | Single-pass computation advantage for indicators with sub-indicator outputs |
 | [Streaming](streaming.md) | Per-bar stateful update performance vs full batch recomputation |
+| [Python Binding](python.md) | `tulip_rs_python` (PyO3) vs `ta` (pandas-based) across 20 indicators |
 
 ---
 
@@ -181,3 +182,11 @@ Consider computing `tema` with all its sub-indicators (`dema`, `ema`) across **4
 - **Fastest** — `ao`, `ema`, `typprice`, `wilders` at **14 ns/bar**
 - **Slowest** — `msw` at **114 ns/bar**
 - The streaming path is **100–5,489× faster** than full batch recompute depending on the indicator
+
+### Python Binding
+
+- **20 indicators** benchmarked: `tulip_rs_python` vs `ta` (pandas-based)
+- `ta` falls back to **pure-Python loops** for many indicators — in these cases `tulip_rs_python` is **160–1,812× faster**
+- `ta` uses **pandas/numpy C paths** for a few indicators (EMA, BBands, MACD) — `tulip_rs_python` is **3–5× faster** there, with PyO3 call overhead narrowing the gap
+- **Median speedup: ~22×** across all 20 indicators
+- The Python binding adds **~5–25 µs** of fixed per-call overhead (GIL + PyO3 marshalling) on top of the native Rust computation
