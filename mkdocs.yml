@@ -138,8 +138,18 @@ nav:
     - Language Bindings: language_bindings.md
     - Live Demo: demo.md
     - Benchmarks:
-          - Results: benchmarks/results.md
+          - Overview: benchmarks/index.md
+          - Standard Performance: benchmarks/standard.md
+          - SIMD: benchmarks/simd.md
+          - Optional Outputs: benchmarks/optional-outputs.md
+          - Streaming: benchmarks/streaming.md
           - Running Benchmarks: benchmarks/setup.md
           - Benchmark Database: benchmarks/database.md
+
+extra_css:
+    - stylesheets/floating-scrollbar.css
+
+extra_javascript:
+    - javascripts/floating-scrollbar.js
 
 docs_dir: docs

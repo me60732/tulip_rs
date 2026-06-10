@@ -113,7 +113,7 @@ Most technical analysis libraries are wrappers around the same scalar C code wri
 | [SIMD](simd.md) | Conceptual overview: by-assets and by-options modes, lane counts, when to use each |
 | [State Management](state_management.md) | Streaming computation, chunked processing, JSON serialisation |
 | [Language Bindings](language_bindings.md) | Python (PyO3/maturin) details, result object API, planned bindings |
-| [Benchmarks](benchmarks/results.md) | Comparison against Tulip Indicators (C) and TA-Lib, methodology, how to run |
+| [Benchmarks](benchmarks/index.md) | Comparison against Tulip Indicators (C) and TA-Lib, methodology, how to run |
 
 ---
 
