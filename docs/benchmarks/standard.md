@@ -226,3 +226,110 @@ Single asset, averaged across 4 option sets. Ratios show how many times slower t
         | `ema` | 4,547 | 11,427 | 53,971 | **5×** |
         | `bbands` | 7,114 | 45,436 | 222,692 | **5×** |
         | `macd` | 7,045 | 35,954 | 187,289 | **5×** |
+
+=== "Node Binding"
+
+    Competitors: **technicalindicators** (anandanand84) and **indicatorts** (Onur Cinar), called via the **`tulip_rs_node`** napi-rs binding.
+    Rust native times are shown for reference — they reflect the underlying computation cost before nAPI overhead is added.
+    See [Node Binding](node.md) for setup and how to run.
+
+    Only indicators where at least one reference library ran are shown; the remaining 40 indicators have `tulip_rs_node` timings in the database but no JS competitor to compare against.
+
+    | Indicator | Rust native (ns) | tulip_rs_node (ns) | technicalindicators (ns) | indicatorts (ns) | TI / Node | indicatorts / Node |
+    |-----------|----------------:|------------------:|------------------------:|-----------------:|----------:|------------------:|
+    | `ad` | 4,779 | 15,289 | 362,618 | 56,345 | 23.72 | 3.69 |
+    | `adx` | 9,999 | 72,195 | 1,208,832 | — | 16.74 | — |
+    | `ao` | 5,393 | 9,476 | 1,179,923 | 51,252 | 124.51 | 5.41 |
+    | `apo` | 4,595 | 24,242 | — | 47,272 | — | 1.95 |
+    | `aroon` | 17,988 | 29,235 | — | 755,916 | — | 25.86 |
+    | `atr` | 4,559 | 12,759 | 487,010 | 412,299 | 38.17 | 32.32 |
+    | `bbands` | 7,114 | 48,775 | 5,712,514 | 287,762 | 117.12 | 5.90 |
+    | `bop` | 2,312 | 6,102 | — | 20,898 | — | 3.43 |
+    | `cci` | 55,726 | 61,800 | 4,545,921 | 143,000 | 73.56 | 2.31 |
+    | `chaikinmf` | 6,833 | 12,364 | — | 69,273 | — | 5.60 |
+    | `chandelierexit` | 17,252 | 65,897 | — | 1,198,695 | — | 18.19 |
+    | `dema` | 5,993 | 33,911 | — | 57,471 | — | 1.69 |
+    | `donchianchannel` | 15,182 | 21,793 | — | 822,234 | — | 37.73 |
+    | `ema` | 4,547 | 12,942 | 144,942 | 19,981 | 11.20 | 1.54 |
+    | `emv` | 2,295 | 6,368 | — | 72,371 | — | 11.37 |
+    | `keltnerchannel` | 6,182 | 27,767 | — | 514,102 | — | 18.52 |
+    | `macd` | 7,045 | 37,723 | 601,426 | 66,440 | 15.94 | 1.76 |
+    | `max` | 5,360 | 9,523 | — | 541,056 | — | 56.82 |
+    | `mfi` | 7,513 | 18,663 | 1,727,668 | 440,229 | 92.57 | 23.59 |
+    | `min` | 7,808 | 15,168 | — | 489,133 | — | 32.25 |
+    | `nvi` | 2,395 | 6,126 | — | 29,651 | — | 4.84 |
+    | `obv` | 3,325 | 6,646 | 313,177 | 20,825 | 47.12 | 3.13 |
+    | `ppo` | 4,823 | 24,468 | — | 91,518 | — | 3.74 |
+    | `psar` | 10,055 | 27,320 | 290,166 | 48,245 | 10.62 | 1.77 |
+    | `qstick` | 2,731 | 6,459 | — | 19,149 | — | 2.96 |
+    | `roc` | 2,294 | 6,158 | 568,223 | 17,056 | 92.27 | 2.77 |
+    | `rsi` | 4,719 | 25,181 | 791,156 | 112,723 | 31.42 | 4.48 |
+    | `sma` | 2,451 | 6,456 | 534,399 | 17,495 | 82.77 | 2.71 |
+    | `stoch` | 20,391 | 28,822 | 1,329,714 | 580,434 | 46.14 | 20.14 |
+    | `stochrsi` | 19,106 | 51,162 | 3,466,890 | — | 67.76 | — |
+    | `tema` | 6,734 | 63,641 | — | 95,084 | — | 1.49 |
+    | `tr` | 1,545 | 6,313 | — | 347,741 | — | 55.09 |
+    | `trima` | 5,408 | 7,520 | — | 26,088 | — | 3.47 |
+    | `trix` | 6,457 | 65,811 | 636,172 | 83,927 | 9.67 | 1.28 |
+    | `typprice` | 1,128 | 6,234 | — | 20,974 | — | 3.36 |
+    | `vortex` | 7,504 | 14,169 | — | 534,445 | — | 37.72 |
+    | `vwma` | 3,310 | 7,549 | — | 39,233 | — | 5.20 |
+    | `wilders` | 4,536 | 13,540 | 157,851 | 42,339 | 11.66 | 3.13 |
+    | `willr` | 17,218 | 21,420 | 1,400,240 | 829,212 | 65.37 | 38.71 |
+    | `wma` | 6,155 | 8,296 | 3,344,025 | — | 403.07 | — |
+    | `candlestick` | 515,546 | 2,914,485 | 107,339,622 | — | 36.83 | — |
+
+    ??? success "Notable results"
+
+        `tulip_rs_node` beats every JS competitor on **all compared indicators**.
+        Median speedup: **~46× vs technicalindicators**, **~4.5× vs indicatorts**.
+
+        **Largest wins vs technicalindicators** (pure JS, loop-heavy implementations):
+
+        | Indicator | TI / Node | Notes |
+        |-----------|----------:|-------|
+        | `wma` | **403×** | technicalindicators iterates per-bar in JS |
+        | `ao` | **125×** | |
+        | `bbands` | **117×** | |
+        | `roc` | **92×** | |
+        | `mfi` | **93×** | |
+        | `sma` | **83×** | |
+        | `cci` | **74×** | |
+        | `stochrsi` | **68×** | |
+        | `willr` | **65×** | |
+        | `obv` | **47×** | |
+
+        **Largest wins vs indicatorts** (pure TypeScript):
+
+        | Indicator | indicatorts / Node |
+        |-----------|------------------:|
+        | `max` | **57×** |
+        | `tr` | **55×** |
+        | `willr` | **39×** |
+        | `donchianchannel` | **38×** |
+        | `vortex` | **38×** |
+        | `min` | **32×** |
+        | `atr` | **32×** |
+        | `aroon` | **26×** |
+        | `mfi` | **24×** |
+        | `stoch` | **20×** |
+
+        **nAPI boundary overhead** — the gap between Rust native and `tulip_rs_node` columns reflects the fixed per-call cost of the nAPI boundary (argument marshalling, `Float64Array` handoff), roughly **4–25 µs** depending on the number of input/output series:
+
+        | Indicator | Rust native (ns) | tulip_rs_node (ns) | Overhead |
+        |-----------|----------------:|------------------:|---------:|
+        | `obv` | 3,325 | 6,646 | ~2× |
+        | `sma` | 2,451 | 6,456 | ~2.6× |
+        | `ema` | 4,547 | 12,942 | ~2.8× |
+        | `rsi` | 4,719 | 25,181 | ~5.3× |
+        | `bbands` | 7,114 | 48,775 | ~6.9× |
+        | `trix` | 6,457 | 65,811 | ~10× |
+
+        **Candlestick scanner** — scans 81 patterns in a single pass:
+
+        | | Time |
+        |--|-----:|
+        | Rust native | 515,546 ns |
+        | `tulip_rs_node` | 2,914,485 ns |
+        | `technicalindicators` | 107,339,622 ns |
+        | TI / Node ratio | **36.83×** |

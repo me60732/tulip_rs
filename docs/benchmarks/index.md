@@ -9,6 +9,8 @@
 | **[Tulip Indicators (C)](https://tulipindicators.org/)** | C | The C library that inspired `tulip_rs`; primary scalar baseline |
 | **[RustTa](https://crates.io/crates/rust-ta)** | Rust | Rust implementation with streaming support; 20 indicators benchmarked |
 | **[TA-Lib](https://ta-lib.org/)** | C | Industry-standard C technical-analysis library |
+| **[technicalindicators](https://github.com/anandanand84/technicalindicators)** | JavaScript/TypeScript | Popular JS/TS TA library; primary Node.js binding benchmark reference |
+| **[indicatorts](https://github.com/cinar/indicatorts)** | TypeScript | Pure-TS TA library; second Node.js binding benchmark reference |
 
 All timings are **nanoseconds (ns) — lower is better**. Ratios > 1.00 mean Rust is faster than the competitor.
 
@@ -20,7 +22,8 @@ All timings are **nanoseconds (ns) — lower is better**. Ratios > 1.00 mean Rus
 | [SIMD](simd.md) | 4-asset parallel (`by_assets`) and 4-option-set parallel (`by_options`) vectorised performance |
 | [Optional Outputs](optional-outputs.md) | Single-pass computation advantage for indicators with sub-indicator outputs |
 | [Streaming](streaming.md) | Per-bar stateful update performance vs full batch recomputation |
-| [Python Binding](python.md) | `tulip_rs_python` (PyO3) vs `ta` (pandas-based) across 20 indicators |
+| [Python Binding](python.md) | `tulip_rs_python` (PyO3) vs `ta` (pandas-based) across 35 indicators |
+| [Node Binding](node.md) | `tulip_rs_node` (napi-rs) vs `technicalindicators` and `indicatorts` across 41 indicators |
 
 ---
 
@@ -183,9 +186,18 @@ Consider computing `tema` with all its sub-indicators (`dema`, `ema`) across **4
 - **Slowest** — `msw` at **114 ns/bar**
 - The streaming path is **100–5,489× faster** than full batch recompute depending on the indicator
 
+### Node.js Binding
+
+- **41 indicators** benchmarked: `tulip_rs_node` vs `technicalindicators` and `indicatorts`
+- vs technicalindicators: `wma` (**403×**), `ao` (125×), `bbands` (117×), `roc` / `mfi` (~92×), `sma` (83×), `cci` (74×)
+- vs indicatorts: `max` (**57×**), `tr` (55×), `willr` (39×), `donchianchannel` / `vortex` (~38×), `min` / `atr` (~32×)
+- **Median speedup: ~46× vs technicalindicators**, ~4.5× vs indicatorts
+- Candlestick scanner (81 patterns, single pass): 2.9 ms via Node vs 107 ms via technicalindicators — **36.83× faster**
+- The napi-rs binding adds **~4–25 µs** fixed per-call overhead on top of native Rust computation
+
 ### Python Binding
 
-- **20 indicators** benchmarked: `tulip_rs_python` vs `ta` (pandas-based)
+- **35 indicators** benchmarked: `tulip_rs_python` vs `ta` (pandas-based)
 - `ta` falls back to **pure-Python loops** for many indicators — in these cases `tulip_rs_python` is **160–1,812× faster**
 - `ta` uses **pandas/numpy C paths** for a few indicators (EMA, BBands, MACD) — `tulip_rs_python` is **3–5× faster** there, with PyO3 call overhead narrowing the gap
 - **Median speedup: ~22×** across all 20 indicators

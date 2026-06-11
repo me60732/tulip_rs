@@ -144,6 +144,7 @@ nav:
           - Optional Outputs: benchmarks/optional-outputs.md
           - Streaming: benchmarks/streaming.md
           - Python Binding: benchmarks/python.md
+          - Node Binding: benchmarks/node.md
           - Running Benchmarks: benchmarks/setup.md
           - Benchmark Database: benchmarks/database.md
 
