@@ -60,8 +60,8 @@ Measures how recently the highest high and lowest low occurred within the lookba
     ```javascript
     import * as ti from 'tulip-rs-node';
 
-    const high = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87];
-    const low  = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
+    const high = Float64Array.from([82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87]);
+    const low  = Float64Array.from([81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01]);
 
     const [outputs, state] = ti.aroon.indicator([high, low], [25]);
     console.log('Aroon Down:', outputs[0]);
@@ -164,7 +164,7 @@ Measures how recently the highest high and lowest low occurred within the lookba
 
     ```javascript
     const simdInputs = [
-        [[...high], [...low]],
+        [high.slice(), low.slice()],
         [high.map(v => v * 1.1), low.map(v => v * 1.1)],
         [high.map(v => v * 0.9), low.map(v => v * 0.9)],
         [high.map(v => v * 1.02), low.map(v => v * 1.02)],

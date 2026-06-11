@@ -54,8 +54,8 @@ This design makes TulipRS well-suited for **streaming** and **incremental** pipe
     ```javascript
     import * as ti from 'tulip-rs-node';
 
-    const close = [81.59, 81.06, 82.87, 83.00, 83.61,
-                   83.15, 82.84, 83.99, 84.55, 84.36];
+    const close = Float64Array.from([81.59, 81.06, 82.87, 83.00, 83.61,
+                                     83.15, 82.84, 83.99, 84.55, 84.36]);
 
     // Step 1: compute on historical data, capture state
     const n = 8;
@@ -63,7 +63,7 @@ This design makes TulipRS well-suited for **streaming** and **incremental** pipe
     console.log('History outputs:', outputs[0]);
 
     // Step 2: feed new bars via state.batchIndicator
-    const newClose = [85.53, 86.54];
+    const newClose = Float64Array.from([85.53, 86.54]);
     const continued = state.batchIndicator([newClose]);
     console.log('Continued outputs:', continued[0]);
     ```
@@ -127,7 +127,7 @@ For very long historical series, chunked processing lets you control memory usag
     ```javascript
     import * as ti from 'tulip-rs-node';
 
-    const close = [/* very long series */];
+    const close = new Float64Array(/* very long series */);
     const chunkSize = 500;
     const period = 5;
 
@@ -202,7 +202,7 @@ State can be serialised to JSON for persistence and restored later. This is usef
     const restored = ti.sma.State.fromJson(json);
 
     // Continue from restored state
-    const newBars = [87.10, 88.25];
+    const newBars = Float64Array.from([87.10, 88.25]);
     const result = restored.batchIndicator([newBars]);
     ```
 

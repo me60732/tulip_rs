@@ -67,14 +67,14 @@ Measures market momentum as the difference between a 5-period and 34-period simp
     import * as ti from 'tulip-rs-node';
 
     // AO requires at least 34 bars (34-period SMA)
-    const high = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+    const high = Float64Array.from([82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
                   85.90, 86.58, 86.98, 88.00, 87.87, 88.10, 88.50, 89.00, 89.40, 89.80,
                   90.10, 90.50, 91.00, 91.50, 91.80, 92.00, 92.40, 92.80, 93.10, 93.50,
-                  93.80, 94.20, 94.60, 95.00, 95.30];
-    const low  = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                  93.80, 94.20, 94.60, 95.00, 95.30]);
+    const low  = Float64Array.from([81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
                   84.03, 85.39, 85.76, 87.17, 87.01, 87.50, 87.90, 88.30, 88.70, 89.10,
                   89.40, 89.80, 90.20, 90.60, 91.00, 91.30, 91.70, 92.10, 92.40, 92.80,
-                  93.10, 93.50, 93.90, 94.30, 94.60];
+                  93.10, 93.50, 93.90, 94.30, 94.60]);
 
     const [outputs, state] = ti.ao.indicator([high, low], []);
     console.log('AO:', outputs[0]);
@@ -267,7 +267,7 @@ Measures market momentum as the difference between a 5-period and 34-period simp
 
     ```javascript
     const simdInputs = [
-        [[...high], [...low]],
+        [high.slice(), low.slice()],
         [high.map(v => v * 1.1), low.map(v => v * 1.1)],
         [high.map(v => v * 0.9), low.map(v => v * 0.9)],
         [high.map(v => v * 1.02), low.map(v => v * 1.02)],

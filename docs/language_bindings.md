@@ -180,11 +180,11 @@ npm run build
 ```javascript
 import * as ti from 'tulip-rs-node';
 
-const close = [81.59, 81.06, 82.87, 83.00, 83.61,
-               83.15, 82.84, 83.99, 84.55, 84.36];
+const close = Float64Array.from([81.59, 81.06, 82.87, 83.00, 83.61,
+                                  83.15, 82.84, 83.99, 84.55, 84.36]);
 
 const [outputs, state] = ti.sma.indicator([close], [5]);
-const smaValues = outputs[0]; // number[]
+const smaValues = outputs[0]; // Float64Array
 ```
 
 **MACD — three outputs:**
@@ -267,7 +267,7 @@ The `state` returned by every call to `indicator()` exposes the following API:
 
 | Method / Property | Signature | Description |
 |---|---|---|
-| `batchIndicator` | `(inputs: number[][], optionalOutputsMask?: boolean[]) => number[][]` | Continue computation on new bars; pass the same optional outputs mask used in `indicator()` |
+| `batchIndicator` | `(inputs: Float64Array[], optionalOutputsMask?: boolean[]) => Float64Array[]` | Continue computation on new bars; pass the same optional outputs mask used in `indicator()` |
 | `toJson` | `() => string` | Serialise state to a JSON string |
 | `toBuffer` | `() => Buffer` | Serialise state to a binary Buffer (faster than JSON) |
 
@@ -283,6 +283,7 @@ const buf = state.toBuffer();
 const restored = ti.sma.State.fromBuffer(buf);
 
 // Continue from restored state
+const newBars = Float64Array.from([87.10, 88.25]);
 const result = restored.batchIndicator([newBars]);
 ```
 
@@ -475,7 +476,7 @@ sma.minDataAccuracy([5], 6); // bars needed for 6-decimal accuracy
 
 ### State Object API
 
-Similar to the Node.js binding, with one difference: `batchIndicator` returns `Float64Array[]` (zero-copy WASM memory views) instead of `number[][]`. Use `Array.from(result[0])` to convert to a plain JS array if needed.
+Similar to the Node.js binding. `batchIndicator` returns `Float64Array[]` (zero-copy memory views). Use `Array.from(result[0])` to convert to a plain JS array if needed.
 
 | Method | Signature | Description |
 |---|---|---|

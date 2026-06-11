@@ -83,14 +83,14 @@ The candlestick engine accepts three options in the following order:
     ```javascript
     import * as ti from 'tulip-rs-node';
 
-    const open  = [81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25,
-                   84.03, 85.45, 86.18, 88.00, 87.30, 87.30, 86.40, 84.30, 85.60];
-    const high  = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
-                   85.90, 86.58, 86.98, 88.00, 87.31, 87.30, 86.40, 85.50, 85.65];
-    const low   = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
-                   84.03, 85.39, 85.76, 87.17, 87.20, 86.30, 85.30, 84.00, 83.85];
-    const close = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
-                   85.53, 86.54, 86.89, 87.77, 87.29, 86.30, 85.30, 84.00, 83.90];
+    const open  = Float64Array.from([81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25,
+                                     84.03, 85.45, 86.18, 88.00, 87.30, 87.30, 86.40, 84.30, 85.60]);
+    const high  = Float64Array.from([82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                                     85.90, 86.58, 86.98, 88.00, 87.31, 87.30, 86.40, 85.50, 85.65]);
+    const low   = Float64Array.from([81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                                     84.03, 85.39, 85.76, 87.17, 87.20, 86.30, 85.30, 84.00, 83.85]);
+    const close = Float64Array.from([81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                                     85.53, 86.54, 86.89, 87.77, 87.29, 86.30, 85.30, 84.00, 83.90]);
     const options = [5, 1, 1]; // candle_period, trend_period, trend_signal_period
 
     const [result, state] = ti.candlestick.indicator([open, high, low, close], options);
@@ -277,10 +277,10 @@ Like every other indicator in TulipRS, the candlestick engine returns a `state` 
     const [, state] = ti.candlestick.indicator([open, high, low, close], options);
 
     // Step 2: feed only the new bar
-    const newOpen  = [84.00];
-    const newHigh  = [84.50];
-    const newLow   = [83.20];
-    const newClose = [83.50];
+    const newOpen  = Float64Array.from([84.00]);
+    const newHigh  = Float64Array.from([84.50]);
+    const newLow   = Float64Array.from([83.20]);
+    const newClose = Float64Array.from([83.50]);
 
     // Continue without filter
     const newResult = state.batchIndicator([newOpen, newHigh, newLow, newClose]);

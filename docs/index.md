@@ -70,8 +70,8 @@ Most technical analysis libraries are wrappers around the same scalar C code wri
     ```javascript
     import * as ti from 'tulip-rs-node';
 
-    const close = [81.59, 81.06, 82.87, 83.00, 83.61,
-                   83.15, 82.84, 83.99, 84.55, 84.36];
+    const close = Float64Array.from([81.59, 81.06, 82.87, 83.00, 83.61,
+                                     83.15, 82.84, 83.99, 84.55, 84.36]);
 
     const [outputs, state] = ti.sma.indicator([close], [5]);
 

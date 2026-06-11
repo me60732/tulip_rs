@@ -56,8 +56,8 @@ Tracks price changes on days when volume decreases, based on the theory that sma
     ```javascript
     import * as ti from 'tulip-rs-node';
 
-    const close  = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29];
-    const volume = [5653100, 6447400, 7690900, 3831400, 4455100, 3798000, 3936200, 4732000, 4841300, 3915300, 6830800, 6694100, 5293600, 7985800, 4807900];
+    const close  = Float64Array.from([81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29]);
+    const volume = Float64Array.from([5653100, 6447400, 7690900, 3831400, 4455100, 3798000, 3936200, 4732000, 4841300, 3915300, 6830800, 6694100, 5293600, 7985800, 4807900]);
 
     const [outputs, state] = ti.nvi.indicator([close, volume], []);
     console.log('NVI:', outputs[0]);
@@ -137,7 +137,7 @@ Tracks price changes on days when volume decreases, based on the theory that sma
 
     ```javascript
     const simdInputs = [
-        [[...close], [...volume]],
+        [close.slice(), volume.slice()],
         [close.map(v => v * 1.1), volume.map(v => v * 1.1)],
         [close.map(v => v * 0.9), volume.map(v => v * 0.9)],
         [close.map(v => v * 1.02), volume.map(v => v * 1.02)],

@@ -22,7 +22,9 @@ services:
             # Comment out the line below to exclude Rust benchmark views.
             - ./scripts/03_rust_benchmark_views.sql:/docker-entrypoint-initdb.d/03_rust_benchmark_views.sql:ro
             # Comment out the line below to exclude Python benchmark views.
-            - ./scripts/04_python_benchmark_views.sql:/docker-entrypoint-initdb.d/04_python_benchmark_views.sql:ro
+            #- ./scripts/04_python_benchmark_views.sql:/docker-entrypoint-initdb.d/04_python_benchmark_views.sql:ro
+            # Comment out the line below to exclude Node.js benchmark views.
+            #- ./scripts/05_node_benchmark_views.sql:/docker-entrypoint-initdb.d/05_node_benchmark_views.sql:ro
             # Named volume so data survives container restarts.
             - pg_data:/var/lib/postgresql/data
         healthcheck:

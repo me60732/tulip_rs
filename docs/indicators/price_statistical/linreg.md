@@ -27,9 +27,9 @@ The end-point of a least-squares linear regression line fitted to the last `peri
     ```javascript
     import * as ti from 'tulip-rs-node';
 
-    const close = [81.59, 81.06, 82.87, 83.00, 83.61,
+    const close = Float64Array.from([81.59, 81.06, 82.87, 83.00, 83.61,
                    83.15, 82.84, 83.99, 84.55, 84.36,
-                   85.53, 86.54, 86.89, 87.77, 87.29];
+                   85.53, 86.54, 86.89, 87.77, 87.29]);
 
     const [outputs, state] = ti.linreg.indicator([close], [14]);
     console.log('LinReg(14):', outputs[0]);
@@ -165,7 +165,7 @@ The end-point of a least-squares linear regression line fitted to the last `peri
     **By assets** — same period applied to 4 assets in parallel:
 
     ```javascript
-    const simdInputs = [[[...close]], [close.map(v => v * 1.1)], [close.map(v => v * 0.9)], [close.map(v => v * 1.02)]];
+    const simdInputs = [[close.slice()], [close.map(v => v * 1.1)], [close.map(v => v * 0.9)], [close.map(v => v * 1.02)]];
     const [results] = ti.linreg.simdByAssets(simdInputs, [14]);
     results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
     ```

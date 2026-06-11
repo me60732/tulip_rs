@@ -117,7 +117,7 @@ fn bench_rust_candlestick(c: &mut Criterion) {
                     Some(stock_symbol),
                 );
             }
-            break;
+            //break;
         }
     } else {
         let (open_vec, high_vec, low_vec, close_vec) = expand_inputs();

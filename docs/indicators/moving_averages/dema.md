@@ -52,9 +52,9 @@ Reduces EMA lag by applying a second EMA and combining the results: `2 * EMA - E
     ```javascript
     import * as ti from 'tulip-rs-node';
 
-    const close = [81.59, 81.06, 82.87, 83.00, 83.61,
+    const close = Float64Array.from([81.59, 81.06, 82.87, 83.00, 83.61,
                    83.15, 82.84, 83.99, 84.55, 84.36,
-                   85.53, 86.54, 86.89, 87.77, 87.29];
+                   85.53, 86.54, 86.89, 87.77, 87.29]);
 
     const [outputs, state] = ti.dema.indicator([close], [14]);
     console.log('DEMA(14):', outputs[0]);
@@ -228,7 +228,7 @@ Reduces EMA lag by applying a second EMA and combining the results: `2 * EMA - E
 
     ```javascript
     const simdInputs = [
-        [[...close]],
+        [close.slice()],
         [close.map(v => v * 1.1)],
         [close.map(v => v * 0.9)],
         [close.map(v => v * 1.02)],

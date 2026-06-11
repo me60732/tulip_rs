@@ -38,7 +38,7 @@ A moving average of `(Close - Open)` over `period` bars, summarising buying or s
     import * as ti from 'tulip-rs-node';
 
     const open_ = [81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25, 84.03, 85.45, 86.18, 88.00, 87.30];
-    const close = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29];
+    const close = Float64Array.from([81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29]);
 
     const [outputs, state] = ti.qstick.indicator([open_, close], [14]);
     console.log('QStick(14):', outputs[0]);
@@ -120,7 +120,7 @@ A moving average of `(Close - Open)` over `period` bars, summarising buying or s
 
     ```javascript
     const simdInputs = [
-        [[...open_], [...close]],
+        [[...open_], close.slice()],
         [open_.map(v => v * 1.1), close.map(v => v * 1.1)],
         [open_.map(v => v * 0.9), close.map(v => v * 0.9)],
         [open_.map(v => v * 1.02), close.map(v => v * 1.02)],

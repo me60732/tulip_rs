@@ -124,9 +124,9 @@ Every indicator in TulipRS follows the same universal signature. Once you unders
     const [outputs, state] = ti.<name>.indicator(inputs, options);
     ```
 
-    - `inputs` — an array of `number[]`, one per input series.
+    - `inputs` — an array of `Float64Array`, one per input series.
     - `options` — an array of `number` values, in the order documented for each indicator.
-    - `outputs` — an array of `number[]`, one per output series, already trimmed to valid length.
+    - `outputs` — an array of `Float64Array`, one per output series, already trimmed to valid length.
     - `state` — a state object that exposes `batchIndicator()` and JSON/Buffer serialisation.
 
     !!! note "Candlestick patterns use separate arrays per OHLC series."
@@ -170,8 +170,8 @@ Every indicator in TulipRS follows the same universal signature. Once you unders
     ```javascript
     import * as ti from 'tulip-rs-node';
 
-    const close = [81.59, 81.06, 82.87, 83.00, 83.61,
-                   83.15, 82.84, 83.99, 84.55, 84.36];
+    const close = Float64Array.from([81.59, 81.06, 82.87, 83.00, 83.61,
+                                     83.15, 82.84, 83.99, 84.55, 84.36]);
 
     const [outputs, state] = ti.sma.indicator([close], [5]);
 
@@ -210,6 +210,9 @@ Every indicator in TulipRS follows the same universal signature. Once you unders
 
     ```javascript
     import * as ti from 'tulip-rs-node';
+
+    const close = Float64Array.from([81.59, 81.06, 82.87, 83.00, 83.61,
+                                     83.15, 82.84, 83.99, 84.55, 84.36]);
 
     // options: [fast_period, slow_period, signal_period]
     const [outputs, state] = ti.macd.indicator([close], [12, 26, 9]);
@@ -255,9 +258,9 @@ Every indicator in TulipRS follows the same universal signature. Once you unders
     ```javascript
     import * as ti from 'tulip-rs-node';
 
-    const high  = [82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87];
-    const low   = [81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01];
-    const close = [81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29];
+    const high  = Float64Array.from([82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87]);
+    const low   = Float64Array.from([81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01]);
+    const close = Float64Array.from([81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29]);
 
     const [outputs, state] = ti.adx.indicator([high, low, close], [14]);
 
