@@ -684,5 +684,13 @@ name = "ti_vortex_example"
 path = "examples/indicators/ti_vortex_example.rs"
 
 [[example]]
+name = "ti_supertrend_example"
+path = "examples/indicators/ti_supertrend_example.rs"
+
+[[example]]
+name = "ti_vwap_example"
+path = "examples/indicators/ti_vwap_example.rs"
+
+[[example]]
 name = "ti_trvi_example"
 path = "examples/indicators/ti_trvi_example.rs"

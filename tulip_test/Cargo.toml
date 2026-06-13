@@ -353,6 +353,14 @@ harness = false
 name = "benchmark_vortex"
 harness = false
 
+[[bench]]
+name = "benchmark_vwap"
+harness = false
+
+[[bench]]
+name = "benchmark_supertrend"
+harness = false
+
 #[[bench]]
 #name = "benchmark_candle_stick_indicators"
 #harness = false

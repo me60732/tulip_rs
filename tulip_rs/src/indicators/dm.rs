@@ -321,6 +321,7 @@ pub fn calc_dp_dm(state: &mut State, high: f64, low: f64) -> (f64, f64) {
         dp = 0.0;
     }
 
+    if dp > dm { dm = 0.0; } else if dm > dp { dp = 0.0; }
     (dp, dm)
 }
 
