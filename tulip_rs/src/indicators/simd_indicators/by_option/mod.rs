@@ -53,6 +53,7 @@ pub mod smaenvelope;
 pub mod stddev;
 pub mod stoch;
 pub mod stochrsi;
+pub mod supersmoother;
 pub mod supertrend;
 pub mod tema;
 pub mod trima;

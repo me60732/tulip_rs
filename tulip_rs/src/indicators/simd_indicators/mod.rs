@@ -72,6 +72,7 @@ pub mod smaenvelope_simd;
 pub mod stddev_simd;
 pub mod stoch_simd;
 pub mod stochrsi_simd;
+pub mod supersmoother_simd;
 pub mod supertrend_simd;
 pub mod tema_simd;
 pub mod tr_simd;

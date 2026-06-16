@@ -362,6 +362,10 @@ name = "benchmark_supertrend"
 harness = false
 
 [[bench]]
+name = "benchmark_supersmoother"
+harness = false
+
+[[bench]]
 name = "benchmark_ichimoku"
 harness = false
 
