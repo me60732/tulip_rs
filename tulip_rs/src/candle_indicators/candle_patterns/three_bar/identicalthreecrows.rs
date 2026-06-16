@@ -22,7 +22,7 @@ pub fn info() -> CandleInfo {
 #[pattern_template(
     name = "IdenticalThreeCrows",
     forecast = "BearishReversal",
-    prev_bar (trend = "UP"),
+    prev_bar(trend = "UP"),
     bar(
         colour = "RED",
         fill = "FILL",

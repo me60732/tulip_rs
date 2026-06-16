@@ -2,15 +2,14 @@ use crate::ring_buffer::multi_buffer::multi_buffer::{BufferElement, MultiBuffer}
 use crate::ring_buffer::single_buffer::generic_buffer::Buffer as SingleBuffer;
 
 use crate::indicators::simd_indicators::{
-    max_simd::{SimdState as MaxState, find_max_scalar}, min_simd::{SimdState as MinState, find_min_scalar}, simd_types::UsizeConstants,
+    max_simd::{find_max_scalar, SimdState as MaxState},
+    min_simd::{find_min_scalar, SimdState as MinState},
+    simd_types::UsizeConstants,
 };
-use crate::indicators::{
-    max::{find_max_simd},
-    min::{find_min_simd},
-};
+use crate::indicators::{max::find_max_simd, min::find_min_simd};
 use std::simd::{
     cmp::{SimdPartialEq, SimdPartialOrd},
-    Select, Simd
+    Select, Simd,
 };
 
 pub trait MirrorBuffer<const B: usize, T: BufferElement = f64> {
@@ -95,7 +94,9 @@ impl<const B: usize, T: BufferElement> MirrorBuffer<B, T> for MultiBuffer<B, T> 
             return &[];
         } else if self.count == self.capacity {
             // Buffer full - window is all data starting at oldest position, uses mirror for contiguity
-            return unsafe { self.vals[lane].get_unchecked(self.index..self.index + self.count - offset) };
+            return unsafe {
+                self.vals[lane].get_unchecked(self.index..self.index + self.count - offset)
+            };
         }
         unsafe { self.vals[lane].get_unchecked(0..self.count - offset) }
     }
@@ -108,7 +109,9 @@ impl<const B: usize, T: BufferElement> MirrorBuffer<B, T> for MultiBuffer<B, T> 
                 self.vals[lane].get_unchecked(self.index..self.index + self.count - offset)
             });
         }
-        core::array::from_fn(|lane| unsafe { self.vals[lane].get_unchecked(0..self.count - offset) })
+        core::array::from_fn(|lane| unsafe {
+            self.vals[lane].get_unchecked(0..self.count - offset)
+        })
     }
 
     #[inline(always)]
@@ -120,15 +123,13 @@ impl<const B: usize, T: BufferElement> MirrorBuffer<B, T> for MultiBuffer<B, T> 
         Simd::splat(self.count - 1) - window_index
     }
     fn to_single_buffers(&self) -> [SingleBuffer<T>; B] {
-        std::array::from_fn(|i| 
-            SingleBuffer {
-                index: self.index,
-                count: self.count,
-                prev_idx: self.prev_idx,
-                capacity: self.capacity,
-                vals: self.vals[i].clone()
-            }
-        )
+        std::array::from_fn(|i| SingleBuffer {
+            index: self.index,
+            count: self.count,
+            prev_idx: self.prev_idx,
+            capacity: self.capacity,
+            vals: self.vals[i].clone(),
+        })
     }
 }
 
@@ -184,24 +185,24 @@ impl<const B: usize> MinMaxBuffer<B> for MultiBuffer<B, f64> {
     ) -> (Simd<f64, B>, Simd<usize, B>) {
         let (mut max, mut trail) = (state.max, state.trail);
         trail += UsizeConstants::ONE;
-        
+
         let lookback_simd = Simd::splat(look_back);
         let needs_search = lookback_simd.simd_eq(trail);
         let search_mask = needs_search.to_bitmask();
         //trail = needs_search.select(trail, trail + UsizeConstants::ONE);
-        
+
         let current_is_new_max = bar.simd_ge(max);
 
         max = current_is_new_max.select(bar, max);
         trail = current_is_new_max.select(UsizeConstants::ZERO, trail);
-        
+
         if search_mask != 0 {
             let max_array = max.as_mut_array();
             let trail_array = trail.as_mut_array();
             //let current = bar.as_array();
             // Const loop - compiler will unroll this automatically
             let mut lane = 0;
-            
+
             while lane < B {
                 if search_mask & (1 << lane) != 0 {
                     let (max_val, max_idx) = if CHUNK_SIZE == 1 {
@@ -226,12 +227,12 @@ impl<const B: usize> MinMaxBuffer<B> for MultiBuffer<B, f64> {
     ) -> (Simd<f64, B>, Simd<usize, B>) {
         let (mut min, mut trail) = (state.min, state.trail);
         trail += UsizeConstants::ONE;
-        
+
         let lookback_simd = Simd::splat(look_back);
         let needs_search = lookback_simd.simd_eq(trail);
         let search_mask = needs_search.to_bitmask();
         //trail = needs_search.select(trail, trail + UsizeConstants::ONE);
-        
+
         let current_is_new_min = bar.simd_le(min);
 
         min = current_is_new_min.select(bar, min);
@@ -259,5 +260,4 @@ impl<const B: usize> MinMaxBuffer<B> for MultiBuffer<B, f64> {
         (state.min, state.trail) = (min, trail);
         (min, trail)
     }
-    
 }

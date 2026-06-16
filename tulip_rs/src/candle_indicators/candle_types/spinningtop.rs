@@ -72,13 +72,7 @@ impl CandleStick for CDLSpinningTop {
         if CDLSpinningTop::is_candlestick_fast(open, high, low, close, candle_shape, state) {
             if CDLSpinningTop::is_white_spinning_top(open, high, low, close, candle_shape) {
                 return Some(CDLSpinningTop::WhiteSpinningTop);
-            } else if CDLSpinningTop::is_black_spinning_top(
-                open,
-                high,
-                low,
-                close,
-                candle_shape,
-            ) {
+            } else if CDLSpinningTop::is_black_spinning_top(open, high, low, close, candle_shape) {
                 return Some(CDLSpinningTop::BlackSpinningTop);
             } else if CDLSpinningTop::is_high_wave(open, high, low, close, state, &candle_shape) {
                 return Some(CDLSpinningTop::HighWave);

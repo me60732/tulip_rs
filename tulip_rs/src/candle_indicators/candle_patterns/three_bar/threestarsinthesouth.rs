@@ -6,7 +6,7 @@ use tulip_rs_macros::pattern_template;
     forecast = "BullishReversal",
     prev_bar(trend = "DOWN"),
     bar(
-        colour = "RED", 
+        colour = "RED",
         fill = "FILL",
         line_height = "LONG",
         lower_wick_lt_body = "FALSE"
@@ -35,6 +35,3 @@ pub fn info() -> CandleInfo {
         japanese_name: "Kyoku no santen boshi",
     }
 }
-
-
-

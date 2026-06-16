@@ -68,7 +68,6 @@ pub fn calc(
     _state: &EmaState,
     _bars: &[CandleBits],
 ) -> bool {
-
     let (_, _, _, close) = inputs;
 
     close[THIRD] < close[FIRST]

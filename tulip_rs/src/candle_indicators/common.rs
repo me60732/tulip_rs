@@ -1,4 +1,4 @@
-use std::simd::{Simd, num::SimdFloat, cmp::SimdPartialOrd};
+use std::simd::{cmp::SimdPartialOrd, num::SimdFloat, Simd};
 
 pub const HALLOW: bool = true;
 pub const FILL: bool = false;
@@ -135,14 +135,16 @@ pub(crate) fn cdl_height(body: (f64, f64), avg_range: f64) -> bool {
     }
 }
 #[inline(always)]
-pub(crate) fn cdl_height_simd(body: (Simd<f64, 2>, Simd<f64, 2>), avg_range: Simd<f64, 2>) -> [bool; 2] {
+pub(crate) fn cdl_height_simd(
+    body: (Simd<f64, 2>, Simd<f64, 2>),
+    avg_range: Simd<f64, 2>,
+) -> [bool; 2] {
     let (top, bottom) = body;
     let range = (top - bottom).abs();
-    
+
     let min_range = Simd::splat(MIN_LONG_CDL_HEIGHT) * avg_range;
     let tol_range = Simd::splat(TOLERANCE) * avg_range;
     range.simd_ge(min_range - tol_range).to_array()
-    
 }
 /// Detect the gap type between two candles.
 ///

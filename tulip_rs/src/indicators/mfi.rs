@@ -57,12 +57,14 @@ pub const INFO: Info = Info {
     optional_outputs: &["typprice"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "mfi",
             label: "MFI",
             display_type: DisplayType::Indicator,
             outputs: &["mfi"],
         },
         DisplayGroup {
+            offset: None,
             id: "typprice",
             label: "Typical Price",
             display_type: DisplayType::Overlay,

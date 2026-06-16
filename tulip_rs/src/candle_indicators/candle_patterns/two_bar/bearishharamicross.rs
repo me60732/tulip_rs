@@ -5,7 +5,6 @@ use crate::candle_indicators::{
 };
 use tulip_rs_macros::pattern_template;
 
-
 pub fn info() -> CandleInfo {
     CandleInfo {
         name: "bearishharami",

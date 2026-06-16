@@ -192,12 +192,14 @@ pub const INFO: Info = Info {
     optional_outputs: &["tr", "ema"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "trvi",
             label: "True Range Volatility Indicator",
             display_type: DisplayType::Indicator,
             outputs: &["trvi"],
         },
         DisplayGroup {
+            offset: None,
             id: "tr",
             label: "True Range",
             display_type: DisplayType::Indicator,

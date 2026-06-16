@@ -143,14 +143,13 @@ pub const INFO: Info = Info {
     options: &["period"],
     outputs: &["wma"],
     optional_outputs: &["sma"],
-    display_groups: &[
-        DisplayGroup {
-            id: "wma",
-            label: "Moving Averages",
-            display_type: DisplayType::Overlay,
-            outputs: &["wma", "sma"],
-        },
-    ],
+    display_groups: &[DisplayGroup {
+        offset: None,
+        id: "wma",
+        label: "Moving Averages",
+        display_type: DisplayType::Overlay,
+        outputs: &["wma", "sma"],
+    }],
 };
 /// Returns the minimum number of input bars required to produce accurate results.
 ///

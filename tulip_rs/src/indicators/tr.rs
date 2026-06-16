@@ -65,6 +65,7 @@ pub const INFO: Info = Info {
     outputs: &["tr"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "tr",
         label: "True Range",
         display_type: DisplayType::Indicator,

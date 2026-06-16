@@ -51,6 +51,7 @@ pub const INFO: Info = Info {
     // No optional outputs.
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "vwma",
         label: "VWMA",
         display_type: DisplayType::Overlay,

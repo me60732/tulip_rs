@@ -67,12 +67,14 @@ pub const INFO: Info = Info {
     optional_outputs: &["adx", "dx", "atr", "tr"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "adxr_adx_dx",
             label: "Directional Index",
             display_type: DisplayType::Indicator,
             outputs: &["adxr", "adx", "dx"],
         },
         DisplayGroup {
+            offset: None,
             id: "true_range",
             label: "True Range",
             display_type: DisplayType::Indicator,
@@ -92,10 +94,7 @@ pub struct IndicatorState {
 }
 impl IndicatorState {
     pub fn new(state: State, multipliers: (f64, f64)) -> Self {
-        Self {
-            state,
-            multipliers,
-        }
+        Self { state, multipliers }
     }
 }
 impl TIndicatorState<3> for IndicatorState {
@@ -157,7 +156,8 @@ impl State {
         let mut i = period * 2 - 1;
         let multipliers = multiplier(period);
         while !prev_adx.is_full() {
-            let (adx, dx, atr, tr) = calc_adx(&mut adx_state, high[i], low[i], close[i], multipliers);
+            let (adx, dx, atr, tr) =
+                calc_adx(&mut adx_state, high[i], low[i], close[i], multipliers);
             prev_adx.push(adx);
             crate::init_store_optional_outputs!(i, high.len(),
                 adx_line => adx,
@@ -280,7 +280,7 @@ pub fn indicator(
             ),
         )
     };
-    
+
     let mut state = State::init_state(
         inputs[0], // high
         inputs[1], //low
@@ -372,7 +372,13 @@ fn cycle_adxr(
 }
 
 #[inline(always)]
-pub fn calc(state: &mut State, high: f64, low: f64, close: f64, multipliers: (f64, f64)) -> (f64, f64, f64, f64, f64) {
+pub fn calc(
+    state: &mut State,
+    high: f64,
+    low: f64,
+    close: f64,
+    multipliers: (f64, f64),
+) -> (f64, f64, f64, f64, f64) {
     let (adx, dx, atr, tr) = calc_adx(&mut state.adx_state, high, low, close, multipliers);
 
     let prev_adx = state.buffer.push_with_info(adx);
@@ -396,4 +402,3 @@ pub unsafe fn calc_unchecked(
 
     (adxr, adx, dx, atr, tr)
 }
-

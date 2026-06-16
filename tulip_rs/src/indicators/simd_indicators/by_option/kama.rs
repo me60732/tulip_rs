@@ -24,7 +24,8 @@ impl Driver<State, (usize, (f64, f64))> for KamaDriver {
         let len = outputs[0][0].len();
 
         let input_ptrs = crate::extract_input_ptrs!(inputs, N, input_ptrs);
-        let (kama_line_ptr, ef_line_ptr) = crate::extract_output_ptrs!(outputs, N, kama_line_ptr, ef_line_ptr);
+        let (kama_line_ptr, ef_line_ptr) =
+            crate::extract_output_ptrs!(outputs, N, kama_line_ptr, ef_line_ptr);
 
         let (mut i, mut prev, mut old, multipliers_simd) = {
             let mut multipliers = ([0.0; N], [0.0; N]);
@@ -105,7 +106,7 @@ pub fn indicator_by_options<const N: usize>(
 
     let mut road_train = PrimeMover::<N, State, (usize, (f64, f64))>::new();
     let mut want_optional_outputs = false;
-    
+
     for i in 0..N {
         let (mut kama_line, mut ef_line) = {
             let capacity = output_length(inputs[0].len(), options[i]);
@@ -114,7 +115,7 @@ pub fn indicator_by_options<const N: usize>(
                 crate::init_optional_outputs!(
                     optional_outputs, &[false],
                     ef_line: capacity
-                )
+                ),
             )
         };
         let period = options[i][0] as usize;
@@ -135,7 +136,7 @@ pub fn indicator_by_options<const N: usize>(
                 let output_buffer = &mut output_buffer[j];
                 asset_outputs.push(std::slice::from_raw_parts_mut(
                     output_buffer.as_mut_ptr().add(starts[j]), //slice from
-                    output_buffer.len() - starts[j],               // slice to
+                    output_buffer.len() - starts[j],           // slice to
                 ));
             }
         }
@@ -151,7 +152,9 @@ pub fn indicator_by_options<const N: usize>(
         output_buffers.push(output_buffer);
     }
 
-    let mut driver = KamaDriver {want_optional_outputs};
+    let mut driver = KamaDriver {
+        want_optional_outputs,
+    };
     let final_states = road_train.drive(&mut driver);
 
     let mut states = Vec::with_capacity(N);

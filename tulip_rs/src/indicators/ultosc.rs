@@ -59,12 +59,14 @@ pub const INFO: Info = Info {
     optional_outputs: &[],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "ultosc",
             label: "ULTOSC",
             display_type: DisplayType::Indicator,
             outputs: &["ultosc"],
         },
         DisplayGroup {
+            offset: None,
             id: "tr_bp",
             label: "Buying Pressure",
             display_type: DisplayType::Indicator,

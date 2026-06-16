@@ -134,17 +134,19 @@ pub const INFO: Info = Info {
     optional_outputs: &["aroon_down", "aroon_up"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "aroonosc",
             label: "AROONOSC",
             display_type: DisplayType::Indicator,
             outputs: &["aroonosc"],
         },
         DisplayGroup {
+            offset: None,
             id: "aroon_down_aroon_up",
             label: "Aroon",
             display_type: DisplayType::Indicator,
             outputs: &["aroon_down", "aroon_up"],
-        }
+        },
     ],
 };
 /// Returns the minimum number of input bars required to produce accurate results.

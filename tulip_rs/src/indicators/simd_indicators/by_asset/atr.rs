@@ -33,7 +33,10 @@ impl Driver<State> for AtrDriver {
     ) {
         let mut state = SimdState::<N>::new(&states);
         let len = inputs[0][0].len();
-        let multipliers = (Simd::splat(self.multipliers.0), Simd::splat(self.multipliers.1));
+        let multipliers = (
+            Simd::splat(self.multipliers.0),
+            Simd::splat(self.multipliers.1),
+        );
 
         //collect outputs
         let (atr_line_ptr, tr_line_ptr) =
@@ -144,7 +147,7 @@ pub fn indicator_by_assets<const N: usize>(
                 let output_buffer = &mut output_buffer[j];
                 asset_outputs.push(std::slice::from_raw_parts_mut(
                     output_buffer.as_mut_ptr().add(starts[j]), //slice from
-                    output_buffer.len() - starts[j],                       // slice to
+                    output_buffer.len() - starts[j],           // slice to
                 ));
             }
         }

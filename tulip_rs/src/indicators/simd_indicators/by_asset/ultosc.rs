@@ -30,7 +30,8 @@ impl Driver<State> for UltoscDriver {
         let len = inputs[0][0].len();
 
         //collect outputs
-        let (ultosc_line_ptr, tr_line_ptr, bp_line_ptr) = crate::extract_output_ptrs!(outputs, N, ultosc, tr, bp);
+        let (ultosc_line_ptr, tr_line_ptr, bp_line_ptr) =
+            crate::extract_output_ptrs!(outputs, N, ultosc, tr, bp);
 
         let (high_ptrs, low_ptrs, close_ptrs) =
             crate::extract_input_ptrs!(inputs, N, high_ptrs, low_ptrs, close_ptrs);
@@ -47,7 +48,8 @@ impl Driver<State> for UltoscDriver {
                 close @ close_ptrs
             );
 
-            let (ultosc, tr, bp) = unsafe { state.calc_unchecked(&high, &low, &close, self.periods) };
+            let (ultosc, tr, bp) =
+                unsafe { state.calc_unchecked(&high, &low, &close, self.periods) };
 
             crate::write_simd_at_indices!(N, i,
                 ultosc_line_ptr => ultosc
@@ -115,7 +117,15 @@ pub fn indicator_by_assets<const N: usize>(
             )
         };
 
-        let state = State::init_state(high, low, close, periods, &mut ultosc_line, &mut tr_line, &mut bp_line);
+        let state = State::init_state(
+            high,
+            low,
+            close,
+            periods,
+            &mut ultosc_line,
+            &mut tr_line,
+            &mut bp_line,
+        );
         let mut starts = [1; 3];
         (starts[1], starts[2]) = {
             let (mut tr, mut bp) = crate::slice_outputs_start!(ultosc_line.len(), tr_line, bp_line);
@@ -162,7 +172,7 @@ pub fn indicator_by_assets<const N: usize>(
 
     let mut driver = UltoscDriver {
         periods: (periods.0, periods.1),
-        want_optional_outputs
+        want_optional_outputs,
     };
     let states_vec = road_train.drive(&mut driver);
 

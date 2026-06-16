@@ -50,6 +50,7 @@ pub const INFO: Info = Info {
     outputs: &["typprice"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "typprice",
         label: "TYPPRICE",
         display_type: DisplayType::Overlay,

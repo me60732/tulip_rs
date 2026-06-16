@@ -54,12 +54,14 @@ pub const INFO: Info = Info {
     optional_outputs: &["mom"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "roc",
             label: "ROC",
             display_type: DisplayType::Indicator,
             outputs: &["roc"],
         },
         DisplayGroup {
+            offset: None,
             id: "mom",
             label: "Momentum",
             display_type: DisplayType::Indicator,

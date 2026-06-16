@@ -119,6 +119,7 @@ pub const INFO: Info = Info {
     outputs: &["vhf"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "vhf",
         label: "VHF",
         display_type: DisplayType::Indicator,

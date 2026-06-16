@@ -3,15 +3,13 @@ use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::simd_indicators::vortex_simd::options::SimdState;
 use crate::indicators::{
-    vortex::{
-        min_data, output_length, IndicatorState as State, INPUTS_WIDTH, OPTIONS_WIDTH
-    },
-    tr::output_length as tr_output_length
+    tr::output_length as tr_output_length,
+    vortex::{min_data, output_length, IndicatorState as State, INPUTS_WIDTH, OPTIONS_WIDTH},
 };
 use crate::types::IndicatorError;
 /// SIMD driver for the Vortex indicator, processing `N` option-set (period) lanes per scheduling epoch.
 struct VortexDriver {
-    want_optional_outputs: bool
+    want_optional_outputs: bool,
 }
 
 impl Driver<State, usize> for VortexDriver {
@@ -34,7 +32,8 @@ impl Driver<State, usize> for VortexDriver {
             SimdState::<N>::new(&mut states, periods)
         };
         //collect outputs
-        let (vi_up_line_ptr, vi_down_line_ptr, tr_line_ptr) = crate::extract_output_ptrs!(outputs, N, vi_up, vi_down, tr);
+        let (vi_up_line_ptr, vi_down_line_ptr, tr_line_ptr) =
+            crate::extract_output_ptrs!(outputs, N, vi_up, vi_down, tr);
 
         let (high_ptrs, low_ptrs, close_ptrs) =
             crate::extract_input_ptrs!(inputs, N, high_ptrs, low_ptrs, close_ptrs);
@@ -91,7 +90,7 @@ pub fn indicator_by_options<const N: usize>(
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<State>), IndicatorError> {
     validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
     validate_options(options, None)?;
-    let period: [usize; N] = std::array::from_fn(|i| { options[i][0] as usize });
+    let period: [usize; N] = std::array::from_fn(|i| options[i][0] as usize);
     let mut road_train = PrimeMover::<N, State, usize>::new();
     let mut output_buffers = Vec::with_capacity(N);
     let [high, low, close] = *inputs;
@@ -108,15 +107,11 @@ pub fn indicator_by_options<const N: usize>(
                 crate::init_optional_outputs_eff!(
                     optional_outputs, &[false],
                     tr_line_line: tr_output_length(len, options[i])
-                )
+                ),
             )
         };
 
-        let state = State::init_state(
-            high, low, close,
-            period[i],
-            &mut tr_line,
-        );
+        let state = State::init_state(high, low, close, period[i], &mut tr_line);
 
         let mut starts = [0; 3];
         starts[2] = crate::slice_outputs_start!(vi_up_line.len(), tr_line);
@@ -136,7 +131,7 @@ pub fn indicator_by_options<const N: usize>(
                 let output_buffer = &mut output_buffer[j];
                 asset_outputs.push(std::slice::from_raw_parts_mut(
                     output_buffer.as_mut_ptr().add(starts[j]), //slice from
-                    output_buffer.len() - starts[j],               // slice to
+                    output_buffer.len() - starts[j],           // slice to
                 ));
             }
         }
@@ -153,7 +148,9 @@ pub fn indicator_by_options<const N: usize>(
         output_buffers.push(output_buffer);
     }
 
-    let mut driver = VortexDriver { want_optional_outputs };
+    let mut driver = VortexDriver {
+        want_optional_outputs,
+    };
 
     let states_vec = road_train.drive(&mut driver);
 

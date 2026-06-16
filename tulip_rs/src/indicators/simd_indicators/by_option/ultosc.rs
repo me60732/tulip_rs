@@ -181,7 +181,9 @@ pub fn indicator_by_options<const N: usize>(
         output_buffers.push(output_buffer);
     }
 
-    let mut driver = UltoscDriver { want_optional_outputs };
+    let mut driver = UltoscDriver {
+        want_optional_outputs,
+    };
 
     let states_vec = road_train.drive(&mut driver);
 

@@ -22,6 +22,7 @@ pub const INFO: Info = Info {
     outputs: &["s3", "s2", "s1", "pp", "r1", "r2", "r3"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "pivotpoint",
         label: "PIVOTPOINT",
         display_type: DisplayType::Overlay,

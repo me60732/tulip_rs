@@ -1,3 +1,4 @@
+use crate::candle_indicators::candle_patterns::CandlePattern;
 /// One-Candle Shooting Star
 /// Construction:
 ///    white or black candle with a small body
@@ -6,7 +7,6 @@
 ///    if the gap is created at the opening or the closing, it makes the signal stronger
 ///    appears as a long line
 use crate::candle_indicators::types::{CandleInfo, ForecastType};
-use crate::candle_indicators::candle_patterns::CandlePattern;
 use tulip_rs_macros::pattern_template;
 
 #[pattern_template(
@@ -31,4 +31,3 @@ pub fn info() -> CandleInfo {
         extended_pattern: Some(CandlePattern::TwoCandleShootingStar),
     }
 }
-

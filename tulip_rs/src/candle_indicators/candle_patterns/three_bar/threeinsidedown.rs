@@ -34,6 +34,3 @@ pub fn info() -> CandleInfo {
         japanese_name: "Sanpei Fukakudari",
     }
 }
-
-
-

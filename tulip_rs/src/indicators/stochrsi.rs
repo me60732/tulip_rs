@@ -3,9 +3,7 @@ pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::max::State as MaxState;
 use crate::indicators::min::State as MinState;
 pub use crate::indicators::rsi::multiplier;
-use crate::indicators::rsi::{
-    output_length as rsi_output_length, State as RsiState,
-};
+use crate::indicators::rsi::{output_length as rsi_output_length, State as RsiState};
 use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
 use crate::ring_buffer::single_buffer::mirror_buffer::{MinMaxBuffer, MirrorBuffer};
 use crate::types::{
@@ -164,6 +162,7 @@ pub const INFO: Info = Info {
     outputs: &["stochrsi"],
     optional_outputs: &["rsi"],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "stochrsi",
         label: "STOCHRSI",
         display_type: DisplayType::Indicator,

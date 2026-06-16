@@ -112,12 +112,14 @@ pub const INFO: Info = Info {
     optional_outputs: &["sma"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "dpo",
             label: "DPO",
             display_type: DisplayType::Indicator,
             outputs: &["dpo"],
         },
         DisplayGroup {
+            offset: None,
             id: "sma",
             label: "SMA",
             display_type: DisplayType::Overlay,

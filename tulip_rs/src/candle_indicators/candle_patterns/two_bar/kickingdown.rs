@@ -40,7 +40,5 @@ pub fn calc(
     _state: &EmaState,
     _bars: &[CandleBits],
 ) -> bool {
-
-
     true
 }

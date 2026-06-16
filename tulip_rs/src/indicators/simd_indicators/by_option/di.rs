@@ -66,8 +66,7 @@ impl Driver<State, (f64, f64)> for DiDriver {
                 close @ close_ptrs
             );
 
-            let (plus_di, minus_di, atr, tr) =
-                calc_simd(&mut state, high, low, close, multipliers);
+            let (plus_di, minus_di, atr, tr) = calc_simd(&mut state, high, low, close, multipliers);
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, i,
@@ -158,7 +157,7 @@ pub fn indicator_by_options<const N: usize>(
                 let output_buffer = &mut output_buffer[j];
                 asset_outputs.push(std::slice::from_raw_parts_mut(
                     output_buffer.as_mut_ptr().add(starts[j]), //slice from
-                    output_buffer.len() - starts[j],                       // slice to
+                    output_buffer.len() - starts[j],           // slice to
                 ));
             }
         }

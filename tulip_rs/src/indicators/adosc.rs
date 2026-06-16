@@ -60,12 +60,14 @@ pub const INFO: Info = Info {
     optional_outputs: &["short_ema", "long_ema", "ad"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "adosc",
             label: "ADOSC",
             display_type: DisplayType::Indicator,
             outputs: &["adosc"],
         },
         DisplayGroup {
+            offset: None,
             id: "Accumulation/Distribution",
             label: "AD EMAs",
             display_type: DisplayType::Indicator,

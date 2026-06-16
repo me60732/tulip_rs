@@ -319,7 +319,7 @@ pub mod options {
 
             let high_low_simd = Simd::from_array([high, low]);
             let [vm_up, vm_dn] = ((high_low_simd - self.prev_low_high).abs()).to_array();
-    
+
             self.prev_close = close;
             self.prev_low_high = high_low_simd.reverse();
 

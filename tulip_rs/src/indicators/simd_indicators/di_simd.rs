@@ -94,7 +94,7 @@ pub fn calc_simd<const N: usize>(
     high: Simd<f64, N>,
     low: Simd<f64, N>,
     close: Simd<f64, N>,
-    multipliers: (Simd<f64, N>, Simd<f64, N>)
+    multipliers: (Simd<f64, N>, Simd<f64, N>),
 ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
     let (dmup, dmdown, atr, tr) = calc_diup_didown_simd(state, high, low, close, multipliers);
     let atr_inv = F64Constants::HUNDRED / atr;

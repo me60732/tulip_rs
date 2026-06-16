@@ -17,8 +17,14 @@ pub(crate) const PATTERN_BAR_WINDOW: usize = MAX_PATTERN_LENGTH + 1;
 // CandleBits already derives Serialize + Deserialize, so Repr = Self.
 impl SerdeElement for CandleBits {
     type Repr = CandleBits;
-    #[inline(always)] fn to_repr(self) -> CandleBits { self }
-    #[inline(always)] fn from_repr(r: CandleBits) -> CandleBits { r }
+    #[inline(always)]
+    fn to_repr(self) -> CandleBits {
+        self
+    }
+    #[inline(always)]
+    fn from_repr(r: CandleBits) -> CandleBits {
+        r
+    }
 }
 impl BufferElement for CandleBits {}
 /// Pattern test - the complete pattern of bars

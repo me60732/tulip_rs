@@ -1,7 +1,6 @@
 use crate::candle_indicators::types::{CandleInfo, ForecastType};
 use tulip_rs_macros::pattern_template;
 
-
 #[pattern_template(
     name = "Piercing",
     forecast = "BullishReversal",

@@ -203,6 +203,7 @@ pub const INFO: Info = Info {
     outputs: &["stoch_k", "stoch_d"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "stoch",
         label: "STOCH",
         display_type: DisplayType::Indicator,

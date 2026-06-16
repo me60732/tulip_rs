@@ -31,7 +31,8 @@ pub mod assets {
     impl<const N: usize> SimdState<N> {
         /// Gathers `N` scalar [`State`] references into a single `SimdState`, packing each field into a SIMD lane.
         pub fn new(states: &mut [&mut State]) -> Self {
-            let buffer_refs: [&MultiBuffer<2, f64>; N] = core::array::from_fn(|i| &states[i].buffer);
+            let buffer_refs: [&MultiBuffer<2, f64>; N] =
+                core::array::from_fn(|i| &states[i].buffer);
             let buffer = <MultiBuffer<2, Simd<f64, N>> as SimdRingBuffer<2, N>>::from_f64_buffers(
                 buffer_refs,
             );

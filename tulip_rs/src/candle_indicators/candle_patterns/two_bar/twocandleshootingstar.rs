@@ -42,7 +42,7 @@ pub fn info() -> CandleInfo {
         body_height = "SHORT",
         body_gap = "GAP_UP",
         upper_wick_lt_body = "FALSE",
-        upper_wick_2x = "TRUE", 
+        upper_wick_2x = "TRUE",
         lower_wick_lt_body = "TRUE",
         candle_type = "SpinningTop(WhiteSpinningTop | BlackSpinningTop | HighWave)"
     )

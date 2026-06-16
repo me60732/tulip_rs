@@ -33,6 +33,7 @@ pub const INFO: Info = Info {
     outputs: &["wad"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "wad",
         label: "WAD",
         display_type: DisplayType::Indicator,

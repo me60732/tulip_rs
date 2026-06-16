@@ -1,4 +1,3 @@
-
 use crate::candle_indicators::types::{CandleInfo, ForecastType};
 use tulip_rs_macros::pattern_template;
 
@@ -29,6 +28,3 @@ pub fn info() -> CandleInfo {
         japanese_name: "Doji Bike",
     }
 }
-
-
-

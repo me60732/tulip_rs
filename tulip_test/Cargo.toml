@@ -361,6 +361,10 @@ harness = false
 name = "benchmark_supertrend"
 harness = false
 
+[[bench]]
+name = "benchmark_ichimoku"
+harness = false
+
 #[[bench]]
 #name = "benchmark_candle_stick_indicators"
 #harness = false

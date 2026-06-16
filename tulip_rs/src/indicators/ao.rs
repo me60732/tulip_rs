@@ -46,12 +46,14 @@ pub const INFO: Info = Info {
     optional_outputs: &["short_sma", "long_sma", "medprice"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "ao",
             label: "AO",
             display_type: DisplayType::Indicator,
             outputs: &["ao"],
         },
         DisplayGroup {
+            offset: None,
             id: "short_sma_long_sma_medprice",
             label: "Median Price",
             display_type: DisplayType::Overlay,

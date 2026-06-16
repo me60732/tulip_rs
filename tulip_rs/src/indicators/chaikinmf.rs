@@ -40,6 +40,7 @@ pub const INFO: Info = Info {
     outputs: &["cmf"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "cmf",
         label: "Chaikin Money Flow",
         display_type: DisplayType::Indicator,

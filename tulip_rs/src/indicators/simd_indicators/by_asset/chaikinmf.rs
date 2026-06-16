@@ -79,10 +79,7 @@ pub fn indicator_by_assets<const N: usize>(
             crate::uninit_vec!(f64, capacity)
         };
 
-        let state = State::init_state(
-            (high, low, close, volume),
-            period,
-        );
+        let state = State::init_state((high, low, close, volume), period);
 
         let mut output_buffer = vec![cmf_line];
         let mut asset_outputs = Vec::with_capacity(1);

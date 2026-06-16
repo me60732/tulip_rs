@@ -56,12 +56,14 @@ pub const INFO: Info = Info {
     optional_outputs: &["linregslope", "linregintercept"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "linreg_linregintercept",
             label: "Regression",
             display_type: DisplayType::Overlay,
             outputs: &["linreg", "linregintercept"],
         },
         DisplayGroup {
+            offset: None,
             id: "linregslope",
             label: "Linear Regression Slope",
             display_type: DisplayType::Indicator,

@@ -82,12 +82,14 @@ pub const INFO: Info = Info {
     optional_outputs: &["medprice"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "emv",
             label: "EMV",
             display_type: DisplayType::Indicator,
             outputs: &["emv"],
         },
         DisplayGroup {
+            offset: None,
             id: "medprice",
             label: "Median Price",
             display_type: DisplayType::Overlay,

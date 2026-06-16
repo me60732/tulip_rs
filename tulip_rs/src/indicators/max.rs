@@ -61,6 +61,84 @@ impl State {
         }
         state
     }
+    #[inline(always)]
+    pub fn calc(&mut self, real: &[f64], i: usize, periods: (usize, usize)) -> (f64, usize) {
+        let (period, look_back) = periods;
+        let (mut max, mut trail) = (self.max, self.trail);
+        trail += 1;
+
+        if period <= trail {
+            let search_start = i - look_back;
+            let search_end = i + 1;
+            let window = &real[search_start..search_end];
+
+            /*let (max_val, max_idx) = if period > 13 {
+                find_max_simd::<4>(window)
+            } else {
+                find_max_scalar(window)
+            };*/
+            let (max_val, max_idx) = match period {
+                1..=4 => {
+                    find_max_scalar(window)
+                }
+                5..30 => {
+                    find_max_simd::<4>(window)
+                }
+                _ => {
+                    find_max_simd::<8>(window)
+                }
+            };
+            max = max_val;
+            trail = i - (search_start + max_idx);
+        } else {
+            let current = real[i];
+            if current >= max {
+                // >= to handle equal values correctly
+                max = current;
+                trail = 0;
+            }
+        }
+
+        self.max = max;
+        self.trail = trail;
+        (max, trail)
+    }
+
+    #[inline(always)]
+    pub unsafe fn calc_unchecked<const N: usize>(
+        &mut self,
+        real: &[f64],
+        i: usize,
+        periods: (usize, usize),
+    ) -> (f64, usize) {
+        let (period, look_back) = periods;
+        let (mut max, mut trail) = (self.max, self.trail);
+        trail += 1;
+
+        if period <= trail {
+            let search_start = i - look_back;
+            let search_end = i + 1;
+            let window = real.get_unchecked(search_start..search_end);
+
+            let (max_val, max_idx) = match N {
+                1 => find_max_scalar(window),
+                _ => find_max_simd::<N>(window),
+            };
+
+            max = max_val;
+            trail = i - (search_start + max_idx);
+        } else {
+            let current = *real.get_unchecked(i);
+            if current >= max {
+                max = current;
+                trail = 0;
+            }
+        }
+
+        self.max = max;
+        self.trail = trail;
+        (max, trail)
+    }
 }
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
@@ -119,6 +197,7 @@ pub const INFO: Info = Info {
     outputs: &["max"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "max",
         label: "MAX",
         display_type: DisplayType::Overlay,
@@ -240,7 +319,7 @@ fn cycle_max<const N: usize>(
 ) {
     for (j, i) in (periods.1..real.len()).enumerate() {
         unsafe {
-            *max_line.get_unchecked_mut(j) = calc_unchecked::<N>(state, real, i, periods).0;
+            *max_line.get_unchecked_mut(j) = state.calc_unchecked::<N>(real, i, periods).0;
         }
     }
 }
@@ -260,35 +339,7 @@ fn cycle_max<const N: usize>(
 /// ```
 #[inline(always)]
 pub fn calc(state: &mut State, real: &[f64], i: usize, periods: (usize, usize)) -> (f64, usize) {
-    let (period, look_back) = periods;
-    let (mut max, mut trail) = (state.max, state.trail);
-    trail += 1;
-
-    if period <= trail {
-        let search_start = i - look_back;
-        let search_end = i + 1;
-        let window = &real[search_start..search_end];
-
-        let (max_val, max_idx) = if period > 13 {
-            find_max_simd::<4>(window)
-        } else {
-            find_max_scalar(window)
-        };
-
-        max = max_val;
-        trail = i - (search_start + max_idx);
-    } else {
-        let current = real[i];
-        if current >= max {
-            // >= to handle equal values correctly
-            max = current;
-            trail = 0;
-        }
-    }
-
-    state.max = max;
-    state.trail = trail;
-    (max, trail)
+    state.calc(real, i, periods)
 }
 
 #[inline(always)]
@@ -298,33 +349,7 @@ pub unsafe fn calc_unchecked<const N: usize>(
     i: usize,
     periods: (usize, usize),
 ) -> (f64, usize) {
-    let (period, look_back) = periods;
-    let (mut max, mut trail) = (state.max, state.trail);
-    trail += 1;
-
-    if period <= trail {
-        let search_start = i - look_back;
-        let search_end = i + 1;
-        let window = real.get_unchecked(search_start..search_end);
-
-        let (max_val, max_idx) = match N {
-            1 => find_max_scalar(window),
-            _ => find_max_simd::<N>(window),
-        };
-
-        max = max_val;
-        trail = i - (search_start + max_idx);
-    } else {
-        let current = *real.get_unchecked(i);
-        if current >= max {
-            max = current;
-            trail = 0;
-        }
-    }
-
-    state.max = max;
-    state.trail = trail;
-    (max, trail)
+    state.calc_unchecked::<N>(real, i, periods)
 }
 #[inline(always)]
 pub(crate) fn find_max_scalar(window: &[f64]) -> (f64, usize) {

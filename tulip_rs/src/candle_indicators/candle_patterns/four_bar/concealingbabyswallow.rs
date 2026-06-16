@@ -21,10 +21,7 @@ pub fn info() -> CandleInfo {
     name = "ConcealingBabySwallow",
     forecast = "BullishReversal",
     prev_bar(trend = "DOWN"),
-    bar(
-        colour = "RED", 
-        candle_type = "Marubozu(BlackMarubozu)"
-    ),
+    bar(colour = "RED", candle_type = "Marubozu(BlackMarubozu)"),
     bar(
         colour = "RED",
         open_in_prev_body = "TRUE",
@@ -51,5 +48,5 @@ pub fn calc(
     _bars: &[CandleBits],
 ) -> bool {
     let (_, _, low, close) = inputs;
-    low[THIRD] == close[THIRD] 
+    low[THIRD] == close[THIRD]
 }

@@ -29,8 +29,8 @@ impl CandleTypes {
         if let Some(doji) = CDLDoji::classify_fast(open, high, low, close, &mut candle_shape, state) {
             return Self::Doji(doji);
         }
-        
-        
+
+
         if let Some(basic) = CDLBasic::classify_fast(open, high, low, close, &mut candle_shape, state) {
             return Self::Basic(basic);
         }
@@ -64,7 +64,9 @@ impl CandleTypes {
             return Self::Basic(basic);
         }
 
-        if let Some(marubozu) = CDLMarubozu::classify_fast(open, high, low, close, candle_shape, state) {
+        if let Some(marubozu) =
+            CDLMarubozu::classify_fast(open, high, low, close, candle_shape, state)
+        {
             return Self::Marubozu(marubozu);
         }
 

@@ -104,12 +104,14 @@ pub const INFO: Info = Info {
     optional_outputs: &["ema"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "elderray",
             label: "Elder-ray",
             display_type: DisplayType::Indicator,
             outputs: &["bull", "bear"],
         },
         DisplayGroup {
+            offset: None,
             id: "ema",
             label: "EMA",
             display_type: DisplayType::Overlay,

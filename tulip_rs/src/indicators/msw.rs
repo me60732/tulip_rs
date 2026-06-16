@@ -74,6 +74,7 @@ pub const INFO: Info = Info {
     outputs: &["msw_sine", "msw_lead"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "msw",
         label: "MSW",
         display_type: DisplayType::Indicator,

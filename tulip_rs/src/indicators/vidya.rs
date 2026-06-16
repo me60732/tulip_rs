@@ -239,18 +239,21 @@ pub const INFO: Info = Info {
     optional_outputs: &["short_sma", "long_sma", "short_stddev", "long_stddev"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "vidya",
             label: "VIDYA",
             display_type: DisplayType::Overlay,
             outputs: &["vidya"],
         },
         DisplayGroup {
+            offset: None,
             id: "short_sma_long_sma",
             label: "SMAs",
             display_type: DisplayType::Overlay,
             outputs: &["short_sma", "long_sma"],
         },
         DisplayGroup {
+            offset: None,
             id: "short_stddev_long_stddev",
             label: "Standard Deviation",
             display_type: DisplayType::Indicator,

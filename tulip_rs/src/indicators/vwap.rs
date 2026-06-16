@@ -36,6 +36,7 @@ pub const INFO: Info = Info {
     outputs: &["vwap"],
     optional_outputs: &["typprice"],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "vwap",
         label: "Price",
         display_type: DisplayType::Overlay,

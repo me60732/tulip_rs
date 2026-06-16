@@ -1,7 +1,9 @@
 use crate::indicators::kama::State;
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::by_asset::kama::indicator_by_assets;
-use crate::indicators::simd_indicators::{simd_types::F64Constants, ef_simd::calc_simd as calc_simd_ef};
+use crate::indicators::simd_indicators::{
+    ef_simd::calc_simd as calc_simd_ef, simd_types::F64Constants,
+};
 
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::kama::indicator_by_options;
@@ -63,12 +65,12 @@ impl<const N: usize> SimdState<N> {
 pub fn calc_simd<const N: usize>(
     state: &mut SimdState<N>,
     values: (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-    multipliers: (Simd<f64, N>, Simd<f64, N>)
+    multipliers: (Simd<f64, N>, Simd<f64, N>),
 ) -> (Simd<f64, N>, Simd<f64, N>) {
     let (fast_ema, slow_ema) = multipliers;
     let mut kama = state.kama;
     let value = values.0;
-    
+
     let efficiency_ratio = calc_simd_ef(&mut state.sum, values);
 
     let smoothing_constant = {

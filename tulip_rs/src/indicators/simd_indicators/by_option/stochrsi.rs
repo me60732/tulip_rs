@@ -34,10 +34,13 @@ impl Driver<State, (usize, (f64, f64))> for StochrsiDriver {
                     multipliers.1[lane] = multi.1;
                 }
             }
-            (Simd::from_array(period), (
-                Simd::from_array(multipliers.0),
-                Simd::from_array(multipliers.1),
-            ))
+            (
+                Simd::from_array(period),
+                (
+                    Simd::from_array(multipliers.0),
+                    Simd::from_array(multipliers.1),
+                ),
+            )
         };
         let mut state = SimdState::<N>::new(&mut states);
         let want_rsi = self.want_optional_outputs;
@@ -136,7 +139,7 @@ pub fn indicator_by_options<const N: usize>(
                 let output_buffer = &mut output_buffer[j];
                 asset_outputs.push(std::slice::from_raw_parts_mut(
                     output_buffer.as_mut_ptr().add(starts[j]), //slice from
-                    output_buffer.len() - starts[j],                       // slice to
+                    output_buffer.len() - starts[j],           // slice to
                 ));
             }
         }

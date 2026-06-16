@@ -101,12 +101,14 @@ pub const INFO: Info = Info {
     optional_outputs: &["tema", "dema", "ema"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "trix",
             label: "TRIX",
             display_type: DisplayType::Indicator,
             outputs: &["trix"],
         },
         DisplayGroup {
+            offset: None,
             id: "tema_dema_ema",
             label: "EMAs",
             display_type: DisplayType::Overlay,

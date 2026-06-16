@@ -28,7 +28,7 @@ fn main() {
     high.extend(pattern_high);
     low.extend(pattern_low);
     close.extend(pattern_close);
-    
+
     let options = [5.0, 1.0, 1.0];
 
     // Step 1: Full calculation
@@ -38,7 +38,7 @@ fn main() {
         low.as_slice(),
         close.as_slice(),
     ];
-    let (result, _) = match indicator(&inputs, &options, None) { 
+    let (result, _) = match indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -48,10 +48,10 @@ fn main() {
         println!("Forecast type Specified - Patterns found:");
         for pattern in patterns {
             let pattern_info = pattern.get_info();
-            println!("  - {} ({}), Bars: {}",
-                pattern_info.full_name,
-                pattern_info.japanese_name,
-                pattern_info.bars);
+            println!(
+                "  - {} ({}), Bars: {}",
+                pattern_info.full_name, pattern_info.japanese_name, pattern_info.bars
+            );
         }
     }
 
@@ -60,17 +60,15 @@ fn main() {
         Err(e) => panic!("Error: {}", e),
     };
     println!("\n\nResult: {:?}", result);
-    
+
     if let Some(patterns) = result.last().and_then(|opt| opt.as_ref()) {
         println!("Forecast type Specified - Patterns found:");
         for pattern in patterns {
             let pattern_info = pattern.get_info();
-            println!("  - {} ({}), Bars: {}",
-                pattern_info.full_name,
-                pattern_info.japanese_name,
-                pattern_info.bars);
+            println!(
+                "  - {} ({}), Bars: {}",
+                pattern_info.full_name, pattern_info.japanese_name, pattern_info.bars
+            );
         }
     }
-
-    
 }

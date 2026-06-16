@@ -1,6 +1,4 @@
-use crate::ring_buffer::multi_buffer::multi_buffer::{
-    MirrorBuffer, MultiBuffer, RingBuffer,
-};
+use crate::ring_buffer::multi_buffer::multi_buffer::{MirrorBuffer, MultiBuffer, RingBuffer};
 use std::simd::Simd;
 
 impl<const B: usize, const N: usize> MultiBuffer<B, Simd<f64, N>> {

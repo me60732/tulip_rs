@@ -7,7 +7,8 @@ use std::simd::Simd;
 use crate::indicators::simd_indicators::keltnerchannel_simd::SimdState;
 use crate::indicators::{
     keltnerchannel::{
-        min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH, validate_options as vo
+        min_data, multiplier, output_length, validate_options as vo, IndicatorState, State,
+        INPUTS_WIDTH, OPTIONS_WIDTH,
     },
     tr::output_length as tr_output_length,
 };

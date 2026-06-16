@@ -35,6 +35,7 @@ pub const INFO: Info = Info {
     outputs: &["nvi"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "nvi",
         label: "NVI",
         display_type: DisplayType::Indicator,

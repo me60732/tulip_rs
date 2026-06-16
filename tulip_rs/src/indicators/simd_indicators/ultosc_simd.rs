@@ -380,7 +380,12 @@ pub mod options {
         /// The internal ring buffer must be fully initialised (i.e., at least `max(long_period)`
         /// bars have been processed) before calling this function.
         #[inline(always)]
-        pub unsafe fn calc_unchecked(&mut self, high: f64, low: f64, close: f64) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
+        pub unsafe fn calc_unchecked(
+            &mut self,
+            high: f64,
+            low: f64,
+            close: f64,
+        ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
             let (short_period, medium_period, long_period) = self.periods;
             let true_low = low.min(self.prev_close);
             let true_high = high.max(self.prev_close);

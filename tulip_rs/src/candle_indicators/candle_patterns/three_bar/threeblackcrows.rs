@@ -39,6 +39,3 @@ pub fn info() -> CandleInfo {
         japanese_name: "Sanba Garasu",
     }
 }
-
-
-

@@ -59,12 +59,14 @@ pub const INFO: Info = Info {
     optional_outputs: &["ef"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "kama",
             label: "KAMA",
             display_type: DisplayType::Overlay,
             outputs: &["kama"],
         },
         DisplayGroup {
+            offset: None,
             id: "ef",
             label: "Efficiency Ratio",
             display_type: DisplayType::Indicator,

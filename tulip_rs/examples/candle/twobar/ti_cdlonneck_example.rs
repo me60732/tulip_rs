@@ -23,12 +23,12 @@ fn main() {
     let pattern_high = vec![87.50, 86.50];
     let pattern_low = vec![86.20, 86.10];
     let pattern_close = vec![86.30, 86.20];
-    
+
     open.extend(pattern_open);
     high.extend(pattern_high);
     low.extend(pattern_low);
     close.extend(pattern_close);
-    
+
     let options = [5.0, 1.0, 1.0];
 
     // Step 1: Full calculation
@@ -38,7 +38,7 @@ fn main() {
         low.as_slice(),
         close.as_slice(),
     ];
-    let (result, _) = match indicator(&inputs, &options, None) { 
+    let (result, _) = match indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -48,10 +48,10 @@ fn main() {
         println!("Forecast type None - Patterns found:");
         for pattern in patterns {
             let pattern_info = pattern.get_info();
-            println!("  - {} ({}), Bars: {}",
-                pattern_info.full_name,
-                pattern_info.japanese_name,
-                pattern_info.bars);
+            println!(
+                "  - {} ({}), Bars: {}",
+                pattern_info.full_name, pattern_info.japanese_name, pattern_info.bars
+            );
         }
     }
 
@@ -65,12 +65,10 @@ fn main() {
         println!("Forecast type Specified - Patterns found:");
         for pattern in patterns {
             let pattern_info = pattern.get_info();
-            println!("  - {} ({}), Bars: {}",
-                pattern_info.full_name,
-                pattern_info.japanese_name,
-                pattern_info.bars);
+            println!(
+                "  - {} ({}), Bars: {}",
+                pattern_info.full_name, pattern_info.japanese_name, pattern_info.bars
+            );
         }
     }
-
-    
 }

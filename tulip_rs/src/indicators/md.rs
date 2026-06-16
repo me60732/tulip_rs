@@ -58,6 +58,7 @@ pub const INFO: Info = Info {
     outputs: &["md"],
     optional_outputs: &["sma"],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "md",
         label: "MD",
         display_type: DisplayType::Indicator,

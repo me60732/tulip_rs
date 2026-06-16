@@ -51,6 +51,7 @@ pub const INFO: Info = Info {
     outputs: &["volatility"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "volatility",
         label: "VOLATILITY",
         display_type: DisplayType::Indicator,

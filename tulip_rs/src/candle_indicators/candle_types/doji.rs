@@ -1,5 +1,6 @@
 use crate::candle_indicators::common::{
-    BOTH_WICK, CandleShape, DOJI_MAX_HEIGHT, LONG, NO_BOTTOM_WICK, NO_TOP_WICK, NO_WICK, SHORT, cdl_body_position, cdl_total_range
+    cdl_body_position, cdl_total_range, CandleShape, BOTH_WICK, DOJI_MAX_HEIGHT, LONG,
+    NO_BOTTOM_WICK, NO_TOP_WICK, NO_WICK, SHORT,
 };
 use crate::candle_indicators::{pattern_test::EmaState as State, types::CandleStick};
 
@@ -28,7 +29,14 @@ impl CandleStick for CDLDoji {
         CDLDoji::is_candlestick_fast(open, high, low, close, &mut CandleShape::default(), state)
     }
     #[inline(always)]
-    fn is_candlestick_fast(open: f64, _: f64, _: f64, close: f64, _candle_shape: &mut CandleShape, state: &State) -> bool {
+    fn is_candlestick_fast(
+        open: f64,
+        _: f64,
+        _: f64,
+        close: f64,
+        _candle_shape: &mut CandleShape,
+        state: &State,
+    ) -> bool {
         let body_range = cdl_total_range(open, close);
 
         if body_range <= state.ema_body * DOJI_MAX_HEIGHT {
@@ -149,7 +157,13 @@ impl CDLDoji {
         false
     }
     #[inline(always)]
-    fn is_four_price_doji(open: f64, high: f64, low: f64, close: f64, candle_shape: &mut CandleShape) -> bool {
+    fn is_four_price_doji(
+        open: f64,
+        high: f64,
+        low: f64,
+        close: f64,
+        candle_shape: &mut CandleShape,
+    ) -> bool {
         if candle_shape.get_wick(open, high, low, close) == NO_WICK {
             candle_shape.top_wick_length = Some(SHORT);
             candle_shape.bottom_wick_length = Some(SHORT);

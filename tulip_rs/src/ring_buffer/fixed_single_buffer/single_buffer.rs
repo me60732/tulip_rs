@@ -241,7 +241,8 @@ impl<T: BufferElement + SerdeElement, const N: usize> Serialize for FixedRingBuf
     }
 }
 
-impl<'de, T: BufferElement + SerdeElement, const N: usize> Deserialize<'de> for FixedRingBuffer<T, N>
+impl<'de, T: BufferElement + SerdeElement, const N: usize> Deserialize<'de>
+    for FixedRingBuffer<T, N>
 where
     T::Repr: Deserialize<'de>,
 {

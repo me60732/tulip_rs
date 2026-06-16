@@ -38,6 +38,7 @@ pub const INFO: Info = Info {
     outputs: &["bop"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "bop",
         label: "BOP",
         display_type: DisplayType::Indicator,

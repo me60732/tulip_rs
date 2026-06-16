@@ -63,12 +63,14 @@ pub const INFO: Info = Info {
     optional_outputs: &["dx", "atr", "tr"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "adx_dx",
             label: "Directional Index",
             display_type: DisplayType::Indicator,
             outputs: &["adx", "dx"],
         },
         DisplayGroup {
+            offset: None,
             id: "true_range",
             label: "True Range",
             display_type: DisplayType::Indicator,
@@ -79,7 +81,7 @@ pub const INFO: Info = Info {
 #[derive(Serialize, Deserialize)]
 pub struct State {
     pub dx_state: DxState,
-    pub adx: f64
+    pub adx: f64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -89,10 +91,7 @@ pub struct IndicatorState {
 }
 impl IndicatorState {
     pub fn new(state: State, multipliers: (f64, f64)) -> Self {
-        Self {
-            state,
-            multipliers,
-        }
+        Self { state, multipliers }
     }
 }
 impl TIndicatorState<3> for IndicatorState {
@@ -128,11 +127,7 @@ impl TIndicatorState<3> for IndicatorState {
     }
 }
 impl State {
-    pub fn new(
-        adx: f64,
-        dm_state: (f64, f64, f64, f64),
-        atr_state: (f64, f64)
-    ) -> Self {
+    pub fn new(adx: f64, dm_state: (f64, f64, f64, f64), atr_state: (f64, f64)) -> Self {
         Self {
             adx,
             dx_state: DxState::new(dm_state, atr_state),
@@ -166,10 +161,7 @@ impl State {
             );
         }
         adx /= period as f64;
-        State {
-            dx_state,
-            adx
-        }
+        State { dx_state, adx }
     }
 }
 pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
@@ -346,7 +338,13 @@ fn cycle_adx(
 ///
 /// A tuple containing the current ADX value, the current DX value, the current DM+ value, the current DM- value, the current ATR value, the current TR value, the updated DM+ value, and the updated DM- value.
 #[inline(always)]
-pub fn calc(state: &mut State, high: f64, low: f64, close: f64, multipliers: (f64, f64)) -> (f64, f64, f64, f64) {
+pub fn calc(
+    state: &mut State,
+    high: f64,
+    low: f64,
+    close: f64,
+    multipliers: (f64, f64),
+) -> (f64, f64, f64, f64) {
     let (dx, atr, tr) = current_dx(&mut state.dx_state, high, low, close, multipliers);
     //state.adx += dx;
     //state.adx = state.adx * 0.2;

@@ -98,6 +98,7 @@ pub const INFO: Info = Info {
     outputs: &["ema"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "ema",
         label: "EMA",
         display_type: DisplayType::Overlay,

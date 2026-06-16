@@ -55,6 +55,7 @@ pub const INFO: Info = Info {
     outputs: &["psar"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "psar",
         label: "PSAR",
         display_type: DisplayType::Overlay,

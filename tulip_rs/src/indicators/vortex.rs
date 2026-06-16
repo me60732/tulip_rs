@@ -58,12 +58,14 @@ pub const INFO: Info = Info {
     optional_outputs: &["tr"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "vortex",
             label: "Vortex",
             display_type: DisplayType::Indicator,
             outputs: &["vi_up", "vi_down"],
         },
         DisplayGroup {
+            offset: None,
             id: "tr",
             label: "True Range",
             display_type: DisplayType::Indicator,
@@ -162,7 +164,7 @@ impl IndicatorState {
         while !state.buffer.is_full() {
             let (_, _, tr) = state.calc(high[i], low[i], close[i]);
             if tr_line.len() > 0 {
-                tr_line[i-1] = tr;
+                tr_line[i - 1] = tr;
             }
             i += 1;
         }

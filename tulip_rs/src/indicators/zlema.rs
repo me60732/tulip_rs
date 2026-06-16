@@ -112,6 +112,7 @@ pub const INFO: Info = Info {
     outputs: &["zlema"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "zlema",
         label: "ZLEMA",
         display_type: DisplayType::Overlay,

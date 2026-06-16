@@ -131,12 +131,14 @@ pub const INFO: Info = Info {
     optional_outputs: &["short_ema", "long_ema"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "apo",
             label: "APO",
             display_type: DisplayType::Indicator,
             outputs: &["apo"],
         },
         DisplayGroup {
+            offset: None,
             id: "short_ema_long_ema",
             label: "EMA",
             display_type: DisplayType::Overlay,

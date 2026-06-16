@@ -36,6 +36,7 @@ pub const INFO: Info = Info {
     outputs: &["obv"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "obv",
         label: "OBV",
         display_type: DisplayType::Indicator,

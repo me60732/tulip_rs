@@ -26,11 +26,10 @@ fn main() {
     println!("Full atr line: {:?}", outputs[2]);
     println!("Full tr line: {:?}", outputs[3]);
 
-
     let inputs2 = [
-        &high[0..high.len() - 5], 
-        &low[0..low.len() - 5], 
-        &close[0..close.len() - 5]
+        &high[0..high.len() - 5],
+        &low[0..low.len() - 5],
+        &close[0..close.len() - 5],
     ];
 
     // Calculate the ADX using the adx indicator function

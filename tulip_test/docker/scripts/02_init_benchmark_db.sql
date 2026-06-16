@@ -187,7 +187,8 @@ OVERRIDING SYSTEM VALUE VALUES
     (168,  'trvi',                  'True Range Volatility Indicator',                                            3, 1, true, 'trend'),
     (169,  'chaikinmf',             'Chaikin Money Flow',                                                         4, 1, true, 'volume'),
     (170,  'vwap',                  'Volume Weighted Average Price',                                              4, 1, false, 'trend'),
-    (171,  'supertrend',            'Super Trend',                                                                3, 1, true, 'trend');
+    (171,  'supertrend',            'Super Trend',                                                                3, 1, true, 'trend'),
+    (172,  'ichimoku',              'Ichimoku',                                                                   3, 5, true, 'trend');
 
 -- Reset sequence to max id + 1
 SELECT setval('indicators_id_seq', (SELECT MAX(id) FROM indicators));

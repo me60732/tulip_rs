@@ -162,6 +162,7 @@ pub const INFO: Info = Info {
     outputs: &["fisher", "fisher_signal"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "fisher",
         label: "FISHER",
         display_type: DisplayType::Indicator,

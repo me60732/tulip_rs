@@ -3,9 +3,7 @@ pub use crate::indicator_types::TIndicatorState;
 
 pub use crate::indicators::max::{min_data, min_data_accuracy, output_length};
 use crate::indicators::{
-    max::{calc as calc_max, calc_unchecked as calc_max_unchecked, State as MaxState},
-    medprice::calc as calc_medprice,
-    min::{calc as calc_min, calc_unchecked as calc_min_unchecked, State as MinState},
+    max::State as MaxState, medprice::calc as calc_medprice, min::State as MinState,
 };
 
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
@@ -151,6 +149,56 @@ impl State {
             max_state,
         }
     }
+    #[inline(always)]
+    pub fn calc(
+        &mut self,
+        inputs: (&[f64], &[f64]),
+        i: usize,
+        periods: (usize, usize),
+    ) -> (f64, f64, f64) {
+        let (high, low) = inputs;
+        let (min, _) = self.min_state.calc(low, i, periods);
+        let (max, _) = self.max_state.calc(high, i, periods);
+
+        let middle = calc_medprice(max, min);
+
+        (min, middle, max)
+    }
+    /// Unchecked version of [`calc`] that uses SIMD-hint size `N` for the min/max windows.
+    ///
+    /// Identical to [`calc`] but uses `get_unchecked` for all slice accesses and passes the
+    /// const generic `N` as a prefetch/SIMD-hint to the min/max helpers.
+    ///
+    /// # Safety
+    ///
+    /// Callers must ensure that `i` is a valid index into `high` and `low` and that the
+    /// slice lengths are sufficient for the lookback window (`trail + 1` elements before `i`).
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - Mutable reference to the current min/max state.
+    /// * `inputs` - A tuple of `(high_slice, low_slice)`.
+    /// * `i` - Current bar index into the slices.
+    /// * `periods` - Tuple `(period, trail)` where `trail = period - 1`.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(lower, middle, upper)` for the current bar.
+    #[inline(always)]
+    pub(crate) unsafe fn calc_unchecked<const N: usize>(
+        &mut self,
+        inputs: (&[f64], &[f64]),
+        i: usize,
+        periods: (usize, usize),
+    ) -> (f64, f64, f64) {
+        let (high, low) = inputs;
+        let (min, _) = self.min_state.calc_unchecked::<N>(low, i, periods);
+        let (max, _) = self.max_state.calc_unchecked::<N>(high, i, periods);
+
+        let middle = calc_medprice(max, min);
+
+        (min, middle, max)
+    }
 }
 /// Returns information about the Donchian Channel indicator.
 ///
@@ -166,6 +214,7 @@ pub const INFO: Info = Info {
     outputs: &["lower", "middle", "upper"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "donchianchannel",
         label: "Donchian Channel",
         display_type: DisplayType::Overlay,
@@ -275,7 +324,7 @@ fn cycle<const N: usize>(
 
     for (j, i) in (periods.1..inputs.0.len()).enumerate() {
         unsafe {
-            let (lower, middle, upper) = calc_unchecked::<N>(state, inputs, i, periods);
+            let (lower, middle, upper) = state.calc_unchecked::<N>(inputs, i, periods);
             *lower_line.get_unchecked_mut(j) = lower;
             *middle_line.get_unchecked_mut(j) = middle;
             *upper_line.get_unchecked_mut(j) = upper;
@@ -304,13 +353,7 @@ pub fn calc(
     i: usize,
     periods: (usize, usize),
 ) -> (f64, f64, f64) {
-    let (high, low) = inputs;
-    let (min, _) = calc_min(&mut state.min_state, low, i, periods);
-    let (max, _) = calc_max(&mut state.max_state, high, i, periods);
-
-    let middle = calc_medprice(max, min);
-
-    (min, middle, max)
+    state.calc(inputs, i, periods)
 }
 /// Unchecked version of [`calc`] that uses SIMD-hint size `N` for the min/max windows.
 ///
@@ -333,17 +376,11 @@ pub fn calc(
 ///
 /// A tuple `(lower, middle, upper)` for the current bar.
 #[inline(always)]
-pub(crate) unsafe fn calc_unchecked<const N: usize>(
+pub unsafe fn calc_unchecked<const N: usize>(
     state: &mut State,
     inputs: (&[f64], &[f64]),
     i: usize,
     periods: (usize, usize),
 ) -> (f64, f64, f64) {
-    let (high, low) = inputs;
-    let (min, _) = calc_min_unchecked::<N>(&mut state.min_state, low, i, periods);
-    let (max, _) = calc_max_unchecked::<N>(&mut state.max_state, high, i, periods);
-
-    let middle = calc_medprice(max, min);
-
-    (min, middle, max)
+    state.calc_unchecked::<N>(inputs, i, periods)
 }

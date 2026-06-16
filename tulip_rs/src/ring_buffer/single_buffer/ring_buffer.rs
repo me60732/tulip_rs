@@ -106,7 +106,7 @@ impl<T: BufferElement> RingBuffer<T> for Buffer<T> {
         if self.count == 0 || period == 0 {
             return Vec::new();
         }
-        
+
         let take = period.min(self.count);
         // Use existing get_by_period which maps a bars-ago value into the underlying Vec index.
         // Oldest of the last `take` elements is `bars_ago = take - 1`, newest is `bars_ago = 0`.

@@ -53,12 +53,14 @@ pub const INFO: Info = Info {
     optional_outputs: &["short_sma", "long_sma"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "vosc",
             label: "VOSC",
             display_type: DisplayType::Indicator,
             outputs: &["vosc"],
         },
         DisplayGroup {
+            offset: None,
             id: "short_sma_long_sma",
             label: "Volume SMAs",
             display_type: DisplayType::Volume,

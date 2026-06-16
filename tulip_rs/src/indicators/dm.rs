@@ -56,6 +56,7 @@ pub const INFO: Info = Info {
     outputs: &["plus_dm", "minus_dm"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "dm",
         label: "DM",
         display_type: DisplayType::Indicator,
@@ -218,7 +219,14 @@ pub fn indicator(
 
     let mut state = State::init_state(inputs[0], inputs[1], period);
     let (high, low) = (&inputs[0][period..], &inputs[1][period..]);
-    cycle_calc(high, low, &mut state, multiplier, &mut plus_dm_line, &mut minus_dm_line);
+    cycle_calc(
+        high,
+        low,
+        &mut state,
+        multiplier,
+        &mut plus_dm_line,
+        &mut minus_dm_line,
+    );
 
     Ok((
         vec![plus_dm_line, minus_dm_line],
@@ -321,7 +329,11 @@ pub fn calc_dp_dm(state: &mut State, high: f64, low: f64) -> (f64, f64) {
         dp = 0.0;
     }
 
-    if dp > dm { dm = 0.0; } else if dm > dp { dp = 0.0; }
+    if dp > dm {
+        dm = 0.0;
+    } else if dm > dp {
+        dp = 0.0;
+    }
     (dp, dm)
 }
 

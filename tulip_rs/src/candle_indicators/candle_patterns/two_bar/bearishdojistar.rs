@@ -28,6 +28,3 @@ pub fn info() -> CandleInfo {
         japanese_name: "Doji Bike",
     }
 }
-
-
-

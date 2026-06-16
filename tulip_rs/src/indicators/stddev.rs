@@ -146,12 +146,14 @@ pub const INFO: Info = Info {
     optional_outputs: &["sma"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "stddev",
             label: "STDDEV",
             display_type: DisplayType::Indicator,
             outputs: &["stddev"],
         },
         DisplayGroup {
+            offset: None,
             id: "sma",
             label: "SMA",
             display_type: DisplayType::Overlay,

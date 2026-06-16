@@ -37,6 +37,7 @@ pub const INFO: Info = Info {
     outputs: &["ad"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "ad",
         label: "AD",
         display_type: DisplayType::Indicator,

@@ -47,7 +47,11 @@ pub fn init_state<'a, const N: usize>(inputs: &[&'a [f64]; N], period: usize) ->
 ///
 /// Updated Wilder's smoothed values for all `N` lanes.
 #[inline(always)]
-pub fn calc_simd<const N: usize>(prev_wilders: Simd<f64, N>, value: Simd<f64, N>, multipliers: (Simd<f64, N>, Simd<f64, N>)) -> Simd<f64, N> {
+pub fn calc_simd<const N: usize>(
+    prev_wilders: Simd<f64, N>,
+    value: Simd<f64, N>,
+    multipliers: (Simd<f64, N>, Simd<f64, N>),
+) -> Simd<f64, N> {
     prev_wilders.mul_add(multipliers.0, value * multipliers.1)
 }
 /// Computes a partial Wilder's Smoothing step without subtracting the decay residual.

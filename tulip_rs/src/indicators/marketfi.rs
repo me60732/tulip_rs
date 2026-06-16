@@ -51,6 +51,7 @@ pub const INFO: Info = Info {
     outputs: &["marketfi"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "marketfi",
         label: "MARKETFI",
         display_type: DisplayType::Indicator,

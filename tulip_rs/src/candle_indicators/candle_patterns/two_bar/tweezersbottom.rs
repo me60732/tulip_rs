@@ -23,10 +23,7 @@ pub fn info() -> CandleInfo {
     forecast = "BullishReversal",
     prev_bar(trend = "DOWN"),
     bar(candle_type = "!Doji(FourPriceDoji)"),
-    bar(
-        candle_type = "!Doji(FourPriceDoji)",
-        inside_prev = "LINE"
-    ),
+    bar(candle_type = "!Doji(FourPriceDoji)", inside_prev = "LINE")
 )]
 
 pub fn calc(

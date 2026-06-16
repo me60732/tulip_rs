@@ -20,4 +20,3 @@ pub fn info() -> CandleInfo {
         japanese_name: "Shita-hanare Doji",
     }
 }
-

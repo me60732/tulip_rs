@@ -37,6 +37,3 @@ pub fn info() -> CandleInfo {
         japanese_name: " sankawa soko zuka",
     }
 }
-
-
-

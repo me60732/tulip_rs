@@ -1,4 +1,4 @@
-use super::{FIRST, SECOND, FOURTH};
+use super::{FIRST, FOURTH, SECOND};
 use crate::candle_indicators::registry::CandleBits;
 use crate::candle_indicators::{
     common::cdl_bar_engulf_bar,

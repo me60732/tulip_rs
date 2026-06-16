@@ -91,6 +91,7 @@ pub const INFO: Info = Info {
     outputs: &["cmo"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "cmo",
         label: "CMO",
         display_type: DisplayType::Indicator,

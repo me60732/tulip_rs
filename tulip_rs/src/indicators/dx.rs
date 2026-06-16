@@ -54,10 +54,7 @@ pub struct IndicatorState {
 }
 impl IndicatorState {
     pub fn new(state: State, multipliers: (f64, f64)) -> Self {
-        Self {
-            state,
-            multipliers,
-        }
+        Self { state, multipliers }
     }
 }
 impl TIndicatorState<3> for IndicatorState {
@@ -106,12 +103,14 @@ pub const INFO: Info = Info {
     optional_outputs: &["atr", "tr"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "dx",
             label: "DX",
             display_type: DisplayType::Indicator,
             outputs: &["dx"],
         },
         DisplayGroup {
+            offset: None,
             id: "atr_tr",
             label: "True Range",
             display_type: DisplayType::Indicator,
@@ -306,7 +305,13 @@ fn cycle(
 ///
 /// A tuple `(dx, atr, tr)` containing the current DX value, ATR, and True Range.
 #[inline(always)]
-pub fn calc(state: &mut State, high: f64, low: f64, close: f64, multipliers: (f64, f64)) -> (f64, f64, f64) {
+pub fn calc(
+    state: &mut State,
+    high: f64,
+    low: f64,
+    close: f64,
+    multipliers: (f64, f64),
+) -> (f64, f64, f64) {
     let (_, _, atr, tr) = calc_diup_didown(state, high, low, close, multipliers);
 
     let dx = calc_dx(state);
@@ -315,8 +320,8 @@ pub fn calc(state: &mut State, high: f64, low: f64, close: f64, multipliers: (f6
 }
 #[inline(always)]
 pub(crate) fn calc_dx(state: &mut State) -> f64 {
-    let di_up = state.di_state.dmup;// / state.atr_state.atr;
-    let di_down = state.di_state.dmdown;// / state.atr_state.atr;
+    let di_up = state.di_state.dmup; // / state.atr_state.atr;
+    let di_down = state.di_state.dmdown; // / state.atr_state.atr;
 
     let dm_diff = (di_up - di_down).abs();
     let dm_sum = di_up + di_down;

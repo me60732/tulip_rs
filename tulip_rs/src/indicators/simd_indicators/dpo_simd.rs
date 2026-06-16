@@ -1,6 +1,6 @@
-use crate::indicators::simd_indicators::sma_simd::calc_simd as calc_sma_simd;
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::by_asset::dpo::indicator_by_assets;
+use crate::indicators::simd_indicators::sma_simd::calc_simd as calc_sma_simd;
 
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::dpo::indicator_by_options;

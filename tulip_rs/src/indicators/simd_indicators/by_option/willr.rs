@@ -3,8 +3,8 @@ use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::simd_indicators::willr_simd::{options::Calc, SimdState};
 use crate::indicators::{
+    max::output_length as max_output_length,
     willr::{min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH},
-    max::output_length as max_output_length
 };
 use crate::types::IndicatorError;
 use std::simd::Simd;
@@ -98,7 +98,7 @@ pub fn indicator_by_options<const N: usize>(
     let mut road_train = PrimeMover::<N, State, usize>::new();
     let mut output_buffers = Vec::with_capacity(N);
     let mut want_optional_outputs = (false, false, false);
-    
+
     let [high, low, close] = *inputs;
     for i in 0..N {
         let asset_inputs = vec![high, low, close];
@@ -119,8 +119,7 @@ pub fn indicator_by_options<const N: usize>(
 
         let state = State::init_state(high, low, params[i], (&mut min_line, &mut max_line));
         let mut starts = [0; 3];
-        (starts[1], starts[2]) =
-            crate::slice_outputs_start!(willr_line.len(), min_line, max_line);
+        (starts[1], starts[2]) = crate::slice_outputs_start!(willr_line.len(), min_line, max_line);
 
         if i == 0 {
             want_optional_outputs = crate::calc_want_flags!(min_line, max_line);
@@ -136,7 +135,7 @@ pub fn indicator_by_options<const N: usize>(
                 let output_buffer = &mut output_buffer[j];
                 asset_outputs.push(std::slice::from_raw_parts_mut(
                     output_buffer.as_mut_ptr().add(starts[j]), //slice from
-                    output_buffer.len() - starts[j],        // slice to
+                    output_buffer.len() - starts[j],           // slice to
                 ));
             }
         }
@@ -154,7 +153,7 @@ pub fn indicator_by_options<const N: usize>(
     }
 
     let mut driver = WillrDriver {
-        want_optional_outputs
+        want_optional_outputs,
     };
     let states_vec = road_train.drive(&mut driver);
     let mut states = Vec::with_capacity(N);

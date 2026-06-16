@@ -159,24 +159,27 @@ pub const INFO: Info = Info {
     optional_outputs: &["tsf", "linreg", "linregslope", "linregintercept"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "fosc",
             label: "FOSC",
             display_type: DisplayType::Indicator,
             outputs: &["fosc"],
         },
         DisplayGroup {
+            offset: None,
             id: "tsf_linreg_linregintercept",
             label: "Regression",
             display_type: DisplayType::Overlay,
             outputs: &["tsf", "linreg", "linregintercept"],
         },
         DisplayGroup {
+            offset: None,
             id: "linregslope",
             label: "LinReg Slope",
             display_type: DisplayType::Indicator,
             outputs: &["linregslope"],
         },
-    ]
+    ],
 };
 /// Returns the minimum number of input bars required to produce accurate results.
 ///

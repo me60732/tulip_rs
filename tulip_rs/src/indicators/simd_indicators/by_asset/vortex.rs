@@ -1,19 +1,17 @@
-use crate::common_simd::assets::validate_inputs;
 use crate::common::validate_options;
+use crate::common_simd::assets::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::simd_indicators::vortex_simd::assets::SimdState;
 use crate::indicators::{
-    vortex::{
-        min_data, output_length, IndicatorState as State, INPUTS_WIDTH, OPTIONS_WIDTH,
-    },
-    tr::output_length as tr_output_length
+    tr::output_length as tr_output_length,
+    vortex::{min_data, output_length, IndicatorState as State, INPUTS_WIDTH, OPTIONS_WIDTH},
 };
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
 /// SIMD driver that advances the Vortex indicator across `N` asset lanes per scheduling epoch.
 struct VortexDriver {
-    want_optional_outputs: bool
+    want_optional_outputs: bool,
 }
 
 impl Driver<State> for VortexDriver {
@@ -29,7 +27,8 @@ impl Driver<State> for VortexDriver {
         let len = inputs[0][0].len();
 
         //collect outputs
-        let (vi_up_line_ptr, vi_down_line_ptr, tr_line_ptr) = crate::extract_output_ptrs!(outputs, N, vi_up, vi_down, tr);
+        let (vi_up_line_ptr, vi_down_line_ptr, tr_line_ptr) =
+            crate::extract_output_ptrs!(outputs, N, vi_up, vi_down, tr);
 
         let (high_ptrs, low_ptrs, close_ptrs) =
             crate::extract_input_ptrs!(inputs, N, high_ptrs, low_ptrs, close_ptrs);
@@ -91,9 +90,7 @@ pub fn indicator_by_assets<const N: usize>(
     let mut want_optional_outputs = false;
     for i in 0..N {
         let [high, low, close] = *inputs[i];
-        let asset_inputs = vec![
-            high, low, close
-        ];
+        let asset_inputs = vec![high, low, close];
 
         let (vi_up_line, vi_down_line, mut tr_line) = {
             let len = high.len();
@@ -104,18 +101,12 @@ pub fn indicator_by_assets<const N: usize>(
                 crate::init_optional_outputs_eff!(
                     optional_outputs, &[false],
                     tr_line_line: tr_output_length(len, options)
-                )
+                ),
             )
         };
 
-        let state = State::init_state(
-            high,
-            low,
-            close,
-            period,
-            &mut tr_line,
-        );
-        
+        let state = State::init_state(high, low, close, period, &mut tr_line);
+
         let mut starts = [0; 3];
         starts[2] = crate::slice_outputs_start!(vi_up_line.len(), tr_line);
 
@@ -133,7 +124,7 @@ pub fn indicator_by_assets<const N: usize>(
                 let output_buffer = &mut output_buffer[j];
                 asset_outputs.push(std::slice::from_raw_parts_mut(
                     output_buffer.as_mut_ptr().add(starts[j]), //slice from
-                    output_buffer.len() - starts[j],               // slice to
+                    output_buffer.len() - starts[j],           // slice to
                 ));
             }
         }

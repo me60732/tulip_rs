@@ -29,7 +29,10 @@ impl Driver<f64> for WildersDriver {
             **states.get_unchecked(i)
         }));
 
-        let multipliers = (Simd::splat(self.multipliers.0), Simd::splat(self.multipliers.1));
+        let multipliers = (
+            Simd::splat(self.multipliers.0),
+            Simd::splat(self.multipliers.1),
+        );
 
         // Optimization 2: Pre-compute all input and output pointers
         let input_ptrs = crate::extract_input_ptrs!(inputs, N, real_ptrs);

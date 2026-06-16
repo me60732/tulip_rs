@@ -51,6 +51,7 @@ pub const INFO: Info = Info {
     outputs: &["medprice"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "medprice",
         label: "MEDPRICE",
         display_type: DisplayType::Overlay,

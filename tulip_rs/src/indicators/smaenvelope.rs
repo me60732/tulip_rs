@@ -1,7 +1,7 @@
 use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::sma::{calc as calc_sma, multiplier as sma_multiplier};
 pub use crate::indicators::sma::init_state;
+use crate::indicators::sma::{calc as calc_sma, multiplier as sma_multiplier};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
@@ -57,6 +57,7 @@ pub const INFO: Info = Info {
     outputs: &["lower", "middle", "upper"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "smaenvelope",
         label: "SMA Envelope",
         display_type: DisplayType::Overlay,

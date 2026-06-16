@@ -26,7 +26,7 @@ pub fn info() -> CandleInfo {
     bar(
         candle_type = "!Doji(FourPriceDoji) !Marubozu(WhiteMarubozu | ClosingWhiteMarubozu)",
         inside_prev = "LINE",
-    ),
+    )
 )]
 
 pub fn calc(

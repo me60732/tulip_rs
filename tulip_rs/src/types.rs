@@ -1,10 +1,20 @@
 use std::{error::Error, fmt};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum DisplayType {
+    /// The indicator is drawn on top of the price chart (e.g. moving averages, Bollinger Bands).
     Overlay,
+    /// The indicator is displayed in its own separate panel below the price chart (e.g. RSI, MACD).
+    #[default]
     Indicator,
-    Volume
+    /// The indicator can be overlaid on the volume panel (e.g. volume-based signals).
+    Volume,
+    /// The output *is* raw price data, identified by its `DisplayGroup.id` matching a price field
+    /// (`"open"`, `"high"`, `"low"`, `"close"`). The caller can use the input directly and apply
+    /// the `DisplayGroup.offset` themselves instead of allocating a duplicate output vec.
+    /// Used by indicators such as Ichimoku's `lagging_span` (Chikou Span), which is just
+    /// the close price shifted back by `long_period` bars.
+    Price,
 }
 impl fmt::Display for DisplayType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -61,14 +71,14 @@ pub struct Info {
 /// * `outputs` — the output names belonging to this group.  May include a mix
 ///   of mandatory and optional outputs; render only the series that were
 ///   actually computed.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub struct DisplayGroup {
-    pub id: &'static str,                 // machine-readable key, e.g. "emas", "ad"
-    pub label: &'static str,              // human-readable pane title, e.g. "AD EMAs"
-    pub display_type: DisplayType,        // Overlay | Indicator for this pane
+    pub id: &'static str,          // machine-readable key, e.g. "emas", "ad"
+    pub label: &'static str,       // human-readable pane title, e.g. "AD EMAs"
+    pub display_type: DisplayType, // Overlay | Indicator for this pane
+    pub offset: Option<&'static str>,
     pub outputs: &'static [&'static str], // subset of optional_outputs that belong here
 }
-
 
 impl IndicatorError {
     pub fn message(&self) -> &str {

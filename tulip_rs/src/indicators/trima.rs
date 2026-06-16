@@ -53,6 +53,7 @@ pub const INFO: Info = Info {
     outputs: &["trima"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "trima",
         label: "TRIMA",
         display_type: DisplayType::Overlay,

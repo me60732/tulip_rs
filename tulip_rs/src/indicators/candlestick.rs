@@ -25,6 +25,7 @@ pub const INFO: Info = Info {
     outputs: &["cdl_pattern"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "candlestick",
         label: "CANDLESTICK",
         display_type: DisplayType::Overlay,

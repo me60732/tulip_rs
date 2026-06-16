@@ -1,7 +1,6 @@
 use crate::candle_indicators::types::{CandleInfo, ForecastType};
 use tulip_rs_macros::pattern_template;
 
-
 #[pattern_template(
     name = "BullishTasukiLine",
     forecast = "BullishReversal",
@@ -34,5 +33,3 @@ pub fn info() -> CandleInfo {
         japanese_name: "Tasuki",
     }
 }
-
-

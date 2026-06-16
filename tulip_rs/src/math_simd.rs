@@ -24,7 +24,7 @@ pub fn ln<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N> {
     const NEG_INF: f64 = f64::NEG_INFINITY;
     const POS_INF: f64 = f64::INFINITY;
     const NAN: f64 = f64::NAN;
-    
+
     // Full 8-term polynomial coefficients for accuracy
     const C1: f64 = 1.0;
     const C3: f64 = 0.3333333333333333333333333333333;
@@ -34,7 +34,7 @@ pub fn ln<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N> {
     const C11: f64 = 0.09090909090909090909090909090909;
     const C13: f64 = 0.07692307692307692307692307692308;
     const C15: f64 = 0.06666666666666666666666666666667;
-    
+
     // Pre-splat constants
     let zero_splat = Simd::splat(ZERO);
     let one_splat = Simd::splat(ONE);
@@ -44,33 +44,30 @@ pub fn ln<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N> {
     let two54_splat = Simd::splat(TWO54);
     let pos_inf_splat = Simd::<f64, N>::splat(POS_INF);
     let neg_inf_splat = Simd::<f64, N>::splat(NEG_INF);
-    
+
     // OPTIMIZATION 1: Reduced Special Case Checks (kept from previous)
     let is_zero = x.simd_eq(zero_splat);
     let is_neg = x.simd_lt(zero_splat);
     let is_inf = x.simd_eq(pos_inf_splat);
     let is_nan = x.is_nan();
-    
+
     let special_mask = is_zero | is_neg | is_inf | is_nan;
-    
+
     if special_mask.all() {
         return is_zero.select(
             neg_inf_splat,
             is_neg.select(
                 Simd::splat(NAN),
-                is_inf.select(
-                    pos_inf_splat,
-                    Simd::splat(NAN)
-                )
-            )
+                is_inf.select(pos_inf_splat, Simd::splat(NAN)),
+            ),
         );
     }
-    
+
     // OPTIMIZATION 2: Combined Bit Operations
     // Extract bits once and do all bit operations together
     let ix = x.to_bits().cast::<i64>();
     let is_subnormal = ix.simd_lt(Simd::splat(0x0010000000000000_i64));
-    
+
     // Combined subnormal handling and bit extraction
     let (x_normalized, exponent_adjustment) = if is_subnormal.any() {
         let x_scaled = x * two54_splat;
@@ -81,29 +78,30 @@ pub fn ln<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N> {
         // Fast path when no subnormals
         (x, Simd::splat(0_i32))
     };
-    
+
     // Single bit extraction for both exponent and mantissa
     let ix_work = x_normalized.to_bits().cast::<i64>();
-    
+
     // Extract exponent and create mantissa in one step
     let raw_exponent = (ix_work >> 52).cast::<i32>();
     let e = exponent_adjustment + raw_exponent - Simd::splat(0x3ff_i32);
-    
+
     // Create mantissa directly from the same bits
-    let mantissa_bits = (ix_work & Simd::splat(0x000fffffffffffff_i64)) | Simd::splat(0x3ff0000000000000_i64);
+    let mantissa_bits =
+        (ix_work & Simd::splat(0x000fffffffffffff_i64)) | Simd::splat(0x3ff0000000000000_i64);
     let mantissa = Simd::<f64, N>::from_bits(mantissa_bits.cast::<u64>());
-    
+
     // Range reduction (kept the same)
     let adjust = mantissa.simd_ge(sqrt2_splat);
     let mantissa = adjust.select(mantissa * half_splat, mantissa);
     let e = adjust.select(e + Simd::splat(1_i32), e);
-    
+
     // Optimized transformation s = (m-1)/(m+1)
     let numerator = mantissa - one_splat;
     let denominator = mantissa + one_splat;
     let s = numerator / denominator;
     let s2 = s * s;
-    
+
     // Full 8-term polynomial evaluation for accuracy
     let mut poly = Simd::splat(C15);
     poly = s2.mul_add(poly, Simd::splat(C13));
@@ -113,17 +111,17 @@ pub fn ln<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N> {
     poly = s2.mul_add(poly, Simd::splat(C5));
     poly = s2.mul_add(poly, Simd::splat(C3));
     poly = s2.mul_add(poly, Simd::splat(C1));
-    
+
     // Final result computation with optimized mul_add chain
     let log_mantissa = s * poly * two_splat;
     let e_f64 = e.cast::<f64>();
-    
+
     // Single mul_add chain for final result
     let result = e_f64.mul_add(
-        Simd::splat(L2U), 
-        e_f64.mul_add(Simd::splat(L2L), log_mantissa)
+        Simd::splat(L2U),
+        e_f64.mul_add(Simd::splat(L2L), log_mantissa),
     );
-    
+
     // Apply special case mask only if there are any special cases
     if special_mask.any() {
         special_mask.select(
@@ -131,13 +129,10 @@ pub fn ln<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N> {
                 neg_inf_splat,
                 is_neg.select(
                     Simd::splat(NAN),
-                    is_inf.select(
-                        pos_inf_splat,
-                        Simd::splat(NAN)
-                    )
-                )
+                    is_inf.select(pos_inf_splat, Simd::splat(NAN)),
+                ),
             ),
-            result
+            result,
         )
     } else {
         result
@@ -145,18 +140,18 @@ pub fn ln<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N> {
 }
 
 /// Unsafe natural logarithm that assumes inputs are positive, finite, and non-NaN.
-/// 
+///
 /// # Safety
-/// 
+///
 /// The caller must guarantee that all input values satisfy:
 /// - x > 0.0 (no negative values or zero)
 /// - x is finite (no positive infinity)
 /// - x is not NaN
-/// 
+///
 /// Violating these preconditions may result in incorrect results or undefined behavior.
-/// 
+///
 /// # Performance
-/// 
+///
 /// This function skips all special case checks and branching, providing maximum
 /// performance for hot paths where input constraints are guaranteed by the caller.
 #[inline(always)]
@@ -169,7 +164,7 @@ pub unsafe fn ln_unchecked<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N> {
     const ONE: f64 = 1.0;
     const HALF: f64 = 0.5;
     const TWO: f64 = 2.0;
-    
+
     // Full 8-term polynomial coefficients for accuracy
     const C1: f64 = 1.0;
     const C3: f64 = 0.3333333333333333333333333333333;
@@ -179,14 +174,14 @@ pub unsafe fn ln_unchecked<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N> {
     const C11: f64 = 0.09090909090909090909090909090909;
     const C13: f64 = 0.07692307692307692307692307692308;
     const C15: f64 = 0.06666666666666666666666666666667;
-    
+
     // Pre-splat constants
     let one_splat = Simd::splat(ONE);
     let half_splat = Simd::splat(HALF);
     let two_splat = Simd::splat(TWO);
     let sqrt2_splat = Simd::splat(SQRT2);
     let two54_splat = Simd::splat(TWO54);
-    
+
     // Debug assertion in debug builds to catch violations
     #[cfg(debug_assertions)]
     {
@@ -194,20 +189,17 @@ pub unsafe fn ln_unchecked<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N> {
             !x.simd_le(Simd::splat(0.0)).any(),
             "ln_unchecked called with non-positive value"
         );
-        debug_assert!(
-            !x.is_nan().any(),
-            "ln_unchecked called with NaN"
-        );
+        debug_assert!(!x.is_nan().any(), "ln_unchecked called with NaN");
         debug_assert!(
             x.is_finite().all(),
             "ln_unchecked called with infinite value"
         );
     }
-    
+
     // Combined bit operations for subnormal handling
     let ix = x.to_bits().cast::<i64>();
     let is_subnormal = ix.simd_lt(Simd::splat(0x0010000000000000_i64));
-    
+
     // Handle subnormals by scaling
     let (x_normalized, exponent_adjustment) = if is_subnormal.any() {
         let x_scaled = x * two54_splat;
@@ -218,52 +210,58 @@ pub unsafe fn ln_unchecked<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N> {
         // Fast path when no subnormals
         (x, Simd::splat(0_i32))
     };
-    
+
     // Single bit extraction for both exponent and mantissa
     let ix_work = x_normalized.to_bits().cast::<i64>();
-    
+
     // Extract exponent and create mantissa in one step
     let raw_exponent = (ix_work >> 52).cast::<i32>();
     let e = exponent_adjustment + raw_exponent - Simd::splat(0x3ff_i32);
-    
+
     // Create mantissa directly from the same bits
-    let mantissa_bits = (ix_work & Simd::splat(0x000fffffffffffff_i64)) | Simd::splat(0x3ff0000000000000_i64);
+    let mantissa_bits =
+        (ix_work & Simd::splat(0x000fffffffffffff_i64)) | Simd::splat(0x3ff0000000000000_i64);
     let mantissa = Simd::<f64, N>::from_bits(mantissa_bits.cast::<u64>());
-    
+
     // Range reduction
     let adjust = mantissa.simd_ge(sqrt2_splat);
     let mantissa = adjust.select(mantissa * half_splat, mantissa);
     let e = adjust.select(e + Simd::splat(1_i32), e);
-    
+
     // Optimized transformation s = (m-1)/(m+1)
     let numerator = mantissa - one_splat;
     let denominator = mantissa + one_splat;
     let s = numerator / denominator;
     let s2 = s * s;
-    
+
     // Full 8-term polynomial evaluation for accuracy using Horner's method with FMA
-    let poly = s2
-        .mul_add(s2
-            .mul_add(s2
-                .mul_add(s2
-                    .mul_add(s2
-                        .mul_add(s2
-                            .mul_add(s2
-                                .mul_add(Simd::splat(C15), Simd::splat(C13)), 
-                                Simd::splat(C11)), 
-                            Simd::splat(C9)), 
-                        Simd::splat(C7)), 
-                    Simd::splat(C5)), 
-                Simd::splat(C3)), 
-            Simd::splat(C1));
+    let poly = s2.mul_add(
+        s2.mul_add(
+            s2.mul_add(
+                s2.mul_add(
+                    s2.mul_add(
+                        s2.mul_add(
+                            s2.mul_add(Simd::splat(C15), Simd::splat(C13)),
+                            Simd::splat(C11),
+                        ),
+                        Simd::splat(C9),
+                    ),
+                    Simd::splat(C7),
+                ),
+                Simd::splat(C5),
+            ),
+            Simd::splat(C3),
+        ),
+        Simd::splat(C1),
+    );
     // Final result computation with optimized mul_add chain
     let log_mantissa = s * poly * two_splat;
     let e_f64 = e.cast::<f64>();
-    
+
     // Single mul_add chain for final result
     e_f64.mul_add(
-        Simd::splat(L2U), 
-        e_f64.mul_add(Simd::splat(L2L), log_mantissa)
+        Simd::splat(L2U),
+        e_f64.mul_add(Simd::splat(L2L), log_mantissa),
     )
 }
 
@@ -271,7 +269,7 @@ pub mod trig {
     use std::simd::{
         cmp::{SimdPartialEq, SimdPartialOrd},
         num::{SimdFloat, SimdInt},
-        Simd, StdFloat, Select
+        Select, Simd, StdFloat,
     };
     #[inline(always)]
     pub fn simd_atan<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N> {
@@ -324,11 +322,11 @@ pub mod trig {
             zz.mul_add(
                 zz.mul_add(
                     zz.mul_add(Simd::splat(P4), Simd::splat(P3)),
-                    Simd::splat(P2)
+                    Simd::splat(P2),
                 ),
-                Simd::splat(P1)
+                Simd::splat(P1),
             ),
-            Simd::splat(P0)
+            Simd::splat(P0),
         );
 
         // Denominator polynomial with mul_add (Horner's method)
@@ -336,13 +334,13 @@ pub mod trig {
             zz.mul_add(
                 zz.mul_add(
                     zz.mul_add(Simd::splat(Q4), Simd::splat(Q3)),
-                    Simd::splat(Q2)
+                    Simd::splat(Q2),
                 ),
-                Simd::splat(Q1)
+                Simd::splat(Q1),
             ),
-            Simd::splat(Q0)
+            Simd::splat(Q0),
         );
-        
+
         // Compute final result: z * ((px/qx) * zz + 1)
         let ratio = px / qx;
         let temp = ratio.mul_add(zz, one_splat);
@@ -354,7 +352,6 @@ pub mod trig {
         let sign_mask = x.to_bits() & Simd::splat(0x8000000000000000u64);
         let result_bits = result.to_bits() ^ sign_mask;
         Simd::from_bits(result_bits)
-
     }
 
     #[inline(always)]
@@ -383,7 +380,7 @@ pub mod trig {
         let i_zero_splat = Simd::<i64, N>::splat(0);
         let f64_zero_splat = Simd::<f64, N>::splat(0.0);
         let f64_one_splat = Simd::<f64, N>::splat(1.0);
-        
+
         let xa = x.abs();
         let y = (xa * two_over_pi).round();
         let q: Simd<i64, N> = unsafe { y.to_int_unchecked() };
@@ -396,35 +393,25 @@ pub mod trig {
 
         // Polynomial evaluation using Horner's method
         // Single expression for sine polynomial
-        let s = x_reduced * (x2.mul_add(
-            x2.mul_add(
+        let s = x_reduced
+            * (x2.mul_add(
                 x2.mul_add(
-                    x2.mul_add(
-                        x2.mul_add(p5sin, p4sin),
-                        p3sin
-                    ),
-                    p2sin
-                ),
-                p1sin
-            ) * x2 + p0sin,
-            f64_one_splat
-        ));
-        
+                    x2.mul_add(x2.mul_add(x2.mul_add(p5sin, p4sin), p3sin), p2sin),
+                    p1sin,
+                ) * x2
+                    + p0sin,
+                f64_one_splat,
+            ));
+
         let c = (x2 * x2).mul_add(
             x2.mul_add(
                 x2.mul_add(
-                    x2.mul_add(
-                        x2.mul_add(
-                            x2.mul_add(p5cos, p4cos),
-                            p3cos
-                        ),
-                        p2cos
-                    ),
-                    p1cos
+                    x2.mul_add(x2.mul_add(x2.mul_add(p5cos, p4cos), p3cos), p2cos),
+                    p1cos,
                 ),
-                p0cos
+                p0cos,
             ),
-            (-x2).mul_add(Simd::splat(0.5), f64_one_splat)
+            (-x2).mul_add(Simd::splat(0.5), f64_one_splat),
         );
 
         // Swap sin/cos for odd quadrants

@@ -58,14 +58,13 @@ pub const INFO: Info = Info {
     options: &["period"],
     outputs: &["dema"],
     optional_outputs: &["ema"],
-    display_groups: &[
-        DisplayGroup {
-            id: "dema_ema",
-            label: "EMA",
-            display_type: DisplayType::Overlay,
-            outputs: &["dema", "ema"],
-        },
-    ],
+    display_groups: &[DisplayGroup {
+        offset: None,
+        id: "dema_ema",
+        label: "EMA",
+        display_type: DisplayType::Overlay,
+        outputs: &["dema", "ema"],
+    }],
 };
 
 #[derive(Serialize, Deserialize)]
@@ -79,27 +78,26 @@ impl State {
     }
     pub fn init_state(real: &[f64], capacity: usize, period: usize, ema_line: &mut [f64]) -> Self {
         let multiplier = multiplier(period);
-        let init_bars = real.len() - capacity - 1;  // = period * 2 - 3
-    
+        let init_bars = real.len() - capacity - 1; // = period * 2 - 3
+
         // Phase 1: build ema1 over first `period` bars (seed + period-1 calcs)
         let mut ema1 = real[0];
         for i in 1..period {
             ema1 = calc_ema(&real[i], ema1, multiplier);
             crate::init_store_optional_outputs!(i, real.len(), ema_line => ema1);
         }
-    
+
         // Seed ema2 once, at the transition point
         let mut state = Self::new(ema1, ema1);
-    
+
         // Phase 2: run full DEMA calc for the remaining init bars
         for i in period..=init_bars {
             _ = calc(&mut state, &real[i], multiplier);
             crate::init_store_optional_outputs!(i, real.len(), ema_line => state.ema1);
         }
-    
+
         state
     }
-
 }
 
 #[derive(Serialize, Deserialize)]

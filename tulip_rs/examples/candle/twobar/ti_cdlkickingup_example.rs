@@ -23,12 +23,12 @@ fn main() {
     let pattern_high = vec![86.19, 87.30];
     let pattern_low = vec![85.20, 86.25];
     let pattern_close = vec![85.20, 87.30];
-    
+
     open.extend(pattern_open);
     high.extend(pattern_high);
     low.extend(pattern_low);
     close.extend(pattern_close);
-    
+
     let options = [5.0, 3.0, 5.0];
 
     // Step 1: Full calculation
@@ -38,7 +38,7 @@ fn main() {
         low.as_slice(),
         close.as_slice(),
     ];
-    let (result, _) = match indicator(&inputs, &options, None) { 
+    let (result, _) = match indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -48,14 +48,18 @@ fn main() {
         println!("Forecast type None - Patterns found:");
         for pattern in patterns {
             let pattern_info = pattern.get_info();
-            println!("  - {} ({}), Bars: {}",
-                pattern_info.full_name,
-                pattern_info.japanese_name,
-                pattern_info.bars);
+            println!(
+                "  - {} ({}), Bars: {}",
+                pattern_info.full_name, pattern_info.japanese_name, pattern_info.bars
+            );
         }
     }
 
-    let (result, _) = match indicator(&inputs, &options, Some(ForecastType::BullishReversalOrContinuation)) {
+    let (result, _) = match indicator(
+        &inputs,
+        &options,
+        Some(ForecastType::BullishReversalOrContinuation),
+    ) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -65,12 +69,10 @@ fn main() {
         println!("Forecast type Specified - Patterns found:");
         for pattern in patterns {
             let pattern_info = pattern.get_info();
-            println!("  - {} ({}), Bars: {}",
-                pattern_info.full_name,
-                pattern_info.japanese_name,
-                pattern_info.bars);
+            println!(
+                "  - {} ({}), Bars: {}",
+                pattern_info.full_name, pattern_info.japanese_name, pattern_info.bars
+            );
         }
     }
-
-    
 }

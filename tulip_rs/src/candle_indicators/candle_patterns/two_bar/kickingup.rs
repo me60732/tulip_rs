@@ -29,6 +29,3 @@ pub fn info() -> CandleInfo {
         japanese_name: "Keri Ashi",
     }
 }
-
-
-

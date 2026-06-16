@@ -75,5 +75,4 @@ pub fn calc(
     let (open, _, _, close) = inputs;
 
     cdl_real_within_body((open[FIRST], close[FIRST]), close[THIRD])
-    
 }

@@ -34,5 +34,3 @@ pub fn info() -> CandleInfo {
         japanese_name: "Kumo no Ura",
     }
 }
-
-

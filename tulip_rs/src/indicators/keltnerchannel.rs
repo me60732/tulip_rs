@@ -63,12 +63,14 @@ pub const INFO: Info = Info {
     optional_outputs: &["atr", "tr"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "keltnerchannel",
             label: "Keltner Channel",
             display_type: DisplayType::Overlay,
             outputs: &["lower", "middle", "upper"],
         },
         DisplayGroup {
+            offset: None,
             id: "atr_tr",
             label: "True Range",
             display_type: DisplayType::Indicator,

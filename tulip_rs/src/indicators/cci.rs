@@ -61,23 +61,26 @@ pub const INFO: Info = Info {
     optional_outputs: &["sma", "md", "typprice"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "cci",
             label: "CCI",
             display_type: DisplayType::Indicator,
             outputs: &["cci"],
         },
         DisplayGroup {
+            offset: None,
             id: "sma_typprice",
             label: "Typical Price",
             display_type: DisplayType::Overlay,
             outputs: &["sma", "typprice"],
         },
         DisplayGroup {
+            offset: None,
             id: "md",
             label: "Mean Deviation",
             display_type: DisplayType::Indicator,
             outputs: &["md"],
-        }
+        },
     ],
 };
 #[derive(Serialize, Deserialize)]

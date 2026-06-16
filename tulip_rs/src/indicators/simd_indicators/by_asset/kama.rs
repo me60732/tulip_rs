@@ -39,7 +39,8 @@ impl Driver<State> for KamaDriver {
 
         // Pre-compute pointers for maximum efficiency
         let input_ptrs = crate::extract_input_ptrs!(inputs, N, input_ptrs);
-        let (kama_line_ptr, ef_line_ptr) = crate::extract_output_ptrs!(outputs, N, kama_line_ptr, ef_line_ptr);
+        let (kama_line_ptr, ef_line_ptr) =
+            crate::extract_output_ptrs!(outputs, N, kama_line_ptr, ef_line_ptr);
 
         let (mut prev, mut old) = crate::extract_simd_at_indices!(N, input_ptrs,
             prev_value @ self.period,
@@ -105,7 +106,7 @@ pub fn indicator_by_assets<const N: usize>(
                 crate::init_optional_outputs!(
                     optional_outputs, &[false],
                     ef_line: capacity
-                )
+                ),
             )
         };
 
@@ -125,7 +126,7 @@ pub fn indicator_by_assets<const N: usize>(
                 let output_buffer = &mut output_buffer[j];
                 asset_outputs.push(std::slice::from_raw_parts_mut(
                     output_buffer.as_mut_ptr().add(starts[j]), //slice from
-                    output_buffer.len() - starts[j],               // slice to
+                    output_buffer.len() - starts[j],           // slice to
                 ));
             }
         }

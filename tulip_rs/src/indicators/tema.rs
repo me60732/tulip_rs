@@ -59,14 +59,13 @@ pub const INFO: Info = Info {
     options: &["period"],
     outputs: &["tema"],
     optional_outputs: &["dema", "ema"],
-    display_groups: &[
-        DisplayGroup {
-            id: "tema",
-            label: "EMAs",
-            display_type: DisplayType::Overlay,
-            outputs: &["tema", "dema", "ema"],
-        },
-    ],
+    display_groups: &[DisplayGroup {
+        offset: None,
+        id: "tema",
+        label: "EMAs",
+        display_type: DisplayType::Overlay,
+        outputs: &["tema", "dema", "ema"],
+    }],
 };
 #[derive(Serialize, Deserialize)]
 pub struct State {
@@ -121,25 +120,25 @@ impl State {
         let multiplier = multiplier(period);
         let (dema_line, ema_line) = out_vecs;
         let dema_capacity = dema_output_length(real.len(), &[period as f64]);
-    
+
         // Phase 1+2: initialize ema1 and ema2 via DEMA init
         // processes real[0..=(period*2-3)]
         let mut dema_state = DemaState::init_state(real, dema_capacity, period, ema_line);
-    
+
         // Transition: advance ema1/ema2 one step, then seed ema3 from the updated ema2
         let seed_idx = real.len() - dema_capacity; // = period*2-2
         let (dema_val, ema_val) = calc_dema(&mut dema_state, &real[seed_idx], multiplier);
-    
+
         let mut state = Self {
             ema3: dema_state.ema2, // seed ema3 from the updated ema2 (not 0.0)
             dema_state,
         };
-    
+
         crate::init_store_optional_outputs!(seed_idx, real.len(),
             dema_line => dema_val,
             ema_line => ema_val
         );
-    
+
         // Phase 3: full TEMA calc for remaining init bars
         let remaining = real.len() - tema_capacity; // = period*3-3
         for i in (seed_idx + 1)..remaining {
@@ -149,10 +148,9 @@ impl State {
                 ema_line => ema
             );
         }
-    
+
         state
     }
-
 }
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {

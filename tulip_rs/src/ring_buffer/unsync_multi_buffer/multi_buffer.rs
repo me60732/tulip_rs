@@ -160,7 +160,9 @@ struct MultiBufferSerde<R> {
     prev_idx: Vec<usize>,
 }
 
-impl<const B: usize, T: BufferElement + SerdeElement + SimdElement> Serialize for UnsyncBuffer<B, T> {
+impl<const B: usize, T: BufferElement + SerdeElement + SimdElement> Serialize
+    for UnsyncBuffer<B, T>
+{
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -180,7 +182,8 @@ impl<const B: usize, T: BufferElement + SerdeElement + SimdElement> Serialize fo
     }
 }
 
-impl<'de, const B: usize, T: BufferElement + SerdeElement + SimdElement> Deserialize<'de> for UnsyncBuffer<B, T>
+impl<'de, const B: usize, T: BufferElement + SerdeElement + SimdElement> Deserialize<'de>
+    for UnsyncBuffer<B, T>
 where
     T::Repr: Deserialize<'de>,
 {

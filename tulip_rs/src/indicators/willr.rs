@@ -96,7 +96,7 @@ impl TIndicatorState<3> for IndicatorState {
                     self.period,
                     &mut self.state,
                     &mut willr_line,
-                    (&mut min_line, &mut max_line)
+                    (&mut min_line, &mut max_line),
                 );
             }
             14..30 => {
@@ -107,7 +107,7 @@ impl TIndicatorState<3> for IndicatorState {
                     self.period,
                     &mut self.state,
                     &mut willr_line,
-                    (&mut min_line, &mut max_line)
+                    (&mut min_line, &mut max_line),
                 );
             }
             _ => {
@@ -118,7 +118,7 @@ impl TIndicatorState<3> for IndicatorState {
                     self.period,
                     &mut self.state,
                     &mut willr_line,
-                    (&mut min_line, &mut max_line)
+                    (&mut min_line, &mut max_line),
                 );
             }
         }
@@ -169,12 +169,14 @@ pub const INFO: Info = Info {
     optional_outputs: &["min", "max"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "willr",
             label: "WILLR",
             display_type: DisplayType::Indicator,
             outputs: &["willr"],
         },
         DisplayGroup {
+            offset: None,
             id: "min_max",
             label: "Min & Max",
             display_type: DisplayType::Overlay,
@@ -345,7 +347,7 @@ fn cycle_willr<const N: usize>(
 ) {
     let (min_line, max_line) = optional_outputs;
     let (has_optional, want_min, want_max) = crate::calc_want_flags!(min_line, max_line);
-    
+
     let periods = (period, period - 1);
     let mut i = period;
     for (j, (close, willr)) in close.iter().zip(willr_line.iter_mut()).enumerate() {
@@ -361,7 +363,6 @@ fn cycle_willr<const N: usize>(
             );
         }
 
-        
         i += 1;
     }
 }

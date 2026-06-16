@@ -254,7 +254,8 @@ impl<T: BufferElement + SerdeElement, const N: usize> Serialize for FixedMirrorB
     }
 }
 
-impl<'de, T: BufferElement + SerdeElement, const N: usize> Deserialize<'de> for FixedMirrorBuffer<T, N>
+impl<'de, T: BufferElement + SerdeElement, const N: usize> Deserialize<'de>
+    for FixedMirrorBuffer<T, N>
 where
     T::Repr: Deserialize<'de>,
 {

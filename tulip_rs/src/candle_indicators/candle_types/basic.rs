@@ -1,6 +1,6 @@
 use crate::candle_indicators::candle_types::doji::CDLDoji;
 use crate::candle_indicators::common::{
-    BOTH_WICK, CandleShape, HALLOW, LONG, SHORT, cdl_body_greater
+    cdl_body_greater, CandleShape, BOTH_WICK, HALLOW, LONG, SHORT,
 };
 use crate::candle_indicators::pattern_test::EmaState as State;
 
@@ -31,18 +31,31 @@ impl CandleStick for CDLBasic {
 
     fn is_candlestick(open: f64, high: f64, low: f64, close: f64, state: &State) -> bool {
         if !CDLDoji::is_candlestick(open, high, low, close, state)
-            && CDLBasic::is_candlestick_fast(open, high, low, close, &mut CandleShape::default(), state)
+            && CDLBasic::is_candlestick_fast(
+                open,
+                high,
+                low,
+                close,
+                &mut CandleShape::default(),
+                state,
+            )
         {
             return true;
         }
         false
     }
     #[inline(always)]
-    fn is_candlestick_fast(open: f64, high: f64, low: f64, close: f64, candle_shape: &mut CandleShape, _: &State) -> bool {
-        
+    fn is_candlestick_fast(
+        open: f64,
+        high: f64,
+        low: f64,
+        close: f64,
+        candle_shape: &mut CandleShape,
+        _: &State,
+    ) -> bool {
         if candle_shape.get_wick(open, high, low, close) == BOTH_WICK
-        && candle_shape.get_bottom_wick_length(open, low, close) == SHORT
-        && candle_shape.get_top_wick_length(open, high, close) == SHORT
+            && candle_shape.get_bottom_wick_length(open, low, close) == SHORT
+            && candle_shape.get_top_wick_length(open, high, close) == SHORT
         {
             return true;
         }

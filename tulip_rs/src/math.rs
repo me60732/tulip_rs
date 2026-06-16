@@ -45,7 +45,9 @@ pub fn crossany(inputs: &[&[f64]; 2]) -> Vec<f64> {
     let in2 = &inputs[1];
 
     for i in 1..in1.len() {
-        if (in1[i - 1] < in2[i - 1] && in1[i] > in2[i]) || (in1[i - 1] > in2[i - 1] && in1[i] < in2[i]) {
+        if (in1[i - 1] < in2[i - 1] && in1[i] > in2[i])
+            || (in1[i - 1] > in2[i - 1] && in1[i] < in2[i])
+        {
             result.push(1.0);
         } else {
             result.push(0.0);
@@ -57,4 +59,3 @@ pub fn crossany(inputs: &[&[f64]; 2]) -> Vec<f64> {
 pub fn sum(real: &[f64], period: usize) -> f64 {
     real[0..period].iter().sum::<f64>()
 }
-

@@ -61,12 +61,14 @@ pub const INFO: Info = Info {
     optional_outputs: &["short_ema", "long_ema"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "kvo",
             label: "KVO",
             display_type: DisplayType::Indicator,
             outputs: &["kvo"],
         },
         DisplayGroup {
+            offset: None,
             id: "short_ema_long_ema",
             label: "Volume Force EMAs",
             display_type: DisplayType::Indicator,

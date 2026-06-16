@@ -23,4 +23,3 @@ pub fn info() -> CandleInfo {
         japanese_name: "kanazuchi",
     }
 }
-

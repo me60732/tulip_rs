@@ -216,18 +216,21 @@ pub const INFO: Info = Info {
     optional_outputs: &["atr", "tr", "min", "max"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "long_short",
             label: "Exit Positions",
             display_type: DisplayType::Overlay,
             outputs: &["long", "short"],
         },
         DisplayGroup {
+            offset: None,
             id: "atr_tr",
             label: "True Range",
             display_type: DisplayType::Indicator,
             outputs: &["atr", "tr"],
         },
         DisplayGroup {
+            offset: None,
             id: "min_max",
             label: "Min & Max",
             display_type: DisplayType::Overlay,

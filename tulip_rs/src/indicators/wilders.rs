@@ -55,6 +55,7 @@ pub const INFO: Info = Info {
     outputs: &["wilders"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "wilders",
         label: "WILDERS",
         display_type: DisplayType::Overlay,
@@ -198,7 +199,10 @@ pub fn indicator(
         }
     }
 
-    Ok((vec![wilders_line], IndicatorState::new(wilders, multipliers)))
+    Ok((
+        vec![wilders_line],
+        IndicatorState::new(wilders, multipliers),
+    ))
 }
 
 /// Calculates the current value of Wilder's Smoothing for a single step.

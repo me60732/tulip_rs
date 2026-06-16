@@ -108,6 +108,7 @@ pub const INFO: Info = Info {
     outputs: &["qstick"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "qstick",
         label: "QSTICK",
         display_type: DisplayType::Indicator,

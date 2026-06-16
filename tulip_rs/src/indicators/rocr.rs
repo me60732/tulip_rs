@@ -50,6 +50,7 @@ pub const INFO: Info = Info {
     outputs: &["rocr"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "rocr",
         label: "ROCR",
         display_type: DisplayType::Indicator,

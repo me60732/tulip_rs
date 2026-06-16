@@ -1,8 +1,8 @@
 use crate::common::{min_process, validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 pub(crate) use crate::indicators::cmo::up_down;
-pub use crate::indicators::wilders::multiplier;
 use crate::indicators::wilders::calc as calc_wilders;
+pub use crate::indicators::wilders::multiplier;
 use crate::types::{
     DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
 };
@@ -60,6 +60,7 @@ pub const INFO: Info = Info {
     outputs: &["rsi"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "rsi",
         label: "RSI",
         display_type: DisplayType::Indicator,
@@ -130,7 +131,7 @@ impl State {
 
         self.up_sum = calc_wilders(self.up_sum, up, multipliers);
         self.down_sum = calc_wilders(self.down_sum, down, multipliers);
-        
+
         self.prev_real = cur_real;
 
         100.0 * (self.up_sum / (self.up_sum + self.down_sum))
@@ -219,7 +220,7 @@ pub fn indicator(
     validate_options(options)?;
     let period = options[0] as usize;
     let multipliers = multiplier(period);
-    
+
     validate_inputs(inputs, min_data(options))?;
     let mut rsi_line = {
         let capacity = output_length(inputs[0].len(), options);
@@ -251,4 +252,3 @@ fn cycle_rsi(real: &[f64], multipliers: (f64, f64), rsi_line: &mut [f64], state:
         unsafe { *rsi_line.get_unchecked_mut(i) = state.calc(*real.get_unchecked(i), multipliers) };
     }
 }
-

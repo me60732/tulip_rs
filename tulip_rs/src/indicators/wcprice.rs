@@ -48,6 +48,7 @@ pub const INFO: Info = Info {
     // No state required for this indicator.
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "wcprice",
         label: "WCPRICE",
         display_type: DisplayType::Overlay,

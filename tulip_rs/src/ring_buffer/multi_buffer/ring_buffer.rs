@@ -1,9 +1,8 @@
-use crate::ring_buffer::
-{
-        buffer::period_to_idx,
-        multi_buffer::multi_buffer::{
-            get_by_periods, write_values, write_values_pop, BufferElement, MultiBuffer,
-        },
+use crate::ring_buffer::{
+    buffer::period_to_idx,
+    multi_buffer::multi_buffer::{
+        get_by_periods, write_values, write_values_pop, BufferElement, MultiBuffer,
+    },
 };
 
 pub trait RingBuffer<const B: usize, T: BufferElement = f64> {
@@ -70,11 +69,11 @@ impl<const B: usize, T: BufferElement> RingBuffer<B, T> for MultiBuffer<B, T> {
     }
 
     #[inline(always)]
-    fn push_with_info(&mut self, values: [T; B]) -> Option<[T; B]> {   
+    fn push_with_info(&mut self, values: [T; B]) -> Option<[T; B]> {
         if self.count == self.capacity {
             let replaced = write_values_pop(self, values);
             self.update_internals_unchecked();
-            return Some(replaced)
+            return Some(replaced);
         }
         write_values(self, values);
         self.update_internals();
@@ -115,20 +114,20 @@ impl<const B: usize, T: BufferElement> RingBuffer<B, T> for MultiBuffer<B, T> {
                 if self.index > 0 {
                     result.extend_from_slice(&self.vals[lane][..self.index]);
                 }
-                return result
+                return result;
             }
-             self.vals[lane][..self.count].to_vec()
+            self.vals[lane][..self.count].to_vec()
         })
     }
     fn to_ordered_by_period(&self, period: usize) -> [Vec<T>; B] {
         if self.count == 0 || period == 0 {
             return core::array::from_fn(|_| Vec::new());
         }
-        
+
         let take = period.min(self.count);
         // Use existing get_by_period which maps a bars-ago value into the underlying Vec index.
         // Oldest of the last `take` elements is `bars_ago = take - 1`, newest is `bars_ago = 0`.
-        
+
         core::array::from_fn(|lane| {
             let mut out = Vec::with_capacity(take);
             for i in 0..take {

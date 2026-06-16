@@ -60,12 +60,14 @@ pub const INFO: Info = Info {
     optional_outputs: &["short_ema", "long_ema"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "macd",
             label: "MACD",
             display_type: DisplayType::Indicator,
             outputs: &["macd_line", "signal_line", "histogram"],
         },
         DisplayGroup {
+            offset: None,
             id: "short_ema_long_ema",
             label: "EMAs",
             display_type: DisplayType::Overlay,

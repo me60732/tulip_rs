@@ -1,7 +1,9 @@
-use std::simd::{Simd, Mask, SimdElement};
-use crate::ring_buffer::unsync_multi_buffer::multi_buffer::{UnsyncBuffer, write_values, write_values_pop, BufferElement};
+use crate::ring_buffer::unsync_multi_buffer::multi_buffer::{
+    write_values, write_values_pop, BufferElement, UnsyncBuffer,
+};
+use std::simd::{Mask, Simd, SimdElement};
 
-pub trait RingBuffer<const B: usize, T: SimdElement + BufferElement = f64>{
+pub trait RingBuffer<const B: usize, T: SimdElement + BufferElement = f64> {
     fn new(capacity: [usize; B]) -> Self;
     unsafe fn push_unchecked(&mut self, values: Simd<T, B>);
     unsafe fn push_by_lane_unchecked(&mut self, value: T, lane: usize);
@@ -18,7 +20,7 @@ pub trait RingBuffer<const B: usize, T: SimdElement + BufferElement = f64>{
 impl<const B: usize, T: BufferElement + SimdElement> RingBuffer<B, T> for UnsyncBuffer<B, T> {
     fn new(capacity: [usize; B]) -> Self {
         let vals = core::array::from_fn(|i| vec![T::default(); capacity[i]]);
-        
+
         Self {
             // Preallocate with default values
             vals: vals,
@@ -90,13 +92,14 @@ impl<const B: usize, T: BufferElement + SimdElement> RingBuffer<B, T> for Unsync
         self.update_internals_unchecked();
         replaced
     }
-    
+
     #[inline(always)]
     fn push_with_info_by_lane(&mut self, value: T, lane: usize) -> Option<T> {
         if self.count[lane] == self.capacity[lane] {
-            let replaced =
-                unsafe { <Self as RingBuffer<B, T>>::push_with_info_by_lane_unchecked(self, value, lane) };
-            return Some(replaced)
+            let replaced = unsafe {
+                <Self as RingBuffer<B, T>>::push_with_info_by_lane_unchecked(self, value, lane)
+            };
+            return Some(replaced);
         }
         unsafe { *self.vals[lane].get_unchecked_mut(self.index[lane]) = value };
         self.update_internals();
@@ -111,5 +114,4 @@ impl<const B: usize, T: BufferElement + SimdElement> RingBuffer<B, T> for Unsync
         self.update_internals_unchecked();
         replaced
     }
-
 }

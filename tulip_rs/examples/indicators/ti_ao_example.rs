@@ -23,7 +23,7 @@ fn main() {
     let inputs = [new_high.as_slice(), new_low.as_slice()];
 
     // Calculate the AO using the indicator function
-    let (outputs,_) = match indicator(&inputs, &[], Some(&[true, true])) {
+    let (outputs, _) = match indicator(&inputs, &[], Some(&[true, true])) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -31,15 +31,23 @@ fn main() {
     println!("Full AO Line: {:?}", outputs[0]);
     println!("\nShort sma: {:?}", outputs[1]);
     println!("\nLong sma: {:?}", outputs[2]);
-    
-    let inputs = [&new_high[..new_high.len()-5], &new_low[..new_low.len()-5]];
+
+    let inputs = [
+        &new_high[..new_high.len() - 5],
+        &new_low[..new_low.len() - 5],
+    ];
     let (outputs, mut state) = match indicator(&inputs, &[], None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
     println!("\n\nPartial AO Line: {:?}", outputs[0]);
-    
-    let inputs = [&new_high[new_high.len()-5..], &new_low[new_low.len()-5..]];
-    let outputs = state.batch_indicator(&inputs, None).expect("batch_indicator failed");
+
+    let inputs = [
+        &new_high[new_high.len() - 5..],
+        &new_low[new_low.len() - 5..],
+    ];
+    let outputs = state
+        .batch_indicator(&inputs, None)
+        .expect("batch_indicator failed");
     println!("\nFinal AO Line: {:?}", outputs[0]);
 }

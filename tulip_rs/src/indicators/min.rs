@@ -66,6 +66,82 @@ impl State {
         }
         state
     }
+    #[inline(always)]
+    pub fn calc(&mut self, real: &[f64], i: usize, periods: (usize, usize)) -> (f64, usize) {
+        let (period, look_back) = periods;
+        let (mut min, mut trail) = (self.min, self.trail);
+        trail += 1;
+
+        if period <= trail {
+            let search_start = i - look_back;
+            let search_end = i + 1;
+            let window = &real[search_start..search_end];
+
+            /*let (min_val, min_idx) = if period > 4 {
+                find_min_simd::<4>(window)
+            } else {
+                find_min_scalar(window)
+            };*/
+            let (min_val, min_idx) = match period {
+                1..=4 => {
+                    find_min_scalar(window)
+                }
+                5..30 => {
+                    find_min_simd::<4>(window)
+                }
+                _ => {
+                    find_min_simd::<8>(window)
+                }
+            };
+            min = min_val;
+            trail = i - (search_start + min_idx);
+        } else {
+            let current = real[i];
+            if current <= min {
+                min = current;
+                trail = 0;
+            }
+        }
+
+        self.min = min;
+        self.trail = trail;
+        (min, trail)
+    }
+    #[inline(always)]
+    pub unsafe fn calc_unchecked<const N: usize>(
+        &mut self,
+        real: &[f64],
+        i: usize,
+        periods: (usize, usize),
+    ) -> (f64, usize) {
+        let (period, look_back) = periods;
+        let (mut min, mut trail) = (self.min, self.trail);
+        trail += 1;
+
+        if period <= trail {
+            let search_start = i - look_back;
+            let search_end = i + 1;
+            let window = real.get_unchecked(search_start..search_end);
+
+            let (min_val, min_idx) = match N {
+                1 => find_min_scalar(window),
+                _ => find_min_simd::<N>(window),
+            };
+
+            min = min_val;
+            trail = i - (search_start + min_idx);
+        } else {
+            let current = *real.get_unchecked(i);
+            if current <= min {
+                min = current;
+                trail = 0;
+            }
+        }
+
+        self.min = min;
+        self.trail = trail;
+        (min, trail)
+    }
 }
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
@@ -124,6 +200,7 @@ pub const INFO: Info = Info {
     outputs: &["min"],
     optional_outputs: &[],
     display_groups: &[DisplayGroup {
+        offset: None,
         id: "min",
         label: "MIN",
         display_type: DisplayType::Overlay,
@@ -245,7 +322,7 @@ fn cycle_min<const N: usize>(
 ) {
     for (j, i) in (periods.0 - 1..real.len()).enumerate() {
         unsafe {
-            *min_line.get_unchecked_mut(j) = calc_unchecked::<N>(state, real, i, periods).0;
+            *min_line.get_unchecked_mut(j) = state.calc_unchecked::<N>(real, i, periods).0;
             //calc_unchecked::<N>(state, real, i, periods).0;
         }
     }
@@ -266,34 +343,7 @@ fn cycle_min<const N: usize>(
 /// ```
 #[inline(always)]
 pub fn calc(state: &mut State, real: &[f64], i: usize, periods: (usize, usize)) -> (f64, usize) {
-    let (period, look_back) = periods;
-    let (mut min, mut trail) = (state.min, state.trail);
-    trail += 1;
-
-    if period <= trail {
-        let search_start = i - look_back;
-        let search_end = i + 1;
-        let window = &real[search_start..search_end];
-
-        let (min_val, min_idx) = if period > 4 {
-            find_min_simd::<4>(window)
-        } else {
-            find_min_scalar(window)
-        };
-
-        min = min_val;
-        trail = i - (search_start + min_idx);
-    } else {
-        let current = real[i];
-        if current <= min {
-            min = current;
-            trail = 0;
-        }
-    }
-
-    state.min = min;
-    state.trail = trail;
-    (min, trail)
+    state.calc(real, i, periods)
 }
 #[inline(always)]
 pub unsafe fn calc_unchecked<const N: usize>(
@@ -302,33 +352,7 @@ pub unsafe fn calc_unchecked<const N: usize>(
     i: usize,
     periods: (usize, usize),
 ) -> (f64, usize) {
-    let (period, look_back) = periods;
-    let (mut min, mut trail) = (state.min, state.trail);
-    trail += 1;
-
-    if period <= trail {
-        let search_start = i - look_back;
-        let search_end = i + 1;
-        let window = real.get_unchecked(search_start..search_end);
-
-        let (min_val, min_idx) = match N {
-            1 => find_min_scalar(window),
-            _ => find_min_simd::<N>(window),
-        };
-
-        min = min_val;
-        trail = i - (search_start + min_idx);
-    } else {
-        let current = *real.get_unchecked(i);
-        if current <= min {
-            min = current;
-            trail = 0;
-        }
-    }
-
-    state.min = min;
-    state.trail = trail;
-    (min, trail)
+    state.calc_unchecked::<N>(real, i, periods)
 }
 
 #[inline(always)]

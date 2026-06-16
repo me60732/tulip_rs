@@ -1,7 +1,6 @@
 use crate::candle_indicators::candle_types::doji::CDLDoji;
 use crate::candle_indicators::common::{
-    CandleShape, HALLOW, NO_BOTTOM_WICK, NO_TOP_WICK,
-    NO_WICK, SHORT,
+    CandleShape, HALLOW, NO_BOTTOM_WICK, NO_TOP_WICK, NO_WICK, SHORT,
 };
 use crate::candle_indicators::{pattern_test::EmaState as State, types::CandleStick};
 

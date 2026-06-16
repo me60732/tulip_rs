@@ -58,12 +58,14 @@ pub const INFO: Info = Info {
     optional_outputs: &["atr", "tr"],
     display_groups: &[
         DisplayGroup {
+            offset: None,
             id: "natr",
             label: "NATR",
             display_type: DisplayType::Indicator,
             outputs: &["natr"],
         },
         DisplayGroup {
+            offset: None,
             id: "atr_tr",
             label: "True Range",
             display_type: DisplayType::Indicator,
@@ -108,7 +110,7 @@ pub fn output_length(data_len: usize, options: &[f64]) -> usize {
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     state: State,
-    multipliers: (f64, f64)
+    multipliers: (f64, f64),
 }
 impl IndicatorState {
     pub fn new(state: State, multipliers: (f64, f64)) -> Self {
@@ -248,7 +250,13 @@ fn cycle_natr(
 
 /// Performs the core calculation for the Normalized Average True Range (NATR) indicator.
 #[inline(always)]
-pub fn calc(state: &mut State, high: f64, low: f64, close: f64, multipliers: (f64, f64)) -> (f64, f64, f64) {
+pub fn calc(
+    state: &mut State,
+    high: f64,
+    low: f64,
+    close: f64,
+    multipliers: (f64, f64),
+) -> (f64, f64, f64) {
     let (atr, tr) = calc_atr(state, high, low, close, multipliers);
     ((atr / close) * 100.0, atr, tr)
 }

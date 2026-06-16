@@ -18,18 +18,17 @@ fn main() {
         81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89,
         87.77, 87.29,
     ];
-    
+
     let pattern_open = vec![87.30, 86.40, 84.30, 85.60];
     let pattern_high = vec![87.30, 86.40, 85.50, 85.65];
     let pattern_low = vec![86.30, 85.30, 84.0, 83.85];
     let pattern_close = vec![86.30, 85.30, 84.0, 83.90];
 
-
     open.extend(pattern_open);
     high.extend(pattern_high);
     low.extend(pattern_low);
     close.extend(pattern_close);
-    
+
     let options = [5.0, 1.0, 1.0];
 
     // Step 1: Full calculation
@@ -39,7 +38,7 @@ fn main() {
         low.as_slice(),
         close.as_slice(),
     ];
-    let (result, _) = match indicator(&inputs, &options, None) { 
+    let (result, _) = match indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -49,10 +48,10 @@ fn main() {
         println!("Forecast type Specified - Patterns found:");
         for pattern in patterns {
             let pattern_info = pattern.get_info();
-            println!("  - {} ({}), Bars: {}",
-                pattern_info.full_name,
-                pattern_info.japanese_name,
-                pattern_info.bars);
+            println!(
+                "  - {} ({}), Bars: {}",
+                pattern_info.full_name, pattern_info.japanese_name, pattern_info.bars
+            );
         }
     }
 
@@ -61,15 +60,15 @@ fn main() {
         Err(e) => panic!("Error: {}", e),
     };
     println!("\n\nResult: {:?}", result);
-    
+
     if let Some(patterns) = result.last().and_then(|opt| opt.as_ref()) {
         println!("Forecast type Specified - Patterns found:");
         for pattern in patterns {
             let pattern_info = pattern.get_info();
-            println!("  - {} ({}), Bars: {}",
-                pattern_info.full_name,
-                pattern_info.japanese_name,
-                pattern_info.bars);
+            println!(
+                "  - {} ({}), Bars: {}",
+                pattern_info.full_name, pattern_info.japanese_name, pattern_info.bars
+            );
         }
-    }  
+    }
 }
