@@ -366,6 +366,10 @@ name = "benchmark_supersmoother"
 harness = false
 
 [[bench]]
+name = "benchmark_highpass"
+harness = false
+
+[[bench]]
 name = "benchmark_ichimoku"
 harness = false
 

@@ -40,6 +40,7 @@ pub mod ema;
 pub mod emv;
 pub mod fisher;
 pub mod fosc;
+pub mod highpass;
 pub mod hma;
 pub mod ichimoku;
 pub mod kama;

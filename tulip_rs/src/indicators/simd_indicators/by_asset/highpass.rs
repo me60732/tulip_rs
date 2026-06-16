@@ -1,21 +1,21 @@
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::supersmoother_simd::SimdState;
-use crate::indicators::supersmoother::{
+use crate::indicators::simd_indicators::highpass_simd::SimdState;
+use crate::indicators::highpass::{
     min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
 use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
 
-/// SIMD driver that advances the Ehlers Super Smoother across `N` asset lanes per scheduling epoch.
-struct SuperSmootherDriver {
-    multipliers: (f64, f64, f64),
+/// SIMD driver that advances the Ehlers High Pass filter across `N` asset lanes per scheduling epoch.
+struct HighPassDriver {
+    multipliers: (f64, f64),
 }
 
-impl Driver<State> for SuperSmootherDriver {
+impl Driver<State> for HighPassDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     ///
-    /// Reads from `inputs[asset][0]` (real), writes the SuperSmoother output to
+    /// Reads from `inputs[asset][0]` (real), writes the HighPass output to
     /// `outputs[asset][0]`, and updates `states[asset]` in place.
     fn next_run<const N: usize>(
         &mut self,
@@ -30,20 +30,19 @@ impl Driver<State> for SuperSmootherDriver {
 
         let multipliers_simd = (
             Simd::splat(self.multipliers.0),
-            Simd::splat(self.multipliers.1),
-            Simd::splat(self.multipliers.2),
+            Simd::splat(self.multipliers.1)
         );
 
         let real_ptrs = crate::extract_input_ptrs!(inputs, N, real);
-        let super_line_ptr = crate::extract_output_ptrs!(outputs, N, super_line);
+        let highpass_line_ptr = crate::extract_output_ptrs!(outputs, N, super_line);
 
         for i in 0..len {
             let real = crate::extract_simd_inputs_at_index!(i, N, values @ real_ptrs);
 
-            let super_smoother = state.calc_simd(real, multipliers_simd);
+            let hp = state.calc_simd(real, multipliers_simd);
 
             crate::write_simd_at_indices!(N, i,
-                super_line_ptr => super_smoother
+                highpass_line_ptr => hp
             );
         }
 
@@ -51,7 +50,7 @@ impl Driver<State> for SuperSmootherDriver {
     }
 }
 
-/// Calculates the Ehlers Super Smoother for `N` assets simultaneously using SIMD parallelism.
+/// Calculates the Ehlers High Pass filter for `N` assets simultaneously using SIMD parallelism.
 ///
 /// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
 ///
@@ -59,10 +58,10 @@ impl Driver<State> for SuperSmootherDriver {
 /// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
 ///   containing `[real]` for asset `i`.
 /// * `options` - Shared options slice; `options[0]` is the period.
-/// * `_optional_outputs` - Unused; SuperSmoother has no optional outputs.
+/// * `_optional_outputs` - Unused; HighPass has no optional outputs.
 ///
 /// # Returns
-/// `Ok((outputs, states))` where `outputs[i][0]` is the SuperSmoother line for asset `i`
+/// `Ok((outputs, states))` where `outputs[i][0]` is the HighPass line for asset `i`
 /// and `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
@@ -80,14 +79,14 @@ pub fn indicator_by_assets<const N: usize>(
 
     for i in 0..N {
         let asset_inputs = vec![inputs[i][0]];
-        let super_line = {
+        let highpass_line = {
             let capacity = output_length(inputs[i][0].len(), options);
             crate::uninit_vec!(f64, capacity)
         };
 
         let state = State::init_state(inputs[i][0], period, multipliers);
 
-        let mut output_buffer = vec![super_line];
+        let mut output_buffer = vec![highpass_line];
         let mut asset_outputs = Vec::with_capacity(output_buffer.len());
 
         for j in 0..output_buffer.len() {
@@ -111,7 +110,7 @@ pub fn indicator_by_assets<const N: usize>(
         output_buffers.push(output_buffer);
     }
 
-    let mut driver = SuperSmootherDriver { multipliers };
+    let mut driver = HighPassDriver { multipliers };
     let final_states = road_train.drive(&mut driver);
 
     let mut states = Vec::with_capacity(N);

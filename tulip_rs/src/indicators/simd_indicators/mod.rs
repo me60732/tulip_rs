@@ -20,6 +20,7 @@ pub mod aroon_simd;
 pub mod aroonosc_simd;
 pub mod atr_simd;
 pub mod avgprice_simd;
+pub mod highpass_simd;
 pub mod bbands_simd;
 pub mod bop_simd;
 pub mod cci_simd;
