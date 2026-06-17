@@ -370,6 +370,14 @@ name = "benchmark_highpass"
 harness = false
 
 [[bench]]
+name = "benchmark_roofingfilter"
+harness = false
+
+[[bench]]
+name = "benchmark_hilberttransform"
+harness = false
+
+[[bench]]
 name = "benchmark_ichimoku"
 harness = false
 

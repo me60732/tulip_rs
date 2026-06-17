@@ -32,13 +32,13 @@ use std::{fmt, marker::PhantomData};
 #[derive(Clone)]
 pub struct FixedMirrorBuffer<T: BufferElement, const N: usize> {
     /// Classic ring buffer — `ring[index]` is the next slot to be written.
-    ring: [T; N],
+    pub(crate) ring: [T; N],
     /// Always-ordered view: `view[0]` = oldest, `view[count-1]` = newest.
-    view: [T; N],
+    pub(crate) view: [T; N],
     /// Next write position in `ring` (advances mod `N`).  Mirrors `Buffer::index`.
-    index: usize,
+    pub(crate) index: usize,
     /// Number of valid elements currently stored (`0 <= count <= N`).
-    count: usize,
+    pub(crate) count: usize,
 }
 
 impl<T: BufferElement, const N: usize> FixedMirrorBuffer<T, N> {
@@ -198,6 +198,13 @@ impl<T: BufferElement, const N: usize> FixedMirrorBuffer<T, N> {
         self.count - 1 - window_index
     }
 
+    /// Allocate an ordered `Vec<T>` with elements from oldest to newest.
+    ///
+    /// Because `view` is always kept in order, this is a simple slice copy.
+    pub fn to_ordered_vec(&self) -> Vec<T> {
+        self.view[..self.count].to_vec()
+    }
+
     // ── Sync ──────────────────────────────────────────────────────────────────
 
     /// Propagate any in-place mutations made via [`get_slice_mut`](Self::get_slice_mut)
@@ -229,6 +236,75 @@ impl<T: BufferElement, const N: usize> FixedMirrorBuffer<T, N> {
 impl<T: BufferElement, const N: usize> Default for FixedMirrorBuffer<T, N> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ── Iterator ──────────────────────────────────────────────────────────────────
+
+/// Iterator produced by `(&FixedMirrorBuffer).into_iter()`.
+///
+/// Yields elements from **newest to oldest** (`buf[0]` first).
+/// Reads from the always-ordered `view` array, so in-place mutations via
+/// `get_slice_mut` are immediately visible without calling `sync_mirrors`.
+pub struct FixedMirrorIter<'a, T: BufferElement, const N: usize> {
+    buffer: &'a FixedMirrorBuffer<T, N>,
+    /// Current position expressed as bars-ago (0 = newest).
+    pos: usize,
+}
+
+impl<'a, T: BufferElement, const N: usize> Iterator for FixedMirrorIter<'a, T, N> {
+    type Item = T;
+
+    #[inline]
+    fn next(&mut self) -> Option<T> {
+        if self.pos >= self.buffer.count {
+            return None;
+        }
+        // view[0]=oldest, view[count-1]=newest → bars_ago 0 maps to view[count-1]
+        let val = self.buffer.view[self.buffer.count - 1 - self.pos];
+        self.pos += 1;
+        Some(val)
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.buffer.count.saturating_sub(self.pos);
+        (remaining, Some(remaining))
+    }
+}
+
+impl<'a, T: BufferElement, const N: usize> ExactSizeIterator for FixedMirrorIter<'a, T, N> {}
+
+impl<'a, T: BufferElement, const N: usize> IntoIterator for &'a FixedMirrorBuffer<T, N> {
+    type Item = T;
+    type IntoIter = FixedMirrorIter<'a, T, N>;
+
+    /// Iterate from newest to oldest (`buf[0]` first).
+    #[inline]
+    fn into_iter(self) -> FixedMirrorIter<'a, T, N> {
+        FixedMirrorIter {
+            buffer: self,
+            pos: 0,
+        }
+    }
+}
+
+impl<T: BufferElement, const N: usize> std::ops::Index<usize> for FixedMirrorBuffer<T, N> {
+    type Output = T;
+
+    /// Index by bars-ago: `buf[0]` is the newest element, `buf[count-1]` is the oldest.
+    ///
+    /// Reads from the always-ordered `view` array, so mutations via `get_slice_mut`
+    /// are visible without calling `sync_mirrors`.
+    #[inline]
+    fn index(&self, bars_ago: usize) -> &T {
+        assert!(
+            bars_ago < self.count,
+            "index out of bounds: bars_ago {bars_ago} >= count {}",
+            self.count
+        );
+        // view[0]=oldest, view[count-1]=newest
+        &self.view[self.count - 1 - bars_ago]
     }
 }
 

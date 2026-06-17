@@ -41,16 +41,16 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::highpass_simd::indicator_by_options as indicator;
 }
 
-/// Returns metadata for the Ehlers High Pass indicator.
+/// Returns metadata for the Ehlers Super Smoother indicator.
 ///
 /// # Returns
 ///
-/// An `Info` struct containing metadata about the HighPass indicator, including
-/// its input (`real`), configurable `period`, and output line (`highpass`).
+/// An `Info` struct containing metadata about the SuperSmoother indicator, including
+/// its input (`real`), configurable `period`, and output line (`supersmoother`).
 pub const INFO: Info = Info {
     name: "highpass",
     indicator_type: IndicatorType::Trend,
-    full_name: "Ehlers High Pass Filter",
+    full_name: "Ehlers Super Smoother",
     inputs: &["real"],
     options: &["period"],
     outputs: &["highpass"],
@@ -126,7 +126,7 @@ impl State {
 /// Returns the minimum number of input bars required to produce results
 /// accurate to `decimals` decimal places.
 ///
-/// HighPass is a 1-pole IIR filter with fixed coefficients — accuracy is
+/// SuperSmoother is a 2-pole IIR filter with fixed coefficients — accuracy is
 /// not dependent on exponential smoothing decay, so this always delegates to
 /// [`min_data`] regardless of `decimals`.
 ///
@@ -137,16 +137,16 @@ impl State {
 ///
 /// # Returns
 ///
-/// The minimum number of input bars needed for meaningful HighPass output.
+/// The minimum number of input bars needed for meaningful SuperSmoother output.
 pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
     min_data(options)
 }
 
-/// Returns the minimum amount of data required for the HighPass indicator.
+/// Returns the minimum amount of data required for the SuperSmoother indicator.
 ///
 /// # Arguments
 ///
-/// * `options` - A slice containing the options for the HighPass calculation (`period`).
+/// * `options` - A slice containing the options for the SuperSmoother calculation (`period`).
 ///
 /// # Returns
 ///
@@ -155,13 +155,13 @@ pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize + 1
 }
 
-/// Returns the number of output values produced by the HighPass indicator
+/// Returns the number of output values produced by the SuperSmoother indicator
 /// given input data length and options.
 ///
 /// # Arguments
 ///
 /// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the HighPass calculation.
+/// * `options` - A slice containing the options for the SuperSmoother calculation.
 ///
 /// # Returns
 ///
@@ -170,7 +170,7 @@ pub fn output_length(data_len: usize, options: &[f64]) -> usize {
     data_len - min_data(options) + 1
 }
 
-/// Calculates the Ehlers High Pass indicator over the full input dataset.
+/// Calculates the Ehlers Super Smoother indicator over the full input dataset.
 ///
 /// # Inputs
 ///
@@ -182,17 +182,17 @@ pub fn output_length(data_len: usize, options: &[f64]) -> usize {
 ///
 /// # Outputs
 ///
-/// * `outputs[0]` — `highpass` line
+/// * `outputs[0]` — `supersmoother` line
 ///
 /// # Arguments
 ///
 /// * `inputs` - Array of input price slices (see Inputs above).
 /// * `options` - Array of indicator options (see Options above).
-/// * `_optional_outputs` - Unused; HighPass has no optional outputs.
+/// * `_optional_outputs` - Unused; SuperSmoother has no optional outputs.
 ///
 /// # Returns
 ///
-/// `Ok((outputs, state))` where `outputs[0]` is the `highpass` line and
+/// `Ok((outputs, state))` where `outputs[0]` is the `supersmoother` line and
 /// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
@@ -217,14 +217,14 @@ pub fn indicator(
     Ok((vec![highpass_line], IndicatorState::new(state, multipliers)))
 }
 
-/// Performs the core filter loop for the HighPass indicator.
+/// Performs the core filter loop for the SuperSmoother indicator.
 ///
 /// # Arguments
 ///
 /// * `real` - A slice of input price values.
-/// * `state` - A mutable reference to the filter state (`y1`, `prev_real`).
-/// * `multipliers` - The precomputed filter coefficients `(a1, a2)`.
-/// * `highpass_line` - Output slice for the filtered values (must be the same length as `real`).
+/// * `state` - A mutable reference to the filter state (`y1`, `y2`).
+/// * `multipliers` - The precomputed filter coefficients `(a1, a2, b0)`.
+/// * `super_line` - Output slice for the filtered values (must be the same length as `real`).
 fn cycle(real: &[f64], state: &mut State, multipliers: (f64, f64), highpass_line: &mut [f64]) {
     for i in 0..real.len() {
         unsafe {
@@ -233,13 +233,13 @@ fn cycle(real: &[f64], state: &mut State, multipliers: (f64, f64), highpass_line
     }
 }
 
-/// Calculates the HighPass value for a single bar.
+/// Calculates the SuperSmoother value for a single bar.
 ///
 /// # Arguments
 ///
-/// * `state` - A mutable reference to the current filter state (`y1`, `prev_real`).
+/// * `state` - A mutable reference to the current filter state (`y1`, `y2`).
 /// * `real` - The current input price value.
-/// * `multipliers` - The precomputed filter coefficients `(a1, a2)`.
+/// * `multipliers` - The precomputed filter coefficients `(a1, a2, b0)`.
 ///
 /// # Returns
 ///
@@ -249,17 +249,17 @@ pub fn calc(state: &mut State, real: f64, multipliers: (f64, f64)) -> f64 {
     state.calc(real, multipliers)
 }
 
-/// Computes the High Pass filter coefficients for a given period.
+/// Computes the 2-pole SuperSmoother filter coefficients for a given period.
 ///
 /// # Arguments
 ///
-/// * `period` - The filter period. Controls the cutoff frequency of the high pass.
+/// * `period` - The filter period. Controls the cutoff frequency of the smoother.
 ///
 /// # Returns
 ///
-/// A tuple `(a1, a2)` where:
-/// - `a1` is the IIR feedback coefficient
-/// - `a2` is the feedforward gain (`0.5 * (1 + a1)`)
+/// A tuple `(a1, a2, b0)` where:
+/// - `a1`, `a2` are the IIR feedback coefficients
+/// - `b0` is the feedforward gain (`1 - a1 - a2`)
 pub fn multiplier(period: usize) -> (f64, f64) {
     let omega = std::f64::consts::TAU / period as f64;
 

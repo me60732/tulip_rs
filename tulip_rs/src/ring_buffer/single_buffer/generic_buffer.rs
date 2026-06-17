@@ -127,8 +127,62 @@ impl<T: BufferElement> Buffer<T> {
 
 pub struct BufferIter<'a, T: BufferElement> {
     pub buffer: &'a Buffer<T>,
+    /// Current position expressed as bars-ago (0 = newest).
     pub pos: usize,
     pub current_idx: usize, // Pre-computed starting index
+}
+
+impl<'a, T: BufferElement> Iterator for BufferIter<'a, T> {
+    type Item = T;
+
+    #[inline]
+    fn next(&mut self) -> Option<T> {
+        if self.pos >= self.buffer.count {
+            return None;
+        }
+        let val = self.buffer.get_by_period(self.pos);
+        self.pos += 1;
+        Some(val)
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.buffer.count.saturating_sub(self.pos);
+        (remaining, Some(remaining))
+    }
+}
+
+impl<'a, T: BufferElement> ExactSizeIterator for BufferIter<'a, T> {}
+
+impl<'a, T: BufferElement> IntoIterator for &'a Buffer<T> {
+    type Item = T;
+    type IntoIter = BufferIter<'a, T>;
+
+    /// Iterate from newest to oldest (`buf[0]` first).
+    #[inline]
+    fn into_iter(self) -> BufferIter<'a, T> {
+        BufferIter {
+            buffer: self,
+            pos: 0,
+            current_idx: self.prev_idx,
+        }
+    }
+}
+
+impl<T: BufferElement> std::ops::Index<usize> for Buffer<T> {
+    type Output = T;
+
+    /// Index by bars-ago: `buf[0]` is the newest element, `buf[count-1]` is the oldest.
+    #[inline]
+    fn index(&self, bars_ago: usize) -> &T {
+        assert!(
+            bars_ago < self.count,
+            "index out of bounds: bars_ago {bars_ago} >= count {}",
+            self.count
+        );
+        let idx = period_to_idx(self.index, self.capacity, bars_ago);
+        &self.vals[idx]
+    }
 }
 
 #[inline(always)]

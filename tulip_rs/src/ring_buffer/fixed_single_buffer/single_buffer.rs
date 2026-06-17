@@ -33,11 +33,11 @@ use std::{fmt, marker::PhantomData};
 #[derive(Clone)]
 pub struct FixedRingBuffer<T: BufferElement, const N: usize> {
     /// Ring storage — `vals[index]` is the next slot to be written.
-    vals: [T; N],
+    pub(crate) vals: [T; N],
     /// Next write position (advances mod `N`).  Mirrors `Buffer::index`.
-    index: usize,
+    pub(crate) index: usize,
     /// Number of valid elements currently stored (`0 <= count <= N`).
-    count: usize,
+    pub(crate) count: usize,
 }
 
 impl<T: BufferElement, const N: usize> FixedRingBuffer<T, N> {
@@ -218,6 +218,69 @@ impl<T: BufferElement, const N: usize> FixedRingBuffer<T, N> {
 impl<T: BufferElement, const N: usize> Default for FixedRingBuffer<T, N> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ── Iterator ──────────────────────────────────────────────────────────────────
+
+/// Iterator produced by `(&FixedRingBuffer).into_iter()`.
+///
+/// Yields elements from **newest to oldest** (`buf[0]` first).
+pub struct FixedRingIter<'a, T: BufferElement, const N: usize> {
+    buffer: &'a FixedRingBuffer<T, N>,
+    /// Current position expressed as bars-ago (0 = newest).
+    pos: usize,
+}
+
+impl<'a, T: BufferElement, const N: usize> Iterator for FixedRingIter<'a, T, N> {
+    type Item = T;
+
+    #[inline]
+    fn next(&mut self) -> Option<T> {
+        if self.pos >= self.buffer.count {
+            return None;
+        }
+        let val = self.buffer.get_by_period(self.pos);
+        self.pos += 1;
+        Some(val)
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.buffer.count.saturating_sub(self.pos);
+        (remaining, Some(remaining))
+    }
+}
+
+impl<'a, T: BufferElement, const N: usize> ExactSizeIterator for FixedRingIter<'a, T, N> {}
+
+impl<'a, T: BufferElement, const N: usize> IntoIterator for &'a FixedRingBuffer<T, N> {
+    type Item = T;
+    type IntoIter = FixedRingIter<'a, T, N>;
+
+    /// Iterate from newest to oldest (`buf[0]` first).
+    #[inline]
+    fn into_iter(self) -> FixedRingIter<'a, T, N> {
+        FixedRingIter {
+            buffer: self,
+            pos: 0,
+        }
+    }
+}
+
+impl<T: BufferElement, const N: usize> std::ops::Index<usize> for FixedRingBuffer<T, N> {
+    type Output = T;
+
+    /// Index by bars-ago: `buf[0]` is the newest element, `buf[count-1]` is the oldest.
+    #[inline]
+    fn index(&self, bars_ago: usize) -> &T {
+        assert!(
+            bars_ago < self.count,
+            "index out of bounds: bars_ago {bars_ago} >= count {}",
+            self.count
+        );
+        let idx = period_to_idx(self.index, N, bars_ago);
+        &self.vals[idx]
     }
 }
 

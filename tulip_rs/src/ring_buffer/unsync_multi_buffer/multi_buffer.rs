@@ -1,4 +1,4 @@
-use crate::ring_buffer::buffer::SerdeElement;
+use crate::ring_buffer::buffer::{period_to_idx, SerdeElement};
 use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
 pub use crate::ring_buffer::{
     buffer::BufferElement,
@@ -147,6 +147,91 @@ impl<const B: usize, T: BufferElement + SimdElement> UnsyncBuffer<B, T> {
     pub fn get_capacity(&self) -> Simd<usize, B> {
         self.capacity
     }
+}
+
+// ── Index ──────────────────────────────────────────────────────────────────
+
+impl<const B: usize, T: BufferElement + SimdElement> std::ops::Index<(usize, usize)>
+    for UnsyncBuffer<B, T>
+{
+    type Output = T;
+
+    /// Index by `(bars_ago, lane)`.
+    ///
+    /// `buf[(0, lane)]` is the newest element of that lane; `buf[(count[lane]-1, lane)]`
+    /// is the oldest. Each lane's valid range is `0..count[lane]`.
+    #[inline]
+    fn index(&self, (bars_ago, lane): (usize, usize)) -> &T {
+        assert!(lane < B, "lane {lane} out of bounds (B={B})");
+        let count = self.count[lane];
+        assert!(
+            bars_ago < count,
+            "index out of bounds: bars_ago {bars_ago} >= count {count} for lane {lane}"
+        );
+        let idx = period_to_idx(self.index[lane], self.capacity[lane], bars_ago);
+        &self.vals[lane][idx]
+    }
+}
+
+// ── Per-lane iterator ──────────────────────────────────────────────────────────
+
+/// Iterator over a single lane of an [`UnsyncBuffer`].
+///
+/// Yields elements from **newest to oldest** (bars-ago order).
+/// Obtain via [`UnsyncBuffer::lane_iter`].
+pub struct UnsyncLaneIter<'a, const B: usize, T: BufferElement + SimdElement> {
+    buffer: &'a UnsyncBuffer<B, T>,
+    lane: usize,
+    /// Current position expressed as bars-ago (0 = newest).
+    pos: usize,
+    count: usize,
+}
+
+impl<const B: usize, T: BufferElement + SimdElement> UnsyncBuffer<B, T> {
+    /// Return an iterator over a single `lane`, from newest to oldest.
+    ///
+    /// # Panics
+    /// Panics if `lane >= B`.
+    #[inline]
+    pub fn lane_iter(&self, lane: usize) -> UnsyncLaneIter<'_, B, T> {
+        assert!(lane < B, "lane {lane} out of bounds (B={B})");
+        UnsyncLaneIter {
+            buffer: self,
+            lane,
+            pos: 0,
+            count: self.count[lane],
+        }
+    }
+}
+
+impl<'a, const B: usize, T: BufferElement + SimdElement> Iterator for UnsyncLaneIter<'a, B, T> {
+    type Item = T;
+
+    #[inline]
+    fn next(&mut self) -> Option<T> {
+        if self.pos >= self.count {
+            return None;
+        }
+        let idx = period_to_idx(
+            self.buffer.index[self.lane],
+            self.buffer.capacity[self.lane],
+            self.pos,
+        );
+        let val = unsafe { *self.buffer.vals[self.lane].get_unchecked(idx) };
+        self.pos += 1;
+        Some(val)
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.count.saturating_sub(self.pos);
+        (remaining, Some(remaining))
+    }
+}
+
+impl<'a, const B: usize, T: BufferElement + SimdElement> ExactSizeIterator
+    for UnsyncLaneIter<'a, B, T>
+{
 }
 
 // Helper struct for serialization: converts SIMD index fields to Vec<usize>

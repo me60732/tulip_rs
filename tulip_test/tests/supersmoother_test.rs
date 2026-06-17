@@ -7,49 +7,122 @@ mod tests {
 
     const CHUNK_SIZE: usize = 100;
 
-    const CLOSE: [f64; 15] = [
-        81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89,
-        87.77, 87.29,
-    ];
-
     const OPTIONS_LIST: [[f64; 1]; 4] = [[5.0], [10.0], [14.0], [20.0]];
 
     fn get_close_array(stock_data: &[tulip_test::database::EodData]) -> Vec<f64> {
         stock_data.iter().map(|d| d.close).collect()
     }
 
-    fn expand_close() -> Vec<f64> {
-        let mut close_vec = CLOSE.to_vec();
-        for _ in 0..499 {
-            close_vec.extend_from_slice(&CLOSE);
-        }
-        close_vec // ~7500 bars
-    }
-
     // -------------------------------------------------------------------------
-    // Sanity: no output should be exactly 0.0 for real price data.
+    // Scalar NaN/infinity guard: the scalar indicator must never produce NaN
+    // or infinity for any stock in the database.
     // -------------------------------------------------------------------------
 
     #[test]
-    fn test_supersmoother_no_zeros() {
-        let close = expand_close();
-        let inputs = [close.as_slice()];
+    fn test_supersmoother_scalar_no_nan_or_inf() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
 
-        for options in OPTIONS_LIST {
-            let (outputs, _) = rust_supersmoother(&inputs, &options, None)
-                .expect("Rust SuperSmoother indicator failed");
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let inputs = [close.as_slice()];
 
-            for (i, &val) in outputs[0].iter().enumerate() {
-                assert!(
-                    val != 0.0,
-                    "SuperSmoother output is 0.0 at index {i}, options={options:?}"
-                );
+            for options in OPTIONS_LIST {
+                let (outputs, _) =
+                    rust_supersmoother(&inputs, &options, None).expect("SuperSmoother failed");
+
+                for (i, &val) in outputs[0].iter().enumerate() {
+                    if val.is_nan() {
+                        panic!(
+                            "SuperSmoother has NaN at index {i}: value={val}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
+                    if val.is_infinite() {
+                        panic!(
+                            "SuperSmoother has infinity at index {i}: value={val}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
+                }
             }
         }
     }
 
     // -------------------------------------------------------------------------
-    // SIMD by-assets: outputs match scalar per asset (database)
+    // Scalar state continuity: indicator() first chunk + batch_indicator()
+    // remainder must equal a full single-call run.
+    // NaN and infinity are also checked inline on every value compared.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_supersmoother_state_continuity() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        const FIRST_CHUNK: usize = 1000;
+
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+
+            for options in OPTIONS_LIST {
+                // Full reference run.
+                let (ref_out, _) = rust_supersmoother(&[close.as_slice()], &options, None)
+                    .expect("SuperSmoother reference run failed");
+
+                // Seeded run.
+                let (first_out, mut state) =
+                    rust_supersmoother(&[&close[..FIRST_CHUNK]], &options, None)
+                        .expect("SuperSmoother seed failed");
+
+                let mut batch_output = first_out[0].clone();
+
+                let mut chunks = close[FIRST_CHUNK..].chunks_exact(CHUNK_SIZE);
+                for chunk in chunks.by_ref() {
+                    let out = state
+                        .batch_indicator(&[chunk], None)
+                        .expect("batch_indicator failed");
+                    batch_output.extend_from_slice(&out[0]);
+                }
+                let rem = chunks.remainder();
+                if !rem.is_empty() {
+                    let out = state
+                        .batch_indicator(&[rem], None)
+                        .expect("batch_indicator failed on remainder");
+                    batch_output.extend_from_slice(&out[0]);
+                }
+
+                assert_eq!(
+                    batch_output.len(),
+                    ref_out[0].len(),
+                    "Length mismatch: stock={stock_symbol}, options={options:?}"
+                );
+                for (i, (&bv, &rv)) in batch_output.iter().zip(ref_out[0].iter()).enumerate() {
+                    if bv.is_nan() {
+                        panic!(
+                            "SuperSmoother has NaN at index {i}: batch={bv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
+                    if bv.is_infinite() {
+                        panic!(
+                            "SuperSmoother has infinity at index {i}: batch={bv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
+                    assert_eq!(
+                        bv, rv,
+                        "Mismatch at index {i}: batch={bv}, ref={rv}, \
+                         stock={stock_symbol}, options={options:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // SIMD by-assets: outputs match scalar per asset (database).
+    // NaN and infinity are also checked inline on every value compared.
     // -------------------------------------------------------------------------
 
     #[test]
@@ -87,6 +160,18 @@ mod tests {
                     "Length mismatch: stock={stock_symbol}, options={options:?}"
                 );
                 for (i, (&sv, &rv)) in simd_out.iter().zip(scalar_out.iter()).enumerate() {
+                    if sv.is_nan() {
+                        panic!(
+                            "SIMD by-assets SuperSmoother has NaN at index {i}: value={sv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
+                    if sv.is_infinite() {
+                        panic!(
+                            "SIMD by-assets SuperSmoother has infinity at index {i}: value={sv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
                     assert_eq!(
                         sv, rv,
                         "Mismatch at index {i}: simd={sv}, scalar={rv}, \
@@ -98,7 +183,8 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
-    // SIMD by-options: outputs match scalar per option set (database)
+    // SIMD by-options: outputs match scalar per option set (database).
+    // NaN and infinity are also checked inline on every value compared.
     // -------------------------------------------------------------------------
 
     #[test]
@@ -133,6 +219,18 @@ mod tests {
                     "Length mismatch: stock={stock_symbol}, options={options:?}"
                 );
                 for (i, (&sv, &rv)) in simd_out.iter().zip(scalar_out.iter()).enumerate() {
+                    if sv.is_nan() {
+                        panic!(
+                            "SIMD by-options SuperSmoother has NaN at index {i}: value={sv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
+                    if sv.is_infinite() {
+                        panic!(
+                            "SIMD by-options SuperSmoother has infinity at index {i}: value={sv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
                     assert_eq!(
                         sv, rv,
                         "Mismatch at index {i}: simd={sv}, scalar={rv}, \
@@ -203,6 +301,18 @@ mod tests {
                     .zip(scalar_outputs[0].iter())
                     .enumerate()
                 {
+                    if bv.is_nan() {
+                        panic!(
+                            "SIMD by-assets SuperSmoother has NaN at index {i}: batch={bv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
+                    if bv.is_infinite() {
+                        panic!(
+                            "SIMD by-assets SuperSmoother has infinity at index {i}: batch={bv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
                     assert_eq!(
                         bv, sv,
                         "Mismatch at index {i}: simd+batch={bv}, scalar={sv}, \
@@ -271,6 +381,18 @@ mod tests {
                     .zip(scalar_outputs[0].iter())
                     .enumerate()
                 {
+                    if bv.is_nan() {
+                        panic!(
+                            "SIMD by-options SuperSmoother has NaN at index {i}: batch={bv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
+                    if bv.is_infinite() {
+                        panic!(
+                            "SIMD by-options SuperSmoother has infinity at index {i}: batch={bv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
                     assert_eq!(
                         bv, sv,
                         "Mismatch at index {i}: simd+batch={bv}, scalar={sv}, \

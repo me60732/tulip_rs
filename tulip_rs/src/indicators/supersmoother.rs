@@ -97,12 +97,17 @@ impl TIndicatorState<1> for IndicatorState {
 #[derive(Serialize, Deserialize)]
 pub struct State {
     // previous outputs
-    pub y1: f64, // y[t-1]
-    pub y2: f64, // y[t-2]
+    pub y1: f64,        // y[t-1]
+    pub y2: f64,        // y[t-2]
+    pub prev_real: f64, // x[t-1] for Ehlers input averaging: (Close + Close[1]) / 2
 }
 impl State {
     pub fn new() -> Self {
-        Self { y1: 0.0, y2: 0.0 }
+        Self {
+            y1: 0.0,
+            y2: 0.0,
+            prev_real: 0.0,
+        }
     }
     pub fn init_state(real: &[f64], period: usize, multipliers: (f64, f64, f64)) -> Self {
         let mut state = Self::new();
@@ -114,10 +119,11 @@ impl State {
     #[inline(always)]
     pub fn calc(&mut self, real: f64, multipliers: (f64, f64, f64)) -> f64 {
         let (a1, a2, b0) = multipliers;
-        // b0 * real + a1 * y1 + a2 * y2 via two chained FMAs
-        let y = b0.mul_add(real, a1.mul_add(self.y1, a2 * self.y2));
+        // Ehlers: coeff/2 * (Close + Close[1]) + a1*y1 + a2*y2
+        let y = (b0 * 0.5).mul_add(real + self.prev_real, a1.mul_add(self.y1, a2 * self.y2));
         self.y2 = self.y1;
         self.y1 = y;
+        self.prev_real = real;
         y
     }
 }
@@ -260,10 +266,10 @@ pub fn calc(state: &mut State, real: f64, multipliers: (f64, f64, f64)) -> f64 {
 /// - `a1`, `a2` are the IIR feedback coefficients
 /// - `b0` is the feedforward gain (`1 - a1 - a2`)
 pub fn multiplier(period: usize) -> (f64, f64, f64) {
-    let omega = std::f64::consts::TAU / period as f64;
+    let omega = std::f64::consts::PI / period as f64;
 
-    let a1 = -2.0 * (-1.414 * omega).exp() * (1.414 * omega).cos();
-    let a2 = (-2.828 * omega).exp();
+    let a1 = 2.0 * (-1.414 * omega).exp() * (1.414 * omega).cos();
+    let a2 = -(-2.828 * omega).exp();
     let b0 = 1.0 - a1 - a2;
 
     (a1, a2, b0)

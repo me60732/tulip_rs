@@ -190,7 +190,9 @@ OVERRIDING SYSTEM VALUE VALUES
     (171,  'supertrend',            'Super Trend',                                                                3, 1, true, 'trend'),
     (172,  'ichimoku',              'Ichimoku',                                                                   3, 5, true, 'trend'),
     (173,  'supersmoother',         'Ehlers Super Smootherer',                                                    1, 1, true, 'trend'),
-    (174,  'highpass',              'Ehlers High Pass Filter',                                                    1, 1, true, 'trend');
+    (174,  'highpass',              'Ehlers High Pass Filter',                                                    1, 1, true, 'trend'),
+    (175,  'roofingfilter',         'Ehlers Roofing Filter',                                                      1, 1, true, 'trend'),
+    (176,  'hilberttransform',      'Ehlers Hilbert Transform',                                                   1, 2, true, 'trend');
 
 -- Reset sequence to max id + 1
 SELECT setval('indicators_id_seq', (SELECT MAX(id) FROM indicators));

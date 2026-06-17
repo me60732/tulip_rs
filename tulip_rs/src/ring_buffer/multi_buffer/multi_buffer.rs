@@ -178,6 +178,74 @@ impl<const B: usize, T: BufferElement> MultiBuffer<B, T> {
         &self.vals
     }
 }
+
+// ── Index ──────────────────────────────────────────────────────────────────
+
+impl<const B: usize, T: BufferElement> std::ops::Index<(usize, usize)> for MultiBuffer<B, T> {
+    type Output = T;
+
+    /// Index by `(bars_ago, lane)`.
+    ///
+    /// `buf[(0, lane)]` is the newest element of that lane; `buf[(count-1, lane)]` is the oldest.
+    #[inline]
+    fn index(&self, (bars_ago, lane): (usize, usize)) -> &T {
+        assert!(lane < B, "lane {lane} out of bounds (B={B})");
+        assert!(
+            bars_ago < self.count,
+            "index out of bounds: bars_ago {bars_ago} >= count {}",
+            self.count
+        );
+        let idx = period_to_idx(self.index, self.capacity, bars_ago);
+        &self.vals[lane][idx]
+    }
+}
+
+// ── Iterator ──────────────────────────────────────────────────────────────────
+
+/// Iterator produced by `(&MultiBuffer).into_iter()`.
+///
+/// Yields `[T; B]` tuples from **newest to oldest** (`buf[(0, _)]` first).
+pub struct MultiBufferIter<'a, const B: usize, T: BufferElement> {
+    buffer: &'a MultiBuffer<B, T>,
+    /// Current position expressed as bars-ago (0 = newest).
+    pos: usize,
+}
+
+impl<'a, const B: usize, T: BufferElement> Iterator for MultiBufferIter<'a, B, T> {
+    type Item = [T; B];
+
+    #[inline]
+    fn next(&mut self) -> Option<[T; B]> {
+        if self.pos >= self.buffer.count {
+            return None;
+        }
+        let val = self.buffer.get_by_period(self.pos);
+        self.pos += 1;
+        Some(val)
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.buffer.count.saturating_sub(self.pos);
+        (remaining, Some(remaining))
+    }
+}
+
+impl<'a, const B: usize, T: BufferElement> ExactSizeIterator for MultiBufferIter<'a, B, T> {}
+
+impl<'a, const B: usize, T: BufferElement> IntoIterator for &'a MultiBuffer<B, T> {
+    type Item = [T; B];
+    type IntoIter = MultiBufferIter<'a, B, T>;
+
+    /// Iterate from newest to oldest (`buf[(0, _)]` first).
+    #[inline]
+    fn into_iter(self) -> MultiBufferIter<'a, B, T> {
+        MultiBufferIter {
+            buffer: self,
+            pos: 0,
+        }
+    }
+}
 #[inline(always)]
 pub fn get_by_periods<const N: usize, const B: usize, T: BufferElement>(
     buffer: &MultiBuffer<B, T>,

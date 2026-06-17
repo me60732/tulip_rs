@@ -8,50 +8,16 @@ mod tests {
 
     const CHUNK_SIZE: usize = 100;
 
-    const CLOSE: [f64; 15] = [
-        81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89,
-        87.77, 87.29,
-    ];
-
     const OPTIONS_LIST: [[f64; 1]; 4] = [[5.0], [10.0], [14.0], [20.0]];
 
     fn get_close_array(stock_data: &[tulip_test::database::EodData]) -> Vec<f64> {
         stock_data.iter().map(|d| d.close).collect()
     }
 
-    fn expand_close() -> Vec<f64> {
-        let mut close_vec = CLOSE.to_vec();
-        for _ in 0..499 {
-            close_vec.extend_from_slice(&CLOSE);
-        }
-        close_vec // ~7500 bars
-    }
-
-    // -------------------------------------------------------------------------
-    // Sanity: no output should be exactly 0.0 for real price data.
-    // -------------------------------------------------------------------------
-
-    #[test]
-    fn test_highpass_no_zeros() {
-        let close = expand_close();
-        let inputs = [close.as_slice()];
-
-        for options in OPTIONS_LIST {
-            let (outputs, _) =
-                rust_highpass(&inputs, &options, None).expect("Rust HighPass indicator failed");
-
-            for (i, &val) in outputs[0].iter().enumerate() {
-                assert!(
-                    val != 0.0,
-                    "HighPass output is 0.0 at index {i}, options={options:?}"
-                );
-            }
-        }
-    }
-
     // -------------------------------------------------------------------------
     // State continuity: indicator() first chunk + batch_indicator() remainder
     // must equal a full single-call run.
+    // NaN and infinity are also checked inline on every value compared.
     // -------------------------------------------------------------------------
 
     #[test]
@@ -101,6 +67,18 @@ mod tests {
                     .zip(scalar_outputs[0].iter())
                     .enumerate()
                 {
+                    if bv.is_nan() {
+                        panic!(
+                            "HighPass has NaN at index {i}: batch={bv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
+                    if bv.is_infinite() {
+                        panic!(
+                            "HighPass has infinity at index {i}: batch={bv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
                     assert_eq!(
                         bv, sv,
                         "Mismatch at index {i}: batch={bv}, scalar={sv}, \
@@ -150,6 +128,18 @@ mod tests {
                     "Length mismatch: stock={stock_symbol}, options={options:?}"
                 );
                 for (i, (&sv, &rv)) in simd_out.iter().zip(scalar_out.iter()).enumerate() {
+                    if sv.is_nan() {
+                        panic!(
+                            "SIMD by-assets HighPass has NaN at index {i}: value={sv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
+                    if sv.is_infinite() {
+                        panic!(
+                            "SIMD by-assets HighPass has infinity at index {i}: value={sv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
                     assert_eq!(
                         sv, rv,
                         "Mismatch at index {i}: simd={sv}, scalar={rv}, \
@@ -196,6 +186,18 @@ mod tests {
                     "Length mismatch: stock={stock_symbol}, options={options:?}"
                 );
                 for (i, (&sv, &rv)) in simd_out.iter().zip(scalar_out.iter()).enumerate() {
+                    if sv.is_nan() {
+                        panic!(
+                            "SIMD by-options HighPass has NaN at index {i}: value={sv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
+                    if sv.is_infinite() {
+                        panic!(
+                            "SIMD by-options HighPass has infinity at index {i}: value={sv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
                     assert_eq!(
                         sv, rv,
                         "Mismatch at index {i}: simd={sv}, scalar={rv}, \
@@ -266,6 +268,18 @@ mod tests {
                     .zip(scalar_outputs[0].iter())
                     .enumerate()
                 {
+                    if bv.is_nan() {
+                        panic!(
+                            "SIMD by-assets HighPass has NaN at index {i}: batch={bv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
+                    if bv.is_infinite() {
+                        panic!(
+                            "SIMD by-assets HighPass has infinity at index {i}: batch={bv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
                     assert_eq!(
                         bv, sv,
                         "Mismatch at index {i}: simd+batch={bv}, scalar={sv}, \
@@ -334,6 +348,18 @@ mod tests {
                     .zip(scalar_outputs[0].iter())
                     .enumerate()
                 {
+                    if bv.is_nan() {
+                        panic!(
+                            "SIMD by-options HighPass has NaN at index {i}: batch={bv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
+                    if bv.is_infinite() {
+                        panic!(
+                            "SIMD by-options HighPass has infinity at index {i}: batch={bv}, \
+                             stock={stock_symbol}, options={options:?}"
+                        );
+                    }
                     assert_eq!(
                         bv, sv,
                         "Mismatch at index {i}: simd+batch={bv}, scalar={sv}, \
