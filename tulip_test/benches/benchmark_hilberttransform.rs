@@ -6,6 +6,8 @@ use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_t
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::criterion_logger::TimingMeasurements;
 use tulip_test::database::{get_all_stock_data, init_database_data};
+#[cfg(feature = "talib")]
+use tulip_test::talib_bindings::{ta_ht_phasor, ta_ht_phasor_start};
 
 const CLOSE: [f64; 15] = [
     81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89,
@@ -414,6 +416,93 @@ fn bench_rust_hilberttransform_simd_by_options(c: &mut Criterion) {
     }
 }
 
+/// TA-Lib HT_PHASOR — raw Hilbert Transform phasor (no SuperSmoother/HighPass stages).
+///
+/// TA-Lib outputs In-Phase and Quadrature directly from the Hilbert Transform.
+/// Our `hilberttransform` indicator adds a SuperSmoother pre-filter and an
+/// optional HighPass stage; this comparison isolates that overhead.
+/// Lookback is 32 bars; no parameters.
+#[cfg(feature = "talib")]
+fn bench_talib_ht_phasor(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("hilberttransform");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+            let inputs: Vec<*const f64> = vec![close.as_ptr()];
+            let lookback = ta_ht_phasor_start();
+            assert!(lookback >= 0);
+            let out_len = n - lookback as usize;
+            let mut out_ip = vec![0.0_f64; out_len];
+            let mut out_q = vec![0.0_f64; out_len];
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let mut outputs: Vec<*mut f64> = vec![out_ip.as_mut_ptr(), out_q.as_mut_ptr()];
+                    let ret = ta_ht_phasor(
+                        n as i32,
+                        inputs.as_ptr(),
+                        std::ptr::null(),
+                        outputs.as_mut_ptr(),
+                    );
+                    assert_eq!(ret, 0, "ta_ht_phasor returned error {ret}");
+                    black_box(&out_ip);
+                    black_box(&out_q);
+                },
+                SAMPLE_SIZE,
+            );
+            log_timing_result(
+                "hilberttransform",
+                "talib",
+                &[0.0, 0.0],
+                n,
+                &timing,
+                Some(stock_symbol),
+            );
+        }
+    } else {
+        let close = expand_inputs();
+        let n = close.len();
+        let inputs: Vec<*const f64> = vec![close.as_ptr()];
+        let lookback = ta_ht_phasor_start();
+        assert!(lookback >= 0);
+        let out_len = n - lookback as usize;
+        let mut group = c.benchmark_group("hilberttransform_talib");
+        group.sample_size(SAMPLE_SIZE);
+        group.bench_function("TA-Lib HT_PHASOR (In-Phase + Quadrature)", |b| {
+            b.iter(|| {
+                let mut out_ip = vec![0.0_f64; out_len];
+                let mut out_q = vec![0.0_f64; out_len];
+                let mut outputs: Vec<*mut f64> = vec![out_ip.as_mut_ptr(), out_q.as_mut_ptr()];
+                let ret = ta_ht_phasor(
+                    n as i32,
+                    inputs.as_ptr(),
+                    std::ptr::null(),
+                    outputs.as_mut_ptr(),
+                );
+                assert_eq!(ret, 0, "ta_ht_phasor returned error {ret}");
+                black_box(&out_ip);
+                black_box(&out_q);
+            });
+        });
+        group.finish();
+    }
+}
+
+#[cfg(feature = "talib")]
+criterion_group!(
+    benches,
+    bench_rust_hilberttransform_simd_by_assets,
+    bench_rust_hilberttransform_simd_by_options,
+    bench_rust_hilberttransform,
+    bench_talib_ht_phasor,
+    bench_rust_hilberttransform_with_optional,
+    bench_rust_hilberttransform_from_state,
+);
+
+#[cfg(not(feature = "talib"))]
 criterion_group!(
     benches,
     bench_rust_hilberttransform_simd_by_assets,

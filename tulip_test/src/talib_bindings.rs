@@ -2882,3 +2882,181 @@ pub fn ta_minus_di(
         }
     }
 }
+
+// HT_DCPERIOD, HT_PHASOR, MAMA — Hilbert Transform cycle indicators
+extern "C" {
+    pub fn TA_HT_DCPERIOD_Lookback() -> TA_Integer;
+    pub fn TA_HT_DCPERIOD(
+        start_idx: TA_Integer,
+        end_idx: TA_Integer,
+        in_real: *const TA_Real,
+        out_beg_idx: *mut TA_Integer,
+        out_nb_element: *mut TA_Integer,
+        out_real: *mut TA_Real,
+    ) -> TA_RetCode;
+
+    pub fn TA_HT_PHASOR_Lookback() -> TA_Integer;
+    pub fn TA_HT_PHASOR(
+        start_idx: TA_Integer,
+        end_idx: TA_Integer,
+        in_real: *const TA_Real,
+        out_beg_idx: *mut TA_Integer,
+        out_nb_element: *mut TA_Integer,
+        out_in_phase: *mut TA_Real,
+        out_quadrature: *mut TA_Real,
+    ) -> TA_RetCode;
+
+    pub fn TA_MAMA_Lookback(opt_in_fast_limit: TA_Real, opt_in_slow_limit: TA_Real) -> TA_Integer;
+    pub fn TA_MAMA(
+        start_idx: TA_Integer,
+        end_idx: TA_Integer,
+        in_real: *const TA_Real,
+        opt_in_fast_limit: TA_Real,
+        opt_in_slow_limit: TA_Real,
+        out_beg_idx: *mut TA_Integer,
+        out_nb_element: *mut TA_Integer,
+        out_mama: *mut TA_Real,
+        out_fama: *mut TA_Real,
+    ) -> TA_RetCode;
+
+    pub fn TA_HT_TRENDLINE_Lookback() -> TA_Integer;
+    pub fn TA_HT_TRENDLINE(
+        start_idx: TA_Integer,
+        end_idx: TA_Integer,
+        in_real: *const TA_Real,
+        out_beg_idx: *mut TA_Integer,
+        out_nb_element: *mut TA_Integer,
+        out_real: *mut TA_Real,
+    ) -> TA_RetCode;
+}
+
+/// Returns the TA-Lib lookback for HT_DCPERIOD (always 32).
+pub fn ta_ht_dcperiod_start() -> i32 {
+    unsafe { TA_HT_DCPERIOD_Lookback() }
+}
+
+/// Wrapper: `inputs[0]` = close; `outputs[0]` = dc_period.
+pub fn ta_ht_dcperiod(
+    size: i32,
+    inputs: *const *const f64,
+    _options: *const f64,
+    outputs: *mut *mut f64,
+) -> i32 {
+    unsafe {
+        let in_real = *inputs.offset(0);
+        let out_real = *outputs.offset(0);
+        let mut out_begin = 0;
+        let mut out_nb = 0;
+        let result = TA_HT_DCPERIOD(0, size - 1, in_real, &mut out_begin, &mut out_nb, out_real);
+        match result {
+            TA_RetCode::TA_SUCCESS => 0,
+            _ => -1,
+        }
+    }
+}
+
+/// Returns the TA-Lib lookback for HT_PHASOR (always 32).
+pub fn ta_ht_phasor_start() -> i32 {
+    unsafe { TA_HT_PHASOR_Lookback() }
+}
+
+/// Wrapper: `inputs[0]` = close; `outputs[0]` = in_phase, `outputs[1]` = quadrature.
+pub fn ta_ht_phasor(
+    size: i32,
+    inputs: *const *const f64,
+    _options: *const f64,
+    outputs: *mut *mut f64,
+) -> i32 {
+    unsafe {
+        let in_real = *inputs.offset(0);
+        let out_in_phase = *outputs.offset(0);
+        let out_quadrature = *outputs.offset(1);
+        let mut out_begin = 0;
+        let mut out_nb = 0;
+        let result = TA_HT_PHASOR(
+            0,
+            size - 1,
+            in_real,
+            &mut out_begin,
+            &mut out_nb,
+            out_in_phase,
+            out_quadrature,
+        );
+        match result {
+            TA_RetCode::TA_SUCCESS => 0,
+            _ => -1,
+        }
+    }
+}
+
+/// Returns the TA-Lib lookback for MAMA given fast/slow limits.
+pub fn ta_mama_start(fast_limit: f64, slow_limit: f64) -> i32 {
+    unsafe { TA_MAMA_Lookback(fast_limit, slow_limit) }
+}
+
+/// Wrapper: `inputs[0]` = close; `options[0]` = fast_limit, `options[1]` = slow_limit;
+/// `outputs[0]` = mama, `outputs[1]` = fama.
+pub fn ta_mama(
+    size: i32,
+    inputs: *const *const f64,
+    options: *const f64,
+    outputs: *mut *mut f64,
+) -> i32 {
+    unsafe {
+        let in_real = *inputs.offset(0);
+        let fast_limit = *options.offset(0);
+        let slow_limit = *options.offset(1);
+        let out_mama = *outputs.offset(0);
+        let out_fama = *outputs.offset(1);
+        let mut out_begin = 0;
+        let mut out_nb = 0;
+        let result = TA_MAMA(
+            0,
+            size - 1,
+            in_real,
+            fast_limit,
+            slow_limit,
+            &mut out_begin,
+            &mut out_nb,
+            out_mama,
+            out_fama,
+        );
+        match result {
+            TA_RetCode::TA_SUCCESS => 0,
+            _ => -1,
+        }
+    }
+}
+
+/// Returns the TA-Lib lookback for HT_TRENDLINE (always 63).
+///
+/// Note: TA-Lib's `HT_TRENDLINE` implements a variable-length SMA + 4-bar WMA,
+/// **not** Ehlers' 2-pole IIR from *Rocket Science for Traders* (2001, Ch. 8).
+/// The extra lookback comes from a 31-bar "unstable period" padding for
+/// TradeStation compatibility. This function is provided for **throughput
+/// benchmarking only** — the two algorithms produce different outputs.
+pub fn ta_ht_trendline_start() -> i32 {
+    unsafe { TA_HT_TRENDLINE_Lookback() }
+}
+
+/// Wrapper: `inputs[0]` = close; `outputs[0]` = trendline (TA-Lib SMA+WMA variant).
+///
+/// **Throughput benchmark only** — TA-Lib's algorithm differs from Ehlers' IIR.
+pub fn ta_ht_trendline(
+    size: i32,
+    inputs: *const *const f64,
+    _options: *const f64,
+    outputs: *mut *mut f64,
+) -> i32 {
+    unsafe {
+        let in_real = *inputs.offset(0);
+        let out_real = *outputs.offset(0);
+        let mut out_begin = 0;
+        let mut out_nb = 0;
+        let result = TA_HT_TRENDLINE(0, size - 1, in_real, &mut out_begin, &mut out_nb, out_real);
+        match result {
+            TA_RetCode::TA_SUCCESS => 0,
+            _ => -1,
+        }
+    }
+}

@@ -1,3 +1,30 @@
+//! # Ehlers Hilbert Transform (with Roofing Filter)
+//!
+//! **Source:** John Ehlers, *Cycle Analytics for Traders* (2013), Chapter 3.
+//!
+//! Computes the In-Phase (I) and Quadrature (Q) phasor components of the
+//! dominant market cycle by applying a 7-tap discrete Hilbert Transform kernel
+//! to the Roofing Filter output. The Roofing Filter (High Pass → Super Smoother)
+//! band-limits the signal before the kernel runs, eliminating trend and noise
+//! that would otherwise corrupt the phase estimate.
+//!
+//! ## Pipeline
+//!
+//! ```text
+//! Price → Roofing Filter (hp_period, ss_period) → 7-tap Hilbert kernel → (I, Q)
+//! ```
+//!
+//! ## 7-tap Hilbert kernel
+//!
+//! Applied with unit gain (`gain = 1.0`) to the roofed signal `x`:
+//!
+//! ```text
+//! Q = (0.0962·x[0] + 0.5769·x[2] − 0.5769·x[4] − 0.0962·x[6])
+//! I = x[3]   (the 3-bar-delayed centre tap — the 90° complement of Q)
+//! ```
+
+
+
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 pub use crate::indicators::roofingfilter::multiplier;
@@ -31,33 +58,6 @@ pub(crate) const C3: f64 = -0.0962;
 pub(crate) fn ht_kernel(buf: &FixedRingBuffer<f64, 7>, gain: f64) -> (f64, f64) {
     let q = (C0.mul_add(buf[0], C1 * buf[2]) + C2.mul_add(buf[4], C3 * buf[6])) * gain;
     (buf[3], q)
-}
-
-/// Applies the 7-tap Hilbert kernel to two independent full ring buffers simultaneously.
-///
-/// Interleaves the four FMAs across both buffers so the CPU sees them as independent
-/// operations and can issue all four in the same execution window, rather than two
-/// sequential pairs. Used by the Homodyne Discriminator Stage 3 (jI and jQ).
-///
-/// Returns `(I_a, Q_a, I_b, Q_b)` where `I = buf[3]` and `Q = hilbert_sum × gain`.
-/// Both buffers must be full (`is_full() == true`) before calling.
-#[inline(always)]
-pub(crate) fn ht_kernel_pair(
-    buf_a: &FixedRingBuffer<f64, 7>,
-    buf_b: &FixedRingBuffer<f64, 7>,
-    gain: f64,
-) -> (f64, f64, f64, f64) {
-    // All four FMAs are independent — buf_a and buf_b do not alias.
-    let qa_hi = C0.mul_add(buf_a[0], C1 * buf_a[2]);
-    let qb_hi = C0.mul_add(buf_b[0], C1 * buf_b[2]);
-    let qa_lo = C2.mul_add(buf_a[4], C3 * buf_a[6]);
-    let qb_lo = C2.mul_add(buf_b[4], C3 * buf_b[6]);
-    (
-        buf_a[3],
-        (qa_hi + qa_lo) * gain,
-        buf_b[3],
-        (qb_hi + qb_lo) * gain,
-    )
 }
 
 /// Number of option parameters required by this indicator.

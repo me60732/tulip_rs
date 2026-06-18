@@ -5,6 +5,7 @@
 //! Enabled by the `simd_assets` Cargo feature.
 
 pub mod ad;
+pub mod adaptivemsw;
 pub mod adosc;
 pub mod adx;
 pub mod adxr;
@@ -37,11 +38,13 @@ pub mod highpass;
 pub mod hilberttransform;
 pub mod hma;
 pub mod homodynediscriminator;
+pub mod instantaneoustrendline;
 pub mod kama;
 pub mod keltnerchannel;
 pub mod kvo;
 pub mod linreg;
 pub mod macd;
+pub mod mama;
 pub mod marketfi;
 pub mod mass;
 pub mod max;

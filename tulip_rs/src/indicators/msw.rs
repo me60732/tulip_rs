@@ -1,3 +1,35 @@
+//! # MESA Sine Wave (MSW)
+//!
+//! **Source:** John Ehlers, *Rocket Science for Traders* (2001), Chapter 9.
+//! Based on the MESA (Maximum Entropy Spectral Analysis) software by Ehlers.
+//! Also described in *Cybernetic Analysis for Stocks and Futures* (2004).
+//!
+//! Computes a sine wave at the measured dominant cycle frequency using a
+//! fixed-period Discrete Fourier Transform (DFT) over the last `period` bars.
+//! Unlike MAMA and the Homodyne Discriminator, the cycle period is supplied
+//! by the user rather than measured adaptively; this makes MSW suitable for
+//! markets where a known dominant cycle (e.g., a 20-bar or 40-bar cycle) is
+//! expected.
+//!
+//! ## Formula
+//!
+//! For a user-supplied `period`:
+//!
+//! ```text
+//! multiplier = 2π / period
+//!
+//! Rp = Σ_{k=0}^{period-1} Price[k] · cos(k · multiplier)   (real DFT component)
+//! Ip = Σ_{k=0}^{period-1} Price[k] · sin(k · multiplier)   (imaginary DFT component)
+//!
+//! Phase    = atan(Ip / Rp)  +  π/2   (adjusted for quadrant; normalised to [0, 2π])
+//! Sine     = sin(Phase)
+//! LeadSine = sin(Phase + π/4)         (45° ahead — not 90°, unlike some descriptions)
+//! ```
+//!
+//! The lead output is 45° ahead of the main sine (a quarter of a half-cycle),
+//! which gives a half-bar lead on a crossover signal relative to the main sine.
+
+
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::math_simd::trig::simd_sin_cos;

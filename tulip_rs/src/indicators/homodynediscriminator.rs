@@ -1,3 +1,48 @@
+//! # Ehlers Homodyne Discriminator
+//!
+//! **Source:** John Ehlers, *Rocket Science for Traders* (2001), Chapter 7.
+//! Also published in *Technical Analysis of Stocks & Commodities*, December 2000.
+//!
+//! Measures the dominant cycle period in the market bar-by-bar using the
+//! Homodyne Discriminator technique (an analogue signal-processing method adapted
+//! for discrete price data). It is a prerequisite for the [`mama`] indicator and
+//! for any other indicator that needs an adaptive measure of market cycle length.
+//!
+//! ## Pipeline (4 stages)
+//!
+//! ```text
+//! Stage 0 — 4-bar Hann smooth
+//!     Smooth = (4·P + 3·P[1] + 2·P[2] + P[3]) / 10
+//!
+//! Stage 1 — Detrender (7-tap adaptive Hilbert kernel on Smooth)
+//!     gain  = 0.075·Period[1] + 0.54
+//!     Q_det = (0.0962·S[0] + 0.5769·S[2] − 0.5769·S[4] − 0.0962·S[6]) · gain
+//!     I_det = S[3]
+//!
+//! Stage 2 — I1 / Q1 (same adaptive kernel on Detrender)
+//!     I1 = Detrender[3],   Q1 = kernel(Detrender) · gain
+//!
+//! Stage 3 — jI / jQ (kernel on I1 and Q1 simultaneously)
+//!     jI = kernel(I1) · gain,   jQ = kernel(Q1) · gain
+//!
+//! Homodyne discriminator:
+//!     I2 = I1 − jQ,   Q2 = Q1 + jI   (phase rotation)
+//!     I2 = 0.2·I2 + 0.8·I2[1]        (IIR smooth)
+//!     Q2 = 0.2·Q2 + 0.8·Q2[1]
+//!     Re = I2·I2[1] + Q2·Q2[1]
+//!     Im = I2·Q2[1] − Q2·I2[1]
+//!     Re = 0.2·Re + 0.8·Re[1]
+//!     Im = 0.2·Im + 0.8·Im[1]
+//!
+//! Period measurement & smoothing:
+//!     Period = 2π / atan(Im / Re)     (clamped to [6, 50] bars, ±50% change limit)
+//!     SmoothPeriod = 0.33·Period + 0.67·SmoothPeriod[1]
+//! ```
+//!
+//! The output `dc_period` is `SmoothPeriod` — a smoothed estimate of the
+//! dominant cycle period in bars.
+
+
 use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::hilberttransform::ht_kernel;
@@ -52,7 +97,7 @@ pub const INFO: Info = Info {
 /// remain at `0.0` throughout the `init_state` warmup (the early-return guards in
 /// [`calc`] prevent them from being touched until all five buffers are full).
 /// This matches EasyLanguage's implicit zero-initialisation.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct State {
     // ── Stage 0: 4-bar Hann-weighted smooth ──────────────────────────────────
     pub price_buf: FixedRingBuffer<f64, 4>,
@@ -103,7 +148,7 @@ impl State {
     /// is safe to call. `i1_buf` and `q1_buf` are the last to fill — checking
     /// either one is sufficient since they are pushed in lockstep.
     #[inline(always)]
-    fn all_buffers_full(&self) -> bool {
+    pub(crate) fn all_buffers_full(&self) -> bool {
         self.iq1_buf.is_full()
     }
 
@@ -168,6 +213,76 @@ impl State {
         let [j_i, j_q] = ht_kernel_q_simd(&self.iq1_buf, Simd::<f64, 2>::splat(gain)).to_array();
 
         self.apply_discriminator(i1, q1, j_i, j_q)
+    }
+
+    /// One-bar update returning `(smooth_period, i1, q1)`.
+    ///
+    /// Extends [`calc`](Self::calc) with the intermediate I1 / Q1 values from stage 2
+    /// of the Hilbert pipeline. These are needed by callers (e.g. MAMA) that derive
+    /// additional quantities (phase, adaptive alpha) from the same pipeline run.
+    ///
+    /// Returns `(0.0, 0.0, 0.0)` while any ring buffer is still filling (warmup guard).
+    #[inline(always)]
+    pub fn calc_with_iq(&mut self, real: f64) -> (f64, f64, f64) {
+        self.price_buf.push(real);
+        if self.price_buf.len() < 4 {
+            return (0.0, 0.0, 0.0);
+        }
+        let ab = 4.0_f64.mul_add(self.price_buf[0], 3.0 * self.price_buf[1]);
+        let cd = 2.0_f64.mul_add(self.price_buf[2], self.price_buf[3]);
+        let smooth = (ab + cd) * 0.1;
+
+        let gain = 0.075_f64.mul_add(self.period, 0.54);
+
+        self.smooth_buf.push(smooth);
+        if self.smooth_buf.len() < 7 {
+            return (0.0, 0.0, 0.0);
+        }
+        let (_, detrender) = ht_kernel(&self.smooth_buf, gain);
+
+        self.detrender_buf.push(detrender);
+        if self.detrender_buf.len() < 7 {
+            return (0.0, 0.0, 0.0);
+        }
+        let (i1, q1) = ht_kernel(&self.detrender_buf, gain);
+
+        self.iq1_buf.push(Simd::<f64, 2>::from_array([i1, q1]));
+        if self.iq1_buf.len() < 7 {
+            return (0.0, 0.0, 0.0);
+        }
+        let [j_i, j_q] = ht_kernel_q_simd(&self.iq1_buf, Simd::<f64, 2>::splat(gain)).to_array();
+
+        let dc_period = self.apply_discriminator(i1, q1, j_i, j_q);
+        (dc_period, i1, q1)
+    }
+
+    /// Unsafe one-bar update returning `(smooth_period, i1, q1)` — skips all
+    /// ring-buffer fullness guards.
+    ///
+    /// # Safety
+    ///
+    /// All five ring buffers must be full on entry. Guaranteed after [`init_state`].
+    #[inline(always)]
+    pub unsafe fn calc_unchecked_with_iq(&mut self, real: f64) -> (f64, f64, f64) {
+        self.price_buf.push_unchecked(real);
+        let ab = 4.0_f64.mul_add(self.price_buf[0], 3.0 * self.price_buf[1]);
+        let cd = 2.0_f64.mul_add(self.price_buf[2], self.price_buf[3]);
+        let smooth = (ab + cd) * 0.1;
+
+        let gain = 0.075_f64.mul_add(self.period, 0.54);
+
+        self.smooth_buf.push_unchecked(smooth);
+        let (_, detrender) = ht_kernel(&self.smooth_buf, gain);
+
+        self.detrender_buf.push_unchecked(detrender);
+        let (i1, q1) = ht_kernel(&self.detrender_buf, gain);
+
+        self.iq1_buf
+            .push_unchecked(Simd::<f64, 2>::from_array([i1, q1]));
+        let [j_i, j_q] = ht_kernel_q_simd(&self.iq1_buf, Simd::<f64, 2>::splat(gain)).to_array();
+
+        let dc_period = self.apply_discriminator(i1, q1, j_i, j_q);
+        (dc_period, i1, q1)
     }
 
     /// Unsafe one-bar update — skips all ring-buffer fullness guards

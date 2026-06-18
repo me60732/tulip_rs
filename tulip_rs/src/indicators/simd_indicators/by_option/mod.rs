@@ -36,6 +36,7 @@ pub mod keltnerchannel;
 pub mod kvo;
 pub mod linreg;
 pub mod macd;
+pub mod mama;
 pub mod mass;
 pub mod max;
 pub mod md;

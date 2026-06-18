@@ -1,3 +1,33 @@
+//! # Ehlers High Pass Filter
+//!
+//! **Source:** John Ehlers, *Cycle Analytics for Traders* (2013), Chapter 2.
+//! Also described in *Cybernetic Analysis for Stocks and Futures* (2004).
+//!
+//! A one-pole IIR high-pass filter that removes the trend (DC component and
+//! sub-cycle drift) from price, leaving only the oscillatory cycle content for
+//! downstream analysis. The single `period` option sets the cutoff: cycles
+//! longer than `period` bars are suppressed; shorter cycles pass through.
+//!
+//! ## Formula
+//!
+//! Given `ω = 2π / period`:
+//!
+//! ```text
+//! α  = (1 − sin ω) / cos ω
+//! b  = (1 + α) / 2
+//! HP = b·(Price − Price[1]) + α·HP[1]
+//! ```
+//!
+//! Internally the coefficients are stored as `(a1, a2) = (α, b)` and evaluated as
+//! `HP = a1·HP[1] + a2·(Price − Price[1])`.
+//!
+//! ## Role in this library
+//!
+//! Used as the first stage of the [`roofingfilter`] and (transitively) the
+//! [`hilberttransform`] indicator. On its own it outputs the de-trended signal,
+//! which is not directly tradeable but is essential for cycle-period estimation.
+
+
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
@@ -50,7 +80,7 @@ pub mod by_options {
 pub const INFO: Info = Info {
     name: "highpass",
     indicator_type: IndicatorType::Trend,
-    full_name: "Ehlers Super Smoother",
+    full_name: "Ehlers High Pass Filter",
     inputs: &["real"],
     options: &["period"],
     outputs: &["highpass"],

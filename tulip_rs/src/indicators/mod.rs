@@ -11,6 +11,7 @@
 //! SIMD-parallel variants are in [`crate::indicators::simd_indicators`].
 
 pub mod ad;
+pub mod adaptivemsw;
 pub mod adosc;
 pub mod adx;
 pub mod adxr;
@@ -45,11 +46,13 @@ pub mod hilberttransform;
 pub mod hma;
 pub mod homodynediscriminator;
 pub mod ichimoku;
+pub mod instantaneoustrendline;
 pub mod kama;
 pub mod keltnerchannel;
 pub mod kvo;
 pub mod linreg;
 pub mod macd;
+pub mod mama;
 pub mod marketfi;
 pub mod mass;
 pub mod max;

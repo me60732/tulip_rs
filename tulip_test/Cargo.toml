@@ -41,6 +41,14 @@ name = "benchmark_macd"
 harness = false
 
 [[bench]]
+name = "benchmark_mama"
+harness = false
+
+[[bench]]
+name = "benchmark_marketfi"
+harness = false
+
+[[bench]]
 name = "benchmark_fisher"
 harness = false
 
@@ -71,6 +79,10 @@ harness = false
 
 [[bench]]
 name = "benchmark_ad"
+harness = false
+
+[[bench]]
+name = "benchmark_adaptivemsw"
 harness = false
 
 [[bench]]
@@ -191,10 +203,6 @@ harness = false
 
 [[bench]]
 name = "benchmark_linreg"
-harness = false
-
-[[bench]]
-name = "benchmark_marketfi"
 harness = false
 
 [[bench]]
@@ -379,6 +387,10 @@ harness = false
 
 [[bench]]
 name = "benchmark_homodynediscriminator"
+harness = false
+
+[[bench]]
+name = "benchmark_instantaneoustrendline"
 harness = false
 
 [[bench]]

@@ -1,3 +1,40 @@
+//! # Ehlers Roofing Filter
+//!
+//! **Source:** John Ehlers, *Cycle Analytics for Traders* (2013), Chapter 2.
+//!
+//! A band-pass pre-filter that cascades the High Pass and Super Smoother filters
+//! to band-limit a price signal to the cycle frequencies of interest. The name
+//! comes from the idea that the combined filter creates a "roof" at the high end
+//! (via the Super Smoother) and a "floor" at the low end (via the High Pass),
+//! confining the output to a specific frequency band.
+//!
+//! ## Pipeline
+//!
+//! ```text
+//! Price
+//!   │
+//!   ▼
+//! High Pass filter  (cutoff = hp_period bars)   removes DC trend / long-cycle drift
+//!   │
+//!   ▼
+//! Super Smoother    (cutoff = ss_period bars)   removes high-frequency noise / aliasing
+//!   │
+//!   ▼
+//! Roofed signal  (band-limited to [ss_period, hp_period] bar cycles)
+//! ```
+//!
+//! Options: `[ss_period, hp_period]`.  A typical configuration is
+//! `ss_period = 10, hp_period = 48`, preserving 10–48 bar cycles.
+//!
+//! ## Role in this library
+//!
+//! Used as the first stage of [`hilberttransform`], which applies the
+//! Hilbert kernel to the roofed (band-limited) signal rather than to raw price.
+//! This is the key architectural difference between our Hilbert Transform
+//! (Ehlers 2013) and TA-Lib's `HT_PHASOR` (Ehlers 2001), which applies the
+//! kernel directly to a simple WMA-smoothed price.
+
+
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::{

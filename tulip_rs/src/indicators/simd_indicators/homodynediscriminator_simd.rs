@@ -23,7 +23,7 @@ use std::simd::{cmp::SimdPartialEq, num::SimdFloat, Select, Simd, StdFloat};
 /// `atan(Im/Re)` computation in [`apply_discriminator_simd`].
 pub struct SimdState<const N: usize> {
     // Stage 0: 4-bar Hann-weighted smooth
-    price_buf: FixedRingBuffer<Simd<f64, N>, 4>,
+    pub price_buf: FixedRingBuffer<Simd<f64, N>, 4>,
     // Stage 1: smooth → Detrender
     smooth_buf: FixedRingBuffer<Simd<f64, N>, 7>,
     // Stage 2: Detrender → I1, Q1
@@ -38,7 +38,7 @@ pub struct SimdState<const N: usize> {
     im_prev: Simd<f64, N>,
     // Period tracking
     period: Simd<f64, N>,
-    smooth_period: Simd<f64, N>,
+    pub(crate) smooth_period: Simd<f64, N>,
 }
 
 impl<const N: usize> SimdState<N> {
@@ -167,6 +167,41 @@ impl<const N: usize> SimdState<N> {
         let (_, j_i, _, j_q) = ht_kernel_pair(&self.i1_buf, &self.q1_buf, gain);
 
         self.apply_discriminator_simd(i1, q1, j_i, j_q)
+    }
+
+    /// One-bar update returning `(smooth_period, i1, q1)` for all `N` lanes.
+    ///
+    /// Identical to [`calc_simd_unchecked`](Self::calc_simd_unchecked) but also returns the
+    /// intermediate I1 / Q1 values from stage 2, allowing callers (e.g. MAMA) to compute
+    /// per-lane phase and adaptive alpha without re-running the pipeline.
+    ///
+    /// # Safety
+    ///
+    /// All five ring buffers must be full on entry.
+    #[inline(always)]
+    pub unsafe fn calc_simd_unchecked_with_iq(
+        &mut self,
+        real: Simd<f64, N>,
+    ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
+        self.price_buf.push_unchecked(real);
+        let ab = Simd::splat(4.0).mul_add(self.price_buf[0], Simd::splat(3.0) * self.price_buf[1]);
+        let cd = Simd::splat(2.0).mul_add(self.price_buf[2], self.price_buf[3]);
+        let smooth = (ab + cd) * Simd::splat(0.1);
+
+        let gain = Simd::splat(0.075).mul_add(self.period, Simd::splat(0.54));
+
+        self.smooth_buf.push_unchecked(smooth);
+        let (_, detrender) = ht_kernel(&self.smooth_buf, gain);
+
+        self.detrender_buf.push_unchecked(detrender);
+        let (i1, q1) = ht_kernel(&self.detrender_buf, gain);
+
+        self.i1_buf.push_unchecked(i1);
+        self.q1_buf.push_unchecked(q1);
+        let (_, j_i, _, j_q) = ht_kernel_pair(&self.i1_buf, &self.q1_buf, gain);
+
+        let smooth_period = self.apply_discriminator_simd(i1, q1, j_i, j_q);
+        (smooth_period, i1, q1)
     }
 
     /// Applies the homodyne discriminator and period-smoothing logic for all `N` lanes.

@@ -1,3 +1,36 @@
+//! # Ehlers Super Smoother
+//!
+//! **Source:** John Ehlers, *Cycle Analytics for Traders* (2013), Chapter 2.
+//! Also published as "Predictive Indicators for Effective Trading Strategies",
+//! *Technical Analysis of Stocks & Commodities*, January 2014.
+//!
+//! A two-pole Butterworth-inspired IIR low-pass filter designed to remove
+//! aliasing and high-frequency noise from sampled price data while preserving
+//! cycle content below the cutoff frequency. Unlike a simple moving average it
+//! has zero lag at DC and a much sharper roll-off, making it Ehlers' preferred
+//! smoothing primitive for cycle analysis.
+//!
+//! ## Formula
+//!
+//! Given `ω = π / period` (note: π, not 2π — a half-cycle convention):
+//!
+//! ```text
+//! a1 = 2 · exp(−√2 · ω) · cos(√2 · ω)      [Ehlers uses 1.414 for √2]
+//! a2 = −exp(−2√2 · ω)
+//! b0 = 1 − a1 − a2
+//! SS = (b0 / 2) · (Price + Price[1]) + a1·SS[1] + a2·SS[2]
+//! ```
+//!
+//! The `b0/2` feedforward ensures unit gain at DC so the smoother tracks
+//! the mean of price without bias.
+//!
+//! ## Role in this library
+//!
+//! Used as the second stage of the [`roofingfilter`] (after the High Pass
+//! filter) and transitively in [`hilberttransform`]. On its own it acts as a
+//! high-quality low-pass filter for any price series.
+
+
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};

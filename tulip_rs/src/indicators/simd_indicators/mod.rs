@@ -11,6 +11,7 @@
 //! that drives both `by_asset` and `by_option` computations.
 
 pub mod ad_simd;
+pub mod adaptivemsw_simd;
 pub mod adosc_simd;
 pub mod adx_simd;
 pub mod adxr_simd;
@@ -43,12 +44,14 @@ pub mod highpass_simd;
 pub mod hilberttransform_simd;
 pub mod hma_simd;
 pub mod homodynediscriminator_simd;
+pub mod instantaneoustrendline_simd;
 pub mod kama_simd;
 pub mod keltnerchannel_simd;
 pub mod kvo_simd;
 pub mod linreg_simd;
 pub mod macd_simd;
 pub mod macros;
+pub mod mama_simd;
 pub mod marketfi_simd;
 pub mod mass_simd;
 pub mod max_simd;
