@@ -16,6 +16,50 @@ pub(crate) const C1: f64 = 0.5769;
 pub(crate) const C2: f64 = -0.5769;
 pub(crate) const C3: f64 = -0.0962;
 
+/// Applies the 7-tap Hilbert kernel to a full ring buffer with an optional gain.
+///
+/// Returns `(center_tap, hilbert_sum × gain)` — i.e. `(I, Q)` semantics:
+/// * `I` = `buf[3]` — the 3-bar-ago in-phase tap (not scaled by gain).
+/// * `Q` = `(0.0962·buf[0] + 0.5769·buf[2] − 0.5769·buf[4] − 0.0962·buf[6]) × gain`.
+///
+/// Pass `gain = 1.0` for a plain (non-adaptive) transform; the compiler folds
+/// the `× 1.0` away. Pass `0.075 · Period[1] + 0.54` for the Ehlers adaptive
+/// variant used by the Homodyne Discriminator.
+///
+/// The buffer must be full (`buf.is_full() == true`) before calling.
+#[inline(always)]
+pub(crate) fn ht_kernel(buf: &FixedRingBuffer<f64, 7>, gain: f64) -> (f64, f64) {
+    let q = (C0.mul_add(buf[0], C1 * buf[2]) + C2.mul_add(buf[4], C3 * buf[6])) * gain;
+    (buf[3], q)
+}
+
+/// Applies the 7-tap Hilbert kernel to two independent full ring buffers simultaneously.
+///
+/// Interleaves the four FMAs across both buffers so the CPU sees them as independent
+/// operations and can issue all four in the same execution window, rather than two
+/// sequential pairs. Used by the Homodyne Discriminator Stage 3 (jI and jQ).
+///
+/// Returns `(I_a, Q_a, I_b, Q_b)` where `I = buf[3]` and `Q = hilbert_sum × gain`.
+/// Both buffers must be full (`is_full() == true`) before calling.
+#[inline(always)]
+pub(crate) fn ht_kernel_pair(
+    buf_a: &FixedRingBuffer<f64, 7>,
+    buf_b: &FixedRingBuffer<f64, 7>,
+    gain: f64,
+) -> (f64, f64, f64, f64) {
+    // All four FMAs are independent — buf_a and buf_b do not alias.
+    let qa_hi = C0.mul_add(buf_a[0], C1 * buf_a[2]);
+    let qb_hi = C0.mul_add(buf_b[0], C1 * buf_b[2]);
+    let qa_lo = C2.mul_add(buf_a[4], C3 * buf_a[6]);
+    let qb_lo = C2.mul_add(buf_b[4], C3 * buf_b[6]);
+    (
+        buf_a[3],
+        (qa_hi + qa_lo) * gain,
+        buf_b[3],
+        (qb_hi + qb_lo) * gain,
+    )
+}
+
 /// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 2;
 
@@ -100,20 +144,12 @@ impl State {
     #[inline(always)]
     pub fn calc_transform(&mut self, real: f64) -> (f64, f64) {
         self.buffer.push(real);
-        let q_hi = C0.mul_add(self.buffer[0], C1 * self.buffer[2]); // 0.0962*x[t]   + 0.5769*x[t-2]
-        let q_lo = C2.mul_add(self.buffer[4], C3 * self.buffer[6]); // -0.5769*x[t-4] + -0.0962*x[t-6]
-        let q = q_hi + q_lo;
-        let i = self.buffer[3];
-        (i, q)
+        ht_kernel(&self.buffer, 1.0)
     }
     #[inline(always)]
     pub unsafe fn calc_transform_unchecked(&mut self, real: f64) -> (f64, f64) {
         self.buffer.push_unchecked(real);
-        let q_hi = C0.mul_add(self.buffer[0], C1 * self.buffer[2]); // 0.0962*x[t]   + 0.5769*x[t-2]
-        let q_lo = C2.mul_add(self.buffer[4], C3 * self.buffer[6]); // -0.5769*x[t-4] + -0.0962*x[t-6]
-        let q = q_hi + q_lo;
-        let i = self.buffer[3];
-        (i, q)
+        ht_kernel(&self.buffer, 1.0)
     }
     #[inline(always)]
     pub fn calc(

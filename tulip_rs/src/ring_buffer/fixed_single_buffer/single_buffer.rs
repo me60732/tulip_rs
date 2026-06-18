@@ -85,7 +85,10 @@ impl<T: BufferElement, const N: usize> FixedRingBuffer<T, N> {
     #[inline(always)]
     pub fn push(&mut self, value: T) {
         self.vals[self.index] = value;
-        self.index = (self.index + 1) % N;
+        self.index += 1;
+        if self.index == N {
+            self.index = 0;
+        }
         if self.count < N {
             self.count += 1;
         }
@@ -112,7 +115,10 @@ impl<T: BufferElement, const N: usize> FixedRingBuffer<T, N> {
     #[inline(always)]
     pub unsafe fn push_unchecked(&mut self, value: T) {
         *self.vals.get_unchecked_mut(self.index) = value;
-        self.index = (self.index + 1) % N;
+        self.index += 1;
+        if self.index == N {
+            self.index = 0;
+        }
     }
 
     /// Push and return the evicted element, without the fullness check.
@@ -274,7 +280,7 @@ impl<T: BufferElement, const N: usize> std::ops::Index<usize> for FixedRingBuffe
     /// Index by bars-ago: `buf[0]` is the newest element, `buf[count-1]` is the oldest.
     #[inline]
     fn index(&self, bars_ago: usize) -> &T {
-        assert!(
+        debug_assert!(
             bars_ago < self.count,
             "index out of bounds: bars_ago {bars_ago} >= count {}",
             self.count

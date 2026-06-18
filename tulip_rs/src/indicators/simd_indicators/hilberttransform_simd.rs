@@ -19,8 +19,63 @@ impl<const N: usize> COEFS<N> {
     pub const C1: Simd<f64, N> = Simd::splat(C1);
     pub const C2: Simd<f64, N> = Simd::splat(C2);
     pub const C3: Simd<f64, N> = Simd::splat(C3);
+    pub const GAIN: Simd<f64, N> = Simd::splat(1.0);
+}
+/// Applies the 7-tap Hilbert kernel to a full ring buffer with an optional gain.
+///
+/// Returns `(center_tap, hilbert_sum × gain)` — i.e. `(I, Q)` semantics:
+/// * `I` = `buf[3]` — the 3-bar-ago in-phase tap (not scaled by gain).
+/// * `Q` = `(0.0962·buf[0] + 0.5769·buf[2] − 0.5769·buf[4] − 0.0962·buf[6]) × gain`.
+///
+/// Pass `gain = 1.0` for a plain (non-adaptive) transform; the compiler folds
+/// the `× 1.0` away. Pass `0.075 · Period[1] + 0.54` for the Ehlers adaptive
+/// variant used by the Homodyne Discriminator.
+///
+/// The buffer must be full (`buf.is_full() == true`) before calling.
+#[inline(always)]
+pub fn ht_kernel<const N: usize>(
+    buf: &FixedRingBuffer<Simd<f64, N>, 7>,
+    gain: Simd<f64, N>,
+) -> (Simd<f64, N>, Simd<f64, N>) {
+    let q = ht_kernel_base(buf, gain);
+    (buf[3], q)
+}
+#[inline(always)]
+pub fn ht_kernel_base<const N: usize>(
+    buf: &FixedRingBuffer<Simd<f64, N>, 7>,
+    gain: Simd<f64, N>,
+) -> Simd<f64, N> {
+    let q = (COEFS::<N>::C0.mul_add(buf[0], COEFS::<N>::C1 * buf[2])
+        + COEFS::<N>::C2.mul_add(buf[4], COEFS::<N>::C3 * buf[6]))
+        * gain;
+    q
 }
 
+/// Applies the 7-tap Hilbert kernel to two independent full SIMD ring buffers simultaneously.
+///
+/// SIMD equivalent of the scalar [`ht_kernel_pair`](crate::indicators::hilberttransform::ht_kernel_pair).
+/// Interleaves the four FMAs across `buf_a` and `buf_b` so the CPU sees them as
+/// independent operations across both the SIMD width and the two buffers.
+///
+/// Returns `(I_a, Q_a, I_b, Q_b)` where `I = buf[3]` and `Q = hilbert_sum × gain`.
+/// Both buffers must be full before calling.
+#[inline(always)]
+pub fn ht_kernel_pair<const N: usize>(
+    buf_a: &FixedRingBuffer<Simd<f64, N>, 7>,
+    buf_b: &FixedRingBuffer<Simd<f64, N>, 7>,
+    gain: Simd<f64, N>,
+) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
+    let qa_hi = COEFS::<N>::C0.mul_add(buf_a[0], COEFS::<N>::C1 * buf_a[2]);
+    let qb_hi = COEFS::<N>::C0.mul_add(buf_b[0], COEFS::<N>::C1 * buf_b[2]);
+    let qa_lo = COEFS::<N>::C2.mul_add(buf_a[4], COEFS::<N>::C3 * buf_a[6]);
+    let qb_lo = COEFS::<N>::C2.mul_add(buf_b[4], COEFS::<N>::C3 * buf_b[6]);
+    (
+        buf_a[3],
+        (qa_hi + qa_lo) * gain,
+        buf_b[3],
+        (qb_hi + qb_lo) * gain,
+    )
+}
 /// SIMD-parallel state for computing the Hilbert Transform across `N` assets simultaneously.
 ///
 /// Holds two pieces of state:
@@ -76,11 +131,7 @@ impl<const N: usize> SimdState<N> {
     #[inline(always)]
     pub fn calc_transform_simd(&mut self, real: Simd<f64, N>) -> (Simd<f64, N>, Simd<f64, N>) {
         self.buffer.push(real);
-        let q_hi = COEFS::C0.mul_add(self.buffer[0], COEFS::C1 * self.buffer[2]); // 0.0962*x[t]   + 0.5769*x[t-2]
-        let q_lo = COEFS::C2.mul_add(self.buffer[4], COEFS::C3 * self.buffer[6]); // -0.5769*x[t-4] + -0.0962*x[t-6]
-        let q = q_hi + q_lo;
-        let i = self.buffer[3];
-        (i, q)
+        ht_kernel(&self.buffer, COEFS::GAIN)
     }
     /// Unsafe variant of [`calc_transform`](Self::calc_transform) that skips the
     /// ring-buffer fullness check on push.
@@ -94,11 +145,7 @@ impl<const N: usize> SimdState<N> {
         real: Simd<f64, N>,
     ) -> (Simd<f64, N>, Simd<f64, N>) {
         self.buffer.push_unchecked(real);
-        let q_hi = COEFS::C0.mul_add(self.buffer[0], COEFS::C1 * self.buffer[2]); // 0.0962*x[t]   + 0.5769*x[t-2]
-        let q_lo = COEFS::C2.mul_add(self.buffer[4], COEFS::C3 * self.buffer[6]); // -0.5769*x[t-4] + -0.0962*x[t-6]
-        let q = q_hi + q_lo;
-        let i = self.buffer[3];
-        (i, q)
+        ht_kernel(&self.buffer, COEFS::<N>::GAIN)
     }
     /// Advances the full Hilbert Transform pipeline by one bar across all `N` assets simultaneously.
     ///

@@ -378,6 +378,10 @@ name = "benchmark_hilberttransform"
 harness = false
 
 [[bench]]
+name = "benchmark_homodynediscriminator"
+harness = false
+
+[[bench]]
 name = "benchmark_ichimoku"
 harness = false
 
