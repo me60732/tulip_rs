@@ -75,6 +75,7 @@ pub mod supersmoother;
 pub mod supertrend;
 pub mod tema;
 pub mod tr;
+pub mod trendmode;
 pub mod trima;
 pub mod trix;
 pub mod trvi;

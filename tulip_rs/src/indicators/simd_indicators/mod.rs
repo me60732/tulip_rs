@@ -84,6 +84,7 @@ pub mod supersmoother_simd;
 pub mod supertrend_simd;
 pub mod tema_simd;
 pub mod tr_simd;
+pub mod trendmode_simd;
 pub mod trima_simd;
 pub mod trix_simd;
 pub mod trvi_simd;

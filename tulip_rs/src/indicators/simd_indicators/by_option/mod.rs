@@ -61,6 +61,7 @@ pub mod stochrsi;
 pub mod supersmoother;
 pub mod supertrend;
 pub mod tema;
+pub mod trendmode;
 pub mod trima;
 pub mod trix;
 pub mod trvi;

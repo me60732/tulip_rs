@@ -294,6 +294,10 @@ name = "benchmark_tema"
 harness = false
 
 [[bench]]
+name = "benchmark_trendmode"
+harness = false
+
+[[bench]]
 name = "benchmark_trima"
 harness = false
 

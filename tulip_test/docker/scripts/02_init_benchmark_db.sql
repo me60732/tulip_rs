@@ -196,7 +196,9 @@ OVERRIDING SYSTEM VALUE VALUES
     (177,  'homodynediscriminator', 'homodynediscriminator',                                                      1, 1, false, 'trend'),
     (178,  'mama',                  'MESA Adaptive Moving Average',                                               1, 2, true, 'trend'),
     (179,  'instantaneoustrendline','Ehlers Instantaneous Trendline',                                             1, 1, false, 'trend'),
-    (180,  'adaptivemsw',           'Adaptive Mesa Sine Wave',                                                    1, 2, false, 'cycle');
+    (180,  'adaptivemsw',           'Adaptive Mesa Sine Wave',                                                    1, 2, false, 'cycle'),
+    (181,  'trendmode',             'Ehlers TrendMode',                                                           1, 2, true, 'trend'),
+    (182,   'cybercycle',           'Ehlers Cyber Cycle',                                                         1, 2, true,   'cycle');
 
 -- Reset sequence to max id + 1
 SELECT setval('indicators_id_seq', (SELECT MAX(id) FROM indicators));

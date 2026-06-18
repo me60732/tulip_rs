@@ -8,6 +8,10 @@
 //! `CandleBits`) targets the `view` array, updates are never lost across `push`
 //! boundaries and `sync_mirrors()` is a genuine no-op.
 
+use crate::indicators::{
+    max::{find_max_scalar, find_max_simd, State as MaxState},
+    min::{find_min_scalar, find_min_simd, State as MinState},
+};
 use crate::ring_buffer::buffer::{period_to_idx, BufferElement, SerdeElement};
 use serde::{
     de::{self, MapAccess, Visitor},
@@ -230,6 +234,81 @@ impl<T: BufferElement, const N: usize> FixedMirrorBuffer<T, N> {
                 self.ring[(self.index + i) % N] = self.view[i];
             }
         }
+    }
+}
+
+// ── MinMax on FixedMirrorBuffer<f64, N> ──────────────────────────────────────
+//
+// Mirrors the logic of `MinMaxBuffer` (single_buffer::mirror_buffer) but as
+// inherent methods, avoiding the `MirrorBuffer<f64>` super-trait requirement.
+// `view[..count]` is always ordered oldest→newest, so `get_slice()` is a
+// single pointer+length load and the max/min scans work identically.
+
+impl<const N: usize> FixedMirrorBuffer<f64, N> {
+    /// Rolling maximum over the current window.
+    ///
+    /// Identical semantics to [`MinMaxBuffer::max`] on the heap-based `Buffer`:
+    /// - Increments `state.trail` each call.
+    /// - When `trail >= period`, rescans the full window slice.
+    /// - Otherwise, latches `bar` if it is a new maximum.
+    ///
+    /// `CHUNK_SIZE` controls the SIMD width used during rescans (1 = scalar).
+    #[inline(always)]
+    pub fn max<const CHUNK_SIZE: usize>(
+        &self,
+        state: &mut MaxState,
+        bar: f64,
+        period: usize,
+    ) -> (f64, usize) {
+        let (mut max, mut trail) = (state.max, state.trail);
+        trail += 1;
+        if period <= trail {
+            // Rescan only the last `period` elements — not the full buffer.
+            // get_slice_by_period returns oldest→newest so
+            // window_index_to_bars_ago = period − 1 − idx.
+            let window = self.get_slice_by_period(period);
+            let (max_val, max_idx) = if CHUNK_SIZE == 1 {
+                find_max_scalar(window)
+            } else {
+                find_max_simd::<CHUNK_SIZE>(window)
+            };
+            max = max_val;
+            trail = window.len().saturating_sub(1 + max_idx);
+        } else if bar >= max {
+            max = bar;
+            trail = 0;
+        }
+        (state.max, state.trail) = (max, trail);
+        (max, trail)
+    }
+
+    /// Rolling minimum over the current window.
+    ///
+    /// Mirror of [`Self::max`] for minimum tracking.
+    #[inline(always)]
+    pub fn min<const CHUNK_SIZE: usize>(
+        &self,
+        state: &mut MinState,
+        bar: f64,
+        period: usize,
+    ) -> (f64, usize) {
+        let (mut min, mut trail) = (state.min, state.trail);
+        trail += 1;
+        if period <= trail {
+            let window = self.get_slice_by_period(period);
+            let (min_val, min_idx) = if CHUNK_SIZE == 1 {
+                find_min_scalar(window)
+            } else {
+                find_min_simd::<CHUNK_SIZE>(window)
+            };
+            min = min_val;
+            trail = window.len().saturating_sub(1 + min_idx);
+        } else if bar <= min {
+            min = bar;
+            trail = 0;
+        }
+        (state.min, state.trail) = (min, trail);
+        (min, trail)
     }
 }
 
