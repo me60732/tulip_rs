@@ -28,6 +28,7 @@ pub mod chaikinmf_simd;
 pub mod chandelierexit_simd;
 pub mod cmo_simd;
 pub mod cvi_simd;
+pub mod cybercycle_simd;
 pub mod dema_simd;
 pub mod di_simd;
 pub mod dm_simd;

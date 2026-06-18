@@ -22,6 +22,7 @@ pub mod chaikinmf;
 pub mod chandelierexit;
 pub mod cmo;
 pub mod cvi;
+pub mod cybercycle;
 pub mod dema;
 pub mod di;
 pub mod dm;

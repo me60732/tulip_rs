@@ -33,6 +33,10 @@ default = []
 talib = []
 
 [[bench]]
+name = "benchmark_cybercycle"
+harness = false
+
+[[bench]]
 name = "benchmark_candle_stick_indicators"
 harness = false
 
