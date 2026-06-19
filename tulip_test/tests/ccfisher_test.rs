@@ -1,10 +1,8 @@
 #[cfg(test)]
 mod tests {
     use tulip_rs::indicator_types::TIndicatorState;
+    use tulip_rs::indicators::ccfisher::{indicator, min_data, output_length};
     use tulip_rs::indicators::cybercycle::{indicator as cc_indicator, min_data as cc_min_data};
-    use tulip_rs::indicators::trendmode::{
-        indicator, indicator_by_assets, indicator_by_options, min_data, output_length,
-    };
     use tulip_rs::types::IndicatorError;
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -21,9 +19,8 @@ mod tests {
     // ─────────────────────────────────────────────────────────────────────────
 
     #[test]
-    fn test_trendmode_min_data() {
+    fn test_ccfisher_min_data() {
         assert_eq!(min_data(&[0.07]), 56, "min_data must be 56");
-        assert_eq!(min_data(&[0.05]), 56, "min_data must be 56");
 
         assert_eq!(output_length(56, &[0.07]), 1, "output_length(56) must be 1");
         assert_eq!(
@@ -38,7 +35,7 @@ mod tests {
     // ─────────────────────────────────────────────────────────────────────────
 
     #[test]
-    fn test_trendmode_not_enough_data() {
+    fn test_ccfisher_not_enough_data() {
         let close: Vec<f64> = (0..55).map(|i| 100.0 + i as f64).collect();
         let result = indicator(&[close.as_slice()], &[0.07], None);
         assert!(
@@ -54,7 +51,7 @@ mod tests {
     // ─────────────────────────────────────────────────────────────────────────
 
     #[test]
-    fn test_trendmode_invalid_alpha() {
+    fn test_ccfisher_invalid_alpha() {
         let close: Vec<f64> = (0..100).map(|i| 100.0 + i as f64).collect();
         let inputs = [close.as_slice()];
 
@@ -71,99 +68,93 @@ mod tests {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Adaptive alpha (alpha=0.0): outputs are finite and in {0.0, 1.0}
+    // Adaptive alpha (alpha=0.0): fisher/signal are finite; trendmode in {0,1}
     // ─────────────────────────────────────────────────────────────────────────
 
     #[test]
-    fn test_trendmode_adaptive_alpha() {
+    fn test_ccfisher_adaptive_alpha() {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
-            let (out, _) =
-                indicator(&inputs, &[0.0], Some(&[true, true])).expect("TrendMode adaptive failed");
+            let (out, _) = indicator(&inputs, &[0.0], Some(&[true, true, true]))
+                .expect("CCFisher adaptive failed");
 
-            // Primary output: must be exactly 0.0 or 1.0
-            for (i, &v) in out[0].iter().enumerate() {
-                assert!(
-                    v == 0.0 || v == 1.0,
-                    "adaptive trendmode[{i}]={v} not in {{0.0, 1.0}}: stock={stock_symbol}"
-                );
-            }
-            // Optional outputs: finite and non-negative
-            for k in 1..3 {
-                let label = if k == 1 { "cycle" } else { "peak" };
+            // fisher and signal: finite
+            for k in 0..2 {
+                let label = if k == 0 { "fisher" } else { "signal" };
                 for (i, &v) in out[k].iter().enumerate() {
                     assert!(
                         v.is_finite(),
                         "adaptive {label}[{i}]={v} NaN/Inf: stock={stock_symbol}"
                     );
-                    if k == 2 {
-                        assert!(v >= 0.0, "adaptive peak[{i}]={v} < 0: stock={stock_symbol}");
-                    }
                 }
             }
+            // trendmode: exactly 0.0 or 1.0
+            for (i, &v) in out[2].iter().enumerate() {
+                assert!(
+                    v == 0.0 || v == 1.0,
+                    "adaptive trendmode[{i}]={v} not in {{0.0,1.0}}: stock={stock_symbol}"
+                );
+            }
+            // cycle and peak: finite, peak >= 0
+            for (i, &v) in out[3].iter().enumerate() {
+                assert!(
+                    v.is_finite(),
+                    "adaptive cycle[{i}]={v} NaN/Inf: stock={stock_symbol}"
+                );
+            }
+            for (i, &v) in out[4].iter().enumerate() {
+                assert!(
+                    v.is_finite() && v >= 0.0,
+                    "adaptive peak[{i}]={v} invalid: stock={stock_symbol}"
+                );
+            }
 
-            // Adaptive and fixed outputs must differ (they use different alpha each bar).
-            let (fixed_out, _) = indicator(&inputs, &[0.07], None).expect("TrendMode fixed failed");
-            let adaptive_tm = &out[0];
-            let fixed_tm = &fixed_out[0];
-            let differ = adaptive_tm
+            // Signal must still be a 1-bar lag of fisher in adaptive mode.
+            let fisher = &out[0];
+            let signal = &out[1];
+            for i in 1..fisher.len() {
+                let diff = (signal[i] - fisher[i - 1]).abs();
+                assert!(
+                    diff < 1e-14,
+                    "adaptive signal[{i}] != fisher[{}] (diff={diff:.2e}): stock={stock_symbol}",
+                    i - 1
+                );
+            }
+
+            // Adaptive must differ from fixed alpha=0.07.
+            let (fixed_out, _) = indicator(&inputs, &[0.07], None).expect("fixed run");
+            let differ = out[0]
                 .iter()
-                .zip(fixed_tm.iter())
+                .zip(fixed_out[0].iter())
                 .any(|(&a, &b)| a != b);
             assert!(
                 differ,
-                "adaptive and fixed trendmode are identical — adaptive may not be working: \
+                "adaptive fisher == fixed fisher — adaptive may not be working: \
                  stock={stock_symbol}"
             );
         }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // TrendMode output values must be exactly 0.0 or 1.0
+    // No NaN or Inf in any output (fisher, signal, trendmode, cycle, peak)
     // ─────────────────────────────────────────────────────────────────────────
 
     #[test]
-    fn test_trendmode_output_values() {
+    fn test_ccfisher_no_nan_or_inf() {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
             for options in OPTIONS_LIST {
-                let (out, _) = indicator(&inputs, &options, None).expect("indicator failed");
-                //println!("Result Cycle: {:?} \n\nPeak: {:?}", out[0], out[1]);
-                for (i, &v) in out[0].iter().enumerate() {
-                    assert!(
-                        v == 0.0 || v == 1.0,
-                        "trendmode[{i}]={v} not in {{0.0, 1.0}}: \
-                         stock={stock_symbol}, alpha={:?}",
-                        options
-                    );
-                }
-            }
-        }
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // No NaN or Inf in any output (trendmode, cycle, peak)
-    // ─────────────────────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_trendmode_no_nan_or_inf() {
-        init_database_data();
-        let data = get_all_stock_data().unwrap();
-        for (stock_symbol, stock_data) in data {
-            let close = get_close_array(stock_data);
-            let inputs = [close.as_slice()];
-            for options in OPTIONS_LIST {
-                let (out, _) =
-                    indicator(&inputs, &options, Some(&[true, true])).expect("TrendMode failed");
-                let labels = ["trendmode", "cycle", "peak"];
-                for k in 0..3 {
+                let (out, _) = indicator(&inputs, &options, Some(&[true, true, true]))
+                    .expect("CCFisher failed");
+                let labels = ["fisher", "signal", "trendmode", "cycle", "peak"];
+                for k in 0..5 {
                     for (i, &v) in out[k].iter().enumerate() {
                         assert!(
                             v.is_finite(),
@@ -178,44 +169,71 @@ mod tests {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Optional cycle output (out[1]) matches cc_indicator output[0]
+    // Optional trendmode output (out[2]) must be exactly 0.0 or 1.0
     // ─────────────────────────────────────────────────────────────────────────
 
     #[test]
-    fn test_trendmode_optional_cycle() {
+    fn test_ccfisher_trendmode_values() {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
             for options in OPTIONS_LIST {
-                // Adaptive mode (alpha=0.0): TrendMode derives alpha from HD per bar;
+                let (out, _) = indicator(&inputs, &options, Some(&[true, false, false]))
+                    .expect("CCFisher failed");
+                for (i, &v) in out[2].iter().enumerate() {
+                    assert!(
+                        v == 0.0 || v == 1.0,
+                        "trendmode[{i}]={v} not in {{0.0, 1.0}}: \
+                         stock={stock_symbol}, alpha={:?}",
+                        options
+                    );
+                }
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Optional cycle output (out[3]) matches cc_indicator output[0]
+    // ─────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_ccfisher_optional_cycle() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let inputs = [close.as_slice()];
+            for options in OPTIONS_LIST {
+                // Adaptive mode (alpha=0.0): CCFisher derives alpha from HD per bar;
                 // standalone cc_indicator has no HD, so the cycles diverge — skip.
                 if options[0] == 0.0 {
                     continue;
                 }
-                let (tm_out, _) =
-                    indicator(&inputs, &options, Some(&[true, false])).expect("TrendMode failed");
+                let (cf_out, _) = indicator(&inputs, &options, Some(&[false, true, false]))
+                    .expect("CCFisher failed");
                 let (cc_out, _) = cc_indicator(&inputs, &options, None).expect("CyberCycle failed");
 
-                // TrendMode outputs start at bar 55 (min_data=56, output_length=n-55).
+                // CCFisher outputs start at bar 55 (min_data=56, output_length=n-55).
                 // CyberCycle outputs start at bar 6 (min_data=7, output_length=n-6).
-                // So TrendMode output[i] corresponds to CyberCycle output[i + 49].
+                // So CCFisher output[i] corresponds to CyberCycle output[i + 49].
                 let cc_offset = min_data(&options) - cc_min_data(&options);
-                let cycle_from_tm = &tm_out[1];
+                let cycle_from_cf = &cf_out[3];
                 let cycle_from_cc = &cc_out[0][cc_offset..];
 
                 assert_eq!(
-                    cycle_from_tm.len(),
+                    cycle_from_cf.len(),
                     cycle_from_cc.len(),
                     "cycle length mismatch after alignment: stock={stock_symbol}, alpha={:?}",
                     options
                 );
-                for (i, (&tv, &cv)) in cycle_from_tm.iter().zip(cycle_from_cc.iter()).enumerate() {
-                    let diff = (tv - cv).abs();
+                for (i, (&cfv, &ccv)) in cycle_from_cf.iter().zip(cycle_from_cc.iter()).enumerate()
+                {
+                    let diff = (cfv - ccv).abs();
                     assert!(
                         diff < 1e-10,
-                        "cycle mismatch at {i}: trendmode_cycle={tv}, cc={cv}, \
+                        "cycle mismatch at {i}: ccfisher_cycle={cfv}, cc={ccv}, \
                          diff={diff:.2e}, stock={stock_symbol}, alpha={:?}",
                         options
                     );
@@ -225,20 +243,20 @@ mod tests {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Optional peak output (out[2]): non-negative and finite
+    // Optional peak output (out[4]): non-negative and finite
     // ─────────────────────────────────────────────────────────────────────────
 
     #[test]
-    fn test_trendmode_optional_peak() {
+    fn test_ccfisher_optional_peak() {
         init_database_data();
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
             for options in OPTIONS_LIST {
-                let (out, _) =
-                    indicator(&inputs, &options, Some(&[false, true])).expect("TrendMode failed");
-                let peak = &out[2];
+                let (out, _) = indicator(&inputs, &options, Some(&[false, false, true]))
+                    .expect("CCFisher failed");
+                let peak = &out[4];
                 for (i, &v) in peak.iter().enumerate() {
                     assert!(
                         v.is_finite(),
@@ -256,12 +274,43 @@ mod tests {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // State continuity: indicator() first chunk + batch_indicator() remainder
-    // must be bit-exact to a full single-call run (all three outputs).
+    // Signal (out[1]) is a 1-bar lag of fisher (out[0])
     // ─────────────────────────────────────────────────────────────────────────
 
     #[test]
-    fn test_trendmode_state_continuity() {
+    fn test_ccfisher_signal_is_lagged_fisher() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let inputs = [close.as_slice()];
+            for options in OPTIONS_LIST {
+                let (out, _) = indicator(&inputs, &options, None).expect("CCFisher failed");
+                let fisher = &out[0];
+                let signal = &out[1];
+                for i in 1..fisher.len() {
+                    let a = signal[i];
+                    let b = fisher[i - 1];
+                    assert!(
+                        (a - b).abs() < 1e-14,
+                        "signal[{i}]={a} != fisher[{}]={b} (diff={:.2e}): \
+                         stock={stock_symbol}, alpha={:?}",
+                        i - 1,
+                        (a - b).abs(),
+                        options
+                    );
+                }
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // State continuity: indicator() first chunk + batch_indicator() remainder
+    // must be bit-exact to a full single-call run (all five outputs).
+    // ─────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_ccfisher_state_continuity() {
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -270,39 +319,45 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 let (ref_out, _) =
-                    indicator(&[close.as_slice()], &options, Some(&[true, true])).expect("ref run");
+                    indicator(&[close.as_slice()], &options, Some(&[true, true, true]))
+                        .expect("ref run");
 
-                let (first_out, mut state) =
-                    indicator(&[&close[..FIRST_CHUNK]], &options, Some(&[true, true]))
-                        .expect("seed run");
+                let (first_out, mut state) = indicator(
+                    &[&close[..FIRST_CHUNK]],
+                    &options,
+                    Some(&[true, true, true]),
+                )
+                .expect("seed run");
 
                 let mut batch = [
-                    first_out[0].clone(),
-                    first_out[1].clone(),
-                    first_out[2].clone(),
+                    first_out[0].clone(), // fisher
+                    first_out[1].clone(), // signal
+                    first_out[2].clone(), // trendmode
+                    first_out[3].clone(), // cycle
+                    first_out[4].clone(), // peak
                 ];
 
                 let mut chunks = close[FIRST_CHUNK..].chunks_exact(CHUNK_SIZE);
                 for chunk in chunks.by_ref() {
                     let out = state
-                        .batch_indicator(&[chunk], Some(&[true, true]))
+                        .batch_indicator(&[chunk], Some(&[true, true, true]))
                         .expect("batch_indicator failed");
-                    for k in 0..3 {
+                    for k in 0..5 {
                         batch[k].extend_from_slice(&out[k]);
                     }
                 }
                 let rem = chunks.remainder();
                 if !rem.is_empty() {
                     let out = state
-                        .batch_indicator(&[rem], Some(&[true, true]))
+                        .batch_indicator(&[rem], Some(&[true, true, true]))
                         .expect("remainder failed");
-                    for k in 0..3 {
+                    for k in 0..5 {
                         batch[k].extend_from_slice(&out[k]);
                     }
                 }
 
-                let labels = ["trendmode", "cycle", "peak"];
-                for k in 0..3 {
+                let labels = ["fisher", "signal", "trendmode", "cycle", "peak"];
+                for k in 0..5 {
                     assert_eq!(
                         batch[k].len(),
                         ref_out[k].len(),
@@ -330,67 +385,14 @@ mod tests {
 
     // ─────────────────────────────────────────────────────────────────────────
     // SIMD by_assets: N=4 assets processed in a single SIMD pass must match
-    // the scalar run within 1e-10 (all three outputs).
-    // ─────────────────────────────────────────────────────────────────────────
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // SIMD by_options mixed: [0.0, 0.07, 0.10, 0.0] — adaptive + fixed lanes
-    // Each lane must match the scalar run with the same alpha.
+    // the scalar run within 1e-10 (fisher and signal outputs).
     // ─────────────────────────────────────────────────────────────────────────
 
     #[test]
-    #[cfg(feature = "simd_options")]
-    fn test_trendmode_simd_by_options_mixed_adaptive() {
-        init_database_data();
-        let data = get_all_stock_data().unwrap();
+    #[cfg(feature = "simd_assets")]
+    fn test_ccfisher_simd_by_assets() {
+        use tulip_rs::indicators::ccfisher::indicator_by_assets;
 
-        // Lanes 0 and 3 are adaptive (0.0); lanes 1 and 2 are fixed.
-        let mixed_options: [&[f64; 1]; 4] = [&[0.0], &[0.07], &[0.10], &[0.0]];
-        let scalar_alphas = [[0.0_f64], [0.07_f64], [0.10_f64], [0.0_f64]];
-
-        for (stock_symbol, stock_data) in data {
-            let close = get_close_array(stock_data);
-            let inputs = [close.as_slice()];
-
-            let (simd_results, _) =
-                indicator_by_options::<4>(&inputs, &mixed_options, Some(&[true, true]))
-                    .expect("SIMD by_options mixed failed");
-
-            let labels = ["trendmode", "cycle", "peak"];
-            for (lane, alpha) in scalar_alphas.iter().enumerate() {
-                let (scalar_out, _) =
-                    indicator(&inputs, alpha, Some(&[true, true])).expect("scalar failed");
-
-                for k in 0..3 {
-                    let simd_line = &simd_results[lane][k];
-                    let scalar_line = &scalar_out[k];
-                    assert_eq!(
-                        simd_line.len(),
-                        scalar_line.len(),
-                        "{} length mismatch: lane={lane} stock={stock_symbol}",
-                        labels[k]
-                    );
-                    for (i, (&sv, &rv)) in simd_line.iter().zip(scalar_line.iter()).enumerate() {
-                        assert!(
-                            sv.is_finite(),
-                            "SIMD mixed {} NaN/Inf at {i}: lane={lane} stock={stock_symbol}",
-                            labels[k]
-                        );
-                        let diff = (sv - rv).abs();
-                        assert!(
-                            diff < 1e-10,
-                            "{} mismatch at {i}: simd={sv}, scalar={rv}, diff={diff:.2e}, \
-                             lane={lane} stock={stock_symbol}",
-                            labels[k]
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    /*#[test]
-    fn test_trendmode_simd_by_assets_vs_scalar() {
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -409,15 +411,14 @@ mod tests {
             ];
 
             let (simd_results, _) =
-                indicator_by_assets::<4>(&inputs_4, &options, Some(&[true, true]))
-                    .expect("SIMD by_assets failed");
+                indicator_by_assets::<4>(&inputs_4, &options, None).expect("SIMD by_assets failed");
 
-            let labels = ["trendmode", "cycle", "peak"];
+            let labels = ["fisher", "signal"];
             for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
                 let (scalar_out, _) =
-                    indicator(&[close.as_slice()], &options, Some(&[true, true])).expect("scalar");
+                    indicator(&[close.as_slice()], &options, None).expect("scalar");
 
-                for k in 0..3 {
+                for k in 0..2 {
                     let simd_line = &simd_results[asset_idx][k];
                     let scalar_line = &scalar_out[k];
                     assert_eq!(
@@ -445,108 +446,74 @@ mod tests {
                 }
             }
         }
-        println!("✓ SIMD by_assets vs scalar TrendMode passed for all options");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // SIMD by_assets state continuity: SIMD first chunk + scalar batch_indicator
-    // remainder must match full scalar run within 1e-10.
+    // SIMD by_options mixed: [0.0, 0.07, 0.10, 0.0] — adaptive + fixed lanes
+    // Each lane must match the scalar run with the same alpha within 1e-10.
     // ─────────────────────────────────────────────────────────────────────────
 
     #[test]
-    fn test_trendmode_simd_by_assets_state_continuity() {
+    #[cfg(feature = "simd_options")]
+    fn test_ccfisher_simd_by_options_mixed_adaptive() {
+        use tulip_rs::indicators::ccfisher::indicator_by_options;
+
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
-        let stock_data: Vec<(String, Vec<f64>)> = data
-            .iter()
-            .take(4)
-            .map(|(sym, eod)| (sym.clone(), get_close_array(eod)))
-            .collect();
+        // Lanes 0 and 3 are adaptive (0.0); lanes 1 and 2 are fixed.
+        let mixed_options: [&[f64; 1]; 4] = [&[0.0], &[0.07], &[0.10], &[0.0]];
+        let scalar_alphas = [[0.0_f64], [0.07_f64], [0.10_f64], [0.0_f64]];
 
-        for options in OPTIONS_LIST {
-            let inputs_first: [&[&[f64]; 1]; 4] = [
-                &[&stock_data[0].1[..FIRST_CHUNK]],
-                &[&stock_data[1].1[..FIRST_CHUNK]],
-                &[&stock_data[2].1[..FIRST_CHUNK]],
-                &[&stock_data[3].1[..FIRST_CHUNK]],
-            ];
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let inputs = [close.as_slice()];
 
-            let (simd_first, mut states) =
-                indicator_by_assets::<4>(&inputs_first, &options, Some(&[true, true]))
-                    .expect("SIMD first chunk failed");
+            let (simd_results, _) = indicator_by_options::<4>(&inputs, &mixed_options, None)
+                .expect("SIMD by_options mixed failed");
 
-            let labels = ["trendmode", "cycle", "peak"];
-            for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
-                let mut batch = [
-                    simd_first[asset_idx][0].clone(),
-                    simd_first[asset_idx][1].clone(),
-                    simd_first[asset_idx][2].clone(),
-                ];
+            let labels = ["fisher", "signal"];
+            for (lane, alpha) in scalar_alphas.iter().enumerate() {
+                let (scalar_out, _) = indicator(&inputs, alpha, None).expect("scalar failed");
 
-                let mut chunks = close[FIRST_CHUNK..].chunks_exact(CHUNK_SIZE);
-                for chunk in chunks.by_ref() {
-                    let out = states[asset_idx]
-                        .batch_indicator(&[chunk], Some(&[true, true]))
-                        .expect("batch_indicator failed");
-                    for k in 0..3 {
-                        batch[k].extend_from_slice(&out[k]);
-                    }
-                }
-                let rem = chunks.remainder();
-                if !rem.is_empty() {
-                    let out = states[asset_idx]
-                        .batch_indicator(&[rem], Some(&[true, true]))
-                        .expect("remainder failed");
-                    for k in 0..3 {
-                        batch[k].extend_from_slice(&out[k]);
-                    }
-                }
-
-                let (scalar_out, _) =
-                    indicator(&[close.as_slice()], &options, Some(&[true, true])).expect("scalar");
-
-                for k in 0..3 {
+                for k in 0..2 {
+                    let simd_line = &simd_results[lane][k];
+                    let scalar_line = &scalar_out[k];
                     assert_eq!(
-                        batch[k].len(),
-                        scalar_out[k].len(),
-                        "{} length mismatch: stock={stock_symbol}, alpha={:?}",
-                        labels[k],
-                        options
+                        simd_line.len(),
+                        scalar_line.len(),
+                        "{} length mismatch: lane={lane} stock={stock_symbol}",
+                        labels[k]
                     );
-                    for (i, (&bv, &rv)) in batch[k].iter().zip(scalar_out[k].iter()).enumerate() {
+                    for (i, (&sv, &rv)) in simd_line.iter().zip(scalar_line.iter()).enumerate() {
                         assert!(
-                            bv.is_finite(),
-                            "{} NaN/Inf at {i}: stock={stock_symbol}, alpha={:?}",
-                            labels[k],
-                            options
+                            sv.is_finite(),
+                            "SIMD mixed {} NaN/Inf at {i}: lane={lane} stock={stock_symbol}",
+                            labels[k]
                         );
-                        let diff = (bv - rv).abs();
+                        let diff = (sv - rv).abs();
                         assert!(
                             diff < 1e-10,
-                            "{} mismatch at {i}: simd+batch={bv}, scalar={rv}, diff={diff:.2e}, \
-                             stock={stock_symbol}, alpha={:?}",
-                            labels[k],
-                            options
+                            "{} mismatch at {i}: simd={sv}, scalar={rv}, diff={diff:.2e}, \
+                             lane={lane} stock={stock_symbol}",
+                            labels[k]
                         );
                     }
                 }
-                println!(
-                    "✓ SIMD state continuity passed: {stock_symbol} ({} bars), alpha={:?}",
-                    close.len(),
-                    options
-                );
             }
         }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // SIMD by_options: N=4 alpha values on one asset must match scalar runs
-    // within 1e-10 (all three outputs).
+    // within 1e-10 (fisher and signal outputs).
     // ─────────────────────────────────────────────────────────────────────────
 
     #[test]
-    fn test_trendmode_simd_by_options_vs_scalar() {
+    #[cfg(feature = "simd_options")]
+    fn test_ccfisher_simd_by_options() {
+        use tulip_rs::indicators::ccfisher::indicator_by_options;
+
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -561,16 +528,14 @@ mod tests {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
-            let (simd_results, _) =
-                indicator_by_options::<4>(&inputs, &options_4, Some(&[true, true]))
-                    .expect("SIMD by_options failed");
+            let (simd_results, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+                .expect("SIMD by_options failed");
 
-            let labels = ["trendmode", "cycle", "peak"];
+            let labels = ["fisher", "signal"];
             for (lane, options) in OPTIONS_LIST.iter().enumerate() {
-                let (scalar_out, _) =
-                    indicator(&inputs, options, Some(&[true, true])).expect("scalar failed");
+                let (scalar_out, _) = indicator(&inputs, options, None).expect("scalar failed");
 
-                for k in 0..3 {
+                for k in 0..2 {
                     let simd_line = &simd_results[lane][k];
                     let scalar_line = &scalar_out[k];
                     assert_eq!(
@@ -597,92 +562,6 @@ mod tests {
                     }
                 }
             }
-            println!("✓ SIMD by_options vs scalar TrendMode passed for {stock_symbol}");
         }
     }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // SIMD by_options state continuity.
-    // ─────────────────────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_trendmode_simd_by_options_state_continuity() {
-        init_database_data();
-        let data = get_all_stock_data().unwrap();
-
-        let options_4: [&[f64; 1]; 4] = [
-            &OPTIONS_LIST[0],
-            &OPTIONS_LIST[1],
-            &OPTIONS_LIST[2],
-            &OPTIONS_LIST[3],
-        ];
-
-        for (stock_symbol, stock_data) in data {
-            let close = get_close_array(stock_data);
-
-            let inputs_first = [&close[..FIRST_CHUNK] as &[f64]];
-            let (simd_first, mut states) =
-                indicator_by_options::<4>(&inputs_first, &options_4, Some(&[true, true]))
-                    .expect("SIMD by_options first chunk failed");
-
-            let labels = ["trendmode", "cycle", "peak"];
-            for (lane, options) in OPTIONS_LIST.iter().enumerate() {
-                let mut batch = [
-                    simd_first[lane][0].clone(),
-                    simd_first[lane][1].clone(),
-                    simd_first[lane][2].clone(),
-                ];
-
-                let mut chunks = close[FIRST_CHUNK..].chunks_exact(CHUNK_SIZE);
-                for chunk in chunks.by_ref() {
-                    let out = states[lane]
-                        .batch_indicator(&[chunk], Some(&[true, true]))
-                        .expect("batch_indicator failed");
-                    for k in 0..3 {
-                        batch[k].extend_from_slice(&out[k]);
-                    }
-                }
-                let rem = chunks.remainder();
-                if !rem.is_empty() {
-                    let out = states[lane]
-                        .batch_indicator(&[rem], Some(&[true, true]))
-                        .expect("remainder failed");
-                    for k in 0..3 {
-                        batch[k].extend_from_slice(&out[k]);
-                    }
-                }
-
-                let inputs_full = [close.as_slice()];
-                let (scalar_out, _) =
-                    indicator(&inputs_full, options, Some(&[true, true])).expect("scalar failed");
-
-                for k in 0..3 {
-                    assert_eq!(
-                        batch[k].len(),
-                        scalar_out[k].len(),
-                        "{} length mismatch lane {lane}: stock={stock_symbol}, alpha={:?}",
-                        labels[k],
-                        options
-                    );
-                    for (i, (&bv, &rv)) in batch[k].iter().zip(scalar_out[k].iter()).enumerate() {
-                        assert!(
-                            bv.is_finite(),
-                            "{} NaN/Inf at {i} lane {lane}: stock={stock_symbol}, alpha={:?}",
-                            labels[k],
-                            options
-                        );
-                        let diff = (bv - rv).abs();
-                        assert!(
-                            diff < 1e-10,
-                            "{} mismatch at {i} lane {lane}: simd+batch={bv}, scalar={rv}, \
-                             diff={diff:.2e}, stock={stock_symbol}, alpha={:?}",
-                            labels[k],
-                            options
-                        );
-                    }
-                }
-            }
-            println!("✓ SIMD by_options state continuity passed for {stock_symbol}");
-        }
-    }*/
 }

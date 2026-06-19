@@ -17,6 +17,7 @@ pub mod atr;
 pub mod avgprice;
 pub mod bbands;
 pub mod bop;
+pub mod ccfisher;
 pub mod cci;
 pub mod chaikinmf;
 pub mod chandelierexit;

@@ -298,6 +298,10 @@ name = "benchmark_trendmode"
 harness = false
 
 [[bench]]
+name = "benchmark_ccfisher"
+harness = false
+
+[[bench]]
 name = "benchmark_trima"
 harness = false
 

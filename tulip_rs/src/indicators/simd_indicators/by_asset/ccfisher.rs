@@ -1,28 +1,30 @@
 use crate::common_simd::assets::validate_inputs;
-use crate::indicators::cybercycle::multiplier;
-use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::trendmode_simd::assets::SimdState;
-use crate::indicators::trendmode::{
+use crate::indicators::ccfisher::{
     min_data, output_length, validate_options, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
+use crate::indicators::cybercycle::multiplier;
+use crate::indicators::simd_indicators::ccfisher_simd::assets::SimdState;
+use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
-/// SIMD driver that advances the TrendMode across `N` asset lanes per epoch.
-struct TrendModeDriver {
-    /// Whether any optional output was requested.
+/// SIMD driver that advances the CyberCycle Fisher across `N` asset lanes per epoch.
+struct CCFisherDriver {
+    /// Whether any of cycle or peak optional outputs was requested.
     has_optional: bool,
+    /// Whether the trendmode optional output was requested.
+    want_trendmode: bool,
     /// Whether the cycle optional output was requested.
     want_cycle: bool,
     /// Whether the peak optional output was requested.
     want_peak: bool,
-    /// Precomputed scalar multipliers broadcast to SIMD on each bar; used only when `!is_adaptive`.
+    /// Precomputed scalar multipliers broadcast to SIMD on each bar (used only when `!is_adaptive`).
     multipliers: (f64, f64, f64),
-    /// When `true`, adaptive alpha is computed per bar from each lane's HD `smooth_period`.
+    /// Whether to use adaptive alpha (alpha == 0.0) instead of fixed multipliers.
     is_adaptive: bool,
 }
 
-impl Driver<State> for TrendModeDriver {
+impl Driver<State> for CCFisherDriver {
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
@@ -34,14 +36,38 @@ impl Driver<State> for TrendModeDriver {
         let mut simd_state = SimdState::new(&mut states);
 
         let real_ptrs = crate::extract_input_ptrs!(inputs, N, real_ptrs);
-        let (trendmode_ptrs, cycle_ptrs, peak_ptrs) =
-            crate::extract_output_ptrs!(outputs, N, trendmode_ptrs, cycle_ptrs, peak_ptrs);
+        let (fisher_ptrs, signal_ptrs, trendmode_ptrs, cycle_ptrs, peak_ptrs) = crate::extract_output_ptrs!(
+            outputs,
+            N,
+            fisher_ptrs,
+            signal_ptrs,
+            trendmode_ptrs,
+            cycle_ptrs,
+            peak_ptrs
+        );
 
         if self.is_adaptive {
             for i in 0..len {
                 let real = crate::extract_simd_inputs_at_index!(i, N, real @ real_ptrs);
-                let trendmode = unsafe { simd_state.calc_simd_unchecked_adaptive(real) };
-                crate::write_simd_at_indices!(N, i, trendmode_ptrs => trendmode);
+                // Safety: all HD and CC ring buffers are full — guaranteed by
+                // State::init_state called for every lane before PrimeMover dispatches.
+                let (fisher, signal) = unsafe { simd_state.calc_simd_unchecked_adaptive(real) };
+                crate::write_simd_at_indices!(N, i, fisher_ptrs => fisher, signal_ptrs => signal);
+
+                if self.want_trendmode {
+                    let cycle_arr = simd_state.cc.cycle_prev.to_array();
+                    let mut trendmode_arr = [0.0_f64; N];
+                    for j in 0..N {
+                        trendmode_arr[j] = if simd_state.pk[j] > 0.0
+                            && cycle_arr[j].abs() < 0.2 * simd_state.pk[j]
+                        {
+                            1.0
+                        } else {
+                            0.0
+                        };
+                    }
+                    crate::write_simd_at_indices!(N, i, trendmode_ptrs => trendmode_arr);
+                }
                 if self.has_optional {
                     crate::store_simd_optional_outputs!(i, N,
                         self.want_cycle, cycle_ptrs => simd_state.cc.cycle_prev,
@@ -50,6 +76,7 @@ impl Driver<State> for TrendModeDriver {
                 }
             }
         } else {
+            // Broadcast scalar multipliers to SIMD once per epoch.
             let mults = (
                 Simd::splat(self.multipliers.0),
                 Simd::splat(self.multipliers.1),
@@ -59,8 +86,23 @@ impl Driver<State> for TrendModeDriver {
                 let real = crate::extract_simd_inputs_at_index!(i, N, real @ real_ptrs);
                 // Safety: all HD and CC ring buffers are full — guaranteed by
                 // State::init_state called for every lane before PrimeMover dispatches.
-                let trendmode = unsafe { simd_state.calc_simd_unchecked(real, mults) };
-                crate::write_simd_at_indices!(N, i, trendmode_ptrs => trendmode);
+                let (fisher, signal) = unsafe { simd_state.calc_simd_unchecked(real, mults) };
+                crate::write_simd_at_indices!(N, i, fisher_ptrs => fisher, signal_ptrs => signal);
+
+                if self.want_trendmode {
+                    let cycle_arr = simd_state.cc.cycle_prev.to_array();
+                    let mut trendmode_arr = [0.0_f64; N];
+                    for j in 0..N {
+                        trendmode_arr[j] = if simd_state.pk[j] > 0.0
+                            && cycle_arr[j].abs() < 0.2 * simd_state.pk[j]
+                        {
+                            1.0
+                        } else {
+                            0.0
+                        };
+                    }
+                    crate::write_simd_at_indices!(N, i, trendmode_ptrs => trendmode_arr);
+                }
                 if self.has_optional {
                     crate::store_simd_optional_outputs!(i, N,
                         self.want_cycle, cycle_ptrs => simd_state.cc.cycle_prev,
@@ -74,7 +116,7 @@ impl Driver<State> for TrendModeDriver {
     }
 }
 
-/// Calculates the Ehlers TrendMode for `N` assets simultaneously using SIMD.
+/// Calculates the Ehlers CyberCycle Fisher for `N` assets simultaneously using SIMD.
 ///
 /// Each asset's state is independently warmed up via [`State::init_state`]
 /// (consuming bars 0–55, writing output index 0), then all assets are batched
@@ -84,13 +126,17 @@ impl Driver<State> for TrendModeDriver {
 ///
 /// * `inputs`           — `N` asset input sets; `inputs[i]` is `[&[f64]; 1]` = `[real]`.
 /// * `options`          — `[alpha; 1]`; same value applied to all N assets.
-/// * `optional_outputs` — index `0` = `cycle`, index `1` = `peak`.
+/// * `optional_outputs` — index `0` = `trendmode`, index `1` = `cycle`, index `2` = `peak`.
 ///
 /// # Returns
 ///
-/// `Ok((outputs, states))` where `outputs[i][0]` = trendmode, `outputs[i][1]` = cycle
-/// (empty unless requested), `outputs[i][2]` = peak (empty unless requested), and
-/// `states[i]` is the final [`IndicatorState`] for asset `i`.
+/// `Ok((outputs, states))` where:
+/// - `outputs[i][0]` = fisher (always present)
+/// - `outputs[i][1]` = signal (always present)
+/// - `outputs[i][2]` = trendmode (empty unless requested)
+/// - `outputs[i][3]` = cycle (empty unless requested)
+/// - `outputs[i][4]` = peak (empty unless requested)
+///
 /// Returns `Err(NotEnoughData)` if any asset has fewer than 56 bars, or
 /// `Err(InvalidOptions)` if `alpha` is not in `(0, 1)`.
 pub fn indicator_by_assets<const N: usize>(
@@ -103,12 +149,19 @@ pub fn indicator_by_assets<const N: usize>(
 
     let alpha = options[0];
     let is_adaptive = alpha == 0.0;
-    let mults = multiplier(alpha);
-    let want_cycle = optional_outputs
+    let mults = if alpha > 0.0 {
+        multiplier(alpha)
+    } else {
+        (0.0, 0.0, 0.0)
+    };
+    let want_trendmode = optional_outputs
         .and_then(|f| f.first().copied())
         .unwrap_or(false);
-    let want_peak = optional_outputs
+    let want_cycle = optional_outputs
         .and_then(|f| f.get(1).copied())
+        .unwrap_or(false);
+    let want_peak = optional_outputs
+        .and_then(|f| f.get(2).copied())
         .unwrap_or(false);
     let has_optional = want_cycle || want_peak;
 
@@ -119,7 +172,13 @@ pub fn indicator_by_assets<const N: usize>(
         let len = inputs[i][0].len();
         let capacity = output_length(len, options);
 
-        let mut trendmode_line = crate::uninit_vec!(f64, capacity);
+        let mut fisher_line = crate::uninit_vec!(f64, capacity);
+        let mut signal_line = crate::uninit_vec!(f64, capacity);
+        let mut trendmode_line: Vec<f64> = if want_trendmode {
+            crate::uninit_vec!(f64, capacity)
+        } else {
+            Vec::new()
+        };
         let mut cycle_line: Vec<f64> = if want_cycle {
             crate::uninit_vec!(f64, capacity)
         } else {
@@ -135,13 +194,21 @@ pub fn indicator_by_assets<const N: usize>(
         let state = State::init_state(
             inputs[i][0],
             alpha,
+            &mut fisher_line,
+            &mut signal_line,
             &mut trendmode_line,
             &mut cycle_line,
             &mut peak_line,
         );
 
         // Slice outputs so the driver writes indices 1..capacity.
-        let mut output_buffer = vec![trendmode_line, cycle_line, peak_line];
+        let mut output_buffer = vec![
+            fisher_line,
+            signal_line,
+            trendmode_line,
+            cycle_line,
+            peak_line,
+        ];
         let mut asset_outputs = Vec::with_capacity(output_buffer.len());
         for j in 0..output_buffer.len() {
             unsafe {
@@ -169,8 +236,9 @@ pub fn indicator_by_assets<const N: usize>(
         output_buffers.push(output_buffer);
     }
 
-    let mut driver = TrendModeDriver {
+    let mut driver = CCFisherDriver {
         has_optional,
+        want_trendmode,
         want_cycle,
         want_peak,
         multipliers: mults,

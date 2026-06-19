@@ -27,7 +27,18 @@
 //!
 //! This indicator uses a **local** `validate_options` function. The common
 //! `crate::common::validate_options` rejects any option `< 1.0`, which would flag
-//! every valid α value. The local function checks `0.0 < α < 1.0` instead.
+//! every valid α value. The local function checks `α ∈ (0.0, 1.0)` strictly.
+//!
+//! ## Adaptive alpha (`α = 0.0`)
+//!
+//! Adaptive alpha is **not** supported by the standalone `cybercycle::indicator`.
+//! It requires a Homodyne Discriminator (HD) to derive `SmoothPeriod` each bar,
+//! which is not part of this indicator. Passing `α = 0.0` will return
+//! [`IndicatorError::InvalidOptions`].
+//!
+//! Adaptive mode is available in [`trendmode`](super::trendmode) and
+//! [`ccfisher`](super::ccfisher), both of which embed an HD alongside the
+//! CyberCycle and compute `α = 2 / (SmoothPeriod.max(3) + 1)` every bar.
 
 use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
@@ -111,27 +122,18 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
         validate_inputs(inputs, 1)?;
         let real = inputs[0];
         let n = real.len();
-        let want_trigger = optional_outputs
-            .and_then(|f| f.first().copied())
-            .unwrap_or(false);
-
         let mut cycle_line = crate::uninit_vec!(f64, n);
-        let mut trigger_line: Vec<f64> = if want_trigger {
-            crate::uninit_vec!(f64, n)
-        } else {
-            Vec::new()
-        };
+        let mut trigger_line = crate::init_optional_outputs_eff!(
+            optional_outputs, &[false],
+            trigger_line: n
+        );
 
         run_cycle(
             real,
             &mut self.state,
             self.multipliers,
             &mut cycle_line,
-            if want_trigger {
-                &mut trigger_line
-            } else {
-                &mut []
-            },
+            &mut trigger_line,
         );
 
         Ok(vec![cycle_line, trigger_line])
@@ -341,6 +343,10 @@ pub fn output_length(data_len: usize, options: &[f64]) -> usize {
 
 /// Validates that `alpha` is strictly in `(0.0, 1.0)`.
 ///
+/// `alpha = 0.0` is rejected — adaptive mode is not available in the standalone
+/// CyberCycle indicator (no embedded HD). Use [`trendmode`](super::trendmode) or
+/// [`ccfisher`](super::ccfisher) for adaptive alpha.
+///
 /// **Do not** use `crate::common::validate_options` here — it rejects any
 /// option `< 1.0` and would flag all valid α values.
 pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), IndicatorError> {
@@ -360,6 +366,19 @@ pub fn multiplier(alpha: f64) -> (f64, f64, f64) {
     let c = 1.0 - 0.5 * alpha;
     let b = 1.0 - alpha;
     (c * c, 2.0 * b, b * b)
+}
+
+/// Computes adaptive alpha from the Homodyne Discriminator's `smooth_period`.
+///
+/// `alpha = 2 / (smooth_period.max(3) + 1)`, keeping alpha in `(0, 0.5]`.
+/// Clamping to `max(3)` prevents alpha from exceeding 0.5 when `smooth_period`
+/// is near zero during HD warmup (first ~22 bars of the indicator's 55-bar warmup).
+///
+/// This is the Ehlers α-from-period conversion: the dominant cycle period
+/// acts as the EMA's equivalent period, and alpha is the corresponding coefficient.
+#[inline(always)]
+pub fn adaptive_alpha(smooth_period: f64) -> f64 {
+    2.0 / (smooth_period.max(3.0) + 1.0)
 }
 
 /// Calculates the Ehlers CyberCycle over the full input dataset.
@@ -395,31 +414,23 @@ pub fn indicator(
     let real = inputs[0];
     let n = real.len();
     let capacity = output_length(n, options);
-    let want_trigger = optional_outputs
-        .and_then(|f| f.first().copied())
-        .unwrap_or(false);
-
     let mut cycle_line = crate::uninit_vec!(f64, capacity);
-    let mut trigger_line: Vec<f64> = if want_trigger {
-        crate::uninit_vec!(f64, capacity)
-    } else {
-        Vec::new()
-    };
+    let mut trigger_line = crate::init_optional_outputs_eff!(
+        optional_outputs, &[false],
+        trigger_line: capacity
+    );
 
     // init_state seeds bars 0–5 and processes bar 6 (output index 0).
     let mut state = State::init_state(real, mults, &mut cycle_line, &mut trigger_line);
 
     // Process bars 7..n (output indices 1..capacity).
+    let trigger_start = crate::slice_outputs_start!(capacity - 1, trigger_line);
     run_cycle(
         &real[min_data(options)..],
         &mut state,
         mults,
         &mut cycle_line[1..],
-        if want_trigger {
-            &mut trigger_line[1..]
-        } else {
-            &mut []
-        },
+        &mut trigger_line[trigger_start..],
     );
 
     Ok((
@@ -443,9 +454,9 @@ fn run_cycle(
         unsafe {
             *cycle_line.get_unchecked_mut(i) =
                 state.calc_unchecked(*real.get_unchecked(i), multipliers);
-            if want_trigger {
-                *trigger_line.get_unchecked_mut(i) = state.cycle_prev2;
-            }
         }
+        crate::store_optional_outputs!(i,
+            want_trigger, trigger_line => state.cycle_prev2
+        );
     }
 }

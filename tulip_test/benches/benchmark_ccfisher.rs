@@ -1,12 +1,13 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::trendmode::{
+use tulip_rs::indicators::ccfisher::{
     indicator, indicator_by_assets, indicator_by_options, min_data,
 };
-use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 //use tulip_test::benchmark_utils::SAMPLE_SIZE;
+use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::criterion_logger::TimingMeasurements;
 use tulip_test::database::{get_all_stock_data, init_database_data};
+
 const SAMPLE_SIZE: usize = 10000;
 const CHUNK_SIZE: usize = 100;
 
@@ -30,11 +31,14 @@ fn get_close_array(stock_data: &[tulip_test::database::EodData]) -> Vec<f64> {
     stock_data.iter().map(|d| d.close).collect()
 }
 
-/// Full-run benchmark over all stock data, cycling through all OPTIONS_LIST entries.
-fn bench_trendmode(c: &mut Criterion) {
+// ─────────────────────────────────────────────────────────────────────────────
+// Full-run scalar (fisher + signal only, no optionals)
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn bench_ccfisher(c: &mut Criterion) {
     if should_log_to_db() {
         init_database_data();
-        init_logging("trendmode");
+        init_logging("ccfisher");
         let data = get_all_stock_data().unwrap();
         for options in OPTIONS_LIST {
             for (stock_symbol, stock_data) in data {
@@ -44,14 +48,58 @@ fn bench_trendmode(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, None).expect("TrendMode failed");
+                        let result = indicator(&inputs, &options, None).expect("CCFisher failed");
+                        black_box(&result);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("ccfisher", "Rust", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close = expand_inputs();
+        let inputs = [close.as_slice()];
+        let mut group = c.benchmark_group("ccfisher_rust");
+        group.sample_size(SAMPLE_SIZE);
+        for options in OPTIONS_LIST {
+            group.bench_function(format!("Rust CCFisher (alpha={})", options[0]), |b| {
+                b.iter(|| {
+                    let result = indicator(&inputs, &options, None).expect("CCFisher failed");
+                    black_box(&result);
+                });
+            });
+        }
+        group.finish();
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Full-run scalar with TrendMode optional output
+// Benchmarks the extra cost of computing TrendMode alongside Fisher/Signal.
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn bench_ccfisher_with_trendmode(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("ccfisher");
+        let data = get_all_stock_data().unwrap();
+        for options in OPTIONS_LIST {
+            for (stock_symbol, stock_data) in data {
+                let close = get_close_array(stock_data);
+                let n = close.len();
+                let inputs = [close.as_slice()];
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let result = indicator(&inputs, &options, Some(&[true, false, false]))
+                            .expect("CCFisher+TrendMode failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
                 );
                 log_timing_result(
-                    "trendmode",
-                    "Rust",
+                    "ccfisher",
+                    "Rust_optional",
                     &options,
                     n,
                     &timing,
@@ -62,25 +110,32 @@ fn bench_trendmode(c: &mut Criterion) {
     } else {
         let close = expand_inputs();
         let inputs = [close.as_slice()];
-        let mut group = c.benchmark_group("trendmode_rust");
+        let mut group = c.benchmark_group("ccfisher_rust_with_trendmode");
         group.sample_size(SAMPLE_SIZE);
         for options in OPTIONS_LIST {
-            group.bench_function(format!("Rust TrendMode (alpha={})", options[0]), |b| {
-                b.iter(|| {
-                    let result = indicator(&inputs, &options, None).expect("TrendMode failed");
-                    black_box(&result);
-                });
-            });
+            group.bench_function(
+                format!("Rust CCFisher+TrendMode (alpha={})", options[0]),
+                |b| {
+                    b.iter(|| {
+                        let result = indicator(&inputs, &options, Some(&[true, false, false]))
+                            .expect("CCFisher+TrendMode failed");
+                        black_box(&result);
+                    });
+                },
+            );
         }
         group.finish();
     }
 }
 
-/// Streaming from saved state: chunked update, cycling through all OPTIONS_LIST entries.
-fn bench_trendmode_from_state(c: &mut Criterion) {
+// ─────────────────────────────────────────────────────────────────────────────
+// Streaming from saved state: chunked update + single-bar update
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn bench_ccfisher_from_state(c: &mut Criterion) {
     if should_log_to_db() {
         init_database_data();
-        init_logging("trendmode");
+        init_logging("ccfisher");
         let data = get_all_stock_data().unwrap();
         for options in OPTIONS_LIST {
             for (stock_symbol, stock_data) in data {
@@ -93,7 +148,7 @@ fn bench_trendmode_from_state(c: &mut Criterion) {
                     || {
                         let seed = min_data(&options).max(CHUNK_SIZE);
                         let (_, mut state) = indicator(&[&close[..seed]], &options, None)
-                            .expect("TrendMode seed failed");
+                            .expect("CCFisher seed failed");
                         for chunk in close[seed..].chunks_exact(CHUNK_SIZE) {
                             black_box(
                                 state
@@ -113,7 +168,7 @@ fn bench_trendmode_from_state(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
                 log_timing_result(
-                    "trendmode",
+                    "ccfisher",
                     "Rust_FromState",
                     &options,
                     n,
@@ -124,7 +179,7 @@ fn bench_trendmode_from_state(c: &mut Criterion) {
                 // Single-bar update
                 if n > 1 {
                     let (_, mut state) = indicator(&[&close[..n - 1]], &options, None)
-                        .expect("TrendMode seed (1-bar) failed");
+                        .expect("CCFisher seed (1-bar) failed");
                     let final_input = [&close[n - 1..]];
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -132,13 +187,13 @@ fn bench_trendmode_from_state(c: &mut Criterion) {
                             black_box(
                                 state
                                     .batch_indicator(&final_input, None)
-                                    .expect("TrendMode 1-bar update failed"),
+                                    .expect("CCFisher 1-bar update failed"),
                             );
                         },
                         SAMPLE_SIZE,
                     );
                     log_timing_result(
-                        "trendmode",
+                        "ccfisher",
                         "Rust_FromState_1_Bar",
                         &options,
                         n,
@@ -153,12 +208,12 @@ fn bench_trendmode_from_state(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let seed = min_data(&options).max(CHUNK_SIZE);
             let (_, mut state) =
-                indicator(&[&close_vec[..seed]], &options, None).expect("TrendMode seed failed");
+                indicator(&[&close_vec[..seed]], &options, None).expect("CCFisher seed failed");
 
-            let mut group = c.benchmark_group("trendmode_rust_from_state");
+            let mut group = c.benchmark_group("ccfisher_rust_from_state");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                format!("Rust TrendMode from state (alpha={})", options[0]),
+                format!("Rust CCFisher from state (alpha={})", options[0]),
                 |b| {
                     b.iter(|| {
                         for chunk in close_vec[seed..].chunks_exact(CHUNK_SIZE) {
@@ -178,18 +233,18 @@ fn bench_trendmode_from_state(c: &mut Criterion) {
             if close_vec.len() > 1 {
                 let (_, mut state) =
                     indicator(&[&close_vec[..close_vec.len() - 1]], &options, None)
-                        .expect("TrendMode seed (1-bar) failed");
+                        .expect("CCFisher seed (1-bar) failed");
                 let final_input = [&close_vec[close_vec.len() - 1..]];
-                let mut group = c.benchmark_group("trendmode_rust_from_state_1_bar");
+                let mut group = c.benchmark_group("ccfisher_rust_from_state_1_bar");
                 group.sample_size(SAMPLE_SIZE);
                 group.bench_function(
-                    format!("Rust TrendMode from state 1 bar (alpha={})", options[0]),
+                    format!("Rust CCFisher from state 1 bar (alpha={})", options[0]),
                     |b| {
                         b.iter(|| {
                             black_box(
                                 state
                                     .batch_indicator(&final_input, None)
-                                    .expect("TrendMode 1-bar update failed"),
+                                    .expect("CCFisher 1-bar update failed"),
                             );
                         });
                     },
@@ -200,11 +255,14 @@ fn bench_trendmode_from_state(c: &mut Criterion) {
     }
 }
 
-/// SIMD by_assets: 4 assets processed simultaneously, cycling through all OPTIONS_LIST entries.
-fn bench_trendmode_simd_by_assets(c: &mut Criterion) {
+// ─────────────────────────────────────────────────────────────────────────────
+// SIMD by_assets: 4 assets processed simultaneously
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn bench_ccfisher_simd_by_assets(c: &mut Criterion) {
     if should_log_to_db() {
         init_database_data();
-        init_logging("trendmode");
+        init_logging("ccfisher");
         let data = get_all_stock_data().unwrap();
         let stock_data: Vec<(String, Vec<f64>)> = data
             .iter()
@@ -222,13 +280,13 @@ fn bench_trendmode_simd_by_assets(c: &mut Criterion) {
             timing.measure(
                 || {
                     let result = indicator_by_assets::<4>(&inputs, &options, None)
-                        .expect("SIMD by_assets TrendMode failed");
+                        .expect("SIMD by_assets CCFisher failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
             );
             log_timing_result(
-                "trendmode",
+                "ccfisher",
                 "Rust_SIMD_by_assets",
                 &options,
                 stock_data[0].1.len(),
@@ -240,15 +298,15 @@ fn bench_trendmode_simd_by_assets(c: &mut Criterion) {
         let close_vec = expand_inputs();
         let inputs: [&[&[f64]; 1]; 4] =
             [&[&close_vec], &[&close_vec], &[&close_vec], &[&close_vec]];
-        let mut group = c.benchmark_group("trendmode_rust_simd_by_assets");
+        let mut group = c.benchmark_group("ccfisher_rust_simd_by_assets");
         group.sample_size(SAMPLE_SIZE);
         for options in OPTIONS_LIST {
             group.bench_function(
-                format!("Rust SIMD by_assets TrendMode (N=4, alpha={})", options[0]),
+                format!("Rust SIMD by_assets CCFisher (N=4, alpha={})", options[0]),
                 |b| {
                     b.iter(|| {
                         let result = indicator_by_assets::<4>(&inputs, &options, None)
-                            .expect("SIMD by_assets TrendMode failed");
+                            .expect("SIMD by_assets CCFisher failed");
                         black_box(&result);
                     });
                 },
@@ -258,11 +316,14 @@ fn bench_trendmode_simd_by_assets(c: &mut Criterion) {
     }
 }
 
-/// SIMD by_options: 4 α values processed simultaneously on a single asset.
-fn bench_trendmode_simd_by_options(c: &mut Criterion) {
+// ─────────────────────────────────────────────────────────────────────────────
+// SIMD by_options: 4 α values simultaneously on one asset
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn bench_ccfisher_simd_by_options(c: &mut Criterion) {
     if should_log_to_db() {
         init_database_data();
-        init_logging("trendmode");
+        init_logging("ccfisher");
         let data = get_all_stock_data().unwrap();
         let options_4 = [
             &OPTIONS_LIST[0],
@@ -278,13 +339,13 @@ fn bench_trendmode_simd_by_options(c: &mut Criterion) {
             timing.measure(
                 || {
                     let result = indicator_by_options::<4>(&inputs, &options_4, None)
-                        .expect("SIMD by_options TrendMode failed");
+                        .expect("SIMD by_options CCFisher failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
             );
             log_timing_result(
-                "trendmode",
+                "ccfisher",
                 "Rust_SIMD",
                 &[0.0],
                 n,
@@ -301,12 +362,12 @@ fn bench_trendmode_simd_by_options(c: &mut Criterion) {
             &OPTIONS_LIST[2],
             &OPTIONS_LIST[3],
         ];
-        let mut group = c.benchmark_group("trendmode_rust_simd_by_options");
+        let mut group = c.benchmark_group("ccfisher_rust_simd_by_options");
         group.sample_size(SAMPLE_SIZE);
-        group.bench_function("Rust SIMD by_options TrendMode (4 alpha lanes)", |b| {
+        group.bench_function("Rust SIMD by_options CCFisher (4 alpha lanes)", |b| {
             b.iter(|| {
                 let result = indicator_by_options::<4>(&inputs, &options_4, None)
-                    .expect("SIMD by_options TrendMode failed");
+                    .expect("SIMD by_options CCFisher failed");
                 black_box(&result);
             });
         });
@@ -316,9 +377,10 @@ fn bench_trendmode_simd_by_options(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    bench_trendmode,
-    bench_trendmode_simd_by_assets,
-    bench_trendmode_simd_by_options,
-    bench_trendmode_from_state,
+    bench_ccfisher_simd_by_assets,
+    bench_ccfisher_simd_by_options,
+    bench_ccfisher,
+    bench_ccfisher_with_trendmode,
+    bench_ccfisher_from_state,
 );
 criterion_main!(benches);

@@ -12,6 +12,7 @@ pub mod aroon;
 pub mod aroonosc;
 pub mod atr;
 pub mod bbands;
+pub mod ccfisher;
 pub mod cci;
 pub mod chaikinmf;
 pub mod chandelierexit;
