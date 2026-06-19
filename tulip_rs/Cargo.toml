@@ -694,3 +694,51 @@ path = "examples/indicators/ti_vwap_example.rs"
 [[example]]
 name = "ti_trvi_example"
 path = "examples/indicators/ti_trvi_example.rs"
+
+[[example]]
+name = "ti_adaptivemsw_example"
+path = "examples/indicators/ti_adaptivemsw_example.rs"
+
+[[example]]
+name = "ti_ccfisher_example"
+path = "examples/indicators/ti_ccfisher_example.rs"
+
+[[example]]
+name = "ti_cybercycle_example"
+path = "examples/indicators/ti_cybercycle_example.rs"
+
+[[example]]
+name = "ti_highpass_example"
+path = "examples/indicators/ti_highpass_example.rs"
+
+[[example]]
+name = "ti_hilberttransform_example"
+path = "examples/indicators/ti_hilberttransform_example.rs"
+
+[[example]]
+name = "ti_homodynediscriminator_example"
+path = "examples/indicators/ti_homodynediscriminator_example.rs"
+
+[[example]]
+name = "ti_ichimoku_example"
+path = "examples/indicators/ti_ichimoku_example.rs"
+
+[[example]]
+name = "ti_instantaneoustrendline_example"
+path = "examples/indicators/ti_instantaneoustrendline_example.rs"
+
+[[example]]
+name = "ti_mama_example"
+path = "examples/indicators/ti_mama_example.rs"
+
+[[example]]
+name = "ti_roofingfilter_example"
+path = "examples/indicators/ti_roofingfilter_example.rs"
+
+[[example]]
+name = "ti_supersmoother_example"
+path = "examples/indicators/ti_supersmoother_example.rs"
+
+[[example]]
+name = "ti_trendmode_example"
+path = "examples/indicators/ti_trendmode_example.rs"
