@@ -1,10 +1,13 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::ichimoku::{indicator, min_data, TIndicatorState};
+use tulip_rs::indicators::ichimoku::{
+    indicator, indicator_by_assets, indicator_by_options, min_data, TIndicatorState,
+};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
-use tulip_test::benchmark_utils::SAMPLE_SIZE;
+//use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::criterion_logger::TimingMeasurements;
 use tulip_test::database::{get_all_stock_data, init_database_data};
 
+const SAMPLE_SIZE: usize = 10000;
 const HIGH: [f64; 15] = [
     82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98,
     88.00, 87.87,
@@ -298,8 +301,144 @@ fn bench_rust_ichimoku_from_state(c: &mut Criterion) {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SIMD by_assets: 4 assets processed simultaneously
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn bench_ichimoku_simd_by_assets(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("ichimoku");
+        let data = get_all_stock_data().unwrap();
+        let stock_data: Vec<(String, Vec<f64>, Vec<f64>, Vec<f64>)> = data
+            .iter()
+            .take(4)
+            .map(|(sym, eod)| {
+                let (high, low, close) = get_arrays(eod);
+                (sym.clone(), high, low, close)
+            })
+            .collect();
+        let inputs: [&[&[f64]; 3]; 4] = [
+            &[&stock_data[0].1, &stock_data[0].2, &stock_data[0].3],
+            &[&stock_data[1].1, &stock_data[1].2, &stock_data[1].3],
+            &[&stock_data[2].1, &stock_data[2].2, &stock_data[2].3],
+            &[&stock_data[3].1, &stock_data[3].2, &stock_data[3].3],
+        ];
+        for options in OPTIONS_LIST {
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        .expect("SIMD by_assets Ichimoku failed");
+                    black_box(&result);
+                },
+                SAMPLE_SIZE,
+            );
+            log_timing_result(
+                "ichimoku",
+                "Rust_SIMD_by_assets",
+                &options,
+                stock_data[0].1.len(),
+                &timing,
+                Some("4_Assets"),
+            );
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+        let inputs: [&[&[f64]; 3]; 4] = [
+            &[&high_vec, &low_vec, &close_vec],
+            &[&high_vec, &low_vec, &close_vec],
+            &[&high_vec, &low_vec, &close_vec],
+            &[&high_vec, &low_vec, &close_vec],
+        ];
+        let mut group = c.benchmark_group("ichimoku_rust_simd_by_assets");
+        group.sample_size(SAMPLE_SIZE);
+        for options in OPTIONS_LIST {
+            group.bench_function(
+                format!(
+                    "Rust SIMD by_assets Ichimoku (N=4, short={}, long={})",
+                    options[0], options[1]
+                ),
+                |b| {
+                    b.iter(|| {
+                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                            .expect("SIMD by_assets Ichimoku failed");
+                        black_box(&result);
+                    });
+                },
+            );
+        }
+        group.finish();
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SIMD by_options: 4 option sets simultaneously on one asset
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn bench_ichimoku_simd_by_options(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("ichimoku");
+        let data = get_all_stock_data().unwrap();
+        let options_4: [&[f64; 2]; 4] = [
+            &OPTIONS_LIST[0],
+            &OPTIONS_LIST[1],
+            &OPTIONS_LIST[2],
+            &OPTIONS_LIST[3],
+        ];
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_arrays(stock_data);
+            let n = high.len();
+            let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                        .expect("SIMD by_options Ichimoku failed");
+                    black_box(&result);
+                },
+                SAMPLE_SIZE,
+            );
+            log_timing_result(
+                "ichimoku",
+                "Rust_SIMD",
+                &[0.0, 0.0],
+                n,
+                &timing,
+                Some(stock_symbol),
+            );
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+        let inputs = [
+            high_vec.as_slice(),
+            low_vec.as_slice(),
+            close_vec.as_slice(),
+        ];
+        let options_4: [&[f64; 2]; 4] = [
+            &OPTIONS_LIST[0],
+            &OPTIONS_LIST[1],
+            &OPTIONS_LIST[2],
+            &OPTIONS_LIST[3],
+        ];
+        let mut group = c.benchmark_group("ichimoku_rust_simd_by_options");
+        group.sample_size(SAMPLE_SIZE);
+        group.bench_function("Rust SIMD by_options Ichimoku (4 period-set lanes)", |b| {
+            b.iter(|| {
+                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    .expect("SIMD by_options Ichimoku failed");
+                black_box(&result);
+            });
+        });
+        group.finish();
+    }
+}
+
 criterion_group!(
     benches,
+    bench_ichimoku_simd_by_assets,
+    bench_ichimoku_simd_by_options,
     bench_rust_ichimoku,
     bench_rust_ichimoku_optional,
     bench_rust_ichimoku_from_state,

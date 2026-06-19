@@ -14,13 +14,13 @@ pub const OPTIONS_WIDTH: usize = 2;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-/*#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::macd_simd::indicator_by_assets;
+#[cfg(feature = "simd_assets")]
+pub use crate::indicators::simd_indicators::ichimoku_simd::indicator_by_assets;
 
 /// SIMD-parallel variant that processes a single asset with `N` different option
 /// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
 #[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::macd_simd::indicator_by_options;
+pub use crate::indicators::simd_indicators::ichimoku_simd::indicator_by_options;
 
 /// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
 /// allowing SIMD multi-asset computation to be used as a drop-in replacement
@@ -30,7 +30,7 @@ pub use crate::indicators::simd_indicators::macd_simd::indicator_by_options;
 pub mod by_assets {
     /// Processes `N` assets in parallel with shared options.
     /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::macd_simd::indicator_by_assets as indicator;
+    pub use crate::indicators::simd_indicators::ichimoku_simd::indicator_by_assets as indicator;
 }
 
 /// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
@@ -41,8 +41,8 @@ pub mod by_assets {
 pub mod by_options {
     /// Processes a single asset with `N` different option sets in parallel.
     /// See the parent module's [`super::indicator_by_options`] for full documentation.
-    pub use crate::indicators::simd_indicators::macd_simd::indicator_by_options as indicator;
-}*/
+    pub use crate::indicators::simd_indicators::ichimoku_simd::indicator_by_options as indicator;
+}
 
 /// Returns metadata for the Ichimoku Cloud (Ichimoku Kinkō Hyō) indicator.
 ///
@@ -259,22 +259,23 @@ impl State {
             .long_min_state
             .calc_unchecked::<CL>(low, i, periods.2)
             .0;
-        let medium_min = self
-            .medium_min_state
-            .calc_unchecked::<CM>(low, i, periods.1)
-            .0;
-        let short_min = self
-            .short_min_state
-            .calc_unchecked::<CS>(low, i, periods.0)
-            .0;
-
         let long_max = self
             .long_max_state
             .calc_unchecked::<CL>(high, i, periods.2)
             .0;
+        
+        let medium_min = self
+            .medium_min_state
+            .calc_unchecked::<CM>(low, i, periods.1)
+            .0;
         let medium_max = self
             .medium_max_state
             .calc_unchecked::<CM>(high, i, periods.1)
+            .0;
+        
+        let short_min = self
+            .short_min_state
+            .calc_unchecked::<CS>(low, i, periods.0)
             .0;
         let short_max = self
             .short_max_state

@@ -5,6 +5,7 @@ mod tests {
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
     const CHUNK_SIZE: usize = 100;
+    const FIRST_CHUNK: usize = 1000;
 
     const HIGH: [f64; 15] = [
         82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98,
@@ -352,6 +353,322 @@ mod tests {
                                 names[j], i, stock_symbol, options, full_val, batch_val
                             );
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // SIMD by_assets: N=4 assets processed simultaneously
+    // Each asset result must match the scalar run within floating-point identity
+    // (Ichimoku uses exact rational arithmetic, so diff must be exactly 0).
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_ichimoku_simd_by_assets() {
+        use tulip_rs::indicators::ichimoku::indicator_by_assets;
+
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        let stock_data: Vec<(String, Vec<f64>, Vec<f64>, Vec<f64>)> = data
+            .iter()
+            .take(4)
+            .map(|(sym, eod)| {
+                let (high, low, close) = get_arrays(eod);
+                (sym.clone(), high, low, close)
+            })
+            .collect();
+
+        for options in OPTIONS_LIST {
+            let inputs_4: [&[&[f64]; 3]; 4] = [
+                &[&stock_data[0].1, &stock_data[0].2, &stock_data[0].3],
+                &[&stock_data[1].1, &stock_data[1].2, &stock_data[1].3],
+                &[&stock_data[2].1, &stock_data[2].2, &stock_data[2].3],
+                &[&stock_data[3].1, &stock_data[3].2, &stock_data[3].3],
+            ];
+
+            let (simd_results, _) =
+                indicator_by_assets::<4>(&inputs_4, &options, None).expect("SIMD by_assets failed");
+
+            let labels = ["conversion", "base", "span_a", "span_b"];
+            for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
+                let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+                let (scalar_out, _) =
+                    rust_ichimoku(&inputs, &options, None).expect("scalar failed");
+
+                for k in 0..4 {
+                    let simd_line = &simd_results[asset_idx][k];
+                    let scalar_line = &scalar_out[k];
+                    assert_eq!(
+                        simd_line.len(),
+                        scalar_line.len(),
+                        "{} length mismatch: stock={stock_symbol}, options={:?}",
+                        labels[k],
+                        options
+                    );
+                    for (i, (&sv, &rv)) in simd_line.iter().zip(scalar_line.iter()).enumerate() {
+                        assert!(
+                            sv.is_finite(),
+                            "SIMD {} NaN/Inf at {i}: stock={stock_symbol}",
+                            labels[k]
+                        );
+                        let diff = (sv - rv).abs();
+                        assert!(
+                            diff < 1e-10,
+                            "{} mismatch at {i}: simd={sv}, scalar={rv}, diff={diff:.2e}, \
+                             stock={stock_symbol}, options={:?}",
+                            labels[k],
+                            options
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // SIMD by_options: N=4 option sets on one asset
+    // Each lane result must match the scalar run for its option set within 1e-10.
+    // Uses 4 option combinations covering a range of short/long periods.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_ichimoku_simd_by_options() {
+        use tulip_rs::indicators::ichimoku::indicator_by_options;
+
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        // Four option sets: standard Ichimoku, an alternative, a shorter, and a longer.
+        let options_4: [&[f64; 2]; 4] = [&[9.0, 26.0], &[7.0, 22.0], &[5.0, 15.0], &[14.0, 45.0]];
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_arrays(stock_data);
+            let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+
+            let (simd_results, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+                .expect("SIMD by_options failed");
+
+            let labels = ["conversion", "base", "span_a", "span_b"];
+            for (lane, &options) in options_4.iter().enumerate() {
+                let (scalar_out, _) = rust_ichimoku(&inputs, options, None).expect("scalar failed");
+
+                for k in 0..4 {
+                    let simd_line = &simd_results[lane][k];
+                    let scalar_line = &scalar_out[k];
+                    assert_eq!(
+                        simd_line.len(),
+                        scalar_line.len(),
+                        "{} length mismatch: stock={stock_symbol}, options={:?}",
+                        labels[k],
+                        options
+                    );
+                    for (i, (&sv, &rv)) in simd_line.iter().zip(scalar_line.iter()).enumerate() {
+                        assert!(
+                            sv.is_finite(),
+                            "SIMD by_options {} NaN/Inf at {i}: stock={stock_symbol}",
+                            labels[k]
+                        );
+                        let diff = (sv - rv).abs();
+                        assert!(
+                            diff < 1e-10,
+                            "{} mismatch at {i}: simd={sv}, scalar={rv}, diff={diff:.2e}, \
+                             stock={stock_symbol}, options={:?}",
+                            labels[k],
+                            options
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // SIMD by_assets state continuity
+    // Seed the first FIRST_CHUNK bars with indicator_by_assets, then drive the
+    // remaining bars via each asset's returned IndicatorState.batch_indicator.
+    // The stitched output must match a full scalar run bar-for-bar.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_ichimoku_simd_by_assets_state_continuity() {
+        use tulip_rs::indicators::ichimoku::indicator_by_assets;
+
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        let stock_data: Vec<(String, Vec<f64>, Vec<f64>, Vec<f64>)> = data
+            .iter()
+            .take(4)
+            .map(|(sym, eod)| {
+                let (high, low, close) = get_arrays(eod);
+                (sym.clone(), high, low, close)
+            })
+            .collect();
+
+        for options in OPTIONS_LIST {
+            let first_len = FIRST_CHUNK.min(stock_data[0].1.len());
+
+            let inputs_4: [&[&[f64]; 3]; 4] = [
+                &[
+                    &stock_data[0].1[..first_len],
+                    &stock_data[0].2[..first_len],
+                    &stock_data[0].3[..first_len],
+                ],
+                &[
+                    &stock_data[1].1[..first_len],
+                    &stock_data[1].2[..first_len],
+                    &stock_data[1].3[..first_len],
+                ],
+                &[
+                    &stock_data[2].1[..first_len],
+                    &stock_data[2].2[..first_len],
+                    &stock_data[2].3[..first_len],
+                ],
+                &[
+                    &stock_data[3].1[..first_len],
+                    &stock_data[3].2[..first_len],
+                    &stock_data[3].3[..first_len],
+                ],
+            ];
+
+            let (simd_first, mut states) = indicator_by_assets::<4>(&inputs_4, &options, None)
+                .expect("SIMD by_assets first chunk failed");
+
+            let names = ["conversion", "base", "span_a", "span_b"];
+            for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
+                // Full scalar reference
+                let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+                let (full_out, _) =
+                    rust_ichimoku(&inputs, &options, None).expect("scalar full run failed");
+
+                // Stitch: SIMD first chunk + batch_indicator for the rest
+                let mut combined: Vec<Vec<f64>> =
+                    (0..4).map(|k| simd_first[asset_idx][k].clone()).collect();
+
+                let rem_high = &high[first_len..];
+                let rem_low = &low[first_len..];
+                let rem_close = &close[first_len..];
+
+                if !rem_high.is_empty() {
+                    let batch_out = states[asset_idx]
+                        .batch_indicator(&[rem_high, rem_low, rem_close], None)
+                        .expect("batch_indicator failed");
+                    for k in 0..4 {
+                        combined[k].extend_from_slice(&batch_out[k]);
+                    }
+                }
+
+                for k in 0..4 {
+                    let full_line = &full_out[k];
+                    let combined_line = &combined[k];
+                    assert_eq!(
+                        combined_line.len(),
+                        full_line.len(),
+                        "{} length mismatch: stock={stock_symbol}, options={:?}",
+                        names[k],
+                        options
+                    );
+                    for (i, (&cv, &fv)) in combined_line.iter().zip(full_line.iter()).enumerate() {
+                        assert!(
+                            cv.is_finite(),
+                            "combined {} NaN/Inf at {i}: stock={stock_symbol}",
+                            names[k]
+                        );
+                        let diff = (cv - fv).abs();
+                        assert!(
+                            diff < 1e-10,
+                            "{} mismatch at {i}: combined={cv}, full={fv}, diff={diff:.2e}, \
+                             stock={stock_symbol}, options={:?}",
+                            names[k],
+                            options
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // SIMD by_options state continuity
+    // Seed the first FIRST_CHUNK bars with indicator_by_options, then drive the
+    // remaining bars via each lane's returned IndicatorState.batch_indicator.
+    // The stitched output must match a full scalar run bar-for-bar per lane.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_ichimoku_simd_by_options_state_continuity() {
+        use tulip_rs::indicators::ichimoku::indicator_by_options;
+
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        let options_4: [&[f64; 2]; 4] = [&[9.0, 26.0], &[7.0, 22.0], &[5.0, 15.0], &[14.0, 45.0]];
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_arrays(stock_data);
+            let first_len = FIRST_CHUNK.min(high.len());
+
+            let seed_inputs = [
+                &high[..first_len] as &[f64],
+                &low[..first_len],
+                &close[..first_len],
+            ];
+
+            let (simd_first, mut states) =
+                indicator_by_options::<4>(&seed_inputs, &options_4, None)
+                    .expect("SIMD by_options first chunk failed");
+
+            let names = ["conversion", "base", "span_a", "span_b"];
+            let rem_high = &high[first_len..];
+            let rem_low = &low[first_len..];
+            let rem_close = &close[first_len..];
+
+            for (lane, &options) in options_4.iter().enumerate() {
+                // Full scalar reference for this option set
+                let full_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+                let (full_out, _) =
+                    rust_ichimoku(&full_inputs, options, None).expect("scalar full run failed");
+
+                // Stitch: SIMD first chunk + batch_indicator for the rest
+                let mut combined: Vec<Vec<f64>> =
+                    (0..4).map(|k| simd_first[lane][k].clone()).collect();
+
+                if !rem_high.is_empty() {
+                    let batch_out = states[lane]
+                        .batch_indicator(&[rem_high, rem_low, rem_close], None)
+                        .expect("batch_indicator failed");
+                    for k in 0..4 {
+                        combined[k].extend_from_slice(&batch_out[k]);
+                    }
+                }
+
+                for k in 0..4 {
+                    let full_line = &full_out[k];
+                    let combined_line = &combined[k];
+                    assert_eq!(
+                        combined_line.len(),
+                        full_line.len(),
+                        "{} length mismatch: stock={stock_symbol}, options={:?}",
+                        names[k],
+                        options
+                    );
+                    for (i, (&cv, &fv)) in combined_line.iter().zip(full_line.iter()).enumerate() {
+                        assert!(
+                            cv.is_finite(),
+                            "combined {} NaN/Inf at {i}: stock={stock_symbol}, lane={lane}",
+                            names[k]
+                        );
+                        let diff = (cv - fv).abs();
+                        assert!(
+                            diff < 1e-10,
+                            "{} mismatch at {i}: combined={cv}, full={fv}, diff={diff:.2e}, \
+                             stock={stock_symbol}, options={:?}",
+                            names[k],
+                            options
+                        );
                     }
                 }
             }

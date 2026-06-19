@@ -46,6 +46,7 @@ pub mod highpass_simd;
 pub mod hilberttransform_simd;
 pub mod hma_simd;
 pub mod homodynediscriminator_simd;
+pub mod ichimoku_simd;
 pub mod instantaneoustrendline_simd;
 pub mod kama_simd;
 pub mod keltnerchannel_simd;

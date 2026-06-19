@@ -40,6 +40,7 @@ pub mod highpass;
 pub mod hilberttransform;
 pub mod hma;
 pub mod homodynediscriminator;
+pub mod ichimoku;
 pub mod instantaneoustrendline;
 pub mod kama;
 pub mod keltnerchannel;

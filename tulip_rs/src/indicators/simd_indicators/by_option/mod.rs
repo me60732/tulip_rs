@@ -33,6 +33,7 @@ pub mod fosc;
 pub mod highpass;
 pub mod hilberttransform;
 pub mod hma;
+pub mod ichimoku;
 pub mod kama;
 pub mod keltnerchannel;
 pub mod kvo;
