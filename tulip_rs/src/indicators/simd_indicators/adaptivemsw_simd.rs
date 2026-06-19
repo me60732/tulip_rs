@@ -84,12 +84,13 @@ impl<const N: usize> SimdState<N> {
         for j in 0..N {
             self.price_bufs[j].push(real_arr[j]);
             let period = ((dc_arr[j] + 0.5) as usize).clamp(6, self.price_bufs[j].len().min(50));
-            let multiplier = msw::multiplier(period);
-
-            // get_slice_by_period returns &view[count-period..count]: oldest-first,
-            // contiguous — no stack copy or reversal needed.
-            let (sine, lead) =
-                msw::calc::<8>(self.price_bufs[j].get_slice_by_period(period), multiplier);
+            let (cos_tw, sin_tw) = msw::twiddles_for_period(period);
+            let (rp, ip) = msw::dot_product_simd::<8>(
+                self.price_bufs[j].get_slice_by_period(period),
+                cos_tw,
+                sin_tw,
+            );
+            let (sine, lead) = msw::phase_from_rp_ip(rp, ip);
             sine_arr[j] = sine;
             lead_arr[j] = lead;
         }

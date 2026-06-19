@@ -326,10 +326,8 @@ fn bench_rust_msw_from_state(c: &mut Criterion) {
                 let (_, mut state) =
                     indicator(&new_inputs, &options, None).expect("Rust MSW indicator failed");
 
-                let mut group = c.benchmark_group(format!(
-                    "Rust MSW from state 1 bar {{ {:.1} }}",
-                    options[0]
-                ));
+                let mut group =
+                    c.benchmark_group(format!("Rust MSW from state 1 bar {{ {:.1} }}", options[0]));
                 group.sample_size(SAMPLE_SIZE);
                 group.bench_function("benchmark", |b| {
                     b.iter(|| {
@@ -345,27 +343,24 @@ fn bench_rust_msw_from_state(c: &mut Criterion) {
     }
 }
 
-/// Benchmark the Rust SIMD by assets implementation of MSW.
+/// Benchmark SIMD by_assets — 4 assets processed in parallel.
 fn bench_rust_msw_simd_by_assets(c: &mut Criterion) {
     if should_log_to_db() {
         init_database_data();
         init_logging("msw");
 
         let data = get_all_stock_data().unwrap();
-
-        // Get first 4 stocks' data
         let stock_data: Vec<(String, Vec<f64>)> = data
             .iter()
             .take(4)
-            .map(|(symbol, data)| (symbol.clone(), get_close_array(data)))
+            .map(|(sym, eod)| (sym.clone(), get_close_array(eod)))
             .collect();
 
-        // Prepare inputs in the format expected by indicator_by_assets
         let inputs: [&[&[f64]; 1]; 4] = [
-            &[&stock_data[0].1], // close
-            &[&stock_data[1].1], // close
-            &[&stock_data[2].1], // close
-            &[&stock_data[3].1], // close
+            &[&stock_data[0].1],
+            &[&stock_data[1].1],
+            &[&stock_data[2].1],
+            &[&stock_data[3].1],
         ];
 
         for options in OPTIONS_LIST {
@@ -373,12 +368,11 @@ fn bench_rust_msw_simd_by_assets(c: &mut Criterion) {
             timing.measure(
                 || {
                     let result = indicator_by_assets::<4>(&inputs, &options, None)
-                        .expect("Rust SIMD by assets MSW indicator failed");
+                        .expect("SIMD by_assets MSW failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
             );
-
             log_timing_result(
                 "msw",
                 "Rust_SIMD_by_assets",
@@ -389,10 +383,7 @@ fn bench_rust_msw_simd_by_assets(c: &mut Criterion) {
             );
         }
     } else {
-        // Run Criterion benchmark with synthetic data
         let close_vec = expand_inputs();
-
-        // Create 4 identical datasets for SIMD processing
         let inputs: [&[&[f64]; 1]; 4] =
             [&[&close_vec], &[&close_vec], &[&close_vec], &[&close_vec]];
 
@@ -400,11 +391,11 @@ fn bench_rust_msw_simd_by_assets(c: &mut Criterion) {
             let mut group = c.benchmark_group("msw_rust_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
-                format!("Rust SIMD by assets MSW {{ {} }}", options[0]),
+                format!("Rust SIMD by_assets MSW {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
                         let result = indicator_by_assets::<4>(&inputs, &options, None)
-                            .expect("Rust SIMD by assets MSW indicator failed");
+                            .expect("SIMD by_assets MSW failed");
                         black_box(&result);
                     });
                 },
@@ -414,9 +405,9 @@ fn bench_rust_msw_simd_by_assets(c: &mut Criterion) {
     }
 }
 
-/// Benchmark the Rust SIMD by options implementation of MSW.
+/// Benchmark SIMD by_options — 4 option periods processed in parallel on one asset.
 fn bench_rust_msw_simd_by_options(c: &mut Criterion) {
-    let options_4 = [
+    let options_4: [&[f64; 1]; 4] = [
         &OPTIONS_LIST[0],
         &OPTIONS_LIST[1],
         &OPTIONS_LIST[2],
@@ -428,45 +419,39 @@ fn bench_rust_msw_simd_by_options(c: &mut Criterion) {
         init_logging("msw");
 
         let data = get_all_stock_data().unwrap();
-
         for (stock_symbol, stock_data) in data {
-            let close_vec = get_close_array(stock_data);
-            let inputs = [close_vec.as_slice()];
+            let close = get_close_array(stock_data);
+            let inputs = [close.as_slice()];
 
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    // Process all 4 options with 4-wide SIMD
                     let result = indicator_by_options::<4>(&inputs, &options_4, None)
-                        .expect("Rust SIMD MSW 4-wide failed");
+                        .expect("SIMD by_options MSW failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
             );
-
             log_timing_result(
                 "msw",
                 "Rust_SIMD",
                 &[0.0],
-                close_vec.len(),
+                close.len(),
                 &timing,
                 Some(stock_symbol),
             );
         }
     } else {
-        // Run Criterion benchmark with synthetic data
         let close_vec = expand_inputs();
         let inputs = [close_vec.as_slice()];
 
         let mut group = c.benchmark_group("msw_rust_simd_by_options");
         group.sample_size(SAMPLE_SIZE);
-        group.bench_function("Rust SIMD by options MSW (4 lanes)", |b| {
+        group.bench_function("Rust SIMD by_options MSW (4 lanes)", |b| {
             b.iter(|| {
-                // Process all 4 options with 4-wide SIMD
-                let _ = indicator_by_options::<4>(&inputs, &options_4, None)
-                    .expect("Rust SIMD MSW 4-wide failed");
-
-                black_box(());
+                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    .expect("SIMD by_options MSW failed");
+                black_box(&result);
             });
         });
         group.finish();
@@ -480,5 +465,6 @@ criterion_group!(
     bench_rust_msw,
     bench_c_msw,
     bench_rust_msw_from_state,
+    
 );
 criterion_main!(benches);

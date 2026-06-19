@@ -345,7 +345,3 @@ pub(crate) fn init_calc(high: f64, low: f64, prev_close: f64, atr: f64) -> (f64,
     (atr + tr, tr)
 }
 
-/*#[inline(always)]
-pub fn multiplier(period: usize) -> (f64, f64) {
-    wilders_multiplier(period)
-}*/

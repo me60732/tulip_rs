@@ -1,571 +1,539 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::msw::{indicator as rust_msw, min_data, TIndicatorState};
+    use tulip_rs::indicators::msw::
+        {indicator as new_msw, indicator_by_assets, indicator_by_options, min_data, TIndicatorState};
     use tulip_test::c_bindings::{ti_msw, ti_msw_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
     const CHUNK_SIZE: usize = 100;
-    const EPSILON: f64 = 1e-3;
+    const FIRST_CHUNK: usize = 1000;
+    /// SIMD trig (simd_atan/simd_sin) vs scalar — small rounding differences are expected.
+    const EPSILON_SIMD: f64 = 1e-3;
+    /// Fine epsilon for streaming vs full-run comparison (both use the same SDFT).
+    const EPSILON_STREAM: f64 = 1e-10;
+    /// Looser epsilon for comparison against the C reference (different float ops).
+    const EPSILON_C: f64 = 1e-3;
+
     const CLOSE: [f64; 15] = [
         81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89,
         87.77, 87.29,
     ];
 
+    // Standard periods — same as msw_test.rs.
     const OPTIONS_LIST: [[f64; 1]; 4] = [[5.0], [10.0], [14.0], [20.0]];
 
-    /// Expand the sample input data by repeating it.
-    /// Adjust the number of repetitions to give the test enough work.
-    fn expand_close() -> Vec<f64> {
-        let mut close_vec = CLOSE.to_vec();
-        for _ in 0..3 {
-            close_vec.extend_from_slice(&CLOSE);
+    // Extended list: periods 9 and 25 were incorrect in the old implementation due
+    // to the simd_remainder_dispatch! base-case bug (remainder = 1 element after
+    // N=8 chunks). new_msw fixes this; these should now agree with the C reference.
+    const OPTIONS_LIST_BUG_PERIODS: [[f64; 1]; 3] = [[9.0], [17.0], [25.0]];
+
+    fn expand_close(reps: usize) -> Vec<f64> {
+        let mut v = CLOSE.to_vec();
+        for _ in 0..reps {
+            v.extend_from_slice(&CLOSE);
         }
-        close_vec
-    }
-
-    #[test]
-    fn test_msw_indicator() {
-        // Use the same input data as in the benchmarks
-        let close = expand_close();
-
-        for options in OPTIONS_LIST {
-            // Prepare inputs for the C implementation
-            let inputs_c: Vec<*const f64> = vec![close.as_ptr()];
-
-            // Determine the offset required by the C MSW function
-            let start_index = unsafe { ti_msw_start(options.as_ptr()) };
-            assert!(start_index >= 0, "ti_msw_start returned a negative index");
-            let output_len_c = close.len() - (start_index as usize);
-
-            // Run the C implementation
-            let mut sine_output_vec_c = vec![0.0_f64; output_len_c];
-            let mut lead_output_vec_c = vec![0.0_f64; output_len_c];
-            let sine_ptr: *mut f64 = sine_output_vec_c.as_mut_ptr();
-            let lead_ptr: *mut f64 = lead_output_vec_c.as_mut_ptr();
-            let mut outputs_c: Vec<*mut f64> = vec![sine_ptr, lead_ptr];
-            let ret = unsafe {
-                ti_msw(
-                    close.len() as i32,
-                    inputs_c.as_ptr(),
-                    options.as_ptr(),
-                    outputs_c.as_mut_ptr(),
-                )
-            };
-            assert_eq!(ret, 0, "ti_msw returned error code {}", ret);
-
-            // Run the Rust implementation
-            let inputs_rust = [close.as_slice()];
-            let (indicators, _) =
-                rust_msw(&inputs_rust, &options, None).expect("Rust MSW indicator failed");
-
-            let output_len_rust = indicators[0].len();
-
-            // Compare the Sine outputs in reverse
-            for (i, (&c_val, &rust_val)) in sine_output_vec_c
-                .iter()
-                .rev()
-                .take(output_len_rust)
-                .zip(indicators[0].iter().rev())
-                .enumerate()
-            {
-                let index = output_len_rust - i - 1;
-
-                // Fail test if Rust has NaN
-                if rust_val.is_nan() {
-                    panic!(
-                        "Rust MSW_SINE has NaN at index {}: Rust = {}, Options = {:?}",
-                        index, rust_val, options
-                    );
-                }
-
-                // Fail test if Rust has infinity
-                if rust_val.is_infinite() {
-                    panic!(
-                        "Rust MSW has infinity at index {}: Rust = {}",
-                        index, rust_val
-                    );
-                }
-
-                // Skip if only C has NaN (C bug)
-                if c_val.is_nan() && !rust_val.is_nan() {
-                    continue;
-                }
-
-                // Skip if only C has infinity (C bug)
-                if c_val.is_infinite() && !rust_val.is_infinite() {
-                    continue;
-                }
-
-                if !approx_eq!(f64, c_val, rust_val, epsilon = EPSILON) {
-                    // Adjust epsilon if needed
-                    /*println!(
-                        "Test failed at index {}: \nC Sine = {:?}, \nRust Sine = {:?}, Options = {:?}",
-                        index, sine_output_vec_c, indicators[0], options
-                    );*/
-                    panic!(
-                        "Mismatch at index {}: C Sine = {}, Rust Sine = {}, Options = {:?}",
-                        index, c_val, rust_val, options
-                    );
-                }
-            }
-
-            // Compare the Lead outputs in reverse
-            for (i, (&c_val, &rust_val)) in lead_output_vec_c
-                .iter()
-                .rev()
-                .take(output_len_rust)
-                .zip(indicators[1].iter().rev())
-                .enumerate()
-            {
-                let index = output_len_rust - i - 1;
-
-                // Fail test if Rust has NaN
-                if rust_val.is_nan() {
-                    panic!(
-                        "Rust MSW_LEAD has NaN at index {}: Rust = {}, Options = {:?}",
-                        index, rust_val, options
-                    );
-                }
-
-                // Fail test if Rust has infinity
-                if rust_val.is_infinite() {
-                    panic!(
-                        "Rust MSW has infinity at index {}: Rust = {}",
-                        index, rust_val
-                    );
-                }
-
-                // Skip if only C has NaN (C bug)
-                if c_val.is_nan() && !rust_val.is_nan() {
-                    continue;
-                }
-
-                // Skip if only C has infinity (C bug)
-                if c_val.is_infinite() && !rust_val.is_infinite() {
-                    continue;
-                }
-
-                if !approx_eq!(f64, c_val, rust_val, epsilon = EPSILON) {
-                    // Adjust epsilon if needed
-                    /*println!(
-                        "Test failed at index {}: \nC Lead = {:?}, \nRust Lead = {:?}, Options = {:?}",
-                        index, lead_output_vec_c, indicators[1], options
-                    );*/
-                    panic!(
-                        "Mismatch at index {}: C Lead = {}, Rust Lead = {}, Options = {:?}",
-                        index, c_val, rust_val, options
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_msw_database() {
-        init_database_data();
-        let data = get_all_stock_data().unwrap();
-        for (stock_symbol, stock_data) in data {
-            let close = get_close_array(stock_data);
-
-            for options in OPTIONS_LIST {
-                // C implementation
-                let inputs_c: Vec<*const f64> = vec![close.as_ptr()];
-
-                let start_index = unsafe { ti_msw_start(options.as_ptr()) };
-                assert!(start_index >= 0, "ti_msw_start returned a negative index");
-                let output_len_c = close.len() - (start_index as usize);
-
-                let mut sine_output_vec_c = vec![0.0_f64; output_len_c];
-                let mut lead_output_vec_c = vec![0.0_f64; output_len_c];
-                let sine_ptr: *mut f64 = sine_output_vec_c.as_mut_ptr();
-                let lead_ptr: *mut f64 = lead_output_vec_c.as_mut_ptr();
-                let mut outputs_c: Vec<*mut f64> = vec![sine_ptr, lead_ptr];
-                let ret = unsafe {
-                    ti_msw(
-                        close.len() as i32,
-                        inputs_c.as_ptr(),
-                        options.as_ptr(),
-                        outputs_c.as_mut_ptr(),
-                    )
-                };
-                assert_eq!(ret, 0, "ti_msw returned error code {}", ret);
-
-                // Rust implementation
-                let inputs_rust = [close.as_slice()];
-                let (indicators, _) =
-                    rust_msw(&inputs_rust, &options, None).expect("Rust MSW indicator failed");
-
-                let output_len_rust = indicators[0].len();
-
-                // Compare Sine outputs
-                for (i, (&c_val, &rust_val)) in sine_output_vec_c
-                    .iter()
-                    .rev()
-                    .take(output_len_rust)
-                    .zip(indicators[0].iter().rev())
-                    .enumerate()
-                {
-                    let index = output_len_rust - i - 1;
-
-                    // Fail test if Rust has NaN
-                    if rust_val.is_nan() {
-                        panic!(
-                            "Rust MSW_SINE has NaN at index {}: Rust = {}, Options = {:?}, Stock: {}",
-                            index, rust_val, options, stock_symbol
-                        );
-                    }
-
-                    // Skip if only C has NaN (C bug)
-                    if c_val.is_nan() && !rust_val.is_nan() {
-                        continue;
-                    }
-
-                    if !approx_eq!(f64, c_val, rust_val, epsilon = EPSILON) {
-                        /*println!(
-                            "Test failed at index {}: \nC Sine = {:?}, \n\nRust Sine = {:?}, Options = {:?}, Stock: {}",
-                            index, sine_output_vec_c, indicators[0], options, stock_symbol
-                        );*/
-                        panic!(
-                            "Sine mismatch at index {}: C = {}, Rust = {}, Options = {:?}",
-                            index, c_val, rust_val, options
-                        );
-                    }
-                }
-
-                // Compare Lead outputs
-                for (i, (&c_val, &rust_val)) in lead_output_vec_c
-                    .iter()
-                    .rev()
-                    .take(output_len_rust)
-                    .zip(indicators[1].iter().rev())
-                    .enumerate()
-                {
-                    let index = output_len_rust - i - 1;
-
-                    // Fail test if Rust has NaN
-                    if rust_val.is_nan() {
-                        panic!(
-                            "Rust MSW_LEAD has NaN at index {}: Rust = {}, Options = {:?}, Stock: {}",
-                            index, rust_val, options, stock_symbol
-                        );
-                    }
-
-                    // Skip if only C has NaN (C bug)
-                    if c_val.is_nan() && !rust_val.is_nan() {
-                        continue;
-                    }
-
-                    if !approx_eq!(f64, c_val, rust_val, epsilon = EPSILON) {
-                        /*println!(
-                            "Test failed at index {}: \nC Lead = {:?}, \n\nRust Lead = {:?}, Options = {:?}, Stock: {}",
-                            index, lead_output_vec_c, indicators[1], options, stock_symbol
-                        );*/
-                        panic!(
-                            "Lead mismatch at index {}: C = {}, Rust = {}, Options = {:?}",
-                            index, c_val, rust_val, options
-                        );
-                    }
-                }
-            }
-        }
+        v
     }
 
     fn get_close_array(stock_data: &[tulip_test::database::EodData]) -> Vec<f64> {
         stock_data.iter().map(|d| d.close).collect()
     }
 
-    #[test]
-    fn test_msw_database_state() {
-        init_database_data();
-        let data = get_all_stock_data().unwrap();
-        for (stock_symbol, stock_data) in data {
-            let close = get_close_array(stock_data);
-            let inputs_rust = [close.as_slice()];
+    // ── Helper: compare new_msw vs C reference ────────────────────────────────
 
-            for options in OPTIONS_LIST {
-                // Get full output
-                let (full_outputs, _) = rust_msw(&inputs_rust, &options, None)
-                    .expect("Failed to run MSW indicator on full data");
+    fn compare_vs_c(close: &[f64], options: &[f64; 1], label: &str) {
+        // C reference
+        let inputs_c: Vec<*const f64> = vec![close.as_ptr()];
+        let start_index = unsafe { ti_msw_start(options.as_ptr()) };
+        assert!(start_index >= 0);
+        let output_len_c = close.len() - start_index as usize;
 
-                // Process in batches
-                let mut batch_full_outputs = vec![Vec::new(); full_outputs.len()];
+        let mut sine_c = vec![0.0f64; output_len_c];
+        let mut lead_c = vec![0.0f64; output_len_c];
+        let mut out_ptrs: Vec<*mut f64> = vec![sine_c.as_mut_ptr(), lead_c.as_mut_ptr()];
+        let ret = unsafe {
+            ti_msw(
+                close.len() as i32,
+                inputs_c.as_ptr(),
+                options.as_ptr(),
+                out_ptrs.as_mut_ptr(),
+            )
+        };
+        assert_eq!(ret, 0, "ti_msw returned error {ret}");
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+        // new_msw
+        let inputs = [close];
+        let (rust_out, _) = new_msw(&inputs, options, None).expect("new_msw failed");
+        let n = rust_out[0].len();
 
-                // First chunk - convert to Vec<&Vec<f64>>
-                let close_vec = close[..min_data_val].to_vec();
-                let chunk_inputs = [close_vec.as_slice()];
-
-                let (first_outputs, mut state) = rust_msw(&chunk_inputs, &options, None)
-                    .expect("Failed to run MSW indicator on first chunk");
-                for output_idx in 0..first_outputs.len() {
-                    batch_full_outputs[output_idx].extend_from_slice(&first_outputs[output_idx]);
+        for (name, c_vals, rust_vals) in [
+            ("sine", &sine_c, &rust_out[0]),
+            ("lead", &lead_c, &rust_out[1]),
+        ] {
+            for (i, (&c_val, &rust_val)) in c_vals
+                .iter()
+                .rev()
+                .take(n)
+                .zip(rust_vals.iter().rev())
+                .enumerate()
+            {
+                let idx = n - i - 1;
+                assert!(
+                    !rust_val.is_nan(),
+                    "{label} {name}[{idx}] is NaN (options={options:?})"
+                );
+                assert!(!rust_val.is_infinite(), "{label} {name}[{idx}] is infinite");
+                if c_val.is_nan() || c_val.is_infinite() {
+                    continue; // skip known C edge-case artefacts
                 }
-
-                // Process remaining data in chunks using state
-                let mut close_chunks = close[min_data_val..].chunks_exact(CHUNK_SIZE);
-
-                for close_chunk in close_chunks.by_ref() {
-                    let close_vec = close_chunk.to_vec();
-                    let chunk_inputs = [close_vec.as_slice()];
-                    let chunk_outputs = state
-                        .batch_indicator(&chunk_inputs, None)
-                        .expect("MSW batch indicator failed");
-                    for output_idx in 0..chunk_outputs.len() {
-                        batch_full_outputs[output_idx]
-                            .extend_from_slice(&chunk_outputs[output_idx]);
-                    }
-                }
-
-                // Process remainder if any
-                let close_rem = close_chunks.remainder();
-                if !close_rem.is_empty() {
-                    let close_vec = close_rem.to_vec();
-                    let chunk_inputs = [close_vec.as_slice()];
-                    let chunk_outputs = state
-                        .batch_indicator(&chunk_inputs, None)
-                        .expect("MSW batch indicator failed");
-                    for output_idx in 0..chunk_outputs.len() {
-                        batch_full_outputs[output_idx]
-                            .extend_from_slice(&chunk_outputs[output_idx]);
-                    }
-                }
-
-                // Compare all outputs
-                for output_idx in 0..full_outputs.len() {
-                    assert_eq!(
-                        full_outputs[output_idx].len(),
-                        batch_full_outputs[output_idx].len(),
-                        "Output {} length mismatch for stock {} with options {:?}: full={}, batch={}",
-                        output_idx,
-                        stock_symbol,
-                        options,
-                        full_outputs[output_idx].len(),
-                        batch_full_outputs[output_idx].len()
-                    );
-
-                    for (i, (&full_val, &batch_val)) in full_outputs[output_idx]
-                        .iter()
-                        .zip(batch_full_outputs[output_idx].iter())
-                        .enumerate()
-                    {
-                        if !approx_eq!(f64, full_val, batch_val, epsilon = EPSILON) {
-                            panic!(
-                                "Mismatch in MSW output {} at index {}: full = {}, batch = {}, Stock: {}, Options: {:?}",
-                                output_idx, i, full_val, batch_val, stock_symbol, options
-                            );
-                        }
-                    }
-                }
+                assert!(
+                    approx_eq!(f64, c_val, rust_val, epsilon = EPSILON_C),
+                    "{label} {name}[{idx}]: C={c_val}, new_msw={rust_val}, options={options:?}"
+                );
             }
         }
     }
 
-    #[test]
-    fn test_msw_simd_by_assets() {
-        use tulip_rs::indicators::msw::indicator_by_assets;
+    // ── Helper: compare streaming vs full run ─────────────────────────────────
 
+    fn compare_streaming_vs_full(close: &[f64], options: &[f64; 1], label: &str) {
+        let inputs = [close];
+        let (full_out, _) = new_msw(&inputs, options, None).expect("new_msw full run failed");
+
+        // First chunk — capped at close.len() so short test data doesn't panic.
+        let first_len = min_data(options).max(CHUNK_SIZE).min(close.len());
+        let (first_out, mut state) =
+            new_msw(&[&close[..first_len]], options, None).expect("new_msw first chunk failed");
+
+        let mut batch_out = vec![first_out[0].clone(), first_out[1].clone()];
+
+        // Remaining chunks
+        let mut remaining = close[first_len..].chunks_exact(CHUNK_SIZE);
+        for chunk in remaining.by_ref() {
+            let chunk_out = state
+                .batch_indicator(&[chunk], None)
+                .expect("batch_indicator failed");
+            batch_out[0].extend_from_slice(&chunk_out[0]);
+            batch_out[1].extend_from_slice(&chunk_out[1]);
+        }
+        let rem = remaining.remainder();
+        if !rem.is_empty() {
+            let chunk_out = state
+                .batch_indicator(&[rem], None)
+                .expect("batch_indicator remainder failed");
+            batch_out[0].extend_from_slice(&chunk_out[0]);
+            batch_out[1].extend_from_slice(&chunk_out[1]);
+        }
+
+        for (name, full_vals, batch_vals) in [
+            ("sine", &full_out[0], &batch_out[0]),
+            ("lead", &full_out[1], &batch_out[1]),
+        ] {
+            assert_eq!(
+                full_vals.len(),
+                batch_vals.len(),
+                "{label} {name} length mismatch: full={}, batch={} (options={options:?})",
+                full_vals.len(),
+                batch_vals.len(),
+            );
+            for (i, (&fv, &bv)) in full_vals.iter().zip(batch_vals.iter()).enumerate() {
+                assert!(
+                    approx_eq!(f64, fv, bv, epsilon = EPSILON_STREAM),
+                    "{label} {name}[{i}]: full={fv}, batch={bv}, options={options:?}"
+                );
+            }
+        }
+    }
+
+    // ── Tests ─────────────────────────────────────────────────────────────────
+
+    /// Correctness against C reference — standard periods, synthetic data.
+    #[test]
+    fn test_new_msw_vs_c_sample() {
+        let close = expand_close(3);
+        for options in OPTIONS_LIST {
+            compare_vs_c(&close, &options, "sample");
+        }
+    }
+
+    /// Correctness for the periods that were buggy in the old implementation
+    /// (simd_remainder_dispatch! base-case error). new_msw should now match C.
+    #[test]
+    fn test_new_msw_vs_c_previously_bugged_periods() {
+        let close = expand_close(3);
+        for options in OPTIONS_LIST_BUG_PERIODS {
+            compare_vs_c(&close, &options, "bug-period");
+        }
+    }
+
+    /// Correctness against C reference — full database stocks, standard periods.
+    #[test]
+    fn test_new_msw_database_vs_c() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+        for (symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            for options in OPTIONS_LIST {
+                compare_vs_c(&close, &options, symbol);
+            }
+        }
+        println!("✓ new_msw vs C: all database stocks passed");
+    }
+
+    /// Correctness against C — database stocks with previously-bugged periods.
+    #[test]
+    fn test_new_msw_database_vs_c_bug_periods() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+        for (symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            for options in OPTIONS_LIST_BUG_PERIODS {
+                compare_vs_c(&close, &options, symbol);
+            }
+        }
+        println!("✓ new_msw vs C: bug-period database tests passed");
+    }
+
+    /// Streaming continuity — batch_indicator must produce output identical to a
+    /// single full indicator() call (same SDFT path, so epsilon is very tight).
+    #[test]
+    fn test_new_msw_streaming_sample() {
+        let close = expand_close(15); // 15 reps = 240 bars — well above CHUNK_SIZE
+        for options in OPTIONS_LIST {
+            compare_streaming_vs_full(&close, &options, "sample");
+        }
+    }
+
+    /// Streaming continuity on full database stocks.
+    #[test]
+    fn test_new_msw_streaming_database() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+        for (symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            for options in OPTIONS_LIST {
+                compare_streaming_vs_full(&close, &options, symbol);
+            }
+        }
+        println!("✓ new_msw streaming: all database stocks passed");
+    }
+
+    /// SDFT numerical-stability test — processes a long synthetic series in
+    /// streaming mode and compares the result to a single full indicator() call.
+    ///
+    /// The re-anchor interval is 50 000 bars; this test exercises ~7 re-anchors
+    /// to confirm they do not introduce discontinuities.
+    #[test]
+    fn test_new_msw_sdft_long_run_stability() {
+        // Generate ~360 000 bars by tiling the CLOSE sample.
+        const REPS: usize = 24_000; // 24 000 × 15 = 360 000 bars
+        let close = expand_close(REPS);
+
+        for options in [[20.0f64], [50.0f64]] {
+            let inputs = [close.as_slice()];
+
+            // Reference: single full run (SDFT from bar 0).
+            let (full_out, _) = new_msw(&inputs, &options, None).expect("full run failed");
+
+            // Streaming: first min_data bars, then CHUNK_SIZE at a time.
+            let first_len = min_data(&options).max(CHUNK_SIZE);
+            let (first_out, mut state) =
+                new_msw(&[&close[..first_len]], &options, None).expect("first chunk failed");
+
+            let mut batch_sine = first_out[0].clone();
+            let mut batch_lead = first_out[1].clone();
+
+            let mut chunks = close[first_len..].chunks_exact(CHUNK_SIZE);
+            for chunk in chunks.by_ref() {
+                let out = state.batch_indicator(&[chunk], None).unwrap();
+                batch_sine.extend_from_slice(&out[0]);
+                batch_lead.extend_from_slice(&out[1]);
+            }
+            let rem = chunks.remainder();
+            if !rem.is_empty() {
+                let out = state.batch_indicator(&[rem], None).unwrap();
+                batch_sine.extend_from_slice(&out[0]);
+                batch_lead.extend_from_slice(&out[1]);
+            }
+
+            // Compare — tight epsilon since both code paths use identical SDFT.
+            assert_eq!(full_out[0].len(), batch_sine.len(), "sine length mismatch");
+            for (i, (&fv, &bv)) in full_out[0].iter().zip(batch_sine.iter()).enumerate() {
+                assert!(
+                    approx_eq!(f64, fv, bv, epsilon = EPSILON_STREAM),
+                    "sine[{i}] drift after long run: full={fv}, batch={bv}, options={options:?}"
+                );
+            }
+            for (i, (&fv, &bv)) in full_out[1].iter().zip(batch_lead.iter()).enumerate() {
+                assert!(
+                    approx_eq!(f64, fv, bv, epsilon = EPSILON_STREAM),
+                    "lead[{i}] drift after long run: full={fv}, batch={bv}, options={options:?}"
+                );
+            }
+
+            println!(
+                "✓ SDFT stability: {} bars, period={:.0}, max drift < {EPSILON_STREAM}",
+                close.len(),
+                options[0]
+            );
+        }
+    }
+
+    // ── SIMD by_assets vs scalar ──────────────────────────────────────────────
+
+    /// SIMD by_assets output must match scalar indicator output within EPSILON_SIMD
+    /// for each asset. Uses the first 4 database stocks and OPTIONS_LIST[0] (period=5).
+    #[test]
+    fn test_msw_simd_by_assets_vs_scalar() {
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
-        // Get first 4 stocks' data
         let stock_data: Vec<(String, Vec<f64>)> = data
             .iter()
             .take(4)
-            .map(|(symbol, data)| (symbol.clone(), get_close_array(data)))
+            .map(|(sym, eod)| (sym.clone(), get_close_array(eod)))
             .collect();
 
-        // Prepare inputs in the format expected by indicator_by_assets
-        let inputs: [&[&[f64]; 1]; 4] = [
-            &[&stock_data[0].1], // close
-            &[&stock_data[1].1], // close
-            &[&stock_data[2].1], // close
-            &[&stock_data[3].1], // close
+        let inputs_4: [&[&[f64]; 1]; 4] = [
+            &[&stock_data[0].1],
+            &[&stock_data[1].1],
+            &[&stock_data[2].1],
+            &[&stock_data[3].1],
         ];
 
         for options in OPTIONS_LIST {
-            // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
-                .expect("SIMD by assets MSW indicator failed");
+            let (simd_results, _) =
+                indicator_by_assets::<4>(&inputs_4, &options, None)
+                    .expect("SIMD by_assets failed");
 
-            // Compare each SIMD result with regular indicator for each stock
-            for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
-                // Get regular indicator result for this stock
-                let stock_inputs = [stock_close.as_slice()];
-                let (regular_results, _) =
-                    rust_msw(&stock_inputs, &options, None).expect("Regular MSW indicator failed");
+            for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
+                let (scalar_out, _) =
+                    new_msw(&[close.as_slice()], &options, None).expect("scalar failed");
 
-                // MSW has 2 outputs: sine and lead
-                for output_idx in 0..2 {
-                    let output_name = if output_idx == 0 { "sine" } else { "lead" };
-                    let simd_result = &simd_results[stock_idx][output_idx];
-                    let regular_result = &regular_results[output_idx];
-
-                    // Compare output lengths
+                for (name, simd_line, scalar_line) in [
+                    ("sine", &simd_results[asset_idx][0], &scalar_out[0]),
+                    ("lead", &simd_results[asset_idx][1], &scalar_out[1]),
+                ] {
                     assert_eq!(
-                        simd_result.len(),
-                        regular_result.len(),
-                        "Output {} ({}) length mismatch for stock {} with options {:?}: SIMD={}, Regular={}",
-                        output_idx,
-                        output_name,
-                        stock_symbol,
-                        options,
-                        simd_result.len(),
-                        regular_result.len()
+                        simd_line.len(),
+                        scalar_line.len(),
+                        "{name} length mismatch: stock={stock_symbol}, options={options:?}"
                     );
-
-                    // Compare each value
-                    for (i, (&simd_val, &regular_val)) in
-                        simd_result.iter().zip(regular_result.iter()).enumerate()
-                    {
-                        // Check for NaN/infinity in SIMD result
-                        if simd_val.is_nan() {
-                            panic!(
-                                "SIMD by assets MSW {} has NaN at index {} for stock {} with options {:?}: SIMD = {}",
-                                output_name, i, stock_symbol, options, simd_val
-                            );
-                        }
-
-                        if simd_val.is_infinite() {
-                            panic!(
-                                "SIMD by assets MSW {} has infinity at index {} for stock {} with options {:?}: SIMD = {}",
-                                output_name, i, stock_symbol, options, simd_val
-                            );
-                        }
-
-                        // Compare values with appropriate epsilon for MSW
-                        if !approx_eq!(f64, simd_val, regular_val, epsilon = EPSILON) {
-                            panic!(
-                                "MSW {} mismatch at index {} for stock {} with options {:?}: SIMD by assets = {}, Regular = {}",
-                                output_name, i, stock_symbol, options, simd_val, regular_val
-                            );
-                        }
+                    for (i, (&sv, &rv)) in simd_line.iter().zip(scalar_line.iter()).enumerate() {
+                        assert!(!sv.is_nan(), "SIMD {name}[{i}] NaN: stock={stock_symbol}");
+                        assert!(!sv.is_infinite(), "SIMD {name}[{i}] Inf: stock={stock_symbol}");
+                        assert!(
+                            approx_eq!(f64, sv, rv, epsilon = EPSILON_SIMD),
+                            "{name}[{i}]: simd={sv}, scalar={rv}, stock={stock_symbol}, options={options:?}"
+                        );
                     }
-
-                    println!(
-                        "✓ SIMD by assets vs Regular test passed for stock {} {} with options {:?}",
-                        stock_symbol, output_name, options
-                    );
                 }
+                println!(
+                    "✓ SIMD by_assets vs scalar passed: {stock_symbol} options={options:?}"
+                );
             }
         }
-
-        println!("✓ All SIMD by assets vs Regular MSW database tests passed!");
+        println!("✓ All SIMD by_assets vs scalar MSW tests passed!");
     }
 
-    #[test]
-    fn test_msw_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::msw::indicator_by_options;
+    // ── SIMD by_assets state continuity ──────────────────────────────────────
 
+    /// SIMD by_assets first chunk + scalar batch_indicator remainder must match
+    /// the full scalar run within EPSILON_SIMD.
+    #[test]
+    fn test_msw_simd_by_assets_state_continuity() {
         init_database_data();
         let data = get_all_stock_data().unwrap();
+
+        let stock_data: Vec<(String, Vec<f64>)> = data
+            .iter()
+            .take(4)
+            .map(|(sym, eod)| (sym.clone(), get_close_array(eod)))
+            .collect();
+
+        for options in OPTIONS_LIST {
+            let inputs_first: [&[&[f64]; 1]; 4] = [
+                &[&stock_data[0].1[..FIRST_CHUNK]],
+                &[&stock_data[1].1[..FIRST_CHUNK]],
+                &[&stock_data[2].1[..FIRST_CHUNK]],
+                &[&stock_data[3].1[..FIRST_CHUNK]],
+            ];
+
+            let (simd_first, mut states) =
+                indicator_by_assets::<4>(&inputs_first, &options, None)
+                    .expect("SIMD by_assets first chunk failed");
+
+            for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
+                let mut batch_sine = simd_first[asset_idx][0].clone();
+                let mut batch_lead = simd_first[asset_idx][1].clone();
+
+                let mut chunks = close[FIRST_CHUNK..].chunks_exact(CHUNK_SIZE);
+                for chunk in chunks.by_ref() {
+                    let out = states[asset_idx]
+                        .batch_indicator(&[chunk], None)
+                        .expect("batch_indicator failed");
+                    batch_sine.extend_from_slice(&out[0]);
+                    batch_lead.extend_from_slice(&out[1]);
+                }
+                let rem = chunks.remainder();
+                if !rem.is_empty() {
+                    let out = states[asset_idx]
+                        .batch_indicator(&[rem], None)
+                        .expect("batch_indicator remainder failed");
+                    batch_sine.extend_from_slice(&out[0]);
+                    batch_lead.extend_from_slice(&out[1]);
+                }
+
+                let (scalar_out, _) =
+                    new_msw(&[close.as_slice()], &options, None).expect("scalar failed");
+
+                for (name, batch_vals, scalar_vals) in [
+                    ("sine", &batch_sine, &scalar_out[0]),
+                    ("lead", &batch_lead, &scalar_out[1]),
+                ] {
+                    assert_eq!(
+                        batch_vals.len(),
+                        scalar_vals.len(),
+                        "{name} length mismatch: stock={stock_symbol}, options={options:?}"
+                    );
+                    for (i, (&bv, &rv)) in batch_vals.iter().zip(scalar_vals.iter()).enumerate() {
+                        assert!(!bv.is_nan(), "{name}[{i}] NaN: stock={stock_symbol}");
+                        assert!(!bv.is_infinite(), "{name}[{i}] Inf: stock={stock_symbol}");
+                        assert!(
+                            approx_eq!(f64, bv, rv, epsilon = EPSILON_SIMD),
+                            "{name}[{i}]: simd+batch={bv}, scalar={rv}, stock={stock_symbol}, options={options:?}"
+                        );
+                    }
+                }
+                println!(
+                    "✓ SIMD by_assets state continuity: {stock_symbol} options={options:?}"
+                );
+            }
+        }
+        println!("✓ All SIMD by_assets state continuity MSW tests passed!");
+    }
+
+    // ── SIMD by_options vs scalar ─────────────────────────────────────────────
+
+    /// SIMD by_options runs all 4 option periods simultaneously; each lane's output
+    /// must match the scalar indicator run for that period.
+    #[test]
+    fn test_msw_simd_by_options_vs_scalar() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        let options_4: [&[f64; 1]; 4] = [
+            &OPTIONS_LIST[0],
+            &OPTIONS_LIST[1],
+            &OPTIONS_LIST[2],
+            &OPTIONS_LIST[3],
+        ];
 
         for (stock_symbol, stock_data) in data {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
-            // Process all 4 options with 4-wide SIMD
-            let options_4 = [
-                &OPTIONS_LIST[0],
-                &OPTIONS_LIST[1],
-                &OPTIONS_LIST[2],
-                &OPTIONS_LIST[3],
-            ];
-            let (all_simd_results, _) = indicator_by_options::<4>(&inputs, &options_4, None)
-                .expect("SIMD MSW 4-wide failed");
+            let (simd_results, _) =
+                indicator_by_options::<4>(&inputs, &options_4, None)
+                    .expect("SIMD by_options failed");
 
-            // Compare each SIMD result with regular indicator
-            for (idx, options) in OPTIONS_LIST.iter().enumerate() {
-                // Get regular indicator result
-                let (regular_results, _) =
-                    rust_msw(&inputs, options, None).expect("Regular MSW indicator failed");
+            for (lane, &options) in options_4.iter().enumerate() {
+                let (scalar_out, _) =
+                    new_msw(&inputs, options, None).expect("scalar failed");
 
-                let simd_sine = &all_simd_results[idx][0];
-                let simd_lead = &all_simd_results[idx][1];
-                let regular_sine = &regular_results[0];
-                let regular_lead = &regular_results[1];
-
-                // Compare sine output lengths
-                assert_eq!(
-                    simd_sine.len(),
-                    regular_sine.len(),
-                    "Sine output length mismatch for stock {} options {:?}: SIMD={}, Regular={}",
-                    stock_symbol,
-                    options,
-                    simd_sine.len(),
-                    regular_sine.len()
-                );
-
-                // Compare lead output lengths
-                assert_eq!(
-                    simd_lead.len(),
-                    regular_lead.len(),
-                    "Lead output length mismatch for stock {} options {:?}: SIMD={}, Regular={}",
-                    stock_symbol,
-                    options,
-                    simd_lead.len(),
-                    regular_lead.len()
-                );
-
-                // Compare sine values
-                for (i, (&simd_val, &regular_val)) in
-                    simd_sine.iter().zip(regular_sine.iter()).enumerate()
-                {
-                    // Check for NaN/infinity in SIMD result
-                    if simd_val.is_nan() {
-                        panic!(
-                            "SIMD MSW Sine has NaN at index {} for stock {}: SIMD = {}, Options = {:?}",
-                            i, stock_symbol, simd_val, options
-                        );
-                    }
-
-                    if simd_val.is_infinite() {
-                        panic!(
-                            "SIMD MSW Sine has infinity at index {} for stock {}: SIMD = {}, Options = {:?}",
-                            i, stock_symbol, simd_val, options
-                        );
-                    }
-
-                    // Compare values with tolerance
-                    if !approx_eq!(f64, simd_val, regular_val, epsilon = EPSILON) {
-                        panic!(
-                            "Sine mismatch at index {} for stock {} options {:?}: SIMD = {}, Regular = {}",
-                            i, stock_symbol, options, simd_val, regular_val
-                        );
-                    }
-                }
-
-                // Compare lead values
-                for (i, (&simd_val, &regular_val)) in
-                    simd_lead.iter().zip(regular_lead.iter()).enumerate()
-                {
-                    // Check for NaN/infinity in SIMD result
-                    if simd_val.is_nan() {
-                        panic!(
-                            "SIMD MSW Lead has NaN at index {} for stock {}: SIMD = {}, Options = {:?}",
-                            i, stock_symbol, simd_val, options
-                        );
-                    }
-
-                    if simd_val.is_infinite() {
-                        panic!(
-                            "SIMD MSW Lead has infinity at index {} for stock {}: SIMD = {}, Options = {:?}",
-                            i, stock_symbol, simd_val, options
-                        );
-                    }
-
-                    // Compare values with tolerance
-                    if !approx_eq!(f64, simd_val, regular_val, epsilon = EPSILON) {
-                        panic!(
-                            "Lead mismatch at index {} for stock {} options {:?}: SIMD = {}, Regular = {}",
-                            i, stock_symbol, options, simd_val, regular_val
+                for (name, simd_line, scalar_line) in [
+                    ("sine", &simd_results[lane][0], &scalar_out[0]),
+                    ("lead", &simd_results[lane][1], &scalar_out[1]),
+                ] {
+                    assert_eq!(
+                        simd_line.len(),
+                        scalar_line.len(),
+                        "{name} length mismatch: stock={stock_symbol}, options={options:?}"
+                    );
+                    for (i, (&sv, &rv)) in simd_line.iter().zip(scalar_line.iter()).enumerate() {
+                        assert!(!sv.is_nan(), "SIMD {name}[{i}] NaN: stock={stock_symbol}");
+                        assert!(!sv.is_infinite(), "SIMD {name}[{i}] Inf: stock={stock_symbol}");
+                        assert!(
+                            approx_eq!(f64, sv, rv, epsilon = EPSILON_SIMD),
+                            "{name}[{i}]: simd={sv}, scalar={rv}, stock={stock_symbol}, options={options:?}"
                         );
                     }
                 }
             }
+            println!("✓ SIMD by_options vs scalar passed: {stock_symbol}");
         }
+        println!("✓ All SIMD by_options vs scalar MSW tests passed!");
+    }
 
-        println!("✓ All SIMD by options vs Regular MSW database tests passed!");
+    // ── SIMD by_options state continuity ─────────────────────────────────────
+
+    /// SIMD by_options first chunk + scalar batch_indicator remainder must match
+    /// the full scalar run for each option lane within EPSILON_SIMD.
+    #[test]
+    fn test_msw_simd_by_options_state_continuity() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+
+        let options_4: [&[f64; 1]; 4] = [
+            &OPTIONS_LIST[0],
+            &OPTIONS_LIST[1],
+            &OPTIONS_LIST[2],
+            &OPTIONS_LIST[3],
+        ];
+
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+
+            let (simd_first, mut states) =
+                indicator_by_options::<4>(&[&close[..FIRST_CHUNK]], &options_4, None)
+                    .expect("SIMD by_options first chunk failed");
+
+            for (lane, &options) in options_4.iter().enumerate() {
+                let mut batch_sine = simd_first[lane][0].clone();
+                let mut batch_lead = simd_first[lane][1].clone();
+
+                let mut chunks = close[FIRST_CHUNK..].chunks_exact(CHUNK_SIZE);
+                for chunk in chunks.by_ref() {
+                    let out = states[lane]
+                        .batch_indicator(&[chunk], None)
+                        .expect("batch_indicator failed");
+                    batch_sine.extend_from_slice(&out[0]);
+                    batch_lead.extend_from_slice(&out[1]);
+                }
+                let rem = chunks.remainder();
+                if !rem.is_empty() {
+                    let out = states[lane]
+                        .batch_indicator(&[rem], None)
+                        .expect("batch_indicator remainder failed");
+                    batch_sine.extend_from_slice(&out[0]);
+                    batch_lead.extend_from_slice(&out[1]);
+                }
+
+                let (scalar_out, _) =
+                    new_msw(&[close.as_slice()], options, None).expect("scalar failed");
+
+                for (name, batch_vals, scalar_vals) in [
+                    ("sine", &batch_sine, &scalar_out[0]),
+                    ("lead", &batch_lead, &scalar_out[1]),
+                ] {
+                    assert_eq!(
+                        batch_vals.len(),
+                        scalar_vals.len(),
+                        "{name} length mismatch: stock={stock_symbol}, options={options:?}"
+                    );
+                    for (i, (&bv, &rv)) in batch_vals.iter().zip(scalar_vals.iter()).enumerate() {
+                        assert!(!bv.is_nan(), "{name}[{i}] NaN: stock={stock_symbol}");
+                        assert!(!bv.is_infinite(), "{name}[{i}] Inf: stock={stock_symbol}");
+                        assert!(
+                            approx_eq!(f64, bv, rv, epsilon = EPSILON_SIMD),
+                            "{name}[{i}]: simd+batch={bv}, scalar={rv}, stock={stock_symbol}, options={options:?}"
+                        );
+                    }
+                }
+            }
+            println!("✓ SIMD by_options state continuity: {stock_symbol}");
+        }
+        println!("✓ All SIMD by_options state continuity MSW tests passed!");
     }
 }

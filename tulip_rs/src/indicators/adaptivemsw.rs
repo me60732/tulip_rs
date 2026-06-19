@@ -31,7 +31,7 @@
 //! LeadSine = sin(Phase + π/4)
 //! ```
 //!
-//! The DFT computation reuses [`msw::calc`] — only the window length changes each bar.
+//! The DFT computation reuses [`msw::calc_full`] — only the window length changes each bar.
 
 use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
@@ -103,7 +103,7 @@ pub struct State {
 
     /// Rolling price history for the DFT: `view[0]` = oldest, `view[count-1]` = newest.
     /// `get_slice_by_period(p)` returns the last `p` bars as a contiguous oldest-first
-    /// slice — exactly what `msw::calc_rp_ip` expects, with zero copying.
+    /// slice — exactly what `msw::calc_full` expects, with zero copying.
     /// Capacity 50 = HD's guaranteed maximum `SmoothPeriod`.
     pub price_buf: FixedMirrorBuffer<f64, 50>,
 }
@@ -183,11 +183,11 @@ impl State {
         // Round and clamp to available history (grows from 23 to 50 over the
         // first 28 output bars, then stays at 50 for all subsequent bars).
         let period = ((dc + 0.5) as usize).clamp(6, self.price_buf.len().min(50));
-        let multiplier = msw::multiplier(period);
-
-        // get_slice_by_period returns &view[count-period..count]: oldest-first,
-        // contiguous — no stack copy or reversal needed.
-        msw::calc::<8>(self.price_buf.get_slice_by_period(period), multiplier)
+        // Static twiddle tables — no runtime trig, no heap allocation.
+        let (cos_tw, sin_tw) = msw::twiddles_for_period(period);
+        let (rp, ip) =
+            msw::dot_product_simd::<8>(self.price_buf.get_slice_by_period(period), cos_tw, sin_tw);
+        msw::phase_from_rp_ip(rp, ip)
     }
 }
 

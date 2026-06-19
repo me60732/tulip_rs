@@ -1,8 +1,9 @@
 //use crate::common::validate_inputs;
+use crate::indicators::msw::precompute_twiddles;
 use crate::indicators::msw::{
     min_data, multiplier, output_length, IndicatorState, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
-use crate::indicators::simd_indicators::msw_simd::assets::calc_simd;
+use crate::indicators::simd_indicators::msw_simd::assets::calc_simd_precomputed;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
@@ -24,7 +25,7 @@ impl Driver<()> for MswDriver {
         _options: Vec<Option<&()>>,
     ) {
         let len = inputs[0][0].len();
-        let multiplier_simd = Simd::splat(self.multiplier as f64);
+        let (cos_twiddles, sin_twiddles) = precompute_twiddles(self.period, self.multiplier);
         // Optimization 2: Pre-compute all input and output pointers
         let input_ptrs = crate::extract_input_ptrs!(inputs, N, input_ptrs);
 
@@ -37,9 +38,10 @@ impl Driver<()> for MswDriver {
         for (j, i) in (self.period..len).enumerate() {
             // Get new and old values using pre-computed pointers
 
-            let (sine, lead) = calc_simd(
+            let (sine, lead) = calc_simd_precomputed(
                 unsafe { real_simd.get_unchecked(j + 1..=i) },
-                multiplier_simd,
+                &cos_twiddles,
+                &sin_twiddles,
             );
 
             // Store results using pre-computed pointers
