@@ -266,10 +266,7 @@ pub fn indicator(
 
     Ok((
         vec![atr_line, tr_line],
-        IndicatorState {
-            state: state,
-            multipliers: multipliers,
-        },
+        IndicatorState::new(state, multipliers),
     ))
 }
 
