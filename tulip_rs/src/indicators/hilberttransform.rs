@@ -23,8 +23,6 @@
 //! I = x[3]   (the 3-bar-delayed centre tap — the 90° complement of Q)
 //! ```
 
-
-
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 pub use crate::indicators::roofingfilter::multiplier;

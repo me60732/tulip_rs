@@ -30,7 +30,6 @@
 //! filter) and transitively in [`hilberttransform`]. On its own it acts as a
 //! high-quality low-pass filter for any price series.
 
-
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};

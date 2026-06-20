@@ -27,7 +27,6 @@
 //! [`hilberttransform`] indicator. On its own it outputs the de-trended signal,
 //! which is not directly tradeable but is essential for cycle-period estimation.
 
-
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};

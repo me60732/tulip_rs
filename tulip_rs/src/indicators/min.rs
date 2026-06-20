@@ -83,15 +83,9 @@ impl State {
                 find_min_scalar(window)
             };*/
             let (min_val, min_idx) = match period {
-                1..=4 => {
-                    find_min_scalar(window)
-                }
-                5..30 => {
-                    find_min_simd::<4>(window)
-                }
-                _ => {
-                    find_min_simd::<8>(window)
-                }
+                1..=4 => find_min_scalar(window),
+                5..30 => find_min_simd::<4>(window),
+                _ => find_min_simd::<8>(window),
             };
             min = min_val;
             trail = i - (search_start + min_idx);

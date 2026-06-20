@@ -341,4 +341,3 @@ pub(crate) fn init_calc(high: f64, low: f64, prev_close: f64, atr: f64) -> (f64,
     let tr = calc_tr(high, low, prev_close);
     (atr + tr, tr)
 }
-

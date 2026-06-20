@@ -3,7 +3,9 @@ pub use crate::indicator_types::TIndicatorState;
 
 pub use crate::indicators::max::{min_data, min_data_accuracy, output_length};
 use crate::indicators::{
-    max::State as MaxState, medprice::calc as calc_medprice, min::State as MinState,
+    max::State as MaxState,
+    medprice::calc as calc_medprice,
+    min::State as MinState,
 };
 
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};

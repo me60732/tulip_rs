@@ -34,7 +34,6 @@
 //! (Ehlers 2013) and TA-Lib's `HT_PHASOR` (Ehlers 2001), which applies the
 //! kernel directly to a simple WMA-smoothed price.
 
-
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::{

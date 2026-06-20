@@ -42,7 +42,6 @@
 //! The output `dc_period` is `SmoothPeriod` — a smoothed estimate of the
 //! dominant cycle period in bars.
 
-
 use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::hilberttransform::ht_kernel;

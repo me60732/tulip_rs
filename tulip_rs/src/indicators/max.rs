@@ -78,15 +78,9 @@ impl State {
                 find_max_scalar(window)
             };*/
             let (max_val, max_idx) = match period {
-                1..=4 => {
-                    find_max_scalar(window)
-                }
-                5..30 => {
-                    find_max_simd::<4>(window)
-                }
-                _ => {
-                    find_max_simd::<8>(window)
-                }
+                1..=4 => find_max_scalar(window),
+                5..30 => find_max_simd::<4>(window),
+                _ => find_max_simd::<8>(window),
             };
             max = max_val;
             trail = i - (search_start + max_idx);

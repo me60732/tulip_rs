@@ -263,7 +263,7 @@ impl State {
             .long_max_state
             .calc_unchecked::<CL>(high, i, periods.2)
             .0;
-        
+
         let medium_min = self
             .medium_min_state
             .calc_unchecked::<CM>(low, i, periods.1)
@@ -272,7 +272,7 @@ impl State {
             .medium_max_state
             .calc_unchecked::<CM>(high, i, periods.1)
             .0;
-        
+
         let short_min = self
             .short_min_state
             .calc_unchecked::<CS>(low, i, periods.0)
@@ -299,7 +299,10 @@ impl State {
     let leading_span_b_capacity = data_len - min_data(options) + 1;
     (conversion_capacity, base_capacity, leading_span_a_capacity, leading_span_b_capacity, data_len)
 }*/
-pub fn output_length(data_len: usize, options: &[f64]) -> (usize, usize, usize, usize, usize) {
+pub fn output_length(
+    data_len: usize,
+    options: &[f64],
+) -> (usize, usize, usize, usize, usize) {
     let ultra_long = options[1] as usize * 2;
 
     let conversion_capacity = min_outpout_length(data_len, &[options[0]]);
