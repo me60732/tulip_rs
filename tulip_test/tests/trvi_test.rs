@@ -888,6 +888,7 @@ mod tests {
             }
         }
 
-        println!("✓ All SIMD by-options TRVI optional output tests passed!");
+        println!("\u{2713} All SIMD by-options TRVI optional output tests passed!");
     }
-}
+
+    }

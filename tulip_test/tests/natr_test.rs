@@ -997,4 +997,5 @@ mod tests {
         }
         println!("✓ All SIMD by-options NATR optional output tests passed!");
     }
-}
+
+    }

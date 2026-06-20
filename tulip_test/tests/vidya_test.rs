@@ -1484,4 +1484,5 @@ mod tests {
 
         println!("✓ All SIMD by options vs Regular VIDYA optional outputs database tests passed!");
     }
-}
+
+    }

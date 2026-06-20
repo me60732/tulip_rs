@@ -585,4 +585,5 @@ mod tests {
             println!("✓ SIMD by-options state continuity ok for stock={stock_symbol}");
         }
     }
-}
+
+    }

@@ -135,24 +135,6 @@ pub fn init(real: &[f64], period: usize, ef_line: &mut [f64]) -> f64 {
     sum
 }
 
-/// Returns the minimum number of input bars required to produce results
-/// accurate to `decimals` decimal places.
-///
-/// EF is a bounded ratio with no exponential seed decay, so accuracy is
-/// independent of `decimals`. This always returns the same value as
-/// [`min_data`].
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the indicator options (e.g. period).
-/// * `_decimals` - Unused; accuracy is independent of decimal precision for this indicator.
-///
-/// # Returns
-///
-/// The minimum number of input bars needed, identical to [`min_data`].
-pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
-    min_data(options)
-}
 /// Returns the minimum amount of data required for the EF indicator.
 ///
 /// # Arguments

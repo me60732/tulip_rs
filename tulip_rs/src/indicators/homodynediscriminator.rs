@@ -414,14 +414,6 @@ pub fn min_data(_options: &[f64]) -> usize {
     23
 }
 
-/// Returns the minimum number of input bars required to produce results
-/// accurate to `decimals` decimal places.
-///
-/// The Homodyne Discriminator uses fixed-coefficient IIR filters whose warmup
-/// is independent of decimal precision, so this always delegates to [`min_data`].
-pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
-    min_data(options)
-}
 
 /// Returns the number of output values produced for a given input length.
 ///

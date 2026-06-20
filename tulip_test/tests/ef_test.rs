@@ -328,4 +328,5 @@ mod tests {
 
         println!("✓ All SIMD by options vs Regular EF database tests passed!");
     }
-}
+
+    }

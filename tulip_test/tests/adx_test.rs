@@ -895,8 +895,13 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_outputs, _) = rust_adx(&stock_inputs, options, None).unwrap_or_else(|_| panic!("Regular ADX failed for {} with period {}",
-                    stock_symbol, options[0]));
+                let (regular_outputs, _) =
+                    rust_adx(&stock_inputs, options, None).unwrap_or_else(|_| {
+                        panic!(
+                            "Regular ADX failed for {} with period {}",
+                            stock_symbol, options[0]
+                        )
+                    });
 
                 // Compare ADX result (only one main output)
                 assert_eq!(
@@ -983,8 +988,12 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) = rust_adx(&stock_inputs, options, optional_outputs)
-                    .unwrap_or_else(|_| panic!("Regular ADX with optional DX failed for {} with period {}",
-                        stock_symbol, options[0]));
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "Regular ADX with optional DX failed for {} with period {}",
+                            stock_symbol, options[0]
+                        )
+                    });
 
                 // Compare number of outputs (should be 2: adx, dx)
                 assert_eq!(
@@ -1086,8 +1095,12 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) = rust_adx(&stock_inputs, options, optional_outputs)
-                    .unwrap_or_else(|_| panic!("Regular ADX with optional ATR failed for {} with period {}",
-                        stock_symbol, options[0]));
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "Regular ADX with optional ATR failed for {} with period {}",
+                            stock_symbol, options[0]
+                        )
+                    });
 
                 // Compare number of outputs (should be 2: adx, atr)
                 assert_eq!(
@@ -1189,8 +1202,12 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) = rust_adx(&stock_inputs, options, optional_outputs)
-                    .unwrap_or_else(|_| panic!("Regular ADX with optional TR failed for {} with period {}",
-                        stock_symbol, options[0]));
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "Regular ADX with optional TR failed for {} with period {}",
+                            stock_symbol, options[0]
+                        )
+                    });
 
                 // Compare number of outputs (should be 2: adx, tr)
                 assert_eq!(
@@ -1523,4 +1540,5 @@ mod tests {
             "✓ All SIMD by options vs Regular ADX database tests with optional outputs passed!"
         );
     }
-}
+
+    }

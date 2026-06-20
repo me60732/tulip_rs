@@ -997,4 +997,5 @@ mod tests {
             "✓ All SIMD by options vs Regular DEMA database tests with optional outputs passed!"
         );
     }
-}
+
+    }

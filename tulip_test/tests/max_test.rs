@@ -459,4 +459,5 @@ mod tests {
 
         //println!("✓ All SIMD vs Regular MAX database tests passed!");
     }
-}
+
+    }

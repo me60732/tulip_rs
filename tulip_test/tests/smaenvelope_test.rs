@@ -604,6 +604,7 @@ mod tests {
             }
         }
 
-        println!("✓ All SIMD by-options vs Regular SMA Envelope database tests passed!");
+        println!("\u{2713} All SIMD by-options vs Regular SMA Envelope database tests passed!");
     }
-}
+
+    }

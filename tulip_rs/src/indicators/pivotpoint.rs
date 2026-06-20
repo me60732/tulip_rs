@@ -67,22 +67,6 @@ impl TIndicatorState<3> for IndicatorState {
 pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize
 }
-/// Returns the minimum number of input bars required to produce accurate results.
-///
-/// For this indicator accuracy does not depend on decimal precision, so
-/// this always returns the same value as [`min_data`].
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the indicator options (e.g. period).
-/// * `_decimal_places` - Unused. Accuracy is independent of decimal precision for this indicator.
-///
-/// # Returns
-///
-/// The minimum number of input bars required, identical to [`min_data`].
-pub fn min_data_accuracy(options: &[f64], _decimal_places: usize) -> usize {
-    min_data(options)
-}
 /// Returns the output length for the Pivot Point indicator.
 ///
 /// # Arguments

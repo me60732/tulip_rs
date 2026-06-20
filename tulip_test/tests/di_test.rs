@@ -775,8 +775,13 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_outputs, _) = rust_di(&stock_inputs, options, None).unwrap_or_else(|_| panic!("Regular DI failed for {} with period {}",
-                    stock_symbol, options[0]));
+                let (regular_outputs, _) =
+                    rust_di(&stock_inputs, options, None).unwrap_or_else(|_| {
+                        panic!(
+                            "Regular DI failed for {} with period {}",
+                            stock_symbol, options[0]
+                        )
+                    });
 
                 // Compare SIMD result with regular result for both plus_di and minus_di
                 for output_idx in 0..2 {
@@ -871,8 +876,12 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) = rust_di(&stock_inputs, options, optional_outputs)
-                    .unwrap_or_else(|_| panic!("Regular DI with optional ATR failed for {} with period {}",
-                        stock_symbol, options[0]));
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "Regular DI with optional ATR failed for {} with period {}",
+                            stock_symbol, options[0]
+                        )
+                    });
 
                 // Compare number of outputs (should be 3: plus_di, minus_di, atr)
                 assert_eq!(
@@ -1018,8 +1027,12 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) = rust_di(&stock_inputs, options, optional_outputs)
-                    .unwrap_or_else(|_| panic!("Regular DI with optional TR failed for {} with period {}",
-                        stock_symbol, options[0]));
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "Regular DI with optional TR failed for {} with period {}",
+                            stock_symbol, options[0]
+                        )
+                    });
 
                 // Compare number of outputs (should be 3: plus_di, minus_di, tr)
                 assert_eq!(
@@ -1444,4 +1457,5 @@ mod tests {
             "✓ All SIMD by options vs Regular DI database tests with optional outputs passed!"
         );
     }
-}
+
+    }

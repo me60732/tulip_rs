@@ -856,7 +856,8 @@ mod tests {
         }
 
         println!(
-            "✓ All SIMD by options vs Regular STDDEV database tests with optional outputs passed!"
+            "\u{2713} All SIMD by options vs Regular STDDEV database tests with optional outputs passed!"
         );
     }
-}
+
+    }

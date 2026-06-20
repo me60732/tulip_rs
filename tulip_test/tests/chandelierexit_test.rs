@@ -1072,4 +1072,5 @@ mod tests {
         }
         println!("✓ All SIMD by-assets Chandelier Exit optional output tests passed!");
     }
-}
+
+    }

@@ -943,6 +943,7 @@ mod tests {
             }
         }
 
-        println!("✓ All SIMD by-options optional output ULTOSC tests passed!");
+        println!("\u{2713} All SIMD by-options optional output ULTOSC tests passed!");
     }
-}
+
+    }

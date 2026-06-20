@@ -1,4 +1,4 @@
-use crate::common::{min_process, validate_inputs, validate_options};
+use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 pub use crate::indicators::adx::multiplier;
 use crate::indicators::adx::{
@@ -10,7 +10,7 @@ use crate::indicators::tr::output_length as tr_output_length;
 use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
 
 use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
 };
 use serde::{Deserialize, Serialize};
 
@@ -182,31 +182,6 @@ impl State {
 /// The minimum amount of data required.
 pub fn min_data(options: &[f64]) -> usize {
     (options[0] as usize - 1) * 3 + 1 // period
-}
-/// Returns the minimum number of input bars required to produce results
-/// accurate to `decimals` decimal places.
-///
-/// For indicators with exponential smoothing the seed value's influence
-/// must decay below the requested precision, so this value grows with
-/// `decimals`. Internally uses `min_process` with Wilder's smoothing
-/// multiplier to calculate the required lookback.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the indicator options (period).
-/// * `decimals` - The number of decimal places of accuracy required.
-///
-/// # Returns
-///
-/// The minimum number of input bars needed for the requested accuracy.
-pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
-    min_process(
-        options,
-        Some((decimals, 0)),
-        &[multiplier(options[0] as usize).0],
-        IndicatorInfoOrInteger::Integer(1),
-        min_data,
-    )
 }
 /// Calculates the output length for the ADXR indicator based on the data length and options.
 ///

@@ -483,108 +483,11 @@ The value depends on the indicator's options because period-based indicators req
 
 ---
 
-## `min_data_accuracy()` — Minimum Input for Decimal Accuracy
-
-```rust
-pub fn min_data_accuracy(options: &[f64], decimal_places: usize) -> usize
-```
-
-Returns the number of input bars needed to produce output values accurate to **`decimal_places`** decimal places.
-
-This is only relevant for indicators that use **exponential smoothing** (EMA, KAMA, Wilder's smoothing, etc.). The first value an EMA produces is seeded from its initial bar, and that seed's influence decays exponentially. With a short lookback you can get a correct EMA value, but with fewer bars than `min_data_accuracy` the result may differ from a "true" EMA (one that started from the infinite past) in digits beyond `decimal_places`.
-
-For indicators without exponential smoothing (SMA, Max, Min, etc.), `min_data_accuracy` returns the same value as `min_data`.
-
-### Scanning without full history
-
-The most practical use of `min_data_accuracy` is **event scanning across a large universe of assets**. To detect something like a MACD crossover you don't need to feed in years of daily bars — you only need enough bars for the EMA values to have converged to the required precision. `min_data_accuracy` tells you exactly how many that is, so you can:
-
-- Fetch only the most recent `min_data_accuracy(options, 6)` bars per asset from your database instead of the full history.
-- Run the indicator over that window and check for your signal.
-- Scale across thousands of assets with a fraction of the data transfer and compute cost.
-
-=== "Rust"
-
-    ```rust
-    use tulip_rs::indicators::macd;
-
-    // MACD(12, 26, 9) — how many bars do we need for 6dp accuracy?
-    let options = &[12.0, 26.0, 9.0];
-    let window = macd::min_data_accuracy(options, 6);
-
-    // Fetch only the last `window` bars from the database for each asset
-    // instead of its entire history.
-    for asset in &universe {
-        let close = db.fetch_last_n_bars(asset, window);
-        let (outputs, _state) = macd::indicator(&[close.as_slice()], options, None).unwrap();
-
-        // Check the last value of each output for a crossover
-        let macd_line = &outputs[0];
-        let signal    = &outputs[1];
-        if macd_line.last() > signal.last() {
-            println!("{asset}: MACD crossover detected");
-        }
-    }
-    ```
-
-=== "Python"
-
-    ```python
-    import tulip_rs
-
-    options = [12.0, 26.0, 9.0]
-    window = tulip_rs.indicators.macd.min_data_accuracy(options, 6)
-
-    for asset in universe:
-        close = db.fetch_last_n_bars(asset, window)
-        outputs, _ = tulip_rs.indicators.macd.indicator([close], options)
-
-        macd_line = outputs[0]
-        signal    = outputs[1]
-        if macd_line[-1] > signal[-1]:
-            print(f"{asset}: MACD crossover detected")
-    ```
-
-=== "Node.js"
-
-    ```javascript
-    import * as ti from 'tulip-rs-node';
-
-    const options = [12, 26, 9];
-    const window = ti.macd.minDataAccuracy(options, 6);
-
-    for (const asset of universe) {
-        const close = db.fetchLastNBars(asset, window);
-        const [outputs] = ti.macd.indicator([close], options);
-
-        const macdLine = outputs[0];
-        const signal   = outputs[1];
-        if (macdLine[macdLine.length - 1] > signal[signal.length - 1]) {
-            console.log(`${asset}: MACD crossover detected`);
-        }
-    }
-    ```
-
-### When to use `min_data_accuracy`
-
-| Scenario | Use |
-|---|---|
-| Checking whether a call will succeed at all | `min_data` |
-| Production systems where precision matters (backtesting P&L, signal generation) | `min_data_accuracy` with your required decimal places |
-| Exploratory / visual charting where a few ticks of warmup drift are acceptable | `min_data` is sufficient |
-| Comparing indicator values to a reference implementation | `min_data_accuracy` with the required precision |
-
-!!! tip
-    For most production backtesting scenarios, `min_data_accuracy(options, 6)` is a safe default. It ensures that floating-point drift from the EMA seed is below one millionth of a unit — negligible for any realistic price series.
-
----
-
 ## Function Summary
 
 | Function | Signature | Returns |
 |---|---|---|
 | `info()` | `() -> Info<'static>` | Full metadata: names, types, input/option/output lists |
 | `min_data()` | `(options: &[f64]) -> usize` | Minimum bars to get any output |
-| `min_data_accuracy()` | `(options: &[f64], decimals: usize) -> usize` | Minimum bars for `decimals`-place accuracy |
 | `indicator()` | `(inputs, options, optional_outputs) -> Result<(Vec<Vec<f64>>, State), Error>` | Primary computation |
 | `state.batch_indicator()` | `(inputs, optional_outputs) -> Result<Vec<Vec<f64>>, Error>` | Streaming continuation |

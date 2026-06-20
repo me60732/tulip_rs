@@ -405,6 +405,7 @@ mod tests {
             }
         }
 
-        println!("✓ All SIMD by assets vs Regular TYPPRICE database tests passed!");
+        println!("\u{2713} All SIMD by assets vs Regular TYPPRICE database tests passed!");
     }
-}
+
+    }

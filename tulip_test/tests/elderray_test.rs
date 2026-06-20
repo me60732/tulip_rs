@@ -769,6 +769,7 @@ mod tests {
                 );
             }
         }
-        println!("\u{2713} All SIMD by-options Elder-ray optional output tests passed!");
+        println!("✓ All SIMD by-options Elder-ray optional output tests passed!");
     }
-}
+
+    }

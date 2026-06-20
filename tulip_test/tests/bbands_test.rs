@@ -618,10 +618,11 @@ mod tests {
                             full_val, batch_val,
                             "State handover mismatch at index {} for output {} for stock {} with options {:?}: full = {}, batch = {}",
                             i, output_idx, stock_symbol, options, full_val, batch_val
-                        );
+                                        );
                     }
                 }
             }
         }
     }
-}
+
+    }

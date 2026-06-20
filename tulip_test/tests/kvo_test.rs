@@ -1076,4 +1076,5 @@ mod tests {
         }
         println!("✓ All SIMD by-options KVO optional output tests passed!");
     }
-}
+
+    }

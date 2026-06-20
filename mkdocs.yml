@@ -89,6 +89,9 @@ nav:
                 - Elder-Ray: indicators/trend/elderray.md
                 - Donchian Channel: indicators/trend/donchianchannel.md
                 - Vortex: indicators/trend/vortex.md
+                - Ichimoku: indicators/trend/ichimoku.md
+                - SuperTrend: indicators/trend/supertrend.md
+                - Efficiency Ratio: indicators/trend/ef.md
           - Volatility:
                 - BBands: indicators/volatility/bbands.md
                 - ATR: indicators/volatility/atr.md
@@ -114,6 +117,19 @@ nav:
                 - WAD: indicators/volume/wad.md
                 - Market Facilitation Index: indicators/volume/marketfi.md
                 - Chaikin Money Flow: indicators/volume/chaikinmf.md
+                - VWAP: indicators/volume/vwap.md
+          - Cycle & Ehlers:
+                - CyberCycle: indicators/cycle/cybercycle.md
+                - Adaptive MSW: indicators/cycle/adaptivemsw.md
+                - Homodyne Discriminator: indicators/cycle/homodynediscriminator.md
+                - Instantaneous Trendline: indicators/cycle/instantaneoustrendline.md
+                - TrendMode: indicators/cycle/trendmode.md
+                - MAMA: indicators/cycle/mama.md
+                - High Pass Filter: indicators/cycle/highpass.md
+                - Hilbert Transform: indicators/cycle/hilberttransform.md
+                - Roofing Filter: indicators/cycle/roofingfilter.md
+                - Super Smoother: indicators/cycle/supersmoother.md
+                - CC Fisher: indicators/cycle/ccfisher.md
           - Price & Statistical:
                 - Average Price: indicators/price_statistical/avgprice.md
                 - Median Price: indicators/price_statistical/medprice.md

@@ -1021,4 +1021,5 @@ mod tests {
 
         println!("✓ All SIMD by options vs Regular VOSC optional outputs database tests passed!");
     }
-}
+
+    }

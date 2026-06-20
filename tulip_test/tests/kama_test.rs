@@ -681,4 +681,5 @@ mod tests {
         }
         println!("✓ All SIMD by-options KAMA optional output tests passed!");
     }
-}
+
+    }

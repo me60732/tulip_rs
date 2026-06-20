@@ -1,4 +1,4 @@
-use crate::common::{min_process, validate_inputs};
+use crate::common::{validate_inputs};
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::{
     atr::{init_calc, multiplier as atr_multiplier, State as AtrState},
@@ -6,7 +6,7 @@ use crate::indicators::{
     tr::output_length as tr_output_length,
 };
 use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
 };
 use serde::{Deserialize, Serialize};
 
@@ -214,29 +214,6 @@ impl TIndicatorState<3> for IndicatorState {
 
         Ok(vec![lower_band, middle_band, upper_band, atr_line, tr_line])
     }
-}
-/// Returns the minimum number of input bars required to produce accurate results.
-///
-/// The EMA (middle band) uses exponential smoothing, so more warm-up bars are needed
-/// to achieve higher decimal precision. This function accounts for EMA convergence time.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the indicator options.
-/// * `decimals` - The required decimal precision. Higher values increase the returned minimum.
-///
-/// # Returns
-///
-/// The minimum number of input bars required to achieve `decimals` of precision.
-/// Always ≥ [`min_data`].
-pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
-    min_process(
-        options,
-        Some((decimals, 0)),
-        &[multiplier(options[0] as usize).1 .0],
-        IndicatorInfoOrInteger::Info(INFO),
-        min_data,
-    )
 }
 /// Returns the minimum amount of data required for the Keltner Channel indicator.
 ///

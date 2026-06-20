@@ -244,23 +244,6 @@ pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), Ind
     }
     Ok(())
 }
-/// Returns the minimum number of input bars required to produce accurate results.
-///
-/// The ATR component uses Wilder smoothing (exponential decay), so in principle
-/// accuracy grows with `decimals`. This implementation conservatively returns the
-/// same value as [`min_data`] (i.e. `period + 1`).
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the indicator options.
-/// * `_decimals` - Currently unused; see note above.
-///
-/// # Returns
-///
-/// The minimum number of input bars required, identical to [`min_data`].
-pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
-    min_data(options)
-}
 /// Returns the minimum amount of data required for the Chandelier Exit indicator.
 ///
 /// # Arguments

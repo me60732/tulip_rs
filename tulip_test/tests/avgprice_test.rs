@@ -473,4 +473,5 @@ mod tests {
 
         println!("✓ All SIMD by assets vs Regular AVGPRICE database tests passed!");
     }
-}
+
+    }

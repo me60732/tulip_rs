@@ -454,4 +454,5 @@ mod tests {
         println!("✓ All SIMD by options vs Regular PSAR database tests passed!");
     }
 
-}
+
+    }

@@ -765,4 +765,5 @@ mod tests {
         }
         println!("\u{2713} All SIMD by-options Vortex optional output tests passed!");
     }
-}
+
+    }

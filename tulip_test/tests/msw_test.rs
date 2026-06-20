@@ -1,8 +1,9 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::msw::
-        {indicator as new_msw, indicator_by_assets, indicator_by_options, min_data, TIndicatorState};
+    use tulip_rs::indicators::msw::{
+        indicator as new_msw, indicator_by_assets, indicator_by_options, min_data, TIndicatorState,
+    };
     use tulip_test::c_bindings::{ti_msw, ti_msw_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -304,8 +305,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             let (simd_results, _) =
-                indicator_by_assets::<4>(&inputs_4, &options, None)
-                    .expect("SIMD by_assets failed");
+                indicator_by_assets::<4>(&inputs_4, &options, None).expect("SIMD by_assets failed");
 
             for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
                 let (scalar_out, _) =
@@ -322,16 +322,17 @@ mod tests {
                     );
                     for (i, (&sv, &rv)) in simd_line.iter().zip(scalar_line.iter()).enumerate() {
                         assert!(!sv.is_nan(), "SIMD {name}[{i}] NaN: stock={stock_symbol}");
-                        assert!(!sv.is_infinite(), "SIMD {name}[{i}] Inf: stock={stock_symbol}");
+                        assert!(
+                            !sv.is_infinite(),
+                            "SIMD {name}[{i}] Inf: stock={stock_symbol}"
+                        );
                         assert!(
                             approx_eq!(f64, sv, rv, epsilon = EPSILON_SIMD),
                             "{name}[{i}]: simd={sv}, scalar={rv}, stock={stock_symbol}, options={options:?}"
                         );
                     }
                 }
-                println!(
-                    "✓ SIMD by_assets vs scalar passed: {stock_symbol} options={options:?}"
-                );
+                println!("✓ SIMD by_assets vs scalar passed: {stock_symbol} options={options:?}");
             }
         }
         println!("✓ All SIMD by_assets vs scalar MSW tests passed!");
@@ -360,9 +361,8 @@ mod tests {
                 &[&stock_data[3].1[..FIRST_CHUNK]],
             ];
 
-            let (simd_first, mut states) =
-                indicator_by_assets::<4>(&inputs_first, &options, None)
-                    .expect("SIMD by_assets first chunk failed");
+            let (simd_first, mut states) = indicator_by_assets::<4>(&inputs_first, &options, None)
+                .expect("SIMD by_assets first chunk failed");
 
             for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
                 let mut batch_sine = simd_first[asset_idx][0].clone();
@@ -406,9 +406,7 @@ mod tests {
                         );
                     }
                 }
-                println!(
-                    "✓ SIMD by_assets state continuity: {stock_symbol} options={options:?}"
-                );
+                println!("✓ SIMD by_assets state continuity: {stock_symbol} options={options:?}");
             }
         }
         println!("✓ All SIMD by_assets state continuity MSW tests passed!");
@@ -434,13 +432,11 @@ mod tests {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
-            let (simd_results, _) =
-                indicator_by_options::<4>(&inputs, &options_4, None)
-                    .expect("SIMD by_options failed");
+            let (simd_results, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+                .expect("SIMD by_options failed");
 
             for (lane, &options) in options_4.iter().enumerate() {
-                let (scalar_out, _) =
-                    new_msw(&inputs, options, None).expect("scalar failed");
+                let (scalar_out, _) = new_msw(&inputs, options, None).expect("scalar failed");
 
                 for (name, simd_line, scalar_line) in [
                     ("sine", &simd_results[lane][0], &scalar_out[0]),
@@ -453,7 +449,10 @@ mod tests {
                     );
                     for (i, (&sv, &rv)) in simd_line.iter().zip(scalar_line.iter()).enumerate() {
                         assert!(!sv.is_nan(), "SIMD {name}[{i}] NaN: stock={stock_symbol}");
-                        assert!(!sv.is_infinite(), "SIMD {name}[{i}] Inf: stock={stock_symbol}");
+                        assert!(
+                            !sv.is_infinite(),
+                            "SIMD {name}[{i}] Inf: stock={stock_symbol}"
+                        );
                         assert!(
                             approx_eq!(f64, sv, rv, epsilon = EPSILON_SIMD),
                             "{name}[{i}]: simd={sv}, scalar={rv}, stock={stock_symbol}, options={options:?}"
@@ -536,4 +535,5 @@ mod tests {
         }
         println!("✓ All SIMD by_options state continuity MSW tests passed!");
     }
-}
+
+    }

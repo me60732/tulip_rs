@@ -962,4 +962,5 @@ mod tests {
         }
         println!("✓ All SIMD by-options APO optional output tests passed!");
     }
-}
+
+    }

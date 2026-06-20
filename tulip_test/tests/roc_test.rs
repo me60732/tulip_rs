@@ -769,4 +769,5 @@ mod tests {
         }
         println!("✓ All SIMD by-options ROC optional output tests passed!");
     }
-}
+
+    }

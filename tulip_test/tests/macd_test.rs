@@ -1249,4 +1249,5 @@ mod tests {
 
         println!("✓ All SIMD by options vs Regular MACD optional outputs database tests passed!");
     }
-}
+
+    }

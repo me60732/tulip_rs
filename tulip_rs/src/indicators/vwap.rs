@@ -1,7 +1,7 @@
 use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::typprice::calc as calc_typprice;
-pub use crate::indicators::typprice::{min_data, min_data_accuracy, output_length};
+pub use crate::indicators::typprice::{min_data, output_length};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 

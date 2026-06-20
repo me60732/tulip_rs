@@ -1,4 +1,4 @@
-use crate::common::{min_process, validate_inputs, validate_options};
+use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::dx::{
     calc as current_dx, calc_dx, output_length as dx_output_length, State as DxState,
@@ -7,7 +7,7 @@ use crate::indicators::tr::output_length as tr_output_length;
 use crate::indicators::wilders::calc as calc_wilders;
 pub use crate::indicators::wilders::multiplier;
 use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
 };
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
@@ -163,15 +163,6 @@ impl State {
         adx /= period as f64;
         State { dx_state, adx }
     }
-}
-pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
-    min_process(
-        options,
-        Some((decimals, 0)),
-        &[multiplier(options[0] as usize).1],
-        IndicatorInfoOrInteger::Integer(1),
-        min_data,
-    )
 }
 /// Returns the minimum amount of data required for the ADX indicator.
 ///

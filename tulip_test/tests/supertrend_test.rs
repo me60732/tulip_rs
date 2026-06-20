@@ -377,9 +377,9 @@ mod tests {
             }
         }
     }
-        // -------------------------------------------------------------------------
-        // SIMD by-assets: outputs match scalar supertrend per asset (database)
-        // -------------------------------------------------------------------------
+    // -------------------------------------------------------------------------
+    // SIMD by-assets: outputs match scalar supertrend per asset (database)
+    // -------------------------------------------------------------------------
 
     #[test]
     fn test_supertrend_simd_by_assets_vs_regular_database() {
@@ -407,8 +407,8 @@ mod tests {
 
             for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
                 let scalar_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (scalar_outputs, _) = indicator(&scalar_inputs, &options, None)
-                    .expect("Scalar Supertrend failed");
+                let (scalar_outputs, _) =
+                    indicator(&scalar_inputs, &options, None).expect("Scalar Supertrend failed");
 
                 let simd_st = &simd_results[asset_idx][0];
                 let scalar_st = &scalar_outputs[0];
@@ -551,16 +551,15 @@ mod tests {
                 }
 
                 let scalar_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (scalar_outputs, _) = indicator(&scalar_inputs, &options, None)
-                    .expect("Scalar Supertrend failed");
+                let (scalar_outputs, _) =
+                    indicator(&scalar_inputs, &options, None).expect("Scalar Supertrend failed");
 
                 assert_eq!(
                     batch_st.len(),
                     scalar_outputs[0].len(),
                     "st length mismatch: stock={stock_symbol}, options={options:?}"
                 );
-                for (i, (&bv, &rv)) in batch_st.iter().zip(scalar_outputs[0].iter()).enumerate()
-                {
+                for (i, (&bv, &rv)) in batch_st.iter().zip(scalar_outputs[0].iter()).enumerate() {
                     assert_eq!(
                         bv, rv,
                         "st mismatch at index {i}: simd+batch={bv}, scalar={rv}, stock={stock_symbol}, options={options:?}"
@@ -637,8 +636,7 @@ mod tests {
                     scalar_outputs[0].len(),
                     "st length mismatch: stock={stock_symbol}, options={options:?}"
                 );
-                for (i, (&bv, &rv)) in batch_st.iter().zip(scalar_outputs[0].iter()).enumerate()
-                {
+                for (i, (&bv, &rv)) in batch_st.iter().zip(scalar_outputs[0].iter()).enumerate() {
                     assert_eq!(
                         bv, rv,
                         "st mismatch at index {i}: simd+batch={bv}, scalar={rv}, stock={stock_symbol}, options={options:?}"
@@ -730,9 +728,8 @@ mod tests {
                     .expect("SIMD by-options Supertrend with optional outputs failed");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
-                let (scalar_outputs, _) =
-                    indicator(&inputs, options, Some(&[true, true, true]))
-                        .expect("Scalar Supertrend with optional outputs failed");
+                let (scalar_outputs, _) = indicator(&inputs, options, Some(&[true, true, true]))
+                    .expect("Scalar Supertrend with optional outputs failed");
 
                 // Check all 4 outputs: st[0], atr[1], tr[2], medprice[3]
                 for out_idx in 0..4 {
@@ -755,4 +752,5 @@ mod tests {
             }
         }
     }
-}
+
+    }

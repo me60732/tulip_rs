@@ -1069,8 +1069,12 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) =
-                    rust_adxr(&stock_inputs, options, None).unwrap_or_else(|_| panic!("Regular ADXR failed for {} with period {}",
-                        stock_symbol, options[0]));
+                    rust_adxr(&stock_inputs, options, None).unwrap_or_else(|_| {
+                        panic!(
+                            "Regular ADXR failed for {} with period {}",
+                            stock_symbol, options[0]
+                        )
+                    });
 
                 // Compare ADXR result (only one main output)
                 assert_eq!(
@@ -1157,8 +1161,12 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) = rust_adxr(&stock_inputs, options, optional_outputs)
-                    .unwrap_or_else(|_| panic!("Regular ADXR with optional ADX failed for {} with period {}",
-                        stock_symbol, options[0]));
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "Regular ADXR with optional ADX failed for {} with period {}",
+                            stock_symbol, options[0]
+                        )
+                    });
 
                 // Compare number of outputs (should be 2: adxr, adx)
                 assert_eq!(
@@ -1265,8 +1273,12 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) = rust_adxr(&stock_inputs, options, optional_outputs)
-                    .unwrap_or_else(|_| panic!("Regular ADXR with optional DX failed for {} with period {}",
-                        stock_symbol, options[0]));
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "Regular ADXR with optional DX failed for {} with period {}",
+                            stock_symbol, options[0]
+                        )
+                    });
 
                 // Compare number of outputs (should be 2: adxr, dx)
                 assert_eq!(
@@ -1368,8 +1380,12 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) = rust_adxr(&stock_inputs, options, optional_outputs)
-                    .unwrap_or_else(|_| panic!("Regular ADXR with optional ATR failed for {} with period {}",
-                        stock_symbol, options[0]));
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "Regular ADXR with optional ATR failed for {} with period {}",
+                            stock_symbol, options[0]
+                        )
+                    });
 
                 // Compare number of outputs (should be 2: adxr, atr)
                 assert_eq!(
@@ -1471,8 +1487,12 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) = rust_adxr(&stock_inputs, options, optional_outputs)
-                    .unwrap_or_else(|_| panic!("Regular ADXR with optional TR failed for {} with period {}",
-                        stock_symbol, options[0]));
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "Regular ADXR with optional TR failed for {} with period {}",
+                            stock_symbol, options[0]
+                        )
+                    });
 
                 // Compare number of outputs (should be 2: adxr, tr)
                 assert_eq!(
@@ -1978,4 +1998,5 @@ mod tests {
 
         println!("✓ All ADXR SIMD state handover by options tests passed!");
     }
-}
+
+    }

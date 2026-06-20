@@ -1122,8 +1122,7 @@ mod tests {
                 }
 
                 // Get C Tulip AD output for comparison
-                let ad_inputs_c =
-                    [high.as_ptr(), low.as_ptr(), close.as_ptr(), volume.as_ptr()];
+                let ad_inputs_c = [high.as_ptr(), low.as_ptr(), close.as_ptr(), volume.as_ptr()];
                 let ad_start_index = unsafe { ti_ad_start(std::ptr::null()) };
                 let ad_output_len = high.len() - (ad_start_index as usize);
                 let mut c_ad = vec![0.0; ad_output_len];
@@ -1418,4 +1417,5 @@ mod tests {
 
         println!("✓ All ADOSC long EMA optional output database tests passed!");
     }*/
-}
+
+    }

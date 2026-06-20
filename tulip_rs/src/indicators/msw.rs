@@ -247,10 +247,6 @@ impl TIndicatorState<1> for IndicatorState {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-/// Returns the minimum number of input bars required to produce accurate results.
-pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
-    min_data(options)
-}
 
 /// Returns the minimum number of input bars required.
 pub fn min_data(options: &[f64]) -> usize {

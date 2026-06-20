@@ -91,10 +91,10 @@ pub mod by_options {
 /// (`roofing`), and optional output (`highpass`).
 pub const INFO: Info = Info {
     name: "roofingfilter",
-    indicator_type: IndicatorType::Trend,
+    indicator_type: IndicatorType::Math,
     full_name: "Ehlers Roofing Filter",
     inputs: &["real"],
-    options: &["ss_period, hp_period"],
+    options: &["ss_period", "hp_period"],
     outputs: &["roofing"],
     optional_outputs: &["highpass"],
     display_groups: &[DisplayGroup {
@@ -180,24 +180,6 @@ impl State {
     }
 }
 
-/// Returns the minimum number of input bars required to produce results
-/// accurate to `decimals` decimal places.
-///
-/// RoofingFilter is an IIR cascade with fixed coefficients — accuracy is
-/// not dependent on exponential smoothing decay, so this always delegates to
-/// [`min_data`] regardless of `decimals`.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the indicator options (`ss_period`, `hp_period`).
-/// * `decimals` - The number of decimal places of accuracy required (unused).
-///
-/// # Returns
-///
-/// The minimum number of input bars needed for meaningful RoofingFilter output.
-pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
-    min_data(options)
-}
 
 /// Returns the minimum amount of data required for the RoofingFilter indicator.
 ///

@@ -453,4 +453,5 @@ mod tests {
         }
         println!("✓ All SIMD by_assets state continuity IT tests passed!");
     }
-}
+
+    }

@@ -427,4 +427,5 @@ mod tests {
     fn get_close_array(stock_data: &[tulip_test::database::EodData]) -> Vec<f64> {
         stock_data.iter().map(|d| d.close).collect()
     }
-}
+
+    }

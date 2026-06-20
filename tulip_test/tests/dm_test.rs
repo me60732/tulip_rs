@@ -417,8 +417,13 @@ mod tests {
             {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_high.as_slice(), stock_low.as_slice()];
-                let (regular_outputs, _) = rust_dm(&stock_inputs, options, None).unwrap_or_else(|_| panic!("Regular DM failed for {} with options {:?}",
-                    stock_symbol, options));
+                let (regular_outputs, _) =
+                    rust_dm(&stock_inputs, options, None).unwrap_or_else(|_| {
+                        panic!(
+                            "Regular DM failed for {} with options {:?}",
+                            stock_symbol, options
+                        )
+                    });
 
                 // Compare number of outputs (should be 2: +DM and -DM)
                 assert_eq!(
@@ -603,4 +608,5 @@ mod tests {
 
         println!("✓ All SIMD by options vs Regular DM database tests passed!");
     }
-}
+
+    }

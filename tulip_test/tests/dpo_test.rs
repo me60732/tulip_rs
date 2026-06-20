@@ -831,4 +831,5 @@ mod tests {
             "✓ All SIMD by options vs Regular DPO database tests with optional outputs passed!"
         );
     }
-}
+
+    }

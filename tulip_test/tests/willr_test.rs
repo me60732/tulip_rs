@@ -867,4 +867,5 @@ mod tests {
         let close: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
         (high, low, close)
     }
-}
+
+    }

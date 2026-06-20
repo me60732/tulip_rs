@@ -521,4 +521,5 @@ mod tests {
 
         println!("✓ All CVI SIMD state handover by options tests passed!");
     }
-}
+
+    }

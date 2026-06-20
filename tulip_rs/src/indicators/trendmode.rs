@@ -332,10 +332,6 @@ pub fn min_data(_options: &[f64]) -> usize {
     56
 }
 
-/// `min_data` independent of decimal accuracy (IIR/HD with fixed structure).
-pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
-    min_data(options)
-}
 
 /// Number of output bars for a given input length.
 pub fn output_length(data_len: usize, _options: &[f64]) -> usize {

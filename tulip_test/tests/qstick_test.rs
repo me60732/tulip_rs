@@ -468,4 +468,5 @@ mod tests {
 
         println!("✓ All SIMD by options vs Regular QSTICK database tests passed!");
     }
-}
+
+    }

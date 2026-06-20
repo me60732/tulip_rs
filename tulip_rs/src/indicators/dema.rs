@@ -1,9 +1,9 @@
-use crate::common::{min_process, validate_inputs, validate_options};
+use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 pub use crate::indicators::ema::multiplier;
 use crate::indicators::ema::{calc as calc_ema, output_length as ema_output_length};
 use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
 };
 use serde::{Deserialize, Serialize};
 
@@ -139,31 +139,6 @@ impl TIndicatorState<1> for IndicatorState {
 
         Ok(vec![dema_line, ema_line])
     }
-}
-/// Returns the minimum number of input bars required to produce results
-/// accurate to `decimals` decimal places.
-///
-/// For indicators with exponential smoothing the seed value's influence
-/// must decay below the requested precision, so this value grows with
-/// `decimals`. Internally uses `min_process` with the smoothing
-/// multiplier to calculate the required lookback.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the indicator options (e.g. period).
-/// * `decimals` - The number of decimal places of accuracy required.
-///
-/// # Returns
-///
-/// The minimum number of input bars needed for the requested accuracy.
-pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
-    min_process(
-        options,
-        Some((decimals, 0)),
-        &[multiplier(options[0] as usize).0],
-        IndicatorInfoOrInteger::Info(INFO),
-        min_data,
-    )
 }
 /// Returns the minimum amount of data required for the DEMA indicator.
 ///

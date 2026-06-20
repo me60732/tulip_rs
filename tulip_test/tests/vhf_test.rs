@@ -456,4 +456,5 @@ mod tests {
 
         println!("✓ All 7 SIMD by options vs Regular VHF database tests passed!");
     }
-}
+
+    }

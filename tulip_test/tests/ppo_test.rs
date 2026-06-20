@@ -979,4 +979,5 @@ mod tests {
             "✓ All SIMD by options vs Regular PPO database tests with optional outputs passed!"
         );
     }
-}
+
+    }

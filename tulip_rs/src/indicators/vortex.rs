@@ -218,22 +218,6 @@ impl IndicatorState {
         (vi_simd[0], vi_simd[1], tr)
     }
 }
-/// Returns the minimum number of input bars required to produce accurate results.
-///
-/// For the Vortex indicator accuracy does not depend on decimal precision, so
-/// this always returns the same value as [`min_data`].
-///
-/// # Arguments
-///
-/// * `options` - A slice containing `[period]`.
-/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
-///
-/// # Returns
-///
-/// The minimum number of input bars required, identical to [`min_data`].
-pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
-    min_data(options)
-}
 /// Returns the minimum amount of data required for the Vortex indicator.
 ///
 /// # Arguments

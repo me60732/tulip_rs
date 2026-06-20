@@ -525,4 +525,5 @@ mod tests {
             println!("✓ SIMD by-assets state continuity ok: stock={stock_symbol}");
         }
     }
-}
+
+    }

@@ -1561,4 +1561,5 @@ mod tests {
             "✓ All SIMD by options vs Regular FOSC database tests with optional outputs passed!"
         );
     }
-}
+
+    }

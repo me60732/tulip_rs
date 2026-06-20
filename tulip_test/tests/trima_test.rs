@@ -442,6 +442,7 @@ mod tests {
             }
         }
 
-        println!("✓ All SIMD by options vs Regular TRIMA database tests passed!");
+        println!("\u{2713} All SIMD by options vs Regular TRIMA database tests passed!");
     }
-}
+
+    }

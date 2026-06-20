@@ -562,4 +562,5 @@ mod tests {
 
         println!("✓ All VOLATILITY SIMD state handover by options tests passed!");
     }
-}
+
+    }

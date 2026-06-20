@@ -419,10 +419,12 @@ mod tests {
         stock4_close.extend(&CLOSE);
         stock4_close.extend(&CLOSE);
 
-        let stocks = [("STOCK1", stock1_close.as_slice()),
+        let stocks = [
+            ("STOCK1", stock1_close.as_slice()),
             ("STOCK2", stock2_close.as_slice()),
             ("STOCK3", stock3_close.as_slice()),
-            ("STOCK4", stock4_close.as_slice())];
+            ("STOCK4", stock4_close.as_slice()),
+        ];
 
         // Prepare inputs for SIMD processing - we need 4 assets for SIMD width of 4
         let simd_inputs = [
@@ -630,4 +632,5 @@ mod tests {
 
         println!("✓ All HMA SIMD state handover by options tests passed!");
     }
-}
+
+    }

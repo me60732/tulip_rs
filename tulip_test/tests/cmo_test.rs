@@ -500,6 +500,7 @@ mod tests {
         println!("✓ All SIMD by options vs Regular CMO database tests passed!");
     }
 
+    
     fn get_close_array(stock_data: &[tulip_test::database::EodData]) -> Vec<f64> {
         stock_data.iter().map(|d| d.close).collect()
     }

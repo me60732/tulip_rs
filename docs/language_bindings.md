@@ -309,7 +309,6 @@ const info = ti.sma.info;
 // }
 
 ti.sma.minData([5]);            // minimum bars needed to produce output
-ti.sma.minDataAccuracy([5], 6); // bars needed for 6-decimal accuracy
 ```
 
 ---
@@ -469,7 +468,6 @@ console.log(info.displayGroups);
 // [ { id: 'sma', label: 'SMA', displayType: 'Overlay', outputs: ['sma'] } ]
 
 sma.minData([5]);            // minimum bars needed to produce output
-sma.minDataAccuracy([5], 6); // bars needed for 6-decimal accuracy
 ```
 
 ---

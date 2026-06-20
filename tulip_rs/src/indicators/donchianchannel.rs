@@ -1,7 +1,7 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 
-pub use crate::indicators::max::{min_data, min_data_accuracy, output_length};
+pub use crate::indicators::max::{min_data, output_length};
 use crate::indicators::{
     max::State as MaxState,
     medprice::calc as calc_medprice,

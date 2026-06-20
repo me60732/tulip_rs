@@ -1089,4 +1089,5 @@ mod tests {
 
         println!("✓ All MFI SIMD state handover by options tests passed!");
     }
-}
+
+    }

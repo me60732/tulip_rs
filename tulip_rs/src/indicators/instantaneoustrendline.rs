@@ -61,7 +61,7 @@ pub const OPTIONS_WIDTH: usize = 0;
 /// Metadata describing the Instantaneous Trendline indicator.
 pub const INFO: Info = Info {
     name: "instantaneoustrendline",
-    indicator_type: IndicatorType::Trend,
+    indicator_type: IndicatorType::Cycle,
     full_name: "Ehlers Instantaneous Trendline",
     inputs: &["real"],
     options: &[],
@@ -73,14 +73,7 @@ pub const INFO: Info = Info {
             id: "instantaneoustrendline",
             label: "Ehlers Instantaneous Trendline",
             display_type: DisplayType::Overlay,
-            outputs: &["trendline"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "instantaneoustrendline_trigger",
-            label: "IT Trigger",
-            display_type: DisplayType::Overlay,
-            outputs: &["trigger"],
+            outputs: &["trendline", "trigger"],
         },
         DisplayGroup {
             offset: None,
@@ -338,12 +331,6 @@ pub fn min_data(_options: &[f64]) -> usize {
     23
 }
 
-/// Returns the minimum number of input bars required to produce results accurate
-/// to `decimals` decimal places. Delegates to [`min_data`] (IIR warmup is
-/// independent of decimal precision).
-pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
-    min_data(options)
-}
 
 /// Returns the number of output values produced for a given input length.
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {

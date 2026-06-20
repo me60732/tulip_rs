@@ -92,22 +92,6 @@ impl TIndicatorState<1> for IndicatorState {
     }
 }
 
-/// Returns the minimum number of input bars required to produce accurate results.
-///
-/// For this indicator accuracy does not depend on decimal precision, so
-/// this always returns the same value as [`min_data`].
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the indicator options.
-/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
-///
-/// # Returns
-///
-/// The minimum number of input bars required, identical to [`min_data`].
-pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
-    min_data(options)
-}
 /// Returns the minimum amount of data required for the MOM indicator.
 pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize + 1

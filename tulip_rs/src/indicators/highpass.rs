@@ -78,7 +78,7 @@ pub mod by_options {
 /// its input (`real`), configurable `period`, and output line (`supersmoother`).
 pub const INFO: Info = Info {
     name: "highpass",
-    indicator_type: IndicatorType::Trend,
+    indicator_type: IndicatorType::Math,
     full_name: "Ehlers High Pass Filter",
     inputs: &["real"],
     options: &["period"],
@@ -152,24 +152,6 @@ impl State {
     }
 }
 
-/// Returns the minimum number of input bars required to produce results
-/// accurate to `decimals` decimal places.
-///
-/// SuperSmoother is a 2-pole IIR filter with fixed coefficients — accuracy is
-/// not dependent on exponential smoothing decay, so this always delegates to
-/// [`min_data`] regardless of `decimals`.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the indicator options (`period`).
-/// * `decimals` - The number of decimal places of accuracy required (unused).
-///
-/// # Returns
-///
-/// The minimum number of input bars needed for meaningful SuperSmoother output.
-pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
-    min_data(options)
-}
 
 /// Returns the minimum amount of data required for the SuperSmoother indicator.
 ///

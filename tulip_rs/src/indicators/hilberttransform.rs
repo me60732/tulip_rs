@@ -96,18 +96,18 @@ pub mod by_options {
 /// Metadata describing the Hilbert Transform indicator.
 pub const INFO: Info = Info {
     name: "hilberttransform",
-    indicator_type: IndicatorType::Momentum,
+    indicator_type: IndicatorType::Math,
     full_name: "Hilbert Transform",
     inputs: &["real"],
     options: &["ss_period, hp_period"],
-    outputs: &["in_phase, quadrature"],
+    outputs: &["in_phase", "quadrature"],
     optional_outputs: &["roofing", "highpass"],
     display_groups: &[DisplayGroup {
         offset: None,
         id: "hilberttransform",
         label: "Hilbert Transform",
         display_type: DisplayType::Indicator,
-        outputs: &["in_phase, quadrature", "roofing", "highpass"],
+        outputs: &["in_phase", "quadrature", "roofing", "highpass"],
     }],
 };
 #[derive(Serialize, Deserialize)]
@@ -214,22 +214,6 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
     }
 }
 
-/// Returns the minimum number of input bars required to produce accurate results.
-///
-/// For this indicator accuracy does not depend on decimal precision, so
-/// this always returns the same value as [`min_data`].
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the indicator options.
-/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
-///
-/// # Returns
-///
-/// The minimum number of input bars required, identical to [`min_data`].
-pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
-    min_data(options)
-}
 /// Returns the minimum number of input bars required for the Hilbert Transform.
 ///
 /// Equals `rf_min_data(options) + 7` — the roofing filter warm-up plus the

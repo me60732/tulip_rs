@@ -682,7 +682,8 @@ mod tests {
                     }
                 }
             }
-            println!("✓ SIMD by_options state continuity passed for {stock_symbol}");
+            println!("\u{2713} SIMD by_options state continuity passed for {stock_symbol}");
         }
     }*/
-}
+
+    }

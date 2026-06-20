@@ -1,11 +1,11 @@
-use crate::common::{min_process, validate_inputs, validate_options};
+use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::di::calc_diup_didown;
 pub use crate::indicators::di::State;
 use crate::indicators::tr::output_length as tr_output_length;
 pub use crate::indicators::wilders::multiplier;
 use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
 };
 use serde::{Deserialize, Serialize};
 
@@ -118,31 +118,6 @@ pub const INFO: Info = Info {
         },
     ],
 };
-/// Returns the minimum number of input bars required to produce results
-/// accurate to `decimals` decimal places.
-///
-/// Because DX uses Wilder's smoothing the seed value's influence must
-/// decay below the requested precision, so this value grows with
-/// `decimals`. Internally uses `min_process` with the smoothing
-/// multiplier to calculate the required lookback.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the indicator options (e.g. period).
-/// * `decimals` - The number of decimal places of accuracy required.
-///
-/// # Returns
-///
-/// The minimum number of input bars needed for the requested accuracy.
-pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
-    min_process(
-        options,
-        Some((decimals, 0)),
-        &[multiplier(options[0] as usize).1],
-        IndicatorInfoOrInteger::Integer(1),
-        min_data,
-    )
-}
 /// Returns the minimum amount of data required for the DX indicator.
 ///
 /// # Arguments

@@ -555,8 +555,12 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) =
-                    indicator(&stock_inputs, options, None).unwrap_or_else(|_| panic!("Regular ATR failed for {} with period {}",
-                        stock_symbol, options[0]));
+                    indicator(&stock_inputs, options, None).unwrap_or_else(|_| {
+                        panic!(
+                            "Regular ATR failed for {} with period {}",
+                            stock_symbol, options[0]
+                        )
+                    });
 
                 // Compare SIMD result with regular result
                 assert_eq!(
@@ -643,8 +647,12 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) = indicator(&stock_inputs, options, optional_outputs)
-                    .unwrap_or_else(|_| panic!("Regular ATR with optional outputs failed for {} with period {}",
-                        stock_symbol, options[0]));
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "Regular ATR with optional outputs failed for {} with period {}",
+                            stock_symbol, options[0]
+                        )
+                    });
 
                 // Compare number of outputs (should be 2: ATR and TR)
                 assert_eq!(
@@ -911,4 +919,5 @@ mod tests {
             "✓ All SIMD by options vs Regular ATR database tests with optional outputs passed!"
         );
     }
-}
+
+    }

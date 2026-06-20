@@ -1,6 +1,6 @@
 use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
-pub use crate::indicators::atr::{min_data, min_data_accuracy, multiplier, output_length};
+pub use crate::indicators::atr::{min_data, multiplier, output_length};
 
 use crate::indicators::tr::output_length as tr_output_length;
 use crate::indicators::{

@@ -463,4 +463,5 @@ mod tests {
 
         //println!("✓ All SIMD vs Regular MIN database tests passed!");
     }
-}
+
+    }

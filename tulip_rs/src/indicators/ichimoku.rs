@@ -317,23 +317,6 @@ pub fn output_length(
         data_len,
     )
 }
-/// Returns the minimum number of input bars required to produce results
-/// accurate to `decimals` decimal places.
-///
-/// For Ichimoku, accuracy is not dependent on exponential smoothing, so this
-/// always delegates to [`min_data`] regardless of `decimals`.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the indicator options (`short_period`, `long_period`).
-/// * `decimals` - The number of decimal places of accuracy required (unused).
-///
-/// # Returns
-///
-/// The minimum number of input bars needed for meaningful Ichimoku output.
-pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
-    min_data(options)
-}
 #[inline]
 pub fn min_data(options: &[f64]) -> usize {
     min_min_data(&[options[1] * 2.0]) + options[1] as usize

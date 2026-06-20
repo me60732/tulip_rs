@@ -803,4 +803,5 @@ mod tests {
             "✓ All SIMD by options vs Regular MD database tests with optional outputs passed!"
         );
     }
-}
+
+    }

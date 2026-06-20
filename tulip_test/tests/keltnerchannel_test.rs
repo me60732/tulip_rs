@@ -707,4 +707,5 @@ mod tests {
         }
         println!("✓ All SIMD by-assets Keltner Channel optional output tests passed!");
     }
-}
+
+    }

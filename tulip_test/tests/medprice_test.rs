@@ -248,7 +248,8 @@ mod tests {
             }
         }
     }
-}
+
+    }
 
 fn get_hl_arrays(stock_data: &[tulip_test::database::EodData]) -> (Vec<f64>, Vec<f64>) {
     let high: Vec<f64> = stock_data.iter().map(|d| d.high).collect();

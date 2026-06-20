@@ -387,4 +387,5 @@ mod tests {
         }
         println!("✓ All SIMD by_assets adaptive MSW state continuity tests passed!");
     }
-}
+
+    }

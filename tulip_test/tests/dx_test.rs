@@ -701,8 +701,13 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_outputs, _) = rust_dx(&stock_inputs, options, None).unwrap_or_else(|_| panic!("Regular DX failed for {} with period {}",
-                    stock_symbol, options[0]));
+                let (regular_outputs, _) =
+                    rust_dx(&stock_inputs, options, None).unwrap_or_else(|_| {
+                        panic!(
+                            "Regular DX failed for {} with period {}",
+                            stock_symbol, options[0]
+                        )
+                    });
 
                 // Compare SIMD result with regular result
                 assert_eq!(
@@ -789,8 +794,12 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) = rust_dx(&stock_inputs, options, optional_outputs)
-                    .unwrap_or_else(|_| panic!("Regular DX with optional ATR failed for {} with period {}",
-                        stock_symbol, options[0]));
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "Regular DX with optional ATR failed for {} with period {}",
+                            stock_symbol, options[0]
+                        )
+                    });
 
                 // Compare number of outputs (should be 2: dx, atr)
                 assert_eq!(
@@ -912,8 +921,12 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) = rust_dx(&stock_inputs, options, optional_outputs)
-                    .unwrap_or_else(|_| panic!("Regular DX with optional TR failed for {} with period {}",
-                        stock_symbol, options[0]));
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "Regular DX with optional TR failed for {} with period {}",
+                            stock_symbol, options[0]
+                        )
+                    });
 
                 // Compare number of outputs (should be 2: dx, tr)
                 assert_eq!(
@@ -1222,4 +1235,5 @@ mod tests {
             "✓ All SIMD by options vs Regular DX database tests with optional outputs passed!"
         );
     }
-}
+
+    }

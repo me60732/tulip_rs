@@ -126,24 +126,6 @@ impl State {
         }
     }
 }
-/// Returns the minimum number of input bars required to produce accurate results.
-///
-/// For this indicator accuracy does not depend on decimal precision, so
-/// this always returns the same value regardless of `_decimals`. Returns
-/// one more than [`min_data`] to allow the algorithm to warm up past its
-/// initial seed bar.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the indicator options.
-/// * `_decimals` - Unused. Accuracy is independent of decimal precision for this indicator.
-///
-/// # Returns
-///
-/// `min_data(options) + 1` — the minimum number of input bars needed.
-pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
-    min_data(options) + 1
-}
 /// Returns the minimum amount of data required for the PSAR indicator.
 ///
 /// # Arguments

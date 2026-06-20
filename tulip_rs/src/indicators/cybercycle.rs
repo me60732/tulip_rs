@@ -79,22 +79,13 @@ pub const INFO: Info = Info {
     options: &["alpha"],
     outputs: &["cybercycle"],
     optional_outputs: &["trigger"],
-    display_groups: &[
-        DisplayGroup {
-            offset: None,
-            id: "cybercycle",
-            label: "Ehlers CyberCycle",
-            display_type: DisplayType::Indicator,
-            outputs: &["cybercycle"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "cybercycle_trigger",
-            label: "CyberCycle Trigger",
-            display_type: DisplayType::Indicator,
-            outputs: &["trigger"],
-        },
-    ],
+    display_groups: &[DisplayGroup {
+        offset: None,
+        id: "cybercycle",
+        label: "Ehlers Cyber Cycle",
+        display_type: DisplayType::Indicator,
+        outputs: &["cybercycle", "trigger"],
+    }],
 };
 
 /// Persistent state for streaming / multi-batch use.
@@ -331,10 +322,6 @@ pub fn min_data(_options: &[f64]) -> usize {
     7
 }
 
-/// `min_data` independent of decimal accuracy (IIR with fixed coefficients).
-pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
-    min_data(options)
-}
 
 /// Number of output bars for a given input length.
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {

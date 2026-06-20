@@ -110,10 +110,6 @@ pub enum IndicatorError {
 
 impl Error for IndicatorError {}
 
-pub enum IndicatorInfoOrInteger {
-    Info(Info),
-    Integer(usize),
-}
 
 pub trait IndicatorStateDeref {
     fn as_any(&self) -> &dyn std::any::Any;

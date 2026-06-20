@@ -1088,4 +1088,5 @@ mod tests {
 
         println!("✓ All SIMD by options vs Regular LINREG optional outputs database tests passed!");
     }
-}
+
+    }

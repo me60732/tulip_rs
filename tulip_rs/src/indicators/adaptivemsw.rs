@@ -246,11 +246,6 @@ pub fn min_data(_options: &[f64]) -> usize {
     23
 }
 
-/// Returns the minimum number of input bars required to produce results accurate
-/// to `decimals` decimal places. Delegates to [`min_data`].
-pub fn min_data_accuracy(options: &[f64], _decimals: usize) -> usize {
-    min_data(options)
-}
 
 /// Returns the number of output values produced for a given input length.
 pub fn output_length(data_len: usize, options: &[f64]) -> usize {

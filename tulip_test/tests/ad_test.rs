@@ -444,4 +444,5 @@ mod tests {
         let volume: Vec<f64> = stock_data.iter().map(|d| d.volume).collect();
         (high, low, close, volume)
     }
-}
+
+    }

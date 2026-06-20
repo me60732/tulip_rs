@@ -2,7 +2,7 @@ use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 
 use crate::indicators::ema::{calc as calc_ema, init_state};
-pub use crate::indicators::ema::{min_data, min_data_accuracy, multiplier, output_length};
+pub use crate::indicators::ema::{min_data, multiplier, output_length};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 //use wide::*;

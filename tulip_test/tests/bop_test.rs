@@ -468,4 +468,5 @@ mod tests {
 
         println!("✓ All SIMD by assets vs Regular BOP database tests passed!");
     }
-}
+
+    }

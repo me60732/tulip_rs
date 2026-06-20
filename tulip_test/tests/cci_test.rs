@@ -1645,4 +1645,5 @@ mod tests {
 
         println!("✓ All CCI SIMD state handover by options tests passed!");
     }
-}
+
+    }

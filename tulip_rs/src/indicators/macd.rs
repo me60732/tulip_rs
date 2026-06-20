@@ -1,10 +1,10 @@
-use crate::common::{min_process, validate_inputs};
+use crate::common::{validate_inputs};
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::ema::{
     calc as calc_ema, multiplier as ema_multiplier, output_length as ema_output_length,
 };
 use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorInfoOrInteger, IndicatorType, Info,
+    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
 };
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
@@ -181,37 +181,7 @@ pub fn output_length(data_len: usize, options: &[f64]) -> (usize, usize, usize) 
     let histogram_capacity = signal_capacity;
     (macd_capacity, signal_capacity, histogram_capacity)
 }
-/// Returns the minimum number of input bars required to produce results
-/// accurate to `decimals` decimal places.
-///
-/// For indicators with exponential smoothing the seed value's influence
-/// must decay below the requested precision, so this value grows with
-/// `decimals`. Internally uses `min_process` with the smoothing
-/// multiplier to calculate the required lookback.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the indicator options (e.g. period).
-/// * `decimals` - The number of decimal places of accuracy required.
-///
-/// # Returns
-///
-/// The minimum number of input bars needed for the requested accuracy.
-pub fn min_data_accuracy(options: &[f64], decimals: usize) -> usize {
-    let (_short_multiplier, long_multiplier, _signal_multiplier) = multiplier(
-        options[0] as usize,
-        options[1] as usize,
-        options[2] as usize,
-    );
-    min_process(
-        options,
-        Some((decimals, 0)),
-        &[long_multiplier.0],
-        IndicatorInfoOrInteger::Integer(0),
-        min_data,
-    )
-}
-#[inline]
+
 pub fn min_data(options: &[f64]) -> usize {
     (options[1] + options[2]) as usize - 1
 }
