@@ -9,6 +9,9 @@ pub const INPUTS_WIDTH: usize = 1;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
 
+/// Number of primary output series produced by this indicator.
+pub const OUTPUTS_WIDTH: usize = 1;
+
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
@@ -225,6 +228,43 @@ pub fn indicator(
     cycle_ef(real, &mut sum, period, &mut ef_line[1..]);
 
     Ok((vec![ef_line], IndicatorState::new(real, sum, period)))
+}
+
+/// Calculates EF writing results directly into caller-provided output buffers.
+///
+/// Unlike [`indicator`], no output `Vec`s are allocated — the caller supplies
+/// pre-allocated slices and results are written in-place.  This eliminates the
+/// allocator round-trip and is the preferred path when output memory is managed
+/// externally (e.g. pre-allocated numpy arrays in the Python binding).
+///
+/// The caller is responsible for ensuring each slice in `outputs` is exactly
+/// `output_length(inputs[0].len(), options)` elements long.
+///
+/// # Arguments
+///
+/// * `inputs`  - Same layout as [`indicator`].
+/// * `options` - Same layout as [`indicator`].
+/// * `outputs` - One pre-allocated `&mut [f64]` per output channel; `outputs[0]`
+///               receives the `ef` line.
+/// * `_optional_outputs` - Unused; EF has no optional outputs.
+///
+/// # Returns
+///
+/// `Ok(state)` with the streaming [`IndicatorState`], or `Err(IndicatorError)`
+/// if inputs or options are invalid.
+pub fn indicator_into(
+    inputs: &[&[f64]; INPUTS_WIDTH],
+    options: &[f64; OPTIONS_WIDTH],
+    outputs: &mut [&mut [f64]; OUTPUTS_WIDTH],
+    _optional_outputs: Option<&[bool]>,
+) -> Result<IndicatorState, IndicatorError> {
+    validate_options(options)?;
+    let period = options[0] as usize;
+    validate_inputs(inputs, min_data(options))?;
+    let real = inputs[0];
+    let mut sum = init(real, period, outputs[0]);
+    cycle_ef(real, &mut sum, period, &mut outputs[0][1..]);
+    Ok(IndicatorState::new(real, sum, period))
 }
 
 /// Performs the main calculation loop for the EF indicator.
