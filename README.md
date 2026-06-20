@@ -137,13 +137,28 @@ C implementation (Tulip Indicators) and TA-Lib across 8 real market symbols.
 
 ---
 
+## Indicators
+
+| Category | Indicators |
+|---|---|
+| **Moving Averages** | SMA, EMA, WMA, DEMA, TEMA, TRIMA, HMA, ZLEMA, KAMA, VIDYA, VWMA, Wilders, SMA Envelope |
+| **Oscillators** | RSI, MACD, Stochastic, StochRSI, Williams %R, CCI, CMO, Ultimate Oscillator, AO, Fisher Transform, FOSC, MSW, TRIX |
+| **Trend** | ADX, ADXR, DI, DM, DX, Aroon, Aroon Osc, PSAR, PPO, APO, Vortex, Elder-Ray, Donchian Channel, Ichimoku, SuperTrend, Efficiency Ratio, MAMA |
+| **Volatility** | BBands, ATR, NATR, TR, StdDev, Volatility, VHF, CVI, Chandelier Exit, Keltner Channel, TRVI |
+| **Volume** | AD, ADOSC, OBV, MFI, NVI, PVI, VOSC, KVO, EMV, WAD, MarketFi, ChaikinMF, VWAP |
+| **Price & Statistical** | AvgPrice, MedPrice, TypPrice, WCPrice, Max, Min, MOM, ROC, ROCR, BOP, LinReg, TSF, DPO, Mass, MD, QStick, PivotPoint |
+| **Cycle & Ehlers** | CyberCycle, Adaptive MSW, Homodyne Discriminator, Instantaneous Trendline, TrendMode, High Pass Filter, Hilbert Transform, Roofing Filter, Super Smoother, CC Fisher |
+| **Candlestick** | 77+ patterns via `tulip_rs::indicators::candlestick` |
+
+---
+
 ## Documentation
 
 | Page | Description |
 |---|---|
 | [Getting Started](https://me60732.github.io/tulip_rs/getting_started/) | Installation, feature flags, calling convention, first examples |
 | [Indicators — Overview](https://me60732.github.io/tulip_rs/indicators/) | Full indicator index with inputs, options, and output counts |
-| [Indicator API](https://me60732.github.io/tulip_rs/indicators/indicator_api/) | `info()`, optional outputs, `min_data`, `min_data_accuracy` |
+| [Indicator API](https://me60732.github.io/tulip_rs/indicators/indicator_api/) | `info()`, `min_data()`, optional outputs, state continuation |
 | [SIMD](https://me60732.github.io/tulip_rs/simd/) | By-assets and by-options modes, lane counts, when to use each |
 | [State Management](https://me60732.github.io/tulip_rs/state_management/) | Streaming computation, chunked processing, JSON serialisation |
 | [Candlestick Patterns](https://me60732.github.io/tulip_rs/candlestick_patterns/) | 60+ patterns with bullish/bearish forecasting |
@@ -157,7 +172,8 @@ C implementation (Tulip Indicators) and TA-Lib across 8 real market symbols.
 |---|---|---|
 | **Rust** | ✅ Native | `tulip_rs` (this repo) |
 | **Python** | ✅ Supported | [`tulip_rs_python`](https://github.com/me60732/tulip_rs_python) · `pip install tulip-rs` |
-| Node.js / WASM | 🔜 Planned | — |
+| **Node.js** | ✅ Supported | [`tulip-rs-node`](https://github.com/me60732/tulip_rs_node) · `npm install tulip-rs-node` |
+| **WASM** | ✅ Supported | [`tulip-rs-wasm`](https://github.com/me60732/tulip_rs_wasm) |
 | R | 🔜 Planned | — |
 | Julia | 🔜 Planned | — |
 
