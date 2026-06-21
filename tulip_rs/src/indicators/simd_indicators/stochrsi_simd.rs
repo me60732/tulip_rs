@@ -8,6 +8,7 @@ use crate::indicators::simd_indicators::{
     max_simd::SimdState as MaxSimdState, min_simd::SimdState as MinSimdState,
     rsi_simd::SimdState as RsiSimdState,
 };
+pub(crate) use crate::indicators::simd_indicators::max_simd::CHUNK_1;
 use crate::indicators::stochrsi::State;
 use crate::ring_buffer::single_buffer::mirror_buffer::MirrorBuffer as SingleMirrorBuffer;
 use std::f64;

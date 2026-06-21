@@ -1,6 +1,6 @@
 //use crate::common::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::willr_simd::{assets::Calc, SimdState};
+use crate::indicators::simd_indicators::willr_simd::{assets::Calc, SimdState, CHUNK_1};
 use crate::indicators::{
     max::output_length as max_output_length,
     willr::{min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH},
@@ -31,13 +31,10 @@ impl Driver<State> for WillrDriver {
         let mut state = SimdState::new(&mut states);
         //let look_back = self.period - 1;
 
-        match self.period {
-            1..=14 => {
-                self.cycle::<N, 1>(inputs, &mut state, output_ptrs, len);
-            }
-            _ => {
-                self.cycle::<N, 8>(inputs, &mut state, output_ptrs, len);
-            }
+        if CHUNK_1.contains(&self.period) {
+            self.cycle::<N, 1>(inputs, &mut state, output_ptrs, len);
+        } else {
+            self.cycle::<N, 4>(inputs, &mut state, output_ptrs, len);
         }
         // Update states efficiently
         state.write_states(&mut states);

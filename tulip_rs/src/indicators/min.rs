@@ -1,6 +1,7 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+pub(crate) use crate::indicators::max::{CHUNK_1, CHUNK_4};
 use serde::{Deserialize, Serialize};
 //use std::slice::
 /// Number of input price series required by this indicator.
@@ -77,15 +78,12 @@ impl State {
             let search_end = i + 1;
             let window = &real[search_start..search_end];
 
-            /*let (min_val, min_idx) = if period > 4 {
+            let (min_val, min_idx) = if CHUNK_1.contains(&period) {
+                find_min_scalar(window)
+            } else if CHUNK_4.contains(&period) {
                 find_min_simd::<4>(window)
             } else {
-                find_min_scalar(window)
-            };*/
-            let (min_val, min_idx) = match period {
-                1..=4 => find_min_scalar(window),
-                5..30 => find_min_simd::<4>(window),
-                _ => find_min_simd::<8>(window),
+                find_min_simd::<8>(window)
             };
             min = min_val;
             trail = i - (search_start + min_idx);
@@ -162,18 +160,14 @@ impl TIndicatorState<1> for IndicatorState {
         self.real.extend_from_slice(inputs[0]);
 
         let mut min_line = crate::uninit_vec!(f64, inputs[0].len());
-        match self.periods.0 {
-            1..=4 => {
-                cycle_min::<1>(&self.real, self.periods, &mut min_line, &mut self.state);
-            }
-            5..24 => {
-                cycle_min::<1>(&self.real, self.periods, &mut min_line, &mut self.state);
-            }
-            _ => {
-                cycle_min::<1>(&self.real, self.periods, &mut min_line, &mut self.state);
-            }
+        
+        if CHUNK_1.contains(&self.periods.0) {
+            cycle_min::<1>(&self.real, self.periods, &mut min_line, &mut self.state);
+        } else if CHUNK_4.contains(&self.periods.0) {
+            cycle_min::<4>(&self.real, self.periods, &mut min_line, &mut self.state);
+        } else {
+            cycle_min::<8>(&self.real, self.periods, &mut min_line, &mut self.state);
         }
-        //cycle_min(&self.real, self.periods, &mut min_line, &mut self.state);
 
         self.real.drain(..self.real.len() - self.periods.1);
 
@@ -268,18 +262,14 @@ pub fn indicator(
     };
 
     let mut state = State::new(real[0], periods.0);
-    match periods.0 {
-        1..=4 => {
-            cycle_min::<1>(real, periods, &mut min_line, &mut state);
-        }
-        5..30 => {
-            cycle_min::<4>(real, periods, &mut min_line, &mut state);
-        }
-        _ => {
-            cycle_min::<8>(real, periods, &mut min_line, &mut state);
-        }
+    
+    if CHUNK_1.contains(&periods.0) {
+        cycle_min::<1>(real, periods, &mut min_line, &mut state);
+    } else if CHUNK_4.contains(&periods.0) {
+        cycle_min::<4>(real, periods, &mut min_line, &mut state);
+    } else {
+        cycle_min::<8>(real, periods, &mut min_line, &mut state);
     }
-    //cycle_min(real, periods, &mut min_line, &mut state);
 
     Ok((vec![min_line], IndicatorState::new(real, state, periods)))
 }
@@ -366,19 +356,23 @@ pub(crate) fn find_min_simd<const N: usize>(window: &[f64]) -> (f64, usize) {
 
         if mask.any() {
             global_min = Simd::splat(values.reduce_min());
-            let eq_mask = values.simd_eq(global_min);
-
-            let mut i = N;
-            while i > 0 {
-                i -= 1;
-                if unsafe { eq_mask.test_unchecked(i) } {
-                    break;
+            let i = if N <= 4 {
+                values.simd_eq(global_min).to_bitmask().ilog2() as usize
+            } else {
+                let eq_mask = values.simd_eq(global_min);
+                let mut i = N;
+                while i > 0 {
+                    i -= 1;
+                    if unsafe { eq_mask.test_unchecked(i) } {
+                        break;
+                    }
                 }
-            }
-
+                i
+            };
             min_idx = chunk_idx * N + i + 1;
         }
     }
+
     let mut global_min = global_min[0];
     // Handle remainder using find_min_scalar - calculate slice directly
     let processed_len = (search_window.len() / N) * N;

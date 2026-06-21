@@ -4,7 +4,7 @@ use crate::common_simd::assets::validate_inputs;
 use crate::indicators::donchianchannel::{
     min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
-use crate::indicators::simd_indicators::donchianchannel_simd::{assets::Calc, SimdState};
+use crate::indicators::simd_indicators::donchianchannel_simd::{assets::Calc, SimdState, CHUNK_1};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 /// SIMD driver that advances the Donchian Channel indicator across `N` asset lanes per scheduling
@@ -32,16 +32,10 @@ impl Driver<State> for DonchianChannelDriver {
         let inputs = crate::extract_input_ptrs!(inputs, N, high_ptrs, low_ptrs);
         let mut state = SimdState::new(&mut states);
 
-        match self.look_back {
-            1..=20 => {
-                self.cycle::<N, 1>(inputs, outputs, data_len, &mut state);
-            }
-            /*6..=50 => {
-                self.cycle::<N, 4>(inputs, outputs, data_len, &mut state);
-            }*/
-            _ => {
-                self.cycle::<N, 8>(inputs, outputs, data_len, &mut state);
-            }
+        if CHUNK_1.contains(&self.look_back) {
+            self.cycle::<N, 1>(inputs, outputs, data_len, &mut state);
+        } else {
+            self.cycle::<N, 4>(inputs, outputs, data_len, &mut state);
         }
         // Update states efficiently
         state.write_states(&mut states);

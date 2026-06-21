@@ -15,15 +15,9 @@ const CLOSE: [f64; 15] = [
 ];
 
 // Options from stochrsi_test.rs
-/* const OPTIONS_LIST: [[f64; 1]; 8] = [[5.0], [7.0], [8.0], [10.0], [14.0], [20.0], [25.0], [35.0]]; */
+//const OPTIONS_LIST: [[f64; 1]; 4] = [[5.0], [7.0], [8.0], [10.0]];
 const OPTIONS_LIST: [[f64; 1]; 4] = [[14.0], [20.0], [25.0], [35.0]];
-/*const OPTIONS_LIST: [[f64; 1]; 10] = [
-    [5.0],
-    [7.0],
-    [8.0],
-    [10.0],
-    [14.0],
-    [20.0],
+/*const OPTIONS_LIST: [[f64; 1]; 4] = [
     [25.0],
     [35.0],
     [50.0],
@@ -527,10 +521,10 @@ fn bench_rust_stochrsi_simd_by_options(c: &mut Criterion) {
 
 criterion_group!(
     stochrsi_benchmarks,
-    bench_rust_stochrsi,
-    bench_c_stochrsi,
     bench_rust_stochrsi_simd_by_assets,
     bench_rust_stochrsi_simd_by_options,
+    bench_rust_stochrsi,
+    bench_c_stochrsi,
     bench_rust_stochrsi_from_state,
     bench_rust_stochrsi_optional,
 );

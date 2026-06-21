@@ -1,6 +1,7 @@
 /// Re-uses [`aroon_simd::SimdState`] as the state for the Aroon Oscillator since both
 /// indicators track the same rolling min/max windows.
 pub use crate::indicators::simd_indicators::aroon_simd::SimdState;
+pub(crate) use crate::indicators::simd_indicators::aroon_simd::CHUNK_1;
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::by_asset::aroonosc::indicator_by_assets;
 

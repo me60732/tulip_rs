@@ -1,14 +1,12 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::max::State as MaxState;
+use crate::indicators::max::{State as MaxState, CHUNK_1, CHUNK_4};
 use crate::indicators::min::State as MinState;
 pub use crate::indicators::rsi::multiplier;
 use crate::indicators::rsi::{output_length as rsi_output_length, State as RsiState};
 use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
 use crate::ring_buffer::single_buffer::mirror_buffer::{MinMaxBuffer, MirrorBuffer};
-use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
-};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -78,37 +76,33 @@ impl TIndicatorState<1> for IndicatorState {
         let real = inputs[0];
         let mut stochrsi_line = vec![0.0; capacity];
 
-        match self.period {
-            1..=12 => {
-                cycle_stochrsi::<1>(
-                    real,
-                    self.multipliers,
-                    self.period,
-                    &mut stochrsi_line,
-                    &mut self.state,
-                    &mut rsi_line,
-                );
-            }
-            13..30 => {
-                cycle_stochrsi::<4>(
-                    real,
-                    self.multipliers,
-                    self.period,
-                    &mut stochrsi_line,
-                    &mut self.state,
-                    &mut rsi_line,
-                );
-            }
-            _ => {
-                cycle_stochrsi::<8>(
-                    real,
-                    self.multipliers,
-                    self.period,
-                    &mut stochrsi_line,
-                    &mut self.state,
-                    &mut rsi_line,
-                );
-            }
+        if CHUNK_1.contains(&self.period) {
+            cycle_stochrsi::<1>(
+                real,
+                self.multipliers,
+                self.period,
+                &mut stochrsi_line,
+                &mut self.state,
+                &mut rsi_line,
+            );
+        } else if CHUNK_4.contains(&self.period) {
+            cycle_stochrsi::<4>(
+                real,
+                self.multipliers,
+                self.period,
+                &mut stochrsi_line,
+                &mut self.state,
+                &mut rsi_line,
+            );
+        } else {
+            cycle_stochrsi::<8>(
+                real,
+                self.multipliers,
+                self.period,
+                &mut stochrsi_line,
+                &mut self.state,
+                &mut rsi_line,
+            );
         }
 
         Ok(vec![stochrsi_line, rsi_line])
@@ -245,37 +239,33 @@ pub fn indicator(
     };
     let real = &real[period * 2..];
 
-    match period {
-        1..=5 => {
-            cycle_stochrsi::<1>(
-                real,
-                multipliers,
-                period,
-                &mut stochrsi_line,
-                &mut state,
-                rsi,
-            );
-        }
-        6..30 => {
-            cycle_stochrsi::<4>(
-                real,
-                multipliers,
-                period,
-                &mut stochrsi_line,
-                &mut state,
-                rsi,
-            );
-        }
-        _ => {
-            cycle_stochrsi::<8>(
-                real,
-                multipliers,
-                period,
-                &mut stochrsi_line,
-                &mut state,
-                rsi,
-            );
-        }
+    if CHUNK_1.contains(&period) {
+        cycle_stochrsi::<1>(
+            real,
+            multipliers,
+            period,
+            &mut stochrsi_line,
+            &mut state,
+            rsi,
+        );
+    } else if CHUNK_4.contains(&period) {
+        cycle_stochrsi::<4>(
+            real,
+            multipliers,
+            period,
+            &mut stochrsi_line,
+            &mut state,
+            rsi,
+        );
+    } else {
+        cycle_stochrsi::<8>(
+            real,
+            multipliers,
+            period,
+            &mut stochrsi_line,
+            &mut state,
+            rsi,
+        );
     }
 
     Ok((

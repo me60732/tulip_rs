@@ -6,7 +6,7 @@ use crate::indicators::{
     atr::{output_length as atr_output_length, State as AtrState},
     max::{
         calc as calc_max, calc_unchecked as calc_max_unchecked, output_length as max_output_length,
-        State as MaxState,
+        State as MaxState, CHUNK_1, CHUNK_4,
     },
     min::{calc as calc_min, calc_unchecked as calc_min_unchecked, State as MinState},
     tr::output_length as tr_output_length,
@@ -120,37 +120,34 @@ impl TIndicatorState<3> for IndicatorState {
                 ),
             )
         };
-        match periods.0 {
-            1..=4 => {
-                cycle::<1>(
-                    (&self.high, &self.low, close),
-                    periods,
-                    self.multipliers,
-                    (&mut long_line, &mut short_line),
-                    &mut self.state,
-                    (&mut atr_line, &mut tr_line, &mut min_line, &mut max_line),
-                );
-            }
-            5..25 => {
-                cycle::<4>(
-                    (&self.high, &self.low, close),
-                    periods,
-                    self.multipliers,
-                    (&mut long_line, &mut short_line),
-                    &mut self.state,
-                    (&mut atr_line, &mut tr_line, &mut min_line, &mut max_line),
-                );
-            }
-            _ => {
-                cycle::<8>(
-                    (&self.high, &self.low, close),
-                    periods,
-                    self.multipliers,
-                    (&mut long_line, &mut short_line),
-                    &mut self.state,
-                    (&mut atr_line, &mut tr_line, &mut min_line, &mut max_line),
-                );
-            }
+
+        if CHUNK_1.contains(&periods.0) {
+            cycle::<1>(
+                (&self.high, &self.low, close),
+                periods,
+                self.multipliers,
+                (&mut long_line, &mut short_line),
+                &mut self.state,
+                (&mut atr_line, &mut tr_line, &mut min_line, &mut max_line),
+            );
+        } else if CHUNK_4.contains(&periods.0) {
+            cycle::<4>(
+                (&self.high, &self.low, close),
+                periods,
+                self.multipliers,
+                (&mut long_line, &mut short_line),
+                &mut self.state,
+                (&mut atr_line, &mut tr_line, &mut min_line, &mut max_line),
+            );
+        } else {
+            cycle::<8>(
+                (&self.high, &self.low, close),
+                periods,
+                self.multipliers,
+                (&mut long_line, &mut short_line),
+                &mut self.state,
+                (&mut atr_line, &mut tr_line, &mut min_line, &mut max_line),
+            );
         }
 
         self.high.drain(..self.high.len() - periods.0);
@@ -358,38 +355,36 @@ pub fn indicator(
             &mut max_line[max_offset..],
         )
     };
-    match periods.0 {
-        1..=10 => {
-            cycle::<1>(
-                (high, low, &close[periods.0..]),
-                periods,
-                multipliers,
-                (&mut long_line, &mut short_line),
-                &mut state,
-                optional_outputs,
-            );
-        }
-        11..=25 => {
-            cycle::<4>(
-                (high, low, &close[periods.0..]),
-                periods,
-                multipliers,
-                (&mut long_line, &mut short_line),
-                &mut state,
-                optional_outputs,
-            );
-        }
-        _ => {
-            cycle::<8>(
-                (high, low, &close[periods.0..]),
-                periods,
-                multipliers,
-                (&mut long_line, &mut short_line),
-                &mut state,
-                optional_outputs,
-            );
-        }
+
+    if CHUNK_1.contains(&periods.0) {
+        cycle::<1>(
+            (high, low, &close[periods.0..]),
+            periods,
+            multipliers,
+            (&mut long_line, &mut short_line),
+            &mut state,
+            optional_outputs,
+        );
+    } else if CHUNK_4.contains(&periods.0) {
+        cycle::<4>(
+            (high, low, &close[periods.0..]),
+            periods,
+            multipliers,
+            (&mut long_line, &mut short_line),
+            &mut state,
+            optional_outputs,
+        );
+    } else {
+        cycle::<8>(
+            (high, low, &close[periods.0..]),
+            periods,
+            multipliers,
+            (&mut long_line, &mut short_line),
+            &mut state,
+            optional_outputs,
+        );
     }
+        
     Ok((
         vec![long_line, short_line, atr_line, tr_line, min_line, max_line],
         IndicatorState::new(high, low, state, periods, multipliers),

@@ -9,6 +9,7 @@ use crate::indicators::simd_indicators::{
     atr_simd::SimdState as SimdAtrState, max_simd::SimdState as SimdMaxState,
     min_simd::SimdState as SimdMinState,
 };
+pub(crate) use crate::indicators::simd_indicators::max_simd::CHUNK_1;
 use std::simd::{Simd, StdFloat};
 
 /// SIMD-parallel state for computing the Chandelier Exit indicator across `N` assets or option-sets simultaneously.

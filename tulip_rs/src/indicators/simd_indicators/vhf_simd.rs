@@ -6,6 +6,7 @@ pub use crate::indicators::simd_indicators::by_option::vhf::indicator_by_options
 use crate::indicators::simd_indicators::{
     max_simd::SimdState as SimdMaxState, min_simd::SimdState as SimdMinState,
 };
+pub(crate) use crate::indicators::simd_indicators::max_simd::CHUNK_1;
 use crate::indicators::vhf::State;
 use std::simd::{num::SimdFloat, Simd};
 

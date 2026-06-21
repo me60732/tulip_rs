@@ -2,7 +2,7 @@ use std::f64;
 
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::max::State as MaxState;
+use crate::indicators::max::{State as MaxState, CHUNK_1, CHUNK_4};
 use crate::indicators::medprice::calc as calc_medprice;
 use crate::indicators::min::State as MinState;
 use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
@@ -76,31 +76,27 @@ impl TIndicatorState<2> for IndicatorState {
         };
         let [high, low] = inputs;
 
-        match self.period {
-            1..=12 => {
-                cycle_fisher::<1>(
-                    (high, low),
-                    self.period,
-                    (&mut fisher_line, &mut signal_line),
-                    &mut self.state,
-                );
-            }
-            13..30 => {
-                cycle_fisher::<4>(
-                    (high, low),
-                    self.period,
-                    (&mut fisher_line, &mut signal_line),
-                    &mut self.state,
-                );
-            }
-            _ => {
-                cycle_fisher::<8>(
-                    (high, low),
-                    self.period,
-                    (&mut fisher_line, &mut signal_line),
-                    &mut self.state,
-                );
-            }
+        if CHUNK_1.contains(&self.period) {
+            cycle_fisher::<1>(
+                (high, low),
+                self.period,
+                (&mut fisher_line, &mut signal_line),
+                &mut self.state,
+            );
+        } else if CHUNK_4.contains(&self.period) {
+            cycle_fisher::<4>(
+                (high, low),
+                self.period,
+                (&mut fisher_line, &mut signal_line),
+                &mut self.state,
+            );
+        } else {
+            cycle_fisher::<8>(
+                (high, low),
+                self.period,
+                (&mut fisher_line, &mut signal_line),
+                &mut self.state,
+            );
         }
 
         Ok(vec![fisher_line, signal_line])
@@ -169,7 +165,6 @@ pub const INFO: Info = Info {
         outputs: &["fisher", "fisher_signal"],
     }],
 };
-
 
 /// Returns the minimum amount of data required for the Fisher Transform indicator.
 ///
@@ -247,16 +242,13 @@ pub fn indicator(
 
     let outputs = (&mut fisher_line[1..], &mut signal_line[1..]);
     let inputs = (&high[period..], &low[period..]);
-    match period {
-        1..=4 => {
-            cycle_fisher::<1>(inputs, period, outputs, &mut state);
-        }
-        5..30 => {
-            cycle_fisher::<4>(inputs, period, outputs, &mut state);
-        }
-        _ => {
-            cycle_fisher::<8>(inputs, period, outputs, &mut state);
-        }
+
+    if CHUNK_1.contains(&period) {
+        cycle_fisher::<1>(inputs, period, outputs, &mut state);
+    } else if CHUNK_4.contains(&period) {
+        cycle_fisher::<4>(inputs, period, outputs, &mut state);
+    } else {
+        cycle_fisher::<8>(inputs, period, outputs, &mut state);
     }
     Ok((
         vec![fisher_line, signal_line],

@@ -1,6 +1,6 @@
 //use crate::common::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::vhf_simd::{assets::Calc, SimdState};
+use crate::indicators::simd_indicators::vhf_simd::{assets::Calc, SimdState, CHUNK_1};
 use crate::indicators::vhf::{
     init_state, min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
@@ -28,16 +28,10 @@ impl Driver<State> for VhfDriver {
         let real_ptrs = crate::extract_input_ptrs!(inputs, N, real_ptrs);
         let mut state = SimdState::new(&mut states);
 
-        match self.period {
-            1..=14 => {
-                cycle::<N, 1>(real_ptrs, len, self.period, &mut state, vhf_line_ptr);
-            }
-            /*26..=40 => {
-                cycle::<N, 4>(real_ptrs, len, self.period, &mut state, vhf_line_ptr);
-            }*/
-            _ => {
-                cycle::<N, 8>(real_ptrs, len, self.period, &mut state, vhf_line_ptr);
-            }
+        if CHUNK_1.contains(&self.period) {
+            cycle::<N, 1>(real_ptrs, len, self.period, &mut state, vhf_line_ptr);
+        } else {
+            cycle::<N, 4>(real_ptrs, len, self.period, &mut state, vhf_line_ptr);
         }
         // Update states efficiently
         state.write_states(&mut states);

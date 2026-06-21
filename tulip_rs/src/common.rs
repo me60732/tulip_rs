@@ -1,4 +1,4 @@
-use crate::types::{IndicatorError};
+use crate::types::IndicatorError;
 
 
 /// Validates the inputs against the Info struct.

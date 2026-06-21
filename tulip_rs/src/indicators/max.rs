@@ -1,6 +1,9 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+use core::ops::Range;
+pub(crate) const CHUNK_1: Range<usize> = 1..5;
+pub(crate) const CHUNK_4: Range<usize> = 5..50;
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -41,7 +44,11 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::max_simd::indicator_by_options as indicator;
 }
 
-use std::simd::{cmp::SimdPartialEq, cmp::SimdPartialOrd, num::SimdFloat, Simd};
+use std::simd::{
+    cmp::{SimdPartialEq, SimdPartialOrd},
+    num::SimdFloat,
+    Simd,
+};
 
 #[derive(Serialize, Deserialize)]
 pub struct State {
@@ -77,10 +84,12 @@ impl State {
             } else {
                 find_max_scalar(window)
             };*/
-            let (max_val, max_idx) = match period {
-                1..=4 => find_max_scalar(window),
-                5..30 => find_max_simd::<4>(window),
-                _ => find_max_simd::<8>(window),
+            let (max_val, max_idx) = if CHUNK_1.contains(&period) {
+                find_max_scalar(window)
+            } else if CHUNK_4.contains(&period) {
+                find_max_simd::<4>(window)
+            } else {
+                find_max_simd::<8>(window)
             };
             max = max_val;
             trail = i - (search_start + max_idx);
@@ -160,16 +169,12 @@ impl TIndicatorState<1> for IndicatorState {
 
         let mut max_line = crate::uninit_vec!(f64, inputs[0].len());
 
-        match self.periods.0 {
-            1..=4 => {
-                cycle_max::<1>(&self.real, self.periods, &mut max_line, &mut self.state);
-            }
-            5..30 => {
-                cycle_max::<4>(&self.real, self.periods, &mut max_line, &mut self.state);
-            }
-            _ => {
-                cycle_max::<8>(&self.real, self.periods, &mut max_line, &mut self.state);
-            }
+        if CHUNK_1.contains(&self.periods.0) {
+            cycle_max::<1>(&self.real, self.periods, &mut max_line, &mut self.state);
+        } else if CHUNK_4.contains(&self.periods.0) {
+            cycle_max::<4>(&self.real, self.periods, &mut max_line, &mut self.state);
+        } else {
+            cycle_max::<8>(&self.real, self.periods, &mut max_line, &mut self.state);
         }
 
         self.real.drain(..self.real.len() - self.periods.1);
@@ -266,16 +271,12 @@ pub fn indicator(
 
     let mut state = State::new(real[0], periods.0);
     //let mut state = init_state(real, period);
-    match periods.0 {
-        1..=4 => {
-            cycle_max::<1>(real, periods, &mut max_line, &mut state);
-        }
-        5..30 => {
-            cycle_max::<4>(real, periods, &mut max_line, &mut state);
-        }
-        _ => {
-            cycle_max::<8>(real, periods, &mut max_line, &mut state);
-        }
+    if CHUNK_1.contains(&periods.0) {
+        cycle_max::<1>(real, periods, &mut max_line, &mut state);
+    } else if CHUNK_4.contains(&periods.0) {
+        cycle_max::<4>(real, periods, &mut max_line, &mut state);
+    } else {
+        cycle_max::<8>(real, periods, &mut max_line, &mut state);
     }
 
     Ok((vec![max_line], IndicatorState::new(real, state, periods)))
@@ -358,16 +359,19 @@ pub(crate) fn find_max_simd<const N: usize>(window: &[f64]) -> (f64, usize) {
 
         if mask.any() {
             global_max = Simd::splat(values.reduce_max());
-            let eq_mask = values.simd_eq(global_max);
-
-            let mut i = N;
-            while i > 0 {
-                i -= 1;
-                if unsafe { eq_mask.test_unchecked(i) } {
-                    break;
+            let i = if N <= 4 {
+                values.simd_eq(global_max).to_bitmask().ilog2() as usize
+            } else {
+                let eq_mask = values.simd_eq(global_max);
+                let mut i = N;
+                while i > 0 {
+                    i -= 1;
+                    if unsafe { eq_mask.test_unchecked(i) } {
+                        break;
+                    }
                 }
-            }
-
+                i
+            };
             max_idx = chunk_idx * N + i + 1;
         }
     }

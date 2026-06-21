@@ -7,6 +7,7 @@ pub use crate::indicators::simd_indicators::by_option::willr::indicator_by_optio
 use crate::indicators::simd_indicators::{
     max_simd::SimdState as SimdMaxState, min_simd::SimdState as SimdMinState,
 };
+pub(crate) use crate::indicators::simd_indicators::max_simd::CHUNK_1;
 use crate::indicators::willr::State;
 use std::simd::{cmp::SimdPartialOrd, Select, Simd};
 

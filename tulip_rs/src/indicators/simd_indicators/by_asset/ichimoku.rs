@@ -40,34 +40,16 @@ impl Driver<State> for IchimokuDriver {
             self.long_look_back,
             self.ultra_look_back,
         );
-
-        match self.ultra_look_back {
-            1..=30 => {
-                for (j, i) in (ulb..data_len).enumerate() {
-                    let (conv, base, span_a, span_b) = unsafe {
-                        state.calc_unchecked_simd::<1, 4, 4>(high_ptrs, low_ptrs, i, slb, llb, ulb)
-                    };
-                    crate::write_simd_at_indices!(N, j,
-                        conv_ptr => conv,
-                        base_ptr => base,
-                        span_a_ptr => span_a,
-                        span_b_ptr => span_b
-                    );
-                }
-            }
-            _ => {
-                for (j, i) in (ulb..data_len).enumerate() {
-                    let (conv, base, span_a, span_b) = unsafe {
-                        state.calc_unchecked_simd::<1, 4, 8>(high_ptrs, low_ptrs, i, slb, llb, ulb)
-                    };
-                    crate::write_simd_at_indices!(N, j,
-                        conv_ptr => conv,
-                        base_ptr => base,
-                        span_a_ptr => span_a,
-                        span_b_ptr => span_b
-                    );
-                }
-            }
+        for (j, i) in (ulb..data_len).enumerate() {
+            let (conv, base, span_a, span_b) = unsafe {
+                state.calc_unchecked_simd::<1, 4, 4>(high_ptrs, low_ptrs, i, slb, llb, ulb)
+            };
+            crate::write_simd_at_indices!(N, j,
+                conv_ptr => conv,
+                base_ptr => base,
+                span_a_ptr => span_a,
+                span_b_ptr => span_b
+            );
         }
 
         state.write_states(&mut states);

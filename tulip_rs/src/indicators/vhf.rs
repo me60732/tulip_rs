@@ -1,7 +1,7 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::max::{
-    calc as calc_max, calc_unchecked as calc_max_unchecked, State as MaxState,
+    calc as calc_max, calc_unchecked as calc_max_unchecked, State as MaxState, CHUNK_1, CHUNK_4
 };
 use crate::indicators::min::{
     calc as calc_min, calc_unchecked as calc_min_unchecked, State as MinState,
@@ -73,16 +73,12 @@ impl TIndicatorState<1> for IndicatorState {
 
         let mut vhf_line = crate::uninit_vec!(f64, inputs[0].len());
 
-        match self.period {
-            1..=4 => {
-                cycle::<1>(&self.real, self.period, &mut self.state, &mut vhf_line);
-            }
-            5..30 => {
-                cycle::<4>(&self.real, self.period, &mut self.state, &mut vhf_line);
-            }
-            _ => {
-                cycle::<8>(&self.real, self.period, &mut self.state, &mut vhf_line);
-            }
+        if CHUNK_1.contains(&self.period) {
+            cycle::<1>(&self.real, self.period, &mut self.state, &mut vhf_line);
+        } else if CHUNK_4.contains(&self.period) {
+            cycle::<4>(&self.real, self.period, &mut self.state, &mut vhf_line);
+        } else {
+            cycle::<8>(&self.real, self.period, &mut self.state, &mut vhf_line);
         }
 
         self.real.drain(..self.real.len() - self.period - 1);
@@ -195,16 +191,12 @@ pub fn indicator(
 
     let mut state = init_state(real, period, &mut vhf_line);
 
-    match period {
-        1..14 => {
-            cycle::<1>(real, period, &mut state, &mut vhf_line[1..]);
-        }
-        14..25 => {
-            cycle::<4>(real, period, &mut state, &mut vhf_line[1..]);
-        }
-        _ => {
-            cycle::<8>(real, period, &mut state, &mut vhf_line[1..]);
-        }
+    if CHUNK_1.contains(&period) {
+        cycle::<1>(real, period, &mut state, &mut vhf_line[1..]);
+    } else if CHUNK_4.contains(&period) {
+        cycle::<4>(real, period, &mut state, &mut vhf_line[1..]);
+    } else {
+        cycle::<8>(real, period, &mut state, &mut vhf_line[1..]);
     }
 
     Ok((vec![vhf_line], IndicatorState::new(state, real, period)))

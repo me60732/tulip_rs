@@ -2,7 +2,7 @@
 use crate::indicators::min::{
     min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
-use crate::indicators::simd_indicators::min_simd::{assets::Calc, SimdState};
+use crate::indicators::simd_indicators::min_simd::{assets::Calc, SimdState, CHUNK_1};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
@@ -32,40 +32,24 @@ impl Driver<State> for MinDriver {
         let real_ptrs = crate::extract_input_ptrs!(inputs, N, real_ptrs);
         let mut state = SimdState::new(&states);
         let (period, look_back) = self.periods;
-        //let current: Vec<Simd<f64, N>> = crate::create_simd_vec_from_inputs!(real_ptrs, N, len);
-        match period {
-            1..=14 => {
-                for (j, i) in (self.periods.1..len).enumerate() {
-                    let (min, _) =
-                        unsafe { state.calc_unchecked_simd::<1>(real_ptrs, i, look_back) };
 
-                    // Store results using pre-computed pointers
-                    crate::write_simd_at_indices!(N, j,
-                        min_line_ptr => min
-                    );
-                }
+        if CHUNK_1.contains(&period) {
+            for (j, i) in (self.periods.1..len).enumerate() {
+                let (min, _) = unsafe { state.calc_unchecked_simd::<1>(real_ptrs, i, look_back) };
+
+                // Store results using pre-computed pointers
+                crate::write_simd_at_indices!(N, j,
+                    min_line_ptr => min
+                );
             }
-            /*15..=24 => {
-                for (j, i) in (self.periods.1..len).enumerate() {
-                    let (min, _) =
-                        unsafe { state.calc_unchecked_simd::<4>(real_ptrs, i, self.periods) };
+        } else {
+            for (j, i) in (self.periods.1..len).enumerate() {
+                let (min, _) = unsafe { state.calc_unchecked_simd::<4>(real_ptrs, i, look_back) };
 
-                    // Store results using pre-computed pointers
-                    crate::write_simd_at_indices!(N, j,
-                        min_line_ptr => min
-                    );
-                }
-            }*/
-            _ => {
-                for (j, i) in (self.periods.1..len).enumerate() {
-                    let (min, _) =
-                        unsafe { state.calc_unchecked_simd::<8>(real_ptrs, i, look_back) };
-
-                    // Store results using pre-computed pointers
-                    crate::write_simd_at_indices!(N, j,
-                        min_line_ptr => min
-                    );
-                }
+                // Store results using pre-computed pointers
+                crate::write_simd_at_indices!(N, j,
+                    min_line_ptr => min
+                );
             }
         }
         // Update states efficiently

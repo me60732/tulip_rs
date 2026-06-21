@@ -2,7 +2,9 @@ use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::{
     max::State as MaxState,
-    min::{min_data as min_min_data, output_length as min_outpout_length, State as MinState},
+    min::{
+        min_data as min_min_data, output_length as min_outpout_length, State as MinState, CHUNK_4,
+    },
 };
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
@@ -129,8 +131,8 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
                 lagging_output(close, optional_outputs),
             )
         };
-        match self.periods.2 .1 {
-            1..40 => cycle::<1, 4, 4>(
+        if CHUNK_4.contains(&self.periods.2 .1) {
+            cycle::<1, 4, 4>(
                 (&self.high, &self.low),
                 self.periods,
                 &mut self.state,
@@ -140,8 +142,9 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
                     &mut span_a_line,
                     &mut span_b_line,
                 ),
-            ),
-            _ => cycle::<1, 4, 8>(
+            );
+        } else {
+            cycle::<1, 4, 8>(
                 (&self.high, &self.low),
                 self.periods,
                 &mut self.state,
@@ -151,7 +154,7 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
                     &mut span_a_line,
                     &mut span_b_line,
                 ),
-            ),
+            );
         }
 
         self.high.drain(..self.high.len() - self.periods.2 .1);
@@ -299,10 +302,7 @@ impl State {
     let leading_span_b_capacity = data_len - min_data(options) + 1;
     (conversion_capacity, base_capacity, leading_span_a_capacity, leading_span_b_capacity, data_len)
 }*/
-pub fn output_length(
-    data_len: usize,
-    options: &[f64],
-) -> (usize, usize, usize, usize, usize) {
+pub fn output_length(data_len: usize, options: &[f64]) -> (usize, usize, usize, usize, usize) {
     let ultra_long = options[1] as usize * 2;
 
     let conversion_capacity = min_outpout_length(data_len, &[options[0]]);
@@ -416,10 +416,10 @@ pub fn indicator(
             span_b_line.as_mut_slice(),
         )
     };
-
-    match periods.2 .1 {
-        1..40 => cycle::<1, 4, 4>((high, low), periods, &mut state, outputs),
-        _ => cycle::<1, 4, 8>((high, low), periods, &mut state, outputs),
+    if CHUNK_4.contains(&periods.2 .1) {
+        cycle::<1, 4, 4>((high, low), periods, &mut state, outputs);
+    } else {
+        cycle::<1, 4, 8>((high, low), periods, &mut state, outputs);
     }
 
     Ok((

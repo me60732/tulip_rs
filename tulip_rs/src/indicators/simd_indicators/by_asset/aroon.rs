@@ -2,9 +2,9 @@
 use crate::common::validate_options;
 use crate::common_simd::assets::validate_inputs;
 use crate::indicators::aroon::{
-    min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH
 };
-use crate::indicators::simd_indicators::aroon_simd::{assets::Calc, SimdState};
+use crate::indicators::simd_indicators::aroon_simd::{assets::Calc, SimdState, CHUNK_1};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;
@@ -38,44 +38,41 @@ impl Driver<State> for AroonDriver {
         let mut state = SimdState::new(&mut states);
         let multiplier = Simd::splat(self.multiplier);
         //let current: Vec<Simd<f64, N>> = crate::create_simd_vec_from_inputs!(real_ptrs, N, len);
-        match self.period {
-            1..=14 => {
-                for (j, i) in (self.period..len).enumerate() {
-                    let (aroon_down, aroon_up) = unsafe {
-                        state.calc_unchecked_simd::<1>(
-                            high_ptrs,
-                            low_ptrs,
-                            i,
-                            self.period,
-                            multiplier,
-                        )
-                    };
+        if CHUNK_1.contains(&self.period) {
+            for (j, i) in (self.period..len).enumerate() {
+                let (aroon_down, aroon_up) = unsafe {
+                    state.calc_unchecked_simd::<1>(
+                        high_ptrs,
+                        low_ptrs,
+                        i,
+                        self.period,
+                        multiplier,
+                    )
+                };
 
-                    // Store results using pre-computed pointers
-                    crate::write_simd_at_indices!(N, j,
-                        aroon_down_ptr => aroon_down,
-                        aroon_up_ptr => aroon_up
-                    );
-                }
+                // Store results using pre-computed pointers
+                crate::write_simd_at_indices!(N, j,
+                    aroon_down_ptr => aroon_down,
+                    aroon_up_ptr => aroon_up
+                );
             }
-            _ => {
-                for (j, i) in (self.period..len).enumerate() {
-                    let (aroon_down, aroon_up) = unsafe {
-                        state.calc_unchecked_simd::<8>(
-                            high_ptrs,
-                            low_ptrs,
-                            i,
-                            self.period,
-                            multiplier,
-                        )
-                    };
+        } else {
+            for (j, i) in (self.period..len).enumerate() {
+                let (aroon_down, aroon_up) = unsafe {
+                    state.calc_unchecked_simd::<4>(
+                        high_ptrs,
+                        low_ptrs,
+                        i,
+                        self.period,
+                        multiplier,
+                    )
+                };
 
-                    // Store results using pre-computed pointers
-                    crate::write_simd_at_indices!(N, j,
-                        aroon_down_ptr => aroon_down,
-                        aroon_up_ptr => aroon_up
-                    );
-                }
+                // Store results using pre-computed pointers
+                crate::write_simd_at_indices!(N, j,
+                    aroon_down_ptr => aroon_down,
+                    aroon_up_ptr => aroon_up
+                );
             }
         }
         // Update states efficiently

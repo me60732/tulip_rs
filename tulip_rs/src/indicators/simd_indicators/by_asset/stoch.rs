@@ -1,6 +1,6 @@
 //use crate::common::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::stoch_simd::assets::SimdState;
+use crate::indicators::simd_indicators::stoch_simd::{assets::SimdState, CHUNK_1};
 use crate::indicators::stoch::{
     min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
@@ -30,29 +30,26 @@ impl Driver<State> for StochDriver {
         let inputs = crate::extract_input_ptrs!(inputs, N, high_ptrs, low_ptrs, close_ptrs);
         let mut state = SimdState::new(&mut states);
 
-        match self.k_period {
-            1..=14 => {
-                cycle::<N, 1>(
-                    inputs,
-                    self.k_period,
-                    &mut state,
-                    k_line_ptr,
-                    d_line_ptr,
-                    len,
-                    self.multipliers,
-                );
-            }
-            _ => {
-                cycle::<N, 8>(
-                    inputs,
-                    self.k_period,
-                    &mut state,
-                    k_line_ptr,
-                    d_line_ptr,
-                    len,
-                    self.multipliers,
-                );
-            }
+        if CHUNK_1.contains(&self.k_period) {
+            cycle::<N, 1>(
+                inputs,
+                self.k_period,
+                &mut state,
+                k_line_ptr,
+                d_line_ptr,
+                len,
+                self.multipliers,
+            );
+        } else {
+            cycle::<N, 4>(
+                inputs,
+                self.k_period,
+                &mut state,
+                k_line_ptr,
+                d_line_ptr,
+                len,
+                self.multipliers,
+            );
         }
         // Update states efficiently
         state.write_states(&mut states);

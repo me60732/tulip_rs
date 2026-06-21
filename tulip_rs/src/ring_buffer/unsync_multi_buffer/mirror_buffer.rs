@@ -29,7 +29,7 @@ impl<const B: usize, T: BufferElement + SimdElement> MirrorBuffer<B, T> for Unsy
 
         Self {
             // Preallocate with default values
-            vals: vals,
+            vals,
             index: Simd::splat(0),
             prev_idx: Simd::splat(0),
             capacity: Simd::from_array(capacity),
@@ -52,7 +52,7 @@ impl<const B: usize, T: BufferElement + SimdElement> MirrorBuffer<B, T> for Unsy
         let prev_idx = (index + capacity_simd - Simd::splat(1)) % capacity_simd;
         Self {
             vals: buffer_vals,
-            index: index,
+            index,
             prev_idx,
             capacity: capacity_simd,
             count: count_simd,
@@ -196,10 +196,9 @@ impl<const B: usize> MinMaxBuffer<B> for UnsyncBuffer<B, f64> {
 
             while lane < B {
                 if search_mask & (1 << lane) != 0 {
-                    let (max_val, max_idx) = if look_back_array[lane] < 14 {
-                        find_max_scalar(self.get_slice(lane, 1), bar[lane])
-                    } else {
-                        find_max_simd::<8>(self.get_slice(lane, 0))
+                    let (max_val, max_idx) = match look_back_array[lane] {
+                        1..=14 => find_max_scalar(self.get_slice(lane, 1), bar[lane]),
+                        _ => find_max_simd::<4>(self.get_slice(lane, 0))
                     };
                     max_array[lane] = max_val;
                     trail_array[lane] = self.window_index_to_bars_ago(max_idx, lane);
@@ -236,10 +235,9 @@ impl<const B: usize> MinMaxBuffer<B> for UnsyncBuffer<B, f64> {
             let mut lane = 0;
             while lane < B {
                 if search_mask & (1 << lane) != 0 {
-                    let (min_val, min_idx) = if look_back_array[lane] < 14 {
-                        find_min_scalar(self.get_slice(lane, 1), bar[lane])
-                    } else {
-                        find_min_simd::<8>(self.get_slice(lane, 0))
+                    let (min_val, min_idx) = match look_back_array[lane] {
+                        1..=14 => find_min_scalar(self.get_slice(lane, 1), bar[lane]),
+                        _ => find_min_simd::<4>(self.get_slice(lane, 0)),
                     };
                     min_array[lane] = min_val;
                     trail_array[lane] = self.window_index_to_bars_ago(min_idx, lane);

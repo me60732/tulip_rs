@@ -3,7 +3,7 @@ pub use crate::indicator_types::TIndicatorState;
 
 pub use crate::indicators::max::{min_data, output_length};
 use crate::indicators::{
-    max::State as MaxState,
+    max::{State as MaxState, CHUNK_1, CHUNK_4},
     medprice::calc as calc_medprice,
     min::State as MinState,
 };
@@ -95,31 +95,28 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
                 crate::uninit_vec!(f64, capacity),
             )
         };
-        match self.periods.0 {
-            1..=14 => {
-                cycle::<1>(
-                    (&self.high, &self.low),
-                    self.periods,
-                    (&mut lower_line, &mut middle_line, &mut upper_line),
-                    &mut self.state,
-                );
-            }
-            15..=50 => {
-                cycle::<4>(
-                    (&self.high, &self.low),
-                    self.periods,
-                    (&mut lower_line, &mut middle_line, &mut upper_line),
-                    &mut self.state,
-                );
-            }
-            _ => {
-                cycle::<8>(
-                    (&self.high, &self.low),
-                    self.periods,
-                    (&mut lower_line, &mut middle_line, &mut upper_line),
-                    &mut self.state,
-                );
-            }
+
+        if CHUNK_1.contains(&self.periods.0) {
+            cycle::<1>(
+                (&self.high, &self.low),
+                self.periods,
+                (&mut lower_line, &mut middle_line, &mut upper_line),
+                &mut self.state,
+            );
+        } else if CHUNK_4.contains(&self.periods.0) {
+            cycle::<4>(
+                (&self.high, &self.low),
+                self.periods,
+                (&mut lower_line, &mut middle_line, &mut upper_line),
+                &mut self.state,
+            );
+        } else {
+            cycle::<8>(
+                (&self.high, &self.low),
+                self.periods,
+                (&mut lower_line, &mut middle_line, &mut upper_line),
+                &mut self.state,
+            );
         }
 
         self.high.drain(..self.high.len() - self.periods.1);
@@ -276,31 +273,27 @@ pub fn indicator(
 
     let mut state = State::new(high, low, periods);
 
-    match periods.0 {
-        1..=14 => {
-            cycle::<1>(
-                (high, low),
-                periods,
-                (&mut lower_line, &mut middle_line, &mut upper_line),
-                &mut state,
-            );
-        }
-        15..=50 => {
-            cycle::<4>(
-                (high, low),
-                periods,
-                (&mut lower_line, &mut middle_line, &mut upper_line),
-                &mut state,
-            );
-        }
-        _ => {
-            cycle::<8>(
-                (high, low),
-                periods,
-                (&mut lower_line, &mut middle_line, &mut upper_line),
-                &mut state,
-            );
-        }
+    if CHUNK_1.contains(&periods.0) {
+        cycle::<1>(
+            (high, low),
+            periods,
+            (&mut lower_line, &mut middle_line, &mut upper_line),
+            &mut state,
+        );
+    } else if CHUNK_4.contains(&periods.0) {
+        cycle::<4>(
+            (high, low),
+            periods,
+            (&mut lower_line, &mut middle_line, &mut upper_line),
+            &mut state,
+        );
+    } else {
+        cycle::<8>(
+            (high, low),
+            periods,
+            (&mut lower_line, &mut middle_line, &mut upper_line),
+            &mut state,
+        );
     }
     Ok((
         vec![lower_line, middle_line, upper_line],

@@ -1,6 +1,8 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::max::{calc as calc_max, calc_unchecked as calc_max_unchecked};
+use crate::indicators::max::{
+    calc as calc_max, calc_unchecked as calc_max_unchecked, CHUNK_1, CHUNK_4,
+};
 use crate::indicators::min::{calc as calc_min, calc_unchecked as calc_min_unchecked};
 pub use crate::indicators::{max::State as MaxState, min::State as MinState};
 
@@ -91,37 +93,34 @@ impl TIndicatorState<3> for IndicatorState {
                 crate::uninit_vec!(f64, capacity),
             )
         };
-        match self.k_period {
-            1..=4 => {
-                cycle::<1>(
-                    (&self.high, &self.low, close),
-                    self.k_period,
-                    0,
-                    self.multipliers,
-                    &mut self.state,
-                    (&mut k_line, &mut d_line),
-                );
-            }
-            5..30 => {
-                cycle::<4>(
-                    (&self.high, &self.low, close),
-                    self.k_period,
-                    0,
-                    self.multipliers,
-                    &mut self.state,
-                    (&mut k_line, &mut d_line),
-                );
-            }
-            _ => {
-                cycle::<8>(
-                    (&self.high, &self.low, close),
-                    self.k_period,
-                    0,
-                    self.multipliers,
-                    &mut self.state,
-                    (&mut k_line, &mut d_line),
-                );
-            }
+
+        if CHUNK_1.contains(&self.k_period) {
+            cycle::<1>(
+                (&self.high, &self.low, close),
+                self.k_period,
+                0,
+                self.multipliers,
+                &mut self.state,
+                (&mut k_line, &mut d_line),
+            );
+        } else if CHUNK_4.contains(&self.k_period) {
+            cycle::<4>(
+                (&self.high, &self.low, close),
+                self.k_period,
+                0,
+                self.multipliers,
+                &mut self.state,
+                (&mut k_line, &mut d_line),
+            );
+        } else {
+            cycle::<8>(
+                (&self.high, &self.low, close),
+                self.k_period,
+                0,
+                self.multipliers,
+                &mut self.state,
+                (&mut k_line, &mut d_line),
+            );
         }
 
         self.high.drain(..self.high.len() - self.k_period);
@@ -291,38 +290,34 @@ pub fn indicator(
             State::init_state((high, low, close), k_period, k_slow, d_period, &mut k_line);
         outputs = (&mut k_line[k_count..], d_line.as_mut_slice());
     }
-    //println!("k_line: {:?}, d_line: {:?}, start: {:?}, k_count: {:?}", k_line.len(), d_line.len(), start, k_count);
-    match k_period {
-        1..=4 => {
-            cycle::<1>(
-                (high, low, close),
-                k_period,
-                start,
-                multipliers,
-                &mut state,
-                outputs,
-            );
-        }
-        5..30 => {
-            cycle::<4>(
-                (high, low, close),
-                k_period,
-                start,
-                multipliers,
-                &mut state,
-                outputs,
-            );
-        }
-        _ => {
-            cycle::<8>(
-                (high, low, close),
-                k_period,
-                start,
-                multipliers,
-                &mut state,
-                outputs,
-            );
-        }
+
+    if CHUNK_1.contains(&k_period) {
+        cycle::<1>(
+            (high, low, close),
+            k_period,
+            start,
+            multipliers,
+            &mut state,
+            outputs,
+        );
+    } else if CHUNK_4.contains(&k_period) {
+        cycle::<4>(
+            (high, low, close),
+            k_period,
+            start,
+            multipliers,
+            &mut state,
+            outputs,
+        );
+    } else {
+        cycle::<8>(
+            (high, low, close),
+            k_period,
+            start,
+            multipliers,
+            &mut state,
+            outputs,
+        );
     }
 
     Ok((

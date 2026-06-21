@@ -9,6 +9,7 @@ use crate::indicators::simd_indicators::{
     max_simd::SimdState as SimdMaxState, medprice_simd::calc_simd as calc_medprice_simd,
     min_simd::SimdState as SimdMinState,
 };
+pub(crate) use crate::indicators::simd_indicators::max_simd::CHUNK_1;
 use std::simd::Simd;
 
 /// SIMD-parallel state for computing the Donchian Channel indicator across `N` assets or option-sets simultaneously.

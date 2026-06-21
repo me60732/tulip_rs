@@ -7,7 +7,7 @@ use crate::types::IndicatorError;
 use crate::indicators::fisher::{
     min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
-use crate::indicators::simd_indicators::fisher_simd::assets::SimdState;
+use crate::indicators::simd_indicators::fisher_simd::{assets::SimdState, CHUNK_1};
 use std::simd::Simd;
 /// SIMD driver that advances the Fisher Transform (fisher) across `N` asset lanes
 /// per scheduling epoch.
@@ -36,40 +36,36 @@ impl Driver<State> for FisherDriver {
         let (high_ptrs, low_ptrs) = crate::extract_input_ptrs!(inputs, N, high_ptrs, low_ptr);
         let mut state = SimdState::new(&mut states);
 
-        //let current: Vec<Simd<f64, N>> = crate::create_simd_vec_from_inputs!(real_ptrs, N, len);
-        match self.period {
-            1..=14 => {
-                for i in 0..len {
-                    let (high, low) = crate::extract_simd_inputs_at_index!(i, N,
-                        high @ high_ptrs,
-                        low @ low_ptrs
-                    );
-                    let (fisher, signal) = state.calc_simd::<1>(high, low, self.period);
+        if CHUNK_1.contains(&self.period) {
+            for i in 0..len {
+                let (high, low) = crate::extract_simd_inputs_at_index!(i, N,
+                    high @ high_ptrs,
+                    low @ low_ptrs
+                );
+                let (fisher, signal) = state.calc_simd::<1>(high, low, self.period);
 
-                    // Store results using pre-computed pointers
-                    crate::write_simd_at_indices!(N, i,
-                        fisher_line_ptr => fisher,
-                        signal_line_ptr => signal
-                    );
-                }
+                // Store results using pre-computed pointers
+                crate::write_simd_at_indices!(N, i,
+                    fisher_line_ptr => fisher,
+                    signal_line_ptr => signal
+                );
             }
+        } else {
+            for i in 0..len {
+                let (high, low) = crate::extract_simd_inputs_at_index!(i, N,
+                    high @ high_ptrs,
+                    low @ low_ptrs
+                );
+                let (fisher, signal) = state.calc_simd::<4>(high, low, self.period);
 
-            _ => {
-                for i in 0..len {
-                    let (high, low) = crate::extract_simd_inputs_at_index!(i, N,
-                        high @ high_ptrs,
-                        low @ low_ptrs
-                    );
-                    let (fisher, signal) = state.calc_simd::<8>(high, low, self.period);
-
-                    // Store results using pre-computed pointers
-                    crate::write_simd_at_indices!(N, i,
-                        fisher_line_ptr => fisher,
-                        signal_line_ptr => signal
-                    );
-                }
+                // Store results using pre-computed pointers
+                crate::write_simd_at_indices!(N, i,
+                    fisher_line_ptr => fisher,
+                    signal_line_ptr => signal
+                );
             }
         }
+        
         // Update states efficiently
         state.write_states(&mut states);
     }

@@ -9,7 +9,7 @@ use crate::indicators::simd_indicators::{
     max_simd::SimdState as MaxSimdState, medprice_simd::calc_simd as calc_medprice_simd,
     min_simd::SimdState as MinSimdState, simd_types::F64Constants,
 };
-
+pub(crate) use crate::indicators::simd_indicators::max_simd::CHUNK_1;
 use std::simd::{cmp::SimdPartialOrd, num::SimdFloat, Select, Simd, StdFloat};
 //use crate::math_simd::ln;
 /// Compile-time constants for the Fisher Transform computation.

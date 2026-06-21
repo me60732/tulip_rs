@@ -1,7 +1,7 @@
 use crate::indicators::min::{find_min_scalar as find_remainder, State};
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::by_asset::min::indicator_by_assets;
-
+pub(crate) use crate::indicators::simd_indicators::max_simd::CHUNK_1;
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::min::indicator_by_options;
 
@@ -159,7 +159,9 @@ pub mod assets {
 }
 pub mod options {
     //! Per-option road SIMD helpers for the Rolling Minimum indicator.
-    use super::import::*;
+    use crate::indicators::simd_indicators::min_simd::CHUNK_1;
+
+use super::import::*;
     use super::{find_min_scalar, find_min_simd, SimdState};
     /// Trait providing the unchecked per-option SIMD minimum-window computation.
     pub trait Calc<const N: usize> {
@@ -229,10 +231,10 @@ pub mod options {
                         let start = i_array[lane] - look_back_array[lane];
                         let take = i_array[lane] - start;
                         let window = std::slice::from_raw_parts(real[lane].add(start), take);
-                        let (min_val, min_idx) = if take < 14 {
+                        let (min_val, min_idx) = if CHUNK_1.contains(&take) {
                             find_min_scalar(window, current[lane])
                         } else {
-                            find_min_simd::<8>(window, current[lane])
+                            find_min_simd::<4>(window, current[lane])
                         };
 
                         min_array[lane] = min_val;
@@ -286,21 +288,21 @@ pub(crate) fn find_min_simd<const N: usize>(window: &[f64], current: f64) -> (f6
         let values = Simd::<f64, N>::from_slice(chunk);
 
         let mask = values.simd_le(Simd::splat(global_min));
-
+        
         if mask.any() {
             global_min = values.reduce_min();
-            // Create equality mask for the new minimum
-            let eq_mask = values.simd_eq(Simd::splat(global_min));
-
-            let mut i = N;
-            while i > 0 {
-                i -= 1;
-                if unsafe { eq_mask.test_unchecked(i) } {
-                    break;
+            let i = if N <= 4 {
+                values.simd_eq(Simd::splat(global_min)).to_bitmask().ilog2() as usize
+            } else {
+                let eq_mask = values.simd_eq(Simd::splat(global_min));
+                let mut i = N;
+                while i > 0 {
+                    i -= 1;
+                    if unsafe { eq_mask.test_unchecked(i) } { break; }
                 }
-            }
-
-            min_idx = chunk_idx * N + i + 1;
+                i
+            };
+            min_idx = chunk_idx * N + i + 1;   
         }
     }
 

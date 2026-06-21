@@ -1,6 +1,6 @@
 //use crate::common::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::stochrsi_simd::assets::SimdState;
+use crate::indicators::simd_indicators::stochrsi_simd::{assets::SimdState, CHUNK_1};
 use crate::indicators::{
     rsi::{multiplier, output_length as rsi_output_length},
     stochrsi::{min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH},
@@ -41,49 +41,45 @@ impl Driver<State> for StochrsiDriver {
         // Optimization 2: Pre-compute all input and output pointers
         let real_ptrs = crate::extract_input_ptrs!(inputs, N, real_ptrs);
 
-        match self.period {
-            1..=14 => {
-                for i in 0..len {
-                    // Get inputs arrays for stocks
-                    let real = crate::extract_simd_inputs_at_index!(
-                        i,
-                        N,
-                        real @ real_ptrs
-                    );
+        if CHUNK_1.contains(&self.period) {
+            for i in 0..len {
+                // Get inputs arrays for stocks
+                let real = crate::extract_simd_inputs_at_index!(
+                    i,
+                    N,
+                    real @ real_ptrs
+                );
 
-                    let (stochrsi, rsi) = state.calc_simd::<1>(real, multipliers_simd, self.period);
+                let (stochrsi, rsi) = state.calc_simd::<1>(real, multipliers_simd, self.period);
 
-                    // Store results using pre-computed pointers
-                    crate::write_simd_at_indices!(N, i,
-                        stochrsi_line_ptr => stochrsi
-                    );
-                    crate::store_simd_optional_outputs!(i, N,
-                        want_rsi, rsi_line_ptr => rsi
-                    );
-                }
+                // Store results using pre-computed pointers
+                crate::write_simd_at_indices!(N, i,
+                    stochrsi_line_ptr => stochrsi
+                );
+                crate::store_simd_optional_outputs!(i, N,
+                    want_rsi, rsi_line_ptr => rsi
+                );
             }
-            _ => {
-                for i in 0..len {
-                    // Get inputs arrays for stocks
-                    let real = crate::extract_simd_inputs_at_index!(
-                        i,
-                        N,
-                        real @ real_ptrs
-                    );
+        } else {
+            for i in 0..len {
+                // Get inputs arrays for stocks
+                let real = crate::extract_simd_inputs_at_index!(
+                    i,
+                    N,
+                    real @ real_ptrs
+                );
 
-                    let (stochrsi, rsi) = state.calc_simd::<8>(real, multipliers_simd, self.period);
+                let (stochrsi, rsi) = state.calc_simd::<4>(real, multipliers_simd, self.period);
 
-                    // Store results using pre-computed pointers
-                    crate::write_simd_at_indices!(N, i,
-                        stochrsi_line_ptr => stochrsi
-                    );
-                    crate::store_simd_optional_outputs!(i, N,
-                        want_rsi, rsi_line_ptr => rsi
-                    );
-                }
+                // Store results using pre-computed pointers
+                crate::write_simd_at_indices!(N, i,
+                    stochrsi_line_ptr => stochrsi
+                );
+                crate::store_simd_optional_outputs!(i, N,
+                    want_rsi, rsi_line_ptr => rsi
+                );
             }
         }
-
         // Update states efficiently
         state.write_states(&mut states);
     }

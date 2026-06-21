@@ -1,7 +1,9 @@
 use crate::indicators::max::{find_max_scalar as find_remainder, State};
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::by_asset::max::indicator_by_assets;
-
+use core::ops::Range;
+pub(crate) const CHUNK_1: Range<usize> = 1..15;
+//pub(crate) const CHUNK_4: Range<usize> = 5..50;
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::max::indicator_by_options;
 
@@ -212,11 +214,11 @@ pub mod options {
                         let start = i_array[lane] - look_back_array[lane];
                         let take = i_array[lane] - start;
                         let window = std::slice::from_raw_parts(real[lane].add(start), take);
-                        let (max_val, max_idx) = if take < 14 {
-                            find_max_scalar(window, current[lane])
-                        } else {
-                            find_max_simd::<8>(window, current[lane])
+                        let (max_val, max_idx) = match take {
+                            1..=14 => find_max_scalar(window, current[lane]),
+                            _ => find_max_simd::<4>(window, current[lane])
                         };
+                            
                         max_array[lane] = max_val;
                         trail_array[lane] = take - max_idx;
                     }
@@ -262,18 +264,18 @@ pub(crate) fn find_max_simd<const N: usize>(window: &[f64], current: f64) -> (f6
 
         if mask.any() {
             global_max = values.reduce_max();
-            // Create equality mask for the new maximum
-            let eq_mask = values.simd_eq(Simd::splat(global_max));
-
-            let mut i = N;
-            while i > 0 {
-                i -= 1;
-                if unsafe { eq_mask.test_unchecked(i) } {
-                    break;
+            let i = if N <= 4 {
+                values.simd_eq(Simd::splat(global_max)).to_bitmask().ilog2() as usize
+            } else {
+                let eq_mask = values.simd_eq(Simd::splat(global_max));
+                let mut i = N;
+                while i > 0 {
+                    i -= 1;
+                    if unsafe { eq_mask.test_unchecked(i) } { break; }
                 }
-            }
-
-            max_idx = chunk_idx * N + i + 1;
+                i
+            };
+            max_idx = chunk_idx * N + i + 1;   
         }
     }
 

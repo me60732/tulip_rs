@@ -3,7 +3,7 @@ use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::max::{
     calc as calc_max, calc_unchecked as calc_max_uncheked, output_length as max_output_length,
-    State as MaxState,
+    State as MaxState, CHUNK_1, CHUNK_4,
 };
 use crate::indicators::min::{
     calc as calc_min, calc_unchecked as calc_min_uncheked, State as MinState,
@@ -87,40 +87,37 @@ impl TIndicatorState<3> for IndicatorState {
                 ),
             )
         };
-        match self.period {
-            1..=13 => {
-                cycle_willr::<1>(
-                    &self.high,
-                    &self.low,
-                    close,
-                    self.period,
-                    &mut self.state,
-                    &mut willr_line,
-                    (&mut min_line, &mut max_line),
-                );
-            }
-            14..30 => {
-                cycle_willr::<4>(
-                    &self.high,
-                    &self.low,
-                    close,
-                    self.period,
-                    &mut self.state,
-                    &mut willr_line,
-                    (&mut min_line, &mut max_line),
-                );
-            }
-            _ => {
-                cycle_willr::<8>(
-                    &self.high,
-                    &self.low,
-                    close,
-                    self.period,
-                    &mut self.state,
-                    &mut willr_line,
-                    (&mut min_line, &mut max_line),
-                );
-            }
+
+        if CHUNK_1.contains(&self.period) {
+            cycle_willr::<1>(
+                &self.high,
+                &self.low,
+                close,
+                self.period,
+                &mut self.state,
+                &mut willr_line,
+                (&mut min_line, &mut max_line),
+            );
+        } else if CHUNK_4.contains(&self.period) {
+            cycle_willr::<4>(
+                &self.high,
+                &self.low,
+                close,
+                self.period,
+                &mut self.state,
+                &mut willr_line,
+                (&mut min_line, &mut max_line),
+            );
+        } else {
+            cycle_willr::<8>(
+                &self.high,
+                &self.low,
+                close,
+                self.period,
+                &mut self.state,
+                &mut willr_line,
+                (&mut min_line, &mut max_line),
+            );
         }
 
         self.high.drain(..self.high.len() - self.period);
@@ -268,42 +265,39 @@ pub fn indicator(
         (&mut min_line[min_offset..], &mut max_line[max_offset..])
     };
     // The first valid calculation is at index period - 1 within the slice.
-    match period {
-        1..=13 => {
-            cycle_willr::<1>(
-                high,
-                low,
-                &close[period..],
-                period,
-                &mut state,
-                &mut willr_line,
-                optional_outputs,
-            );
-        }
-        14..25 => {
-            cycle_willr::<4>(
-                high,
-                low,
-                &close[period..],
-                period,
-                &mut state,
-                &mut willr_line,
-                optional_outputs,
-            );
-        }
-        _ => {
-            cycle_willr::<8>(
-                high,
-                low,
-                &close[period..],
-                period,
-                &mut state,
-                &mut willr_line,
-                optional_outputs,
-            );
-        }
+     
+    if CHUNK_1.contains(&period) {
+        cycle_willr::<1>(
+            high,
+            low,
+            &close[period..],
+            period,
+            &mut state,
+            &mut willr_line,
+            optional_outputs,
+        );
+    } else if CHUNK_4.contains(&period) {
+        cycle_willr::<4>(
+            high,
+            low,
+            &close[period..],
+            period,
+            &mut state,
+            &mut willr_line,
+            optional_outputs,
+        );
+    } else {
+        cycle_willr::<8>(
+            high,
+            low,
+            &close[period..],
+            period,
+            &mut state,
+            &mut willr_line,
+            optional_outputs,
+        );
     }
-
+    
     Ok((
         vec![willr_line, min_line, max_line],
         IndicatorState::new(state, high, low, period),

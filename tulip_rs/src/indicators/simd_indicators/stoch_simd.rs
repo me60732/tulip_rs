@@ -7,6 +7,7 @@ use crate::indicators::{
     simd_indicators::{max_simd::SimdState as MaxSimdState, min_simd::SimdState as MinSimdState},
     stoch::State,
 };
+pub(crate) use crate::indicators::simd_indicators::max_simd::CHUNK_1;
 use std::simd::{num::SimdFloat, Simd};
 
 pub mod assets {

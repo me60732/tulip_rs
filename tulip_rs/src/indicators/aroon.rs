@@ -4,6 +4,7 @@ pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::max::{
     calc as calc_max, calc_unchecked as calc_max_unchecked, State as MaxState,
 };
+pub(crate) use crate::indicators::max::{CHUNK_1, CHUNK_4};
 use crate::indicators::min::{
     calc as calc_min, calc_unchecked as calc_min_unchecked, State as MinState,
 };
@@ -86,34 +87,31 @@ impl TIndicatorState<2> for IndicatorState {
                 crate::uninit_vec!(f64, capacity),
             )
         };
-        match period {
-            1..=4 => {
-                cycle_aroon::<1>(
-                    (&self.high, &self.low),
-                    period,
-                    self.multiplier,
-                    (&mut aroon_down_line, &mut aroon_up_line),
-                    &mut self.state,
-                );
-            }
-            5..30 => {
-                cycle_aroon::<4>(
-                    (&self.high, &self.low),
-                    period,
-                    self.multiplier,
-                    (&mut aroon_down_line, &mut aroon_up_line),
-                    &mut self.state,
-                );
-            }
-            _ => {
-                cycle_aroon::<8>(
-                    (&self.high, &self.low),
-                    period,
-                    self.multiplier,
-                    (&mut aroon_down_line, &mut aroon_up_line),
-                    &mut self.state,
-                );
-            }
+
+        if CHUNK_1.contains(&period) {
+            cycle_aroon::<1>(
+                (&self.high, &self.low),
+                period,
+                self.multiplier,
+                (&mut aroon_down_line, &mut aroon_up_line),
+                &mut self.state,
+            );
+        } else if CHUNK_4.contains(&period) {
+            cycle_aroon::<4>(
+                (&self.high, &self.low),
+                period,
+                self.multiplier,
+                (&mut aroon_down_line, &mut aroon_up_line),
+                &mut self.state,
+            );
+        } else {
+            cycle_aroon::<8>(
+                (&self.high, &self.low),
+                period,
+                self.multiplier,
+                (&mut aroon_down_line, &mut aroon_up_line),
+                &mut self.state,
+            );
         }
 
         self.high.drain(..self.high.len() - period);
@@ -225,10 +223,6 @@ pub fn indicator(
     let high = inputs[0];
     let low = inputs[1];
 
-    /*let (mut aroon_up_line, mut aroon_down_line) = {
-        let capacity = output_length(high.len(), options);
-        (crate::uninit_vec!(f64, capacity), crate::uninit_vec!(f64, capacity))
-    };*/
     let (mut aroon_up_line, mut aroon_down_line) = {
         let capacity = output_length(high.len(), options);
         (
@@ -236,38 +230,35 @@ pub fn indicator(
             crate::uninit_vec!(f64, capacity),
         )
     };
-    //let mut aroon_up_line = vec![0.0; capacity];
-    //let mut aroon_down_line = vec![0.0; capacity];
+
     let mut state = State::new(low[0], period, high[0], period);
-    match period {
-        1..=4 => {
-            cycle_aroon::<1>(
-                (high, low),
-                period,
-                multiplier,
-                (&mut aroon_down_line, &mut aroon_up_line),
-                &mut state,
-            );
-        }
-        5..30 => {
-            cycle_aroon::<4>(
-                (high, low),
-                period,
-                multiplier,
-                (&mut aroon_down_line, &mut aroon_up_line),
-                &mut state,
-            );
-        }
-        _ => {
-            cycle_aroon::<8>(
-                (high, low),
-                period,
-                multiplier,
-                (&mut aroon_down_line, &mut aroon_up_line),
-                &mut state,
-            );
-        }
+
+    if CHUNK_1.contains(&period) {
+        cycle_aroon::<1>(
+            (high, low),
+            period,
+            multiplier,
+            (&mut aroon_down_line, &mut aroon_up_line),
+            &mut state,
+        );
+    } else if CHUNK_4.contains(&period) {
+        cycle_aroon::<4>(
+            (high, low),
+            period,
+            multiplier,
+            (&mut aroon_down_line, &mut aroon_up_line),
+            &mut state,
+        );
+    } else {
+        cycle_aroon::<8>(
+            (high, low),
+            period,
+            multiplier,
+            (&mut aroon_down_line, &mut aroon_up_line),
+            &mut state,
+        );
     }
+    
     Ok((
         vec![aroon_down_line, aroon_up_line],
         IndicatorState::new(high, low, state, period, multiplier),
