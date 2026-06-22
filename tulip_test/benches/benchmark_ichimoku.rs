@@ -3,11 +3,11 @@ use tulip_rs::indicators::ichimoku::{
     indicator, indicator_by_assets, indicator_by_options, min_data, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
-//use tulip_test::benchmark_utils::SAMPLE_SIZE;
+use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::criterion_logger::TimingMeasurements;
 use tulip_test::database::{get_all_stock_data, init_database_data};
 
-const SAMPLE_SIZE: usize = 10000;
+//const SAMPLE_SIZE: usize = 10000;
 const HIGH: [f64; 15] = [
     82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98,
     88.00, 87.87,

@@ -1,5 +1,5 @@
 use crate::indicators::simd_indicators::{
-    max_simd::{find_max_scalar, SimdState as MaxState},
+    max_simd::{find_max_scalar, SimdState as MaxState, CHUNK_1},
     min_simd::{find_min_scalar, SimdState as MinState},
     simd_types::UsizeConstants,
 };
@@ -198,7 +198,7 @@ impl<const B: usize> MinMaxBuffer<B> for UnsyncBuffer<B, f64> {
                 if search_mask & (1 << lane) != 0 {
                     let (max_val, max_idx) = match look_back_array[lane] {
                         1..=14 => find_max_scalar(self.get_slice(lane, 1), bar[lane]),
-                        _ => find_max_simd::<4>(self.get_slice(lane, 0))
+                        _ => find_max_simd::<4>(self.get_slice(lane, 0)),
                     };
                     max_array[lane] = max_val;
                     trail_array[lane] = self.window_index_to_bars_ago(max_idx, lane);
@@ -235,9 +235,10 @@ impl<const B: usize> MinMaxBuffer<B> for UnsyncBuffer<B, f64> {
             let mut lane = 0;
             while lane < B {
                 if search_mask & (1 << lane) != 0 {
-                    let (min_val, min_idx) = match look_back_array[lane] {
-                        1..=14 => find_min_scalar(self.get_slice(lane, 1), bar[lane]),
-                        _ => find_min_simd::<4>(self.get_slice(lane, 0)),
+                    let (min_val, min_idx) = if CHUNK_1.contains(&look_back_array[lane]) {
+                        find_min_scalar(self.get_slice(lane, 1), bar[lane])
+                    } else {
+                        find_min_simd::<4>(self.get_slice(lane, 0))
                     };
                     min_array[lane] = min_val;
                     trail_array[lane] = self.window_index_to_bars_ago(min_idx, lane);

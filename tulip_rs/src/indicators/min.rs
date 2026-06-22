@@ -348,42 +348,42 @@ pub(crate) fn find_min_simd<const N: usize>(window: &[f64]) -> (f64, usize) {
 
     let search_window = unsafe { window.get_unchecked(1..) };
 
-    // Process chunks with SIMD - direct iteration
-    for (chunk_idx, chunk) in search_window.chunks_exact(N).enumerate() {
-        let values = Simd::from_slice(chunk);
-        //let mask = values.simd_le(Simd::splat(global_min));
-        let mask = values.simd_le(global_min);
+    let mut best_values = Simd::<f64, N>::splat(0.0);
+    let mut best_start = usize::MAX;
 
+    for (chunk_idx, chunk) in search_window.chunks_exact(N).enumerate() {
+        let values = Simd::<f64, N>::from_slice(chunk);
+        let mask = values.simd_le(global_min);
         if mask.any() {
             global_min = Simd::splat(values.reduce_min());
-            let i = if N <= 4 {
-                values.simd_eq(global_min).to_bitmask().ilog2() as usize
-            } else {
-                let eq_mask = values.simd_eq(global_min);
-                let mut i = N;
-                while i > 0 {
-                    i -= 1;
-                    if unsafe { eq_mask.test_unchecked(i) } {
-                        break;
-                    }
-                }
-                i
-            };
-            min_idx = chunk_idx * N + i + 1;
+            best_values = values;
+            best_start = chunk_idx;
         }
     }
 
+    if best_start != usize::MAX {
+        let i = if N <= 4 {
+            best_values.simd_eq(global_min).to_bitmask().ilog2() as usize
+        } else {
+            let eq_mask = best_values.simd_eq(global_min);
+            let mut i = N;
+            while i > 0 { i -= 1; if unsafe { eq_mask.test_unchecked(i) } { break; } }
+            i
+        };
+        min_idx = best_start * N + 1 + i;
+    }
+
     let mut global_min = global_min[0];
-    // Handle remainder using find_min_scalar - calculate slice directly
     let processed_len = (search_window.len() / N) * N;
     let remainder = &search_window[processed_len..];
     if !remainder.is_empty() {
         let (rem_min, rem_idx) = find_min_scalar(remainder);
         if rem_min <= global_min {
             global_min = rem_min;
-            min_idx = processed_len + 1 + rem_idx; // +1 for search_window offset
+            min_idx = processed_len + 1 + rem_idx;
         }
     }
 
     (global_min, min_idx)
 }
+

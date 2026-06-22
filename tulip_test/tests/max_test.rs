@@ -106,10 +106,10 @@ mod tests {
 
                 if !approx_eq!(f64, c_val, rust_val, epsilon = 1e-12) {
                     // Adjust epsilon if needed
-                    println!(
+                    /*println!(
                         "Test failed at index {}: \nC = {:?}, \nRust = {:?}, Options = {:?}",
                         index, max_output_vec_c, outputs[0], options
-                    );
+                    );*/
                     panic!(
                         "Mismatch at index {}: C = {}, Rust = {}, Options = {:?}",
                         index, c_val, rust_val, options
@@ -191,9 +191,11 @@ mod tests {
                     }
 
                     if !approx_eq!(f64, c_val, rust_val, epsilon = 1e-12) {
+                        let start = if i > 10 { i - 10 } else { 0 };
+                        let end = if i < output_len_rust - 10 { i + 10 } else { output_len_rust };
                         println!(
                             "Test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}",
-                            index, max_output_vec_c, outputs[0], options, stock_symbol
+                            index, &max_output_vec_c[start..end], &outputs[start..end], options, stock_symbol
                         );
                         panic!(
                             "Mismatch at index {}: C = {}, Rust = {}, Options = {:?}",

@@ -3,11 +3,11 @@ use tulip_rs::indicators::stochrsi::{
     indicator as rust_stochrsi, indicator_by_options, min_data, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
-//use tulip_test::benchmark_utils::SAMPLE_SIZE;
+use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_stochrsi, ti_stochrsi_start};
 use tulip_test::criterion_logger::TimingMeasurements;
 use tulip_test::database::{get_all_stock_data, init_database_data};
-const SAMPLE_SIZE: usize = 30000;
+//const SAMPLE_SIZE: usize = 30000;
 // Test data from stochrsi_test.rs
 const CLOSE: [f64; 15] = [
     81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89,

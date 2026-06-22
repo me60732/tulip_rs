@@ -351,30 +351,37 @@ pub(crate) fn find_max_simd<const N: usize>(window: &[f64]) -> (f64, usize) {
 
     let search_window = unsafe { window.get_unchecked(1..) };
 
-    // Process chunks with SIMD - direct iteration
+    let mut best_values = Simd::<f64, N>::splat(0.0);
+    let mut best_start = usize::MAX; // sentinel: no chunk has updated yet
+                                     // Process chunks with SIMD - direct iteration
     for (chunk_idx, chunk) in search_window.chunks_exact(N).enumerate() {
-        let values = Simd::from_slice(chunk);
-        //let mask = values.simd_le(Simd::splat(global_max));
+        let values = Simd::<f64, N>::from_slice(chunk);
         let mask = values.simd_ge(global_max);
-
         if mask.any() {
             global_max = Simd::splat(values.reduce_max());
-            let i = if N <= 4 {
-                values.simd_eq(global_max).to_bitmask().ilog2() as usize
-            } else {
-                let eq_mask = values.simd_eq(global_max);
-                let mut i = N;
-                while i > 0 {
-                    i -= 1;
-                    if unsafe { eq_mask.test_unchecked(i) } {
-                        break;
-                    }
-                }
-                i
-            };
-            max_idx = chunk_idx * N + i + 1;
+            best_values = values; // save the chunk that holds the max
+            best_start = chunk_idx; // * N + 1; // +1 for window[0] offset
         }
     }
+
+    // Position finding done once outside the loop
+    if best_start != usize::MAX {
+        let i = if N <= 4 {
+            best_values.simd_eq(global_max).to_bitmask().ilog2() as usize
+        } else {
+            let eq_mask = best_values.simd_eq(global_max);
+            let mut i = N;
+            while i > 0 {
+                i -= 1;
+                if unsafe { eq_mask.test_unchecked(i) } {
+                    break;
+                }
+            }
+            i
+        };
+        max_idx = best_start * N + 1 + i;
+    }
+
     let mut global_max = global_max[0];
     // Handle remainder using find_max_scalar - calculate slice directly
     let processed_len = (search_window.len() / N) * N;

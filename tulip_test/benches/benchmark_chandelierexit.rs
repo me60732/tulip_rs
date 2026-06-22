@@ -3,8 +3,8 @@ use tulip_rs::indicators::chandelierexit::{indicator, indicator_by_assets, indic
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::criterion_logger::TimingMeasurements;
 use tulip_test::database::{get_all_stock_data, init_database_data};
-
-const SAMPLE_SIZE: usize = 30000;
+use tulip_test::benchmark_utils::SAMPLE_SIZE;
+//const SAMPLE_SIZE: usize = 30000;
 
 // Sample input data (high, low, close)
 const HIGH: [f64; 15] = [

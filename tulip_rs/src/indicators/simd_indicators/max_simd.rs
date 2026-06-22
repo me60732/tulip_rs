@@ -3,7 +3,7 @@ use crate::indicators::max::{find_max_scalar as find_remainder, State};
 pub use crate::indicators::simd_indicators::by_asset::max::indicator_by_assets;
 use core::ops::Range;
 pub(crate) const CHUNK_1: Range<usize> = 1..15;
-//pub(crate) const CHUNK_4: Range<usize> = 5..50;
+//pub(crate) const CHUNK_4: Range<usize> = 1..50;
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::max::indicator_by_options;
 
@@ -124,7 +124,7 @@ pub mod assets {
 
             if search_mask != 0 {
                 let start = i - look_back;
-                let take = i - start;
+                let take = look_back;
 
                 let max_array = max.as_mut_array();
                 let trail_array = trail.as_mut_array();
@@ -153,6 +153,8 @@ pub mod assets {
     }
 }
 pub mod options {
+    use crate::indicators::simd_indicators::max_simd::CHUNK_1;
+
     use super::import::*;
     use super::{find_max_scalar, find_max_simd, SimdState};
     pub trait Calc<const N: usize> {
@@ -212,13 +214,14 @@ pub mod options {
                 while lane < N {
                     if search_mask & (1 << lane) != 0 {
                         let start = i_array[lane] - look_back_array[lane];
-                        let take = i_array[lane] - start;
+                        let take = look_back_array[lane];
                         let window = std::slice::from_raw_parts(real[lane].add(start), take);
-                        let (max_val, max_idx) = match take {
-                            1..=14 => find_max_scalar(window, current[lane]),
-                            _ => find_max_simd::<4>(window, current[lane])
+                        let (max_val, max_idx) = if CHUNK_1.contains(&take) {
+                            find_max_scalar(window, current[lane])
+                        } else {
+                            find_max_simd::<4>(window, current[lane])
                         };
-                            
+
                         max_array[lane] = max_val;
                         trail_array[lane] = take - max_idx;
                     }
@@ -254,41 +257,53 @@ pub(crate) fn find_max_scalar(window: &[f64], current: f64) -> (f64, usize) {
 
 pub(crate) fn find_max_simd<const N: usize>(window: &[f64], current: f64) -> (f64, usize) {
     let mut global_max = unsafe { *window.get_unchecked(0) };
-    //let mut global_max = unsafe { *window.get_unchecked(0) };
-    let mut max_idx = 0; // Index for current
+    let mut max_idx = 0;
     let search_window = unsafe { window.get_unchecked(1..) };
-    // Process chunks with SIMD
+
+    let mut best_values = Simd::<f64, N>::splat(0.0);
+    let mut best_start = usize::MAX; // sentinel: no chunk has updated yet
+
     for (chunk_idx, chunk) in search_window.chunks_exact(N).enumerate() {
         let values = Simd::<f64, N>::from_slice(chunk);
         let mask = values.simd_ge(Simd::splat(global_max));
-
         if mask.any() {
             global_max = values.reduce_max();
-            let i = if N <= 4 {
-                values.simd_eq(Simd::splat(global_max)).to_bitmask().ilog2() as usize
-            } else {
-                let eq_mask = values.simd_eq(Simd::splat(global_max));
-                let mut i = N;
-                while i > 0 {
-                    i -= 1;
-                    if unsafe { eq_mask.test_unchecked(i) } { break; }
-                }
-                i
-            };
-            max_idx = chunk_idx * N + i + 1;   
+            best_values = values; // save the chunk that holds the max
+            best_start = chunk_idx;
         }
     }
 
-    // Handle remainder elements
+    // Position finding done once outside the loop
+    if best_start != usize::MAX {
+        let i = if N <= 4 {
+            best_values
+                .simd_eq(Simd::splat(global_max))
+                .to_bitmask()
+                .ilog2() as usize
+        } else {
+            let eq_mask = best_values.simd_eq(Simd::splat(global_max));
+            let mut i = N;
+            while i > 0 {
+                i -= 1;
+                if unsafe { eq_mask.test_unchecked(i) } {
+                    break;
+                }
+            }
+            i
+        };
+        max_idx = best_start * N + 1 + i;
+    }
+
     let processed_len = (search_window.len() / N) * N;
     let remainder = unsafe { search_window.get_unchecked(processed_len..) };
     if !remainder.is_empty() {
         let (rem_max, rem_idx) = find_remainder(remainder);
         if rem_max >= global_max {
             global_max = rem_max;
-            max_idx = processed_len + 1 + rem_idx; // +1 for search_window offset
+            max_idx = processed_len + 1 + rem_idx;
         }
     }
+
     if global_max > current {
         return (global_max, max_idx);
     }

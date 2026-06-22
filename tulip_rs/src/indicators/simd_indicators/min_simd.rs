@@ -1,4 +1,4 @@
-use crate::indicators::min::{find_min_scalar as find_remainder, State};
+use crate::indicators::min::{find_min_scalar as find_remainder,  State};
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::by_asset::min::indicator_by_assets;
 pub(crate) use crate::indicators::simd_indicators::max_simd::CHUNK_1;
@@ -128,7 +128,7 @@ pub mod assets {
 
             if search_mask != 0 {
                 let start = i - look_back;
-                let take = i - start;
+                let take = look_back;
 
                 let min_array = min.as_mut_array();
                 let trail_array = trail.as_mut_array();
@@ -229,7 +229,7 @@ use super::import::*;
                 while lane < N {
                     if search_mask & (1 << lane) != 0 {
                         let start = i_array[lane] - look_back_array[lane];
-                        let take = i_array[lane] - start;
+                        let take = look_back_array[lane];
                         let window = std::slice::from_raw_parts(real[lane].add(start), take);
                         let (min_val, min_idx) = if CHUNK_1.contains(&take) {
                             find_min_scalar(window, current[lane])
@@ -274,48 +274,46 @@ pub(crate) fn find_min_scalar(window: &[f64], current: f64) -> (f64, usize) {
     (min_val, min_idx)
 }
 
-/// Scans `window` using SIMD chunks of width `N` to find the minimum value, also considering `current`.
-///
-/// Returns a tuple `(min_value, index_of_min)` where `index_of_min` is the position
-/// within `window` (or `window.len()` if `current` is the minimum).
 pub(crate) fn find_min_simd<const N: usize>(window: &[f64], current: f64) -> (f64, usize) {
     let mut global_min = unsafe { *window.get_unchecked(0) };
-    //let mut global_min = unsafe { *window.get_unchecked(0) };
-    let mut min_idx = 0; // Index for current
+    let mut min_idx = 0;
     let search_window = unsafe { window.get_unchecked(1..) };
-    // Process chunks with SIMD
+
+    let mut best_values = Simd::<f64, N>::splat(0.0);
+    let mut best_start = usize::MAX;
+
     for (chunk_idx, chunk) in search_window.chunks_exact(N).enumerate() {
         let values = Simd::<f64, N>::from_slice(chunk);
-
         let mask = values.simd_le(Simd::splat(global_min));
-        
         if mask.any() {
             global_min = values.reduce_min();
-            let i = if N <= 4 {
-                values.simd_eq(Simd::splat(global_min)).to_bitmask().ilog2() as usize
-            } else {
-                let eq_mask = values.simd_eq(Simd::splat(global_min));
-                let mut i = N;
-                while i > 0 {
-                    i -= 1;
-                    if unsafe { eq_mask.test_unchecked(i) } { break; }
-                }
-                i
-            };
-            min_idx = chunk_idx * N + i + 1;   
+            best_values = values;
+            best_start = chunk_idx;
         }
     }
 
-    // Handle remainder elements
+    if best_start != usize::MAX {
+        let i = if N <= 4 {
+            best_values.simd_eq(Simd::splat(global_min)).to_bitmask().ilog2() as usize
+        } else {
+            let eq_mask = best_values.simd_eq(Simd::splat(global_min));
+            let mut i = N;
+            while i > 0 { i -= 1; if unsafe { eq_mask.test_unchecked(i) } { break; } }
+            i
+        };
+        min_idx = best_start * N + 1 + i;
+    }
+
     let processed_len = (search_window.len() / N) * N;
     let remainder = unsafe { search_window.get_unchecked(processed_len..) };
     if !remainder.is_empty() {
         let (rem_min, rem_idx) = find_remainder(remainder);
         if rem_min <= global_min {
             global_min = rem_min;
-            min_idx = processed_len + 1 + rem_idx; // +1 for search_window offset
+            min_idx = processed_len + 1 + rem_idx;
         }
     }
+
     if global_min < current {
         return (global_min, min_idx);
     }
