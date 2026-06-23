@@ -61,7 +61,7 @@ impl State {
     }
     pub fn init_state(real: &[f64], period: usize, trail: usize, min_line: &mut [f64]) -> Self {
         let mut state = Self::new(real[0], trail);
-        let min = calc(&mut state, real, trail, (period, trail)).0;
+        let min = state.calc(real, trail, (period, trail)).0;
         if min_line.len() > 0 {
             min_line[0] = min;
         }
@@ -294,33 +294,6 @@ fn cycle_min<const N: usize>(
             //calc_unchecked::<N>(state, real, i, periods).0;
         }
     }
-}
-/// Calculates the minimum value in the window ending at index `i`.
-///
-/// # Arguments
-///
-/// * `state` - A mutable reference to the current `State`.
-/// * `real` - A slice of input data.
-/// * `i` - The current index.
-/// * `periods` - A tuple of `(period, look_back)` for the min calculation.
-///
-/// # Returns
-///
-/// A tuple containing the minimum value and the updated trail index.
-///
-/// ```
-#[inline(always)]
-pub fn calc(state: &mut State, real: &[f64], i: usize, periods: (usize, usize)) -> (f64, usize) {
-    state.calc(real, i, periods)
-}
-#[inline(always)]
-pub unsafe fn calc_unchecked<const N: usize>(
-    state: &mut State,
-    real: &[f64],
-    i: usize,
-    periods: (usize, usize),
-) -> (f64, usize) {
-    state.calc_unchecked::<N>(real, i, periods)
 }
 
 #[inline(always)]

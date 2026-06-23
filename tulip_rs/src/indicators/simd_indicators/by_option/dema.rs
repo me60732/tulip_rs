@@ -7,7 +7,7 @@ use crate::indicators::dema::{
     min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
 use crate::indicators::ema::output_length as ema_output_length;
-use crate::indicators::simd_indicators::dema_simd::{calc_simd, SimdState};
+use crate::indicators::simd_indicators::dema_simd::SimdState;
 use std::simd::Simd;
 
 /// SIMD driver for the Double Exponential Moving Average (DEMA) indicator, processing `N` option-set lanes per scheduling epoch.
@@ -51,7 +51,7 @@ impl Driver<State, (f64, f64)> for DemaDriver {
         for j in 0..len {
             let values = crate::extract_simd_inputs_at_index_splat!(j, N, values @ input_ptrs);
 
-            let (dema, ema) = calc_simd(&mut state, values, multipliers_simd);
+            let (dema, ema) = state.calc_simd(values, multipliers_simd);
 
             // Direct SIMD store if possible, otherwise individual stores
             crate::write_simd_at_indices!(N, j,

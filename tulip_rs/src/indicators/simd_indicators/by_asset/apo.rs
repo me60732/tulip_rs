@@ -1,10 +1,10 @@
 use crate::common_simd::assets::validate_inputs;
 use crate::indicators::apo::{
     min_data, multiplier, output_length, validate_options, IndicatorState, INPUTS_WIDTH,
-    OPTIONS_WIDTH,
+    OPTIONS_WIDTH, State
 };
 use crate::indicators::ema::output_length as ema_output_length;
-use crate::indicators::simd_indicators::apo_simd::{calc_simd, SimdState, State};
+use crate::indicators::simd_indicators::apo_simd::SimdState;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;
@@ -63,7 +63,7 @@ impl Driver<State> for ApoDriver {
             // Get inputs arrays for stocks
             let real = crate::extract_simd_inputs_at_index!(i, N, real @ real_ptrs);
 
-            let apo = calc_simd(&mut state, real, multipliers);
+            let apo = state.calc_simd(real, multipliers);
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, i,

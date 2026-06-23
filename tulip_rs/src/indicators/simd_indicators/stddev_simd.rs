@@ -81,6 +81,17 @@ impl<const N: usize> SimdState<N> {
         )
     }
 
+    
+}
+pub trait Calc<const N: usize> {
+    fn calc_simd(
+        &mut self,
+        value: Simd<f64, N>,
+        prev_value: Simd<f64, N>,
+        multiplier: Simd<f64, N>,
+    ) -> (Simd<f64, N>, Simd<f64, N>);
+}
+impl<const N: usize> Calc<N> for SimdState<N> {
     /// Advances one bar of the Standard Deviation computation for `N` lanes simultaneously.
     ///
     /// Updates the rolling `sum` (via [`sma_calc_simd`]) and `sum_sq`, then computes
@@ -90,7 +101,7 @@ impl<const N: usize> SimdState<N> {
     ///
     /// `(sd, sma)` — the standard deviation and the simple moving average for the current bar.
     #[inline(always)]
-    pub fn calc_simd(
+    fn calc_simd(
         &mut self,
         value: Simd<f64, N>,
         prev_value: Simd<f64, N>,
@@ -105,17 +116,4 @@ impl<const N: usize> SimdState<N> {
 
         (sd, sma)
     }
-}
-
-/// Advances one bar of the Standard Deviation computation for `N` lanes simultaneously.
-///
-/// Delegates to [`SimdState::calc_simd`]. Returns `(sd, sma)` for each lane.
-#[inline(always)]
-pub fn calc_simd<const N: usize>(
-    state: &mut SimdState<N>,
-    value: Simd<f64, N>,
-    prev_value: Simd<f64, N>,
-    multiplier: Simd<f64, N>,
-) -> (Simd<f64, N>, Simd<f64, N>) {
-    state.calc_simd(value, prev_value, multiplier)
 }

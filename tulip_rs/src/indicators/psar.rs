@@ -125,6 +125,128 @@ impl State {
             accel: af_step,
         }
     }
+    #[inline(always)]
+    pub fn calc(
+        &mut self,
+        high: &[f64],
+        low: &[f64],
+        af_step: f64,
+        max_af: f64,
+        i: usize,
+    ) -> f64 {
+        let (mut psar, mut extream, mut uptrend, mut accel) =
+            (self.psar, self.extream, self.uptrend, self.accel);
+    
+        // Use += for potential FMA optimization
+        //psar += (extream - psar) * accel;
+        psar = accel.mul_add(extream - psar, psar);
+        if uptrend {
+            // Keep original branch structure for better prediction
+            if i >= 2 && psar > low[i - 2] {
+                psar = low[i - 2];
+            }
+            if psar > low[i - 1] {
+                psar = low[i - 1];
+            }
+    
+            // Combined condition for extreme and acceleration
+            if high[i] > extream {
+                extream = high[i];
+                accel = (accel + af_step).min(max_af);
+            }
+        } else {
+            if i >= 2 && psar < high[i - 2] {
+                psar = high[i - 2];
+            }
+            if psar < high[i - 1] {
+                psar = high[i - 1];
+            }
+    
+            if low[i] < extream {
+                extream = low[i];
+                accel = (accel + af_step).min(max_af);
+            }
+        }
+    
+        if (uptrend && low[i] < psar) || (!uptrend && high[i] > psar) {
+            uptrend = !uptrend;
+            psar = extream;
+            accel = af_step;
+            extream = if uptrend { high[i] } else { low[i] };
+        }
+    
+        (self.psar, self.extream, self.uptrend, self.accel) = (psar, extream, uptrend, accel);
+        psar
+    }
+    
+    #[inline(always)]
+    pub unsafe fn calc_unchecked(
+        &mut self,
+        high: &[f64],
+        low: &[f64],
+        af_step: f64,
+        max_af: f64,
+        i: usize,
+    ) -> f64 {
+        let (mut psar, mut extream, mut uptrend, mut accel) =
+            (self.psar, self.extream, self.uptrend, self.accel);
+        let (h, prev_high, old_high) = (
+            *high.get_unchecked(i),
+            *high.get_unchecked(i - 1),
+            if i > 1 {
+                *high.get_unchecked(i - 2)
+            } else {
+                0.0
+            },
+        );
+        let (l, prev_low, old_low) = (
+            *low.get_unchecked(i),
+            *low.get_unchecked(i - 1),
+            if i > 1 {
+                *low.get_unchecked(i - 2)
+            } else {
+                f64::MAX
+            },
+        );
+    
+        //psar += (extream - psar) * accel;
+        psar = accel.mul_add(extream - psar, psar);
+        if uptrend {
+            if psar > old_low {
+                psar = old_low;
+            }
+            if psar > prev_low {
+                psar = prev_low;
+            }
+    
+            if h > extream {
+                extream = h;
+                accel = (accel + af_step).min(max_af);
+            }
+        } else {
+            if psar < old_high {
+                psar = old_high;
+            }
+            if psar < prev_high {
+                psar = prev_high;
+            }
+    
+            if l < extream {
+                extream = l;
+                accel = (accel + af_step).min(max_af);
+            }
+        }
+    
+        if (uptrend && l < psar) || (!uptrend && h > psar) {
+            uptrend = !uptrend;
+            psar = extream;
+            accel = af_step;
+            extream = if uptrend { h } else { l };
+        }
+    
+        (self.psar, self.extream, self.uptrend, self.accel) = (psar, extream, uptrend, accel);
+        psar
+    }
 }
 /// Returns the minimum amount of data required for the PSAR indicator.
 ///
@@ -228,129 +350,8 @@ fn cycle_psar(
 
     for (j, i) in (start..high.len()).enumerate() {
         unsafe {
-            *psar_line.get_unchecked_mut(j) = calc_unchecked(state, high, low, af_step, max_af, i);
+            *psar_line.get_unchecked_mut(j) = state.calc_unchecked(high, low, af_step, max_af, i);
         }
     }
 }
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    high: &[f64],
-    low: &[f64],
-    af_step: f64,
-    max_af: f64,
-    i: usize,
-) -> f64 {
-    let (mut psar, mut extream, mut uptrend, mut accel) =
-        (state.psar, state.extream, state.uptrend, state.accel);
 
-    // Use += for potential FMA optimization
-    //psar += (extream - psar) * accel;
-    psar = accel.mul_add(extream - psar, psar);
-    if uptrend {
-        // Keep original branch structure for better prediction
-        if i >= 2 && psar > low[i - 2] {
-            psar = low[i - 2];
-        }
-        if psar > low[i - 1] {
-            psar = low[i - 1];
-        }
-
-        // Combined condition for extreme and acceleration
-        if high[i] > extream {
-            extream = high[i];
-            accel = (accel + af_step).min(max_af);
-        }
-    } else {
-        if i >= 2 && psar < high[i - 2] {
-            psar = high[i - 2];
-        }
-        if psar < high[i - 1] {
-            psar = high[i - 1];
-        }
-
-        if low[i] < extream {
-            extream = low[i];
-            accel = (accel + af_step).min(max_af);
-        }
-    }
-
-    if (uptrend && low[i] < psar) || (!uptrend && high[i] > psar) {
-        uptrend = !uptrend;
-        psar = extream;
-        accel = af_step;
-        extream = if uptrend { high[i] } else { low[i] };
-    }
-
-    (state.psar, state.extream, state.uptrend, state.accel) = (psar, extream, uptrend, accel);
-    psar
-}
-
-#[inline(always)]
-pub unsafe fn calc_unchecked(
-    state: &mut State,
-    high: &[f64],
-    low: &[f64],
-    af_step: f64,
-    max_af: f64,
-    i: usize,
-) -> f64 {
-    let (mut psar, mut extream, mut uptrend, mut accel) =
-        (state.psar, state.extream, state.uptrend, state.accel);
-    let (h, prev_high, old_high) = (
-        *high.get_unchecked(i),
-        *high.get_unchecked(i - 1),
-        if i > 1 {
-            *high.get_unchecked(i - 2)
-        } else {
-            0.0
-        },
-    );
-    let (l, prev_low, old_low) = (
-        *low.get_unchecked(i),
-        *low.get_unchecked(i - 1),
-        if i > 1 {
-            *low.get_unchecked(i - 2)
-        } else {
-            f64::MAX
-        },
-    );
-
-    //psar += (extream - psar) * accel;
-    psar = accel.mul_add(extream - psar, psar);
-    if uptrend {
-        if psar > old_low {
-            psar = old_low;
-        }
-        if psar > prev_low {
-            psar = prev_low;
-        }
-
-        if h > extream {
-            extream = h;
-            accel = (accel + af_step).min(max_af);
-        }
-    } else {
-        if psar < old_high {
-            psar = old_high;
-        }
-        if psar < prev_high {
-            psar = prev_high;
-        }
-
-        if l < extream {
-            extream = l;
-            accel = (accel + af_step).min(max_af);
-        }
-    }
-
-    if (uptrend && l < psar) || (!uptrend && h > psar) {
-        uptrend = !uptrend;
-        psar = extream;
-        accel = af_step;
-        extream = if uptrend { h } else { l };
-    }
-
-    (state.psar, state.extream, state.uptrend, state.accel) = (psar, extream, uptrend, accel);
-    psar
-}

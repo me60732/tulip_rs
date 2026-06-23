@@ -2,7 +2,7 @@ use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::kama::{
     min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
-use crate::indicators::simd_indicators::kama_simd::{calc_simd, SimdState};
+use crate::indicators::simd_indicators::kama_simd::SimdState;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;
@@ -52,7 +52,7 @@ impl Driver<State, (usize, (f64, f64))> for KamaDriver {
             )
         };
         // Direct array construction
-        let mut simd_state = SimdState::new(&states);
+        let mut state = SimdState::new(&states);
 
         // Optimized main loop with minimal overhead
         for j in 0..len {
@@ -60,7 +60,7 @@ impl Driver<State, (usize, (f64, f64))> for KamaDriver {
                 new @ input_ptrs
             );
             let last = crate::extract_simd_inputs_at_index!(j+1, N, real @ input_ptrs);
-            let (kama, ef) = calc_simd(&mut simd_state, (value, prev, last, old), multipliers_simd);
+            let (kama, ef) = state.calc_simd((value, prev, last, old), multipliers_simd);
             (prev, old) = (value, last);
             // Direct SIMD store if possible, otherwise individual stores
             crate::write_simd_at_indices!(N, j,
@@ -75,7 +75,7 @@ impl Driver<State, (usize, (f64, f64))> for KamaDriver {
             }
         }
 
-        simd_state.write_states(&mut states);
+        state.write_states(&mut states);
     }
 }
 

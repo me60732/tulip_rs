@@ -1,6 +1,6 @@
 use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::stddev::calc as stddev_calc;
+//use crate::indicators::stddev::Calc as StdDevCalc;
 pub use crate::indicators::stddev::{multiplier, State};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
@@ -244,7 +244,7 @@ fn cycle_bbands(
     for (j, i) in (period..real.len()).enumerate() {
         let prev_value = unsafe { real.get_unchecked(i - period) };
         //let prev_value = &real[i - period];
-        let (lower, middle, upper) = calc(
+        let (lower, middle, upper) = Calc::calc(
             state,
             &std_dev,
             multiplier,
@@ -259,32 +259,44 @@ fn cycle_bbands(
     }
 }
 
-/// Calculates the current Bollinger Bands values.
-///
-/// # Arguments
-///
-/// * `state` - A mutable reference to the current standard deviation state.
-/// * `std_dev` - The standard deviation multiplier for the bands.
-/// * `multiplier` - The precomputed period multiplier used in standard deviation calculation.
-/// * `value` - The current input value.
-/// * `prev_value` - The previous period's input value (used to update the rolling sum).
-///
-/// # Returns
-///
-/// A tuple of `(lower_band, middle_band, upper_band)`.
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    std_dev: &f64,
-    multiplier: f64,
-    value: &f64,
-    prev_value: &f64,
-) -> (f64, f64, f64) {
-    let (sd, sma);
-    (sd, sma) = stddev_calc(state, value, prev_value, multiplier);
-
-    let upper_band = std_dev.mul_add(sd, sma);
-    let lower_band = (-std_dev).mul_add(sd, sma);
-
-    (lower_band, sma, upper_band)
+pub trait Calc {
+    fn calc(
+        &mut self,
+        std_dev: &f64,
+        multiplier: f64,
+        value: &f64,
+        prev_value: &f64,
+    ) -> (f64, f64, f64);
 }
+impl Calc for State {
+    /// Calculates the current Bollinger Bands values.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - A mutable reference to the current standard deviation state.
+    /// * `std_dev` - The standard deviation multiplier for the bands.
+    /// * `multiplier` - The precomputed period multiplier used in standard deviation calculation.
+    /// * `value` - The current input value.
+    /// * `prev_value` - The previous period's input value (used to update the rolling sum).
+    ///
+    /// # Returns
+    ///
+    /// A tuple of `(lower_band, middle_band, upper_band)`.
+    #[inline(always)]
+    fn calc(
+        &mut self,
+        std_dev: &f64,
+        multiplier: f64,
+        value: &f64,
+        prev_value: &f64,
+    ) -> (f64, f64, f64) {
+        let (sd, sma);
+        (sd, sma) = State::calc(self, value, prev_value, multiplier);
+    
+        let upper_band = std_dev.mul_add(sd, sma);
+        let lower_band = (-std_dev).mul_add(sd, sma);
+    
+        (lower_band, sma, upper_band)
+    }
+}
+

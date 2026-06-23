@@ -5,10 +5,10 @@ pub use crate::indicators::atr::multiplier;
 use crate::indicators::{
     atr::{output_length as atr_output_length, State as AtrState},
     max::{
-        calc as calc_max, calc_unchecked as calc_max_unchecked, output_length as max_output_length,
+        output_length as max_output_length,
         State as MaxState, CHUNK_1, CHUNK_4,
     },
-    min::{calc as calc_min, calc_unchecked as calc_min_unchecked, State as MinState},
+    min::State as MinState,
     tr::output_length as tr_output_length,
 };
 
@@ -196,6 +196,90 @@ impl State {
             max_state,
             atr_state,
         }
+    }
+    /// Computes one step of the Chandelier Exit indicator.
+    ///
+    /// Advances the rolling min, max, and ATR states by one bar and returns the long and short
+    /// exit lines along with the current ATR and True Range values.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - Mutable reference to the current min/max/ATR state.
+    /// * `inputs` - A tuple of `(high_slice, low_slice, close)` where `close` is the scalar
+    ///   close for the current bar and `high_slice`/`low_slice` cover the full lookback window.
+    /// * `i` - Current bar index into `high_slice`/`low_slice`.
+    /// * `periods` - Tuple `(period, trail)` where `trail = period - 1`.
+    /// * `multipliers` - Tuple `(step, (atr_alpha, atr_1m_alpha))`.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(long, short, atr, tr)` for the current bar.
+    #[inline(always)]
+    pub fn calc(
+        &mut self,
+        inputs: (&[f64], &[f64], f64),
+        i: usize,
+        periods: (usize, usize),
+        multipliers: (f64, (f64, f64)),
+    ) -> (f64, f64, f64, f64, f64, f64) {
+        let (high, low, close) = inputs;
+        let (step, atr_multipliers) = multipliers;
+        let (min, _) = self.min_state.calc(low, i, periods);
+        let (max, _) = self.max_state.calc(high, i, periods);
+    
+        let (atr, tr) = self
+            .atr_state
+            .calc(high[i], low[i], close, atr_multipliers);
+    
+        let long = atr.mul_add(-step, max);
+        let short = atr.mul_add(step, min);
+    
+        (long, short, atr, tr, min, max)
+    }
+    /// Unchecked version of [`calc`] that uses SIMD-hint size `N` for the min/max windows.
+    ///
+    /// Identical to [`calc`] but uses `get_unchecked` for all slice accesses and passes the
+    /// const generic `N` as a prefetch/SIMD-hint to the min/max helpers.
+    ///
+    /// # Safety
+    ///
+    /// Callers must ensure that `i` is a valid index into `high` and `low` and that the
+    /// slice lengths are sufficient for the lookback window (`trail + 1` elements before `i`).
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - Mutable reference to the current min/max/ATR state.
+    /// * `inputs` - A tuple of `(high_slice, low_slice, close)` where `close` is the scalar
+    ///   close for the current bar.
+    /// * `i` - Current bar index into `high_slice`/`low_slice`.
+    /// * `periods` - Tuple `(period, trail)` where `trail = period - 1`.
+    /// * `multipliers` - Tuple `(step, (atr_alpha, atr_1m_alpha))`.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(long, short, atr, tr)` for the current bar.
+    #[inline(always)]
+    pub(crate) unsafe fn calc_unchecked<const N: usize>(
+        &mut self,
+        inputs: (&[f64], &[f64], f64),
+        i: usize,
+        periods: (usize, usize),
+        multipliers: (f64, (f64, f64)),
+    ) -> (f64, f64, f64, f64, f64, f64) {
+        let (high, low, close) = inputs;
+        let (step, atr_multipliers) = multipliers;
+        let (min, _) = self.min_state.calc_unchecked::<N>(low, i, periods);
+        let (max, _) = self.max_state.calc_unchecked::<N>(high, i, periods);
+    
+        let (atr, tr) = self.atr_state.calc(
+            *high.get_unchecked(i),
+            *low.get_unchecked(i),
+            close,
+            atr_multipliers,
+        );
+        let long = atr.mul_add(-step, max);
+        let short = atr.mul_add(step, min);
+        (long, short, atr, tr, min, max)
     }
 }
 /// Returns information about the Chandelier Exit indicator.
@@ -419,8 +503,7 @@ fn cycle<const N: usize>(
     for (j, i) in (periods.0..inputs.0.len()).enumerate() {
         let (long, short, atr, tr, min, max);
         unsafe {
-            (long, short, atr, tr, min, max) = calc_unchecked::<N>(
-                state,
+            (long, short, atr, tr, min, max) = state.calc_unchecked::<N>(
                 (high, low, *close.get_unchecked(j)),
                 i,
                 periods,
@@ -439,87 +522,4 @@ fn cycle<const N: usize>(
         }
     }
 }
-/// Computes one step of the Chandelier Exit indicator.
-///
-/// Advances the rolling min, max, and ATR states by one bar and returns the long and short
-/// exit lines along with the current ATR and True Range values.
-///
-/// # Arguments
-///
-/// * `state` - Mutable reference to the current min/max/ATR state.
-/// * `inputs` - A tuple of `(high_slice, low_slice, close)` where `close` is the scalar
-///   close for the current bar and `high_slice`/`low_slice` cover the full lookback window.
-/// * `i` - Current bar index into `high_slice`/`low_slice`.
-/// * `periods` - Tuple `(period, trail)` where `trail = period - 1`.
-/// * `multipliers` - Tuple `(step, (atr_alpha, atr_1m_alpha))`.
-///
-/// # Returns
-///
-/// A tuple `(long, short, atr, tr)` for the current bar.
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    inputs: (&[f64], &[f64], f64),
-    i: usize,
-    periods: (usize, usize),
-    multipliers: (f64, (f64, f64)),
-) -> (f64, f64, f64, f64, f64, f64) {
-    let (high, low, close) = inputs;
-    let (step, atr_multipliers) = multipliers;
-    let (min, _) = calc_min(&mut state.min_state, low, i, periods);
-    let (max, _) = calc_max(&mut state.max_state, high, i, periods);
 
-    let (atr, tr) = state
-        .atr_state
-        .calc(high[i], low[i], close, atr_multipliers);
-
-    let long = atr.mul_add(-step, max);
-    let short = atr.mul_add(step, min);
-
-    (long, short, atr, tr, min, max)
-}
-/// Unchecked version of [`calc`] that uses SIMD-hint size `N` for the min/max windows.
-///
-/// Identical to [`calc`] but uses `get_unchecked` for all slice accesses and passes the
-/// const generic `N` as a prefetch/SIMD-hint to the min/max helpers.
-///
-/// # Safety
-///
-/// Callers must ensure that `i` is a valid index into `high` and `low` and that the
-/// slice lengths are sufficient for the lookback window (`trail + 1` elements before `i`).
-///
-/// # Arguments
-///
-/// * `state` - Mutable reference to the current min/max/ATR state.
-/// * `inputs` - A tuple of `(high_slice, low_slice, close)` where `close` is the scalar
-///   close for the current bar.
-/// * `i` - Current bar index into `high_slice`/`low_slice`.
-/// * `periods` - Tuple `(period, trail)` where `trail = period - 1`.
-/// * `multipliers` - Tuple `(step, (atr_alpha, atr_1m_alpha))`.
-///
-/// # Returns
-///
-/// A tuple `(long, short, atr, tr)` for the current bar.
-#[inline(always)]
-pub(crate) unsafe fn calc_unchecked<const N: usize>(
-    state: &mut State,
-    inputs: (&[f64], &[f64], f64),
-    i: usize,
-    periods: (usize, usize),
-    multipliers: (f64, (f64, f64)),
-) -> (f64, f64, f64, f64, f64, f64) {
-    let (high, low, close) = inputs;
-    let (step, atr_multipliers) = multipliers;
-    let (min, _) = calc_min_unchecked::<N>(&mut state.min_state, low, i, periods);
-    let (max, _) = calc_max_unchecked::<N>(&mut state.max_state, high, i, periods);
-
-    let (atr, tr) = state.atr_state.calc(
-        *high.get_unchecked(i),
-        *low.get_unchecked(i),
-        close,
-        atr_multipliers,
-    );
-    let long = atr.mul_add(-step, max);
-    let short = atr.mul_add(step, min);
-    (long, short, atr, tr, min, max)
-}

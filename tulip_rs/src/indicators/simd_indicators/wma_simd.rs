@@ -75,7 +75,7 @@ impl<const N: usize> SimdState<N> {
         }
         SimdState::<N> {
             sum: sums,
-            weighted_sum: weighted_sum,
+            weighted_sum,
         }
     }
     /// Computes one bar of the Weighted Moving Average (WMA) for `N` assets simultaneously
@@ -114,27 +114,3 @@ impl<const N: usize> SimdState<N> {
     }
 }
 
-/// Computes one bar of the Weighted Moving Average (WMA) for `N` assets simultaneously
-/// using SIMD parallelism.
-///
-/// Thin wrapper delegating to [`SimdState::calc_simd`].
-///
-/// # Arguments
-///
-/// * `state` - Mutable SIMD state.
-/// * `prev_value` - Oldest price being dropped from the window.
-/// * `value` - Current prices for this bar.
-/// * `multipliers` - Tuple `(1/period, triangular_weights, period_as_f64)`.
-///
-/// # Returns
-///
-/// A tuple `(wma, sma)` for all `N` lanes.
-#[inline(always)]
-pub fn calc_simd<const N: usize>(
-    state: &mut SimdState<N>,
-    prev_value: Simd<f64, N>,
-    value: Simd<f64, N>,
-    multipliers: (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-) -> (Simd<f64, N>, Simd<f64, N>) {
-    state.calc_simd(prev_value, value, multipliers)
-}

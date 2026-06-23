@@ -116,7 +116,7 @@ impl State {
                 state.sum += typprice;
             } else {
                 (_, sma, md, typprice) =
-                    calc(&mut state, high_val, low_val, close_val, multiplier(period));
+                    state.calc(high_val, low_val, close_val, multiplier(period));
             }
 
             crate::init_store_optional_outputs!(i, high.len(),
@@ -126,6 +126,86 @@ impl State {
             );
         }
         state
+    }
+    /// Calculates the current Commodity Channel Index (CCI) value.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - Mutable reference to the CCI state (ring buffer and running sum).
+    /// * `high` - The current high price.
+    /// * `low` - The current low price.
+    /// * `close` - The current close price.
+    /// * `multiplier` - The CCI multiplier derived from the period (`1.0 / period`).
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(cci, sma, md, typprice)` representing the CCI value, the SMA,
+    /// the mean deviation, and the typical price.
+    #[inline(always)]
+    pub fn calc(
+        &mut self,
+        high: &f64,
+        low: &f64,
+        close: &f64,
+        multiplier: f64,
+    ) -> (f64, f64, f64, f64) {
+        let typprice = typprice_calc(high, low, close);
+        //let (mut mean_deviation, mut sma, mut cci) = (0.0, 0.0, 0.0);
+    
+        if let Some(old) = self.buffer.push_with_info(typprice) {
+            let sma = calc_sma(&mut self.sum, &typprice, &old, &multiplier);
+            let md = calc_md(self.buffer.get_slice(), sma, multiplier);
+    
+            let cci = (typprice - sma) / (0.015 * md);
+            if md == 0.0 {
+                return (0.0, sma, md, typprice);
+            }
+            return (cci, sma, md, typprice);
+        }
+    
+        self.sum += typprice;
+        (0.0, 0.0, 0.0, typprice)
+    }
+    /// Calculates the CCI value using SIMD-accelerated mean deviation.
+    ///
+    /// # Safety
+    ///
+    /// The ring buffer in `state` must be full before calling this function.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - Mutable reference to the CCI state (ring buffer and running sum).
+    /// * `high` - The current high price.
+    /// * `low` - The current low price.
+    /// * `close` - The current close price.
+    /// * `multiplier` - The CCI multiplier derived from the period (`1.0 / period`).
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(cci, sma, md, typprice)`.
+    #[inline(always)]
+    pub unsafe fn calc_unchecked<const N: usize>(
+        &mut self,
+        high: &f64,
+        low: &f64,
+        close: &f64,
+        multiplier: f64,
+    ) -> (f64, f64, f64, f64) {
+        let typprice = typprice_calc(high, low, close);
+        //let (mut mean_deviation, mut sma, mut cci) = (0.0, 0.0, 0.0);
+        let old = self.buffer.push_with_info_unchecked(typprice);
+        let sma = calc_sma(&mut self.sum, &typprice, &old, &multiplier);
+    
+        let md = if N == 1 {
+            calc_md(self.buffer.get_slice(), sma, multiplier)
+        } else {
+            calc_md_simd::<N>(self.buffer.get_slice(), sma, multiplier)
+        };
+        if md == 0.0 {
+            return (0.0, sma, md, typprice);
+        }
+        let cci = (typprice - sma) / (0.015 * md);
+        (cci, sma, md, typprice)
     }
 }
 #[derive(Serialize, Deserialize)]
@@ -336,7 +416,7 @@ fn cycle<const N: usize>(
                 close.get_unchecked(i),
             )
         };
-        let (cci, sma, md, typprice) = unsafe { calc_unchecked::<N>(state, h, l, c, multiplier) };
+        let (cci, sma, md, typprice) = unsafe { state.calc_unchecked::<N>(h, l, c, multiplier) };
 
         unsafe { *cci_line.get_unchecked_mut(i) = cci };
         if has_optional {
@@ -348,83 +428,4 @@ fn cycle<const N: usize>(
         }
     }
 }
-/// Calculates the current Commodity Channel Index (CCI) value.
-///
-/// # Arguments
-///
-/// * `state` - Mutable reference to the CCI state (ring buffer and running sum).
-/// * `high` - The current high price.
-/// * `low` - The current low price.
-/// * `close` - The current close price.
-/// * `multiplier` - The CCI multiplier derived from the period (`1.0 / period`).
-///
-/// # Returns
-///
-/// A tuple `(cci, sma, md, typprice)` representing the CCI value, the SMA,
-/// the mean deviation, and the typical price.
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    high: &f64,
-    low: &f64,
-    close: &f64,
-    multiplier: f64,
-) -> (f64, f64, f64, f64) {
-    let typprice = typprice_calc(high, low, close);
-    //let (mut mean_deviation, mut sma, mut cci) = (0.0, 0.0, 0.0);
 
-    if let Some(old) = state.buffer.push_with_info(typprice) {
-        let sma = calc_sma(&mut state.sum, &typprice, &old, &multiplier);
-        let md = calc_md(state.buffer.get_slice(), sma, multiplier);
-
-        let cci = (typprice - sma) / (0.015 * md);
-        if md == 0.0 {
-            return (0.0, sma, md, typprice);
-        }
-        return (cci, sma, md, typprice);
-    }
-
-    state.sum += typprice;
-    (0.0, 0.0, 0.0, typprice)
-}
-/// Calculates the CCI value using SIMD-accelerated mean deviation.
-///
-/// # Safety
-///
-/// The ring buffer in `state` must be full before calling this function.
-///
-/// # Arguments
-///
-/// * `state` - Mutable reference to the CCI state (ring buffer and running sum).
-/// * `high` - The current high price.
-/// * `low` - The current low price.
-/// * `close` - The current close price.
-/// * `multiplier` - The CCI multiplier derived from the period (`1.0 / period`).
-///
-/// # Returns
-///
-/// A tuple `(cci, sma, md, typprice)`.
-#[inline(always)]
-pub(crate) unsafe fn calc_unchecked<const N: usize>(
-    state: &mut State,
-    high: &f64,
-    low: &f64,
-    close: &f64,
-    multiplier: f64,
-) -> (f64, f64, f64, f64) {
-    let typprice = typprice_calc(high, low, close);
-    //let (mut mean_deviation, mut sma, mut cci) = (0.0, 0.0, 0.0);
-    let old = state.buffer.push_with_info_unchecked(typprice);
-    let sma = calc_sma(&mut state.sum, &typprice, &old, &multiplier);
-
-    let md = if N == 1 {
-        calc_md(state.buffer.get_slice(), sma, multiplier)
-    } else {
-        calc_md_simd::<N>(state.buffer.get_slice(), sma, multiplier)
-    };
-    if md == 0.0 {
-        return (0.0, sma, md, typprice);
-    }
-    let cci = (typprice - sma) / (0.015 * md);
-    (cci, sma, md, typprice)
-}

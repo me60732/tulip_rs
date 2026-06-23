@@ -69,27 +69,28 @@ impl<const N: usize> SimdState<N> {
             states[i].ema2 = ema2[i];
         }
     }
+    /// Advances the DEMA by one bar for `N` assets simultaneously.
+    ///
+    /// Applies EMA twice: `ema1 = EMA(value)`, `ema2 = EMA(ema1)`. Returns
+    /// `DEMA = 2 * ema1 - ema2` (using a fused multiply-add) and the intermediate `ema1`.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(dema, ema1)` of SIMD vectors for all `N` lanes.
+    #[inline(always)]
+    pub fn calc_simd(
+        &mut self,
+        value: Simd<f64, N>,
+        multiplier: (Simd<f64, N>, Simd<f64, N>),
+    ) -> (Simd<f64, N>, Simd<f64, N>) {
+        self.ema1 = calc_ema_simd(value, self.ema1, multiplier);
+        self.ema2 = calc_ema_simd(self.ema1, self.ema2, multiplier);
+        //(F64Constants::TWO * state.ema1 - state.ema2, state.ema1)
+        (
+            self.ema1.mul_add(F64Constants::TWO, -self.ema2),
+            self.ema1,
+        )
+    }
 }
 
-/// Advances the DEMA by one bar for `N` assets simultaneously.
-///
-/// Applies EMA twice: `ema1 = EMA(value)`, `ema2 = EMA(ema1)`. Returns
-/// `DEMA = 2 * ema1 - ema2` (using a fused multiply-add) and the intermediate `ema1`.
-///
-/// # Returns
-///
-/// A tuple `(dema, ema1)` of SIMD vectors for all `N` lanes.
-#[inline(always)]
-pub fn calc_simd<const N: usize>(
-    state: &mut SimdState<N>,
-    value: Simd<f64, N>,
-    multiplier: (Simd<f64, N>, Simd<f64, N>),
-) -> (Simd<f64, N>, Simd<f64, N>) {
-    state.ema1 = calc_ema_simd(value, state.ema1, multiplier);
-    state.ema2 = calc_ema_simd(state.ema1, state.ema2, multiplier);
-    //(F64Constants::TWO * state.ema1 - state.ema2, state.ema1)
-    (
-        state.ema1.mul_add(F64Constants::TWO, -state.ema2),
-        state.ema1,
-    )
-}
+

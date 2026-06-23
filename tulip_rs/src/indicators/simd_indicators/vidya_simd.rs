@@ -1,8 +1,6 @@
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::by_asset::vidya::indicator_by_assets;
-use crate::indicators::simd_indicators::stddev_simd::{
-    calc_simd as stddev_calc_simd, SimdState as SimdStddevState,
-};
+use crate::indicators::simd_indicators::stddev_simd::{SimdState as SimdStddevState, Calc};
 
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::vidya::indicator_by_options;
@@ -115,12 +113,10 @@ impl<const N: usize> SimdState<N> {
         // Compute short-term STDDEV.
         let (multiplier_short, multiplier_long) = multipliers;
 
-        let (sd_short, sma_short) =
-            stddev_calc_simd(&mut self.short_state, value, short_value, multiplier_short);
+        let (sd_short, sma_short) = self.short_state.calc_simd(value, short_value, multiplier_short);
 
         // Compute long-term STDDEV.
-        let (sd_long, sma_long) =
-            stddev_calc_simd(&mut self.long_state, value, long_value, multiplier_long);
+        let (sd_long, sma_long) = self.long_state.calc_simd(value, long_value, multiplier_long);
 
         let mut k = sd_short / sd_long;
         k *= alpha;
@@ -131,37 +127,3 @@ impl<const N: usize> SimdState<N> {
     }
 }
 
-/// Computes one bar of the Variable Index Dynamic Average (VIDYA) for `N` assets simultaneously
-/// using SIMD parallelism.
-///
-/// Thin wrapper delegating to [`SimdState::calc_simd`].
-///
-/// # Arguments
-///
-/// * `state` - Mutable SIMD state.
-/// * `value` - Current prices for this bar.
-/// * `short_value` - Oldest value dropped from the short stddev window.
-/// * `long_value` - Oldest value dropped from the long stddev window.
-/// * `alpha` - EMA alpha coefficient.
-/// * `multipliers` - Tuple `(short_multiplier, long_multiplier)`.
-///
-/// # Returns
-///
-/// A tuple `(vidya, sma_short, sma_long, sd_short, sd_long)` for all `N` lanes.
-#[inline(always)]
-pub fn calc_simd<const N: usize>(
-    state: &mut SimdState<N>,
-    value: Simd<f64, N>,
-    short_value: Simd<f64, N>,
-    long_value: Simd<f64, N>,
-    alpha: Simd<f64, N>,
-    multipliers: (Simd<f64, N>, Simd<f64, N>),
-) -> (
-    Simd<f64, N>,
-    Simd<f64, N>,
-    Simd<f64, N>,
-    Simd<f64, N>,
-    Simd<f64, N>,
-) {
-    state.calc_simd(value, short_value, long_value, alpha, multipliers)
-}

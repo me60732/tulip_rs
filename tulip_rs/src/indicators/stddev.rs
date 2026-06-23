@@ -288,19 +288,3 @@ fn cycle_stddev(
     }
 }
 
-/// Calculates the current Standard Deviation (STDDEV) value for a single step.
-///
-/// # Arguments
-///
-/// * `state` - A mutable reference to the current `State` (sum and sum of squares).
-/// * `value` - The current input value entering the window.
-/// * `prev_value` - The oldest input value leaving the window.
-/// * `multiplier` - The precomputed multiplier (1/period).
-///
-/// # Returns
-///
-/// A tuple of `(stddev, sma)` — the standard deviation and the simple moving average for the current window.
-#[inline(always)]
-pub fn calc(state: &mut State, value: &f64, prev_value: &f64, multiplier: f64) -> (f64, f64) {
-    state.calc(value, prev_value, multiplier)
-}

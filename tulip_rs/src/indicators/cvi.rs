@@ -3,9 +3,7 @@ pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::ema::calc as calc_ema;
 pub use crate::indicators::ema::multiplier;
 pub use crate::ring_buffer::single_buffer::generic_buffer::{Buffer as State, RingBuffer};
-use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
-};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -48,26 +46,68 @@ pub mod by_options {
 
 pub trait BufferExt {
     fn init_state(inputs: &[&[f64]; INPUTS_WIDTH], period: usize) -> State;
+    fn calc(&mut self, high: &f64, low: &f64, multiplier: (f64, f64)) -> f64;
+    unsafe fn calc_unchecked(&mut self, high: &f64, low: &f64, multiplier: (f64, f64)) -> f64;
 }
 impl BufferExt for State {
     fn init_state(inputs: &[&[f64]; INPUTS_WIDTH], period: usize) -> Self {
-        let mut prev_ema = State::new(period);
+        let mut state = State::new(period);
 
         let (high, low) = (inputs[0], inputs[1]);
         let multiplier = multiplier(period);
         for (i, (&h, &l)) in high.iter().zip(low.iter()).enumerate().take(period * 2 - 1) {
             if i < period {
                 let hl_diff = (h - l).max(f64::EPSILON);
-                let base = prev_ema.back().unwrap_or(hl_diff);
+                let base = state.back().unwrap_or(hl_diff);
 
                 let ema = calc_ema(&hl_diff, base, multiplier);
-                prev_ema.push(ema);
+                state.push(ema);
                 continue;
             }
-            calc(&mut prev_ema, &h, &l, multiplier);
+            state.calc(&h, &l, multiplier);
         }
 
-        prev_ema
+        state
+    }
+    /// Calculates the current CVI value.
+    ///
+    /// # Arguments
+    ///
+    /// * `buffer` - Mutable reference to the ring buffer holding recent EMA values.
+    /// * `high` - The current high price.
+    /// * `low` - The current low price.
+    /// * `multiplier` - A tuple `(multiplier, inv_multiplier)` for the EMA calculation.
+    ///
+    /// # Returns
+    ///
+    /// The CVI value as a percentage change between the current and oldest EMA in the buffer.
+    #[inline]
+    fn calc(&mut self, high: &f64, low: &f64, multiplier: (f64, f64)) -> f64 {
+        let prev_ema = self.back().unwrap();
+        let old_ema = self.front().unwrap();
+        let hl_diff = (high - low).max(f64::EPSILON);
+        let ema = calc_ema(&hl_diff, prev_ema, multiplier);
+        self.push(ema);
+        if old_ema.abs() < f64::EPSILON {
+            0.0
+        } else {
+            (ema - old_ema) / old_ema * 100.0
+        }
+    }
+    #[inline(always)]
+    unsafe fn calc_unchecked(
+        &mut self,
+        high: &f64,
+        low: &f64,
+        multiplier: (f64, f64),
+    ) -> f64 {
+        let prev_ema = self.back_unchecked();
+        let old_ema = self.front_unchecked();
+        let hl_diff = (high - low).max(f64::EPSILON);
+        let ema = calc_ema(&hl_diff, prev_ema, multiplier);
+        self.push_unchecked(ema);
+
+        (ema - old_ema) / old_ema * 100.0
     }
 }
 #[derive(Serialize, Deserialize)]
@@ -210,53 +250,11 @@ fn cycle(
 ) {
     for i in 0..high.len() {
         unsafe {
-            *cvi_line.get_unchecked_mut(i) = calc_unchecked(
-                state,
+            *cvi_line.get_unchecked_mut(i) = state.calc_unchecked(
                 high.get_unchecked(i),
                 low.get_unchecked(i),
                 multiplier,
             );
         }
     }
-}
-
-/// Calculates the current CVI value.
-///
-/// # Arguments
-///
-/// * `buffer` - Mutable reference to the ring buffer holding recent EMA values.
-/// * `high` - The current high price.
-/// * `low` - The current low price.
-/// * `multiplier` - A tuple `(multiplier, inv_multiplier)` for the EMA calculation.
-///
-/// # Returns
-///
-/// The CVI value as a percentage change between the current and oldest EMA in the buffer.
-#[inline]
-pub fn calc(buffer: &mut State, high: &f64, low: &f64, multiplier: (f64, f64)) -> f64 {
-    let prev_ema = buffer.back().unwrap();
-    let old_ema = buffer.front().unwrap();
-    let hl_diff = (high - low).max(f64::EPSILON);
-    let ema = calc_ema(&hl_diff, prev_ema, multiplier);
-    buffer.push(ema);
-    if old_ema.abs() < f64::EPSILON {
-        0.0
-    } else {
-        (ema - old_ema) / old_ema * 100.0
-    }
-}
-#[inline(always)]
-pub(crate) unsafe fn calc_unchecked(
-    buffer: &mut State,
-    high: &f64,
-    low: &f64,
-    multiplier: (f64, f64),
-) -> f64 {
-    let prev_ema = buffer.back_unchecked();
-    let old_ema = buffer.front_unchecked();
-    let hl_diff = (high - low).max(f64::EPSILON);
-    let ema = calc_ema(&hl_diff, prev_ema, multiplier);
-    buffer.push_unchecked(ema);
-
-    (ema - old_ema) / old_ema * 100.0
 }

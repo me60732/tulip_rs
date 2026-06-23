@@ -1,7 +1,7 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 pub use crate::indicators::stddev::multiplier;
-use crate::indicators::stddev::{calc as stddev_calc, State as StddevState};
+use crate::indicators::stddev::State as StddevState;
 use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
@@ -127,7 +127,7 @@ impl State {
         let value = (real - self.prev_real) / self.prev_real;
         self.prev_real = real;
         let prev_value = self.buffer.push_with_info(value).unwrap();
-        let (sd, _) = stddev_calc(&mut self.stddev_state, &value, &prev_value, multiplier);
+        let (sd, _) = self.stddev_state.calc(&value, &prev_value, multiplier);
         sd * ANNUAL
     }
     #[inline(always)]
@@ -136,7 +136,7 @@ impl State {
         let value = (real - self.prev_real) / self.prev_real;
         self.prev_real = real;
         let prev_value = self.buffer.push_with_info_unchecked(value);
-        let (sd, _) = stddev_calc(&mut self.stddev_state, &value, &prev_value, multiplier);
+        let (sd, _) = self.stddev_state.calc(&value, &prev_value, multiplier);
         sd * ANNUAL
     }
 }

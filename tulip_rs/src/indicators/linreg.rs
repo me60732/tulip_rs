@@ -153,6 +153,24 @@ impl State {
         let per = multiplier(period, sum_x, sum_xx);
         Self::new(sum_x, sum_y, sum_xy, per)
     }
+    #[inline(always)]
+    pub fn calc(&mut self, prev_value: f64, value: f64, period: usize) -> (f64, f64, f64) {
+        let (sum_x, mut sum_y, mut sum_xy, per) = (self.sum_x, self.sum_y, self.sum_xy, self.per);
+        let n = period as f64;
+    
+        sum_xy += value * n;
+        sum_y += value;
+    
+        let slope = (n * sum_xy - sum_x * sum_y) * per;
+        let intercept = (sum_y - slope * sum_x) / n;
+        let linreg = intercept + slope * n;
+    
+        sum_xy -= sum_y;
+        sum_y -= prev_value;
+    
+        (self.sum_y, self.sum_xy) = (sum_y, sum_xy);
+        (linreg, slope, intercept)
+    }
 }
 /// Returns the minimum amount of data required for the LINREG indicator.
 ///
@@ -266,7 +284,7 @@ fn cycle_linreg(
 
     for (j, i) in (period - 1..real.len()).enumerate() {
         let (prev_value, value) = unsafe { (*real.get_unchecked(j), *real.get_unchecked(i)) };
-        let (linreg, slope, intercept) = calc(state, prev_value, value, period);
+        let (linreg, slope, intercept) = state.calc(prev_value, value, period);
 
         unsafe { *linreg_line.get_unchecked_mut(j) = linreg };
         if has_optional {
@@ -278,24 +296,7 @@ fn cycle_linreg(
     }
 }
 
-#[inline(always)]
-pub fn calc(state: &mut State, prev_value: f64, value: f64, period: usize) -> (f64, f64, f64) {
-    let (sum_x, mut sum_y, mut sum_xy, per) = (state.sum_x, state.sum_y, state.sum_xy, state.per);
-    let n = period as f64;
 
-    sum_xy += value * n;
-    sum_y += value;
-
-    let slope = (n * sum_xy - sum_x * sum_y) * per;
-    let intercept = (sum_y - slope * sum_x) / n;
-    let linreg = intercept + slope * n;
-
-    sum_xy -= sum_y;
-    sum_y -= prev_value;
-
-    (state.sum_y, state.sum_xy) = (sum_y, sum_xy);
-    (linreg, slope, intercept)
-}
 
 /// Calculates the multiplier for the LINREG calculation.
 #[inline]

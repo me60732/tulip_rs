@@ -53,36 +53,35 @@ impl<const N: usize> SimdState<N> {
             state.sum = sum[i];
         }
     }
+    /// Computes one KAMA step across `N` asset/option lanes using SIMD parallelism.
+    ///
+    /// Calculates the Efficiency Ratio (|net change| / |total path|) and uses it to
+    /// blend the fast and slow EMA smoothing constants. When `sum == 0` (perfectly
+    /// efficient or flat market) the smoothing constant defaults to `1.0` (full tracking).
+    /// FMA instructions are used throughout to maximise throughput.
+    #[inline(always)]
+    pub fn calc_simd(
+        &mut self,
+        values: (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
+        multipliers: (Simd<f64, N>, Simd<f64, N>),
+    ) -> (Simd<f64, N>, Simd<f64, N>) {
+        let (fast_ema, slow_ema) = multipliers;
+        let value = values.0;
+    
+        let efficiency_ratio = calc_simd_ef(&mut self.sum, values);
+    
+        let smoothing_constant = {
+            let temp = (fast_ema - slow_ema).mul_add(efficiency_ratio, slow_ema);
+            temp * temp // Square it by multiplying by itself
+        };
+    
+        // Optimized calculation using C-style EMA pattern
+        let per1 = F64Constants::ONE - smoothing_constant;
+        //kama = kama * per1 + value * smoothing_constant;
+        self.kama = self.kama.mul_add(per1, value * smoothing_constant);
+    
+        (self.kama, efficiency_ratio)
+    }
 }
 
-/// Computes one KAMA step across `N` asset/option lanes using SIMD parallelism.
-///
-/// Calculates the Efficiency Ratio (|net change| / |total path|) and uses it to
-/// blend the fast and slow EMA smoothing constants. When `sum == 0` (perfectly
-/// efficient or flat market) the smoothing constant defaults to `1.0` (full tracking).
-/// FMA instructions are used throughout to maximise throughput.
-#[inline(always)]
-pub fn calc_simd<const N: usize>(
-    state: &mut SimdState<N>,
-    values: (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-    multipliers: (Simd<f64, N>, Simd<f64, N>),
-) -> (Simd<f64, N>, Simd<f64, N>) {
-    let (fast_ema, slow_ema) = multipliers;
-    let mut kama = state.kama;
-    let value = values.0;
 
-    let efficiency_ratio = calc_simd_ef(&mut state.sum, values);
-
-    let smoothing_constant = {
-        let temp = (fast_ema - slow_ema).mul_add(efficiency_ratio, slow_ema);
-        temp * temp // Square it by multiplying by itself
-    };
-
-    // Optimized calculation using C-style EMA pattern
-    let per1 = F64Constants::ONE - smoothing_constant;
-    //kama = kama * per1 + value * smoothing_constant;
-    kama = kama.mul_add(per1, value * smoothing_constant);
-    state.kama = kama;
-
-    (kama, efficiency_ratio)
-}

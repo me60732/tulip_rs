@@ -60,30 +60,31 @@ impl<const N: usize> SimdState<N> {
             state.signal = signal[i];
         }
     }
+    /// Computes one MACD step across `N` lanes using SIMD parallelism.
+    ///
+    /// Updates the short and long EMAs from the current `value`, computes the
+    /// MACD line as `short_ema - long_ema`, updates the signal line as an EMA
+    /// of the MACD, and returns `(macd, signal, histogram)` for all lanes.
+    #[inline(always)]
+    pub fn calc_simd(
+        &mut self,
+        value: Simd<f64, N>,
+        multipliers: (
+            (Simd<f64, N>, Simd<f64, N>),
+            (Simd<f64, N>, Simd<f64, N>),
+            (Simd<f64, N>, Simd<f64, N>),
+        ),
+    ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
+        //let (mut short_ema, mut long_ema, mut signal) = (state.short_ema, state.long_ema, state.signal);
+        let (short_multiplier, long_multiplier, signal_multiplier) = multipliers;
+        self.short_ema = calc_ema_simd(value, self.short_ema, short_multiplier);
+        self.long_ema = calc_ema_simd(value, self.long_ema, long_multiplier);
+    
+        let macd_value = self.short_ema - self.long_ema;
+        self.signal = calc_ema_simd(macd_value, self.signal, signal_multiplier);
+    
+        (macd_value, self.signal, macd_value - self.signal)
+    }
 }
 
-/// Computes one MACD step across `N` lanes using SIMD parallelism.
-///
-/// Updates the short and long EMAs from the current `value`, computes the
-/// MACD line as `short_ema - long_ema`, updates the signal line as an EMA
-/// of the MACD, and returns `(macd, signal, histogram)` for all lanes.
-#[inline(always)]
-pub fn calc_simd<const N: usize>(
-    state: &mut SimdState<N>,
-    value: Simd<f64, N>,
-    multipliers: (
-        (Simd<f64, N>, Simd<f64, N>),
-        (Simd<f64, N>, Simd<f64, N>),
-        (Simd<f64, N>, Simd<f64, N>),
-    ),
-) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
-    //let (mut short_ema, mut long_ema, mut signal) = (state.short_ema, state.long_ema, state.signal);
-    let (short_multiplier, long_multiplier, signal_multiplier) = multipliers;
-    state.short_ema = calc_ema_simd(value, state.short_ema, short_multiplier);
-    state.long_ema = calc_ema_simd(value, state.long_ema, long_multiplier);
 
-    let macd_value = state.short_ema - state.long_ema;
-    state.signal = calc_ema_simd(macd_value, state.signal, signal_multiplier);
-
-    (macd_value, state.signal, macd_value - state.signal)
-}

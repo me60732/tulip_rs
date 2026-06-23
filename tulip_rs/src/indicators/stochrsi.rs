@@ -141,6 +141,52 @@ impl State {
             buffer,
         }
     }
+    /// Calculates a single Stochastic RSI value from the current state.
+    ///
+    /// # Arguments
+    ///
+    /// * `real` - The current real price value.
+    /// * `multiplier` - The EMA multiplier derived from the period.
+    /// * `period` - The period for the Stochastic RSI calculation.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(kfast, rsi)` where `kfast` is the Stochastic RSI value and `rsi` is the current RSI value.
+    ///
+    /// # Note on scaling
+    ///
+    /// This implementation outputs StochRSI on a 0–100 scale, matching the
+    /// standard Stochastic Oscillator (%K).
+    ///
+    /// In the original publication — Chande & Kroll, “The New Technical Trader”
+    /// (1994) — the StochRSI formula was printed without the ×100 scaling
+    /// factor. This omission was a typesetting error, but it led most
+    /// indicator libraries to adopt a 0–1 ratio instead.
+    ///
+    /// Users migrating from libraries that follow the misprinted 0–1 convention
+    /// should be aware of this difference.
+    #[inline(always)]
+    pub fn calc<const N: usize>(
+        &mut self,
+        real: f64,
+        multipliers: (f64, f64),
+        period: usize,
+    ) -> (f64, f64) {
+        let rsi = self.rsi_state.calc(real, multipliers);
+        self.buffer.push(rsi);
+    
+        let (min, _) = self.buffer.min::<N>(&mut self.min_state, rsi, period);
+        let (max, _) = self.buffer.max::<N>(&mut self.max_state, rsi, period);
+    
+        let kdif = max - min;
+        let kfast = if kdif < f64::EPSILON {
+            0.0
+        } else {
+            100.0 * (rsi - min) / kdif
+        };
+    
+        (kfast, rsi)
+    }
 }
 /// Returns information about the Stochastic RSI indicator.
 ///
@@ -297,7 +343,7 @@ fn cycle_stochrsi<const N: usize>(
     for i in 0..real.len() {
         let val = unsafe { *real.get_unchecked(i) };
 
-        let (kfast, rsi) = calc::<N>(state, val, multipliers, period);
+        let (kfast, rsi) = state.calc::<N>(val, multipliers, period);
 
         unsafe { *stochrsi_line.get_unchecked_mut(i) = kfast };
         crate::store_optional_outputs!(i,
@@ -306,50 +352,4 @@ fn cycle_stochrsi<const N: usize>(
     }
 }
 
-/// Calculates a single Stochastic RSI value from the current state.
-///
-/// # Arguments
-///
-/// * `state` - A mutable reference to the current indicator state.
-/// * `real` - The current real price value.
-/// * `multiplier` - The EMA multiplier derived from the period.
-/// * `period` - The period for the Stochastic RSI calculation.
-///
-/// # Returns
-///
-/// A tuple `(kfast, rsi)` where `kfast` is the Stochastic RSI value and `rsi` is the current RSI value.
-///
-/// # Note on scaling
-///
-/// This implementation outputs StochRSI on a 0–100 scale, matching the
-/// standard Stochastic Oscillator (%K).
-///
-/// In the original publication — Chande & Kroll, “The New Technical Trader”
-/// (1994) — the StochRSI formula was printed without the ×100 scaling
-/// factor. This omission was a typesetting error, but it led most
-/// indicator libraries to adopt a 0–1 ratio instead.
-///
-/// Users migrating from libraries that follow the misprinted 0–1 convention
-/// should be aware of this difference.
-#[inline(always)]
-pub fn calc<const N: usize>(
-    state: &mut State,
-    real: f64,
-    multipliers: (f64, f64),
-    period: usize,
-) -> (f64, f64) {
-    let rsi = state.rsi_state.calc(real, multipliers);
-    state.buffer.push(rsi);
 
-    let (min, _) = state.buffer.min::<N>(&mut state.min_state, rsi, period);
-    let (max, _) = state.buffer.max::<N>(&mut state.max_state, rsi, period);
-
-    let kdif = max - min;
-    let kfast = if kdif < f64::EPSILON {
-        0.0
-    } else {
-        100.0 * (rsi - min) / kdif
-    };
-
-    (kfast, rsi)
-}

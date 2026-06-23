@@ -2,12 +2,9 @@ use crate::common::{validate_inputs, validate_options};
 //use crate::indicators::aroon::State;
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::max::{
-    calc as calc_max, calc_unchecked as calc_max_uncheked, output_length as max_output_length,
-    State as MaxState, CHUNK_1, CHUNK_4,
+    output_length as max_output_length, State as MaxState, CHUNK_1, CHUNK_4,
 };
-use crate::indicators::min::{
-    calc as calc_min, calc_unchecked as calc_min_uncheked, State as MinState,
-};
+use crate::indicators::min::State as MinState;
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
@@ -153,6 +150,64 @@ impl State {
             max_state,
         }
     }
+    /// Calculates WillR for a single bar using the sliding window state.
+    /// It mimics stoch’s calc_kfast but uses the WillR formula:
+    /// willr = -100 * (max - close[i]) / (max - min)
+    #[inline(always)]
+    pub fn calc(
+        &mut self,
+        high: &[f64],
+        low: &[f64],
+        close: &f64,
+        i: usize,
+        periods: (usize, usize),
+    ) -> (f64, f64, f64) {
+        // Update the minimum and maximum for the rolling window.
+        let (min, _) = self.min_state.calc(low, i, periods);
+        let (max, _) = self.max_state.calc(high, i, periods);
+    
+        if (max - min).abs() < f64::EPSILON {
+            return (0.0, min, max);
+        }
+    
+        (100.0 * (max - close) / (max - min), min, max)
+    }
+    /// Calculates Williams %R for a single bar using unchecked min/max access.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - Mutable reference to the rolling `State` (min and max states).
+    /// * `high` - The full high price input slice.
+    /// * `low` - The full low price input slice.
+    /// * `close` - Reference to the current bar's close price.
+    /// * `i` - The current index into `high` and `low`.
+    /// * `periods` - A tuple of `(period, period - 1)` used by the min/max states.
+    ///
+    /// # Returns
+    ///
+    /// The Williams %R value for this bar.
+    ///
+    /// # Safety
+    ///
+    /// `i` and the look-back window must be within bounds of `high` and `low`.
+    #[inline(always)]
+    pub unsafe fn calc_unchecked<const N: usize>(
+        &mut self,
+        high: &[f64],
+        low: &[f64],
+        close: &f64,
+        i: usize,
+        periods: (usize, usize),
+    ) -> (f64, f64, f64) {
+        // Update the minimum and maximum for the rolling window.
+        let (min, _) = self.min_state.calc_unchecked::<N>(low, i, periods);
+        let (max, _) = self.max_state.calc_unchecked::<N>(high, i, periods);
+    
+        if (max - min).abs() < f64::EPSILON {
+            return (0.0, min, max);
+        }
+        (100.0 * (max - close) / (max - min), min, max)
+    }
 }
 pub const INFO: Info = Info {
     name: "willr",
@@ -265,7 +320,7 @@ pub fn indicator(
         (&mut min_line[min_offset..], &mut max_line[max_offset..])
     };
     // The first valid calculation is at index period - 1 within the slice.
-     
+
     if CHUNK_1.contains(&period) {
         cycle_willr::<1>(
             high,
@@ -297,7 +352,7 @@ pub fn indicator(
             optional_outputs,
         );
     }
-    
+
     Ok((
         vec![willr_line, min_line, max_line],
         IndicatorState::new(state, high, low, period),
@@ -331,7 +386,7 @@ fn cycle_willr<const N: usize>(
     for (j, (close, willr)) in close.iter().zip(willr_line.iter_mut()).enumerate() {
         let (min, max);
         unsafe {
-            (*willr, min, max) = calc_unchecked::<N>(state, high, low, close, i, periods);
+            (*willr, min, max) = state.calc_unchecked::<N>(high, low, close, i, periods);
         }
 
         if has_optional {
@@ -345,61 +400,4 @@ fn cycle_willr<const N: usize>(
     }
 }
 
-/// Calculates WillR for a single bar using the sliding window state.
-/// It mimics stoch’s calc_kfast but uses the WillR formula:
-/// willr = -100 * (max - close[i]) / (max - min)
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    high: &[f64],
-    low: &[f64],
-    close: &f64,
-    i: usize,
-    periods: (usize, usize),
-) -> (f64, f64, f64) {
-    // Update the minimum and maximum for the rolling window.
-    let (min, _) = calc_min(&mut state.min_state, low, i, periods);
-    let (max, _) = calc_max(&mut state.max_state, high, i, periods);
 
-    if (max - min).abs() < f64::EPSILON {
-        return (0.0, min, max);
-    }
-
-    (100.0 * (max - close) / (max - min), min, max)
-}
-/// Calculates Williams %R for a single bar using unchecked min/max access.
-///
-/// # Arguments
-///
-/// * `state` - Mutable reference to the rolling `State` (min and max states).
-/// * `high` - The full high price input slice.
-/// * `low` - The full low price input slice.
-/// * `close` - Reference to the current bar's close price.
-/// * `i` - The current index into `high` and `low`.
-/// * `periods` - A tuple of `(period, period - 1)` used by the min/max states.
-///
-/// # Returns
-///
-/// The Williams %R value for this bar.
-///
-/// # Safety
-///
-/// `i` and the look-back window must be within bounds of `high` and `low`.
-#[inline(always)]
-pub unsafe fn calc_unchecked<const N: usize>(
-    state: &mut State,
-    high: &[f64],
-    low: &[f64],
-    close: &f64,
-    i: usize,
-    periods: (usize, usize),
-) -> (f64, f64, f64) {
-    // Update the minimum and maximum for the rolling window.
-    let (min, _) = calc_min_uncheked::<N>(&mut state.min_state, low, i, periods);
-    let (max, _) = calc_max_uncheked::<N>(&mut state.max_state, high, i, periods);
-
-    if (max - min).abs() < f64::EPSILON {
-        return (0.0, min, max);
-    }
-    (100.0 * (max - close) / (max - min), min, max)
-}

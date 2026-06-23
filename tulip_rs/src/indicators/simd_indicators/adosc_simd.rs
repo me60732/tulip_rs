@@ -63,35 +63,36 @@ impl<const N: usize> SimdState<N> {
             states[i].long_ema = long_ema[i];
         }
     }
+    /// Advances the Chaikin AD Oscillator (ADOSC) by one bar for `N` assets simultaneously.
+    ///
+    /// Updates the AD line, then applies short- and long-period EMA smoothing. The oscillator value
+    /// is the difference between the two EMAs (`short_ema - long_ema`).
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - Mutable SIMD state holding per-asset AD, short EMA, and long EMA.
+    /// * `inputs` - Tuple of `(high, low, close, volume)` SIMD vectors for the current bar.
+    /// * `multipliers` - Tuple of `(short_multiplier, long_multiplier)` EMA smoothing factors,
+    ///   each itself a `(per, inv_per)` pair.
+    ///
+    /// # Returns
+    ///
+    /// ADOSC values (`short_ema - long_ema`) for all `N` lanes.
+    #[inline(always)]
+    pub fn calc_simd(
+       &mut self,
+        inputs: (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
+        multipliers: ((Simd<f64, N>, Simd<f64, N>), (Simd<f64, N>, Simd<f64, N>)),
+    ) -> Simd<f64, N> {
+        let (high, low, close, volume) = inputs;
+        let (short_multiplier, long_multiplier) = multipliers;
+    
+        self.ad = calc_ad_simd(self.ad, high, low, close, volume);
+        self.short_ema = calc_ema_simd(self.ad, self.short_ema, short_multiplier);
+        self.long_ema = calc_ema_simd(self.ad, self.long_ema, long_multiplier);
+    
+        self.short_ema - self.long_ema
+    }
 }
 
-/// Advances the Chaikin AD Oscillator (ADOSC) by one bar for `N` assets simultaneously.
-///
-/// Updates the AD line, then applies short- and long-period EMA smoothing. The oscillator value
-/// is the difference between the two EMAs (`short_ema - long_ema`).
-///
-/// # Arguments
-///
-/// * `state` - Mutable SIMD state holding per-asset AD, short EMA, and long EMA.
-/// * `inputs` - Tuple of `(high, low, close, volume)` SIMD vectors for the current bar.
-/// * `multipliers` - Tuple of `(short_multiplier, long_multiplier)` EMA smoothing factors,
-///   each itself a `(per, inv_per)` pair.
-///
-/// # Returns
-///
-/// ADOSC values (`short_ema - long_ema`) for all `N` lanes.
-#[inline(always)]
-pub fn calc_simd<const N: usize>(
-    state: &mut SimdState<N>,
-    inputs: (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-    multipliers: ((Simd<f64, N>, Simd<f64, N>), (Simd<f64, N>, Simd<f64, N>)),
-) -> Simd<f64, N> {
-    let (high, low, close, volume) = inputs;
-    let (short_multiplier, long_multiplier) = multipliers;
 
-    state.ad = calc_ad_simd(state.ad, high, low, close, volume);
-    state.short_ema = calc_ema_simd(state.ad, state.short_ema, short_multiplier);
-    state.long_ema = calc_ema_simd(state.ad, state.long_ema, long_multiplier);
-
-    state.short_ema - state.long_ema
-}

@@ -1,7 +1,7 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::linreg::State as LinregState;
-use crate::indicators::tsf::{calc as calc_tsf, output_length as tsf_output_length};
+//use crate::indicators::linreg::State as LinregState;
+use crate::indicators::tsf::{Calc as TsfCalc, output_length as tsf_output_length, State as TsfState};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
@@ -109,14 +109,14 @@ impl TIndicatorState<1> for IndicatorState {
 }
 #[derive(Serialize, Deserialize)]
 pub struct State {
-    pub linreg_state: LinregState,
+    pub tsf_state: TsfState,
     pub tsf: f64,
 }
 impl State {
     pub fn new(tsf: f64, sum_x: f64, sum_y: f64, sum_xy: f64, per: f64) -> Self {
         Self {
             tsf,
-            linreg_state: LinregState::new(sum_x, sum_y, sum_xy, per),
+            tsf_state: TsfState::new(sum_x, sum_y, sum_xy, per),
         }
     }
     pub fn init_state(
@@ -129,9 +129,9 @@ impl State {
             crate::calc_want_flags!(tsf_line, linreg_line, slope_line, intercept_line);
         let mut state = Self {
             tsf: 0.0,
-            linreg_state: LinregState::init_state(&real[1..period], period),
+            tsf_state: TsfState::init_state(&real[1..period], period),
         };
-        let (_, tsf, linreg, slope, intercept) = calc(&mut state, real[1], real[period], period);
+        let (_, tsf, linreg, slope, intercept) = state.calc(real[1], real[period], period);
         if has_optional {
             crate::init_store_optional_outputs!(period, real.len(),
                 tsf_line => tsf,
@@ -141,6 +141,20 @@ impl State {
             );
         }
         state
+    }
+    #[inline(always)]
+    pub fn calc(
+        &mut self,
+        prev_value: f64,
+        value: f64,
+        period: usize,
+    ) -> (f64, f64, f64, f64, f64) {
+        let fosc = 100.0 * (value - self.tsf) / value; //.max(f64::EPSILON);
+    
+        let (tsf, linreg, slope, intercept) =
+            TsfCalc::calc(&mut self.tsf_state, prev_value, value, period);
+        self.tsf = tsf;
+        (fosc, tsf, linreg, slope, intercept)
     }
 }
 
@@ -325,7 +339,7 @@ fn cycle_fosc(
     for (j, i) in (start..real.len()).enumerate() {
         let prev_value = unsafe { *real.get_unchecked(j) };
         let value = unsafe { *real.get_unchecked(i) };
-        let (fosc, tsf, linreg, slope, intercept) = calc(state, prev_value, value, period);
+        let (fosc, tsf, linreg, slope, intercept) = state.calc(prev_value, value, period);
 
         unsafe { *fosc_line.get_unchecked_mut(j) = fosc };
 
@@ -340,17 +354,4 @@ fn cycle_fosc(
     }
 }
 
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    prev_value: f64,
-    value: f64,
-    period: usize,
-) -> (f64, f64, f64, f64, f64) {
-    let fosc = 100.0 * (value - state.tsf) / value; //.max(f64::EPSILON);
 
-    let (tsf, linreg, slope, intercept) =
-        calc_tsf(&mut state.linreg_state, prev_value, value, period);
-    state.tsf = tsf;
-    (fosc, tsf, linreg, slope, intercept)
-}

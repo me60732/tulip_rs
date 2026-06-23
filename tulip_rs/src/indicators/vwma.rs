@@ -236,18 +236,3 @@ fn cycle(close: &[f64], volume: &[f64], period: usize, state: &mut State, vwma_l
     }
 }
 
-/// Calculates a single VWMA value for one bar, updating the rolling state in place.
-///
-/// # Arguments
-///
-/// * `state` - Mutable reference to the rolling `State` (weighted sum and volume sum).
-/// * `values` - A tuple of `(close, volume)` for the current bar.
-/// * `prev_values` - A tuple of `(prev_close, prev_volume)` for the bar leaving the window.
-///
-/// # Returns
-///
-/// The VWMA value for this bar.
-#[inline(always)]
-pub fn calc(state: &mut State, values: (&f64, &f64), prev_values: (&f64, &f64)) -> f64 {
-    state.calc(values, prev_values)
-}

@@ -220,7 +220,6 @@ impl<const B: usize> MinMaxBuffer<B> for UnsyncBuffer<B, f64> {
 
         let needs_search = look_back.simd_eq(trail);
         let search_mask = needs_search.to_bitmask();
-        //trail = needs_search.select(trail, trail + UsizeConstants::ONE);
 
         let current_is_new_min = bar.simd_le(min);
 

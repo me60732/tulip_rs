@@ -9,7 +9,7 @@ pub mod imports {
     //! for the Volatility indicator.
     pub(crate) use crate::indicators::simd_indicators::{
         simd_types::F64Constants,
-        stddev_simd::{calc_simd as stddev_calc_simd, SimdState as StddevSimdState},
+        stddev_simd::{SimdState as StddevSimdState, Calc},
     };
     pub(crate) use crate::indicators::volatility::State;
     pub(crate) use crate::ring_buffer::single_buffer::generic_buffer::RingBuffer;
@@ -111,7 +111,7 @@ pub mod assets {
             let value = (real - self.prev_real) / self.prev_real;
             self.prev_real = real;
             let prev_value = self.buffer.push_with_info(value).unwrap();
-            let (sd, _) = stddev_calc_simd(&mut self.stddev_state, value, prev_value, multiplier);
+            let (sd, _) = self.stddev_state.calc_simd(value, prev_value, multiplier);
             sd * F64Constants::ANNUAL
         }
         /// Unchecked variant of [`calc_simd`](SimdState::calc_simd) that skips buffer-full checks.
@@ -140,7 +140,7 @@ pub mod assets {
             let value = (real - self.prev_real) / self.prev_real;
             self.prev_real = real;
             let prev_value = self.buffer.push_with_info_unchecked(value);
-            let (sd, _) = stddev_calc_simd(&mut self.stddev_state, value, prev_value, multiplier);
+            let (sd, _) = self.stddev_state.calc_simd(value, prev_value, multiplier);
             sd * F64Constants::ANNUAL
         }
     }
@@ -221,15 +221,7 @@ pub mod options {
             // Finally, update the ADX states
             self.stddev_state.write_states(&mut stddev_refs);
         }
-        /*#[inline(always)]
-        pub fn calc_simd(&mut self, real: Simd<f64, N>, multiplier: Simd<f64, N>) -> Simd<f64, N> {
-            // Rearranged for better numerical stability when prices are large and close
-            let value = (real - self.prev_real) / self.prev_real;
-            self.prev_real = real;
-            let prev_value = self.buffer.push_with_info(value).unwrap();
-            let (sd, _) = stddev_calc_simd(&mut self.stddev_state, value, prev_value, multiplier);
-            sd * F64Constants::ANNUAL
-        }*/
+
         /// Unchecked SIMD variant that computes one Volatility bar for `N` option-set lanes simultaneously.
         ///
         /// Accepts a scalar `real` input (shared across all option lanes) and a per-lane
@@ -262,8 +254,7 @@ pub mod options {
                 self.buffer
                     .push_with_info_periods_unchecked(value, self.periods),
             );
-            let (sd, _) = stddev_calc_simd(
-                &mut self.stddev_state,
+            let (sd, _) = self.stddev_state.calc_simd(
                 Simd::splat(value),
                 prev_value,
                 multiplier,

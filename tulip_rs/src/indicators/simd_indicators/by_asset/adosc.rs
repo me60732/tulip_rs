@@ -6,7 +6,7 @@ use crate::indicators::adosc::{
     OPTIONS_WIDTH,
 };
 use crate::indicators::ema::output_length as ema_output_length;
-use crate::indicators::simd_indicators::adosc_simd::{calc_simd, SimdState};
+use crate::indicators::simd_indicators::adosc_simd::SimdState;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;
@@ -74,7 +74,7 @@ impl Driver<State, ()> for AdoscDriver {
                 volume @ volume_ptrs
             );
 
-            let adosc = calc_simd(&mut state, (high, low, close, volume), multipliers);
+            let adosc = state.calc_simd((high, low, close, volume), multipliers);
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, i,

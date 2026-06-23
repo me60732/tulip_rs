@@ -30,14 +30,6 @@ impl<const N: usize> SimdState<N> {
             long_ema: Simd::from_array(long_ema),
         }
     }
-    /*pub fn to_states(&self) -> [State; N] {
-        let short_ema = self.short_ema.to_array();
-        let long_ema = self.long_ema.to_array();
-
-        let states: [State; N] = std::array::from_fn(|i| State::new(short_ema[i], long_ema[i]));
-
-        states
-    }*/
     /// Writes the current SIMD lane values back into the provided scalar per-asset states.
     pub fn write_states(&self, states: &mut [&mut State]) {
         let short_ema = self.short_ema.to_array();

@@ -62,7 +62,7 @@ impl State {
     }
     pub fn init_state(real: &[f64], period: usize, trail: usize, max_line: &mut [f64]) -> Self {
         let mut state = Self::new(real[0], trail);
-        let max = calc(&mut state, real, trail, (period, trail)).0;
+        let max = state.calc(real, trail, (period, trail)).0;
         if max_line.len() > 0 {
             max_line[0] = max;
         }
@@ -302,34 +302,7 @@ fn cycle_max<const N: usize>(
         }
     }
 }
-/// Calculates the maximum value in the window ending at index `i`.
-///
-/// # Arguments
-///
-/// * `state` - A mutable reference to the current `State`.
-/// * `real` - A slice of input data.
-/// * `i` - The current index.
-/// * `periods` - A tuple of `(period, look_back)` for the max calculation.
-///
-/// # Returns
-///
-/// A tuple containing the maximum value and the updated trail index.
-///
-/// ```
-#[inline(always)]
-pub fn calc(state: &mut State, real: &[f64], i: usize, periods: (usize, usize)) -> (f64, usize) {
-    state.calc(real, i, periods)
-}
 
-#[inline(always)]
-pub unsafe fn calc_unchecked<const N: usize>(
-    state: &mut State,
-    real: &[f64],
-    i: usize,
-    periods: (usize, usize),
-) -> (f64, usize) {
-    state.calc_unchecked::<N>(real, i, periods)
-}
 #[inline(always)]
 pub(crate) fn find_max_scalar(window: &[f64]) -> (f64, usize) {
     let mut max_val = window[0];
@@ -360,7 +333,7 @@ pub(crate) fn find_max_simd<const N: usize>(window: &[f64]) -> (f64, usize) {
         if mask.any() {
             global_max = Simd::splat(values.reduce_max());
             best_values = values; // save the chunk that holds the max
-            best_start = chunk_idx; // * N + 1; // +1 for window[0] offset
+            best_start = chunk_idx;
         }
     }
 

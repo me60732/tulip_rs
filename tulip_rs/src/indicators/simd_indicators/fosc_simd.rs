@@ -7,7 +7,7 @@ pub use crate::indicators::simd_indicators::by_option::fosc::indicator_by_option
 
 use crate::indicators::simd_indicators::{
     simd_types::F64Constants,
-    tsf_simd::{calc_simd as tsf_calc_simd, SimdState as SimdLinregState},
+    tsf_simd::{Calc as TsfCalc, SimdState as SimdTsfState},
 };
 use std::simd::Simd;
 
@@ -15,7 +15,7 @@ use std::simd::Simd;
 /// Each field is a SIMD vector where lane `i` corresponds to asset `i`.
 pub struct SimdState<const N: usize> {
     /// Underlying linear-regression / TSF SIMD state carrying the per-asset sum accumulators.
-    linreg_state: SimdLinregState<N>,
+    tsf_state: SimdTsfState<N>,
     /// Most recent Time Series Forecast (TSF) value per asset lane, used on the next bar to compute FOSC.
     tsf: Simd<f64, N>,
 }
@@ -23,33 +23,33 @@ pub struct SimdState<const N: usize> {
 impl<const N: usize> SimdState<N> {
     /// Gathers `N` scalar [`State`] references into a single `SimdState`, packing each field into a SIMD lane.
     pub fn new(states: &[&mut State]) -> Self {
-        let mut linreg_state = Vec::with_capacity(N);
+        let mut tsf_state = Vec::with_capacity(N);
 
         let mut tsf = [0.0; N];
 
         for i in 0..N {
-            linreg_state.push(&states[i].linreg_state);
+            tsf_state.push(&states[i].tsf_state);
             tsf[i] = states[i].tsf;
         }
-        let linreg_state = SimdLinregState::new(linreg_state.as_slice());
+        let tsf_state = SimdTsfState::new(tsf_state.as_slice());
 
         Self {
-            linreg_state,
+            tsf_state,
             tsf: Simd::from_array(tsf),
         }
     }
     /// Scatters the SIMD state back into an array of `N` scalar [`State`] values.
     pub fn to_states(&self) -> [State; N] {
-        let linreg_states = self.linreg_state.to_states();
+        let tsf_states = self.tsf_state.to_states();
         let tsf = self.tsf.to_array();
 
         let states: [State; N] = std::array::from_fn(|i| {
             State::new(
                 tsf[i],
-                linreg_states[i].sum_x,
-                linreg_states[i].sum_y,
-                linreg_states[i].sum_xy,
-                linreg_states[i].per,
+                tsf_states[i].sum_x,
+                tsf_states[i].sum_y,
+                tsf_states[i].sum_xy,
+                tsf_states[i].per,
             )
         });
 
@@ -57,41 +57,41 @@ impl<const N: usize> SimdState<N> {
     }
     /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place.
     pub fn write_states(&self, states: &mut [&mut State]) {
-        let linreg_states = self.linreg_state.to_states();
+        let tsf_states = self.tsf_state.to_states();
         let tsf = self.tsf.to_array();
 
-        for (i, linreg_state) in linreg_states.into_iter().enumerate() {
-            states[i].linreg_state = linreg_state;
+        for (i, tsf_state) in tsf_states.into_iter().enumerate() {
+            states[i].tsf_state = tsf_state;
             states[i].tsf = tsf[i];
         }
     }
+    /// Computes one FOSC step across `N` asset lanes using SIMD parallelism.
+    ///
+    /// FOSC measures the percentage deviation of the current price from the Time Series
+    /// Forecast: `fosc = 100 * (value - tsf_prev) / value`. It then advances the
+    /// underlying linear-regression / TSF state so that `tsf_prev` is ready for the
+    /// next bar.
+    ///
+    /// Returns `(fosc, tsf, linreg, slope, intercept)` for all `N` lanes simultaneously.
+    #[inline(always)]
+    pub fn calc_simd(
+        &mut self,
+        prev_value: Simd<f64, N>,
+        value: Simd<f64, N>,
+        period: Simd<f64, N>,
+    ) -> (
+        Simd<f64, N>,
+        Simd<f64, N>,
+        Simd<f64, N>,
+        Simd<f64, N>,
+        Simd<f64, N>,
+    ) {
+        let fosc = F64Constants::HUNDRED * (value - self.tsf) / value; //.max(f64::EPSILON);
+    
+        let (tsf, linreg, slope, intercept) = TsfCalc::calc_simd(&mut self.tsf_state, prev_value, value, period);
+        self.tsf = tsf;
+        (fosc, tsf, linreg, slope, intercept)
+    }
 }
 
-/// Computes one FOSC step across `N` asset lanes using SIMD parallelism.
-///
-/// FOSC measures the percentage deviation of the current price from the Time Series
-/// Forecast: `fosc = 100 * (value - tsf_prev) / value`. It then advances the
-/// underlying linear-regression / TSF state so that `tsf_prev` is ready for the
-/// next bar.
-///
-/// Returns `(fosc, tsf, linreg, slope, intercept)` for all `N` lanes simultaneously.
-#[inline(always)]
-pub fn calc_simd<const N: usize>(
-    state: &mut SimdState<N>,
-    prev_value: Simd<f64, N>,
-    value: Simd<f64, N>,
-    period: Simd<f64, N>,
-) -> (
-    Simd<f64, N>,
-    Simd<f64, N>,
-    Simd<f64, N>,
-    Simd<f64, N>,
-    Simd<f64, N>,
-) {
-    let fosc = F64Constants::HUNDRED * (value - state.tsf) / value; //.max(f64::EPSILON);
 
-    let (tsf, linreg, slope, intercept) =
-        tsf_calc_simd(&mut state.linreg_state, prev_value, value, period);
-    state.tsf = tsf;
-    (fosc, tsf, linreg, slope, intercept)
-}

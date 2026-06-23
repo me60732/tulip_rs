@@ -1,4 +1,4 @@
-pub use crate::indicators::apo::State;
+use crate::indicators::apo::State;
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::by_asset::apo::indicator_by_assets;
 use crate::indicators::simd_indicators::ema_simd::calc_simd as calc_ema_simd;
@@ -8,31 +8,7 @@ pub use crate::indicators::simd_indicators::by_option::apo::indicator_by_options
 
 use std::simd::Simd;
 
-/// Advances the Absolute Price Oscillator (APO) by one bar for `N` assets simultaneously.
-///
-/// Updates the short- and long-period EMAs, then returns `short_ema - long_ema`.
-///
-/// # Arguments
-///
-/// * `state` - Mutable SIMD state holding per-asset short and long EMAs.
-/// * `real` - Input price values for the current bar.
-/// * `multipliers` - Tuple of `(short_multiplier, long_multiplier)` EMA smoothing factors.
-///
-/// # Returns
-///
-/// APO values (`short_ema - long_ema`) for all `N` lanes.
-#[inline(always)]
-pub fn calc_simd<const N: usize>(
-    state: &mut SimdState<N>,
-    real: Simd<f64, N>,
-    multipliers: ((Simd<f64, N>, Simd<f64, N>), (Simd<f64, N>, Simd<f64, N>)),
-) -> Simd<f64, N> {
-    let (short_multiplier, long_multiplier) = multipliers;
-    state.short_ema = calc_ema_simd(real, state.short_ema, short_multiplier);
-    state.long_ema = calc_ema_simd(real, state.long_ema, long_multiplier);
 
-    state.short_ema - state.long_ema
-}
 
 /// SIMD-parallel state for computing the Absolute Price Oscillator (APO) across `N` assets
 /// simultaneously. Each field is a SIMD vector where lane `i` corresponds to asset `i`.
@@ -77,5 +53,31 @@ impl<const N: usize> SimdState<N> {
             states[i].short_ema = short_ema[i];
             states[i].long_ema = long_ema[i];
         }
+    }
+
+    /// Advances the Absolute Price Oscillator (APO) by one bar for `N` assets simultaneously.
+    ///
+    /// Updates the short- and long-period EMAs, then returns `short_ema - long_ema`.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - Mutable SIMD state holding per-asset short and long EMAs.
+    /// * `real` - Input price values for the current bar.
+    /// * `multipliers` - Tuple of `(short_multiplier, long_multiplier)` EMA smoothing factors.
+    ///
+    /// # Returns
+    ///
+    /// APO values (`short_ema - long_ema`) for all `N` lanes.
+    #[inline(always)]
+    pub fn calc_simd(
+        &mut self,
+        real: Simd<f64, N>,
+        multipliers: ((Simd<f64, N>, Simd<f64, N>), (Simd<f64, N>, Simd<f64, N>)),
+    ) -> Simd<f64, N> {
+        let (short_multiplier, long_multiplier) = multipliers;
+        self.short_ema = calc_ema_simd(real, self.short_ema, short_multiplier);
+        self.long_ema = calc_ema_simd(real, self.long_ema, long_multiplier);
+    
+        self.short_ema - self.long_ema
     }
 }

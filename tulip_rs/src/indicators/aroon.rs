@@ -1,13 +1,9 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 
-use crate::indicators::max::{
-    calc as calc_max, calc_unchecked as calc_max_unchecked, State as MaxState,
-};
+use crate::indicators::max::State as MaxState;
 pub(crate) use crate::indicators::max::{CHUNK_1, CHUNK_4};
-use crate::indicators::min::{
-    calc as calc_min, calc_unchecked as calc_min_unchecked, State as MinState,
-};
+use crate::indicators::min::State as MinState;
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
@@ -120,6 +116,22 @@ impl TIndicatorState<2> for IndicatorState {
         Ok(vec![aroon_down_line, aroon_up_line])
     }
 }
+pub trait Calc {
+    fn calc(
+        &mut self,
+        inputs: (&[f64], &[f64]),
+        i: usize,
+        period: usize,
+        multiplier: f64,
+    ) -> (f64, f64);
+    unsafe fn calc_unchecked<const N: usize>(
+        &mut self,
+        inputs: (&[f64], &[f64]),
+        i: usize,
+        period: usize,
+        multiplier: f64,
+    ) -> (f64, f64);
+}
 #[derive(Serialize, Deserialize)]
 pub struct State {
     pub min_state: MinState,
@@ -134,9 +146,44 @@ impl State {
     }
     pub fn init_state(high: &[f64], low: &[f64], period: usize) -> Self {
         let mut state = Self::new(low[0], period - 1, high[0], period - 1);
-        _ = calc_min(&mut state.min_state, low, period - 1, (period, period - 1));
-        _ = calc_max(&mut state.max_state, high, period - 1, (period, period - 1));
+        _ = state.min_state.calc(low, period - 1, (period, period - 1));
+        _ = state.max_state.calc(high, period - 1, (period, period - 1));
         state
+    }
+    
+}
+impl Calc for State {
+    #[inline(always)]
+    fn calc(
+        &mut self,
+        inputs: (&[f64], &[f64]),
+        i: usize,
+        period: usize,
+        multiplier: f64,
+    ) -> (f64, f64) {
+        let (high, low) = inputs;
+        let (_, min_trail) = self.min_state.calc(low, i, (period, period));
+        let (_, max_trail) = self.max_state.calc(high, i, (period, period));
+    
+        let aroon_up = (period - max_trail) as f64 * multiplier;
+        let aroon_down = (period - min_trail) as f64 * multiplier;
+        (aroon_down, aroon_up)
+    }
+    #[inline(always)]
+    unsafe fn calc_unchecked<const N: usize>(
+        &mut self,
+        inputs: (&[f64], &[f64]),
+        i: usize,
+        period: usize,
+        multiplier: f64,
+    ) -> (f64, f64) {
+        let (high, low) = inputs;
+        let (_, min_trail) = self.min_state.calc_unchecked::<N>(low, i, (period, period));
+        let (_, max_trail) = self.max_state.calc_unchecked::<N>(high, i, (period, period));
+    
+        let aroon_up = (period - max_trail) as f64 * multiplier;
+        let aroon_down = (period - min_trail) as f64 * multiplier;
+        (aroon_down, aroon_up)
     }
 }
 /// Returns information about the Aroon indicator.
@@ -288,42 +335,10 @@ fn cycle_aroon<const N: usize>(
             (
                 *aroon_down_line.get_unchecked_mut(j),
                 *aroon_up_line.get_unchecked_mut(j),
-            ) = calc_unchecked::<N>(state, inputs, i, period, multiplier);
+            ) = state.calc_unchecked::<N>(inputs, i, period, multiplier);
         }
     }
     //println!("Regular SEARCH COUNT: {:?}, period: {:?}", count, period);
-}
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    inputs: (&[f64], &[f64]),
-    i: usize,
-    period: usize,
-    multiplier: f64,
-) -> (f64, f64) {
-    let (high, low) = inputs;
-    let (_, min_trail) = calc_min(&mut state.min_state, low, i, (period, period));
-    let (_, max_trail) = calc_max(&mut state.max_state, high, i, (period, period));
-
-    let aroon_up = (period - max_trail) as f64 * multiplier;
-    let aroon_down = (period - min_trail) as f64 * multiplier;
-    (aroon_down, aroon_up)
-}
-#[inline(always)]
-pub(crate) unsafe fn calc_unchecked<const N: usize>(
-    state: &mut State,
-    inputs: (&[f64], &[f64]),
-    i: usize,
-    period: usize,
-    multiplier: f64,
-) -> (f64, f64) {
-    let (high, low) = inputs;
-    let (_, min_trail) = calc_min_unchecked::<N>(&mut state.min_state, low, i, (period, period));
-    let (_, max_trail) = calc_max_unchecked::<N>(&mut state.max_state, high, i, (period, period));
-
-    let aroon_up = (period - max_trail) as f64 * multiplier;
-    let aroon_down = (period - min_trail) as f64 * multiplier;
-    (aroon_down, aroon_up)
 }
 
 pub fn multiplier(period: usize) -> f64 {

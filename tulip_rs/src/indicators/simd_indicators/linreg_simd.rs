@@ -84,40 +84,41 @@ impl<const N: usize> SimdState<N> {
             states[i].sum_xy = sum_xy[i];
         }
     }
+    /// Computes one linear regression step across `N` lanes using SIMD parallelism.
+    ///
+    /// Maintains running sums `sum_xy` and `sum_y` using a sliding-window update:
+    /// new value is added, oldest is evicted via `prev_value`. Computes slope,
+    /// intercept, and the end-point `linreg` value using FMA for each lane.
+    ///
+    /// Returns `(linreg, slope, intercept)`.
+    #[inline(always)]
+    pub fn calc_simd(
+        &mut self,
+        prev_value: Simd<f64, N>,
+        value: Simd<f64, N>,
+        period: Simd<f64, N>,
+    ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
+        let (sum_x, mut sum_y, mut sum_xy, per) = (self.sum_x, self.sum_y, self.sum_xy, self.per);
+    
+        // FMA: (value * period) + sum_xy
+        sum_xy = value.mul_add(period, sum_xy);
+        sum_y += value;
+    
+        // slope = (period * sum_xy - sum_x * sum_y) * per
+        let slope = sum_x.mul_add(-sum_y, period * sum_xy) * per;
+    
+        // intercept = (sum_y - slope * sum_x) / period
+        let intercept = slope.mul_add(-sum_x, sum_y) / period;
+    
+        // linreg = intercept + slope * period
+        let linreg = slope.mul_add(period, intercept);
+    
+        sum_xy -= sum_y;
+        sum_y -= prev_value;
+    
+        (self.sum_y, self.sum_xy) = (sum_y, sum_xy);
+        (linreg, slope, intercept)
+    }
 }
 
-/// Computes one linear regression step across `N` lanes using SIMD parallelism.
-///
-/// Maintains running sums `sum_xy` and `sum_y` using a sliding-window update:
-/// new value is added, oldest is evicted via `prev_value`. Computes slope,
-/// intercept, and the end-point `linreg` value using FMA for each lane.
-///
-/// Returns `(linreg, slope, intercept)`.
-#[inline(always)]
-pub fn calc_simd<const N: usize>(
-    state: &mut SimdState<N>,
-    prev_value: Simd<f64, N>,
-    value: Simd<f64, N>,
-    period: Simd<f64, N>,
-) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
-    let (sum_x, mut sum_y, mut sum_xy, per) = (state.sum_x, state.sum_y, state.sum_xy, state.per);
 
-    // FMA: (value * period) + sum_xy
-    sum_xy = value.mul_add(period, sum_xy);
-    sum_y += value;
-
-    // slope = (period * sum_xy - sum_x * sum_y) * per
-    let slope = sum_x.mul_add(-sum_y, period * sum_xy) * per;
-
-    // intercept = (sum_y - slope * sum_x) / period
-    let intercept = slope.mul_add(-sum_x, sum_y) / period;
-
-    // linreg = intercept + slope * period
-    let linreg = slope.mul_add(period, intercept);
-
-    sum_xy -= sum_y;
-    sum_y -= prev_value;
-
-    (state.sum_y, state.sum_xy) = (sum_y, sum_xy);
-    (linreg, slope, intercept)
-}

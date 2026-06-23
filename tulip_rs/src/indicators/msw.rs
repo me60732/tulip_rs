@@ -53,9 +53,15 @@ include!(concat!(env!("OUT_DIR"), "/msw_twiddles.rs"));
 /// If `period` is outside `[6, 50]`.
 #[inline(always)]
 pub fn twiddles_for_period(period: usize) -> (&'static [f64], &'static [f64]) {
-    debug_assert!((6..=50).contains(&period), "period {period} outside [6, 50]");
+    debug_assert!(
+        (6..=50).contains(&period),
+        "period {period} outside [6, 50]"
+    );
     let idx = period.saturating_sub(6).min(44);
-    (&MSW_COS_TWIDDLES[idx][..period], &MSW_SIN_TWIDDLES[idx][..period])
+    (
+        &MSW_COS_TWIDDLES[idx][..period],
+        &MSW_SIN_TWIDDLES[idx][..period],
+    )
 }
 
 /// Number of input price series required.
@@ -153,6 +159,27 @@ impl State {
             wi,
         }
     }
+    /// Advances the Sliding DFT by one bar and writes the outputs into `state`.
+    ///
+    /// This is the per-bar "calc" function, equivalent to `msw::calc` in the
+    /// original implementation.  Other indicators can call this directly once they
+    /// have seeded `state` (e.g. via `dot_product_simd` + `State::new`).
+    ///
+    /// # Arguments
+    /// * `state`      — SDFT accumulator; updated in-place.
+    /// * `new_sample` — Price entering the window (newest bar).
+    /// * `old_sample` — Price leaving the window (oldest bar, `period` steps back).
+    ///
+    /// # Returns
+    /// `(sine, lead_sine)` for this bar.
+    #[inline(always)]
+    pub fn calc(&mut self, new_sample: f64, old_sample: f64) -> (f64, f64) {
+        let rp = self.wr.mul_add(self.rp, -(self.wi * self.ip)) + (new_sample - old_sample);
+        let ip = self.wr.mul_add(self.ip, self.wi * self.rp);
+        self.rp = rp;
+        self.ip = ip;
+        phase_from_rp_ip(rp, ip)
+    }
 }
 
 /// Compatibility shim for `msw_simd` — provides the `TPI` SIMD constant used
@@ -247,7 +274,6 @@ impl TIndicatorState<1> for IndicatorState {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-
 /// Returns the minimum number of input bars required.
 pub fn min_data(options: &[f64]) -> usize {
     options[0] as usize + 1
@@ -291,7 +317,14 @@ pub fn indicator(
     let mut lead_line = crate::uninit_vec!(f64, capacity);
 
     // Twiddles computed once here; stored in IndicatorState for re-use.
-    let (cos_twiddles, sin_twiddles) = precompute_twiddles(period, mult);
+    // Use the static const table when the period is in range to avoid runtime trig.
+    let (cos_twiddles, sin_twiddles) = if (6..=50).contains(&period) {
+        let (c, s) = twiddles_for_period(period);
+        (c.to_vec(), s.to_vec())
+    } else {
+        precompute_twiddles(period, mult)
+    };
+
 
     let state = match period {
         0..=7 => cycle_msw_sdft::<4>(
@@ -326,51 +359,6 @@ pub fn indicator(
     ))
 }
 
-// ── Proposal 2: Sliding DFT ───────────────────────────────────────────────────
-
-/// Advances the Sliding DFT by one bar and writes the outputs into `state`.
-///
-/// This is the per-bar "calc" function, equivalent to `msw::calc` in the
-/// original implementation.  Other indicators can call this directly once they
-/// have seeded `state` (e.g. via `dot_product_simd` + `State::new`).
-///
-/// # Arguments
-/// * `state`      — SDFT accumulator; updated in-place.
-/// * `new_sample` — Price entering the window (newest bar).
-/// * `old_sample` — Price leaving the window (oldest bar, `period` steps back).
-///
-/// # Returns
-/// `(sine, lead_sine)` for this bar.
-#[inline(always)]
-pub fn calc(state: &mut State, new_sample: f64, old_sample: f64) -> (f64, f64) {
-    let rp = state.wr.mul_add(state.rp, -(state.wi * state.ip)) + (new_sample - old_sample);
-    let ip = state.wr.mul_add(state.ip, state.wi * state.rp);
-    state.rp = rp;
-    state.ip = ip;
-    phase_from_rp_ip(rp, ip)
-}
-
-/// Full per-bar DFT returning `(rp, ip)` — for the SIMD by-options path where
-/// each lane has a different period and SDFT state cannot be shared.
-///
-/// Precomputes twiddles on each call (O(period) trig); acceptable since this
-/// function is called once per bar per option lane, not in a tight loop.
-#[inline(always)]
-pub fn calc_rp_ip<const N: usize>(window: &[f64], multiplier: f64) -> (f64, f64) {
-    let (cos_twiddles, sin_twiddles) = precompute_twiddles(window.len(), multiplier);
-    dot_product_simd::<N>(window, &cos_twiddles, &sin_twiddles)
-}
-
-/// Full per-bar DFT + phase — drop-in replacement for the old `msw::calc`.
-///
-/// Used by `adaptivemsw` where the period changes each bar and the SDFT
-/// recurrence cannot be applied. O(period) per bar.
-#[inline(always)]
-pub fn calc_full<const N: usize>(window: &[f64], multiplier: f64) -> (f64, f64) {
-    let (rp, ip) = calc_rp_ip::<N>(window, multiplier);
-    phase_from_rp_ip(rp, ip)
-}
-
 /// SDFT hot loop — iterates over `real[period..]`, calling `calc` for each bar.
 ///
 /// Used by both the initial full run (`cycle_msw_sdft`) and streaming
@@ -384,9 +372,10 @@ fn cycle_sdft(
     sine_line: &mut [f64],
     lead_line: &mut [f64],
 ) {
-    for i in period..real.len() {
-        let j = i - period;
-        let (sine, lead) = calc(state, real[i], real[i - period]);
+    for (j, i) in (period..real.len()).enumerate() {
+        let (sine, lead) = state.calc(unsafe { *real.get_unchecked(i) }, unsafe {
+            *real.get_unchecked(j)
+        });
         unsafe {
             *sine_line.get_unchecked_mut(j) = sine;
             *lead_line.get_unchecked_mut(j) = lead;
@@ -416,7 +405,35 @@ fn cycle_msw_sdft<const N: usize>(
     state
 }
 
-// ── Proposal 3: phase helper ──────────────────────────────────────────────────
+/// Full per-bar DFT returning `(rp, ip)` — for the SIMD by-options path where
+/// each lane has a different period and SDFT state cannot be shared.
+///
+/// Precomputes twiddles on each call (O(period) trig); acceptable since this
+/// function is called once per bar per option lane, not in a tight loop.
+#[inline(always)]
+pub fn calc_rp_ip<const N: usize>(window: &[f64], multiplier: f64) -> (f64, f64) {
+    let period = window.len();
+    // For periods covered by the precomputed const tables, skip runtime trig entirely.
+    // `multiplier` is still used for the fallback (periods outside [6, 50]).
+    if (6..=50).contains(&period) {
+        let (cos_tw, sin_tw) = twiddles_for_period(period);
+        dot_product_simd::<N>(window, cos_tw, sin_tw)
+    } else {
+        let (cos_twiddles, sin_twiddles) = precompute_twiddles(period, multiplier);
+        dot_product_simd::<N>(window, &cos_twiddles, &sin_twiddles)
+    }
+}
+
+
+/// Full per-bar DFT + phase — drop-in replacement for the old `msw::calc`.
+///
+/// Used by `adaptivemsw` where the period changes each bar and the SDFT
+/// recurrence cannot be applied. O(period) per bar.
+#[inline(always)]
+pub fn calc_full<const N: usize>(window: &[f64], multiplier: f64) -> (f64, f64) {
+    let (rp, ip) = calc_rp_ip::<N>(window, multiplier);
+    phase_from_rp_ip(rp, ip)
+}
 
 /// Converts `(rp, ip)` DFT components to `(sine, lead_sine)`.
 ///
@@ -443,8 +460,6 @@ pub fn phase_from_rp_ip(rp: f64, ip: f64) -> (f64, f64) {
     let lead = INV_SQRT2.mul_add(sp, INV_SQRT2 * cp);
     (sp, lead)
 }
-
-// ── Proposal 1: precomputed twiddle tables ────────────────────────────────────
 
 /// Precomputes the DFT twiddle factors for a fixed `period` once, O(P).
 ///

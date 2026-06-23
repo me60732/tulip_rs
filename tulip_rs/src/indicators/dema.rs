@@ -92,11 +92,29 @@ impl State {
 
         // Phase 2: run full DEMA calc for the remaining init bars
         for i in period..=init_bars {
-            _ = calc(&mut state, &real[i], multiplier);
+            _ = state.calc(&real[i], multiplier);
             crate::init_store_optional_outputs!(i, real.len(), ema_line => state.ema1);
         }
 
         state
+    }
+    /// Calculates the Double Exponential Moving Average (DEMA) for the current data point.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - Mutable reference to the DEMA state holding `ema1` and `ema2`.
+    /// * `value` - The current input value.
+    /// * `multiplier` - A tuple of EMA multipliers derived from the period.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(dema, ema1)` representing the DEMA value and the updated first EMA.
+    #[inline(always)]
+    pub fn calc(&mut self, value: &f64, multiplier: (f64, f64)) -> (f64, f64) {
+        self.ema1 = calc_ema(value, self.ema1, multiplier);
+        self.ema2 = calc_ema(&self.ema1, self.ema2, multiplier);
+        //(2.0 * state.ema1 - state.ema2, state.ema1)
+        (self.ema1.mul_add(2.0, -self.ema2), self.ema1)
     }
 }
 
@@ -256,7 +274,7 @@ fn cycle_dema(
     for i in 0..real.len() {
         let value = unsafe { real.get_unchecked(i) };
 
-        let (dema, ema) = calc(state, value, multipliers);
+        let (dema, ema) = state.calc(value, multipliers);
 
         unsafe { *dema_line.get_unchecked_mut(i) = dema };
 
@@ -266,21 +284,4 @@ fn cycle_dema(
     }
 }
 
-/// Calculates the Double Exponential Moving Average (DEMA) for the current data point.
-///
-/// # Arguments
-///
-/// * `state` - Mutable reference to the DEMA state holding `ema1` and `ema2`.
-/// * `value` - The current input value.
-/// * `multiplier` - A tuple of EMA multipliers derived from the period.
-///
-/// # Returns
-///
-/// A tuple `(dema, ema1)` representing the DEMA value and the updated first EMA.
-#[inline(always)]
-pub fn calc(state: &mut State, value: &f64, multiplier: (f64, f64)) -> (f64, f64) {
-    state.ema1 = calc_ema(value, state.ema1, multiplier);
-    state.ema2 = calc_ema(&state.ema1, state.ema2, multiplier);
-    //(2.0 * state.ema1 - state.ema2, state.ema1)
-    (state.ema1.mul_add(2.0, -state.ema2), state.ema1)
-}
+

@@ -5,7 +5,7 @@ pub use crate::indicators::simd_indicators::by_asset::tema::indicator_by_assets;
 pub use crate::indicators::simd_indicators::by_option::tema::indicator_by_options;
 
 use crate::indicators::simd_indicators::{
-    dema_simd::{calc_simd as calc_dema_simd, SimdState as DemaSimdState},
+    dema_simd::SimdState as DemaSimdState,
     ema_simd::calc_simd as calc_ema_simd,
     simd_types::F64Constants,
 };
@@ -58,33 +58,43 @@ impl<const N: usize> SimdState<N> {
             states[i].ema3 = ema3[i];
         }
     }
+    
+}
+pub trait Calc<const N: usize> {
+    fn calc_simd(
+        &mut self,
+        value: Simd<f64, N>,
+        multiplier: (Simd<f64, N>, Simd<f64, N>),
+    ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
 }
 
-/// Advances one bar of the TEMA computation for `N` lanes simultaneously.
-///
-/// Computes `TEMA = 3*EMA1 - 3*EMA2 + EMA3` using fused multiply-add arithmetic for
-/// numerical stability. Also returns intermediate DEMA and EMA values as optional outputs.
-///
-/// # Returns
-///
-/// `(tema, dema, ema)` — the TEMA, DEMA, and first-order EMA for the current bar.
-#[inline(always)]
-pub fn calc_simd<const N: usize>(
-    state: &mut SimdState<N>,
-    value: Simd<f64, N>,
-    multiplier: (Simd<f64, N>, Simd<f64, N>),
-) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
-    let dema_state = &mut state.dema_state;
-    let (dema, ema) = calc_dema_simd(dema_state, value, multiplier);
-    state.ema3 = calc_ema_simd(dema_state.ema2, state.ema3, multiplier);
-
-    (
-        //F64Constants::THREE * dema_state.ema1 - F64Constants::THREE * dema_state.ema2 + state.ema3,
-        dema_state.ema1.mul_add(
-            F64Constants::THREE,
-            dema_state.ema2.mul_add(-F64Constants::THREE, state.ema3),
-        ),
-        dema,
-        ema,
-    )
+impl<const N: usize> Calc<N> for SimdState<N> {
+    /// Advances one bar of the TEMA computation for `N` lanes simultaneously.
+    ///
+    /// Computes `TEMA = 3*EMA1 - 3*EMA2 + EMA3` using fused multiply-add arithmetic for
+    /// numerical stability. Also returns intermediate DEMA and EMA values as optional outputs.
+    ///
+    /// # Returns
+    ///
+    /// `(tema, dema, ema)` — the TEMA, DEMA, and first-order EMA for the current bar.
+    #[inline(always)]
+    fn calc_simd(
+        &mut self,
+        value: Simd<f64, N>,
+        multiplier: (Simd<f64, N>, Simd<f64, N>),
+    ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
+        let dema_state = &mut self.dema_state;
+        let (dema, ema) = dema_state.calc_simd(value, multiplier);
+        self.ema3 = calc_ema_simd(dema_state.ema2, self.ema3, multiplier);
+    
+        (
+            //F64Constants::THREE * dema_state.ema1 - F64Constants::THREE * dema_state.ema2 + state.ema3,
+            dema_state.ema1.mul_add(
+                F64Constants::THREE,
+                dema_state.ema2.mul_add(-F64Constants::THREE, self.ema3),
+            ),
+            dema,
+            ema,
+        )
+    }
 }

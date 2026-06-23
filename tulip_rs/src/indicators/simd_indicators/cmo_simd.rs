@@ -72,6 +72,38 @@ impl<const N: usize> SimdState<N> {
         }
         SimdState { up_sum, down_sum }
     }
+    /// Advances the CMO by one bar for `N` assets simultaneously.
+    ///
+    /// Slides the rolling window: subtracts the oldest up/down pair (`prev_real_1 - prev_real_0`)
+    /// and adds the new pair (`cur_real - prior_real`). Returns
+    /// `100 * (up_sum - down_sum) / (up_sum + down_sum)`.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - Mutable SIMD state with running up/down sums.
+    /// * `prev_real_0` - The oldest value leaving the window (two bars behind the oldest).
+    /// * `prev_real_1` - The oldest value leaving the window.
+    /// * `cur_real` - The newest close price.
+    /// * `prior_real` - The close price one bar before `cur_real`.
+    ///
+    /// # Returns
+    ///
+    /// CMO values for all `N` lanes.
+    #[inline(always)]
+    pub fn calc_simd(
+        &mut self,
+        prev_real_0: Simd<f64, N>,
+        prev_real_1: Simd<f64, N>,
+        cur_real: Simd<f64, N>,
+        prior_real: Simd<f64, N>,
+    ) -> Simd<f64, N> {
+        let (old_up, old_down) = up_down_simd(prev_real_1, prev_real_0);
+        let (up, down) = up_down_simd(cur_real, prior_real);
+        self.up_sum += up - old_up;
+        self.down_sum += down - old_down;
+    
+        F64Constants::HUNDRED * (self.up_sum - self.down_sum) / (self.up_sum + self.down_sum)
+    }
 }
 
 /// Splits a price change into its up and down components across all `N` lanes.
@@ -88,35 +120,4 @@ pub fn up_down_simd<const N: usize>(
         (-diff).simd_max(F64Constants::ZERO),
     )
 }
-/// Advances the CMO by one bar for `N` assets simultaneously.
-///
-/// Slides the rolling window: subtracts the oldest up/down pair (`prev_real_1 - prev_real_0`)
-/// and adds the new pair (`cur_real - prior_real`). Returns
-/// `100 * (up_sum - down_sum) / (up_sum + down_sum)`.
-///
-/// # Arguments
-///
-/// * `state` - Mutable SIMD state with running up/down sums.
-/// * `prev_real_0` - The oldest value leaving the window (two bars behind the oldest).
-/// * `prev_real_1` - The oldest value leaving the window.
-/// * `cur_real` - The newest close price.
-/// * `prior_real` - The close price one bar before `cur_real`.
-///
-/// # Returns
-///
-/// CMO values for all `N` lanes.
-#[inline(always)]
-pub fn calc_simd<const N: usize>(
-    state: &mut SimdState<N>,
-    prev_real_0: Simd<f64, N>,
-    prev_real_1: Simd<f64, N>,
-    cur_real: Simd<f64, N>,
-    prior_real: Simd<f64, N>,
-) -> Simd<f64, N> {
-    let (old_up, old_down) = up_down_simd(prev_real_1, prev_real_0);
-    let (up, down) = up_down_simd(cur_real, prior_real);
-    state.up_sum += up - old_up;
-    state.down_sum += down - old_down;
 
-    F64Constants::HUNDRED * (state.up_sum - state.down_sum) / (state.up_sum + state.down_sum)
-}

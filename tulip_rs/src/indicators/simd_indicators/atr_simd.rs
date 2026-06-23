@@ -37,14 +37,6 @@ impl<const N: usize> SimdState<N> {
             prev_close: Simd::from_array(prev_close),
         }
     }
-    /*pub fn to_states(&self) -> [State; N] {
-        let atr = self.atr.to_array();
-        let prev_close = self.prev_close.to_array();
-
-        let states: [State; N] = std::array::from_fn(|i| State::new(atr[i], prev_close[i]));
-
-        states
-    }*/
     /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place,
     /// avoiding allocation compared to a `to_states` conversion.
     pub fn write_states(&self, states: &mut [&mut State]) {

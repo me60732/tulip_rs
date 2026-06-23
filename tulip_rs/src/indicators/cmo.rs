@@ -119,6 +119,21 @@ impl State {
         }
         Self::new(up_sum, down_sum)
     }
+    #[inline(always)]
+    pub fn calc(
+        &mut self,
+        prev_real_0: f64,
+        prev_real_1: f64,
+        cur_real: f64,
+        prior_real: f64,
+    ) -> f64 {
+        let (old_up, old_down) = up_down(prev_real_1, prev_real_0);
+        let (up, down) = up_down(cur_real, prior_real);
+        self.up_sum += up - old_up;
+        self.down_sum += down - old_down;
+    
+        100.0 * (self.up_sum - self.down_sum) / (self.up_sum + self.down_sum)
+    }
 }
 /// Returns the minimum amount of data required for the CMO indicator.
 ///
@@ -207,7 +222,7 @@ fn cycle_cmo(real: &[f64], state: &mut State, period: usize, cmo_line: &mut [f64
             let prev = *real.get_unchecked(i - 1);
             let current = *real.get_unchecked(i);
 
-            let cmo = calc(state, prev_before, prev_period, current, prev);
+            let cmo = state.calc(prev_before, prev_period, current, prev);
 
             *cmo_line.get_unchecked_mut(j) = cmo;
         }
@@ -219,18 +234,4 @@ pub fn up_down(value: f64, prev_value: f64) -> (f64, f64) {
     let diff = value - prev_value;
     (diff.max(0.0), (-diff).max(0.0))
 }
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    prev_real_0: f64,
-    prev_real_1: f64,
-    cur_real: f64,
-    prior_real: f64,
-) -> f64 {
-    let (old_up, old_down) = up_down(prev_real_1, prev_real_0);
-    let (up, down) = up_down(cur_real, prior_real);
-    state.up_sum += up - old_up;
-    state.down_sum += down - old_down;
 
-    100.0 * (state.up_sum - state.down_sum) / (state.up_sum + state.down_sum)
-}

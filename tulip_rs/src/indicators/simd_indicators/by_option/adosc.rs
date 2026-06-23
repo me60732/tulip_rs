@@ -10,7 +10,7 @@ use crate::indicators::adosc::{
     INPUTS_WIDTH, OPTIONS_WIDTH,
 };
 use crate::indicators::ema::output_length as ema_output_length;
-use crate::indicators::simd_indicators::adosc_simd::{calc_simd, SimdState};
+use crate::indicators::simd_indicators::adosc_simd::SimdState;
 
 /// SIMD driver that advances the Chaikin AD Oscillator (ADOSC) across `N` option-set lanes
 /// per scheduling epoch.
@@ -83,7 +83,7 @@ impl Driver<State, ((f64, f64), (f64, f64))> for AdoscDriver {
                 volume @ volume_ptrs
             );
 
-            let adosc = calc_simd(&mut state, (high, low, close, volume), multipliers);
+            let adosc = state.calc_simd((high, low, close, volume), multipliers);
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, i,

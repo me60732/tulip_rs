@@ -1,7 +1,7 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-pub use crate::indicators::simd_indicators::tsf_simd::{calc_simd, SimdState};
+pub use crate::indicators::simd_indicators::tsf_simd::{Calc, SimdState};
 use crate::indicators::tsf::{
     min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
@@ -59,7 +59,7 @@ impl Driver<State, usize> for TsfDriver {
             let prev_real = crate::extract_simd_inputs_at_index!(j+1, N, real @ real_ptrs);
 
             let (tsf, linreg, slope, intercept) =
-                calc_simd(&mut state, prev_real, real, period_simd);
+                Calc::calc_simd(&mut state, prev_real, real, period_simd);
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, j,

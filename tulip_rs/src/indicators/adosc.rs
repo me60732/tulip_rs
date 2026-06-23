@@ -1,4 +1,4 @@
-use crate::common::{validate_inputs};
+use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::ad::calc as calc_ad;
 use crate::indicators::ad::output_length as ad_output_length;
@@ -178,6 +178,34 @@ impl State {
             ad,
         }
     }
+    /// Calculates the current value of the Accumulation/Distribution Oscillator (ADOSC) indicator.
+    ///
+    /// Updates `state` in place (AD, short EMA, long EMA) and returns the new ADOSC value.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - A mutable reference to the current `State` holding AD, short EMA, and long EMA.
+    /// * `inputs` - A tuple of `(high, low, close, volume)` for the current bar.
+    /// * `multipliers` - The precomputed EMA multipliers for the short and long periods.
+    ///
+    /// # Returns
+    ///
+    /// The current ADOSC value (`short_ema - long_ema`).
+    #[inline(always)]
+    pub fn calc(
+        &mut self,
+        inputs: (f64, f64, f64, f64),
+        multipliers: ((f64, f64), (f64, f64)),
+    ) -> f64 {
+        let (high, low, close, volume) = inputs;
+        let (short_multiplier, long_multiplier) = multipliers;
+    
+        self.ad = calc_ad(self.ad, high, low, close, volume);
+        self.short_ema = calc_ema(&self.ad, self.short_ema, short_multiplier);
+        self.long_ema = calc_ema(&self.ad, self.long_ema, long_multiplier);
+    
+        self.short_ema - self.long_ema
+    }
 }
 /// Returns the minimum amount of data required for the ADOSC indicator.
 ///
@@ -346,7 +374,7 @@ fn cycle_adosc(
             )
         };
         unsafe {
-            *adosc_line.get_unchecked_mut(i) = calc(state, inputs, multipliers);
+            *adosc_line.get_unchecked_mut(i) = state.calc(inputs, multipliers);
         };
         if has_optional {
             crate::store_optional_outputs!(i,
@@ -358,34 +386,7 @@ fn cycle_adosc(
     }
 }
 
-/// Calculates the current value of the Accumulation/Distribution Oscillator (ADOSC) indicator.
-///
-/// Updates `state` in place (AD, short EMA, long EMA) and returns the new ADOSC value.
-///
-/// # Arguments
-///
-/// * `state` - A mutable reference to the current `State` holding AD, short EMA, and long EMA.
-/// * `inputs` - A tuple of `(high, low, close, volume)` for the current bar.
-/// * `multipliers` - The precomputed EMA multipliers for the short and long periods.
-///
-/// # Returns
-///
-/// The current ADOSC value (`short_ema - long_ema`).
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    inputs: (f64, f64, f64, f64),
-    multipliers: ((f64, f64), (f64, f64)),
-) -> f64 {
-    let (high, low, close, volume) = inputs;
-    let (short_multiplier, long_multiplier) = multipliers;
 
-    state.ad = calc_ad(state.ad, high, low, close, volume);
-    state.short_ema = calc_ema(&state.ad, state.short_ema, short_multiplier);
-    state.long_ema = calc_ema(&state.ad, state.long_ema, long_multiplier);
-
-    state.short_ema - state.long_ema
-}
 
 #[inline(always)]
 pub fn multiplier(short_period: usize, long_period: usize) -> ((f64, f64), (f64, f64)) {

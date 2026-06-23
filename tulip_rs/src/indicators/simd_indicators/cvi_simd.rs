@@ -43,28 +43,38 @@ pub mod assets {
             }
         }
     }
-
-    /// Advances the CVI by one bar for `N` assets simultaneously (unchecked variant).
-    ///
-    /// # Safety
-    ///
-    /// The caller must guarantee the ring buffer is already full (warm-up complete) and that the
-    /// oldest EMA value is non-zero.
-    #[inline(always)]
-    pub unsafe fn calc_unchecked_simd<const N: usize>(
-        buffer: &mut SimdState<N>,
-        high: Simd<f64, N>,
-        low: Simd<f64, N>,
-        multiplier: (Simd<f64, N>, Simd<f64, N>),
-    ) -> Simd<f64, N> {
-        let prev_ema = buffer.back_unchecked();
-        let old_ema = buffer.front_unchecked();
-        let hl_diff = (high - low).simd_max(F64Constants::EPSILON);
-        let ema = ema_calc_simd(hl_diff, prev_ema, multiplier);
-        buffer.push_unchecked(ema);
-
-        (ema - old_ema) / old_ema * F64Constants::HUNDRED
+    pub trait Calc<const N: usize> {
+        unsafe fn calc_unchecked_simd(
+            &mut self,
+            high: Simd<f64, N>,
+            low: Simd<f64, N>,
+            multiplier: (Simd<f64, N>, Simd<f64, N>)
+        ) ->Simd<f64, N>;
     }
+    impl<const N: usize> Calc<N> for SimdState<N> {
+        /// Advances the CVI by one bar for `N` assets simultaneously (unchecked variant).
+        ///
+        /// # Safety
+        ///
+        /// The caller must guarantee the ring buffer is already full (warm-up complete) and that the
+        /// oldest EMA value is non-zero.
+        #[inline(always)]
+        unsafe fn calc_unchecked_simd(
+            &mut self,
+            high: Simd<f64, N>,
+            low: Simd<f64, N>,
+            multiplier: (Simd<f64, N>, Simd<f64, N>),
+        ) -> Simd<f64, N> {
+            let prev_ema = self.back_unchecked();
+            let old_ema = self.front_unchecked();
+            let hl_diff = (high - low).simd_max(F64Constants::EPSILON);
+            let ema = ema_calc_simd(hl_diff, prev_ema, multiplier);
+            self.push_unchecked(ema);
+    
+            (ema - old_ema) / old_ema * F64Constants::HUNDRED
+        }
+    }
+    
 }
 
 pub mod options {
@@ -97,27 +107,37 @@ pub mod options {
             }
         }
     }
-
-    /// Advances the CVI by one bar for `N` option lanes simultaneously (unchecked variant).
-    ///
-    /// # Safety
-    ///
-    /// The caller must guarantee all per-lane ring buffers are fully warmed up.
-    #[inline(always)]
-    pub(crate) unsafe fn calc_unchecked_simd<const N: usize>(
-        buffer: &mut SimdState<N, f64>,
-        high: f64,
-        low: f64,
-        multiplier: (Simd<f64, N>, Simd<f64, N>),
-    ) -> Simd<f64, N> {
-        let hl_diff = Simd::splat((high - low).max(f64::EPSILON));
-
-        let prev_ema = buffer.back_unchecked();
-        let old_ema = buffer.front_unchecked();
-
-        let ema = ema_calc_simd(hl_diff, prev_ema, multiplier);
-        buffer.push_unchecked(ema);
-
-        (ema - old_ema) / old_ema * F64Constants::HUNDRED
+    pub trait Calc<const N: usize> {
+        unsafe fn calc_unchecked_simd(
+            &mut self,
+            high: f64,
+            low: f64,
+            multiplier: (Simd<f64, N>, Simd<f64, N>),
+        ) -> Simd<f64, N>;
     }
+    impl<const N: usize> Calc<N> for SimdState<N, f64> {
+        /// Advances the CVI by one bar for `N` option lanes simultaneously (unchecked variant).
+        ///
+        /// # Safety
+        ///
+        /// The caller must guarantee all per-lane ring buffers are fully warmed up.
+        #[inline(always)]
+        unsafe fn calc_unchecked_simd(
+            &mut self,
+            high: f64,
+            low: f64,
+            multiplier: (Simd<f64, N>, Simd<f64, N>),
+        ) -> Simd<f64, N> {
+            let hl_diff = Simd::splat((high - low).max(f64::EPSILON));
+    
+            let prev_ema = self.back_unchecked();
+            let old_ema = self.front_unchecked();
+    
+            let ema = ema_calc_simd(hl_diff, prev_ema, multiplier);
+            self.push_unchecked(ema);
+    
+            (ema - old_ema) / old_ema * F64Constants::HUNDRED
+        }
+    }
+    
 }

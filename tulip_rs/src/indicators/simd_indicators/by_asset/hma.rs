@@ -2,7 +2,7 @@
 use crate::indicators::hma::{
     min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
-use crate::indicators::simd_indicators::hma_simd::assets::{calc_unchecked_simd, SimdState};
+use crate::indicators::simd_indicators::hma_simd::assets::SimdState;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
@@ -62,7 +62,7 @@ impl Driver<State> for HmaDriver {
             );
 
             let hma = unsafe {
-                calc_unchecked_simd(&mut state, real, prev_real, prev_real2, multipliers)
+                state.calc_unchecked_simd(real, prev_real, prev_real2, multipliers)
             };
             //unsafe { calc_simd(&mut state, high, low, close, multiplier) };
             // Store results using pre-computed pointers

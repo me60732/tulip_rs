@@ -1,7 +1,7 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::dema::{
-    calc as calc_dema, output_length as dema_output_length, State as DemaState,
+    output_length as dema_output_length, State as DemaState,
 };
 pub use crate::indicators::ema::multiplier;
 use crate::indicators::ema::{calc as calc_ema, output_length as ema_output_length};
@@ -79,38 +79,7 @@ impl State {
             ema3,
         }
     }
-    /*pub fn init_state(
-        real: &[f64],
-        period: usize,
-        tema_capacity: usize,
-        out_vecs: (&mut [f64], &mut [f64]),
-    ) -> Self {
-        //let mut remaining = real.len();
-        let multiplier = multiplier(period);
-        let (dema_line, ema_line) = out_vecs;
-        let dema_capacity = dema_output_length(real.len(), &[period as f64]);
-        let mut state = Self {
-            dema_state: DemaState::init_state(real, dema_capacity, period, ema_line),
-            ema3: 0.0,
-        };
-        let mut i = real.len() - dema_capacity;
-        let remaining = real.len() - tema_capacity;
-        while i < remaining {
-            let value = &real[i];
-            let (_, dema, ema) = calc(&mut state, value, multiplier);
-            if i == real.len() - dema_capacity {
-                state.ema3 = state.dema_state.ema2;
-            }
-            crate::init_store_optional_outputs!(i, real.len(),
-                dema_line => dema,
-                ema_line => ema
-            );
-            i += 1;
-            //remaining -= 1;
-        }
 
-        state
-    }*/
     pub fn init_state(
         real: &[f64],
         period: usize,
@@ -127,7 +96,7 @@ impl State {
 
         // Transition: advance ema1/ema2 one step, then seed ema3 from the updated ema2
         let seed_idx = real.len() - dema_capacity; // = period*2-2
-        let (dema_val, ema_val) = calc_dema(&mut dema_state, &real[seed_idx], multiplier);
+        let (dema_val, ema_val) = dema_state.calc(&real[seed_idx], multiplier);
 
         let mut state = Self {
             ema3: dema_state.ema2, // seed ema3 from the updated ema2 (not 0.0)
@@ -142,7 +111,7 @@ impl State {
         // Phase 3: full TEMA calc for remaining init bars
         let remaining = real.len() - tema_capacity; // = period*3-3
         for i in (seed_idx + 1)..remaining {
-            let (_, dema, ema) = calc(&mut state, &real[i], multiplier);
+            let (_, dema, ema) = state.calc(&real[i], multiplier);
             crate::init_store_optional_outputs!(i, real.len(),
                 dema_line => dema,
                 ema_line => ema
@@ -150,6 +119,31 @@ impl State {
         }
 
         state
+    }
+    /// Calculates a single TEMA value from the current state.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - A mutable reference to the current indicator state.
+    /// * `value` - The current input value.
+    /// * `multiplier` - A tuple of EMA smoothing factors `(multiplier, inv_multiplier)`.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(tema, dema, ema)` containing the current TEMA, DEMA, and EMA values.
+    #[inline(always)]
+    pub fn calc(&mut self, value: &f64, multiplier: (f64, f64)) -> (f64, f64, f64) {
+        let (dema, ema) = self.dema_state.calc(value, multiplier);
+        self.ema3 = calc_ema(&self.dema_state.ema2, self.ema3, multiplier);
+    
+        (
+            //3.0 * dema_state.ema1 - 3.0 * dema_state.ema2 + state.ema3,
+            self.dema_state
+                .ema1
+                .mul_add(3.0, self.dema_state.ema2.mul_add(-3.0, self.ema3)),
+            dema,
+            ema,
+        )
     }
 }
 #[derive(Serialize, Deserialize)]
@@ -310,7 +304,7 @@ fn cycle_tema(
 
     for i in 0..real.len() {
         let value = unsafe { real.get_unchecked(i) };
-        let (tema, dema, ema) = calc(state, value, multipliers);
+        let (tema, dema, ema) = state.calc(value, multipliers);
         unsafe { *tema_line.get_unchecked_mut(i) = tema };
 
         if has_optional {
@@ -322,29 +316,4 @@ fn cycle_tema(
     }
 }
 
-/// Calculates a single TEMA value from the current state.
-///
-/// # Arguments
-///
-/// * `state` - A mutable reference to the current indicator state.
-/// * `value` - The current input value.
-/// * `multiplier` - A tuple of EMA smoothing factors `(multiplier, inv_multiplier)`.
-///
-/// # Returns
-///
-/// A tuple `(tema, dema, ema)` containing the current TEMA, DEMA, and EMA values.
-#[inline(always)]
-pub fn calc(state: &mut State, value: &f64, multiplier: (f64, f64)) -> (f64, f64, f64) {
-    let dema_state = &mut state.dema_state;
-    let (dema, ema) = calc_dema(dema_state, value, multiplier);
-    state.ema3 = calc_ema(&dema_state.ema2, state.ema3, multiplier);
 
-    (
-        //3.0 * dema_state.ema1 - 3.0 * dema_state.ema2 + state.ema3,
-        dema_state
-            .ema1
-            .mul_add(3.0, dema_state.ema2.mul_add(-3.0, state.ema3)),
-        dema,
-        ema,
-    )
-}

@@ -1,4 +1,4 @@
-use crate::common::{validate_inputs};
+use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::ema::{
     calc as calc_ema, multiplier as ema_multiplier, output_length as ema_output_length,
@@ -115,6 +115,17 @@ impl State {
             short_ema,
             long_ema,
         }
+    }
+    /// Performs the core calculation for the Percentage Price Oscillator (PPO) indicator.
+    #[inline(always)]
+    pub fn calc(&mut self, real: &f64, multipliers: ((f64, f64), (f64, f64))) -> f64 {
+        let (short_multiplier, long_multiplier) = multipliers;
+    
+        self.short_ema = calc_ema(real, self.short_ema, short_multiplier);
+        self.long_ema = calc_ema(real, self.long_ema, long_multiplier);
+    
+        let long_ema_safe = self.long_ema.max(f64::EPSILON);
+        (self.short_ema - self.long_ema) * 100.0 / long_ema_safe
     }
 }
 /// Returns information about the Percentage Price Oscillator (PPO) indicator.
@@ -245,7 +256,7 @@ fn cycle_ppo(
     for i in 0..real.len() {
         let value = unsafe { real.get_unchecked(i) };
 
-        let ppo = calc(state, value, multipliers);
+        let ppo = state.calc(value, multipliers);
 
         unsafe { *ppo_line.get_unchecked_mut(i) = ppo };
 
@@ -258,20 +269,7 @@ fn cycle_ppo(
     }
 }
 
-/// Performs the core calculation for the Percentage Price Oscillator (PPO) indicator.
-#[inline(always)]
-pub fn calc(state: &mut State, real: &f64, multipliers: ((f64, f64), (f64, f64))) -> f64 {
-    let (short_multiplier, long_multiplier) = multipliers;
-    let (mut short_ema, mut long_ema) = (state.short_ema, state.long_ema);
 
-    short_ema = calc_ema(real, short_ema, short_multiplier);
-    long_ema = calc_ema(real, long_ema, long_multiplier);
-
-    (state.short_ema, state.long_ema) = (short_ema, long_ema);
-
-    let long_ema_safe = long_ema.max(f64::EPSILON);
-    (short_ema - long_ema) * 100.0 / long_ema_safe
-}
 
 #[inline(always)]
 pub fn multiplier(short_period: usize, long_period: usize) -> ((f64, f64), (f64, f64)) {

@@ -1,7 +1,7 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::stddev_simd::SimdState;
+use crate::indicators::simd_indicators::stddev_simd::{SimdState, Calc};
 use crate::indicators::stddev::{
     min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
 };

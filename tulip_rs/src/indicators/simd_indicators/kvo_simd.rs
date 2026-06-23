@@ -110,67 +110,66 @@ impl<const N: usize> SimdState<N> {
             state.prev_low = prev_low[i];
         }
     }
-}
+    /// Computes one KVO step across `N` lanes using SIMD parallelism.
+    ///
+    /// Calculates the Volume Force (VF) from the OHLCV inputs via [`calc_vf_simd`], then updates
+    /// the short and long EMAs. Returns `short_ema - long_ema` as the KVO value for all lanes.
+    #[inline(always)]
+    pub fn calc_simd(
+        &mut self,
+        inputs: (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
+        multipliers: ((Simd<f64, N>, Simd<f64, N>), (Simd<f64, N>, Simd<f64, N>)),
+    ) -> Simd<f64, N> {
+        // Extract multipliers once (minor optimization)
 
-/// Computes one KVO step across `N` lanes using SIMD parallelism.
-///
-/// Calculates the Volume Force (VF) from the OHLCV inputs via [`calc_vf_simd`], then updates
-/// the short and long EMAs. Returns `short_ema - long_ema` as the KVO value for all lanes.
-#[inline(always)]
-pub fn calc_simd<const N: usize>(
-    state: &mut SimdState<N>,
-    inputs: (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-    multipliers: ((Simd<f64, N>, Simd<f64, N>), (Simd<f64, N>, Simd<f64, N>)),
-) -> Simd<f64, N> {
-    // Extract multipliers once (minor optimization)
+        let vf = self.calc_vf_simd(inputs);
+        let (short_multiplier, long_multiplier) = multipliers;
+        self.short_ema = calc_ema_simd(vf, self.short_ema, short_multiplier);
+        self.long_ema = calc_ema_simd(vf, self.long_ema, long_multiplier);
+        self.short_ema - self.long_ema
+    }
 
-    let vf = calc_vf_simd(inputs, state);
-    let (short_multiplier, long_multiplier) = multipliers;
-    state.short_ema = calc_ema_simd(vf, state.short_ema, short_multiplier);
-    state.long_ema = calc_ema_simd(vf, state.long_ema, long_multiplier);
-    state.short_ema - state.long_ema
-}
+    /// Computes the Volume Force (VF) component of KVO across `N` lanes using SIMD parallelism.
+    ///
+    /// Detects trend changes by comparing the current HLC sum to the previous bar's value.
+    /// On a trend reversal, the cumulative money flow (`cm`) is seeded with the previous bar's
+    /// high-low range. `cm` is then #[inline(always)]
+    fn calc_vf_simd(
+        &mut self,
+        inputs: (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
+    ) -> Simd<f64, N> {
+        let (high, low, close, volume) = inputs;
 
-/// Computes the Volume Force (VF) component of KVO across `N` lanes using SIMD parallelism.
-///
-/// Detects trend changes by comparing the current HLC sum to the previous bar's value.
-/// On a trend reversal, the cumulative money flow (`cm`) is seeded with the previous bar's
-/// high-low range. `cm` is then #[inline(always)]
-fn calc_vf_simd<const N: usize>(
-    inputs: (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-    state: &mut SimdState<N>,
-) -> Simd<f64, N> {
-    let (high, low, close, volume) = inputs;
+        let hlc = high + low + close;
+        let dm = high - low;
 
-    let hlc = high + low + close;
-    let dm = high - low;
+        let hlc_up_condition = hlc.simd_gt(self.prev_hlc) & self.trend.simd_ne(F64Constants::ONE);
+        let hlc_down_condition =
+            hlc.simd_lt(self.prev_hlc) & self.trend.simd_ne(F64Constants::NEG_ONE);
+        let should_update_cm = hlc_up_condition | hlc_down_condition;
 
-    let hlc_up_condition = hlc.simd_gt(state.prev_hlc) & state.trend.simd_ne(F64Constants::ONE);
-    let hlc_down_condition =
-        hlc.simd_lt(state.prev_hlc) & state.trend.simd_ne(F64Constants::NEG_ONE);
-    let should_update_cm = hlc_up_condition | hlc_down_condition;
+        self.trend = hlc_down_condition.select(
+            F64Constants::NEG_ONE,
+            hlc_up_condition.select(F64Constants::ONE, self.trend),
+        );
 
-    state.trend = hlc_down_condition.select(
-        F64Constants::NEG_ONE,
-        hlc_up_condition.select(F64Constants::ONE, state.trend),
-    );
+        // ONLY calculate new_cm when actually needed (using the mask as a guard)
+        let new_cm = should_update_cm.select(
+            self.prev_high - self.prev_low, // Calculate only when mask is true
+            self.cm,                         // Dummy value when not needed
+        );
+        self.cm = should_update_cm.select(new_cm, self.cm);
 
-    // ONLY calculate new_cm when actually needed (using the mask as a guard)
-    let new_cm = should_update_cm.select(
-        state.prev_high - state.prev_low, // Calculate only when mask is true
-        state.cm,                         // Dummy value when not needed
-    );
-    state.cm = should_update_cm.select(new_cm, state.cm);
+        self.cm += dm.simd_max(F64Constants::EPSILON);
+        self.prev_hlc = hlc;
+        self.prev_high = high;
+        self.prev_low = low;
 
-    state.cm += dm.simd_max(F64Constants::EPSILON);
-    state.prev_hlc = hlc;
-    state.prev_high = high;
-    state.prev_low = low;
-
-    volume
-        * (dm / state.cm)
-            .mul_add(F64Constants::TWO, F64Constants::NEG_ONE)
-            .abs()
-        * F64Constants::HUNDRED
-        * state.trend
+        volume
+            * (dm / self.cm)
+                .mul_add(F64Constants::TWO, F64Constants::NEG_ONE)
+                .abs()
+            * F64Constants::HUNDRED
+            * self.trend
+    }
 }

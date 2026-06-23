@@ -1,7 +1,7 @@
 use crate::indicators::kama::{
     min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
-use crate::indicators::simd_indicators::kama_simd::{calc_simd, SimdState};
+use crate::indicators::simd_indicators::kama_simd::SimdState;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
@@ -30,7 +30,7 @@ impl Driver<State> for KamaDriver {
         let len = inputs[0][0].len();
 
         // Direct array construction
-        let mut simd_state = SimdState::new(&states);
+        let mut state = SimdState::new(&states);
 
         let multipliers_simd = (
             Simd::splat(self.multipliers.0),
@@ -54,7 +54,7 @@ impl Driver<State> for KamaDriver {
                 last_value @ j+1
             );
 
-            let (kama, ef) = calc_simd(&mut simd_state, (value, prev, last, old), multipliers_simd);
+            let (kama, ef) = state.calc_simd((value, prev, last, old), multipliers_simd);
             old = last;
             prev = value;
             // Direct SIMD store if possible, otherwise individual stores
@@ -66,7 +66,7 @@ impl Driver<State> for KamaDriver {
             );
         }
 
-        simd_state.write_states(&mut states);
+        state.write_states(&mut states);
     }
 }
 

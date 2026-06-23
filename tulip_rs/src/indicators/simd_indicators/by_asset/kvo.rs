@@ -1,6 +1,6 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::assets::validate_inputs;
-use crate::indicators::simd_indicators::kvo_simd::{calc_simd, SimdState};
+use crate::indicators::simd_indicators::kvo_simd::SimdState;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::{
     ema::output_length as ema_output_length,
@@ -35,7 +35,7 @@ impl Driver<State> for KvoDriver {
         let len = inputs[0][0].len();
 
         // Direct array construction
-        let mut simd_state = SimdState::new(&states);
+        let mut state = SimdState::new(&states);
 
         let multipliers_simd = (
             (
@@ -71,7 +71,7 @@ impl Driver<State> for KvoDriver {
                 volume @ volume_ptrs
             );
 
-            let kvo = calc_simd(&mut simd_state, inputs, multipliers_simd);
+            let kvo = state.calc_simd(inputs, multipliers_simd);
 
             crate::write_simd_at_indices!(N, i,
                 kvo_line_ptr => kvo
@@ -79,13 +79,13 @@ impl Driver<State> for KvoDriver {
 
             if has_optional {
                 crate::store_simd_optional_outputs!(i, N,
-                    want_short_ema, short_ema_line_ptr => simd_state.short_ema,
-                    want_long_ema, long_ema_line_ptr => simd_state.long_ema
+                    want_short_ema, short_ema_line_ptr => state.short_ema,
+                    want_long_ema, long_ema_line_ptr => state.long_ema
                 );
             }
         }
 
-        simd_state.write_states(&mut states);
+        state.write_states(&mut states);
     }
 }
 

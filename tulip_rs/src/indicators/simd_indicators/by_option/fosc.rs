@@ -3,7 +3,7 @@ use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::fosc::{
     min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
-pub use crate::indicators::simd_indicators::fosc_simd::{calc_simd, SimdState};
+pub use crate::indicators::simd_indicators::fosc_simd::SimdState;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::tsf::output_length as tsf_output_length;
 use crate::types::IndicatorError;
@@ -60,7 +60,7 @@ impl Driver<State, usize> for FoscDriver {
             );
             let prev_real = crate::extract_simd_inputs_at_index!(j+1, N, real @ real_ptrs);
             let (fosc, tsf, linreg, slope, intercept) =
-                calc_simd(&mut state, prev_real, real, period_simd);
+                state.calc_simd(prev_real, real, period_simd);
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, j,

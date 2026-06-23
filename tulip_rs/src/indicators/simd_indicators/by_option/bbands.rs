@@ -5,7 +5,7 @@ use crate::indicators::bbands::{
     INPUTS_WIDTH, OPTIONS_WIDTH,
 };
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::{bbands_simd::calc_simd, stddev_simd::SimdState};
+use crate::indicators::simd_indicators::{bbands_simd::Calc, stddev_simd::SimdState};
 use crate::types::IndicatorError;
 use std::simd::Simd;
 
@@ -61,7 +61,7 @@ impl Driver<State, (f64, usize, f64)> for BbandsDriver {
             );
 
             let (lower_band, middle_band, upper_band) =
-                calc_simd(&mut state, stddev_simd, new_vals, old_vals, multiplier_simd);
+                state.calc_simd(stddev_simd, new_vals, old_vals, multiplier_simd);
 
             crate::write_simd_at_indices!(N, j,
                 lower_band_ptr => lower_band,

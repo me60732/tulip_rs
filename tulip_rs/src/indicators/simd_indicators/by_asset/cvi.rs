@@ -10,7 +10,7 @@ use crate::indicators::cvi::{
     OPTIONS_WIDTH,
 };
 use crate::indicators::simd_indicators::cvi_simd::assets::{
-    calc_unchecked_simd, SimdBufferExt, SimdState,
+    Calc, SimdBufferExt, SimdState,
 };
 
 /// SIMD driver that advances the Chaikin Volatility (CVI) across `N` asset lanes per scheduling
@@ -55,7 +55,7 @@ impl Driver<State> for CviDriver {
                 low @ low_ptrs
             );
 
-            let cvi = unsafe { calc_unchecked_simd(&mut state, high, low, multiplier) };
+            let cvi = unsafe { state.calc_unchecked_simd(high, low, multiplier) };
 
             crate::write_simd_at_indices!(N, i,
                 cvi_line_ptr => cvi

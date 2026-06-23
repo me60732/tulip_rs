@@ -1,6 +1,6 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::atr::calc as calc_atr;
+//use crate::indicators::atr::calc as calc_atr;
 pub use crate::indicators::atr::multiplier;
 pub use crate::indicators::atr::State;
 use crate::indicators::tr::output_length as tr_output_length;
@@ -211,7 +211,7 @@ fn cycle_natr(
                 *close.get_unchecked(i),
             )
         };
-        let (natr, atr, tr) = calc(state, h, l, c, multipliers);
+        let (natr, atr, tr) = Calc::calc(state, h, l, c, multipliers);
         unsafe { *natr_line.get_unchecked_mut(i) = natr };
 
         if has_optional {
@@ -222,16 +222,26 @@ fn cycle_natr(
         }
     }
 }
-
-/// Performs the core calculation for the Normalized Average True Range (NATR) indicator.
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    high: f64,
-    low: f64,
-    close: f64,
-    multipliers: (f64, f64),
-) -> (f64, f64, f64) {
-    let (atr, tr) = calc_atr(state, high, low, close, multipliers);
-    ((atr / close) * 100.0, atr, tr)
+pub trait Calc {
+    fn calc(
+        &mut self,
+        high: f64,
+        low: f64,
+        close: f64,
+        multipliers: (f64, f64),
+    ) -> (f64, f64, f64);
+}
+impl Calc for State {
+    /// Performs the core calculation for the Normalized Average True Range (NATR) indicator.
+    #[inline(always)]
+    fn calc(
+        &mut self,
+        high: f64,
+        low: f64,
+        close: f64,
+        multipliers: (f64, f64),
+    ) -> (f64, f64, f64) {
+        let (atr, tr) = State::calc(self, high, low, close, multipliers);
+        ((atr / close) * 100.0, atr, tr)
+    }
 }

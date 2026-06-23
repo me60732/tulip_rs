@@ -179,19 +179,4 @@ fn cycle(
         }
     }
 }
-/// Calculates a single WAD value for one bar, updating the rolling state in place.
-///
-/// # Arguments
-///
-/// * `high` - The current bar's high price.
-/// * `low` - The current bar's low price.
-/// * `close` - The current bar's close price.
-/// * `state` - Mutable reference to the `IndicatorState` (previous close and cumulative WAD).
-///
-/// # Returns
-///
-/// The cumulative WAD value after this bar.
-#[inline(always)]
-pub fn calc(high: f64, low: f64, close: f64, state: &mut IndicatorState) -> f64 {
-    state.calc(high, low, close)
-}
+

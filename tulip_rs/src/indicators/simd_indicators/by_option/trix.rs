@@ -1,10 +1,10 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::trix_simd::{calc_simd, SimdState};
+use crate::indicators::simd_indicators::trix_simd::{SimdState, Calc};
 use crate::indicators::trix::{
     init_state, min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH,
-    OPTIONS_WIDTH,
+    OPTIONS_WIDTH
 };
 use crate::indicators::{
     dema::output_length as dema_output_length, ema::output_length as ema_output_length,
@@ -61,7 +61,7 @@ impl Driver<State, (f64, f64)> for TrixDriver {
         for i in 0..len {
             let values = crate::extract_simd_inputs_at_index_splat!(i, N, values @ input_ptrs);
 
-            let (trix, tema, dema, ema) = calc_simd(&mut state, values, multipliers_simd);
+            let (trix, tema, dema, ema) = state.calc_simd(values, multipliers_simd);
 
             // Direct SIMD store if possible, otherwise individual stores
             crate::write_simd_at_indices!(N, i,

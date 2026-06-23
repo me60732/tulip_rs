@@ -2,7 +2,7 @@
 use crate::indicators::linreg::{
     min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
-use crate::indicators::simd_indicators::linreg_simd::{calc_simd, SimdState};
+use crate::indicators::simd_indicators::linreg_simd::SimdState;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
@@ -54,7 +54,7 @@ impl Driver<State> for LinregDriver {
                 prev_real @ j+1//i + 1 - self.period
             );
 
-            let (linreg, slope, intercept) = calc_simd(&mut state, prev_real, real, simd_period);
+            let (linreg, slope, intercept) = state.calc_simd(prev_real, real, simd_period);
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, j,

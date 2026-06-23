@@ -270,27 +270,6 @@ fn cycle_wma(
     }
 }
 
-/// Calculates the Weighted Moving Average (WMA) for the current data point using rolling sums.
-///
-/// # Arguments
-///
-/// * `state` - Mutable reference to the rolling `State` (sum and weighted sum).
-/// * `prev_value` - The value leaving the window (oldest element).
-/// * `value` - The new value entering the window (newest element).
-/// * `multipliers` - A tuple of `(sma_multiplier, weights, n)` from `multiplier()`.
-///
-/// # Returns
-///
-/// A tuple of `(wma, sma)` for this bar.
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    prev_value: &f64,
-    value: &f64,
-    multipliers: (f64, f64, f64),
-) -> (f64, f64) {
-    state.calc(prev_value, value, multipliers)
-}
 #[inline(always)]
 pub fn multiplier(period: usize) -> (f64, f64, f64) {
     let n = period as f64;

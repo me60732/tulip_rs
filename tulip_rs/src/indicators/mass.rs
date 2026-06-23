@@ -4,9 +4,7 @@ use crate::indicators::ema::multiplier as ema_multiplier;
 
 pub use crate::indicator_types::TIndicatorState;
 use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
-use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
-};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -148,8 +146,50 @@ impl State {
             },
         )
     }
-    pub fn get_buffer_mut(&mut self) -> &mut Buffer {
-        &mut self.buffer
+    /// Calculates the Mass Index value for the current data point.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - A mutable reference to the current `State`.
+    /// * `high` - The current high price.
+    /// * `low` - The current low price.
+    /// * `multiplier` - A tuple of EMA multipliers for the Mass calculation.
+    ///
+    /// # Returns
+    ///
+    /// The running sum representing the current Mass Index value.
+    #[inline(always)]
+    pub fn calc(&mut self, high: &f64, low: &f64, multiplier: (f64, f64)) -> f64 {
+        let hl_diff = (high - low).max(f64::EPSILON);
+        let mut ema = self.ema;
+        let mut ema_signal = self.ema_signal;
+        ema = calc_ema(&hl_diff, ema, multiplier);
+        ema_signal = calc_ema(&ema, ema_signal, multiplier);
+        let mass = (ema / ema_signal).max(0.0);
+        if let Some(old) = self.buffer.push_with_info(mass) {
+            self.sum -= old
+        }
+        self.sum += mass;
+
+        (self.ema, self.ema_signal) = (ema, ema_signal);
+        self.sum
+    }
+    #[inline(always)]
+    pub(crate) unsafe fn calc_unchecked(
+        &mut self,
+        high: &f64,
+        low: &f64,
+        multiplier: (f64, f64),
+    ) -> f64 {
+        let hl_diff = (high - low).max(f64::EPSILON);
+        let (mut ema, mut ema_signal) = (self.ema, self.ema_signal);
+        ema = calc_ema(&hl_diff, ema, multiplier);
+        ema_signal = calc_ema(&ema, ema_signal, multiplier);
+        let mass = (ema / ema_signal).max(0.0);
+        self.sum += mass - self.buffer.push_with_info_unchecked(mass);
+
+        (self.ema, self.ema_signal) = (ema, ema_signal);
+        self.sum
     }
 }
 /// Returns the minimum amount of data required for the Mass indicator.
@@ -253,60 +293,10 @@ fn cycle_mass(
 ) {
     for i in 0..high.len() {
         unsafe {
-            *mass_line.get_unchecked_mut(i) = calc_unchecked(
-                state,
-                high.get_unchecked(i),
-                low.get_unchecked(i),
-                multipliers,
-            );
+            *mass_line.get_unchecked_mut(i) =
+                state.calc_unchecked(high.get_unchecked(i), low.get_unchecked(i), multipliers);
         }
     }
-}
-
-/// Calculates the Mass Index value for the current data point.
-///
-/// # Arguments
-///
-/// * `state` - A mutable reference to the current `State`.
-/// * `high` - The current high price.
-/// * `low` - The current low price.
-/// * `multiplier` - A tuple of EMA multipliers for the Mass calculation.
-///
-/// # Returns
-///
-/// The running sum representing the current Mass Index value.
-#[inline(always)]
-pub fn calc(state: &mut State, high: &f64, low: &f64, multiplier: (f64, f64)) -> f64 {
-    let hl_diff = (high - low).max(f64::EPSILON);
-    let mut ema = state.ema;
-    let mut ema_signal = state.ema_signal;
-    ema = calc_ema(&hl_diff, ema, multiplier);
-    ema_signal = calc_ema(&ema, ema_signal, multiplier);
-    let mass = (ema / ema_signal).max(0.0);
-    if let Some(old) = state.buffer.push_with_info(mass) {
-        state.sum -= old
-    }
-    state.sum += mass;
-
-    (state.ema, state.ema_signal) = (ema, ema_signal);
-    state.sum
-}
-#[inline(always)]
-pub(crate) unsafe fn calc_unchecked(
-    state: &mut State,
-    high: &f64,
-    low: &f64,
-    multiplier: (f64, f64),
-) -> f64 {
-    let hl_diff = (high - low).max(f64::EPSILON);
-    let (mut ema, mut ema_signal) = (state.ema, state.ema_signal);
-    ema = calc_ema(&hl_diff, ema, multiplier);
-    ema_signal = calc_ema(&ema, ema_signal, multiplier);
-    let mass = (ema / ema_signal).max(0.0);
-    state.sum += mass - state.buffer.push_with_info_unchecked(mass);
-
-    (state.ema, state.ema_signal) = (ema, ema_signal);
-    state.sum
 }
 
 pub fn multiplier() -> (f64, f64) {

@@ -2,7 +2,7 @@ use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::dema::output_length as dema_output_length;
 use crate::indicators::ema::output_length as ema_output_length;
-use crate::indicators::tema::{calc as tema_calc, output_length as tema_output_length};
+use crate::indicators::tema::output_length as tema_output_length;
 pub use crate::indicators::tema::{multiplier, State};
 use crate::types::{
     DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
@@ -255,7 +255,7 @@ fn cycle_trix(
         let (tema, dema, ema);
         unsafe {
             (*trix_line.get_unchecked_mut(i), tema, dema, ema) =
-                calc(state, real.get_unchecked(i), multipliers)
+                Calc::calc(state, real.get_unchecked(i), multipliers)
         };
 
         if has_optional {
@@ -268,29 +268,35 @@ fn cycle_trix(
     }
 }
 
-/// Calculates TRIX for a single data point.
-///
-/// Updates the triple-smoothed EMA state and computes TRIX as the percentage rate of
-/// change between the current and previous EMA3 value.
-///
-/// # Arguments
-///
-/// * `state` - A mutable reference to the current TEMA indicator state.
-/// * `value` - The current input data point.
-/// * `multiplier` - A tuple of EMA smoothing factors `(multiplier, inv_multiplier)`.
-///
-/// # Returns
-///
-/// A tuple `(trix, tema, dema, ema)` containing the current TRIX, TEMA, DEMA, and EMA values.
-#[inline(always)]
-pub fn calc(state: &mut State, value: &f64, multiplier: (f64, f64)) -> (f64, f64, f64, f64) {
-    let prev_ema3 = state.ema3;
-    let (tema, dema, ema) = tema_calc(state, value, multiplier);
-    // Compute TRIX as percentage change if previous TEMA is non-zero.
-    let trix = 100.0 * (state.ema3 - prev_ema3) / state.ema3;
-
-    (trix, tema, dema, ema)
+pub trait Calc {
+    fn calc(&mut self, value: &f64, multiplier: (f64, f64)) -> (f64, f64, f64, f64);
 }
+impl Calc for State {
+    /// Calculates TRIX for a single data point.
+    ///
+    /// Updates the triple-smoothed EMA state and computes TRIX as the percentage rate of
+    /// change between the current and previous EMA3 value.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - A mutable reference to the current TEMA indicator state.
+    /// * `value` - The current input data point.
+    /// * `multiplier` - A tuple of EMA smoothing factors `(multiplier, inv_multiplier)`.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(trix, tema, dema, ema)` containing the current TRIX, TEMA, DEMA, and EMA values.
+    #[inline(always)]
+    fn calc(&mut self, value: &f64, multiplier: (f64, f64)) -> (f64, f64, f64, f64) {
+        let prev_ema3 = self.ema3;
+        let (tema, dema, ema) = State::calc(self, value, multiplier);
+        // Compute TRIX as percentage change if previous TEMA is non-zero.
+        let trix = 100.0 * (self.ema3 - prev_ema3) / self.ema3;
+    
+        (trix, tema, dema, ema)
+    } 
+}
+
 
 pub fn init_state(
     real: &[f64],
@@ -307,7 +313,7 @@ pub fn init_state(
 
     while i < remaining {
         let value = &real[i];
-        let (tema, dema, ema) = tema_calc(&mut state, value, multiplier);
+        let (tema, dema, ema) = State::calc(&mut state, value, multiplier);
 
         crate::init_store_optional_outputs!(i, real.len(),
             tema_line => tema,

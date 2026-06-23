@@ -3,7 +3,7 @@ use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::cmo::{
     min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
-use crate::indicators::simd_indicators::cmo_simd::{calc_simd, SimdState};
+use crate::indicators::simd_indicators::cmo_simd::SimdState;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;
@@ -49,7 +49,7 @@ impl Driver<State, usize> for CmoDriver {
                 prev_before @ j,
                 prev_period @ j + 1
             );
-            let cmo = calc_simd(&mut state, prev_before, prev_period, current, prev);
+            let cmo = state.calc_simd(prev_before, prev_period, current, prev);
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, j,

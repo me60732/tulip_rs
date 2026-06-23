@@ -453,23 +453,3 @@ fn cycle<const CS: usize, const CM: usize, const CL: usize>(
     }
 }
 
-/// Calculates the Ichimoku output values for a single bar.
-///
-/// # Arguments
-///
-/// * `state` - A mutable reference to the current `State` holding rolling min/max values.
-/// * `inputs` - A tuple of `(high, low)` price slices.
-/// * `periods` - A tuple of three `(period, look_back)` pairs for short, medium (long), and ultra-long windows.
-/// * `i` - The current bar index into the input slices.
-///
-/// # Returns
-///
-/// A tuple of `(conversion, base, leading_span_a, leading_span_b)` for bar `i`.
-pub fn calc(
-    state: &mut State,
-    inputs: (&[f64], &[f64]),
-    periods: ((usize, usize), (usize, usize), (usize, usize)),
-    i: usize,
-) -> (f64, f64, f64, f64) {
-    state.calc(inputs, periods, i)
-}

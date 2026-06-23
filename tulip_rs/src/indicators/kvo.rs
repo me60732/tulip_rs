@@ -1,4 +1,4 @@
-use crate::common::{validate_inputs};
+use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::ema::{
     calc as calc_ema, multiplier as ema_multiplier, output_length as ema_output_length,
@@ -177,7 +177,7 @@ impl State {
                 )
             };
 
-            let vf = calc_vf(&mut state, inputs);
+            let vf = state.calc_vf(inputs);
             if i == 1 {
                 // Initialize EMAs only once, just like C
                 state.short_ema = vf;
@@ -193,6 +193,55 @@ impl State {
         }
 
         state
+    }
+    /// Calculates the Klinger Volume Oscillator (KVO) value for a single bar.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - A mutable reference to the indicator state.
+    /// * `inputs` - A tuple `(high, low, close, volume)` for the current bar.
+    /// * `multipliers` - A tuple of EMA multiplier pairs for the short and long EMAs.
+    ///
+    /// # Returns
+    ///
+    /// The calculated KVO value (`short_ema - long_ema`).
+    #[inline(always)]
+    pub fn calc(
+        &mut self,
+        inputs: (f64, f64, f64, f64),
+        multipliers: ((f64, f64), (f64, f64)),
+    ) -> f64 {
+        // Extract multipliers once (minor optimization)
+    
+        let vf = self.calc_vf(inputs);
+        let (short_multiplier, long_multiplier) = multipliers;
+        self.short_ema = calc_ema(&vf, self.short_ema, short_multiplier);
+        self.long_ema = calc_ema(&vf, self.long_ema, long_multiplier);
+        self.short_ema - self.long_ema
+    }
+    
+    #[inline(always)]
+    pub(crate) fn calc_vf(&mut self, inputs: (f64, f64, f64, f64)) -> f64 {
+        let (high, low, close, volume) = inputs;
+    
+        let hlc = high + low + close;
+        let dm = high - low;
+    
+        // Update trend and cm
+        if self.trend != 1.0 && hlc > self.prev_hlc {
+            self.trend = 1.0;
+            self.cm = self.prev_high - self.prev_low;
+        } else if self.trend != -1.0 && hlc < self.prev_hlc {
+            self.trend = -1.0;
+            self.cm = self.prev_high - self.prev_low;
+        }
+        self.cm += dm.max(f64::EPSILON);
+    
+        self.prev_hlc = hlc;
+        self.prev_high = high;
+        self.prev_low = low;
+    
+        (dm / self.cm).mul_add(2.0, -1.0).abs() * volume * 100.0 * self.trend
     }
 }
 /// Returns the minimum amount of data required for the KVO indicator.
@@ -342,7 +391,7 @@ fn cycle_kvo(
                 *volume.get_unchecked(i),
             )
         };
-        let kvo = calc(state, inputs, multipliers);
+        let kvo = state.calc(inputs, multipliers);
         unsafe { *kvo_line.get_unchecked_mut(i) = kvo };
 
         if has_optional {
@@ -354,55 +403,7 @@ fn cycle_kvo(
     }
 }
 
-/// Calculates the Klinger Volume Oscillator (KVO) value for a single bar.
-///
-/// # Arguments
-///
-/// * `state` - A mutable reference to the indicator state.
-/// * `inputs` - A tuple `(high, low, close, volume)` for the current bar.
-/// * `multipliers` - A tuple of EMA multiplier pairs for the short and long EMAs.
-///
-/// # Returns
-///
-/// The calculated KVO value (`short_ema - long_ema`).
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    inputs: (f64, f64, f64, f64),
-    multipliers: ((f64, f64), (f64, f64)),
-) -> f64 {
-    // Extract multipliers once (minor optimization)
 
-    let vf = calc_vf(state, inputs);
-    let (short_multiplier, long_multiplier) = multipliers;
-    state.short_ema = calc_ema(&vf, state.short_ema, short_multiplier);
-    state.long_ema = calc_ema(&vf, state.long_ema, long_multiplier);
-    state.short_ema - state.long_ema
-}
-
-#[inline(always)]
-pub(crate) fn calc_vf(state: &mut State, inputs: (f64, f64, f64, f64)) -> f64 {
-    let (high, low, close, volume) = inputs;
-
-    let hlc = high + low + close;
-    let dm = high - low;
-
-    // Update trend and cm
-    if state.trend != 1.0 && hlc > state.prev_hlc {
-        state.trend = 1.0;
-        state.cm = state.prev_high - state.prev_low;
-    } else if state.trend != -1.0 && hlc < state.prev_hlc {
-        state.trend = -1.0;
-        state.cm = state.prev_high - state.prev_low;
-    }
-    state.cm += dm.max(f64::EPSILON);
-
-    state.prev_hlc = hlc;
-    state.prev_high = high;
-    state.prev_low = low;
-
-    (dm / state.cm).mul_add(2.0, -1.0).abs() * volume * 100.0 * state.trend
-}
 
 #[inline(always)]
 pub fn multiplier(short_period: usize, long_period: usize) -> ((f64, f64), (f64, f64)) {

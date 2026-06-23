@@ -5,7 +5,7 @@ use crate::indicators::cvi::{
     OPTIONS_WIDTH,
 };
 use crate::indicators::simd_indicators::cvi_simd::options::{
-    calc_unchecked_simd, SimdBufferExt, SimdState,
+    Calc, SimdBufferExt, SimdState,
 };
 
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
@@ -52,7 +52,7 @@ impl Driver<State, (f64, f64)> for CviDriver {
             // Get inputs arrays for stocks
             let (high, low) = unsafe { (*high_ptrs[0].add(i), *low_ptrs[0].add(i)) };
 
-            let cvi = unsafe { calc_unchecked_simd(&mut state, high, low, multipliers_simd) };
+            let cvi = unsafe { state.calc_unchecked_simd(high, low, multipliers_simd) };
 
             crate::write_simd_at_indices!(N, i,
                 cvi_line_ptr => cvi

@@ -1,9 +1,9 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::max::{
-    calc as calc_max, calc_unchecked as calc_max_unchecked, CHUNK_1, CHUNK_4,
+    CHUNK_1, CHUNK_4,
 };
-use crate::indicators::min::{calc as calc_min, calc_unchecked as calc_min_unchecked};
+
 pub use crate::indicators::{max::State as MaxState, min::State as MinState};
 
 use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
@@ -163,9 +163,7 @@ impl State {
         let mut k_count = 0;
         let mut start = 0;
         for i in k_period + 1..k_period + k_slow + d_period {
-            let k_fast = calc_kfast(
-                &mut state.min_state,
-                &mut state.max_state,
+            let k_fast = state.calc_kfast(
                 inputs,
                 i,
                 k_period,
@@ -186,6 +184,104 @@ impl State {
         }
         start += 1;
         (state, k_count, start)
+    }
+    /// Calculates the Stochastic Oscillator %K and %D values for a single data point.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - A mutable reference to the current `State`.
+    /// * `inputs` - A tuple of three slices: `(high, low, close)`.
+    /// * `i` - The current index within `close`.
+    /// * `k_period` - The lookback period for the fast %K calculation.
+    /// * `multipliers` - A tuple `(k_multiplier, d_multiplier)` for the slow %K and %D averages.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(k, d)` — the slow %K and %D values for the current bar.
+    #[inline(always)]
+    pub fn calc(
+        &mut self,
+        inputs: (&[f64], &[f64], &[f64]),
+        i: usize,
+        k_period: usize,
+        multipliers: (f64, f64),
+    ) -> (f64, f64) {
+        let (k_multiplier, d_multiplier) = multipliers;
+    
+        let kfast = self.calc_kfast(
+            inputs,
+            i,
+            k_period,
+        );
+    
+        if let Some(old_k) = self.prev_k.push_with_info(kfast) {
+            self.k_sum += kfast - old_k;
+        } else {
+            self.k_sum += kfast;
+        }
+        let k = self.k_sum * k_multiplier;
+        if let Some(old_d) = self.prev_d.push_with_info(k) {
+            self.d_sum += k - old_d;
+        } else {
+            self.d_sum += k;
+        }
+    
+        (k, self.d_sum * d_multiplier)
+    }
+    #[inline(always)]
+    unsafe fn calc_unchecked<const N: usize>(
+        &mut self,
+        inputs: (&[f64], &[f64], &[f64]),
+        i: usize,
+        k_period: usize,
+        multipliers: (f64, f64),
+    ) -> (f64, f64) {
+        let (k_multiplier, d_multiplier) = multipliers;
+    
+        let kfast = self.calc_kfast_unchecked::<N>(
+            inputs,
+            i,
+            k_period,
+        );
+    
+        let old_k = self.prev_k.push_with_info_unchecked(kfast);
+        self.k_sum += kfast - old_k;
+        let k = self.k_sum * k_multiplier;
+        let old_d = self.prev_d.push_with_info_unchecked(k);
+        self.d_sum += k - old_d;
+    
+        (k, self.d_sum * d_multiplier)
+    }
+    
+    #[inline(always)]
+    fn calc_kfast(
+        &mut self,
+        inputs: (&[f64], &[f64], &[f64]),
+        i: usize,
+        period: usize,
+    ) -> f64 {
+        let (high, low, close) = inputs;
+        let shift = low.len() - close.len();
+    
+        let (min, _) = self.min_state.calc(low, i + shift, (period, period - 1));
+        let (max, _) = self.max_state.calc(high, i + shift, (period, period - 1));
+    
+        100.0 * (close[i] - min) / (max - min).max(f64::EPSILON)
+    }
+    #[inline(always)]
+    unsafe fn calc_kfast_unchecked<const N: usize>(
+        &mut self,
+        inputs: (&[f64], &[f64], &[f64]),
+        i: usize,
+        period: usize,
+    ) -> f64 {
+        let (high, low, close) = inputs;
+        let shift = low.len() - close.len();
+    
+        let (min, _) = self.min_state.calc_unchecked::<N>(low, i + shift, (period, period - 1));
+        let (max, _) = self.max_state.calc_unchecked::<N>(high, i + shift, (period, period - 1));
+    
+        100.0 * (close.get_unchecked(i) - min) / (max - min).max(f64::EPSILON)
     }
 }
 /// Returns information about the Stochastic Oscillator indicator.
@@ -350,115 +446,12 @@ fn cycle<const N: usize>(
     for (j, i) in (start..close.len()).enumerate() {
         unsafe {
             (*k_line.get_unchecked_mut(j), *d_line.get_unchecked_mut(j)) =
-                calc_unchecked::<N>(state, inputs, i, k_period, multipliers);
+                state.calc_unchecked::<N>(inputs, i, k_period, multipliers);
         }
         //k_count += 1;
     }
 }
-/// Calculates the Stochastic Oscillator %K and %D values for a single data point.
-///
-/// # Arguments
-///
-/// * `state` - A mutable reference to the current `State`.
-/// * `inputs` - A tuple of three slices: `(high, low, close)`.
-/// * `i` - The current index within `close`.
-/// * `k_period` - The lookback period for the fast %K calculation.
-/// * `multipliers` - A tuple `(k_multiplier, d_multiplier)` for the slow %K and %D averages.
-///
-/// # Returns
-///
-/// A tuple `(k, d)` — the slow %K and %D values for the current bar.
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    inputs: (&[f64], &[f64], &[f64]),
-    i: usize,
-    k_period: usize,
-    multipliers: (f64, f64),
-) -> (f64, f64) {
-    let (k_multiplier, d_multiplier) = multipliers;
 
-    let kfast = calc_kfast(
-        &mut state.min_state,
-        &mut state.max_state,
-        inputs,
-        i,
-        k_period,
-    );
-
-    if let Some(old_k) = state.prev_k.push_with_info(kfast) {
-        state.k_sum += kfast - old_k;
-    } else {
-        state.k_sum += kfast;
-    }
-    let k = state.k_sum * k_multiplier;
-    if let Some(old_d) = state.prev_d.push_with_info(k) {
-        state.d_sum += k - old_d;
-    } else {
-        state.d_sum += k;
-    }
-
-    (k, state.d_sum * d_multiplier)
-}
-#[inline(always)]
-unsafe fn calc_unchecked<const N: usize>(
-    state: &mut State,
-    inputs: (&[f64], &[f64], &[f64]),
-    i: usize,
-    k_period: usize,
-    multipliers: (f64, f64),
-) -> (f64, f64) {
-    let (k_multiplier, d_multiplier) = multipliers;
-
-    let kfast = calc_kfast_unchecked::<N>(
-        &mut state.min_state,
-        &mut state.max_state,
-        inputs,
-        i,
-        k_period,
-    );
-
-    let old_k = state.prev_k.push_with_info_unchecked(kfast);
-    state.k_sum += kfast - old_k;
-    let k = state.k_sum * k_multiplier;
-    let old_d = state.prev_d.push_with_info_unchecked(k);
-    state.d_sum += k - old_d;
-
-    (k, state.d_sum * d_multiplier)
-}
-
-#[inline(always)]
-pub fn calc_kfast(
-    min_state: &mut MinState,
-    max_state: &mut MaxState,
-    inputs: (&[f64], &[f64], &[f64]),
-    i: usize,
-    period: usize,
-) -> f64 {
-    let (high, low, close) = inputs;
-    let shift = low.len() - close.len();
-
-    let (min, _) = calc_min(min_state, low, i + shift, (period, period - 1));
-    let (max, _) = calc_max(max_state, high, i + shift, (period, period - 1));
-
-    100.0 * (close[i] - min) / (max - min).max(f64::EPSILON)
-}
-#[inline(always)]
-pub unsafe fn calc_kfast_unchecked<const N: usize>(
-    min_state: &mut MinState,
-    max_state: &mut MaxState,
-    inputs: (&[f64], &[f64], &[f64]),
-    i: usize,
-    period: usize,
-) -> f64 {
-    let (high, low, close) = inputs;
-    let shift = low.len() - close.len();
-
-    let (min, _) = calc_min_unchecked::<N>(min_state, low, i + shift, (period, period - 1));
-    let (max, _) = calc_max_unchecked::<N>(max_state, high, i + shift, (period, period - 1));
-
-    100.0 * (close.get_unchecked(i) - min) / (max - min).max(f64::EPSILON)
-}
 
 #[inline(always)]
 pub fn multiplier(k_slow: usize, d_period: usize) -> (f64, f64) {

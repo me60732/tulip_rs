@@ -208,18 +208,3 @@ fn cycle_zlema(real: &[f64], lag: usize, state: &mut State, zlema_line: &mut [f6
     }
 }
 
-/// Calculates a single ZLEMA value for one bar, updating the rolling state in place.
-///
-/// # Arguments
-///
-/// * `state` - Mutable reference to the rolling `State` (previous ZLEMA, multipliers).
-/// * `current` - The current input value.
-/// * `lagged` - The input value from `lag` bars ago.
-///
-/// # Returns
-///
-/// The updated ZLEMA value for this bar.
-#[inline(always)]
-pub fn calc(state: &mut State, current: f64, lagged: f64) -> f64 {
-    state.calc(current, lagged)
-}

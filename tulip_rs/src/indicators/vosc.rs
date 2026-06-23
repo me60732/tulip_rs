@@ -328,27 +328,6 @@ fn cycle(
     }
 }
 
-/// Calculates a single VOSC value for one bar, updating the rolling state in place.
-///
-/// # Arguments
-///
-/// * `state` - Mutable reference to the rolling `State` (fast and slow SMA sums).
-/// * `vols` - A tuple of `(current_volume, prev_short_volume, prev_long_volume)`.
-/// * `short_multiplier` - The SMA multiplier for the short period.
-/// * `long_multiplier` - The SMA multiplier for the long period.
-///
-/// # Returns
-///
-/// A tuple of `(vosc, short_sma, long_sma)`.
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    vols: (&f64, &f64, &f64),
-    short_multiplier: f64,
-    long_multiplier: f64,
-) -> (f64, f64, f64) {
-    state.calc(vols, short_multiplier, long_multiplier)
-}
 
 #[inline(always)]
 pub fn multiplier(short_period: usize, long_period: usize) -> (f64, f64) {

@@ -342,22 +342,7 @@ fn cycle_ao(
         }
     }
 }
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    values: (f64, f64),
-    multipliers: (f64, f64),
-) -> (f64, f64, f64, f64) {
-    state.calc(values, multipliers)
-}
-#[inline(always)]
-pub unsafe fn calc_unchecked(
-    state: &mut State,
-    values: (f64, f64),
-    multipliers: (f64, f64),
-) -> (f64, f64, f64, f64) {
-    state.calc_unchecked(values, multipliers)
-}
+
 
 #[inline(always)]
 pub fn multiplier(periods: (usize, usize)) -> (f64, f64) {

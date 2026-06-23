@@ -1,4 +1,4 @@
-use crate::common::{validate_inputs};
+use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::ema::{
     calc as calc_ema, multiplier as ema_multiplier, output_length as ema_output_length,
@@ -152,7 +152,7 @@ impl State {
         let (has_optional, _, _) = crate::calc_want_flags!(short_ema_line, long_ema_line);
         let mut count = 0;
         for i in 1..long_period + signal_period - 2 {
-            let (macd, _, _) = calc(&mut state, &real[i], multipliers);
+            let (macd, _, _) = state.calc(&real[i], multipliers);
             if i == long_period - 1 {
                 state.signal = macd;
             }
@@ -169,6 +169,32 @@ impl State {
         }
 
         state
+    }
+    /// Calculates the current MACD value.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - A mutable reference to the current `State` holding EMA values.
+    /// * `value` - The current input price value.
+    /// * `multipliers` - A tuple of three EMA multiplier pairs for short, long, and signal periods.
+    ///
+    /// # Returns
+    ///
+    /// A tuple containing the MACD line value, signal line value, and histogram value.
+    #[inline(always)]
+    pub fn calc(
+        &mut self,
+        value: &f64,
+        multipliers: ((f64, f64), (f64, f64), (f64, f64)),
+    ) -> (f64, f64, f64) {
+        let (short_multiplier, long_multiplier, signal_multiplier) = multipliers;
+        self.short_ema = calc_ema(value, self.short_ema, short_multiplier);
+        self.long_ema = calc_ema(value, self.long_ema, long_multiplier);
+    
+        let macd_value = self.short_ema - self.long_ema;
+        self.signal = calc_ema(&macd_value, self.signal, signal_multiplier);
+    
+        (macd_value, self.signal, macd_value - self.signal)
     }
 }
 pub fn output_length(data_len: usize, options: &[f64]) -> (usize, usize, usize) {
@@ -321,7 +347,7 @@ fn cycle_macd(
                 *macd_line.get_unchecked_mut(i),
                 *signal_line.get_unchecked_mut(i),
                 *histogram_line.get_unchecked_mut(i),
-            ) = calc(state, real.get_unchecked(i), multipliers);
+            ) = state.calc(real.get_unchecked(i), multipliers);
         }
         if has_optional {
             crate::store_optional_outputs!(i,
@@ -330,33 +356,6 @@ fn cycle_macd(
             );
         }
     }
-}
-
-/// Calculates the current MACD value.
-///
-/// # Arguments
-///
-/// * `state` - A mutable reference to the current `State` holding EMA values.
-/// * `value` - The current input price value.
-/// * `multipliers` - A tuple of three EMA multiplier pairs for short, long, and signal periods.
-///
-/// # Returns
-///
-/// A tuple containing the MACD line value, signal line value, and histogram value.
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    value: &f64,
-    multipliers: ((f64, f64), (f64, f64), (f64, f64)),
-) -> (f64, f64, f64) {
-    let (short_multiplier, long_multiplier, signal_multiplier) = multipliers;
-    state.short_ema = calc_ema(value, state.short_ema, short_multiplier);
-    state.long_ema = calc_ema(value, state.long_ema, long_multiplier);
-
-    let macd_value = state.short_ema - state.long_ema;
-    state.signal = calc_ema(&macd_value, state.signal, signal_multiplier);
-
-    (macd_value, state.signal, macd_value - state.signal)
 }
 
 pub fn multiplier(

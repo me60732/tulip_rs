@@ -4,7 +4,7 @@ use crate::indicators::macd::{
     min_data, multiplier, output_length, validate_options, IndicatorState, State, INPUTS_WIDTH,
     OPTIONS_WIDTH,
 };
-use crate::indicators::simd_indicators::macd_simd::{calc_simd, SimdState};
+use crate::indicators::simd_indicators::macd_simd::SimdState;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;
@@ -71,7 +71,7 @@ impl Driver<State> for MacdDriver {
         for i in 0..len {
             let values = crate::extract_simd_inputs_at_index!(i, N, values @ input_ptrs);
 
-            let (macd, signal, histogram) = calc_simd(&mut state, values, multipliers_simd);
+            let (macd, signal, histogram) = state.calc_simd(values, multipliers_simd);
 
             // Direct SIMD store if possible, otherwise individual stores
             crate::write_simd_at_indices!(N, i,

@@ -8,7 +8,7 @@ mod imports {
     pub(crate) use crate::indicators::hma::State;
     pub(crate) use crate::indicators::simd_indicators::{
         simd_types::F64Constants,
-        wma_simd::{calc_simd as wma_calc_simd, SimdState as WmaSimdState},
+        wma_simd::SimdState as WmaSimdState
     };
     pub(crate) use std::simd::{Select, Simd, StdFloat};
 }
@@ -87,108 +87,105 @@ pub mod assets {
             self.state1.write_states(&mut state1_refs);
             self.state2.write_states(&mut state2_refs);
         }
-    }
+        /// Computes one bar of the Hull Moving Average (HMA) for `N` assets simultaneously
+        /// using SIMD parallelism.
+        ///
+        /// Combines two WMAs of differing period lengths, computes their weighted difference,
+        /// and then applies a final WMA over a sqrt-period window.
+        /// Returns zero until the sqrt-period ring buffer is full.
+        ///
+        /// # Arguments
+        ///
+        /// * `state` - Mutable SIMD state.
+        /// * `value` - Current prices for this bar.
+        /// * `prev_value` - Oldest value dropped from the half-period WMA window.
+        /// * `prev_value2` - Oldest value dropped from the full-period WMA window.
+        /// * `multipliers` - Tuple `(sqrt_period, weights_sqrt, half_period_multipliers, full_period_multipliers)`.
+        ///
+        /// # Returns
+        ///
+        /// HMA values for all `N` lanes (zero until warm-up is complete).
+        #[inline(always)]
+        pub fn calc_simd(
+            &mut self,
+            value: Simd<f64, N>,
+            prev_value: Simd<f64, N>,
+            prev_value2: Simd<f64, N>,
+            multipliers: (
+                Simd<f64, N>,
+                Simd<f64, N>,
+                (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
+                (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
+            ),
+        ) -> Simd<f64, N> {
+            let (periodsqrt, weightssqrt, multiplier, multiplier2) = multipliers;
+    
+            let (wma, _) = self.state1.calc_simd(prev_value, value, multiplier);
+    
+            let (wma2, _) = self.state2.calc_simd(prev_value2, value, multiplier2);
+    
+            //let diff = F64Constants::TWO * wma2 - wma;
+            let diff = wma2.mul_add(F64Constants::TWO, -wma);
+            self.weighted_sumsqrt = diff.mul_add(periodsqrt, self.weighted_sumsqrt);
+            self.sumsqrt += diff;
 
-    /// Computes one bar of the Hull Moving Average (HMA) for `N` assets simultaneously
-    /// using SIMD parallelism.
-    ///
-    /// Combines two WMAs of differing period lengths, computes their weighted difference,
-    /// and then applies a final WMA over a sqrt-period window.
-    /// Returns zero until the sqrt-period ring buffer is full.
-    ///
-    /// # Arguments
-    ///
-    /// * `state` - Mutable SIMD state.
-    /// * `value` - Current prices for this bar.
-    /// * `prev_value` - Oldest value dropped from the half-period WMA window.
-    /// * `prev_value2` - Oldest value dropped from the full-period WMA window.
-    /// * `multipliers` - Tuple `(sqrt_period, weights_sqrt, half_period_multipliers, full_period_multipliers)`.
-    ///
-    /// # Returns
-    ///
-    /// HMA values for all `N` lanes (zero until warm-up is complete).
-    #[inline(always)]
-    pub fn calc_simd<const N: usize>(
-        state: &mut SimdState<N>,
-        value: Simd<f64, N>,
-        prev_value: Simd<f64, N>,
-        prev_value2: Simd<f64, N>,
-        multipliers: (
-            Simd<f64, N>,
-            Simd<f64, N>,
-            (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-            (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-        ),
-    ) -> Simd<f64, N> {
-        let (periodsqrt, weightssqrt, multiplier, multiplier2) = multipliers;
-        let (mut weighted_sumsqrt, mut sumsqrt) = (state.weighted_sumsqrt, state.sumsqrt);
-
-        let (wma, _) = wma_calc_simd(&mut state.state1, prev_value, value, multiplier);
-
-        let (wma2, _) = wma_calc_simd(&mut state.state2, prev_value2, value, multiplier2);
-
-        //let diff = F64Constants::TWO * wma2 - wma;
-        let diff = wma2.mul_add(F64Constants::TWO, -wma);
-        weighted_sumsqrt = diff.mul_add(periodsqrt, weighted_sumsqrt);
-        sumsqrt += diff;
-
-        let prev_diff = &mut state.prev_diff;
-        prev_diff.push(diff);
-
-        let mut hma = F64Constants::ZERO;
-
-        if prev_diff.is_full() {
-            hma = weighted_sumsqrt / weightssqrt;
-            weighted_sumsqrt -= sumsqrt;
-            sumsqrt -= unsafe { prev_diff.front_unchecked() };
-        } else {
-            weighted_sumsqrt -= sumsqrt;
+            self.prev_diff.push(diff);
+    
+            let mut hma = F64Constants::ZERO;
+    
+            if self.prev_diff.is_full() {
+                hma = self.weighted_sumsqrt / weightssqrt;
+                self.weighted_sumsqrt -= self.sumsqrt;
+                self.sumsqrt -= unsafe { self.prev_diff.front_unchecked() };
+            } else {
+                self.weighted_sumsqrt -= self.sumsqrt;
+            }
+            
+            hma
         }
-        (state.weighted_sumsqrt, state.sumsqrt) = (weighted_sumsqrt, sumsqrt);
-        hma
+        /// Computes one bar of the HMA for `N` assets simultaneously without buffer-fullness checks
+        /// (unsafe, unchecked variant — the ring buffer must be full before calling).
+        ///
+        /// # Safety
+        /// The internal `prev_diff` ring buffer must already be full; calling before warm-up
+        /// is complete will produce incorrect results or undefined behaviour.
+        #[inline(always)]
+        pub unsafe fn calc_unchecked_simd(
+            &mut self,
+            value: Simd<f64, N>,
+            prev_value: Simd<f64, N>,
+            prev_value2: Simd<f64, N>,
+            multipliers: (
+                Simd<f64, N>,
+                Simd<f64, N>,
+                (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
+                (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
+            ),
+        ) -> Simd<f64, N> {
+            let (periodsqrt, weightssqrt, multiplier, multiplier2) = multipliers;
+    
+            let (wma, _) = self.state1.calc_simd(prev_value, value, multiplier);
+    
+            let (wma2, _) = self.state2.calc_simd(prev_value2, value, multiplier2);
+    
+            //let diff = F64Constants::TWO * wma2 - wma;
+            let diff = wma2.mul_add(F64Constants::TWO, -wma);
+            //weighted_sumsqrt += diff * periodsqrt;
+            self.weighted_sumsqrt = diff.mul_add(periodsqrt, self.weighted_sumsqrt);
+            self.sumsqrt += diff;
+    
+            self.prev_diff.push_unchecked(diff);
+    
+            let hma = self.weighted_sumsqrt / weightssqrt;
+            self.weighted_sumsqrt -= self.sumsqrt;
+            self.sumsqrt -= self.prev_diff.front_unchecked();
+
+    
+            hma
+        }
     }
-    /// Computes one bar of the HMA for `N` assets simultaneously without buffer-fullness checks
-    /// (unsafe, unchecked variant — the ring buffer must be full before calling).
-    ///
-    /// # Safety
-    /// The internal `prev_diff` ring buffer must already be full; calling before warm-up
-    /// is complete will produce incorrect results or undefined behaviour.
-    #[inline(always)]
-    pub unsafe fn calc_unchecked_simd<const N: usize>(
-        state: &mut SimdState<N>,
-        value: Simd<f64, N>,
-        prev_value: Simd<f64, N>,
-        prev_value2: Simd<f64, N>,
-        multipliers: (
-            Simd<f64, N>,
-            Simd<f64, N>,
-            (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-            (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-        ),
-    ) -> Simd<f64, N> {
-        let (periodsqrt, weightssqrt, multiplier, multiplier2) = multipliers;
-        let (mut weighted_sumsqrt, mut sumsqrt) = (state.weighted_sumsqrt, state.sumsqrt);
 
-        let (wma, _) = wma_calc_simd(&mut state.state1, prev_value, value, multiplier);
-
-        let (wma2, _) = wma_calc_simd(&mut state.state2, prev_value2, value, multiplier2);
-
-        //let diff = F64Constants::TWO * wma2 - wma;
-        let diff = wma2.mul_add(F64Constants::TWO, -wma);
-        //weighted_sumsqrt += diff * periodsqrt;
-        weighted_sumsqrt = diff.mul_add(periodsqrt, weighted_sumsqrt);
-        sumsqrt += diff;
-
-        let prev_diff = &mut state.prev_diff;
-        prev_diff.push_unchecked(diff);
-
-        let hma = weighted_sumsqrt / weightssqrt;
-        weighted_sumsqrt -= sumsqrt;
-        sumsqrt -= prev_diff.front_unchecked();
-        (state.weighted_sumsqrt, state.sumsqrt) = (weighted_sumsqrt, sumsqrt);
-
-        hma
-    }
+    
 }
 
 pub mod options {
@@ -261,100 +258,95 @@ pub mod options {
             self.state1.write_states(&mut state1_refs);
             self.state2.write_states(&mut state2_refs);
         }
+        /// Computes one bar of the Hull Moving Average (HMA) for `N` option lanes simultaneously
+        /// using SIMD parallelism.
+        ///
+        /// Identical logic to the assets variant but uses a lock-free `UnsyncBuffer`.
+        /// Returns zero until the sqrt-period ring buffer is full.
+        ///
+        /// # Arguments
+        ///
+        /// * `state` - Mutable SIMD state.
+        /// * `value` - Current prices for this bar.
+        /// * `prev_value` - Oldest value dropped from the half-period WMA window.
+        /// * `prev_value2` - Oldest value dropped from the full-period WMA window.
+        /// * `multipliers` - Tuple `(sqrt_period, weights_sqrt, half_period_multipliers, full_period_multipliers)`.
+        ///
+        /// # Returns
+        ///
+        /// HMA values for all `N` lanes (zero until warm-up is complete).
+        #[inline(always)]
+        pub fn calc_simd(
+            &mut self,
+            value: Simd<f64, N>,
+            prev_value: Simd<f64, N>,
+            prev_value2: Simd<f64, N>,
+            multipliers: (
+                Simd<f64, N>,
+                Simd<f64, N>,
+                (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
+                (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
+            ),
+        ) -> Simd<f64, N> {
+            let (periodsqrt, weightssqrt, multiplier, multiplier2) = multipliers;
+    
+            let (wma, _) = self.state1.calc_simd(prev_value, value, multiplier);
+    
+            let (wma2, _) = self.state2.calc_simd(prev_value2, value, multiplier2);
+    
+            let diff = wma2.mul_add(F64Constants::TWO, -wma);
+            //weighted_sumsqrt += diff * periodsqrt;
+            self.weighted_sumsqrt = diff.mul_add(periodsqrt, self.weighted_sumsqrt);
+            self.sumsqrt += diff;
+    
+            self.prev_diff.push(diff);
+    
+            let mask = self.prev_diff.is_full();
+            let hma = mask.select(self.weighted_sumsqrt / weightssqrt, F64Constants::ZERO);
+            self.sumsqrt = mask.select(self.sumsqrt - self.prev_diff.front_unchecked(), self.sumsqrt);
+            self.weighted_sumsqrt -= self.sumsqrt;
+    
+            hma
+        }
+        /// Computes one bar of the HMA for `N` option lanes without buffer-fullness checks
+        /// (unsafe, unchecked variant — the ring buffer must be full before calling).
+        ///
+        /// # Safety
+        /// The internal `prev_diff` ring buffer must already be full; calling before warm-up
+        /// is complete will produce incorrect results or undefined behaviour.
+        #[inline(always)]
+        pub(crate) unsafe fn calc_unchecked_simd(
+            &mut self,
+            value: Simd<f64, N>,
+            prev_value: Simd<f64, N>,
+            prev_value2: Simd<f64, N>,
+            multipliers: (
+                Simd<f64, N>,
+                Simd<f64, N>,
+                (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
+                (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
+            ),
+        ) -> Simd<f64, N> {
+            let (periodsqrt, weightssqrt, multiplier, multiplier2) = multipliers;
+    
+            let (wma, _) = self.state1.calc_simd(prev_value, value, multiplier);
+    
+            let (wma2, _) = self.state2.calc_simd(prev_value2, value, multiplier2);
+    
+            let diff = wma2.mul_add(F64Constants::TWO, -wma);
+            //weighted_sumsqrt += diff * periodsqrt;
+            self.weighted_sumsqrt = diff.mul_add(periodsqrt, self.weighted_sumsqrt);
+            self.sumsqrt += diff;
+    
+            self.prev_diff.push_unchecked(diff);
+    
+            let hma = self.weighted_sumsqrt / weightssqrt;
+            self.weighted_sumsqrt -= self.sumsqrt;
+            self.sumsqrt -= self.prev_diff.front_unchecked();
+    
+            hma
+        }
     }
 
-    /// Computes one bar of the Hull Moving Average (HMA) for `N` option lanes simultaneously
-    /// using SIMD parallelism.
-    ///
-    /// Identical logic to the assets variant but uses a lock-free `UnsyncBuffer`.
-    /// Returns zero until the sqrt-period ring buffer is full.
-    ///
-    /// # Arguments
-    ///
-    /// * `state` - Mutable SIMD state.
-    /// * `value` - Current prices for this bar.
-    /// * `prev_value` - Oldest value dropped from the half-period WMA window.
-    /// * `prev_value2` - Oldest value dropped from the full-period WMA window.
-    /// * `multipliers` - Tuple `(sqrt_period, weights_sqrt, half_period_multipliers, full_period_multipliers)`.
-    ///
-    /// # Returns
-    ///
-    /// HMA values for all `N` lanes (zero until warm-up is complete).
-    #[inline(always)]
-    pub fn calc_simd<const N: usize>(
-        state: &mut SimdState<N>,
-        value: Simd<f64, N>,
-        prev_value: Simd<f64, N>,
-        prev_value2: Simd<f64, N>,
-        multipliers: (
-            Simd<f64, N>,
-            Simd<f64, N>,
-            (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-            (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-        ),
-    ) -> Simd<f64, N> {
-        let (periodsqrt, weightssqrt, multiplier, multiplier2) = multipliers;
-        let (mut weighted_sumsqrt, mut sumsqrt) = (state.weighted_sumsqrt, state.sumsqrt);
-
-        let (wma, _) = wma_calc_simd(&mut state.state1, prev_value, value, multiplier);
-
-        let (wma2, _) = wma_calc_simd(&mut state.state2, prev_value2, value, multiplier2);
-
-        let diff = wma2.mul_add(F64Constants::TWO, -wma);
-        //weighted_sumsqrt += diff * periodsqrt;
-        weighted_sumsqrt = diff.mul_add(periodsqrt, weighted_sumsqrt);
-        sumsqrt += diff;
-
-        let prev_diff = &mut state.prev_diff;
-        prev_diff.push(diff);
-
-        let mask = prev_diff.is_full();
-        let hma = mask.select(weighted_sumsqrt / weightssqrt, F64Constants::ZERO);
-        sumsqrt = mask.select(sumsqrt - prev_diff.front_unchecked(), sumsqrt);
-        weighted_sumsqrt -= sumsqrt;
-
-        (state.weighted_sumsqrt, state.sumsqrt) = (weighted_sumsqrt, sumsqrt);
-        hma
-    }
-    /// Computes one bar of the HMA for `N` option lanes without buffer-fullness checks
-    /// (unsafe, unchecked variant — the ring buffer must be full before calling).
-    ///
-    /// # Safety
-    /// The internal `prev_diff` ring buffer must already be full; calling before warm-up
-    /// is complete will produce incorrect results or undefined behaviour.
-    #[inline(always)]
-    pub(crate) unsafe fn calc_unchecked_simd<const N: usize>(
-        state: &mut SimdState<N>,
-        value: Simd<f64, N>,
-        prev_value: Simd<f64, N>,
-        prev_value2: Simd<f64, N>,
-        multipliers: (
-            Simd<f64, N>,
-            Simd<f64, N>,
-            (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-            (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-        ),
-    ) -> Simd<f64, N> {
-        let (periodsqrt, weightssqrt, multiplier, multiplier2) = multipliers;
-        let (mut weighted_sumsqrt, mut sumsqrt) = (state.weighted_sumsqrt, state.sumsqrt);
-
-        let (wma, _) = wma_calc_simd(&mut state.state1, prev_value, value, multiplier);
-
-        let (wma2, _) = wma_calc_simd(&mut state.state2, prev_value2, value, multiplier2);
-
-        let diff = wma2.mul_add(F64Constants::TWO, -wma);
-        //weighted_sumsqrt += diff * periodsqrt;
-        weighted_sumsqrt = diff.mul_add(periodsqrt, weighted_sumsqrt);
-        sumsqrt += diff;
-
-        let prev_diff = &mut state.prev_diff;
-        prev_diff.push_unchecked(diff);
-
-        let hma = weighted_sumsqrt / weightssqrt;
-        weighted_sumsqrt -= sumsqrt;
-        sumsqrt -= prev_diff.front_unchecked();
-        (state.weighted_sumsqrt, state.sumsqrt) = (weighted_sumsqrt, sumsqrt);
-
-        hma
-    }
+    
 }

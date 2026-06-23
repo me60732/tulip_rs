@@ -1,4 +1,4 @@
-use crate::common::{validate_inputs};
+use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::ema::{
     calc as ema_calc, multiplier as ema_multiplier, output_length as ema_output_length,
@@ -114,6 +114,14 @@ impl State {
             );
         }
         State::new(short_ema, long_ema)
+    }
+    #[inline(always)]
+    pub fn calc(&mut self, real: &f64, multipliers: ((f64, f64), (f64, f64))) -> f64 {
+        let (short_multiplier, long_multiplier) = multipliers;
+        self.short_ema = ema_calc(real, self.short_ema, short_multiplier);
+        self.long_ema = ema_calc(real, self.long_ema, long_multiplier);
+    
+        self.short_ema - self.long_ema
     }
 }
 /// Returns information about the Absolute Price Oscillator (APO) indicator.
@@ -275,7 +283,7 @@ fn cycle_apo(
         crate::calc_want_flags!(short_ema_line, long_ema_line);
 
     for i in 0..real.len() {
-        unsafe { *apo_line.get_unchecked_mut(i) = calc(state, real.get_unchecked(i), multipliers) };
+        unsafe { *apo_line.get_unchecked_mut(i) = state.calc(real.get_unchecked(i), multipliers) };
         if has_optional {
             crate::store_optional_outputs!(i,
                 want_short, short_ema_line => state.short_ema,
@@ -283,15 +291,6 @@ fn cycle_apo(
             );
         }
     }
-}
-
-#[inline(always)]
-pub fn calc(state: &mut State, real: &f64, multipliers: ((f64, f64), (f64, f64))) -> f64 {
-    let (short_multiplier, long_multiplier) = multipliers;
-    state.short_ema = ema_calc(real, state.short_ema, short_multiplier);
-    state.long_ema = ema_calc(real, state.long_ema, long_multiplier);
-
-    state.short_ema - state.long_ema
 }
 
 #[inline(always)]

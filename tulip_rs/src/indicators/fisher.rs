@@ -139,8 +139,52 @@ impl State {
             state.buffer.push(calc_medprice(high[i], low[i]));
             i += 1;
         }
-        (fisher_line[0], signal_line[0]) = calc::<1>(&mut state, high[i], low[i], period);
+        (fisher_line[0], signal_line[0]) = state.calc::<1>(high[i], low[i], period);
         state
+    }
+    #[inline(always)]
+    pub fn calc<const N: usize>(&mut self, high: f64, low: f64, period: usize) -> (f64, f64) {
+        let medprice = calc_medprice(high, low);
+    
+        //unsafe { state.buffer.push_unchecked(medprice); }
+        self.buffer.push(medprice);
+        let (min, _) = self
+            .buffer
+            .min::<N>(&mut self.min_state, medprice, period);
+        let (max, _) = self
+            .buffer
+            .max::<N>(&mut self.max_state, medprice, period);
+    
+        self.calc_fisher(min, max, medprice)
+    }
+    
+    #[inline(always)]
+    fn calc_fisher(&mut self, min: f64, max: f64, medprice: f64) -> (f64, f64) {
+        // Correctly named constants
+        const PRICE_WEIGHT: f64 = 0.66; // 0.33 * 2.0 - weight for new normalized price
+        const SMOOTH_WEIGHT: f64 = 0.67; // smoothing factor for exponential average
+        const MIN_MM: f64 = 0.001;
+    
+        let mut val1 = self.val1;
+        let mm = (max - min).max(MIN_MM);
+    
+        // Use mul_add for better precision
+        val1 = PRICE_WEIGHT.mul_add((medprice - min) / mm - 0.5, SMOOTH_WEIGHT * val1);
+    
+        // Clamp val1 to the range [-0.999, 0.999]
+        if val1 > 0.99 {
+            val1 = 0.999;
+        } else if val1 < -0.99 {
+            val1 = -0.999;
+        }
+        self.val1 = val1;
+    
+        let signal = self.fish;
+    
+        let ln_arg = (1.0 + val1) / (1.0 - val1);
+    
+        self.fish = 0.5 * (ln_arg.ln() + signal); //state.fish);
+        (self.fish, signal)
     }
 }
 
@@ -274,7 +318,7 @@ fn cycle_fisher<const N: usize>(
     let (high, low) = inputs;
     for i in 0..high.len() {
         let (h, l) = unsafe { (*high.get_unchecked(i), *low.get_unchecked(i)) };
-        let (fisher, signal) = calc::<N>(state, h, l, period);
+        let (fisher, signal) = state.calc::<N>(h, l, period);
         unsafe {
             *fisher_line.get_unchecked_mut(i) = fisher;
             *signal_line.get_unchecked_mut(i) = signal;
@@ -282,47 +326,4 @@ fn cycle_fisher<const N: usize>(
     }
 }
 
-#[inline(always)]
-pub fn calc<const N: usize>(state: &mut State, high: f64, low: f64, period: usize) -> (f64, f64) {
-    let medprice = calc_medprice(high, low);
 
-    //unsafe { state.buffer.push_unchecked(medprice); }
-    state.buffer.push(medprice);
-    let (min, _) = state
-        .buffer
-        .min::<N>(&mut state.min_state, medprice, period);
-    let (max, _) = state
-        .buffer
-        .max::<N>(&mut state.max_state, medprice, period);
-
-    calc_fisher(min, max, medprice, state)
-}
-
-#[inline(always)]
-fn calc_fisher(min: f64, max: f64, medprice: f64, state: &mut State) -> (f64, f64) {
-    // Correctly named constants
-    const PRICE_WEIGHT: f64 = 0.66; // 0.33 * 2.0 - weight for new normalized price
-    const SMOOTH_WEIGHT: f64 = 0.67; // smoothing factor for exponential average
-    const MIN_MM: f64 = 0.001;
-
-    let mut val1 = state.val1;
-    let mm = (max - min).max(MIN_MM);
-
-    // Use mul_add for better precision
-    val1 = PRICE_WEIGHT.mul_add((medprice - min) / mm - 0.5, SMOOTH_WEIGHT * val1);
-
-    // Clamp val1 to the range [-0.999, 0.999]
-    if val1 > 0.99 {
-        val1 = 0.999;
-    } else if val1 < -0.99 {
-        val1 = -0.999;
-    }
-    state.val1 = val1;
-
-    let signal = state.fish;
-
-    let ln_arg = (1.0 + val1) / (1.0 - val1);
-
-    state.fish = 0.5 * (ln_arg.ln() + signal); //state.fish);
-    (state.fish, signal)
-}

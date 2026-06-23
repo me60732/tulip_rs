@@ -1,6 +1,6 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::wma::{calc as calc_wma, multiplier as wma_multiplier, State as WMAState};
+use crate::indicators::wma::{multiplier as wma_multiplier, State as WMAState};
 use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
@@ -166,8 +166,7 @@ impl State {
         let multiplier = multiplier(period);
         let mut i = period;
         while !state.prev_diff.is_full() {
-            calc(
-                &mut state,
+            state.calc(
                 (&real[i - period], &real[i - period2]),
                 &real[i],
                 multiplier,
@@ -175,6 +174,81 @@ impl State {
             i += 1;
         }
         (i, state)
+    }
+    /// Calculates the Hull Moving Average (HMA) for the current data point.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - A mutable reference to the indicator state.
+    /// * `prev_values` - A tuple of references to the previous values needed for rolling WMA sums:
+    ///   `(prev_value_at_period, prev_value_at_half_period)`.
+    /// * `value` - A reference to the current input value.
+    /// * `multipliers` - The precomputed WMA multiplier tuple for both periods.
+    ///
+    /// # Returns
+    ///
+    /// The calculated HMA value.
+    #[inline]
+    pub fn calc(
+        &mut self,
+        prev_values: (&f64, &f64),
+        value: &f64,
+        multipliers: (f64, f64, (f64, f64, f64), (f64, f64, f64)),
+    ) -> f64 {
+        let (periodsqrt, weightssqrt, multiplier, multiplier2) = multipliers;
+        let (mut weighted_sumsqrt, mut sumsqrt) = (self.weighted_sumsqrt, self.sumsqrt);
+        let (prev_value, prev_value2) = prev_values;
+    
+        let (wma, _) = self.state1.calc(prev_value, value, multiplier);
+    
+        let (wma2, _) = self.state2.calc(prev_value2, value, multiplier2);
+    
+        let diff = 2.0 * wma2 - wma;
+        weighted_sumsqrt += diff * periodsqrt;
+        sumsqrt += diff;
+    
+        let prev_diff = &mut self.prev_diff;
+        prev_diff.push(diff);
+    
+        let mut hma = 0.0;
+        if prev_diff.is_full() {
+            hma = weighted_sumsqrt / weightssqrt;
+            weighted_sumsqrt -= sumsqrt;
+            sumsqrt -= unsafe { prev_diff.front_unchecked() };
+        } else {
+            weighted_sumsqrt -= sumsqrt;
+        }
+        (self.weighted_sumsqrt, self.sumsqrt) = (weighted_sumsqrt, sumsqrt);
+        hma
+    }
+    #[inline(always)]
+    pub(crate) unsafe fn calc_unchecked(
+        &mut self,
+        prev_values: (&f64, &f64),
+        value: &f64,
+        multipliers: (f64, f64, (f64, f64, f64), (f64, f64, f64)),
+    ) -> f64 {
+        let (periodsqrt, weightssqrt, multiplier, multiplier2) = multipliers;
+        let (mut weighted_sumsqrt, mut sumsqrt) = (self.weighted_sumsqrt, self.sumsqrt);
+        let (prev_value, prev_value2) = prev_values;
+    
+        let (wma, _) = self.state1.calc(prev_value, value, multiplier);
+    
+        let (wma2, _) = self.state2.calc(prev_value2, value, multiplier2);
+    
+        let diff = 2.0 * wma2 - wma;
+        weighted_sumsqrt += diff * periodsqrt;
+        sumsqrt += diff;
+    
+        let prev_diff = &mut self.prev_diff;
+        prev_diff.push_unchecked(diff);
+    
+        let hma = weighted_sumsqrt / weightssqrt;
+        weighted_sumsqrt -= sumsqrt;
+        sumsqrt -= prev_diff.front_unchecked();
+        (self.weighted_sumsqrt, self.sumsqrt) = (weighted_sumsqrt, sumsqrt);
+    
+        hma
     }
 }
 /// Returns the minimum amount of data required for the HMA indicator.
@@ -295,85 +369,9 @@ fn cycle_hma(
                     real.get_unchecked(i - period2),
                 ),
             );
-            *hma_line.get_unchecked_mut(j) = calc_unchecked(state, prev_values, value, multipliers);
+            *hma_line.get_unchecked_mut(j) = state.calc_unchecked(prev_values, value, multipliers);
         }
     }
-}
-
-/// Calculates the Hull Moving Average (HMA) for the current data point.
-///
-/// # Arguments
-///
-/// * `state` - A mutable reference to the indicator state.
-/// * `prev_values` - A tuple of references to the previous values needed for rolling WMA sums:
-///   `(prev_value_at_period, prev_value_at_half_period)`.
-/// * `value` - A reference to the current input value.
-/// * `multipliers` - The precomputed WMA multiplier tuple for both periods.
-///
-/// # Returns
-///
-/// The calculated HMA value.
-#[inline]
-pub fn calc(
-    state: &mut State,
-    prev_values: (&f64, &f64),
-    value: &f64,
-    multipliers: (f64, f64, (f64, f64, f64), (f64, f64, f64)),
-) -> f64 {
-    let (periodsqrt, weightssqrt, multiplier, multiplier2) = multipliers;
-    let (mut weighted_sumsqrt, mut sumsqrt) = (state.weighted_sumsqrt, state.sumsqrt);
-    let (prev_value, prev_value2) = prev_values;
-
-    let (wma, _) = calc_wma(&mut state.state1, prev_value, value, multiplier);
-
-    let (wma2, _) = calc_wma(&mut state.state2, prev_value2, value, multiplier2);
-
-    let diff = 2.0 * wma2 - wma;
-    weighted_sumsqrt += diff * periodsqrt;
-    sumsqrt += diff;
-
-    let prev_diff = &mut state.prev_diff;
-    prev_diff.push(diff);
-
-    let mut hma = 0.0;
-    if prev_diff.is_full() {
-        hma = weighted_sumsqrt / weightssqrt;
-        weighted_sumsqrt -= sumsqrt;
-        sumsqrt -= unsafe { prev_diff.front_unchecked() };
-    } else {
-        weighted_sumsqrt -= sumsqrt;
-    }
-    (state.weighted_sumsqrt, state.sumsqrt) = (weighted_sumsqrt, sumsqrt);
-    hma
-}
-#[inline(always)]
-pub(crate) unsafe fn calc_unchecked(
-    state: &mut State,
-    prev_values: (&f64, &f64),
-    value: &f64,
-    multipliers: (f64, f64, (f64, f64, f64), (f64, f64, f64)),
-) -> f64 {
-    let (periodsqrt, weightssqrt, multiplier, multiplier2) = multipliers;
-    let (mut weighted_sumsqrt, mut sumsqrt) = (state.weighted_sumsqrt, state.sumsqrt);
-    let (prev_value, prev_value2) = prev_values;
-
-    let (wma, _) = calc_wma(&mut state.state1, prev_value, value, multiplier);
-
-    let (wma2, _) = calc_wma(&mut state.state2, prev_value2, value, multiplier2);
-
-    let diff = 2.0 * wma2 - wma;
-    weighted_sumsqrt += diff * periodsqrt;
-    sumsqrt += diff;
-
-    let prev_diff = &mut state.prev_diff;
-    prev_diff.push_unchecked(diff);
-
-    let hma = weighted_sumsqrt / weightssqrt;
-    weighted_sumsqrt -= sumsqrt;
-    sumsqrt -= prev_diff.front_unchecked();
-    (state.weighted_sumsqrt, state.sumsqrt) = (weighted_sumsqrt, sumsqrt);
-
-    hma
 }
 
 /// Returns the precomputed WMA multipliers for the HMA calculation.

@@ -1,10 +1,10 @@
-use crate::common::{validate_inputs};
+use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::{
     sma::calc as sma_calc,
     stddev::{
-        calc as stddev_calc, multiplier as stddev_multiplier,
-        output_length as stddev_output_length, State as StddevState,
+        multiplier as stddev_multiplier,
+        output_length as stddev_output_length, State as StddevState
     },
 };
 use crate::types::{
@@ -203,8 +203,20 @@ impl State {
         );
         Self::new((sum_short, sum_sq_short), (sum_long, sum_sq_long), vidya)
     }
+    
+}
+pub trait Calc {
+    fn calc(
+        &mut self,
+        value: &f64,
+        prev_values: (&f64, &f64),
+        alpha: f64,
+        multipliers: (f64, f64),
+    ) -> (f64, f64, f64, f64, f64);
+}
+impl Calc for State {
     #[inline(always)]
-    pub fn calc(
+    fn calc(
         &mut self,
         value: &f64,
         prev_values: (&f64, &f64),
@@ -440,7 +452,7 @@ fn cycle(
             )
         };
         let (vidya, sma_short, sma_long, sd_short, sd_long) =
-            calc(state, value, prev_values, alpha, multipliers);
+            state.calc(value, prev_values, alpha, multipliers);
         unsafe { *vidya_line.get_unchecked_mut(j) = vidya };
 
         if has_optional {
@@ -454,46 +466,6 @@ fn cycle(
     }
 }
 
-/// Calculates a single bar of VIDYA, updating the rolling state in place.
-///
-/// # Arguments
-///
-/// * `state` - Mutable reference to the rolling `State` (short and long stddev states,
-///   previous VIDYA value).
-/// * `value` - The current input value.
-/// * `prev_values` - A tuple of previous values: `(prev_short, prev_long)`.
-/// * `alpha` - The smoothing constant.
-/// * `multipliers` - A tuple of `(short_multiplier, long_multiplier)` from `multiplier()`.
-///
-/// # Returns
-///
-/// A tuple of `(vidya, sma_short, sma_long, sd_short, sd_long)`.
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    value: &f64,
-    prev_values: (&f64, &f64),
-    alpha: f64,
-    multipliers: (f64, f64),
-) -> (f64, f64, f64, f64, f64) {
-    // Compute short-term STDDEV.
-    let (multiplier_short, multiplier_long) = multipliers;
-    let (prev_short, prev_long) = prev_values;
-
-    let (sd_short, sma_short) =
-        stddev_calc(&mut state.short_state, value, &prev_short, multiplier_short);
-
-    // Compute long-term STDDEV.
-    let (sd_long, sma_long) =
-        stddev_calc(&mut state.long_state, value, &prev_long, multiplier_long);
-
-    let mut k = sd_short / sd_long;
-    k *= alpha;
-
-    //state.prev_vidya = (value - state.prev_vidya) * k + state.prev_vidya;
-    state.prev_vidya = (value - state.prev_vidya).mul_add(k, state.prev_vidya);
-    (state.prev_vidya, sma_short, sma_long, sd_short, sd_long)
-}
 #[inline(always)]
 pub fn multiplier(short_period: usize, long_period: usize) -> (f64, f64) {
     (

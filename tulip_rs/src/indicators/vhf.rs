@@ -1,11 +1,7 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::max::{
-    calc as calc_max, calc_unchecked as calc_max_unchecked, State as MaxState, CHUNK_1, CHUNK_4
-};
-use crate::indicators::min::{
-    calc as calc_min, calc_unchecked as calc_min_unchecked, State as MinState,
-};
+use crate::indicators::max::{State as MaxState, CHUNK_1, CHUNK_4};
+use crate::indicators::min::State as MinState;
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
@@ -100,6 +96,62 @@ impl State {
             sum,
         }
     }
+    pub fn init_state(real: &[f64], period: usize, indicator_line: &mut [f64]) -> Self {
+        let mut state = State::new((real[0], period), (real[0], period), 0.0);
+    
+        for i in 1..=period {
+            state.sum += (real[i] - real[i - 1]).abs();
+        }
+        let (min, _) = state.min_state.calc(real, period, (period, period - 1));
+        let (max, _) = state.max_state.calc(real, period, (period, period - 1));
+        let vhf = (max - min) / state.sum.max(f64::EPSILON);
+        indicator_line[0] = vhf;
+        state
+    }
+    /// Calculates a single VHF value from the current state.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - A mutable reference to the current indicator state.
+    /// * `values` - A tuple `(value, prev_real, old_real, drop_real)` of price references used to update the rolling sum.
+    /// * `real` - The full input data slice (used for min/max lookups).
+    /// * `periods` - A tuple `(period, period - 1)` used for min/max window calculations.
+    /// * `i` - The current index in `real`.
+    ///
+    /// # Returns
+    ///
+    /// The current VHF value.
+    #[inline(always)]
+    pub fn calc(
+        &mut self,
+        values: (&f64, &f64, &f64, &f64),
+        real: &[f64],
+        periods: (usize, usize),
+        i: usize,
+    ) -> f64 {
+        let (value, prev_real, old_real, drop_real) = values;
+        self.sum += (value - prev_real).abs() - (old_real - drop_real).abs();
+    
+        let (min, _) = self.min_state.calc(real, i, periods);
+        let (max, _) = self.max_state.calc(real, i, periods);
+    
+        (max - min) / self.sum.max(f64::EPSILON)
+    }
+    #[inline(always)]
+    pub unsafe fn calc_unchecked<const N: usize>(
+        &mut self,
+        values: (&f64, &f64, &f64, &f64),
+        real: &[f64],
+        periods: (usize, usize),
+        i: usize,
+    ) -> f64 {
+        let (value, prev_real, old_real, drop_real) = values;
+        self.sum += (value - prev_real).abs() - (old_real - drop_real).abs();
+    
+        let (min, _) = self.min_state.calc_unchecked::<N>(real, i, periods);
+        let (max, _) = self.max_state.calc_unchecked::<N>(real, i, periods);
+        (max - min) / self.sum.max(f64::EPSILON)
+    }
 }
 /// Returns information about the Vertical Horizontal Filter (VHF) indicator.
 ///
@@ -189,7 +241,7 @@ pub fn indicator(
         crate::uninit_vec!(f64, capacity)
     };
 
-    let mut state = init_state(real, period, &mut vhf_line);
+    let mut state = State::init_state(real, period, &mut vhf_line);
 
     if CHUNK_1.contains(&period) {
         cycle::<1>(real, period, &mut state, &mut vhf_line[1..]);
@@ -202,18 +254,7 @@ pub fn indicator(
     Ok((vec![vhf_line], IndicatorState::new(state, real, period)))
 }
 
-pub fn init_state(real: &[f64], period: usize, indicator_line: &mut [f64]) -> State {
-    let mut state = State::new((real[0], period), (real[0], period), 0.0);
 
-    for i in 1..=period {
-        state.sum += (real[i] - real[i - 1]).abs();
-    }
-    let (min, _) = calc_min(&mut state.min_state, real, period, (period, period - 1));
-    let (max, _) = calc_max(&mut state.max_state, real, period, (period, period - 1));
-    let vhf = (max - min) / state.sum.max(f64::EPSILON);
-    indicator_line[0] = vhf;
-    state
-}
 /// Performs the main calculation loop for the VHF indicator.
 ///
 /// # Arguments
@@ -232,8 +273,7 @@ fn cycle<const N: usize>(
 
     for (j, i) in (period + 1..real.len()).enumerate() {
         unsafe {
-            *indicator_line.get_unchecked_mut(j) = calc_unchecked::<N>(
-                state,
+            *indicator_line.get_unchecked_mut(j) = state.calc_unchecked::<N>(
                 (
                     real.get_unchecked(i),
                     real.get_unchecked(i - 1),
@@ -247,47 +287,4 @@ fn cycle<const N: usize>(
         }
     }
 }
-/// Calculates a single VHF value from the current state.
-///
-/// # Arguments
-///
-/// * `state` - A mutable reference to the current indicator state.
-/// * `values` - A tuple `(value, prev_real, old_real, drop_real)` of price references used to update the rolling sum.
-/// * `real` - The full input data slice (used for min/max lookups).
-/// * `periods` - A tuple `(period, period - 1)` used for min/max window calculations.
-/// * `i` - The current index in `real`.
-///
-/// # Returns
-///
-/// The current VHF value.
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    values: (&f64, &f64, &f64, &f64),
-    real: &[f64],
-    periods: (usize, usize),
-    i: usize,
-) -> f64 {
-    let (value, prev_real, old_real, drop_real) = values;
-    state.sum += (value - prev_real).abs() - (old_real - drop_real).abs();
 
-    let (min, _) = calc_min(&mut state.min_state, real, i, periods);
-    let (max, _) = calc_max(&mut state.max_state, real, i, periods);
-
-    (max - min) / state.sum.max(f64::EPSILON)
-}
-#[inline(always)]
-pub unsafe fn calc_unchecked<const N: usize>(
-    state: &mut State,
-    values: (&f64, &f64, &f64, &f64),
-    real: &[f64],
-    periods: (usize, usize),
-    i: usize,
-) -> f64 {
-    let (value, prev_real, old_real, drop_real) = values;
-    state.sum += (value - prev_real).abs() - (old_real - drop_real).abs();
-
-    let (min, _) = calc_min_unchecked::<N>(&mut state.min_state, real, i, periods);
-    let (max, _) = calc_max_unchecked::<N>(&mut state.max_state, real, i, periods);
-    (max - min) / state.sum.max(f64::EPSILON)
-}

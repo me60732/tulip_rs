@@ -2,7 +2,7 @@
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::simd_indicators::vhf_simd::{assets::Calc, SimdState, CHUNK_1};
 use crate::indicators::vhf::{
-    init_state, min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
 use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
@@ -99,7 +99,7 @@ pub fn indicator_by_assets<const N: usize>(
             let capacity = output_length(len, options);
             crate::uninit_vec!(f64, capacity)
         };
-        let state = init_state(inputs[i][0], period, &mut vhf_line);
+        let state = State::init_state(inputs[i][0], period, &mut vhf_line);
 
         let mut output_buffer = vec![vhf_line];
 

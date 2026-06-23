@@ -156,6 +156,42 @@ impl State {
         }
         Self::new(weight_sum, lead_sum, trail_sum)
     }
+    /// Calculates the Triangular Moving Average (TRIMA) output for one iteration,
+    /// updating the rolling sums in place.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - A mutable reference to the rolling sums state (`weight_sum`, `lead_sum`, `trail_sum`).
+    /// * `real` - The current input value (e.g., current price).
+    /// * `lsi` - The value being removed from the lead sum.
+    /// * `tsi1` - The value being added to the trail sum.
+    /// * `tsi2` - The value being removed from the trail sum.
+    /// * `multiplier` - Normalization factor, typically `1.0 / denominator`.
+    ///
+    /// # Returns
+    ///
+    /// The current TRIMA value.
+    #[inline(always)]
+    pub fn calc(
+        &mut self,
+        real: &f64,
+        lsi: &f64,
+        tsi1: &f64,
+        tsi2: &f64,
+        multiplier: f64,
+    ) -> f64 {
+        let (mut weight_sum, mut lead_sum, mut trail_sum) =
+            (self.weight_sum, self.lead_sum, self.trail_sum);
+        weight_sum += real;
+        let trima = weight_sum * multiplier;
+        lead_sum += real;
+        weight_sum += lead_sum - trail_sum;
+        lead_sum -= lsi;
+        trail_sum += tsi1 - tsi2;
+    
+        (self.weight_sum, self.lead_sum, self.trail_sum) = (weight_sum, lead_sum, trail_sum);
+        trima
+    }
 }
 /// Returns the minimum amount of data required for the TRIMA indicator.
 ///
@@ -253,8 +289,7 @@ pub fn cycle_trima(
 
     for (j, i) in (period - 1..real.len()).enumerate() {
         unsafe {
-            *trima_line.get_unchecked_mut(j) = calc(
-                state,
+            *trima_line.get_unchecked_mut(j) = state.calc(
                 real.get_unchecked(i),
                 real.get_unchecked(lsi),
                 real.get_unchecked(tsi1),
@@ -266,42 +301,7 @@ pub fn cycle_trima(
         (lsi, tsi1) = (lsi + 1, tsi1 + 1);
     }
 }
-/// Calculates the Triangular Moving Average (TRIMA) output for one iteration,
-/// updating the rolling sums in place.
-///
-/// # Arguments
-///
-/// * `state` - A mutable reference to the rolling sums state (`weight_sum`, `lead_sum`, `trail_sum`).
-/// * `real` - The current input value (e.g., current price).
-/// * `lsi` - The value being removed from the lead sum.
-/// * `tsi1` - The value being added to the trail sum.
-/// * `tsi2` - The value being removed from the trail sum.
-/// * `multiplier` - Normalization factor, typically `1.0 / denominator`.
-///
-/// # Returns
-///
-/// The current TRIMA value.
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    real: &f64,
-    lsi: &f64,
-    tsi1: &f64,
-    tsi2: &f64,
-    multiplier: f64,
-) -> f64 {
-    let (mut weight_sum, mut lead_sum, mut trail_sum) =
-        (state.weight_sum, state.lead_sum, state.trail_sum);
-    weight_sum += real;
-    let trima = weight_sum * multiplier;
-    lead_sum += real;
-    weight_sum += lead_sum - trail_sum;
-    lead_sum -= lsi;
-    trail_sum += tsi1 - tsi2;
 
-    (state.weight_sum, state.lead_sum, state.trail_sum) = (weight_sum, lead_sum, trail_sum);
-    trima
-}
 /// Determines the 'lead' and 'trail' periods used for TRIMA calculations.
 ///
 /// A Triangular Moving Average splits its period roughly in half, so:

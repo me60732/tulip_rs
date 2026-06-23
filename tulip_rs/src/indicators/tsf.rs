@@ -1,6 +1,5 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::linreg::calc as calc_linreg;
 pub use crate::indicators::linreg::State;
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
@@ -232,7 +231,7 @@ fn cycle_tsf(
 
     for (j, i) in (period - 1..real.len()).enumerate() {
         let (prev_value, value) = unsafe { (*real.get_unchecked(j), *real.get_unchecked(i)) };
-        let (tsf, linreg, slope, intercept) = calc(state, prev_value, value, period);
+        let (tsf, linreg, slope, intercept) = Calc::calc(state, prev_value, value, period);
 
         unsafe { *tsf_line.get_unchecked_mut(j) = tsf };
 
@@ -246,24 +245,29 @@ fn cycle_tsf(
     }
 }
 
-/// Calculates the Time Series Forecast (TSF) for the current data point.
-///
-/// # Arguments
-///
-/// * `state` - A mutable reference to the current linear regression state.
-/// * `prev_value` - The oldest value leaving the rolling window.
-/// * `value` - The newest value entering the rolling window.
-/// * `period` - The period for the TSF calculation.
-///
-/// # Returns
-///
-/// A tuple `(tsf, linreg, slope, intercept)` containing the forecast value, linear regression
-/// value, slope, and intercept for the current data point.
-#[inline(always)]
-pub fn calc(state: &mut State, prev_value: f64, value: f64, period: usize) -> (f64, f64, f64, f64) {
-    let (linreg, slope, intercept);
-    (linreg, slope, intercept) = calc_linreg(state, prev_value, value, period);
-    //let tsf = intercept + slope * (period + 1) as f64;
-    let tsf = slope.mul_add((period + 1) as f64, intercept);
-    (tsf, linreg, slope, intercept)
+pub trait Calc {
+    fn calc(&mut self, prev_value: f64, value: f64, period: usize) -> (f64, f64, f64, f64);
+}
+impl Calc for State {
+    /// Calculates the Time Series Forecast (TSF) for the current data point.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - A mutable reference to the current linear regression state.
+    /// * `prev_value` - The oldest value leaving the rolling window.
+    /// * `value` - The newest value entering the rolling window.
+    /// * `period` - The period for the TSF calculation.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(tsf, linreg, slope, intercept)` containing the forecast value, linear regression
+    /// value, slope, and intercept for the current data point.
+    #[inline(always)]
+    fn calc(&mut self, prev_value: f64, value: f64, period: usize) -> (f64, f64, f64, f64) {
+        let (linreg, slope, intercept);
+        (linreg, slope, intercept) = State::calc(self, prev_value, value, period);
+        //let tsf = intercept + slope * (period + 1) as f64;
+        let tsf = slope.mul_add((period + 1) as f64, intercept);
+        (tsf, linreg, slope, intercept)
+    }
 }

@@ -1,7 +1,7 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 pub use crate::indicators::aroon::State;
-use crate::indicators::aroon::{calc as calc_aroon, calc_unchecked as calc_unchecked_aroon, CHUNK_1, CHUNK_4};
+use crate::indicators::aroon::{CHUNK_1, CHUNK_4, Calc as AroonCalc};
 pub use crate::indicators::aroon::{multiplier, OPTIONS_WIDTH};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
@@ -287,7 +287,7 @@ fn cycle<const N: usize>(
 
     for (j, i) in (period..high.len()).enumerate() {
         let (aroonosc, aroon_down, aroon_up) =
-            unsafe { calc_unchecked::<N>(state, inputs, i, period, multiplier) };
+            unsafe { Calc::calc_unchecked::<N>(state, inputs, i, period, multiplier) };
         unsafe { *aroonosc_line.get_unchecked_mut(j) = aroonosc };
 
         if has_optional {
@@ -298,27 +298,45 @@ fn cycle<const N: usize>(
         }
     }
 }
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    inputs: (&[f64], &[f64]),
-    i: usize,
-    period: usize,
-    multiplier: f64,
-) -> (f64, f64, f64) {
-    let (aroon_down, aroon_up) = calc_aroon(state, inputs, i, period, multiplier);
-
-    (aroon_up - aroon_down, aroon_down, aroon_up)
+pub trait Calc {
+    fn calc(
+        &mut self,
+        inputs: (&[f64], &[f64]),
+        i: usize,
+        period: usize,
+        multiplier: f64,
+    ) -> (f64, f64, f64);
+    unsafe fn calc_unchecked<const N: usize>(
+        &mut self,
+        inputs: (&[f64], &[f64]),
+        i: usize,
+        period: usize,
+        multiplier: f64,
+    ) -> (f64, f64, f64);
 }
-#[inline(always)]
-pub(crate) unsafe fn calc_unchecked<const N: usize>(
-    state: &mut State,
-    inputs: (&[f64], &[f64]),
-    i: usize,
-    period: usize,
-    multiplier: f64,
-) -> (f64, f64, f64) {
-    let (aroon_down, aroon_up) = calc_unchecked_aroon::<N>(state, inputs, i, period, multiplier);
-
-    (aroon_up - aroon_down, aroon_down, aroon_up)
+impl Calc for State {
+    #[inline(always)]
+    fn calc(
+        &mut self,
+        inputs: (&[f64], &[f64]),
+        i: usize,
+        period: usize,
+        multiplier: f64,
+    ) -> (f64, f64, f64) {
+        let (aroon_down, aroon_up) = AroonCalc::calc(self, inputs, i, period, multiplier);
+    
+        (aroon_up - aroon_down, aroon_down, aroon_up)
+    }
+    #[inline(always)]
+    unsafe fn calc_unchecked<const N: usize>(
+        &mut self,
+        inputs: (&[f64], &[f64]),
+        i: usize,
+        period: usize,
+        multiplier: f64,
+    ) -> (f64, f64, f64) {
+        let (aroon_down, aroon_up) = AroonCalc::calc_unchecked::<N>(self, inputs, i, period, multiplier);
+    
+        (aroon_up - aroon_down, aroon_down, aroon_up)
+    }
 }
