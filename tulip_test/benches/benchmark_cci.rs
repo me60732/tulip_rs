@@ -775,6 +775,77 @@ fn bench_rust_ta_cci(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_cci(c: &mut Criterion) {
+    use kand::ohlcv::cci;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("cci");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let high: Vec<f64> = stock_data.iter().map(|d| d.high).collect();
+            let low: Vec<f64> = stock_data.iter().map(|d| d.low).collect();
+            let close: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+            let n = close.len();
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut out_cci = vec![0.0_f64; n];
+                        let mut out_tp = vec![0.0_f64; n];
+                        let mut out_sma = vec![0.0_f64; n];
+                        let mut out_md = vec![0.0_f64; n];
+                        cci::cci(
+                            &high,
+                            &low,
+                            &close,
+                            period,
+                            &mut out_cci,
+                            &mut out_tp,
+                            &mut out_sma,
+                            &mut out_md,
+                        )
+                        .unwrap();
+                        black_box(&out_cci);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("cci", "RustKanda", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+        let n = close_vec.len();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("cci_kand");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("Kand CCI {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut out_cci = vec![0.0_f64; n];
+                    let mut out_tp = vec![0.0_f64; n];
+                    let mut out_tp_sma = vec![0.0_f64; n];
+                    let mut out_mean_dev = vec![0.0_f64; n];
+                    cci::cci(
+                        &high_vec,
+                        &low_vec,
+                        &close_vec,
+                        period,
+                        &mut out_cci,
+                        &mut out_tp,
+                        &mut out_tp_sma,
+                        &mut out_mean_dev,
+                    )
+                    .unwrap();
+                    black_box(out_cci);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -786,6 +857,7 @@ criterion_group!(
     bench_talib_cci,
     bench_rust_cci_from_state,
     bench_rust_cci_optional,
+    bench_kand_cci,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -798,5 +870,6 @@ criterion_group!(
     bench_c_cci,
     bench_rust_cci_from_state,
     bench_rust_cci_optional,
+    bench_kand_cci,
 );
 criterion_main!(benches);

@@ -319,10 +319,8 @@ fn bench_rust_roc_from_state(c: &mut Criterion) {
                 let (_, mut state) =
                     indicator(&new_inputs, &options, None).expect("Rust ROC indicator failed");
 
-                let mut group = c.benchmark_group(format!(
-                    "Rust ROC from state 1 bar {{ {:.1} }}",
-                    options[0]
-                ));
+                let mut group =
+                    c.benchmark_group(format!("Rust ROC from state 1 bar {{ {:.1} }}", options[0]));
                 group.sample_size(SAMPLE_SIZE);
                 group.bench_function("benchmark", |b| {
                     b.iter(|| {
@@ -667,6 +665,51 @@ fn bench_rust_ta_roc(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_roc(c: &mut Criterion) {
+    use kand::ohlcv::roc;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("roc");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut output = vec![0.0_f64; n];
+                        roc::roc(&close, period, &mut output).unwrap();
+                        black_box(&output);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("roc", "RustKanda", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        let n = close_vec.len();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("roc_kand");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("Kand ROC {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut output = vec![0.0_f64; n];
+                    roc::roc(&close_vec, period, &mut output).unwrap();
+                    black_box(output);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -678,7 +721,7 @@ criterion_group!(
     bench_talib_roc,
     bench_rust_roc_from_state,
     bench_rust_roc_optional,
-   
+    bench_kand_roc,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -691,5 +734,6 @@ criterion_group!(
     bench_c_roc,
     bench_rust_roc_from_state,
     bench_rust_roc_optional,
+    bench_kand_roc,
 );
 criterion_main!(benches);

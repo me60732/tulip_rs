@@ -88,10 +88,8 @@ fn bench_c_psar(c: &mut Criterion) {
             let start_index = unsafe { ti_psar_start(options.as_ptr()) };
             let output_len = high_vec.len() - (start_index as usize);
 
-            let mut group = c.benchmark_group(format!(
-                "C PSAR {{ {:.2}, {:.1} }}",
-                options[0], options[1]
-            ));
+            let mut group =
+                c.benchmark_group(format!("C PSAR {{ {:.2}, {:.1} }}", options[0], options[1]));
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(
                 format!("C PSAR {{ {:.2}, {:.1} }}", options[0], options[1]),
@@ -565,6 +563,90 @@ fn bench_rust_psar_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_psar(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("psar");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low) = get_hl_arrays(stock_data);
+            let n = high.len();
+
+            for options in OPTIONS_LIST {
+                let acceleration = options[0] as f64;
+                let maximum = options[1] as f64;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut out_sar = vec![0.0_f64; n];
+                        let mut out_is_long = vec![false; n];
+                        let mut out_af = vec![0.0_f64; n];
+                        let mut out_ep = vec![0.0_f64; n];
+                        kand::ohlcv::sar::sar(
+                            &high,
+                            &low,
+                            acceleration,
+                            maximum,
+                            &mut out_sar,
+                            &mut out_is_long,
+                            &mut out_af,
+                            &mut out_ep,
+                        )
+                        .expect("kand PSAR failed");
+                        black_box(&out_sar);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result(
+                    "psar",
+                    "RustKanda",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let (high_vec, low_vec) = expand_inputs();
+        let n = high_vec.len();
+
+        for options in OPTIONS_LIST {
+            let acceleration = options[0] as f64;
+            let maximum = options[1] as f64;
+            let mut group = c.benchmark_group("psar_kand");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!("kand PSAR {{ {}/{} }}", options[0], options[1]),
+                |b| {
+                    b.iter(|| {
+                        let mut out_sar = vec![0.0f64; n];
+                        let mut out_is_long = vec![false; n];
+                        let mut out_af = vec![0.0f64; n];
+                        let mut out_ep = vec![0.0f64; n];
+                        kand::ohlcv::sar::sar(
+                            &high_vec,
+                            &low_vec,
+                            acceleration,
+                            maximum,
+                            &mut out_sar,
+                            &mut out_is_long,
+                            &mut out_af,
+                            &mut out_ep,
+                        )
+                        .expect("kand PSAR failed");
+                        black_box(&out_sar);
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     psar_benchmarks,
@@ -574,6 +656,7 @@ criterion_group!(
     bench_c_psar,
     bench_talib_psar,
     bench_rust_psar_from_state,
+    bench_kand_psar,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -584,5 +667,6 @@ criterion_group!(
     bench_rust_psar,
     bench_c_psar,
     bench_rust_psar_from_state,
+    bench_kand_psar,
 );
 criterion_main!(psar_benchmarks);

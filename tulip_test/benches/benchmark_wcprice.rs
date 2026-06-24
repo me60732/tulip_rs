@@ -471,11 +471,55 @@ fn bench_rust_wcprice_simd_by_assets(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_wcprice(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("wcprice");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_hlc_arrays(stock_data);
+            let n = high.len();
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let mut output = vec![0.0_f64; n];
+                    kand::ohlcv::wclprice::wclprice(&high, &low, &close, &mut output).unwrap();
+                    black_box(&output);
+                },
+                SAMPLE_SIZE,
+            );
+            log_timing_result(
+                "wcprice",
+                "RustKanda",
+                &OPTIONS,
+                n,
+                &timing,
+                Some(stock_symbol),
+            );
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+        let n = high_vec.len();
+        let mut group = c.benchmark_group("wcprice_kand");
+        group.sample_size(SAMPLE_SIZE);
+        group.bench_function("kand WCPRICE", |b| {
+            b.iter(|| {
+                let mut output = vec![0.0_f64; n];
+                kand::ohlcv::wclprice::wclprice(&high_vec, &low_vec, &close_vec, &mut output)
+                    .expect("kand WCPRICE failed");
+                black_box(&output);
+            });
+        });
+        group.finish();
+    }
+}
+
 criterion_group!(
     benches,
     bench_rust_wcprice_simd_by_assets,
     bench_rust_wcprice,
     bench_c_wcprice,
     bench_rust_wcprice_from_state,
+    bench_kand_wcprice,
 );
 criterion_main!(benches);

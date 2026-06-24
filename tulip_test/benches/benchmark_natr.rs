@@ -682,6 +682,64 @@ fn bench_rust_natr_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_natr(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("natr");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let high_vec: Vec<f64> = stock_data.iter().map(|d| d.high).collect();
+            let low_vec: Vec<f64> = stock_data.iter().map(|d| d.low).collect();
+            let close_vec: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+            let n = high_vec.len();
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut output = vec![0.0_f64; n];
+                        kand::ohlcv::natr::natr(
+                            &high_vec,
+                            &low_vec,
+                            &close_vec,
+                            period,
+                            &mut output,
+                        )
+                        .unwrap();
+                        black_box(&output);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "natr",
+                    "RustKanda",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+        let n = high_vec.len();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("natr_kand");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("kand NATR {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut output = vec![0.0_f64; n];
+                    kand::ohlcv::natr::natr(&high_vec, &low_vec, &close_vec, period, &mut output)
+                        .expect("kand NATR failed");
+                    black_box(&output);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -692,6 +750,7 @@ criterion_group!(
     bench_talib_natr,
     bench_rust_natr_from_state,
     bench_rust_natr_optional,
+    bench_kand_natr,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -703,5 +762,6 @@ criterion_group!(
     bench_c_natr,
     bench_rust_natr_from_state,
     bench_rust_natr_optional,
+    bench_kand_natr,
 );
 criterion_main!(benches);

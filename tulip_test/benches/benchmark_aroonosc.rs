@@ -617,6 +617,87 @@ fn bench_rust_aroonosc_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_aroonosc(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("aroonosc");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low) = get_hl_arrays(stock_data);
+            let n = high.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut out_osc = vec![0.0_f64; n];
+                        let mut out_prev_high = vec![0.0_f64; n];
+                        let mut out_prev_low = vec![0.0_f64; n];
+                        let mut out_days_high = vec![0usize; n];
+                        let mut out_days_low = vec![0usize; n];
+                        kand::ohlcv::aroonosc::aroonosc(
+                            &high,
+                            &low,
+                            period,
+                            &mut out_osc,
+                            &mut out_prev_high,
+                            &mut out_prev_low,
+                            &mut out_days_high,
+                            &mut out_days_low,
+                        )
+                        .expect("kand AROONOSC failed");
+                        black_box(&out_osc);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result(
+                    "aroonosc",
+                    "RustKanda",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let (high_vec, low_vec) = expand_inputs();
+        let n = high_vec.len();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("aroonosc_kand");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("kand AROONOSC {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut out_osc = vec![0.0f64; n];
+                    let mut out_prev_high = vec![0.0f64; n];
+                    let mut out_prev_low = vec![0.0f64; n];
+                    let mut out_days_high = vec![0usize; n];
+                    let mut out_days_low = vec![0usize; n];
+                    kand::ohlcv::aroonosc::aroonosc(
+                        &high_vec,
+                        &low_vec,
+                        period,
+                        &mut out_osc,
+                        &mut out_prev_high,
+                        &mut out_prev_low,
+                        &mut out_days_high,
+                        &mut out_days_low,
+                    )
+                    .expect("kand AROONOSC failed");
+                    black_box(&out_osc);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -627,6 +708,7 @@ criterion_group!(
     bench_talib_aroonosc,
     bench_rust_aroonosc_optional,
     bench_rust_aroonosc_from_state,
+    bench_kand_aroonosc,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -638,5 +720,6 @@ criterion_group!(
     bench_c_aroonosc,
     bench_rust_aroonosc_optional,
     bench_rust_aroonosc_from_state,
+    bench_kand_aroonosc,
 );
 criterion_main!(benches);

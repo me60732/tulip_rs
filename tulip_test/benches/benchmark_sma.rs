@@ -544,6 +544,51 @@ fn bench_rust_ta_sma(c: &mut Criterion) {
 
 //REPLACE WITH TEST FUNCTIONS
 
+fn bench_kand_sma(c: &mut Criterion) {
+    use kand::ohlcv::sma;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("sma");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close_vec: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+            let n = close_vec.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut output = vec![0.0_f64; n];
+                        sma::sma(&close_vec, period, &mut output).unwrap();
+                        black_box(&output);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("sma", "RustKanda", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        let n = close_vec.len();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("sma_kand");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("Kand SMA {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut output = vec![0.0_f64; n];
+                    sma::sma(&close_vec, period, &mut output).unwrap();
+                    black_box(output);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -554,6 +599,7 @@ criterion_group!(
     bench_c_sma,
     bench_rust_sma_from_state,
     bench_talib_sma,
+    bench_kand_sma,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -565,5 +611,6 @@ criterion_group!(
     bench_rust_ta_sma,
     bench_c_sma,
     bench_rust_sma_from_state,
+    bench_kand_sma,
 );
 criterion_main!(benches);

@@ -549,6 +549,73 @@ fn bench_rust_trix_optional(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_trix(c: &mut Criterion) {
+    use kand::ohlcv::trix;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("trix");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut output = vec![0.0_f64; n];
+                        let mut ema1 = vec![0.0_f64; n];
+                        let mut ema2 = vec![0.0_f64; n];
+                        let mut ema3 = vec![0.0_f64; n];
+                        trix::trix(&close, period, &mut output, &mut ema1, &mut ema2, &mut ema3)
+                            .unwrap();
+                        black_box(&output);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "trix",
+                    "RustKanda",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        let n = close_vec.len();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("trix_kand");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("Kand TRIX {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut output = vec![0.0_f64; n];
+                    let mut ema1_output = vec![0.0_f64; n];
+                    let mut ema2_output = vec![0.0_f64; n];
+                    let mut ema3_output = vec![0.0_f64; n];
+                    trix::trix(
+                        &close_vec,
+                        period,
+                        &mut output,
+                        &mut ema1_output,
+                        &mut ema2_output,
+                        &mut ema3_output,
+                    )
+                    .unwrap();
+                    black_box(output);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     benches,
     bench_rust_trix_simd_by_options,
@@ -557,5 +624,6 @@ criterion_group!(
     bench_c_trix,
     bench_rust_trix_from_state,
     bench_rust_trix_optional,
+    bench_kand_trix,
 );
 criterion_main!(benches);

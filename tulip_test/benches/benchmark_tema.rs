@@ -607,6 +607,80 @@ fn bench_talib_tema(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_tema(c: &mut Criterion) {
+    use kand::ohlcv::tema;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("tema");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut out_tema = vec![0.0_f64; n];
+                        let mut out_ema1 = vec![0.0_f64; n];
+                        let mut out_ema2 = vec![0.0_f64; n];
+                        let mut out_ema3 = vec![0.0_f64; n];
+                        tema::tema(
+                            &close,
+                            period,
+                            &mut out_tema,
+                            &mut out_ema1,
+                            &mut out_ema2,
+                            &mut out_ema3,
+                        )
+                        .unwrap();
+                        black_box(&out_tema);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "tema",
+                    "RustKanda",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        let n = close_vec.len();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("tema_kand");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("Kand TEMA {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut output_tema = vec![0.0_f64; n];
+                    let mut output_ema1 = vec![0.0_f64; n];
+                    let mut output_ema2 = vec![0.0_f64; n];
+                    let mut output_ema3 = vec![0.0_f64; n];
+                    tema::tema(
+                        &close_vec,
+                        period,
+                        &mut output_tema,
+                        &mut output_ema1,
+                        &mut output_ema2,
+                        &mut output_ema3,
+                    )
+                    .unwrap();
+                    black_box(output_tema);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -617,6 +691,7 @@ criterion_group!(
     bench_talib_tema,
     bench_rust_tema_optional,
     bench_rust_tema_from_state,
+    bench_kand_tema,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -628,5 +703,6 @@ criterion_group!(
     bench_c_tema,
     bench_rust_tema_optional,
     bench_rust_tema_from_state,
+    bench_kand_tema,
 );
 criterion_main!(benches);

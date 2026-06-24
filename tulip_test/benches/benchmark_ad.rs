@@ -602,6 +602,46 @@ fn bench_rust_ad_simd_by_assets(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_ad(c: &mut Criterion) {
+    use kand::ohlcv::ad;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("ad");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let high: Vec<f64> = stock_data.iter().map(|d| d.high).collect();
+            let low: Vec<f64> = stock_data.iter().map(|d| d.low).collect();
+            let close: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+            let volume: Vec<f64> = stock_data.iter().map(|d| d.volume).collect();
+            let n = close.len();
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let mut output = vec![0.0_f64; n];
+                    ad::ad(&high, &low, &close, &volume, &mut output).unwrap();
+                    black_box(&output);
+                },
+                SAMPLE_SIZE,
+            );
+            log_timing_result("ad", "RustKanda", &OPTIONS, n, &timing, Some(stock_symbol));
+        }
+    } else {
+        let (high_vec, low_vec, close_vec, volume_vec) = expand_inputs();
+        let n = close_vec.len();
+        let mut group = c.benchmark_group("ad_kand");
+        group.sample_size(SAMPLE_SIZE);
+        group.bench_function("Kand AD", |b| {
+            b.iter(|| {
+                let mut output = vec![0.0_f64; n];
+                ad::ad(&high_vec, &low_vec, &close_vec, &volume_vec, &mut output).unwrap();
+                black_box(output);
+            });
+        });
+        group.finish();
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -610,6 +650,7 @@ criterion_group!(
     bench_c_ad,
     bench_talib_ad,
     bench_rust_ad_from_state,
+    bench_kand_ad,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -619,5 +660,6 @@ criterion_group!(
     bench_rust_ad,
     bench_c_ad,
     bench_rust_ad_from_state,
+    bench_kand_ad,
 );
 criterion_main!(benches);

@@ -526,7 +526,7 @@ fn bench_rust_ta_tr(c: &mut Criterion) {
             let low: Vec<f64> = stock_data.iter().map(|d| d.low).collect();
             let close: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
             let open: Vec<f64> = stock_data.iter().map(|d| d.open).collect();
-            
+
             let n = close.len();
 
             let mut timing = TimingMeasurements::new();
@@ -535,14 +535,15 @@ fn bench_rust_ta_tr(c: &mut Criterion) {
                     let mut tr = TrueRange::new();
                     let mut last = 0.0_f64;
                     for i in 0..high.len() {
-                        let item = unsafe { DataItem::builder()
-                            .high(*high.get_unchecked(i))
-                            .low(*low.get_unchecked(i))
-                            .close(*close.get_unchecked(i))
-                            .open(*open.get_unchecked(i))
-                            .volume(1000.0)
-                            .build()
-                            .expect("DataItem build failed")
+                        let item = unsafe {
+                            DataItem::builder()
+                                .high(*high.get_unchecked(i))
+                                .low(*low.get_unchecked(i))
+                                .close(*close.get_unchecked(i))
+                                .open(*open.get_unchecked(i))
+                                .volume(1000.0)
+                                .build()
+                                .expect("DataItem build failed")
                         };
                         last = tr.next(&item);
                     }
@@ -582,6 +583,45 @@ fn bench_rust_ta_tr(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_tr(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("tr");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let high_vec: Vec<f64> = stock_data.iter().map(|d| d.high).collect();
+            let low_vec: Vec<f64> = stock_data.iter().map(|d| d.low).collect();
+            let close_vec: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+            let n = high_vec.len();
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let mut output = vec![0.0_f64; n];
+                    kand::ohlcv::trange::trange(&high_vec, &low_vec, &close_vec, &mut output)
+                        .unwrap();
+                    black_box(&output);
+                },
+                SAMPLE_SIZE,
+            );
+            log_timing_result("tr", "RustKanda", &OPTIONS, n, &timing, Some(stock_symbol));
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+        let n = high_vec.len();
+        let mut group = c.benchmark_group("tr_kand");
+        group.sample_size(SAMPLE_SIZE);
+        group.bench_function("kand TR", |b| {
+            b.iter(|| {
+                let mut output = vec![0.0_f64; n];
+                kand::ohlcv::trange::trange(&high_vec, &low_vec, &close_vec, &mut output)
+                    .expect("kand TR failed");
+                black_box(&output);
+            });
+        });
+        group.finish();
+    }
+}
+
 //#[cfg(feature = "nightly")]
 #[cfg(feature = "talib")]
 criterion_group!(
@@ -592,6 +632,7 @@ criterion_group!(
     bench_c_tr,
     bench_talib_tr,
     bench_rust_tr_from_state,
+    bench_kand_tr,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -602,6 +643,7 @@ criterion_group!(
     bench_c_tr,
     bench_rust_tr_from_state,
     bench_rust_ta_tr,
+    bench_kand_tr,
 );
 
 criterion_main!(benches);

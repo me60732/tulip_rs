@@ -605,6 +605,70 @@ fn bench_rust_dema_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_dema(c: &mut Criterion) {
+    use kand::ohlcv::dema;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("dema");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut out_dema = vec![0.0_f64; n];
+                        let mut out_ema1 = vec![0.0_f64; n];
+                        let mut out_ema2 = vec![0.0_f64; n];
+                        dema::dema(&close, period, &mut out_dema, &mut out_ema1, &mut out_ema2)
+                            .unwrap();
+                        black_box(&out_dema);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "dema",
+                    "RustKanda",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        let n = close_vec.len();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("dema_kand");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("Kand DEMA {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut output_dema = vec![0.0_f64; n];
+                    let mut output_ema1 = vec![0.0_f64; n];
+                    let mut output_ema2 = vec![0.0_f64; n];
+                    dema::dema(
+                        &close_vec,
+                        period,
+                        &mut output_dema,
+                        &mut output_ema1,
+                        &mut output_ema2,
+                    )
+                    .unwrap();
+                    black_box(output_dema);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -615,6 +679,7 @@ criterion_group!(
     bench_talib_dema,
     bench_rust_dema_optional,
     bench_rust_dema_from_state,
+    bench_kand_dema,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -626,5 +691,6 @@ criterion_group!(
     bench_c_dema,
     bench_rust_dema_optional,
     bench_rust_dema_from_state,
+    bench_kand_dema,
 );
 criterion_main!(benches);

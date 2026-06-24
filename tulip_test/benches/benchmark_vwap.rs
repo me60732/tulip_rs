@@ -416,10 +416,80 @@ fn bench_rust_vwap_simd_by_assets(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_vwap(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("vwap");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close, volume) = eod_data_to_arrays(stock_data);
+            let n = high.len();
+
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let mut out_vwap = vec![0.0_f64; n];
+                    let mut out_cum_pv = vec![0.0_f64; n];
+                    let mut out_cum_vol = vec![0.0_f64; n];
+                    kand::ohlcv::vwap::vwap(
+                        &high,
+                        &low,
+                        &close,
+                        &volume,
+                        &mut out_vwap,
+                        &mut out_cum_pv,
+                        &mut out_cum_vol,
+                    )
+                    .expect("kand VWAP failed");
+                    black_box(&out_vwap);
+                },
+                SAMPLE_SIZE,
+            );
+
+            log_timing_result(
+                "vwap",
+                "RustKanda",
+                &OPTIONS,
+                n,
+                &timing,
+                Some(stock_symbol),
+            );
+        }
+    } else {
+        let (high_vec, low_vec, close_vec, volume_vec) = expand_inputs();
+        let n = high_vec.len();
+
+        let mut group = c.benchmark_group("vwap_kand");
+        group.sample_size(SAMPLE_SIZE);
+        group.bench_function("kand VWAP", |b| {
+            b.iter(|| {
+                let mut out_vwap = vec![0.0f64; n];
+                let mut out_cum_pv = vec![0.0f64; n];
+                let mut out_cum_vol = vec![0.0f64; n];
+                kand::ohlcv::vwap::vwap(
+                    &high_vec,
+                    &low_vec,
+                    &close_vec,
+                    &volume_vec,
+                    &mut out_vwap,
+                    &mut out_cum_pv,
+                    &mut out_cum_vol,
+                )
+                .expect("kand VWAP failed");
+                black_box(&out_vwap);
+            });
+        });
+        group.finish();
+    }
+}
+
 criterion_group!(
     benches,
     bench_rust_vwap_simd_by_assets,
     bench_rust_vwap,
     bench_rust_vwap_from_state,
+    bench_kand_vwap,
 );
 criterion_main!(benches);

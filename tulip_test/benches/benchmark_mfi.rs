@@ -409,10 +409,8 @@ fn bench_rust_mfi_from_state(c: &mut Criterion) {
                 let (_, mut state) =
                     indicator(&new_inputs, &options, None).expect("Rust MFI indicator failed");
 
-                let mut group = c.benchmark_group(format!(
-                    "Rust MFI from state 1 bar {{ {:.1} }}",
-                    options[0]
-                ));
+                let mut group =
+                    c.benchmark_group(format!("Rust MFI from state 1 bar {{ {:.1} }}", options[0]));
                 group.sample_size(SAMPLE_SIZE);
                 group.bench_function("benchmark", |b| {
                     b.iter(|| {
@@ -815,6 +813,84 @@ fn bench_rust_ta_mfi(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_mfi(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("mfi");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close, volume) = get_hlcv_arrays(stock_data);
+            let n = high.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut out_mfi = vec![0.0_f64; n];
+                        let mut out_typ = vec![0.0_f64; n];
+                        let mut out_flows = vec![0.0_f64; n];
+                        let mut out_pos = vec![0.0_f64; n];
+                        let mut out_neg = vec![0.0_f64; n];
+                        kand::ohlcv::mfi::mfi(
+                            &high,
+                            &low,
+                            &close,
+                            &volume,
+                            period,
+                            &mut out_mfi,
+                            &mut out_typ,
+                            &mut out_flows,
+                            &mut out_pos,
+                            &mut out_neg,
+                        )
+                        .expect("kand MFI failed");
+                        black_box(&out_mfi);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result("mfi", "RustKanda", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec, volume_vec) = expand_inputs();
+        let n = high_vec.len();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("mfi_kand");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("kand MFI {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut out_mfi = vec![0.0f64; n];
+                    let mut out_typ = vec![0.0f64; n];
+                    let mut out_flows = vec![0.0f64; n];
+                    let mut out_pos = vec![0.0f64; n];
+                    let mut out_neg = vec![0.0f64; n];
+                    kand::ohlcv::mfi::mfi(
+                        &high_vec,
+                        &low_vec,
+                        &close_vec,
+                        &volume_vec,
+                        period,
+                        &mut out_mfi,
+                        &mut out_typ,
+                        &mut out_flows,
+                        &mut out_pos,
+                        &mut out_neg,
+                    )
+                    .expect("kand MFI failed");
+                    black_box(&out_mfi);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -826,6 +902,7 @@ criterion_group!(
     bench_talib_mfi,
     bench_rust_mfi_from_state,
     bench_rust_mfi_optional,
+    bench_kand_mfi,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -838,5 +915,6 @@ criterion_group!(
     bench_c_mfi,
     bench_rust_mfi_from_state,
     bench_rust_mfi_optional,
+    bench_kand_mfi,
 );
 criterion_main!(benches);

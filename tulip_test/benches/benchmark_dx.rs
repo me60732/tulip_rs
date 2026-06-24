@@ -570,6 +570,73 @@ fn bench_rust_dx_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_dx(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("dx");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_hlc_arrays(stock_data);
+            let n = high.len();
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut out_dx = vec![0.0_f64; n];
+                        let mut out_pdm = vec![0.0_f64; n];
+                        let mut out_mdm = vec![0.0_f64; n];
+                        let mut out_tr = vec![0.0_f64; n];
+                        kand::ohlcv::dx::dx(
+                            &high,
+                            &low,
+                            &close,
+                            period,
+                            &mut out_dx,
+                            &mut out_pdm,
+                            &mut out_mdm,
+                            &mut out_tr,
+                        )
+                        .unwrap();
+                        black_box(&out_dx);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("dx", "RustKanda", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+        let n = high_vec.len();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("dx_kand");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("kand DX {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut out_dx = vec![0.0_f64; n];
+                    let mut out_plus_dm = vec![0.0_f64; n];
+                    let mut out_minus_dm = vec![0.0_f64; n];
+                    let mut out_tr = vec![0.0_f64; n];
+                    kand::ohlcv::dx::dx(
+                        &high_vec,
+                        &low_vec,
+                        &close_vec,
+                        period,
+                        &mut out_dx,
+                        &mut out_plus_dm,
+                        &mut out_minus_dm,
+                        &mut out_tr,
+                    )
+                    .expect("kand DX failed");
+                    black_box((&out_dx, &out_plus_dm, &out_minus_dm, &out_tr));
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     dx_benchmarks,
     bench_rust_dx_simd_by_assets,
@@ -577,6 +644,7 @@ criterion_group!(
     bench_rust_dx,
     bench_c_dx,
     bench_rust_dx_from_state,
-    bench_rust_dx_optional
+    bench_rust_dx_optional,
+    bench_kand_dx,
 );
 criterion_main!(dx_benchmarks);

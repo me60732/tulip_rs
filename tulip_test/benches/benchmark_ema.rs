@@ -595,16 +595,63 @@ fn bench_rust_ta_ema(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_ema(c: &mut Criterion) {
+    use kand::ohlcv::ema;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("ema");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut output = vec![0.0_f64; n];
+                        ema::ema(&close, period, None, &mut output).unwrap();
+                        black_box(&output);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("ema", "RustKanda", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        let n = close_vec.len();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("ema_kand");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("Kand EMA {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut output = vec![0.0_f64; n];
+                    ema::ema(&close_vec, period, None, &mut output).unwrap();
+                    black_box(output);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
     bench_rust_ema_simd_by_options,
     bench_rust_ema_simd_by_assets,
     bench_rust_ema,
+    bench_kand_ema,
     bench_rust_ta_ema,
     bench_c_ema,
     bench_rust_ema_from_state,
     bench_talib_ema,
+    
 );
 
 #[cfg(not(feature = "talib"))]
@@ -616,5 +663,6 @@ criterion_group!(
     bench_rust_ta_ema,
     bench_c_ema,
     bench_rust_ema_from_state,
+    bench_kand_ema,
 );
 criterion_main!(benches);

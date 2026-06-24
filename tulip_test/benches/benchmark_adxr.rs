@@ -648,6 +648,84 @@ fn bench_rust_adxr_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_adxr(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("adxr");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_hlc_arrays(stock_data);
+            let n = high.len();
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut out_adxr = vec![0.0_f64; n];
+                        let mut out_adx = vec![0.0_f64; n];
+                        let mut out_pdm = vec![0.0_f64; n];
+                        let mut out_mdm = vec![0.0_f64; n];
+                        let mut out_tr = vec![0.0_f64; n];
+                        kand::ohlcv::adxr::adxr(
+                            &high,
+                            &low,
+                            &close,
+                            period,
+                            &mut out_adxr,
+                            &mut out_adx,
+                            &mut out_pdm,
+                            &mut out_mdm,
+                            &mut out_tr,
+                        )
+                        .unwrap();
+                        black_box(&out_adxr);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "adxr",
+                    "RustKanda",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+        let n = high_vec.len();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("adxr_kand");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("kand ADXR {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut out_adxr = vec![0.0_f64; n];
+                    let mut out_adx = vec![0.0_f64; n];
+                    let mut out_plus_dm = vec![0.0_f64; n];
+                    let mut out_minus_dm = vec![0.0_f64; n];
+                    let mut out_tr = vec![0.0_f64; n];
+                    kand::ohlcv::adxr::adxr(
+                        &high_vec,
+                        &low_vec,
+                        &close_vec,
+                        period,
+                        &mut out_adxr,
+                        &mut out_adx,
+                        &mut out_plus_dm,
+                        &mut out_minus_dm,
+                        &mut out_tr,
+                    )
+                    .expect("kand ADXR failed");
+                    black_box((&out_adxr, &out_adx, &out_plus_dm, &out_minus_dm, &out_tr));
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -658,6 +736,7 @@ criterion_group!(
     bench_talib_adxr,
     bench_rust_adxr_from_state,
     bench_rust_adxr_optional,
+    bench_kand_adxr,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -669,5 +748,6 @@ criterion_group!(
     bench_c_adxr,
     bench_rust_adxr_from_state,
     bench_rust_adxr_optional,
+    bench_kand_adxr,
 );
 criterion_main!(benches);

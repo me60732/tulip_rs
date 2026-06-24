@@ -109,14 +109,7 @@ fn bench_c_stoch(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result(
-                    "stoch",
-                    "C_tulip",
-                    &options,
-                    n,
-                    &timing,
-                    Some(stock_symbol),
-                );
+                log_timing_result("stoch", "C_tulip", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -628,14 +621,7 @@ fn bench_rust_stoch_simd_by_options(c: &mut Criterion) {
                 SAMPLE_SIZE,
             );
 
-            log_timing_result(
-                "stoch",
-                "Rust_SIMD",
-                &[0.0],
-                n,
-                &timing,
-                Some(stock_symbol),
-            );
+            log_timing_result("stoch", "Rust_SIMD", &[0.0], n, &timing, Some(stock_symbol));
         }
     } else {
         // Run Criterion benchmark with synthetic data
@@ -707,14 +693,7 @@ fn bench_rust_ta_fast_stoch(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result(
-                    "stoch",
-                    "RustTa",
-                    &options,
-                    n,
-                    &timing,
-                    Some(stock_symbol),
-                );
+                log_timing_result("stoch", "RustTa", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -750,17 +729,103 @@ fn bench_rust_ta_fast_stoch(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_stoch(c: &mut Criterion) {
+    use kand::ohlcv::stoch;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("stoch");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_hlc_arrays(stock_data);
+            let n = close.len();
+            for options in OPTIONS_LIST {
+                let kp = options[0] as usize;
+                let ks = options[1] as usize;
+                let dp = options[2] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut out_fk = vec![0.0_f64; n];
+                        let mut out_k = vec![0.0_f64; n];
+                        let mut out_d = vec![0.0_f64; n];
+                        stoch::stoch(
+                            &high,
+                            &low,
+                            &close,
+                            kp,
+                            ks,
+                            dp,
+                            &mut out_fk,
+                            &mut out_k,
+                            &mut out_d,
+                        )
+                        .unwrap();
+                        black_box(&out_k);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "stoch",
+                    "RustKanda",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+        let n = close_vec.len();
+        for options in OPTIONS_LIST {
+            let k_period = options[0] as usize;
+            let k_slow_period = options[1] as usize;
+            let d_period = options[2] as usize;
+            let mut group = c.benchmark_group("stoch_kand");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!(
+                    "Kand STOCH {{ {}/{}/{} }}",
+                    options[0], options[1], options[2]
+                ),
+                |b| {
+                    b.iter(|| {
+                        let mut out_fast_k = vec![0.0_f64; n];
+                        let mut out_k = vec![0.0_f64; n];
+                        let mut out_d = vec![0.0_f64; n];
+                        stoch::stoch(
+                            &high_vec,
+                            &low_vec,
+                            &close_vec,
+                            k_period,
+                            k_slow_period,
+                            d_period,
+                            &mut out_fast_k,
+                            &mut out_k,
+                            &mut out_d,
+                        )
+                        .unwrap();
+                        black_box(out_k);
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
     bench_rust_stoch_simd_by_options,
     bench_rust_stoch_simd_by_assets,
     bench_rust_stoch,
+    bench_kand_stoch,
     bench_rust_ta_fast_stoch,
     bench_c_stoch,
     bench_talib_stoch,
     bench_rust_stoch_from_state,
-    
 );
 
 #[cfg(not(feature = "talib"))]
@@ -772,5 +837,6 @@ criterion_group!(
     bench_c_stoch,
     bench_rust_stoch_from_state,
     bench_rust_ta_fast_stoch,
+    bench_kand_stoch,
 );
 criterion_main!(benches);

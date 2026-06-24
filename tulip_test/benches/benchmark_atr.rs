@@ -727,12 +727,55 @@ fn bench_rust_ta_atr(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_atr(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("atr");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_hlc_arrays(stock_data);
+            let n = high.len();
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut output = vec![0.0_f64; n];
+                        kand::ohlcv::atr::atr(&high, &low, &close, period, &mut output).unwrap();
+                        black_box(&output);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("atr", "RustKanda", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+        let n = high_vec.len();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("atr_kand");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("kand ATR {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut output = vec![0.0_f64; n];
+                    kand::ohlcv::atr::atr(&high_vec, &low_vec, &close_vec, period, &mut output)
+                        .expect("kand ATR failed");
+                    black_box(&output);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
     bench_rust_atr_simd_by_options,
     bench_rust_atr_simd_by_assets,
     bench_rust_atr,
+    bench_kand_atr,
     bench_rust_ta_atr,
     bench_c_atr,
     bench_talib_atr,
@@ -750,5 +793,6 @@ criterion_group!(
     bench_c_atr,
     bench_rust_atr_from_state,
     bench_rust_atr_optional,
+    bench_kand_atr,
 );
 criterion_main!(benches);

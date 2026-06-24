@@ -123,14 +123,7 @@ fn bench_rust_obv_from_state(c: &mut Criterion) {
                 },
                 SAMPLE_SIZE,
             );
-            log_timing_result(
-                "obv",
-                "Rust_FromState",
-                &[],
-                n,
-                &timing,
-                Some(stock_symbol),
-            );
+            log_timing_result("obv", "Rust_FromState", &[], n, &timing, Some(stock_symbol));
 
             // --- Rust_FromState_1_Bar benchmark ---
             if close.len() > 1 {
@@ -531,6 +524,43 @@ fn bench_rust_ta_obv(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_obv(c: &mut Criterion) {
+    use kand::ohlcv::obv;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("obv");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let (close, volume) = get_cv_arrays(stock_data);
+            let n = close.len();
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let mut output = vec![0.0_f64; n];
+                    obv::obv(&close, &volume, &mut output).unwrap();
+                    black_box(&output);
+                },
+                SAMPLE_SIZE,
+            );
+            log_timing_result("obv", "RustKanda", &[], n, &timing, Some(stock_symbol));
+        }
+    } else {
+        let (close_vec, volume_vec) = expand_inputs();
+        let n = close_vec.len();
+        let mut group = c.benchmark_group("obv_kand");
+        group.sample_size(SAMPLE_SIZE);
+        group.bench_function("Kand OBV", |b| {
+            b.iter(|| {
+                let mut output = vec![0.0_f64; n];
+                obv::obv(&close_vec, &volume_vec, &mut output).unwrap();
+                black_box(output);
+            });
+        });
+        group.finish();
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -540,6 +570,7 @@ criterion_group!(
     bench_rust_obv_from_state,
     bench_c_obv,
     bench_talib_obv,
+    bench_kand_obv,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -550,5 +581,6 @@ criterion_group!(
     bench_rust_obv_from_state,
     bench_c_obv,
     bench_rust_ta_obv,
+    bench_kand_obv,
 );
 criterion_main!(benches);

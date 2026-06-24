@@ -749,6 +749,94 @@ fn bench_rust_adosc_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_adosc(c: &mut Criterion) {
+    use kand::ohlcv::adosc;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("adosc");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let high: Vec<f64> = stock_data.iter().map(|d| d.high).collect();
+            let low: Vec<f64> = stock_data.iter().map(|d| d.low).collect();
+            let close: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+            let volume: Vec<f64> = stock_data.iter().map(|d| d.volume).collect();
+            let n = close.len();
+            for options in OPTIONS_LIST {
+                let fast = options[0] as usize;
+                let slow = options[1] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut out_adosc = vec![0.0_f64; n];
+                        let mut out_ad = vec![0.0_f64; n];
+                        let mut out_fast = vec![0.0_f64; n];
+                        let mut out_slow = vec![0.0_f64; n];
+                        adosc::adosc(
+                            &high,
+                            &low,
+                            &close,
+                            &volume,
+                            fast,
+                            slow,
+                            &mut out_adosc,
+                            &mut out_ad,
+                            &mut out_fast,
+                            &mut out_slow,
+                        )
+                        .unwrap();
+                        black_box(&out_adosc);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "adosc",
+                    "RustKanda",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec, volume_vec) = expand_inputs();
+        let n = close_vec.len();
+        for options in OPTIONS_LIST {
+            let fast = options[0] as usize;
+            let slow = options[1] as usize;
+            let mut group = c.benchmark_group("adosc_kand");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!("Kand ADOSC {{ {}/{} }}", options[0], options[1]),
+                |b| {
+                    b.iter(|| {
+                        let mut out_adosc = vec![0.0_f64; n];
+                        let mut out_ad = vec![0.0_f64; n];
+                        let mut out_fast_ema = vec![0.0_f64; n];
+                        let mut out_slow_ema = vec![0.0_f64; n];
+                        adosc::adosc(
+                            &high_vec,
+                            &low_vec,
+                            &close_vec,
+                            &volume_vec,
+                            fast,
+                            slow,
+                            &mut out_adosc,
+                            &mut out_ad,
+                            &mut out_fast_ema,
+                            &mut out_slow_ema,
+                        )
+                        .unwrap();
+                        black_box(out_adosc);
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -759,6 +847,7 @@ criterion_group!(
     bench_talib_adosc,
     bench_rust_adosc_from_state,
     bench_rust_adosc_optional,
+    bench_kand_adosc,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -770,5 +859,6 @@ criterion_group!(
     bench_c_adosc,
     bench_rust_adosc_from_state,
     bench_rust_adosc_optional,
+    bench_kand_adosc,
 );
 criterion_main!(benches);

@@ -580,6 +580,48 @@ fn bench_rust_bop_simd_by_assets(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_bop(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("bop");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (open, high, low, close) = get_ohlc_arrays(stock_data);
+            let n = open.len();
+
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let mut output = vec![0.0_f64; n];
+                    kand::ohlcv::bop::bop(&open, &high, &low, &close, &mut output)
+                        .expect("kand BOP failed");
+                    black_box(&output);
+                },
+                SAMPLE_SIZE,
+            );
+
+            log_timing_result("bop", "RustKanda", &OPTIONS, n, &timing, Some(stock_symbol));
+        }
+    } else {
+        let (open_vec, high_vec, low_vec, close_vec) = expand_inputs();
+        let n = open_vec.len();
+
+        let mut group = c.benchmark_group("bop_kand");
+        group.sample_size(SAMPLE_SIZE);
+        group.bench_function("kand BOP", |b| {
+            b.iter(|| {
+                let mut output = vec![0.0f64; n];
+                kand::ohlcv::bop::bop(&open_vec, &high_vec, &low_vec, &close_vec, &mut output)
+                    .expect("kand BOP failed");
+                black_box(&output);
+            });
+        });
+        group.finish();
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -587,7 +629,8 @@ criterion_group!(
     bench_rust_bop,
     bench_rust_bop_from_state,
     bench_c_bop,
-    bench_talib_bop
+    bench_talib_bop,
+    bench_kand_bop,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -596,6 +639,7 @@ criterion_group!(
     bench_rust_bop_simd_by_assets,
     bench_rust_bop,
     bench_rust_bop_from_state,
-    bench_c_bop
+    bench_c_bop,
+    bench_kand_bop,
 );
 criterion_main!(benches);

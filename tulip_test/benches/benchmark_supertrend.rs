@@ -2,8 +2,8 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::supertrend::{
     indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState,
 };
-use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
+use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::criterion_logger::TimingMeasurements;
 use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -470,6 +470,96 @@ fn bench_rust_supertrend_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_supertrend(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("supertrend");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_arrays(stock_data);
+            let n = high.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let multiplier = options[1] as f64;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut out_trend = vec![0_i64; n];
+                        let mut out_supertrend = vec![0.0_f64; n];
+                        let mut out_atr = vec![0.0_f64; n];
+                        let mut out_upper = vec![0.0_f64; n];
+                        let mut out_lower = vec![0.0_f64; n];
+                        kand::ohlcv::supertrend::supertrend(
+                            &high,
+                            &low,
+                            &close,
+                            period,
+                            multiplier,
+                            &mut out_trend,
+                            &mut out_supertrend,
+                            &mut out_atr,
+                            &mut out_upper,
+                            &mut out_lower,
+                        )
+                        .expect("kand Supertrend failed");
+                        black_box(&out_supertrend);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result(
+                    "supertrend",
+                    "RustKanda",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+        let n = high_vec.len();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let multiplier = options[1] as f64;
+            let mut group = c.benchmark_group("supertrend_kand");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!("kand Supertrend {{ {}/{} }}", options[0], options[1]),
+                |b| {
+                    b.iter(|| {
+                        let mut out_trend = vec![0i64; n];
+                        let mut out_supertrend = vec![0.0f64; n];
+                        let mut out_atr = vec![0.0f64; n];
+                        let mut out_upper = vec![0.0f64; n];
+                        let mut out_lower = vec![0.0f64; n];
+                        kand::ohlcv::supertrend::supertrend(
+                            &high_vec,
+                            &low_vec,
+                            &close_vec,
+                            period,
+                            multiplier,
+                            &mut out_trend,
+                            &mut out_supertrend,
+                            &mut out_atr,
+                            &mut out_upper,
+                            &mut out_lower,
+                        )
+                        .expect("kand Supertrend failed");
+                        black_box(&out_supertrend);
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     benches,
     bench_rust_supertrend_simd_by_assets,
@@ -477,5 +567,6 @@ criterion_group!(
     bench_rust_supertrend,
     bench_rust_supertrend_optional,
     bench_rust_supertrend_from_state,
+    bench_kand_supertrend,
 );
 criterion_main!(benches);

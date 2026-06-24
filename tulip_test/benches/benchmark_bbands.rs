@@ -316,29 +316,26 @@ fn bench_rust_bbands_from_state(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("bbands_rust_from_state");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(
-                format!("Rust BBANDS from state {{ {:?} }}", options),
-                |b| {
-                    b.iter(|| {
-                        let mut close_chunks = close_vec[min_data..].chunks_exact(CHUNK_SIZE);
+            group.bench_function(format!("Rust BBANDS from state {{ {:?} }}", options), |b| {
+                b.iter(|| {
+                    let mut close_chunks = close_vec[min_data..].chunks_exact(CHUNK_SIZE);
 
-                        for close_chunk in close_chunks.by_ref() {
-                            let chunk_inputs = [close_chunk];
-                            let result = state.batch_indicator(&chunk_inputs, None);
-                            black_box(&result);
-                        }
+                    for close_chunk in close_chunks.by_ref() {
+                        let chunk_inputs = [close_chunk];
+                        let result = state.batch_indicator(&chunk_inputs, None);
+                        black_box(&result);
+                    }
 
-                        // Remainder
-                        let close_rem = close_chunks.remainder();
+                    // Remainder
+                    let close_rem = close_chunks.remainder();
 
-                        if !close_rem.is_empty() {
-                            let chunk_inputs = [close_rem];
-                            let result = state.batch_indicator(&chunk_inputs, None);
-                            black_box(&result);
-                        }
-                    });
-                },
-            );
+                    if !close_rem.is_empty() {
+                        let chunk_inputs = [close_rem];
+                        let result = state.batch_indicator(&chunk_inputs, None);
+                        black_box(&result);
+                    }
+                });
+            });
             group.finish();
 
             // Benchmark with 1 bar from state
@@ -626,7 +623,7 @@ fn bench_rust_ta_bbands(c: &mut Criterion) {
                         let mut lower = 0.0_f64;
                         for &price in &close {
                             let out = bb.next(price);
-                            
+
                             last = out.average;
                             upper = out.upper;
                             lower = out.lower;
@@ -638,14 +635,7 @@ fn bench_rust_ta_bbands(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result(
-                    "bbands",
-                    "RustTa",
-                    &options,
-                    n,
-                    &timing,
-                    Some(stock_symbol),
-                );
+                log_timing_result("bbands", "RustTa", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -667,7 +657,7 @@ fn bench_rust_ta_bbands(c: &mut Criterion) {
                         let mut lower = 0.0_f64;
                         for &price in &close_vec {
                             let out = bb.next(price);
-                            
+
                             last = out.average;
                             upper = out.upper;
                             lower = out.lower;
@@ -675,6 +665,100 @@ fn bench_rust_ta_bbands(c: &mut Criterion) {
                         black_box(last);
                         black_box(upper);
                         black_box(lower);
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
+
+fn bench_kand_bbands(c: &mut Criterion) {
+    use kand::ohlcv::bbands;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("bbands");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mult = options[1];
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut out_upper = vec![0.0_f64; n];
+                        let mut out_mid = vec![0.0_f64; n];
+                        let mut out_lower = vec![0.0_f64; n];
+                        let mut out_sma = vec![0.0_f64; n];
+                        let mut out_var = vec![0.0_f64; n];
+                        let mut out_sum = vec![0.0_f64; n];
+                        let mut out_sq = vec![0.0_f64; n];
+                        bbands::bbands(
+                            &close,
+                            period,
+                            mult,
+                            mult,
+                            &mut out_upper,
+                            &mut out_mid,
+                            &mut out_lower,
+                            &mut out_sma,
+                            &mut out_var,
+                            &mut out_sum,
+                            &mut out_sq,
+                        )
+                        .unwrap();
+                        black_box(&out_upper);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "bbands",
+                    "RustKanda",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        let n = close_vec.len();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let dev_up = options[1];
+            let dev_down = options[1];
+            let mut group = c.benchmark_group("bbands_kand");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!("Kand BBands {{ {}/{} }}", options[0], options[1]),
+                |b| {
+                    b.iter(|| {
+                        let mut out_upper = vec![0.0_f64; n];
+                        let mut out_middle = vec![0.0_f64; n];
+                        let mut out_lower = vec![0.0_f64; n];
+                        let mut out_sma = vec![0.0_f64; n];
+                        let mut out_var = vec![0.0_f64; n];
+                        let mut out_sum = vec![0.0_f64; n];
+                        let mut out_sum_sq = vec![0.0_f64; n];
+                        bbands::bbands(
+                            &close_vec,
+                            period,
+                            dev_up,
+                            dev_down,
+                            &mut out_upper,
+                            &mut out_middle,
+                            &mut out_lower,
+                            &mut out_sma,
+                            &mut out_var,
+                            &mut out_sum,
+                            &mut out_sum_sq,
+                        )
+                        .unwrap();
+                        black_box(out_upper);
                     });
                 },
             );
@@ -693,6 +777,7 @@ criterion_group!(
     bench_c_bbands,
     bench_talib_bbands,
     bench_rust_bbands_from_state,
+    bench_kand_bbands,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -704,5 +789,6 @@ criterion_group!(
     bench_rust_ta_bbands,
     bench_c_bbands,
     bench_rust_bbands_from_state,
+    bench_kand_bbands,
 );
 criterion_main!(benches);

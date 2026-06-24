@@ -27,6 +27,7 @@ gethostname = "0.4"
 criterion = { version = "0.4.0", features = ["html_reports"] }
 bincode = { version = "2.0.1", features = ["serde"] }
 ta = "0.5"
+kand = "0.2"
 
 [features]
 default = []

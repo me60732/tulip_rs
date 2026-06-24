@@ -474,6 +474,42 @@ fn bench_talib_medprice(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_medprice(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("medprice");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let (high, low) = get_hl_arrays(stock_data);
+            let n = high.len();
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let mut output = vec![0.0_f64; n];
+                    kand::ohlcv::medprice::medprice(&high, &low, &mut output).unwrap();
+                    black_box(&output);
+                },
+                SAMPLE_SIZE,
+            );
+            log_timing_result("medprice", "RustKanda", &[], n, &timing, Some(stock_symbol));
+        }
+    } else {
+        let (high_vec, low_vec) = expand_inputs();
+        let n = high_vec.len();
+        let mut group = c.benchmark_group("medprice_kand");
+        group.sample_size(SAMPLE_SIZE);
+        group.bench_function("kand MEDPRICE", |b| {
+            b.iter(|| {
+                let mut output = vec![0.0_f64; n];
+                kand::ohlcv::medprice::medprice(&high_vec, &low_vec, &mut output)
+                    .expect("kand MEDPRICE failed");
+                black_box(&output);
+            });
+        });
+        group.finish();
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     medprice_benchmarks,
@@ -482,6 +518,7 @@ criterion_group!(
     bench_rust_medprice_from_state,
     bench_c_medprice,
     bench_talib_medprice,
+    bench_kand_medprice,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -491,5 +528,6 @@ criterion_group!(
     bench_rust_medprice,
     bench_rust_medprice_from_state,
     bench_c_medprice,
+    bench_kand_medprice,
 );
 criterion_main!(medprice_benchmarks);

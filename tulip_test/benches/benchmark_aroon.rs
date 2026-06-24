@@ -90,14 +90,7 @@ fn bench_c_aroon(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result(
-                    "aroon",
-                    "C_tulip",
-                    &options,
-                    n,
-                    &timing,
-                    Some(stock_symbol),
-                );
+                log_timing_result("aroon", "C_tulip", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -558,6 +551,92 @@ fn bench_rust_aroon_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_aroon(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("aroon");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low) = get_hl_arrays(stock_data);
+            let n = high.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut out_up = vec![0.0_f64; n];
+                        let mut out_down = vec![0.0_f64; n];
+                        let mut out_prev_high = vec![0.0_f64; n];
+                        let mut out_prev_low = vec![0.0_f64; n];
+                        let mut out_days_high = vec![0usize; n];
+                        let mut out_days_low = vec![0usize; n];
+                        kand::ohlcv::aroon::aroon(
+                            &high,
+                            &low,
+                            period,
+                            &mut out_up,
+                            &mut out_down,
+                            &mut out_prev_high,
+                            &mut out_prev_low,
+                            &mut out_days_high,
+                            &mut out_days_low,
+                        )
+                        .expect("kand AROON failed");
+                        black_box(&out_up);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result(
+                    "aroon",
+                    "RustKanda",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let (high_vec, low_vec) = expand_inputs();
+        let n = high_vec.len();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("aroon_kand");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("kand AROON {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut out_up = vec![0.0f64; n];
+                    let mut out_down = vec![0.0f64; n];
+                    let mut out_prev_high = vec![0.0f64; n];
+                    let mut out_prev_low = vec![0.0f64; n];
+                    let mut out_days_high = vec![0usize; n];
+                    let mut out_days_low = vec![0usize; n];
+                    kand::ohlcv::aroon::aroon(
+                        &high_vec,
+                        &low_vec,
+                        period,
+                        &mut out_up,
+                        &mut out_down,
+                        &mut out_prev_high,
+                        &mut out_prev_low,
+                        &mut out_days_high,
+                        &mut out_days_low,
+                    )
+                    .expect("kand AROON failed");
+                    black_box(&out_up);
+                    black_box(&out_down);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -567,6 +646,7 @@ criterion_group!(
     bench_c_aroon,
     bench_rust_aroon_from_state,
     bench_talib_aroon,
+    bench_kand_aroon,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -577,5 +657,6 @@ criterion_group!(
     bench_rust_aroon,
     bench_c_aroon,
     bench_rust_aroon_from_state,
+    bench_kand_aroon,
 );
 criterion_main!(benches);

@@ -682,6 +682,142 @@ fn bench_rust_di_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_plus_di(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("di");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_hlc_arrays(stock_data);
+            let n = high.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut out_plus_di = vec![0.0_f64; n];
+                        let mut out_plus_dm = vec![0.0_f64; n];
+                        let mut out_tr = vec![0.0_f64; n];
+                        kand::ohlcv::plus_di::plus_di(
+                            &high,
+                            &low,
+                            &close,
+                            period,
+                            &mut out_plus_di,
+                            &mut out_plus_dm,
+                            &mut out_tr,
+                        )
+                        .expect("kand +DI failed");
+                        black_box(&out_plus_di);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result("di", "RustKanda", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+        let n = high_vec.len();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("di_kand_plus");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("kand +DI {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut out_plus_di = vec![0.0f64; n];
+                    let mut out_plus_dm = vec![0.0f64; n];
+                    let mut out_tr = vec![0.0f64; n];
+                    kand::ohlcv::plus_di::plus_di(
+                        &high_vec,
+                        &low_vec,
+                        &close_vec,
+                        period,
+                        &mut out_plus_di,
+                        &mut out_plus_dm,
+                        &mut out_tr,
+                    )
+                    .expect("kand +DI failed");
+                    black_box(&out_plus_di);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
+fn bench_kand_minus_di(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("di");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_hlc_arrays(stock_data);
+            let n = high.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut out_minus_di = vec![0.0_f64; n];
+                        let mut out_minus_dm = vec![0.0_f64; n];
+                        let mut out_tr = vec![0.0_f64; n];
+                        kand::ohlcv::minus_di::minus_di(
+                            &high,
+                            &low,
+                            &close,
+                            period,
+                            &mut out_minus_di,
+                            &mut out_minus_dm,
+                            &mut out_tr,
+                        )
+                        .expect("kand -DI failed");
+                        black_box(&out_minus_di);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result("di", "RustKanda", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+        let n = high_vec.len();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("di_kand_minus");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("kand -DI {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut out_minus_di = vec![0.0f64; n];
+                    let mut out_minus_dm = vec![0.0f64; n];
+                    let mut out_tr = vec![0.0f64; n];
+                    kand::ohlcv::minus_di::minus_di(
+                        &high_vec,
+                        &low_vec,
+                        &close_vec,
+                        period,
+                        &mut out_minus_di,
+                        &mut out_minus_dm,
+                        &mut out_tr,
+                    )
+                    .expect("kand -DI failed");
+                    black_box(&out_minus_di);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -692,6 +828,8 @@ criterion_group!(
     bench_talib_di,
     bench_rust_di_optional,
     bench_rust_di_from_state,
+    bench_kand_plus_di,
+    bench_kand_minus_di,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -703,5 +841,7 @@ criterion_group!(
     bench_c_di,
     bench_rust_di_optional,
     bench_rust_di_from_state,
+    bench_kand_plus_di,
+    bench_kand_minus_di,
 );
 criterion_main!(benches);

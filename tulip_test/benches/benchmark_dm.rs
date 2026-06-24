@@ -467,6 +467,102 @@ fn bench_rust_dm_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_plus_dm(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("dm");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low) = get_hl_arrays(stock_data);
+            let n = high.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut output = vec![0.0_f64; n];
+                        kand::ohlcv::plus_dm::plus_dm(&high, &low, period, &mut output)
+                            .expect("kand +DM failed");
+                        black_box(&output);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result("dm", "RustKanda", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let (high_vec, low_vec) = expand_inputs();
+        let n = high_vec.len();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("dm_kand_plus");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("kand +DM {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut output = vec![0.0f64; n];
+                    kand::ohlcv::plus_dm::plus_dm(&high_vec, &low_vec, period, &mut output)
+                        .expect("kand +DM failed");
+                    black_box(&output);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
+fn bench_kand_minus_dm(c: &mut Criterion) {
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("dm");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low) = get_hl_arrays(stock_data);
+            let n = high.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut output = vec![0.0_f64; n];
+                        kand::ohlcv::minus_dm::minus_dm(&high, &low, period, &mut output)
+                            .expect("kand -DM failed");
+                        black_box(&output);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result("dm", "RustKanda", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let (high_vec, low_vec) = expand_inputs();
+        let n = high_vec.len();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("dm_kand_minus");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("kand -DM {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut output = vec![0.0f64; n];
+                    kand::ohlcv::minus_dm::minus_dm(&high_vec, &low_vec, period, &mut output)
+                        .expect("kand -DM failed");
+                    black_box(&output);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     dm_benchmarks,
     bench_rust_dm_simd_by_options,
@@ -474,5 +570,7 @@ criterion_group!(
     bench_rust_dm,
     bench_c_dm,
     bench_rust_dm_from_state,
+    bench_kand_plus_dm,
+    bench_kand_minus_dm,
 );
 criterion_main!(dm_benchmarks);

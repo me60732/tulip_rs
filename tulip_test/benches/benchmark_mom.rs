@@ -320,10 +320,8 @@ fn bench_rust_mom_from_state(c: &mut Criterion) {
                 let (_, mut state) =
                     indicator(&new_inputs, &options, None).expect("Rust MOM indicator failed");
 
-                let mut group = c.benchmark_group(format!(
-                    "Rust MOM from state 1 bar {{ {:.1} }}",
-                    options[0]
-                ));
+                let mut group =
+                    c.benchmark_group(format!("Rust MOM from state 1 bar {{ {:.1} }}", options[0]));
                 group.sample_size(SAMPLE_SIZE);
                 group.bench_function("benchmark", |b| {
                     b.iter(|| {
@@ -538,6 +536,51 @@ fn bench_rust_mom_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_mom(c: &mut Criterion) {
+    use kand::ohlcv::mom;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("mom");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut output = vec![0.0_f64; n];
+                        mom::mom(&close, period, &mut output).unwrap();
+                        black_box(&output);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("mom", "RustKanda", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        let n = close_vec.len();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("mom_kand");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("Kand MOM {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut output = vec![0.0_f64; n];
+                    mom::mom(&close_vec, period, &mut output).unwrap();
+                    black_box(output);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -547,6 +590,7 @@ criterion_group!(
     bench_c_mom,
     bench_talib_mom,
     bench_rust_mom_from_state,
+    bench_kand_mom,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -557,5 +601,6 @@ criterion_group!(
     bench_rust_mom,
     bench_c_mom,
     bench_rust_mom_from_state,
+    bench_kand_mom,
 );
 criterion_main!(benches);

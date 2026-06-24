@@ -322,10 +322,8 @@ fn bench_rust_wma_from_state(c: &mut Criterion) {
                 let (_, mut state) =
                     indicator(&new_inputs, &options, None).expect("Rust WMA indicator failed");
 
-                let mut group = c.benchmark_group(format!(
-                    "Rust WMA from state 1 bar {{ {:.1} }}",
-                    options[0]
-                ));
+                let mut group =
+                    c.benchmark_group(format!("Rust WMA from state 1 bar {{ {:.1} }}", options[0]));
                 group.sample_size(SAMPLE_SIZE);
                 group.bench_function("benchmark", |b| {
                     b.iter(|| {
@@ -598,6 +596,51 @@ fn bench_rust_wma_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_wma(c: &mut Criterion) {
+    use kand::ohlcv::wma;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("wma");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut output = vec![0.0_f64; n];
+                        wma::wma(&close, period, &mut output).unwrap();
+                        black_box(&output);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("wma", "RustKanda", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        let n = close_vec.len();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("wma_kand");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("Kand WMA {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut output = vec![0.0_f64; n];
+                    wma::wma(&close_vec, period, &mut output).unwrap();
+                    black_box(output);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -608,6 +651,7 @@ criterion_group!(
     bench_talib_wma,
     bench_rust_wma_from_state,
     bench_rust_wma_optional,
+    bench_kand_wma,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -619,5 +663,6 @@ criterion_group!(
     bench_c_wma,
     bench_rust_wma_from_state,
     bench_rust_wma_optional,
+    bench_kand_wma,
 );
 criterion_main!(benches);

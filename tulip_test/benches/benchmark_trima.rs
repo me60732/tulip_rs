@@ -74,14 +74,7 @@ fn bench_c_trima(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result(
-                    "trima",
-                    "C_tulip",
-                    &options,
-                    n,
-                    &timing,
-                    Some(stock_symbol),
-                );
+                log_timing_result("trima", "C_tulip", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -543,6 +536,60 @@ fn bench_rust_trima_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_trima(c: &mut Criterion) {
+    use kand::ohlcv::trima;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("trima");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut out_sma1 = vec![0.0_f64; n];
+                        let mut out_sma2 = vec![0.0_f64; n];
+                        trima::trima(&close, period, &mut out_sma1, &mut out_sma2).unwrap();
+                        black_box(&out_sma1);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "trima",
+                    "RustKanda",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        let n = close_vec.len();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("trima_kand");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("Kand TRIMA {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut output_sma1 = vec![0.0_f64; n];
+                    let mut output_sma2 = vec![0.0_f64; n];
+                    trima::trima(&close_vec, period, &mut output_sma1, &mut output_sma2).unwrap();
+                    black_box(output_sma1);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -552,6 +599,7 @@ criterion_group!(
     bench_c_trima,
     bench_talib_trima,
     bench_rust_trima_from_state,
+    bench_kand_trima,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -562,5 +610,6 @@ criterion_group!(
     bench_rust_trima,
     bench_c_trima,
     bench_rust_trima_from_state,
+    bench_kand_trima,
 );
 criterion_main!(benches);

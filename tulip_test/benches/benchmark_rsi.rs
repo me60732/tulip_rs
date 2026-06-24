@@ -595,6 +595,61 @@ fn bench_rust_ta_rsi(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_rsi(c: &mut Criterion) {
+    use kand::ohlcv::rsi;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("rsi");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut out_rsi = vec![0.0_f64; n];
+                        let mut out_gain = vec![0.0_f64; n];
+                        let mut out_loss = vec![0.0_f64; n];
+                        rsi::rsi(&close, period, &mut out_rsi, &mut out_gain, &mut out_loss)
+                            .unwrap();
+                        black_box(&out_rsi);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("rsi", "RustKanda", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        let n = close_vec.len();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("rsi_kand");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("Kand RSI {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let mut out_rsi = vec![0.0_f64; n];
+                    let mut out_gain = vec![0.0_f64; n];
+                    let mut out_loss = vec![0.0_f64; n];
+                    rsi::rsi(
+                        &close_vec,
+                        period,
+                        &mut out_rsi,
+                        &mut out_gain,
+                        &mut out_loss,
+                    )
+                    .unwrap();
+                    black_box(out_rsi);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -605,6 +660,7 @@ criterion_group!(
     bench_c_rsi,
     bench_talib_rsi,
     bench_rust_rsi_from_state,
+    bench_kand_rsi,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -616,5 +672,6 @@ criterion_group!(
     bench_rust_ta_rsi,
     bench_c_rsi,
     bench_rust_rsi_from_state,
+    bench_kand_rsi,
 );
 criterion_main!(benches);

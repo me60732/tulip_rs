@@ -713,6 +713,96 @@ fn bench_rust_ta_macd(c: &mut Criterion) {
     }
 }
 
+fn bench_kand_macd(c: &mut Criterion) {
+    use kand::ohlcv::macd;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("macd");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+            for options in OPTIONS_LIST {
+                let fast = options[0] as usize;
+                let slow = options[1] as usize;
+                let signal = options[2] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let mut out_macd = vec![0.0_f64; n];
+                        let mut out_sig = vec![0.0_f64; n];
+                        let mut out_hist = vec![0.0_f64; n];
+                        let mut out_fast_ema = vec![0.0_f64; n];
+                        let mut out_slow_ema = vec![0.0_f64; n];
+                        macd::macd(
+                            &close,
+                            fast,
+                            slow,
+                            signal,
+                            &mut out_macd,
+                            &mut out_sig,
+                            &mut out_hist,
+                            &mut out_fast_ema,
+                            &mut out_slow_ema,
+                        )
+                        .unwrap();
+                        black_box(&out_macd);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "macd",
+                    "RustKanda",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        let n = close_vec.len();
+        for options in OPTIONS_LIST {
+            let fast = options[0] as usize;
+            let slow = options[1] as usize;
+            let signal = options[2] as usize;
+            let mut group = c.benchmark_group("macd_kand");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!(
+                    "Kand MACD {{ {}/{}/{} }}",
+                    options[0], options[1], options[2]
+                ),
+                |b| {
+                    b.iter(|| {
+                        let mut out_macd = vec![0.0_f64; n];
+                        let mut out_signal = vec![0.0_f64; n];
+                        let mut out_hist = vec![0.0_f64; n];
+                        let mut out_fast_ema = vec![0.0_f64; n];
+                        let mut out_slow_ema = vec![0.0_f64; n];
+                        macd::macd(
+                            &close_vec,
+                            fast,
+                            slow,
+                            signal,
+                            &mut out_macd,
+                            &mut out_signal,
+                            &mut out_hist,
+                            &mut out_fast_ema,
+                            &mut out_slow_ema,
+                        )
+                        .unwrap();
+                        black_box(out_macd);
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -724,6 +814,7 @@ criterion_group!(
     bench_talib_macd,
     bench_rust_macd_from_state,
     bench_rust_macd_optional,
+    bench_kand_macd,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -736,5 +827,6 @@ criterion_group!(
     bench_c_macd,
     bench_rust_macd_from_state,
     bench_rust_macd_optional,
+    bench_kand_macd,
 );
 criterion_main!(benches);
