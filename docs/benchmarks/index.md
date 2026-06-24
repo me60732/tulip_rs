@@ -7,8 +7,9 @@
 | Library | Language | Description |
 |---------|----------|-------------|
 | **[Tulip Indicators (C)](https://tulipindicators.org/)** | C | The C library that inspired `tulip_rs`; primary scalar baseline |
-| **[RustTa](https://crates.io/crates/rust-ta)** | Rust | Rust implementation with streaming support; 20 indicators benchmarked |
 | **[TA-Lib](https://ta-lib.org/)** | C | Industry-standard C technical-analysis library |
+| **[kand](https://crates.io/crates/kand)** | Rust | Pure-Rust TA-Lib–inspired library; 36 indicators benchmarked |
+| **[RustTa](https://crates.io/crates/rust-ta)** | Rust | Rust implementation with streaming support; 20 indicators benchmarked |
 | **[technicalindicators](https://github.com/anandanand84/technicalindicators)** | JavaScript/TypeScript | Popular JS/TS TA library; primary Node.js binding benchmark reference |
 | **[indicatorts](https://github.com/cinar/indicatorts)** | TypeScript | Pure-TS TA library; second Node.js binding benchmark reference |
 
@@ -139,23 +140,27 @@ All timings are **nanoseconds (ns) — lower is better**. Ratios > 1.00 mean Rus
 
 ### Standard (single asset)
 
-- Rust beats C Tulip for **all but 2 indicators**: `dx` (0.75×), `msw` (0.85×)
+- Rust beats C Tulip for **all but 4 indicators**: `di` (0.73×), `dm` (0.73×), `dx` (0.72×), `obv` (0.97×)
+- `msw` now **4.53× faster than C Tulip** (was 0.85× — Rust was slower before the SDFT implementation)
 - Rust beats RustTa for **all 20 compared indicators**
-- Rust beats TA-Lib for **all but 3 indicators**: `obv` (0.94×), `psar` (0.76×), `wma` (0.78×)
+- Rust beats TA-Lib for **all but 5 indicators**: `obv` (0.94×), `psar` (0.76×), `wma` (0.79×), `homodynediscriminator` (0.92×), `mama` (0.96×)
+- Rust beats kand on **all 36 compared indicators**; gap ranges from **1.07×** (ad, obv) to **43×** (mfi) and **34×** (stoch)
 - **Median C / Rust ratio: ~1.47×** (Rust is ~46% faster on average)
-- Largest wins vs C Tulip: `cmo` (**3.61×**), `min` (**3.37×**), `stddev` (**2.88×**), `vhf` (**2.60×**)
-- Largest wins vs TA-Lib: `atr` (**6.01×**), `natr` (**5.80×**), `di` (**5.62×**), `rsi` (**5.28×**)
+- Largest wins vs C Tulip: `msw` (**4.53×**), `cmo` (**3.64×**), `min` (**3.54×**), `stddev` (**2.89×**), `max` (**2.75×**)
+- Largest wins vs TA-Lib: `hilberttransform` (**11.93×**), `macd` (**5.84×**), `atr` (**5.96×**), `natr` (**5.81×**), `rsi` (**5.30×**)
 
 ### SIMD by_assets
 
-- **69% of indicators** (55 / 79) show a SIMD speedup over 4× sequential Rust
-- Top performers: `tema` (**3.33×**), `cci` (**3.26×**), `dema` (**2.87×**), `trix` (**2.63×**), `zlema` (**2.62×**)
+- **73% of indicators** (68 / 93) show a SIMD speedup over 4× sequential Rust
+- Top performers: `roofingfilter` (**3.46×**), `mama` (**3.46×**), `trendmode` (**3.42×**), `supersmoother` (**3.31×**), `ccfisher` (**3.25×**), `tema` (**3.13×**), `dema` (**2.96×**)
+- `msw` SIMD is now **1.35×** faster than 4× sequential (SDFT optimisation)
 - Indicators that don't benefit are mostly trivial or have inherently sequential dependencies
 
 ### SIMD by_options
 
-- **76% of indicators** (50 / 65) show a SIMD speedup over 4× sequential Rust
-- Top performers: `tema` (**3.45×**), `dema` (**2.94×**), `zlema` (**2.70×**), `adx` (**2.65×**), `trix` (**2.62×**)
+- **75% of indicators** (56 / 75) show a SIMD speedup over 4× sequential Rust
+- Top performers: `trendmode` (**3.85×**), `roofingfilter` (**3.66×**), `mama` (**3.50×**), `supersmoother` (**3.48×**), `tema` (**3.44×**), `ccfisher` (**3.31×**), `di` (**3.14×**), `dema` (**3.05×**)
+- `msw` by_options: **2.13×** speedup (SDFT optimisation)
 - Same non-benefiting indicators as by_assets — the bottleneck is algorithmic, not data layout
 
 ### Optional Outputs Single-Pass
@@ -198,7 +203,7 @@ Consider computing `tema` with all its sub-indicators (`dema`, `ema`) across **4
 ### Python Binding
 
 - **35 indicators** benchmarked: `tulip_rs_python` vs `ta` (pandas-based)
-- `ta` falls back to **pure-Python loops** for many indicators — in these cases `tulip_rs_python` is **160–1,812× faster**
+- `ta` falls back to **pure-Python loops** for many indicators — `tulip_rs_python` is up to **20,802×** faster (`nvi`), **6,848×** (`psar`), **1,639×** (`mfi`), **1,030×** (`atr`)
 - `ta` uses **pandas/numpy C paths** for a few indicators (EMA, BBands, MACD) — `tulip_rs_python` is **3–5× faster** there, with PyO3 call overhead narrowing the gap
-- **Median speedup: ~22×** across all 20 indicators
+- **Median speedup: ~22×** across all 35 indicators
 - The Python binding adds **~5–25 µs** of fixed per-call overhead (GIL + PyO3 marshalling) on top of the native Rust computation
