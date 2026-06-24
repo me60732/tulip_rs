@@ -99,7 +99,7 @@ pub const INFO: Info = Info {
     indicator_type: IndicatorType::Math,
     full_name: "Hilbert Transform",
     inputs: &["real"],
-    options: &["ss_period, hp_period"],
+    options: &["ss_period", "hp_period"],
     outputs: &["in_phase", "quadrature"],
     optional_outputs: &["roofing", "highpass"],
     display_groups: &[DisplayGroup {

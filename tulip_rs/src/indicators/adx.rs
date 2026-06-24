@@ -1,7 +1,7 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::dx::{
-    calc as current_dx, calc_dx, output_length as dx_output_length, State as DxState,
+    Calc as DxCalc, output_length as dx_output_length, State as DxState,
 };
 use crate::indicators::tr::output_length as tr_output_length;
 use crate::indicators::wilders::calc as calc_wilders;
@@ -143,7 +143,7 @@ impl State {
         let (dx_line, atr_line, tr_line) = out_vecs;
         let multipliers = multiplier(period);
         let mut dx_state = DxState::init_state(high, low, close, period, tr_line);
-        let mut adx = calc_dx(&mut dx_state);
+        let mut adx = DxCalc::calc_dx(&mut dx_state);
         for (i, ((&h, &l), &c)) in high
             .iter()
             .zip(low.iter())
@@ -152,7 +152,7 @@ impl State {
             .take(period * 2 - 1)
             .skip(period)
         {
-            let (dx, atr, tr) = current_dx(&mut dx_state, h, l, c, multipliers);
+            let (dx, atr, tr) = DxCalc::calc(&mut dx_state, h, l, c, multipliers);
             adx += dx;
             crate::init_store_optional_outputs!(i, high.len(),
                 dx_line => dx,
@@ -162,6 +162,35 @@ impl State {
         }
         adx /= period as f64;
         State { dx_state, adx }
+    }
+    /// Calculates the current value of the Average Directional Index (ADX) indicator.
+    ///
+    /// # Arguments
+    ///
+    /// * `high` -  high price array.
+    /// * `low` - low price array.
+    /// * `adx` - The previous ADX value.
+    /// * `dmup` - The previous DM+ value.
+    /// * `dmdown` - The previous DM- value.
+    /// * `atr` - The previous ATR value.
+    /// * `period` - The period for the ADX calculation.
+    /// * `i` - The current index.
+    /// * `start` - The starting index for the calculation.
+    ///
+    /// # Returns
+    ///
+    /// A tuple containing the current ADX value, the current DX value, the current DM+ value, the current DM- value, the current ATR value, the current TR value, the updated DM+ value, and the updated DM- value.
+    #[inline(always)]
+    pub fn calc(
+        &mut self,
+        high: f64,
+        low: f64,
+        close: f64,
+        multipliers: (f64, f64),
+    ) -> (f64, f64, f64, f64) {
+        let (dx, atr, tr) = DxCalc::calc(&mut self.dx_state, high, low, close, multipliers);
+        self.adx = calc_wilders(self.adx, dx, multipliers);
+        (self.adx, dx, atr, tr)
     }
 }
 /// Returns the minimum amount of data required for the ADX indicator.
@@ -295,7 +324,7 @@ fn cycle_adx(
             )
         };
 
-        let (adx, dx, atr, tr) = calc(state, h, l, c, multipliers);
+        let (adx, dx, atr, tr) = state.calc(h, l, c, multipliers);
         unsafe {
             *adx_line.get_unchecked_mut(i) = adx;
         }
@@ -311,34 +340,4 @@ fn cycle_adx(
     }
 }
 
-/// Calculates the current value of the Average Directional Index (ADX) indicator.
-///
-/// # Arguments
-///
-/// * `high` -  high price array.
-/// * `low` - low price array.
-/// * `adx` - The previous ADX value.
-/// * `dmup` - The previous DM+ value.
-/// * `dmdown` - The previous DM- value.
-/// * `atr` - The previous ATR value.
-/// * `period` - The period for the ADX calculation.
-/// * `i` - The current index.
-/// * `start` - The starting index for the calculation.
-///
-/// # Returns
-///
-/// A tuple containing the current ADX value, the current DX value, the current DM+ value, the current DM- value, the current ATR value, the current TR value, the updated DM+ value, and the updated DM- value.
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    high: f64,
-    low: f64,
-    close: f64,
-    multipliers: (f64, f64),
-) -> (f64, f64, f64, f64) {
-    let (dx, atr, tr) = current_dx(&mut state.dx_state, high, low, close, multipliers);
-    //state.adx += dx;
-    //state.adx = state.adx * 0.2;
-    state.adx = calc_wilders(state.adx, dx, multipliers);
-    (state.adx, dx, atr, tr)
-}
+

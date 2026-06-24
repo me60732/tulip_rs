@@ -1,6 +1,5 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::di::calc_diup_didown;
 pub use crate::indicators::di::State;
 use crate::indicators::tr::output_length as tr_output_length;
 pub use crate::indicators::wilders::multiplier;
@@ -252,7 +251,7 @@ fn cycle(
             )
         };
 
-        let (dx, atr, tr) = calc(state, h, l, c, multipliers);
+        let (dx, atr, tr) = Calc::calc(state, h, l, c, multipliers);
         unsafe {
             *dx_line.get_unchecked_mut(i) = dx;
         }
@@ -266,39 +265,50 @@ fn cycle(
         }
     }
 }
-
-/// Calculates the current DX, ATR, and TR values for one bar.
-///
-/// # Arguments
-///
-/// * `state` - A mutable reference to the indicator state.
-/// * `high` - The current high price.
-/// * `low` - The current low price.
-/// * `close` - The current close price.
-///
-/// # Returns
-///
-/// A tuple `(dx, atr, tr)` containing the current DX value, ATR, and True Range.
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    high: f64,
-    low: f64,
-    close: f64,
-    multipliers: (f64, f64),
-) -> (f64, f64, f64) {
-    let (_, _, atr, tr) = calc_diup_didown(state, high, low, close, multipliers);
-
-    let dx = calc_dx(state);
-
-    (dx, atr, tr)
+pub trait Calc {
+    fn calc(
+        &mut self,
+        high: f64,
+        low: f64,
+        close: f64,
+        multipliers: (f64, f64),
+    ) -> (f64, f64, f64);
+    fn calc_dx(&mut self) -> f64;
 }
-#[inline(always)]
-pub(crate) fn calc_dx(state: &mut State) -> f64 {
-    let di_up = state.di_state.dmup; // / state.atr_state.atr;
-    let di_down = state.di_state.dmdown; // / state.atr_state.atr;
-
-    let dm_diff = (di_up - di_down).abs();
-    let dm_sum = di_up + di_down;
-    (dm_diff * 100.0 / dm_sum).max(0.0)
+impl Calc for State {
+    /// Calculates the current DX, ATR, and TR values for one bar.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - A mutable reference to the indicator state.
+    /// * `high` - The current high price.
+    /// * `low` - The current low price.
+    /// * `close` - The current close price.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(dx, atr, tr)` containing the current DX value, ATR, and True Range.
+    #[inline(always)]
+    fn calc(
+        &mut self,
+        high: f64,
+        low: f64,
+        close: f64,
+        multipliers: (f64, f64),
+    ) -> (f64, f64, f64) {
+        let (_, _, atr, tr) = self.calc_diup_didown(high, low, close, multipliers);
+    
+        let dx = self.calc_dx();
+    
+        (dx, atr, tr)
+    }
+    #[inline(always)]
+    fn calc_dx(&mut self) -> f64 {
+        let di_up = self.di_state.dmup; // / state.atr_state.atr;
+        let di_down = self.di_state.dmdown; // / state.atr_state.atr;
+    
+        let dm_diff = (di_up - di_down).abs();
+        let dm_sum = di_up + di_down;
+        (dm_diff * 100.0 / dm_sum).max(0.0)
+    }
 }

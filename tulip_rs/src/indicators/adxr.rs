@@ -1,17 +1,13 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
 pub use crate::indicators::adx::multiplier;
-use crate::indicators::adx::{
-    calc as calc_adx, output_length as adx_output_length, State as AdxState,
-};
+use crate::indicators::adx::{output_length as adx_output_length, State as AdxState};
 
 use crate::indicators::dx::output_length as dx_output_length;
 use crate::indicators::tr::output_length as tr_output_length;
 use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
 
-use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
-};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -157,7 +153,7 @@ impl State {
         let multipliers = multiplier(period);
         while !prev_adx.is_full() {
             let (adx, dx, atr, tr) =
-                calc_adx(&mut adx_state, high[i], low[i], close[i], multipliers);
+                adx_state.calc(high[i], low[i], close[i], multipliers);
             prev_adx.push(adx);
             crate::init_store_optional_outputs!(i, high.len(),
                 adx_line => adx,
@@ -169,6 +165,37 @@ impl State {
         }
 
         State::new(adx_state, prev_adx)
+    }
+    #[inline(always)]
+    pub fn calc(
+        &mut self,
+        high: f64,
+        low: f64,
+        close: f64,
+        multipliers: (f64, f64),
+    ) -> (f64, f64, f64, f64, f64) {
+        let (adx, dx, atr, tr) = self.adx_state.calc(high, low, close, multipliers);
+    
+        let prev_adx = self.buffer.push_with_info(adx);
+        let mut adxr = 0.0;
+        if let Some(pa) = prev_adx {
+            adxr = 0.5 * (adx + pa);
+        }
+    
+        (adxr, adx, dx, atr, tr)
+    }
+    #[inline(always)]
+    pub unsafe fn calc_unchecked(
+        &mut self,
+        high: f64,
+        low: f64,
+        close: f64,
+        multipliers: (f64, f64),
+    ) -> (f64, f64, f64, f64, f64) {
+        let (adx, dx, atr, tr) = self.adx_state.calc(high, low, close, multipliers);
+        let adxr = 0.5 * (adx + self.buffer.push_with_info_unchecked(adx));
+    
+        (adxr, adx, dx, atr, tr)
     }
 }
 /// Returns the minimum amount of data required based on the given options.
@@ -328,7 +355,7 @@ fn cycle_adxr(
             )
         };
 
-        let (adxr, adx, dx, atr, tr) = unsafe { calc_unchecked(state, h, l, c, multipliers) };
+        let (adxr, adx, dx, atr, tr) = unsafe { state.calc_unchecked(h, l, c, multipliers) };
 
         unsafe {
             *adxr_line.get_unchecked_mut(i) = adxr;
@@ -346,34 +373,4 @@ fn cycle_adxr(
     }
 }
 
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    high: f64,
-    low: f64,
-    close: f64,
-    multipliers: (f64, f64),
-) -> (f64, f64, f64, f64, f64) {
-    let (adx, dx, atr, tr) = calc_adx(&mut state.adx_state, high, low, close, multipliers);
 
-    let prev_adx = state.buffer.push_with_info(adx);
-    let mut adxr = 0.0;
-    if let Some(pa) = prev_adx {
-        adxr = 0.5 * (adx + pa);
-    }
-
-    (adxr, adx, dx, atr, tr)
-}
-#[inline(always)]
-pub unsafe fn calc_unchecked(
-    state: &mut State,
-    high: f64,
-    low: f64,
-    close: f64,
-    multipliers: (f64, f64),
-) -> (f64, f64, f64, f64, f64) {
-    let (adx, dx, atr, tr) = calc_adx(&mut state.adx_state, high, low, close, multipliers);
-    let adxr = 0.5 * (adx + state.buffer.push_with_info_unchecked(adx));
-
-    (adxr, adx, dx, atr, tr)
-}

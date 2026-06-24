@@ -9,9 +9,9 @@ use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
-
 /// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 1;
+pub const OUTPUTS_WIDTH: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.

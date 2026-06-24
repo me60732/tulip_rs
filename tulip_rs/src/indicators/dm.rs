@@ -120,11 +120,87 @@ impl State {
     pub fn init_state(high: &[f64], low: &[f64], period: usize) -> State {
         let mut state = State::new(0.0, 0.0, high[0], low[0]);
         for (&h, &l) in high.iter().zip(low.iter()).take(period).skip(1) {
-            let (dp, dm) = calc_dp_dm(&mut state, h, l);
+            let (dp, dm) = state.calc_dp_dm(h, l);
             state.dmup += dp;
             state.dmdown += dm;
         }
         state
+    }
+    /// Calculates the smoothed DM+ and DM- values for the current bar.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - Mutable reference to the DM state.
+    /// * `high` - The current high price.
+    /// * `low` - The current low price.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(plus_dm, minus_dm)` of the smoothed directional movement values.
+    #[inline(always)]
+    pub fn calc(&mut self, high: f64, low: f64, multiplier: f64) -> (f64, f64) {
+        let (dp, dm) = self.calc_dp_dm(high, low);
+        self.calc_dmup_dmdown(dp, dm, multiplier);
+        (self.dmup, self.dmdown)
+    }
+    
+    /// Applies Wilder's smoothing to update DM+ and DM- in state.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - Mutable reference to the DM state containing `dmup`, `dmdown`, and `multiplier`.
+    /// * `dp` - The raw DM+ value for the current bar.
+    /// * `dm` - The raw DM- value for the current bar.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(dmup, dmdown)` of the updated smoothed directional movement values.
+    #[inline(always)]
+    fn calc_dmup_dmdown(&mut self, dp: f64, dm: f64, multiplier: f64) -> (f64, f64) {
+        //state.dmup = state.multiplier * state.dmup + dp;
+        self.dmup = self.dmup.mul_add(multiplier, dp);
+        //state.dmdown = state.multiplier * state.dmdown + dm;
+        self.dmdown = self.dmdown.mul_add(multiplier, dm);
+        (self.dmup, self.dmdown)
+    }
+    /// Calculates the raw DM+ and DM- values for the current bar.
+    ///
+    /// Uses `state.prev_high` and `state.prev_low` as the previous bar's values,
+    /// then updates them to `high` and `low`.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - Mutable reference to the DM state (reads and updates `prev_high` and `prev_low`).
+    /// * `high` - The current high price.
+    /// * `low` - The current low price.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(dp, dm)` of the raw directional movement values before smoothing.
+    #[inline(always)]
+    pub fn calc_dp_dm(&mut self, high: f64, low: f64) -> (f64, f64) {
+        let mut dp = high - self.prev_high;
+        let mut dm = self.prev_low - low;
+        (self.prev_high, self.prev_low) = (high, low);
+    
+        if dp < 0.0 {
+            dp = 0.0;
+        } else if dp > dm {
+            dm = 0.0;
+        }
+    
+        if dm < 0.0 {
+            dm = 0.0;
+        } else if dm > dp {
+            dp = 0.0;
+        }
+    
+        if dp > dm {
+            dm = 0.0;
+        } else if dm > dp {
+            dp = 0.0;
+        }
+        (dp, dm)
     }
 }
 /// Returns the minimum amount of data required for the DM indicator.
@@ -228,89 +304,14 @@ fn cycle_calc(
     for i in 0..high.len() {
         unsafe {
             let (h, l) = (*high.get_unchecked(i), *low.get_unchecked(i));
-            let (dmup, dmdown) = calc(state, h, l, multiplier);
+            let (dmup, dmdown) = state.calc(h, l, multiplier);
             *plus_dm_line.get_unchecked_mut(i) = dmup;
             *minus_dm_line.get_unchecked_mut(i) = dmdown;
         }
     }
 }
 
-/// Calculates the smoothed DM+ and DM- values for the current bar.
-///
-/// # Arguments
-///
-/// * `state` - Mutable reference to the DM state.
-/// * `high` - The current high price.
-/// * `low` - The current low price.
-///
-/// # Returns
-///
-/// A tuple `(plus_dm, minus_dm)` of the smoothed directional movement values.
-#[inline(always)]
-pub fn calc(state: &mut State, high: f64, low: f64, multiplier: f64) -> (f64, f64) {
-    let (dp, dm) = calc_dp_dm(state, high, low);
-    let (_, _) = calc_dmup_dmdown(state, dp, dm, multiplier);
-    (state.dmup, state.dmdown)
-}
 
-/// Applies Wilder's smoothing to update DM+ and DM- in state.
-///
-/// # Arguments
-///
-/// * `state` - Mutable reference to the DM state containing `dmup`, `dmdown`, and `multiplier`.
-/// * `dp` - The raw DM+ value for the current bar.
-/// * `dm` - The raw DM- value for the current bar.
-///
-/// # Returns
-///
-/// A tuple `(dmup, dmdown)` of the updated smoothed directional movement values.
-#[inline(always)]
-fn calc_dmup_dmdown(state: &mut State, dp: f64, dm: f64, multiplier: f64) -> (f64, f64) {
-    //state.dmup = state.multiplier * state.dmup + dp;
-    state.dmup = state.dmup.mul_add(multiplier, dp);
-    //state.dmdown = state.multiplier * state.dmdown + dm;
-    state.dmdown = state.dmdown.mul_add(multiplier, dm);
-    (state.dmup, state.dmdown)
-}
-/// Calculates the raw DM+ and DM- values for the current bar.
-///
-/// Uses `state.prev_high` and `state.prev_low` as the previous bar's values,
-/// then updates them to `high` and `low`.
-///
-/// # Arguments
-///
-/// * `state` - Mutable reference to the DM state (reads and updates `prev_high` and `prev_low`).
-/// * `high` - The current high price.
-/// * `low` - The current low price.
-///
-/// # Returns
-///
-/// A tuple `(dp, dm)` of the raw directional movement values before smoothing.
-#[inline(always)]
-pub fn calc_dp_dm(state: &mut State, high: f64, low: f64) -> (f64, f64) {
-    let mut dp = high - state.prev_high;
-    let mut dm = state.prev_low - low;
-    (state.prev_high, state.prev_low) = (high, low);
-
-    if dp < 0.0 {
-        dp = 0.0;
-    } else if dp > dm {
-        dm = 0.0;
-    }
-
-    if dm < 0.0 {
-        dm = 0.0;
-    } else if dm > dp {
-        dp = 0.0;
-    }
-
-    if dp > dm {
-        dm = 0.0;
-    } else if dm > dp {
-        dp = 0.0;
-    }
-    (dp, dm)
-}
 
 #[inline]
 pub fn multiplier(period: usize) -> f64 {

@@ -1,7 +1,7 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::atr::{partial_calc as partial_calc_atr, State as AtrState};
-use crate::indicators::dm::{calc as calc_dm, State as DMState};
+use crate::indicators::atr::State as AtrState;
+use crate::indicators::dm::State as DMState;
 use crate::indicators::tr::output_length as tr_output_length;
 pub use crate::indicators::wilders::multiplier;
 use crate::types::{
@@ -103,6 +103,49 @@ impl State {
             atr_state,
             di_state,
         }
+    }
+    /// Calculates the current Directional Indicator (DI) values.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - Mutable reference to the DI state (DM and ATR sub-states).
+    /// * `high` - The current high price.
+    /// * `low` - The current low price.
+    /// * `close` - The current close price.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(plus_di, minus_di, atr, tr)` representing the current DI values,
+    /// the smoothed ATR, and the raw true range.
+    #[inline(always)]
+    pub fn calc(
+        &mut self,
+        high: f64,
+        low: f64,
+        close: f64,
+        multipliers: (f64, f64),
+    ) -> (f64, f64, f64, f64) {
+        let (dmup, dmdown, atr, tr) = self.calc_diup_didown(high, low, close, multipliers);
+    
+        let atr_inv = 100.0 / atr;
+        let mut pdi = dmup * atr_inv; // multiplication
+        let mut mdi = dmdown * atr_inv;
+        pdi = if pdi.is_nan() { 0.0 } else { pdi };
+        mdi = if mdi.is_nan() { 0.0 } else { mdi };
+        (pdi, mdi, atr, tr)
+    }
+    
+    #[inline(always)]
+    pub fn calc_diup_didown(
+        &mut self,
+        high: f64,
+        low: f64,
+        close: f64,
+        multipliers: (f64, f64),
+    ) -> (f64, f64, f64, f64) {
+        let (atr, tr) = self.atr_state.partial_calc(high, low, close, multipliers);
+        let (dmup, dmdown) = self.di_state.calc(high, low, multipliers.0);
+        (dmup, dmdown, atr, tr)
     }
 }
 #[derive(Serialize, Deserialize)]
@@ -283,7 +326,7 @@ fn cycle_calc(
             )
         };
 
-        let (pdi, mdi, atr, tr) = calc(state, h, l, c, multipliers);
+        let (pdi, mdi, atr, tr) = state.calc(h, l, c, multipliers);
 
         unsafe {
             *plus_di_line.get_unchecked_mut(i) = pdi;
@@ -300,46 +343,4 @@ fn cycle_calc(
     }
 }
 
-/// Calculates the current Directional Indicator (DI) values.
-///
-/// # Arguments
-///
-/// * `state` - Mutable reference to the DI state (DM and ATR sub-states).
-/// * `high` - The current high price.
-/// * `low` - The current low price.
-/// * `close` - The current close price.
-///
-/// # Returns
-///
-/// A tuple `(plus_di, minus_di, atr, tr)` representing the current DI values,
-/// the smoothed ATR, and the raw true range.
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    high: f64,
-    low: f64,
-    close: f64,
-    multipliers: (f64, f64),
-) -> (f64, f64, f64, f64) {
-    let (dmup, dmdown, atr, tr) = calc_diup_didown(state, high, low, close, multipliers);
 
-    let atr_inv = 100.0 / atr;
-    let mut pdi = dmup * atr_inv; // multiplication
-    let mut mdi = dmdown * atr_inv;
-    pdi = if pdi.is_nan() { 0.0 } else { pdi };
-    mdi = if mdi.is_nan() { 0.0 } else { mdi };
-    (pdi, mdi, atr, tr)
-}
-
-#[inline(always)]
-pub fn calc_diup_didown(
-    state: &mut State,
-    high: f64,
-    low: f64,
-    close: f64,
-    multipliers: (f64, f64),
-) -> (f64, f64, f64, f64) {
-    let (atr, tr) = partial_calc_atr(&mut state.atr_state, high, low, close, multipliers);
-    let (dmup, dmdown) = calc_dm(&mut state.di_state, high, low, multipliers.0);
-    (dmup, dmdown, atr, tr)
-}

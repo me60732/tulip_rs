@@ -7,3 +7,4 @@ pub trait TIndicatorState<const I: usize> {
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError>;
 }
+
