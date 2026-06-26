@@ -110,10 +110,10 @@ mod tests {
                 }
 
                 if !approx_eq!(f64, c_val, rust_val, epsilon = 1e-10) {
-                    println!(
+                    /*println!(
                         "Test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}",
                         index, macd_output_vec_c, outputs[0], options
-                    );
+                    );*/
                     panic!(
                         "Mismatch at index MACD {}: C = {}, Rust = {}, Options = {:?}",
                         index, c_val, rust_val, options
@@ -145,10 +145,10 @@ mod tests {
                 }
 
                 if !approx_eq!(f64, c_val, rust_val, epsilon = 1e-10) {
-                    println!(
+                    /*println!(
                         "Test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}",
                         index, signal_output_vec_c, outputs[1], options
-                    );
+                    );*/
                     panic!(
                         "Mismatch at index SIGNAL {}: C = {}, Rust = {}, Options = {:?}",
                         index, c_val, rust_val, options
@@ -180,10 +180,10 @@ mod tests {
                 }
 
                 if !approx_eq!(f64, c_val, rust_val, epsilon = 1e-10) {
-                    println!(
+                    /*println!(
                         "Test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}",
                         index, histogram_output_vec_c, outputs[2], options
-                    );
+                    );*/
                     panic!(
                         "Mismatch at index HISTOGRAM {}: C = {}, Rust = {}, Options = {:?}",
                         index, c_val, rust_val, options
@@ -269,9 +269,11 @@ mod tests {
                     }
 
                     if !approx_eq!(f64, c_val, rust_val, epsilon = 1e-10) {
+                        let from = if index > 10 { index - 10 } else { 0 };
+                        let to = if index < outputs[0].len() - 10 { index + 10 } else { outputs[0].len() };
                         println!(
                             "MACD test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}",
-                            index, macd_output_vec_c, outputs[0], options, stock_symbol
+                            index, &macd_output_vec_c[from..to], &outputs[0][from..to], options, stock_symbol
                         );
                         panic!(
                             "MACD mismatch at index {}: C = {}, Rust = {}, Options = {:?}, Stock: {}",
@@ -304,9 +306,11 @@ mod tests {
                     }
 
                     if !approx_eq!(f64, c_val, rust_val, epsilon = 1e-10) {
+                        let from = if index > 10 { index - 10 } else { 0 };
+                        let to = if index < outputs[1].len() - 10 { index + 10 } else { outputs[1].len() };
                         println!(
-                            "SIGNAL test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}",
-                            index, signal_output_vec_c, outputs[1], options, stock_symbol
+                            "SIGNAL test failed at index {}: \n\nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}",
+                            index, &signal_output_vec_c[from..to], &outputs[1][from..to], options, stock_symbol
                         );
                         panic!(
                             "MACD Signal mismatch at index {}: C = {}, Rust = {}, Options = {:?}",
@@ -339,10 +343,10 @@ mod tests {
                     }
 
                     if !approx_eq!(f64, c_val, rust_val, epsilon = 1e-10) {
-                        println!(
+                        /*println!(
                             "HISTOGRAM test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}",
                             index, histogram_output_vec_c, outputs[2], options, stock_symbol
-                        );
+                        );*/
                         panic!(
                             "MACD Histogram mismatch at index {}: C = {}, Rust = {}, Options = {:?}",
                             index, c_val, rust_val, options
@@ -504,11 +508,11 @@ mod tests {
 
                         // Compare values with appropriate epsilon for MACD
                         if !approx_eq!(f64, simd_val, regular_val, epsilon = 1e-10) {
-                            println!(
+                            /*println!(
                                 "SIMD: {:?}\n\nRegular: {:?}",
                                 &simd_result[..20],
                                 &regular_result[..20]
-                            );
+                            );*/
                             panic!(
                                 "Mismatch at index {} for stock {} with options {:?}: SIMD by assets = {}, Regular = {}",
                                 i, stock_symbol, options, simd_val, regular_val

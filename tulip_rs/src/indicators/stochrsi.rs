@@ -48,15 +48,13 @@ pub mod by_options {
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     period: usize,
-    multipliers: (f64, f64),
     state: State,
 }
 impl IndicatorState {
-    pub fn new(state: State, period: usize, multipliers: (f64, f64)) -> Self {
+    pub fn new(state: State, period: usize) -> Self {
         Self {
             period,
             state,
-            multipliers,
         }
     }
 }
@@ -79,7 +77,6 @@ impl TIndicatorState<1> for IndicatorState {
         if CHUNK_1.contains(&self.period) {
             cycle_stochrsi::<1>(
                 real,
-                self.multipliers,
                 self.period,
                 &mut stochrsi_line,
                 &mut self.state,
@@ -88,7 +85,6 @@ impl TIndicatorState<1> for IndicatorState {
         } else if CHUNK_4.contains(&self.period) {
             cycle_stochrsi::<4>(
                 real,
-                self.multipliers,
                 self.period,
                 &mut stochrsi_line,
                 &mut self.state,
@@ -97,7 +93,6 @@ impl TIndicatorState<1> for IndicatorState {
         } else {
             cycle_stochrsi::<8>(
                 real,
-                self.multipliers,
                 self.period,
                 &mut stochrsi_line,
                 &mut self.state,
@@ -112,22 +107,23 @@ impl TIndicatorState<1> for IndicatorState {
 #[derive(Serialize, Deserialize)]
 pub struct State {
     pub buffer: Buffer,
+    pub rsi_state: RsiState,
     pub min_state: MinState,
     pub max_state: MaxState,
-    pub rsi_state: RsiState,
 }
 impl State {
     pub fn init_state(real: &[f64], period: usize, rsi_line: &mut [f64]) -> State {
         let mut rsi_state = RsiState::init_state(real, period);
         let mut buffer = Buffer::new(period);
-        let mut rsi = 100.0 * (rsi_state.up_sum / (rsi_state.up_sum + rsi_state.down_sum));
+        let [up_sum, down_sum] = rsi_state.wilders_state.wilders.to_array();
+        let mut rsi = 100.0 * (up_sum / (up_sum + down_sum));
         buffer.push(rsi);
         let mut min_state = MinState::new(rsi, period);
         let mut max_state = MaxState::new(rsi, period);
-        let multiplier = multiplier(period);
+        //let multiplier = multiplier(period);
         let mut i = period + 1;
         while buffer.get_count() < buffer.get_capacity() {
-            rsi = rsi_state.calc(real[i], multiplier);
+            rsi = rsi_state.calc(real[i]);
             buffer.push(rsi);
             buffer.min::<1>(&mut min_state, rsi, period);
             buffer.max::<1>(&mut max_state, rsi, period);
@@ -169,10 +165,9 @@ impl State {
     pub fn calc<const N: usize>(
         &mut self,
         real: f64,
-        multipliers: (f64, f64),
         period: usize,
     ) -> (f64, f64) {
-        let rsi = self.rsi_state.calc(real, multipliers);
+        let rsi = self.rsi_state.calc(real);
         self.buffer.push(rsi);
     
         let (min, _) = self.buffer.min::<N>(&mut self.min_state, rsi, period);
@@ -266,7 +261,6 @@ pub fn indicator(
 ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
     validate_options(options)?;
     let period = options[0] as usize;
-    let multipliers = multiplier(period);
 
     validate_inputs(inputs, min_data(options))?;
     let real = inputs[0];
@@ -288,7 +282,6 @@ pub fn indicator(
     if CHUNK_1.contains(&period) {
         cycle_stochrsi::<1>(
             real,
-            multipliers,
             period,
             &mut stochrsi_line,
             &mut state,
@@ -297,7 +290,6 @@ pub fn indicator(
     } else if CHUNK_4.contains(&period) {
         cycle_stochrsi::<4>(
             real,
-            multipliers,
             period,
             &mut stochrsi_line,
             &mut state,
@@ -306,7 +298,6 @@ pub fn indicator(
     } else {
         cycle_stochrsi::<8>(
             real,
-            multipliers,
             period,
             &mut stochrsi_line,
             &mut state,
@@ -316,7 +307,7 @@ pub fn indicator(
 
     Ok((
         vec![stochrsi_line, rsi_line],
-        IndicatorState::new(state, period, multipliers),
+        IndicatorState::new(state, period),
     ))
 }
 
@@ -332,7 +323,6 @@ pub fn indicator(
 /// * `rsi_line` - A mutable slice for storing the optional RSI output values.
 fn cycle_stochrsi<const N: usize>(
     real: &[f64],
-    multipliers: (f64, f64),
     period: usize,
     stochrsi_line: &mut [f64],
     state: &mut State,
@@ -343,7 +333,7 @@ fn cycle_stochrsi<const N: usize>(
     for i in 0..real.len() {
         let val = unsafe { *real.get_unchecked(i) };
 
-        let (kfast, rsi) = state.calc::<N>(val, multipliers, period);
+        let (kfast, rsi) = state.calc::<N>(val, period);
 
         unsafe { *stochrsi_line.get_unchecked_mut(i) = kfast };
         crate::store_optional_outputs!(i,

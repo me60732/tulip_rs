@@ -10,7 +10,6 @@ use std::simd::Simd;
 
 /// SIMD driver that advances the Standard Deviation (STDDEV) across `N` asset lanes per scheduling epoch.
 struct StddevDriver {
-    multiplier: f64,
     period: usize,
     want_optional_outputs: bool,
 }
@@ -29,8 +28,6 @@ impl Driver<State> for StddevDriver {
         // Optimization 1: Direct array construction instead of collect+try_into
         let mut state = SimdState::new(&states);
 
-        let multiplier_simd = Simd::splat(self.multiplier);
-
         // Optimization 2: Pre-compute all input and output pointers
         let input_ptrs = crate::extract_input_ptrs!(inputs, N, input_ptrs);
 
@@ -45,7 +42,7 @@ impl Driver<State> for StddevDriver {
                 old_vals @ j
             );
 
-            let (stddev, sma) = state.calc_simd(new_vals, old_vals, multiplier_simd);
+            let (stddev, sma) = state.calc_simd(new_vals, old_vals);
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, j,
@@ -89,7 +86,7 @@ pub fn indicator_by_assets<const N: usize>(
     //let real: Vec<&[f64]> = (0..N).map(|i| inputs[i][0]).collect();
     let real: [&[f64]; N] = std::array::from_fn(|i| inputs[i][0]);
     //init ema, sliced inputs and multipliers
-    let (simd_state, multiplier) = SimdState::init_state(&real, period);
+    let simd_state = SimdState::init_state(&real, period);
     let states = simd_state.to_states();
 
     let mut road_train = PrimeMover::<N, State>::new();
@@ -138,7 +135,6 @@ pub fn indicator_by_assets<const N: usize>(
         output_buffers.push(output_buffer);
     }
     let mut driver = StddevDriver {
-        multiplier,
         period,
         want_optional_outputs,
     };
@@ -149,7 +145,6 @@ pub fn indicator_by_assets<const N: usize>(
         states.push(IndicatorState::new(
             unsafe { inputs.get_unchecked(i).get_unchecked(0) },
             state,
-            multiplier,
             period,
         ));
     }

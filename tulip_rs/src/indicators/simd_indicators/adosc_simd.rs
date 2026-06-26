@@ -1,4 +1,4 @@
-use crate::indicators::adosc::State;
+use crate::indicators::adosc::IndicatorState as State;
 use crate::indicators::simd_indicators::{
     ad_simd::calc_simd as calc_ad_simd, ema_simd::calc_simd as calc_ema_simd,
 };
@@ -29,26 +29,16 @@ impl<const N: usize> SimdState<N> {
         let mut long_ema = [0.0; N];
 
         for i in 0..N {
+            let [short, long] = states[i].ema_state.ema.to_array();
             ad[i] = states[i].ad;
-            short_ema[i] = states[i].short_ema;
-            long_ema[i] = states[i].long_ema;
+            short_ema[i] = short;
+            long_ema[i] = long;
         }
         Self {
             ad: Simd::from_array(ad),
             short_ema: Simd::from_array(short_ema),
             long_ema: Simd::from_array(long_ema),
         }
-    }
-    /// Scatters the SIMD state back into an array of `N` scalar [`State`] values.
-    pub fn to_states(&self) -> [State; N] {
-        let ad = self.ad.to_array();
-        let short_ema = self.short_ema.to_array();
-        let long_ema = self.long_ema.to_array();
-
-        let states: [State; N] =
-            std::array::from_fn(|i| State::new(ad[i], short_ema[i], long_ema[i]));
-
-        states
     }
     /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place,
     /// avoiding allocation compared to [`to_states`].
@@ -58,9 +48,11 @@ impl<const N: usize> SimdState<N> {
         let long_ema = self.long_ema.to_array();
 
         for i in 0..N {
+            let [short, long] = states[i].ema_state.ema.as_mut_array();
             states[i].ad = ad[i];
-            states[i].short_ema = short_ema[i];
-            states[i].long_ema = long_ema[i];
+            *short = short_ema[i];
+            *long = long_ema[i];
+            
         }
     }
     /// Advances the Chaikin AD Oscillator (ADOSC) by one bar for `N` assets simultaneously.

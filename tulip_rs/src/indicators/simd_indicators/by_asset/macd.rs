@@ -148,7 +148,6 @@ pub fn indicator_by_assets<const N: usize>(
         let state = State::init_state(
             inputs[i][0],
             (short_period, long_period, signal_period),
-            multipliers,
             &mut macd_line,
             (&mut short_ema_line, &mut long_ema_line),
         );
@@ -198,9 +197,5 @@ pub fn indicator_by_assets<const N: usize>(
     };
     let states_vec = road_train.drive(&mut driver);
 
-    let mut states = Vec::with_capacity(N);
-    for state in states_vec {
-        states.push(IndicatorState::new(multipliers, state));
-    }
-    Ok((output_buffers, states))
+    Ok((output_buffers, states_vec))
 }

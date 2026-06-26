@@ -23,8 +23,9 @@ impl<const N: usize> SimdState<N> {
         let mut down_sum = [0.0; N];
         let mut prev_real = [0.0; N];
         for i in 0..N {
-            up_sum[i] = states[i].up_sum;
-            down_sum[i] = states[i].down_sum;
+            let [up, down] = states[i].wilders_state.wilders.to_array();
+            up_sum[i] = up;
+            down_sum[i] = down;
             prev_real[i] = states[i].prev_real;
         }
         Self {
@@ -33,17 +34,7 @@ impl<const N: usize> SimdState<N> {
             prev_real: Simd::from_array(prev_real),
         }
     }
-    /// Converts the SIMD state into an array of `N` scalar [`State`] values.
-    pub fn to_states(&self) -> [State; N] {
-        let up_sum = self.up_sum.to_array();
-        let down_sum = self.down_sum.to_array();
-        let prev_real = self.prev_real.to_array();
 
-        let states: [State; N] =
-            std::array::from_fn(|i| State::new(prev_real[i], up_sum[i], down_sum[i]));
-
-        states
-    }
     /// Writes the current SIMD lane values back into the provided scalar per-asset states.
     pub fn write_states(&self, states: &mut [&mut State]) {
         let up_sum = self.up_sum.to_array();
@@ -51,8 +42,9 @@ impl<const N: usize> SimdState<N> {
         let prev_real = self.prev_real.to_array();
 
         for i in 0..N {
-            states[i].up_sum = up_sum[i];
-            states[i].down_sum = down_sum[i];
+            let [up, down] = states[i].wilders_state.wilders.as_mut_array();
+            *up = up_sum[i];
+            *down = down_sum[i];
             states[i].prev_real = prev_real[i];
         }
     }

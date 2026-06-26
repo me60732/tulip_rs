@@ -26,23 +26,16 @@ impl<const N: usize> SimdState<N> {
         let mut long_ema = [0.0; N];
 
         for i in 0..N {
-            short_ema[i] = states[i].short_ema;
-            long_ema[i] = states[i].long_ema;
+            let [short, long] = states[i].ema.to_array();
+            short_ema[i] = short;
+            long_ema[i] = long;
         }
         Self {
             short_ema: Simd::from_array(short_ema),
             long_ema: Simd::from_array(long_ema),
         }
     }
-    /// Scatters the SIMD state back into an array of `N` scalar [`State`] values.
-    pub fn to_states(&self) -> [State; N] {
-        let short_ema = self.short_ema.to_array();
-        let long_ema = self.long_ema.to_array();
 
-        let states: [State; N] = std::array::from_fn(|i| State::new(short_ema[i], long_ema[i]));
-
-        states
-    }
     /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place,
     /// avoiding allocation compared to [`to_states`].
     pub fn write_states(&self, states: &mut [&mut State]) {
@@ -50,8 +43,9 @@ impl<const N: usize> SimdState<N> {
         let long_ema = self.long_ema.to_array();
 
         for i in 0..N {
-            states[i].short_ema = short_ema[i];
-            states[i].long_ema = long_ema[i];
+            let [short, long] = states[i].ema.as_mut_array();
+            *short = short_ema[i];
+            *long = long_ema[i];
         }
     }
 

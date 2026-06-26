@@ -62,11 +62,10 @@ pub const INFO: Info = Info {
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     state: State,
-    multiplier: f64,
 }
 impl IndicatorState {
-    pub fn new(state: State, multiplier: f64) -> Self {
-        Self { state, multiplier }
+    pub fn new(state: State) -> Self {
+        Self { state }
     }
 }
 impl TIndicatorState<1> for IndicatorState {
@@ -81,7 +80,6 @@ impl TIndicatorState<1> for IndicatorState {
 
         cycle(
             inputs[0],
-            self.multiplier,
             &mut self.state,
             &mut volatility_line,
         );
@@ -97,7 +95,7 @@ pub struct State {
 }
 impl State {
     pub fn new(prev_real: f64, period: usize) -> Self {
-        let stddev_state = StddevState::new(0.0, 0.0);
+        let stddev_state = StddevState::new(0.0, 0.0, multiplier(period));
         let buffer = Buffer::new(period);
         State {
             prev_real,
@@ -116,27 +114,27 @@ impl State {
         }
 
         Self {
-            stddev_state: StddevState::new(sum, sum_sq),
+            stddev_state: StddevState::new(sum, sum_sq, multiplier(period)),
             buffer,
             prev_real: real[period],
         }
     }
     #[inline(always)]
-    pub fn calc(&mut self, real: f64, multiplier: f64) -> f64 {
+    pub fn calc(&mut self, real: f64) -> f64 {
         // Rearranged for better numerical stability when prices are large and close
         let value = (real - self.prev_real) / self.prev_real;
         self.prev_real = real;
         let prev_value = self.buffer.push_with_info(value).unwrap();
-        let (sd, _) = self.stddev_state.calc(&value, &prev_value, multiplier);
+        let (sd, _) = self.stddev_state.calc(&value, &prev_value);
         sd * ANNUAL
     }
     #[inline(always)]
-    pub unsafe fn calc_unchecked(&mut self, real: f64, multiplier: f64) -> f64 {
+    pub unsafe fn calc_unchecked(&mut self, real: f64) -> f64 {
         // Rearranged for better numerical stability when prices are large and close
         let value = (real - self.prev_real) / self.prev_real;
         self.prev_real = real;
         let prev_value = self.buffer.push_with_info_unchecked(value);
-        let (sd, _) = self.stddev_state.calc(&value, &prev_value, multiplier);
+        let (sd, _) = self.stddev_state.calc(&value, &prev_value);
         sd * ANNUAL
     }
 }
@@ -195,7 +193,6 @@ pub fn indicator(
 ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
     validate_options(options)?;
     let period = options[0] as usize;
-    let multiplier = multiplier(period);
 
     validate_inputs(inputs, min_data(options))?;
     let mut vol_line = {
@@ -206,12 +203,11 @@ pub fn indicator(
 
     cycle(
         &inputs[0][period + 1..],
-        multiplier,
         &mut state,
         &mut vol_line,
     );
 
-    Ok((vec![vol_line], IndicatorState { multiplier, state }))
+    Ok((vec![vol_line], IndicatorState::new(state)))
 }
 /// Iterates over the real data slice and computes a Volatility value for each bar.
 ///
@@ -221,11 +217,11 @@ pub fn indicator(
 /// * `multiplier` - The stddev multiplier computed from the period.
 /// * `state` - Mutable reference to the rolling calculation state.
 /// * `vol_line` - Mutable output slice for volatility values.
-fn cycle(real: &[f64], multiplier: f64, state: &mut State, vol_line: &mut [f64]) {
+fn cycle(real: &[f64], state: &mut State, vol_line: &mut [f64]) {
     for i in 0..real.len() {
         unsafe {
             *vol_line.get_unchecked_mut(i) =
-                state.calc_unchecked(*real.get_unchecked(i), multiplier);
+                state.calc_unchecked(*real.get_unchecked(i));
         }
     }
 }
@@ -242,8 +238,8 @@ fn cycle(real: &[f64], multiplier: f64, state: &mut State, vol_line: &mut [f64])
 ///
 /// The annualised volatility value for this bar.
 #[inline(always)]
-pub fn calc(state: &mut State, real: f64, multiplier: f64) -> f64 {
-    state.calc(real, multiplier)
+pub fn calc(state: &mut State, real: f64) -> f64 {
+    state.calc(real)
 }
 /// Calculates a single Volatility value for one bar using unchecked buffer access.
 ///
@@ -261,6 +257,6 @@ pub fn calc(state: &mut State, real: f64, multiplier: f64) -> f64 {
 ///
 /// The internal ring buffer must have been fully initialised before calling this function.
 #[inline(always)]
-pub unsafe fn calc_unchecked(state: &mut State, real: f64, multiplier: f64) -> f64 {
-    state.calc_unchecked(real, multiplier)
+pub unsafe fn calc_unchecked(state: &mut State, real: f64) -> f64 {
+    state.calc_unchecked(real)
 }

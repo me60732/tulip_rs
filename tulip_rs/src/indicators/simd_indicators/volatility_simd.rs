@@ -106,12 +106,12 @@ pub mod assets {
         ///
         /// Annualised volatility values for all `N` lanes.
         #[inline(always)]
-        pub fn calc_simd(&mut self, real: Simd<f64, N>, multiplier: Simd<f64, N>) -> Simd<f64, N> {
+        pub fn calc_simd(&mut self, real: Simd<f64, N>) -> Simd<f64, N> {
             // Rearranged for better numerical stability when prices are large and close
             let value = (real - self.prev_real) / self.prev_real;
             self.prev_real = real;
             let prev_value = self.buffer.push_with_info(value).unwrap();
-            let (sd, _) = self.stddev_state.calc_simd(value, prev_value, multiplier);
+            let (sd, _) = self.stddev_state.calc_simd(value, prev_value);
             sd * F64Constants::ANNUAL
         }
         /// Unchecked variant of [`calc_simd`](SimdState::calc_simd) that skips buffer-full checks.
@@ -134,13 +134,12 @@ pub mod assets {
         pub unsafe fn calc_unchecked_simd(
             &mut self,
             real: Simd<f64, N>,
-            multiplier: Simd<f64, N>,
         ) -> Simd<f64, N> {
             // Rearranged for better numerical stability when prices are large and close
             let value = (real - self.prev_real) / self.prev_real;
             self.prev_real = real;
             let prev_value = self.buffer.push_with_info_unchecked(value);
-            let (sd, _) = self.stddev_state.calc_simd(value, prev_value, multiplier);
+            let (sd, _) = self.stddev_state.calc_simd(value, prev_value);
             sd * F64Constants::ANNUAL
         }
     }
@@ -245,7 +244,6 @@ pub mod options {
         pub unsafe fn calc_unchecked_simd(
             &mut self,
             real: f64,
-            multiplier: Simd<f64, N>,
         ) -> Simd<f64, N> {
             // Rearranged for better numerical stability when prices are large and close
             let value = (real - self.prev_real) / self.prev_real;
@@ -257,7 +255,6 @@ pub mod options {
             let (sd, _) = self.stddev_state.calc_simd(
                 Simd::splat(value),
                 prev_value,
-                multiplier,
             );
             sd * F64Constants::ANNUAL
         }

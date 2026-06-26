@@ -102,7 +102,6 @@ impl<const N: usize> SimdState<N> {
         short_value: Simd<f64, N>,
         long_value: Simd<f64, N>,
         alpha: Simd<f64, N>,
-        multipliers: (Simd<f64, N>, Simd<f64, N>),
     ) -> (
         Simd<f64, N>,
         Simd<f64, N>,
@@ -110,13 +109,11 @@ impl<const N: usize> SimdState<N> {
         Simd<f64, N>,
         Simd<f64, N>,
     ) {
-        // Compute short-term STDDEV.
-        let (multiplier_short, multiplier_long) = multipliers;
 
-        let (sd_short, sma_short) = self.short_state.calc_simd(value, short_value, multiplier_short);
+        let (sd_short, sma_short) = self.short_state.calc_simd(value, short_value);
 
         // Compute long-term STDDEV.
-        let (sd_long, sma_long) = self.long_state.calc_simd(value, long_value, multiplier_long);
+        let (sd_long, sma_long) = self.long_state.calc_simd(value, long_value);
 
         let mut k = sd_short / sd_long;
         k *= alpha;

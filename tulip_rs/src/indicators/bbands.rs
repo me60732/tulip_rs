@@ -69,16 +69,14 @@ pub struct IndicatorState {
     real: Vec<f64>,
     state: State,
     period: usize,
-    multiplier: f64,
     std_dev: f64,
 }
 impl IndicatorState {
-    pub fn new(real: &[f64], state: State, period: usize, multiplier: f64, std_dev: f64) -> Self {
+    pub fn new(real: &[f64], state: State, period: usize, std_dev: f64) -> Self {
         Self {
             real: real[real.len() - period..].to_vec(),
             state,
             period,
-            multiplier,
             std_dev,
         }
     }
@@ -108,7 +106,6 @@ impl TIndicatorState<1> for IndicatorState {
             &self.real,
             period,
             self.std_dev,
-            self.multiplier,
             (&mut lower_band, &mut middle_band, &mut upper_band),
             &mut self.state,
         );
@@ -182,8 +179,6 @@ pub fn indicator(
     let period = options[0] as usize;
     let std_dev = options[1];
 
-    let multiplier = multiplier(period);
-
     validate_inputs(inputs, min_data(options))?;
     let real = inputs[0];
 
@@ -196,28 +191,18 @@ pub fn indicator(
         )
     };
 
-    let mut state = State::new(
-        real[0..period].iter().sum::<f64>(),
-        real[0..period].iter().map(|&x| x * x).sum::<f64>(),
-    );
+    let mut state = State::init_state(real, period);
     cycle_bbands(
         real,
         period,
         std_dev,
-        multiplier,
         (&mut lower_band, &mut middle_band, &mut upper_band),
         &mut state,
     );
 
     Ok((
         vec![lower_band, middle_band, upper_band],
-        IndicatorState {
-            real: real[real.len() - period..].to_vec(),
-            state,
-            period,
-            multiplier,
-            std_dev,
-        },
+        IndicatorState::new(real, state, period, std_dev),
     ))
 }
 
@@ -235,7 +220,6 @@ fn cycle_bbands(
     real: &[f64],
     period: usize,
     std_dev: f64,
-    multiplier: f64,
     outputs: (&mut [f64], &mut [f64], &mut [f64]),
     state: &mut State,
 ) {
@@ -247,7 +231,6 @@ fn cycle_bbands(
         let (lower, middle, upper) = Calc::calc(
             state,
             &std_dev,
-            multiplier,
             unsafe { real.get_unchecked(i) },
             prev_value,
         );
@@ -263,7 +246,6 @@ pub trait Calc {
     fn calc(
         &mut self,
         std_dev: &f64,
-        multiplier: f64,
         value: &f64,
         prev_value: &f64,
     ) -> (f64, f64, f64);
@@ -286,12 +268,11 @@ impl Calc for State {
     fn calc(
         &mut self,
         std_dev: &f64,
-        multiplier: f64,
         value: &f64,
         prev_value: &f64,
     ) -> (f64, f64, f64) {
         let (sd, sma);
-        (sd, sma) = State::calc(self, value, prev_value, multiplier);
+        (sd, sma) = State::calc(self, value, prev_value);
     
         let upper_band = std_dev.mul_add(sd, sma);
         let lower_band = (-std_dev).mul_add(sd, sma);

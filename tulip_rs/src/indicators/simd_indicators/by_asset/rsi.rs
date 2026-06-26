@@ -79,17 +79,13 @@ pub fn indicator_by_assets<const N: usize>(
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
     validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
     validate_options(options)?;
-    let period = options[0] as usize;
-    //let real: Vec<&[f64]> = (0..N).map(|i| inputs[i][0]).collect();
-    let real: [&[f64]; N] = std::array::from_fn(|i| inputs[i][0]);
-    //init ema, sliced inputs and multipliers
-    let simd_state = SimdState::init_state(&real, period);
-    let states = simd_state.to_states();
-    let multipliers = multiplier(period);
+    
+    let multipliers = multiplier(options[0] as usize);
     let mut road_train = PrimeMover::<N, State>::new();
     let mut output_buffers = Vec::with_capacity(N);
-
-    for (i, state) in states.into_iter().enumerate() {
+    let period = options[0] as usize;
+    
+    for i in 0..N {
         let asset_inputs = vec![inputs[i][0]];
         let rsi_line = {
             let capacity = output_length(inputs[i][0].len(), options);
@@ -97,7 +93,8 @@ pub fn indicator_by_assets<const N: usize>(
         };
         let mut output_buffer = vec![rsi_line];
 
-        //let adosc_len = output_buffer[0].len();
+        let state = State::init_state(inputs[i][0], period);
+
         let mut asset_outputs = Vec::with_capacity(output_buffer.len());
 
         for j in 0..output_buffer.len() {
@@ -122,12 +119,14 @@ pub fn indicator_by_assets<const N: usize>(
         ));
         output_buffers.push(output_buffer);
     }
-    let mut driver = RsiDriver { multipliers };
+    let mut driver = RsiDriver {
+        multipliers
+    };
     let states_vec = road_train.drive(&mut driver);
 
     let mut states = Vec::with_capacity(N);
     for state in states_vec.into_iter() {
-        states.push(IndicatorState::new(state, multipliers));
+        states.push(IndicatorState::new(state));
     }
     Ok((output_buffers, states))
 }

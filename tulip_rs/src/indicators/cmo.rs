@@ -113,7 +113,7 @@ impl State {
         //for i in 1..period+1 {
         for (i, &value) in real.iter().take(period + 1).enumerate().skip(1) {
             let prev_value = unsafe { *real.get_unchecked(i - 1) };
-            let (up, down) = up_down(value, prev_value);
+            let [up, down] = up_down(value, prev_value);
             up_sum += up;
             down_sum += down;
         }
@@ -127,8 +127,8 @@ impl State {
         cur_real: f64,
         prior_real: f64,
     ) -> f64 {
-        let (old_up, old_down) = up_down(prev_real_1, prev_real_0);
-        let (up, down) = up_down(cur_real, prior_real);
+        let [old_up, old_down] = up_down(prev_real_1, prev_real_0);
+        let [up, down] = up_down(cur_real, prior_real);
         self.up_sum += up - old_up;
         self.down_sum += down - old_down;
     
@@ -230,8 +230,8 @@ fn cycle_cmo(real: &[f64], state: &mut State, period: usize, cmo_line: &mut [f64
 }
 
 #[inline(always)]
-pub fn up_down(value: f64, prev_value: f64) -> (f64, f64) {
+pub fn up_down(value: f64, prev_value: f64) -> [f64; 2] {
     let diff = value - prev_value;
-    (diff.max(0.0), (-diff).max(0.0))
+    [diff.max(0.0), (-diff).max(0.0)]
 }
 

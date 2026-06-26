@@ -4,13 +4,14 @@ use crate::indicators::ad::calc as calc_ad;
 use crate::indicators::ad::output_length as ad_output_length;
 /// Number of input price series required by this indicator.
 pub use crate::indicators::ad::INPUTS_WIDTH;
-use crate::indicators::ema::{
-    calc as calc_ema, multiplier as ema_multiplier, output_length as ema_output_length,
+use crate::indicators::{
+    ema::{multiplier as ema_multiplier, output_length as ema_output_length},
+    simd_indicators::ema_simd::{multiplier_simd, SimdState as EmaSimdState},
 };
-use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
-};
+
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
+use std::simd::Simd;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS_WIDTH: usize = 2;
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
@@ -75,17 +76,14 @@ pub const INFO: Info = Info {
         },
     ],
 };
+
+pub type IndicatorState = State;
 #[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    multipliers: ((f64, f64), (f64, f64)),
-    state: State,
+pub struct State {
+    pub ad: f64,
+    pub ema_state: EmaSimdState<2>
 }
-impl IndicatorState {
-    pub fn new(state: State, multipliers: ((f64, f64), (f64, f64))) -> Self {
-        Self { state, multipliers }
-    }
-}
-impl TIndicatorState<4> for IndicatorState {
+impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
     /// Calculates the ADOSC indicator, picking up where the previous calculation left off.
     ///
     /// This function is useful for scenarios where indicator data is stored in a database and
@@ -122,8 +120,7 @@ impl TIndicatorState<4> for IndicatorState {
             inputs[1], //low
             inputs[2], //close
             inputs[3], //volume
-            self.multipliers,
-            &mut self.state,
+            self,
             &mut adosc_line,
             (&mut short_ema_line, &mut long_ema_line, &mut ad_line),
         );
@@ -131,50 +128,35 @@ impl TIndicatorState<4> for IndicatorState {
         Ok(vec![adosc_line, short_ema_line, long_ema_line, ad_line])
     }
 }
-#[derive(Serialize, Deserialize)]
-pub struct State {
-    pub ad: f64,
-    pub short_ema: f64,
-    pub long_ema: f64,
-}
-impl State {
-    pub fn new(ad: f64, short_ema: f64, long_ema: f64) -> Self {
-        Self {
-            ad,
-            short_ema,
-            long_ema,
-        }
-    }
-
+impl IndicatorState {
+    
     pub fn init_state(
         inputs: &[&[f64]; INPUTS_WIDTH],
         periods: (usize, usize),
         out_vecs: (&mut [f64], &mut [f64]),
-    ) -> State {
+    ) -> Self {
         let (high, low, close, volume) = (inputs[0], inputs[1], inputs[2], inputs[3]);
         let (short_period, long_period) = periods;
         let (short_ema_line, ad_line) = out_vecs;
 
-        let (mut ad, mut short_ema, mut long_ema) = (0.0, 0.0, 0.0);
-        let (short_per, long_per) = multiplier(short_period, long_period);
+        let multipliers = multiplier_simd([short_period, long_period]);
+        let (mut ad, mut ema_state) = (0.0, EmaSimdState::new(Simd::splat(0.0), multipliers));
+        
 
         for i in 0..long_period - 1 {
             ad = calc_ad(ad, high[i], low[i], close[i], volume[i]);
             if i > 0 {
-                short_ema = calc_ema(&ad, short_ema, short_per);
-                long_ema = calc_ema(&ad, long_ema, long_per);
+                ema_state.calc_simd(Simd::splat(ad));
             } else {
-                short_ema = ad;
-                long_ema = ad;
+                ema_state.ema = Simd::splat(ad);
             }
             crate::init_store_optional_outputs!(i, high.len(),
-                short_ema_line => short_ema,
+                short_ema_line => ema_state.ema[0],
                 ad_line => ad
             );
         }
-        State {
-            short_ema,
-            long_ema,
+        Self {
+            ema_state,
             ad,
         }
     }
@@ -194,17 +176,15 @@ impl State {
     #[inline(always)]
     pub fn calc(
         &mut self,
-        inputs: (f64, f64, f64, f64),
-        multipliers: ((f64, f64), (f64, f64)),
+        inputs: (f64, f64, f64, f64)
     ) -> f64 {
         let (high, low, close, volume) = inputs;
-        let (short_multiplier, long_multiplier) = multipliers;
-    
+        //let (short_multiplier, long_multiplier) = multipliers;
+
         self.ad = calc_ad(self.ad, high, low, close, volume);
-        self.short_ema = calc_ema(&self.ad, self.short_ema, short_multiplier);
-        self.long_ema = calc_ema(&self.ad, self.long_ema, long_multiplier);
-    
-        self.short_ema - self.long_ema
+        let [short_ema, long_ema] = self.ema_state.calc_simd(Simd::splat(self.ad)).to_array();
+
+        short_ema - long_ema
     }
 }
 /// Returns the minimum amount of data required for the ADOSC indicator.
@@ -276,7 +256,6 @@ pub fn indicator(
 
     let short_period = options[0] as usize;
     let long_period = options[1] as usize;
-    let multipliers = multiplier(short_period, long_period);
 
     validate_inputs(inputs, min_data(options))?;
 
@@ -291,7 +270,7 @@ pub fn indicator(
     );
 
     let mut state = {
-        State::init_state(
+        IndicatorState::init_state(
             inputs,
             (short_period, long_period),
             (&mut short_ema_line, &mut ad_line),
@@ -321,7 +300,6 @@ pub fn indicator(
         low,
         close,
         volume,
-        multipliers,
         &mut state,
         &mut adosc_line,
         optional_outputs,
@@ -329,7 +307,7 @@ pub fn indicator(
 
     Ok((
         vec![adosc_line, short_ema_line, long_ema_line, ad_line],
-        IndicatorState::new(state, multipliers),
+        state,
     ))
 }
 
@@ -350,12 +328,10 @@ fn cycle_adosc(
     low: &[f64],
     close: &[f64],
     volume: &[f64],
-    multipliers: ((f64, f64), (f64, f64)),
     state: &mut State,
     adosc_line: &mut [f64],
     out_vecs: (&mut [f64], &mut [f64], &mut [f64]),
 ) {
-    //let (high, low, close, volume) = (inputs[0], inputs[1], inputs[2], inputs[3]);
 
     let (short_ema_line, long_ema_line, ad_line) = out_vecs;
     let (has_optional, want_short, want_long, want_ad) =
@@ -374,19 +350,17 @@ fn cycle_adosc(
             )
         };
         unsafe {
-            *adosc_line.get_unchecked_mut(i) = state.calc(inputs, multipliers);
+            *adosc_line.get_unchecked_mut(i) = state.calc(inputs);
         };
         if has_optional {
             crate::store_optional_outputs!(i,
                 want_ad, ad_line => state.ad,
-                want_short, short_ema_line => state.short_ema,
-                want_long, long_ema_line => state.long_ema
+                want_short, short_ema_line => state.ema_state.ema[0],
+                want_long, long_ema_line => state.ema_state.ema[1]
             );
         }
     }
 }
-
-
 
 #[inline(always)]
 pub fn multiplier(short_period: usize, long_period: usize) -> ((f64, f64), (f64, f64)) {

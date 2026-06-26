@@ -163,7 +163,7 @@ pub fn indicator_by_options<const N: usize>(
 
     let mut states = Vec::with_capacity(N);
     for (state, param) in states_vec.into_iter().zip(params.iter()) {
-        states.push(IndicatorState::new(state, param.0, param.1));
+        states.push(IndicatorState::new(state, param.0));
     }
     Ok((output_buffers, states))
 }

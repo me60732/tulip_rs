@@ -49,16 +49,14 @@ pub struct IndicatorState {
     real: Vec<f64>,
     state: State,
     period: usize,
-    multiplier: f64,
 }
 impl IndicatorState {
-    pub fn new(real: &[f64], state: State, multiplier: f64, period: usize) -> Self {
+    pub fn new(real: &[f64], state: State, period: usize) -> Self {
         let real = real[real.len() - period..].to_vec();
         Self {
             real,
             state,
             period,
-            multiplier,
         }
     }
 }
@@ -87,7 +85,6 @@ impl TIndicatorState<1> for IndicatorState {
             &self.real,
             &mut self.state,
             self.period,
-            self.multiplier,
             &mut stddev_line,
             &mut sma_line,
         );
@@ -101,30 +98,32 @@ impl TIndicatorState<1> for IndicatorState {
 pub struct State {
     pub sum: f64,
     pub sum_sq: f64,
+    pub(crate) multiplier: f64,
 }
 impl State {
-    pub fn new(sum: f64, sum_sq: f64) -> Self {
-        State { sum, sum_sq }
+    pub fn new(sum: f64, sum_sq: f64, multiplier: f64) -> Self {
+        State { sum, sum_sq, multiplier }
     }
 
     pub fn init_state(real: &[f64], period: usize) -> State {
         let mut sum = 0.0;
         let mut sum_sq = 0.0;
+        let multiplier = multiplier(period);
         for i in 0..period {
             sum += real[i];
             sum_sq = real[i].mul_add(real[i], sum_sq);
         }
         State::new(
             sum,
-            sum_sq, /*real[0..period].iter().sum::<f64>(),
-                   real[0..period].iter().map(|&x| x * x).sum::<f64>(),*/
+            sum_sq,
+            multiplier,
         )
     }
     #[inline(always)]
-    pub fn calc(&mut self, value: &f64, prev_value: &f64, multiplier: f64) -> (f64, f64) {
-        let sma = calc_sma(&mut self.sum, value, prev_value, &multiplier);
+    pub fn calc(&mut self, value: &f64, prev_value: &f64) -> (f64, f64) {
+        let sma = calc_sma(&mut self.sum, value, prev_value, &self.multiplier);
         self.sum_sq += value.mul_add(*value, -(prev_value * prev_value));
-        let mut sd = self.sum_sq.mul_add(multiplier, -(sma * sma));
+        let mut sd = self.sum_sq.mul_add(self.multiplier, -(sma * sma));
         sd = sd.sqrt().max(f64::EPSILON);
 
         (sd, sma)
@@ -220,7 +219,6 @@ pub fn indicator(
 ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
     validate_options(options)?;
     let period = options[0] as usize;
-    let multiplier = multiplier(period);
 
     validate_inputs(inputs, min_data(options))?;
     let real = inputs[0];
@@ -242,19 +240,13 @@ pub fn indicator(
         &real,
         &mut state,
         period,
-        multiplier,
         &mut stddev_line,
         &mut sma_line,
     );
 
     Ok((
         vec![stddev_line, sma_line],
-        IndicatorState {
-            period,
-            multiplier,
-            state,
-            real: real[real.len() - period..].to_vec(),
-        },
+        IndicatorState::new(real, state, period)
     ))
 }
 
@@ -272,7 +264,6 @@ fn cycle_stddev(
     real: &[f64],
     state: &mut State,
     period: usize,
-    multiplier: f64,
     stddev_line: &mut [f64],
     sma_line: &mut [f64],
 ) {
@@ -280,7 +271,7 @@ fn cycle_stddev(
 
     for (j, i) in (period..real.len()).enumerate() {
         let (stddev, sma) =
-            unsafe { state.calc(real.get_unchecked(i), real.get_unchecked(j), multiplier) };
+            unsafe { state.calc(real.get_unchecked(i), real.get_unchecked(j)) };
         unsafe { *stddev_line.get_unchecked_mut(j) = stddev };
         crate::store_optional_outputs!(j,
             want_sma, sma_line => sma

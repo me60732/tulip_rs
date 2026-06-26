@@ -26,9 +26,10 @@ impl<const N: usize> SimdState<N> {
         let mut signal = [0.0; N];
 
         for i in 0..N {
-            short_ema[i] = states[i].short_ema;
-            long_ema[i] = states[i].long_ema;
-            signal[i] = states[i].signal;
+            let [short, long] = states[i].ema_state.ema.to_array();
+            short_ema[i] = short;
+            long_ema[i] = long;
+            signal[i] = states[i].signal_state.ema;
         }
 
         Self {
@@ -37,17 +38,7 @@ impl<const N: usize> SimdState<N> {
             signal: Simd::from_array(signal),
         }
     }
-    /// Scatters the SIMD state back into an array of `N` scalar [`State`] values.
-    pub fn to_states(&self) -> [State; N] {
-        let short_ema = self.short_ema.to_array();
-        let long_ema = self.long_ema.to_array();
-        let signal = self.signal.to_array();
 
-        let states: [State; N] =
-            std::array::from_fn(|i| State::new(short_ema[i], long_ema[i], signal[i]));
-
-        states
-    }
     /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place.
     pub fn write_states(&self, states: &mut [&mut State]) {
         let short_ema = self.short_ema.to_array();
@@ -55,9 +46,10 @@ impl<const N: usize> SimdState<N> {
         let signal = self.signal.to_array();
 
         for (i, state) in states.iter_mut().enumerate() {
-            state.short_ema = short_ema[i];
-            state.long_ema = long_ema[i];
-            state.signal = signal[i];
+            let [short, long] = state.ema_state.ema.as_mut_array();
+            *short = short_ema[i];
+            *long = long_ema[i];
+            state.signal_state.ema = signal[i];
         }
     }
     /// Computes one MACD step across `N` lanes using SIMD parallelism.

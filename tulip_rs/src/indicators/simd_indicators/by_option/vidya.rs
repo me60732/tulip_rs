@@ -4,13 +4,12 @@ use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::simd_indicators::vidya_simd::SimdState;
 use crate::indicators::stddev::output_length as stddev_output_length;
 use crate::indicators::vidya::{
-    min_data, multiplier, output_length, validate_options as vo, IndicatorState, State,
+    min_data, output_length, validate_options as vo, IndicatorState, State,
     INPUTS_WIDTH, OPTIONS_WIDTH,
 };
 use crate::types::IndicatorError;
 use std::simd::Simd;
 struct Params {
-    multipliers: (f64, f64),
     periods: (usize, usize),
     alpha: f64,
 }
@@ -34,25 +33,16 @@ impl Driver<State, Params> for VidyaDriver {
 
         let mut i = [0usize; N];
         let mut short = [0usize; N];
-        let (multipliers_simd, alpha_simd) = {
-            let mut multipliers = ([0.0; N], [0.0; N]);
+        let alpha_simd = {
             let mut alpha = [0.0; N];
             for (lane, option) in options.iter().enumerate() {
                 if let Some(param) = option {
                     short[lane] = param.periods.1 - param.periods.0;
                     i[lane] = param.periods.1;
-                    multipliers.0[lane] = param.multipliers.0;
-                    multipliers.1[lane] = param.multipliers.1;
                     alpha[lane] = param.alpha;
                 }
             }
-            (
-                (
-                    Simd::from_array(multipliers.0),
-                    Simd::from_array(multipliers.1),
-                ),
-                Simd::from_array(alpha),
-            )
+            Simd::from_array(alpha)
         };
 
         let (has_optional, want_short_sma, want_long_sma, want_short_sd, want_long_sd) =
@@ -85,7 +75,7 @@ impl Driver<State, Params> for VidyaDriver {
             );
 
             let (vidya, short_sma, long_sma, short_sd, long_sd) =
-                state.calc_simd(value, short_value, long_value, alpha_simd, multipliers_simd);
+                state.calc_simd(value, short_value, long_value, alpha_simd);
 
             // Direct SIMD store if possible, otherwise individual stores
             crate::write_simd_at_indices!(N, j,
@@ -141,7 +131,6 @@ pub fn indicator_by_options<const N: usize>(
     validate_options(options, Some(vo))?;
     let params: [Params; N] = std::array::from_fn(|i| Params {
         periods: (options[i][0] as usize, options[i][1] as usize),
-        multipliers: multiplier(options[i][0] as usize, options[i][1] as usize),
         alpha: options[i][2],
     });
 
@@ -248,7 +237,6 @@ pub fn indicator_by_options<const N: usize>(
             inputs[0],
             state,
             param.periods,
-            param.multipliers,
             param.alpha,
         ));
     }

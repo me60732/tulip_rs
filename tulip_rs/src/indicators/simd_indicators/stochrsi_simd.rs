@@ -4,11 +4,11 @@ pub use crate::indicators::simd_indicators::by_asset::stochrsi::indicator_by_ass
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::stochrsi::indicator_by_options;
 
+pub(crate) use crate::indicators::simd_indicators::max_simd::CHUNK_1;
 use crate::indicators::simd_indicators::{
     max_simd::SimdState as MaxSimdState, min_simd::SimdState as MinSimdState,
     rsi_simd::SimdState as RsiSimdState,
 };
-pub(crate) use crate::indicators::simd_indicators::max_simd::CHUNK_1;
 use crate::indicators::stochrsi::State;
 use crate::ring_buffer::single_buffer::mirror_buffer::MirrorBuffer as SingleMirrorBuffer;
 use std::f64;
@@ -24,12 +24,12 @@ pub mod assets {
     pub struct SimdState<const N: usize> {
         /// Rolling buffer of RSI values for each lane, used to find the min/max RSI over the period.
         pub buffer: MultiBuffer<N>,
+        /// Sub-state tracking the underlying RSI computation for each lane.
+        pub rsi_state: RsiSimdState<N>,
         /// Sub-state tracking the rolling minimum of RSI values for each lane.
         pub min_state: MinSimdState<N>,
         /// Sub-state tracking the rolling maximum of RSI values for each lane.
         pub max_state: MaxSimdState<N>,
-        /// Sub-state tracking the underlying RSI computation for each lane.
-        pub rsi_state: RsiSimdState<N>,
     }
 
     impl<const N: usize> SimdState<N> {
@@ -138,12 +138,12 @@ pub mod options {
     pub struct SimdState<const N: usize> {
         /// Rolling buffer of RSI values for each option lane.
         pub buffer: UnsyncBuffer<N, f64>,
+        /// Sub-state tracking the underlying RSI computation for each option lane.
+        pub rsi_state: RsiSimdState<N>,
         /// Sub-state tracking the rolling minimum of RSI values for each option lane.
         pub min_state: MinSimdState<N>,
         /// Sub-state tracking the rolling maximum of RSI values for each option lane.
         pub max_state: MaxSimdState<N>,
-        /// Sub-state tracking the underlying RSI computation for each option lane.
-        pub rsi_state: RsiSimdState<N>,
     }
 
     impl<const N: usize> SimdState<N> {

@@ -1,11 +1,13 @@
 use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::ema::{
-    calc as calc_ema, multiplier as ema_multiplier, output_length as ema_output_length,
+use crate::indicators::{
+    ema::{State as EmaState, multiplier as ema_multiplier, output_length as ema_output_length},
+    simd_indicators::ema_simd::{SimdState as EmaSimdState, multiplier_simd}
 };
 use crate::types::{
     DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
 };
+use std::simd::Simd;
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
@@ -75,16 +77,8 @@ pub const INFO: Info = Info {
         },
     ],
 };
-#[derive(Default, Serialize, Deserialize)]
-pub struct IndicatorState {
-    multipliers: ((f64, f64), (f64, f64), (f64, f64)),
-    state: State,
-}
-impl IndicatorState {
-    pub fn new(multipliers: ((f64, f64), (f64, f64), (f64, f64)), state: State) -> Self {
-        Self { multipliers, state }
-    }
-}
+pub type IndicatorState = State;
+
 impl TIndicatorState<1> for IndicatorState {
     #[inline(always)]
     fn batch_indicator(
@@ -111,8 +105,7 @@ impl TIndicatorState<1> for IndicatorState {
         }
         cycle_macd(
             inputs[0],
-            self.multipliers,
-            &mut self.state,
+            self,
             (&mut macd_line, &mut signal_line, &mut histogram),
             (&mut short_ema_line, &mut long_ema_line),
         );
@@ -125,36 +118,34 @@ impl TIndicatorState<1> for IndicatorState {
         ])
     }
 }
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct State {
-    pub short_ema: f64,
-    pub long_ema: f64,
-    pub signal: f64,
+    pub ema_state: EmaSimdState<2>,
+    pub signal_state: EmaState,
 }
 impl State {
-    pub fn new(short_ema: f64, long_ema: f64, signal: f64) -> Self {
+    pub fn new(short_ema: f64, long_ema: f64, signal: f64, periods: (usize, usize, usize)) -> Self {
+        let (multipliers, signal_mul) = (multiplier_simd([periods.0, periods.1]), ema_multiplier(periods.2));
         Self {
-            short_ema,
-            long_ema,
-            signal,
+            ema_state: EmaSimdState::new(Simd::from_array([short_ema, long_ema]), multipliers),
+            signal_state: EmaState::new(signal, signal_mul),
         }
     }
     pub fn init_state(
         real: &[f64],
         periods: (usize, usize, usize),
-        multipliers: ((f64, f64), (f64, f64), (f64, f64)),
         macd_line: &mut [f64],
         out_vecs: (&mut [f64], &mut [f64]),
     ) -> Self {
         let (_, long_period, signal_period) = periods;
-        let mut state = Self::new(real[0], real[0], 0.0);
+        let mut state = Self::new(real[0], real[0], 0.0, periods);
         let (short_ema_line, long_ema_line) = out_vecs;
         let (has_optional, _, _) = crate::calc_want_flags!(short_ema_line, long_ema_line);
         let mut count = 0;
         for i in 1..long_period + signal_period - 2 {
-            let (macd, _, _) = state.calc(&real[i], multipliers);
+            let (macd, _, _) = state.calc(real[i]);
             if i == long_period - 1 {
-                state.signal = macd;
+                state.signal_state.ema = macd;
             }
             if i >= long_period - 1 {
                 macd_line[count] = macd;
@@ -162,8 +153,8 @@ impl State {
             }
             if has_optional {
                 crate::init_store_optional_outputs!(i, real.len(),
-                    short_ema_line => state.short_ema,
-                    long_ema_line => state.long_ema
+                    short_ema_line => state.ema_state.ema[0],
+                    long_ema_line => state.ema_state.ema[1]
                 );
             }
         }
@@ -184,17 +175,14 @@ impl State {
     #[inline(always)]
     pub fn calc(
         &mut self,
-        value: &f64,
-        multipliers: ((f64, f64), (f64, f64), (f64, f64)),
+        real: f64,
     ) -> (f64, f64, f64) {
-        let (short_multiplier, long_multiplier, signal_multiplier) = multipliers;
-        self.short_ema = calc_ema(value, self.short_ema, short_multiplier);
-        self.long_ema = calc_ema(value, self.long_ema, long_multiplier);
+        let [short_ema, long_ema] = self.ema_state.calc_simd(Simd::splat(real)).to_array();
     
-        let macd_value = self.short_ema - self.long_ema;
-        self.signal = calc_ema(&macd_value, self.signal, signal_multiplier);
+        let macd_value = short_ema - long_ema;
+        let signal = self.signal_state.calc(macd_value);
     
-        (macd_value, self.signal, macd_value - self.signal)
+        (macd_value, signal, macd_value - signal)
     }
 }
 pub fn output_length(data_len: usize, options: &[f64]) -> (usize, usize, usize) {
@@ -262,7 +250,6 @@ pub fn indicator(
         mut histogram,
         mut short_ema_line,
         mut long_ema_line,
-        multipliers,
         mut state,
         real,
     );
@@ -270,8 +257,6 @@ pub fn indicator(
         let short_period = options[0] as usize;
         let long_period = options[1] as usize;
         let signal_period = options[2] as usize;
-
-        multipliers = multiplier(short_period, long_period, signal_period);
         // Calculate capacities
         let len = inputs[0].len();
         let (macd_capacity, signal_capacity, histogram_capacity) = output_length(len, options);
@@ -291,7 +276,6 @@ pub fn indicator(
         state = State::init_state(
             inputs[0],
             (short_period, long_period, signal_period),
-            multipliers,
             &mut macd_line,
             (&mut short_ema_line, &mut long_ema_line),
         );
@@ -302,7 +286,6 @@ pub fn indicator(
         crate::slice_outputs_start!(signal_line.len(), macd_line, short_ema_line, long_ema_line);
     cycle_macd(
         real,
-        multipliers,
         &mut state,
         (
             &mut macd_line[macd_offset..],
@@ -323,14 +306,13 @@ pub fn indicator(
             short_ema_line,
             long_ema_line,
         ],
-        IndicatorState::new(multipliers, state),
+        state,
     ))
 }
 
 //#[inline(always)]
 fn cycle_macd(
     real: &[f64],
-    multipliers: ((f64, f64), (f64, f64), (f64, f64)),
     state: &mut State,
     outputs: (&mut [f64], &mut [f64], &mut [f64]),
     out_vecs: (&mut [f64], &mut [f64]),
@@ -347,12 +329,13 @@ fn cycle_macd(
                 *macd_line.get_unchecked_mut(i),
                 *signal_line.get_unchecked_mut(i),
                 *histogram_line.get_unchecked_mut(i),
-            ) = state.calc(real.get_unchecked(i), multipliers);
+            ) = state.calc(*real.get_unchecked(i));
         }
         if has_optional {
+            let [short_ema, long_ema] = state.ema_state.ema.to_array();
             crate::store_optional_outputs!(i,
-                want_short, short_ema_line => state.short_ema,
-                want_long, long_ema_line => state.long_ema
+                want_short, short_ema_line => short_ema,
+                want_long, long_ema_line => long_ema
             );
         }
     }

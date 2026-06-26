@@ -201,7 +201,26 @@ pub fn indicator(
     }
     Ok((vec![ema_line], IndicatorState { ema, multipliers }))
 }
-
+#[derive(Default, Serialize, Deserialize)]
+pub struct State {
+    pub ema: f64,
+    pub inv_multiplier: f64,
+    pub multiplier: f64
+}
+impl State {
+    pub fn new(ema: f64, multipliers: (f64, f64)) -> Self {
+        Self {
+            ema,
+            inv_multiplier: multipliers.1,
+            multiplier: multipliers.0,
+        }
+    }
+    #[inline(always)]
+    pub fn calc(&mut self, value: f64) -> f64 {
+        self.ema = calc(&value, self.ema, (self.multiplier, self.inv_multiplier));
+        self.ema
+    }
+}
 #[inline(always)]
 pub fn calc(value: &f64, prev_ema: f64, multipliers: (f64, f64)) -> f64 {
     let (multiplier, inv_multiplier) = multipliers;

@@ -15,7 +15,6 @@ pub trait Calc<const N: usize> {
         std_dev: Simd<f64, N>,
         value: Simd<f64, N>,
         prev_value: Simd<f64, N>,
-        multiplier: Simd<f64, N>,
     ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
 }
 impl<const N: usize> Calc<N> for SimdState<N> {
@@ -41,10 +40,9 @@ impl<const N: usize> Calc<N> for SimdState<N> {
         std_dev: Simd<f64, N>,
         value: Simd<f64, N>,
         prev_value: Simd<f64, N>,
-        multiplier: Simd<f64, N>,
     ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
         let (sd, sma);
-        (sd, sma) = StdDevCalc::calc_simd(self, value, prev_value, multiplier);
+        (sd, sma) = StdDevCalc::calc_simd(self, value, prev_value);
     
         //let upper_band = sma + std_dev * sd;
         let upper_band = std_dev.mul_add(sd, sma);

@@ -3,6 +3,13 @@ pub use crate::indicators::simd_indicators::by_asset::ema::indicator_by_assets;
 
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::ema::indicator_by_options;
+use serde::{
+    de::{self, MapAccess, Visitor},
+    ser::SerializeStruct,
+    Deserialize, Deserializer, Serialize, Serializer,
+};
+use std::fmt;
+use std::marker::PhantomData;
 use std::simd::{Simd, StdFloat};
 
 /// Computes the EMA multiplier pair for `N` lanes with potentially different periods.
@@ -34,6 +41,151 @@ pub fn multiplier_simd<const N: usize>(periods: [usize; N]) -> (Simd<f64, N>, Si
     let per = two / (periods_simd + one);
     (per, one - per)
 }
+
+// ── EmaSimd ───────────────────────────────────────────────────────────────────
+
+pub struct SimdState<const N: usize> {
+    pub ema: Simd<f64, N>,
+    pub inv_multiplier: Simd<f64, N>,
+    pub multiplier: Simd<f64, N>,
+}
+
+impl<const N: usize> SimdState<N> {
+    pub fn new(ema: Simd<f64, N>, multipliers: (Simd<f64, N>, Simd<f64, N>)) -> Self {
+        Self {
+            ema,
+            inv_multiplier: multipliers.1,
+            multiplier: multipliers.0,
+        }
+    }
+    #[inline(always)]
+    pub fn calc_simd(&mut self, value: Simd<f64, N>) -> Simd<f64, N> {
+        self.ema = calc_simd(value, self.ema, (self.multiplier, self.inv_multiplier));
+        //prev_ema * inv_multiplier + value * multiplier
+        /*self.ema = self
+            .ema
+            .mul_add(self.inv_multiplier, value * self.multiplier);*/
+        self.ema
+    }
+}
+
+// ── Serde ─────────────────────────────────────────────────────────────────────
+//
+// Hand-rolled because `#[derive(Serialize, Deserialize)]` generates a
+// `where Simd<f64, N>: Serialize` bound that cannot be satisfied (orphan rules).
+// Instead we round-trip through `[f64; N]`, which serde handles natively.
+//
+// Serialize  — call `.to_array()` on each Simd field, emit as [f64; N].
+// Deserialize — read each field as [f64; N], reconstruct with `Simd::from_array`.
+
+impl<const N: usize> Serialize for SimdState<N>
+where
+    [f64; N]: Serialize,
+{
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut s = serializer.serialize_struct("SimdState", 3)?;
+        s.serialize_field("ema", &self.ema.to_array())?;
+        s.serialize_field("inv_multiplier", &self.inv_multiplier.to_array())?;
+        s.serialize_field("multiplier", &self.multiplier.to_array())?;
+        s.end()
+    }
+}
+
+impl<'de, const N: usize> Deserialize<'de> for SimdState<N>
+where
+    [f64; N]: Deserialize<'de>,
+{
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        const FIELDS: &[&str] = &["ema", "inv_multiplier", "multiplier"];
+
+        enum Field {
+            Ema,
+            InvMultiplier,
+            Multiplier,
+        }
+
+        impl<'de> Deserialize<'de> for Field {
+            fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                struct FieldVisitor;
+
+                impl<'de> Visitor<'de> for FieldVisitor {
+                    type Value = Field;
+
+                    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                        f.write_str("`ema`, `inv_multiplier`, or `multiplier`")
+                    }
+
+                    fn visit_str<E: de::Error>(self, v: &str) -> Result<Field, E> {
+                        match v {
+                            "ema" => Ok(Field::Ema),
+                            "inv_multiplier" => Ok(Field::InvMultiplier),
+                            "multiplier" => Ok(Field::Multiplier),
+                            _ => Err(de::Error::unknown_field(v, FIELDS)),
+                        }
+                    }
+                }
+
+                deserializer.deserialize_identifier(FieldVisitor)
+            }
+        }
+
+        struct EmaSimdVisitor<const N: usize>(PhantomData<fn() -> Simd<f64, N>>);
+
+        impl<'de, const N: usize> Visitor<'de> for EmaSimdVisitor<N>
+        where
+            [f64; N]: Deserialize<'de>,
+        {
+            type Value = SimdState<N>;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("struct SimdState")
+            }
+
+            fn visit_map<V: MapAccess<'de>>(self, mut map: V) -> Result<SimdState<N>, V::Error> {
+                let mut ema: Option<[f64; N]> = None;
+                let mut inv_multiplier: Option<[f64; N]> = None;
+                let mut multiplier: Option<[f64; N]> = None;
+
+                while let Some(key) = map.next_key::<Field>()? {
+                    match key {
+                        Field::Ema => {
+                            if ema.is_some() {
+                                return Err(de::Error::duplicate_field("ema"));
+                            }
+                            ema = Some(map.next_value()?);
+                        }
+                        Field::InvMultiplier => {
+                            if inv_multiplier.is_some() {
+                                return Err(de::Error::duplicate_field("inv_multiplier"));
+                            }
+                            inv_multiplier = Some(map.next_value()?);
+                        }
+                        Field::Multiplier => {
+                            if multiplier.is_some() {
+                                return Err(de::Error::duplicate_field("multiplier"));
+                            }
+                            multiplier = Some(map.next_value()?);
+                        }
+                    }
+                }
+
+                Ok(SimdState {
+                    ema: Simd::from_array(ema.ok_or_else(|| de::Error::missing_field("ema"))?),
+                    inv_multiplier: Simd::from_array(
+                        inv_multiplier.ok_or_else(|| de::Error::missing_field("inv_multiplier"))?,
+                    ),
+                    multiplier: Simd::from_array(
+                        multiplier.ok_or_else(|| de::Error::missing_field("multiplier"))?,
+                    ),
+                })
+            }
+        }
+
+        deserializer.deserialize_struct("SimdState", FIELDS, EmaSimdVisitor::<N>(PhantomData))
+    }
+}
+
+// ── Public free functions ─────────────────────────────────────────────────────
 
 /// Computes one bar of the Exponential Moving Average (EMA) for `N` assets simultaneously
 /// using SIMD parallelism.

@@ -2,16 +2,14 @@
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::simd_indicators::volatility_simd::assets::SimdState;
 use crate::indicators::volatility::{
-    min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
 use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
 
 /// SIMD driver that advances the Volatility Indicator across `N` asset lanes per scheduling epoch.
-struct VolatilityDriver {
-    multiplier: f64,
-}
+struct VolatilityDriver;
 
 impl Driver<State> for VolatilityDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
@@ -24,8 +22,6 @@ impl Driver<State> for VolatilityDriver {
     ) {
         let mut state = SimdState::<N>::new(&mut states);
         let len = inputs[0][0].len();
-
-        let multiplier = Simd::splat(self.multiplier);
 
         //collect outputs
         let volatility_line_ptr = crate::extract_output_ptrs!(outputs, N, volatility_line_ptr);
@@ -41,7 +37,7 @@ impl Driver<State> for VolatilityDriver {
                 real @ real_ptrs
             );
 
-            let volatility = unsafe { state.calc_unchecked_simd(real, multiplier) };
+            let volatility = unsafe { state.calc_unchecked_simd(real) };
 
             crate::write_simd_at_indices!(N, i,
                 volatility_line_ptr => volatility
@@ -76,7 +72,6 @@ pub fn indicator_by_assets<const N: usize>(
     validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
     validate_options(options)?;
     let period = options[0] as usize;
-    let multiplier = multiplier(period);
 
     let mut road_train = PrimeMover::<N, State>::new();
     let mut output_buffers = Vec::with_capacity(N);
@@ -122,12 +117,12 @@ pub fn indicator_by_assets<const N: usize>(
         output_buffers.push(output_buffer);
     }
 
-    let mut driver = VolatilityDriver { multiplier };
+    let mut driver = VolatilityDriver;
     let states_vec = road_train.drive(&mut driver);
 
     let mut states = Vec::with_capacity(N);
     for state in states_vec.into_iter() {
-        states.push(IndicatorState::new(state, multiplier));
+        states.push(IndicatorState::new(state));
     }
     Ok((output_buffers, states))
 }

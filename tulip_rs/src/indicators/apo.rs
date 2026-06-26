@@ -1,13 +1,14 @@
 use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::ema::{
-    calc as ema_calc, multiplier as ema_multiplier, output_length as ema_output_length,
+use crate::indicators::{
+    ema::{multiplier as ema_multiplier, output_length as ema_output_length},
+    simd_indicators::ema_simd::{multiplier_simd, SimdState as EmaSimdState},
 };
 use crate::types::{
     DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
 };
 use serde::{Deserialize, Serialize};
-
+use std::simd::Simd;
 /// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 1;
 
@@ -48,14 +49,16 @@ pub mod by_options {
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
-    multipliers: ((f64, f64), (f64, f64)),
-    state: State,
+    state: State
 }
 impl IndicatorState {
-    pub fn new(state: State, multipliers: ((f64, f64), (f64, f64))) -> Self {
-        Self { state, multipliers }
+    pub fn new(state: State) -> Self {
+        Self {
+            state
+        }
     }
 }
+pub type State = EmaSimdState<2>;
 impl TIndicatorState<1> for IndicatorState {
     fn batch_indicator(
         &mut self,
@@ -76,7 +79,6 @@ impl TIndicatorState<1> for IndicatorState {
         cycle_apo(
             inputs[0],
             &mut self.state,
-            self.multipliers,
             &mut apo_line,
             (&mut short_ema_line, &mut long_ema_line),
         );
@@ -85,43 +87,37 @@ impl TIndicatorState<1> for IndicatorState {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct State {
-    pub short_ema: f64,
-    pub long_ema: f64,
+pub trait Apo {
+    fn init_state(
+        real: &[f64],
+        short_period: usize,
+        long_period: usize,
+        short_ema_line: &mut [f64],
+    ) -> Self;
+    fn calc(&mut self, real: f64) -> f64;
 }
-impl State {
-    pub fn new(short_ema: f64, long_ema: f64) -> Self {
-        State {
-            short_ema,
-            long_ema,
-        }
-    }
-    pub fn init_state(
+impl Apo for State {
+    fn init_state(
         real: &[f64],
         short_period: usize,
         long_period: usize,
         short_ema_line: &mut [f64],
     ) -> State {
-        let (short_multiplier, long_multiplier) = multiplier(short_period, long_period);
-        let (mut short_ema, mut long_ema) = (real[0], real[0]);
+        let multipliers = multiplier_simd([short_period, long_period]);
+        let mut state = State::new(Simd::splat(real[0]), multipliers);
 
-        for (i, value) in real.iter().enumerate().take(long_period - 1).skip(1) {
-            short_ema = ema_calc(value, short_ema, short_multiplier);
-            long_ema = ema_calc(value, long_ema, long_multiplier);
+        for (i, &value) in real.iter().enumerate().take(long_period - 1).skip(1) {
+            let [short_ema, _] = state.calc_simd(Simd::splat(value)).to_array();
             crate::init_store_optional_outputs!(i, real.len(),
                 short_ema_line => short_ema
             );
         }
-        State::new(short_ema, long_ema)
+        state
     }
     #[inline(always)]
-    pub fn calc(&mut self, real: &f64, multipliers: ((f64, f64), (f64, f64))) -> f64 {
-        let (short_multiplier, long_multiplier) = multipliers;
-        self.short_ema = ema_calc(real, self.short_ema, short_multiplier);
-        self.long_ema = ema_calc(real, self.long_ema, long_multiplier);
-    
-        self.short_ema - self.long_ema
+    fn calc(&mut self, real: f64) -> f64 {
+        let [short_ema, long_ema] = self.calc_simd(Simd::splat(real)).to_array();
+        short_ema - long_ema
     }
 }
 /// Returns information about the Absolute Price Oscillator (APO) indicator.
@@ -237,7 +233,6 @@ pub fn indicator(
         long_ema_line: capacity
     );
 
-    let multipliers = multiplier(short_period, long_period);
     let mut state = State::init_state(real, short_period, long_period, &mut short_ema_line);
 
     let optional_outputs = {
@@ -251,14 +246,13 @@ pub fn indicator(
     cycle_apo(
         &real[real.len() - apo_line.len()..],
         &mut state,
-        multipliers,
         &mut apo_line,
         optional_outputs,
     );
 
     Ok((
         vec![apo_line, short_ema_line, long_ema_line],
-        IndicatorState { state, multipliers },
+        IndicatorState::new(state),
     ))
 }
 
@@ -274,7 +268,6 @@ pub fn indicator(
 fn cycle_apo(
     real: &[f64],
     state: &mut State,
-    multipliers: ((f64, f64), (f64, f64)),
     apo_line: &mut [f64],
     out_vecs: (&mut [f64], &mut [f64]),
 ) {
@@ -283,11 +276,11 @@ fn cycle_apo(
         crate::calc_want_flags!(short_ema_line, long_ema_line);
 
     for i in 0..real.len() {
-        unsafe { *apo_line.get_unchecked_mut(i) = state.calc(real.get_unchecked(i), multipliers) };
+        unsafe { *apo_line.get_unchecked_mut(i) = Apo::calc(state, *real.get_unchecked(i)) };
         if has_optional {
             crate::store_optional_outputs!(i,
-                want_short, short_ema_line => state.short_ema,
-                want_long, long_ema_line => state.long_ema
+                want_short, short_ema_line => state.ema[0],
+                want_long, long_ema_line => state.ema[1]
             );
         }
     }

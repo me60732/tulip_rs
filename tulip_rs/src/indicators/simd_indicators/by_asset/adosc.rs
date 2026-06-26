@@ -191,9 +191,5 @@ pub fn indicator_by_assets<const N: usize>(
     };
     let states_vec = road_train.drive(&mut driver);
 
-    let mut states = Vec::with_capacity(N);
-    for state in states_vec.into_iter() {
-        states.push(IndicatorState::new(state, multipliers));
-    }
-    Ok((output_buffers, states))
+    Ok((output_buffers, states_vec))
 }

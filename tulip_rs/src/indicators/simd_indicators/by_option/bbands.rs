@@ -1,7 +1,7 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::bbands::{
-    min_data, multiplier, output_length, validate_options as vo, IndicatorState, State,
+    min_data, output_length, validate_options as vo, IndicatorState, State,
     INPUTS_WIDTH, OPTIONS_WIDTH,
 };
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
@@ -12,29 +12,27 @@ use std::simd::Simd;
 /// SIMD driver for the Bollinger Bands (BBANDS) indicator, processing `N` option-set lanes per scheduling epoch.
 struct BbandsDriver {}
 
-impl Driver<State, (f64, usize, f64)> for BbandsDriver {
+impl Driver<State, (usize, f64)> for BbandsDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD. Reads the shared input, applies each lane's options, writes outputs, and updates per-lane states.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
         mut states: Vec<&mut State>,
-        options: Vec<Option<&(f64, usize, f64)>>,
+        options: Vec<Option<&(usize, f64)>>,
     ) {
         let len = outputs[0][0].len();
 
         let mut i = [0usize; N];
-        let (stddev_simd, multiplier_simd) = {
+        let stddev_simd = {
             let mut stddevs = [0.0; N];
-            let mut multipliers = [0.0; N];
             for (lane, option) in options.iter().enumerate() {
-                if let Some(&(multiplier, period, stddev)) = option {
-                    multipliers[lane] = multiplier;
+                if let Some(&(period, stddev)) = option {
                     i[lane] = period;
                     stddevs[lane] = stddev;
                 }
             }
-            (Simd::from_array(stddevs), Simd::from_array(multipliers))
+            Simd::from_array(stddevs)
         };
 
         // Optimization 1: Direct array construction instead of collect+try_into
@@ -61,7 +59,7 @@ impl Driver<State, (f64, usize, f64)> for BbandsDriver {
             );
 
             let (lower_band, middle_band, upper_band) =
-                state.calc_simd(stddev_simd, new_vals, old_vals, multiplier_simd);
+                state.calc_simd(stddev_simd, new_vals, old_vals);
 
             crate::write_simd_at_indices!(N, j,
                 lower_band_ptr => lower_band,
@@ -98,13 +96,13 @@ pub fn indicator_by_options<const N: usize>(
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
     validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
     validate_options(options, Some(vo))?;
-    let mut road_train = PrimeMover::<N, State, (f64, usize, f64)>::new();
+    let mut road_train = PrimeMover::<N, State, (usize, f64)>::new();
 
-    let mut params = [(0.0, 0usize, 0.0); N];
+    let mut params = [(0usize, 0.0); N];
     for i in 0..N {
         let period = options[i][0] as usize;
         let stddev = options[i][1];
-        params[i] = (multiplier(period), period, stddev);
+        params[i] = (period, stddev);
     }
     let mut output_buffers = Vec::with_capacity(N);
 
@@ -159,9 +157,9 @@ pub fn indicator_by_options<const N: usize>(
 
     let mut states = Vec::with_capacity(N);
     for (i, state) in states_vec.into_iter().enumerate() {
-        let (multiplier, period, stddev) = params[i];
+        let (period, stddev) = params[i];
         states.push(IndicatorState::new(
-            inputs[0], state, period, multiplier, stddev,
+            inputs[0], state, period, stddev,
         ));
     }
     Ok((output_buffers, states))

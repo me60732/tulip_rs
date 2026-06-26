@@ -1,9 +1,9 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::stddev_simd::{SimdState, Calc};
+use crate::indicators::simd_indicators::stddev_simd::{Calc, SimdState};
 use crate::indicators::stddev::{
-    min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
 use crate::types::IndicatorError;
 use std::simd::Simd;
@@ -13,30 +13,28 @@ struct StddevDriver {
     want_optional_outputs: bool,
 }
 
-impl Driver<State, (usize, f64)> for StddevDriver {
+impl Driver<State, usize> for StddevDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
         mut states: Vec<&mut State>,
-        options: Vec<Option<&(usize, f64)>>,
+        options: Vec<Option<&usize>>,
     ) {
         let len = outputs[0][0].len();
 
         // Optimization 1: Direct array construction instead of collect+try_into
         let mut state = SimdState::new(&states);
 
-        let (mut i, multiplier_simd) = {
-            let mut multipliers = [0.0; N];
+        let mut i = {
             let mut i = [0usize; N];
             for (lane, option) in options.iter().enumerate() {
-                if let Some(&(period, multiplier)) = option {
+                if let Some(&period) = option {
                     i[lane] = period;
-                    multipliers[lane] = multiplier;
                 }
             }
-            (i, Simd::from_array(multipliers))
+            i
         };
 
         // Optimization 2: Pre-compute all input and output pointers
@@ -55,7 +53,7 @@ impl Driver<State, (usize, f64)> for StddevDriver {
                 new @ input_ptrs
             );
 
-            let (stddev, sma) = state.calc_simd(new_vals, old_vals, multiplier_simd);
+            let (stddev, sma) = state.calc_simd(new_vals, old_vals);
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, j,
@@ -99,13 +97,12 @@ pub fn indicator_by_options<const N: usize>(
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
     validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
     validate_options(options, None)?;
-    let params: [(usize, f64); N] =
-        std::array::from_fn(|i| (options[i][0] as usize, multiplier(options[i][0] as usize)));
-    let mut road_train = PrimeMover::<N, State, (usize, f64)>::new();
+    let params: [usize; N] = std::array::from_fn(|i| options[i][0] as usize);
+    let mut road_train = PrimeMover::<N, State, usize>::new();
     let mut output_buffers = Vec::with_capacity(N);
     let mut want_optional_outputs = false;
 
-    for (i, &(period, _)) in params.iter().enumerate() {
+    for (i, &period) in params.iter().enumerate() {
         let asset_inputs = vec![
             inputs[0], // real
         ];
@@ -165,8 +162,7 @@ pub fn indicator_by_options<const N: usize>(
         states.push(IndicatorState::new(
             inputs[0],
             state,
-            params[i].1,
-            params[i].0,
+            params[i]
         ));
     }
     Ok((output_buffers, states))

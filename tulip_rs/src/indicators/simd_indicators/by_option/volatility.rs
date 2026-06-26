@@ -3,33 +3,30 @@ use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::simd_indicators::volatility_simd::options::SimdState;
 use crate::indicators::volatility::{
-    min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
 };
 use crate::types::IndicatorError;
-use std::simd::Simd;
 
 /// SIMD driver for the Volatility Indicator (VOLATILITY) indicator, processing `N` option-set lanes per scheduling epoch.
 struct VolatilityDriver {}
 
-impl Driver<State, (usize, f64)> for VolatilityDriver {
+impl Driver<State, usize> for VolatilityDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
         mut states: Vec<&mut State>,
-        options: Vec<Option<&(usize, f64)>>,
+        options: Vec<Option<&usize>>,
     ) {
-        let mut periods = [0usize; N];
-        let multiplier_simd = {
-            let mut multipliers = [0.0; N];
+        let periods = {
+            let mut periods = [0_usize; N];
             for (lane, option) in options.iter().enumerate() {
-                if let Some(&(period, multiplier)) = option {
+                if let Some(&period) = option {
                     periods[lane] = period;
-                    multipliers[lane] = multiplier;
                 }
             }
-            Simd::from_array(multipliers)
+            periods
         };
 
         let mut state = SimdState::<N>::new(&mut states, periods);
@@ -45,7 +42,7 @@ impl Driver<State, (usize, f64)> for VolatilityDriver {
             // Get inputs arrays for stocks
             let real = unsafe { *real_ptrs[0].add(i) };
 
-            let volatility = unsafe { state.calc_unchecked_simd(real, multiplier_simd) };
+            let volatility = unsafe { state.calc_unchecked_simd(real) };
 
             crate::write_simd_at_indices!(N, i,
                 volatility_line_ptr => volatility
@@ -79,11 +76,8 @@ pub fn indicator_by_options<const N: usize>(
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
     validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
     validate_options(options, None)?;
-    let params: [(usize, f64); N] = std::array::from_fn(|i| {
-        let period = options[i][0] as usize;
-        (period, multiplier(period))
-    });
-    let mut road_train = PrimeMover::<N, State, (usize, f64)>::new();
+    let params: [usize; N] = std::array::from_fn(|i| options[i][0] as usize);
+    let mut road_train = PrimeMover::<N, State, usize>::new();
     let mut output_buffers = Vec::with_capacity(N);
 
     for i in 0..N {
@@ -96,7 +90,7 @@ pub fn indicator_by_options<const N: usize>(
             crate::uninit_vec!(f64, capacity)
         };
 
-        let state = State::init_state(inputs[0], params[i].0);
+        let state = State::init_state(inputs[0], params[i]);
 
         let mut output_buffer = vec![volatility_line];
 
@@ -119,7 +113,7 @@ pub fn indicator_by_options<const N: usize>(
             asset_inputs,
             asset_outputs,
             i,
-            params[i].0 + 1,
+            params[i] + 1,
             0,
             state,
             Some(&params[i]),
@@ -131,8 +125,8 @@ pub fn indicator_by_options<const N: usize>(
     let states_vec = road_train.drive(&mut driver);
 
     let mut states = Vec::with_capacity(N);
-    for (state, param) in states_vec.into_iter().zip(params.into_iter()) {
-        states.push(IndicatorState::new(state, param.1));
+    for state in states_vec.into_iter() {
+        states.push(IndicatorState::new(state));
     }
     Ok((output_buffers, states))
 }

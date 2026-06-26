@@ -1,9 +1,10 @@
 use crate::common::validate_inputs;
+use crate::common_simd::{deserialize_f64x2, serialize_f64x2};
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::tr::output_length as tr_output_length;
 use crate::ring_buffer::multi_buffer::multi_buffer::{MultiBuffer as Buffer, RingBuffer};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 //use wide::*;
 use std::simd::{num::SimdFloat, Simd};
 /// Number of input price series required by this indicator.
@@ -137,21 +138,6 @@ pub struct State {
     pub bp_long_sum: f64,
     pub tr_long_sum: f64,
     pub prev_close: f64,
-}
-// Custom serialization functions
-fn serialize_f64x2<S>(data: &Simd<f64, 2>, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    data.to_array().serialize(serializer)
-}
-
-fn deserialize_f64x2<'de, D>(deserializer: D) -> Result<Simd<f64, 2>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let array = <[f64; 2]>::deserialize(deserializer)?;
-    Ok(Simd::from_array(array))
 }
 
 impl State {

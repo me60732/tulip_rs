@@ -4,7 +4,7 @@ use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::simd_indicators::vidya_simd::SimdState;
 use crate::indicators::stddev::output_length as stddev_output_length;
 use crate::indicators::vidya::{
-    min_data, multiplier, output_length, validate_options, IndicatorState, State, INPUTS_WIDTH,
+    min_data, output_length, validate_options, IndicatorState, State, INPUTS_WIDTH,
     OPTIONS_WIDTH,
 };
 use crate::types::IndicatorError;
@@ -12,7 +12,6 @@ use std::simd::Simd;
 
 /// SIMD driver that advances the Variable Index Dynamic Average (VIDYA) across `N` asset lanes per scheduling epoch.
 struct VidyaDriver {
-    multipliers: (f64, f64),
     periods: (usize, usize),
     want_optional_outputs: (bool, bool, bool, bool, bool),
     alpha: f64,
@@ -31,13 +30,8 @@ impl Driver<State> for VidyaDriver {
         let (short_period, long_period) = self.periods;
         let mut state = SimdState::new(&mut states);
 
-        let (multipliers_simd, alpha) = (
-            (
-                Simd::splat(self.multipliers.0),
-                Simd::splat(self.multipliers.1),
-            ),
-            Simd::splat(self.alpha),
-        );
+        let alpha = Simd::splat(self.alpha);
+        
         let (has_optional, want_short_sma, want_long_sma, want_short_sd, want_long_sd) =
             self.want_optional_outputs;
         // Pre-compute pointers for maximum efficiency
@@ -66,7 +60,7 @@ impl Driver<State> for VidyaDriver {
                 long_value @ j
             );
             let (vidya, short_sma, long_sma, short_sd, long_sd) =
-                state.calc_simd(value, short_value, long_value, alpha, multipliers_simd);
+                state.calc_simd(value, short_value, long_value, alpha);
 
             // Direct SIMD store if possible, otherwise individual stores
             crate::write_simd_at_indices!(N, j,
@@ -121,7 +115,6 @@ pub fn indicator_by_assets<const N: usize>(
     let short_period = options[0] as usize;
     let long_period = options[1] as usize;
     let alpha = options[2];
-    let multipliers = multiplier(short_period, long_period);
 
     let mut output_buffers = Vec::with_capacity(N);
 
@@ -212,7 +205,6 @@ pub fn indicator_by_assets<const N: usize>(
         output_buffers.push(output_buffer);
     }
     let mut driver = VidyaDriver {
-        multipliers,
         periods: (short_period, long_period),
         alpha,
         want_optional_outputs,
@@ -225,7 +217,6 @@ pub fn indicator_by_assets<const N: usize>(
             inputs[i][0],
             state,
             (short_period, long_period),
-            multipliers,
             alpha,
         ));
     }

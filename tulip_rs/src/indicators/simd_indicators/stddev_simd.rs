@@ -17,6 +17,7 @@ pub struct SimdState<const N: usize> {
     pub sum: Simd<f64, N>,
     /// Running sum of squared values within the current window (`Σ x²`) for each asset lane.
     pub sum_sq: Simd<f64, N>,
+    multiplier: Simd<f64, N>
 }
 
 impl<const N: usize> SimdState<N> {
@@ -24,14 +25,16 @@ impl<const N: usize> SimdState<N> {
     pub fn new(states: &[&mut State]) -> Self {
         let mut sum = [0.0; N];
         let mut sum_sq = [0.0; N];
-
+        let mut multiplier = [0.0; N];
         for i in 0..N {
             sum[i] = states[i].sum;
             sum_sq[i] = states[i].sum_sq;
+            multiplier[i] = states[i].multiplier;
         }
         Self {
             sum: Simd::from_array(sum),
             sum_sq: Simd::from_array(sum_sq),
+            multiplier: Simd::from_array(multiplier)
         }
     }
 
@@ -39,8 +42,9 @@ impl<const N: usize> SimdState<N> {
     pub fn to_states(&self) -> [State; N] {
         let sum = self.sum.to_array();
         let sum_sq = self.sum_sq.to_array();
+        let multiplier = self.multiplier.to_array();
 
-        let states: [State; N] = std::array::from_fn(|i| State::new(sum[i], sum_sq[i]));
+        let states: [State; N] = std::array::from_fn(|i| State::new(sum[i], sum_sq[i], multiplier[i]));
 
         states
     }
@@ -59,7 +63,7 @@ impl<const N: usize> SimdState<N> {
     /// Initialises the `SimdState` by summing the first `period` bars of each of the `N` input
     /// slices, producing the window `sum` and `sum_sq` needed to begin the rolling computation.
     /// Also returns the shared `multiplier` (`1 / period`) used by subsequent [`calc_simd`] calls.
-    pub fn init_state<'a>(inputs: &[&'a [f64]; N], period: usize) -> (SimdState<N>, f64) {
+    pub fn init_state<'a>(inputs: &[&'a [f64]; N], period: usize) -> Self {
         let multiplier_val = multiplier(period);
         let mut sums = Simd::splat(0.0);
         let mut sums_sq = Simd::splat(0.0);
@@ -72,23 +76,20 @@ impl<const N: usize> SimdState<N> {
             sums += values;
             sums_sq += values * values;
         }
-        (
-            SimdState::<N> {
+            Self {
                 sum: sums,
                 sum_sq: sums_sq,
-            },
-            multiplier_val,
-        )
+                multiplier: Simd::splat(multiplier_val)
+            }
     }
 
-    
+
 }
 pub trait Calc<const N: usize> {
     fn calc_simd(
         &mut self,
         value: Simd<f64, N>,
         prev_value: Simd<f64, N>,
-        multiplier: Simd<f64, N>,
     ) -> (Simd<f64, N>, Simd<f64, N>);
 }
 impl<const N: usize> Calc<N> for SimdState<N> {
@@ -105,13 +106,12 @@ impl<const N: usize> Calc<N> for SimdState<N> {
         &mut self,
         value: Simd<f64, N>,
         prev_value: Simd<f64, N>,
-        multiplier: Simd<f64, N>,
     ) -> (Simd<f64, N>, Simd<f64, N>) {
-        let sma = sma_calc_simd(&mut self.sum, value, prev_value, multiplier);
+        let sma = sma_calc_simd(&mut self.sum, value, prev_value, self.multiplier);
 
         self.sum_sq += value.mul_add(value, -(prev_value * prev_value));
         //let mut sd = (state.sum_sq * multiplier) - (sma * sma);
-        let mut sd = self.sum_sq.mul_add(multiplier, -(sma * sma));
+        let mut sd = self.sum_sq.mul_add(self.multiplier, -(sma * sma));
         sd = sd.sqrt().simd_max(F64Constants::<N>::EPSILON);
 
         (sd, sma)

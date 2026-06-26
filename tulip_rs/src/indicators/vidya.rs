@@ -53,7 +53,6 @@ pub struct IndicatorState {
     state: State,
     real: Vec<f64>,
     periods: (usize, usize),
-    multipliers: (f64, f64),
     alpha: f64,
 }
 impl IndicatorState {
@@ -61,14 +60,12 @@ impl IndicatorState {
         real: &[f64],
         state: State,
         periods: (usize, usize),
-        multipliers: (f64, f64),
         alpha: f64,
     ) -> Self {
         Self {
             real: real[real.len() - periods.1..].to_vec(),
             state,
             periods,
-            multipliers,
             alpha,
         }
     }
@@ -106,7 +103,6 @@ impl TIndicatorState<1> for IndicatorState {
         cycle(
             &self.real,
             self.periods,
-            self.multipliers,
             self.alpha,
             &mut self.state,
             &mut vidya_line,
@@ -136,10 +132,10 @@ pub struct State {
     pub prev_vidya: f64,
 }
 impl State {
-    pub fn new(short_state: (f64, f64), long_state: (f64, f64), prev_vidya: f64) -> Self {
+    pub fn new(short_state: (f64, f64), long_state: (f64, f64), prev_vidya: f64, multipliers: (f64, f64)) -> Self {
         Self {
-            short_state: StddevState::new(short_state.0, short_state.1),
-            long_state: StddevState::new(long_state.0, long_state.1),
+            short_state: StddevState::new(short_state.0, short_state.1, multipliers.0),
+            long_state: StddevState::new(long_state.0, long_state.1, multipliers.1),
             prev_vidya,
         }
     }
@@ -201,7 +197,7 @@ impl State {
             long_sma_line => long_sma,
             long_sd_line => long_stddev
         );
-        Self::new((sum_short, sum_sq_short), (sum_long, sum_sq_long), vidya)
+        Self::new((sum_short, sum_sq_short), (sum_long, sum_sq_long), vidya, (short_multiplier, long_multiplier))
     }
     
 }
@@ -211,7 +207,6 @@ pub trait Calc {
         value: &f64,
         prev_values: (&f64, &f64),
         alpha: f64,
-        multipliers: (f64, f64),
     ) -> (f64, f64, f64, f64, f64);
 }
 impl Calc for State {
@@ -221,16 +216,14 @@ impl Calc for State {
         value: &f64,
         prev_values: (&f64, &f64),
         alpha: f64,
-        multipliers: (f64, f64),
     ) -> (f64, f64, f64, f64, f64) {
         // Compute short-term STDDEV.
-        let (multiplier_short, multiplier_long) = multipliers;
         let (prev_short, prev_long) = prev_values;
 
-        let (sd_short, sma_short) = self.short_state.calc(value, &prev_short, multiplier_short);
+        let (sd_short, sma_short) = self.short_state.calc(value, &prev_short);
 
         // Compute long-term STDDEV.
-        let (sd_long, sma_long) = self.long_state.calc(value, &prev_long, multiplier_long);
+        let (sd_long, sma_long) = self.long_state.calc(value, &prev_long);
 
         let mut k = sd_short / sd_long;
         k *= alpha;
@@ -338,7 +331,6 @@ pub fn indicator(
     let short_period = options[0] as usize;
     let long_period = options[1] as usize;
     let alpha = options[2];
-    let multipliers = multiplier(short_period, long_period);
 
     validate_inputs(inputs, min_data(options))?;
 
@@ -399,7 +391,6 @@ pub fn indicator(
     cycle(
         real,
         (short_period, long_period),
-        multipliers,
         alpha,
         &mut state,
         &mut vidya_line[1..],
@@ -414,7 +405,7 @@ pub fn indicator(
             short_sd_line,
             long_sd_line,
         ],
-        IndicatorState::new(real, state, (short_period, long_period), multipliers, alpha),
+        IndicatorState::new(real, state, (short_period, long_period), alpha),
     ))
 }
 
@@ -433,7 +424,6 @@ pub fn indicator(
 fn cycle(
     real: &[f64],
     periods: (usize, usize),
-    multipliers: (f64, f64),
     alpha: f64,
     state: &mut State,
     vidya_line: &mut [f64],
@@ -452,7 +442,7 @@ fn cycle(
             )
         };
         let (vidya, sma_short, sma_long, sd_short, sd_long) =
-            state.calc(value, prev_values, alpha, multipliers);
+            state.calc(value, prev_values, alpha);
         unsafe { *vidya_line.get_unchecked_mut(j) = vidya };
 
         if has_optional {

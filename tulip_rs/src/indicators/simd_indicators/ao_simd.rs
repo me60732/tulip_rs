@@ -29,8 +29,9 @@ impl<const N: usize> SimdState<N> {
 
         let mut buffer_refs = Vec::with_capacity(N);
         for (i, state) in states.iter_mut().enumerate() {
-            short_sum[i] = state.short_sum;
-            long_sum[i] = state.long_sum;
+            let [short, long] = state.sma_state.sum.to_array();
+            short_sum[i] = short;
+            long_sum[i] = long;
             buffer_refs.push(&state.buffer)
         }
 
@@ -52,9 +53,10 @@ impl<const N: usize> SimdState<N> {
         let long_sum = self.long_sum.as_array();
 
         for (i, buffer) in buffers.into_iter().enumerate() {
+            let [short, long] = states[i].sma_state.sum.as_mut_array();
             states[i].buffer = buffer;
-            states[i].short_sum = short_sum[i];
-            states[i].long_sum = long_sum[i];
+            *short = short_sum[i];
+            *long = long_sum[i];
         }
     }
 

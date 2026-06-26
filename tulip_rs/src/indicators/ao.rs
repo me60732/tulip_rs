@@ -1,13 +1,14 @@
 use crate::common::validate_inputs;
 pub use crate::indicator_types::TIndicatorState;
 use crate::indicators::medprice::calc as calc_medprice;
-use crate::indicators::sma::{
-    calc as sma_calc, multiplier as sma_multiplier, output_length as sma_output_length,
+use crate::indicators::{
+    simd_indicators::sma_simd::SimdState as SmaSimdState,
+    sma::{calc as sma_calc, multiplier as sma_multiplier, output_length as sma_output_length},
 };
 use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
-
+use std::simd::Simd;
 /// Number of input price series required by this indicator.
 pub const INPUTS_WIDTH: usize = 2;
 
@@ -61,23 +62,13 @@ pub const INFO: Info = Info {
         },
     ],
 };
-
+pub type IndicatorState = State;
 #[derive(Serialize, Deserialize)]
 pub struct State {
     pub buffer: Buffer,
-    pub short_sum: f64,
-    pub long_sum: f64,
+    pub sma_state: SmaSimdState<2>,
 }
-#[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    state: State,
-    multipliers: (f64, f64),
-}
-impl IndicatorState {
-    pub fn new(state: State, multipliers: (f64, f64)) -> Self {
-        Self { state, multipliers }
-    }
-}
+
 impl TIndicatorState<2> for IndicatorState {
     #[inline(always)]
     fn batch_indicator(
@@ -102,8 +93,7 @@ impl TIndicatorState<2> for IndicatorState {
         cycle_ao(
             inputs[0], //high
             inputs[1], //low
-            self.multipliers,
-            &mut self.state,
+            self,
             &mut ao_line,
             (&mut short_sma_line, &mut long_sma_line, &mut medprice_line),
         );
@@ -113,9 +103,12 @@ impl TIndicatorState<2> for IndicatorState {
 }
 impl State {
     pub fn new(short_sum: f64, long_sum: f64) -> Self {
+        let multiplier = {
+            let multi = multiplier((SHORT_PERIOD, LONG_PERIOD));
+            Simd::from_array([multi.0, multi.1])
+        };
         State {
-            short_sum,
-            long_sum,
+            sma_state: SmaSimdState::new(Simd::from_array([short_sum, long_sum]), multiplier),
             buffer: Buffer::new(LONG_PERIOD),
         }
     }
@@ -132,17 +125,17 @@ impl State {
             let med_price = calc_medprice(high_val, low_val);
             let mut sma = 0.0;
             state.buffer.push(med_price);
-            state.long_sum += med_price;
+            state.sma_state.sum[1] += med_price;
             if i >= SHORT_PERIOD {
                 let prev_medprice = calc_medprice(high[i - SHORT_PERIOD], low[i - SHORT_PERIOD]);
                 sma = sma_calc(
-                    &mut state.short_sum,
+                    &mut state.sma_state.sum[0],
                     &med_price,
                     &prev_medprice,
                     &multiplier,
                 );
             } else {
-                state.short_sum += med_price;
+                state.sma_state.sum[0] += med_price;
             }
             crate::init_store_optional_outputs!(i, high.len(),
                 medprice_line => med_price,
@@ -152,52 +145,46 @@ impl State {
         state
     }
     #[inline(always)]
-    pub unsafe fn calc_unchecked(
-        &mut self,
-        values: (f64, f64),
-        multipliers: (f64, f64),
-    ) -> (f64, f64, f64, f64) {
-        let (short_multiplier, long_multiplier) = multipliers;
-
+    pub unsafe fn calc_unchecked(&mut self, values: (f64, f64)) -> (f64, f64, f64, f64) {
         let (high, low) = values;
 
         let med_price = calc_medprice(high, low);
 
-        let long_sma = sma_calc(
-            &mut self.long_sum,
-            &med_price,
-            &self.buffer.push_with_info_unchecked(med_price),
-            &long_multiplier,
-        );
-        let short_sma = sma_calc(
-            &mut self.short_sum,
-            &med_price,
-            &self.buffer.get_by_period(SHORT_PERIOD),
-            &short_multiplier,
-        );
+        let long_old = self.buffer.push_with_info_unchecked(med_price);
+        let short_old = self.buffer.get_by_period(SHORT_PERIOD);
+        let [short_sma, long_sma] = self
+            .sma_state
+            .calc_simd(
+                Simd::splat(med_price),
+                Simd::from_array([short_old, long_old]),
+            )
+            .to_array();
 
         (short_sma - long_sma, short_sma, long_sma, med_price)
     }
     #[inline(always)]
-    pub fn calc(&mut self, values: (f64, f64), multipliers: (f64, f64)) -> (f64, f64, f64, f64) {
-        let (short_multiplier, long_multiplier) = multipliers;
-
+    pub fn calc(&mut self, values: (f64, f64)) -> (f64, f64, f64, f64) {
         let (high, low) = values;
 
         let med_price = calc_medprice(high, low);
 
-        let long_sma = if let Some(prev) = self.buffer.push_with_info(med_price) {
-            sma_calc(&mut self.long_sum, &med_price, &prev, &long_multiplier)
+        let [short_sma, long_sma] = if let Some(long_old) = self.buffer.push_with_info(med_price) {
+            let short_old = self.buffer.get_by_period(SHORT_PERIOD);
+            self.sma_state
+                .calc_simd(
+                    Simd::splat(med_price),
+                    Simd::from_array([short_old, long_old]),
+                )
+                .to_array()
         } else {
-            0.0
+            let short_sma = sma_calc(
+                &mut self.sma_state.sum[0],
+                &med_price,
+                &self.buffer.get_by_period(SHORT_PERIOD),
+                &self.sma_state.multiplier[0],
+            );
+            [short_sma, 0.0]
         };
-
-        let short_sma = sma_calc(
-            &mut self.short_sum,
-            &med_price,
-            &self.buffer.get_by_period(SHORT_PERIOD),
-            &short_multiplier,
-        );
 
         (short_sma - long_sma, short_sma, long_sma, med_price)
     }
@@ -277,7 +264,6 @@ pub fn indicator(
             ),
         )
     };
-    let multipliers = multiplier((SHORT_PERIOD, LONG_PERIOD));
 
     let mut state = State::init_state((high, low), &mut medprice_line, &mut short_sma_line);
     let optional_outputs = {
@@ -289,18 +275,11 @@ pub fn indicator(
         )
     };
     let (high, low) = { (&high[LONG_PERIOD..], &low[LONG_PERIOD..]) };
-    cycle_ao(
-        high,
-        low,
-        multipliers,
-        &mut state,
-        &mut ao_line,
-        optional_outputs,
-    );
+    cycle_ao(high, low, &mut state, &mut ao_line, optional_outputs);
 
     Ok((
         vec![ao_line, short_sma_line, long_sma_line, medprice_line],
-        IndicatorState { state, multipliers },
+        state,
     ))
 }
 
@@ -317,7 +296,6 @@ pub fn indicator(
 fn cycle_ao(
     high: &[f64],
     low: &[f64],
-    multipliers: (f64, f64),
     state: &mut State,
     ao_line: &mut [f64],
     out_vecs: (&mut [f64], &mut [f64], &mut [f64]),
@@ -329,8 +307,7 @@ fn cycle_ao(
     for i in 0..high.len() {
         let values = unsafe { (*high.get_unchecked(i), *low.get_unchecked(i)) };
 
-        let (ao, short_sma, long_sma, medprice) =
-            unsafe { state.calc_unchecked(values, multipliers) };
+        let (ao, short_sma, long_sma, medprice) = unsafe { state.calc_unchecked(values) };
         unsafe { *ao_line.get_unchecked_mut(i) = ao };
 
         if has_optional {
@@ -342,7 +319,6 @@ fn cycle_ao(
         }
     }
 }
-
 
 #[inline(always)]
 pub fn multiplier(periods: (usize, usize)) -> (f64, f64) {

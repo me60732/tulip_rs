@@ -1,5 +1,7 @@
 use crate::common::validate_options as val_options;
 use crate::types::IndicatorError;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::simd::Simd;
 pub(crate) mod assets {
     use crate::types::IndicatorError;
 
@@ -50,4 +52,20 @@ pub(crate) mod options {
         }
         Ok(())
     }
+}
+
+// Custom serialization functions
+pub(crate) fn serialize_f64x2<S>(data: &Simd<f64, 2>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    data.to_array().serialize(serializer)
+}
+
+pub(crate) fn deserialize_f64x2<'de, D>(deserializer: D) -> Result<Simd<f64, 2>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let array = <[f64; 2]>::deserialize(deserializer)?;
+    Ok(Simd::from_array(array))
 }
