@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::pvi::{
-    indicator, indicator_by_assets, min_data, IndicatorState, TIndicatorState,
+    Pvi, Indicator, indicator_by_assets, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -127,7 +127,7 @@ fn bench_rust_pvi(c: &mut Criterion) {
             timing.measure(
                 || {
                     let result =
-                        indicator(&inputs, &OPTIONS, None).expect("Rust PVI indicator failed");
+                        Pvi::indicator(&inputs, &OPTIONS, None).expect("Rust PVI indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -151,7 +151,7 @@ fn bench_rust_pvi(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust PVI", |b| {
             b.iter(|| {
-                let result = indicator(&inputs, &OPTIONS, None).expect("Rust PVI indicator failed");
+                let result = Pvi::indicator(&inputs, &OPTIONS, None).expect("Rust PVI indicator failed");
                 black_box(&result);
             });
         });
@@ -175,12 +175,12 @@ fn bench_rust_pvi_from_state(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let min_data = min_data(&OPTIONS).max(CHUNK_SIZE);
+                    let min_data = Pvi::min_data(&OPTIONS).max(CHUNK_SIZE);
                     // First chunk
                     let chunk_inputs = [&close_vec[..min_data], &volume_vec[..min_data]];
 
                     let (_, mut state) =
-                        indicator(&chunk_inputs, &OPTIONS, None).expect("PVI indicator failed");
+                        Pvi::indicator(&chunk_inputs, &OPTIONS, None).expect("PVI indicator failed");
 
                     // Chunks
                     let mut close_chunks = close_vec[min_data..].chunks_exact(CHUNK_SIZE);
@@ -226,7 +226,7 @@ fn bench_rust_pvi_from_state(c: &mut Criterion) {
                     &volume_vec[volume_vec.len() - 1..],
                 ];
                 let (_, mut state) =
-                    indicator(&new_inputs, &OPTIONS, None).expect("Rust PVI indicator failed");
+                    Pvi::indicator(&new_inputs, &OPTIONS, None).expect("Rust PVI indicator failed");
 
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
@@ -250,7 +250,7 @@ fn bench_rust_pvi_from_state(c: &mut Criterion) {
 
                 // --- Rust_FromState_1_Bar_json benchmark ---
                 let (_, state) =
-                    indicator(&new_inputs, &OPTIONS, None).expect("Rust PVI indicator failed");
+                    Pvi::indicator(&new_inputs, &OPTIONS, None).expect("Rust PVI indicator failed");
 
                 let mut timing = TimingMeasurements::new();
                 let json = serde_json::to_string(&state).expect("json failed");
@@ -286,12 +286,12 @@ fn bench_rust_pvi_from_state(c: &mut Criterion) {
 
         group.bench_function("benchmark", |b| {
             b.iter(|| {
-                let min_data = min_data(&OPTIONS).max(CHUNK_SIZE);
+                let min_data = Pvi::min_data(&OPTIONS).max(CHUNK_SIZE);
                 // First chunk
                 let chunk_inputs = [&close_vec[..min_data], &volume_vec[..min_data]];
 
                 let (_, mut state) =
-                    indicator(&chunk_inputs, &OPTIONS, None).expect("PVI indicator failed");
+                    Pvi::indicator(&chunk_inputs, &OPTIONS, None).expect("PVI indicator failed");
 
                 // Chunks
                 let mut close_chunks = close_vec[min_data..].chunks_exact(CHUNK_SIZE);
@@ -328,7 +328,7 @@ fn bench_rust_pvi_from_state(c: &mut Criterion) {
                 &volume_vec[volume_vec.len() - 1..],
             ];
             let (_, mut state) =
-                indicator(&new_inputs, &OPTIONS, None).expect("Rust PVI indicator failed");
+                Pvi::indicator(&new_inputs, &OPTIONS, None).expect("Rust PVI indicator failed");
 
             let mut group = c.benchmark_group("Rust PVI from state 1 bar");
             group.sample_size(SAMPLE_SIZE);

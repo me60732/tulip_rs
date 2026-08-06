@@ -3,7 +3,7 @@ mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicators::dm::indicator_by_assets;
     use tulip_rs::indicators::dm::indicator_by_options;
-    use tulip_rs::indicators::dm::{indicator as rust_dm, min_data, TIndicatorState};
+use tulip_rs::indicators::dm::{Dm, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_dm, ti_dm_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -71,7 +71,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [high.as_slice(), low.as_slice()];
             let (outputs, _) =
-                rust_dm(&inputs_rust, &options, None).expect("Rust DM indicator failed");
+                Dm::indicator(&inputs_rust, &options, None).expect("Rust DM indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -193,7 +193,7 @@ mod tests {
                 // Rust implementation
                 let inputs_rust = [high.as_slice(), low.as_slice()];
                 let (outputs, _) =
-                    rust_dm(&inputs_rust, &options, None).expect("Rust DM indicator failed");
+                    Dm::indicator(&inputs_rust, &options, None).expect("Rust DM indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -295,17 +295,17 @@ mod tests {
 
                 // Get full output
                 let (full_outputs, _) =
-                    rust_dm(&inputs_rust, &options, None).expect("Rust DM indicator failed");
+                    Dm::indicator(&inputs_rust, &options, None).expect("Rust DM indicator failed");
 
                 // Process in batches
                 let mut batch_full_outputs = vec![Vec::new(); full_outputs.len()];
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Dm::min_data(&options).max(CHUNK_SIZE);
 
                 if high.len() <= min_data_val {
                     // If data is too small, just run full calculation
                     let (outputs, _) =
-                        rust_dm(&inputs_rust, &options, None).expect("Failed to run DM indicator");
+                        Dm::indicator(&inputs_rust, &options, None).expect("Failed to run DM indicator");
                     for (output_idx, output) in outputs.iter().enumerate() {
                         batch_full_outputs[output_idx].extend_from_slice(output);
                     }
@@ -315,7 +315,7 @@ mod tests {
                     let low_vec = low[..min_data_val].to_vec();
                     let chunk_inputs = [high_vec.as_slice(), low_vec.as_slice()];
 
-                    let (first_outputs, mut state) = rust_dm(&chunk_inputs, &options, None)
+                    let (first_outputs, mut state) = Dm::indicator(&chunk_inputs, &options, None)
                         .expect("Failed to run DM indicator on first chunk");
                     for (output_idx, output) in first_outputs.iter().enumerate() {
                         batch_full_outputs[output_idx].extend_from_slice(output);
@@ -418,7 +418,7 @@ mod tests {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_high.as_slice(), stock_low.as_slice()];
                 let (regular_outputs, _) =
-                    rust_dm(&stock_inputs, options, None).unwrap_or_else(|_| {
+                    Dm::indicator(&stock_inputs, options, None).unwrap_or_else(|_| {
                         panic!(
                             "Regular DM failed for {} with options {:?}",
                             stock_symbol, options
@@ -513,7 +513,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_dm(&inputs, options, None).expect("Regular DM indicator failed");
+                    Dm::indicator(&inputs, options, None).expect("Regular DM indicator failed");
 
                 let simd_plus_dm_result = &all_simd_results[idx][0];
                 let regular_plus_dm_result = &regular_results[0];

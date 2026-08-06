@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::vosc::{indicator, min_data, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::vosc::{Vosc, Indicator, IndicatorState, TIndicatorState};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_vosc, ti_vosc_start};
@@ -126,7 +126,7 @@ fn bench_rust_vosc(c: &mut Criterion) {
                 timing.measure(
                     || {
                         let result =
-                            indicator(&inputs, &options, None).expect("Rust VOSC indicator failed");
+                            Vosc::indicator(&inputs, &options, None).expect("Rust VOSC indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -155,7 +155,7 @@ fn bench_rust_vosc(c: &mut Criterion) {
                 |b| {
                     b.iter(|| {
                         let result =
-                            indicator(&inputs, &options, None).expect("Rust VOSC indicator failed");
+                            Vosc::indicator(&inputs, &options, None).expect("Rust VOSC indicator failed");
                         black_box(&result);
                     });
                 },
@@ -181,11 +181,11 @@ fn bench_rust_vosc_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                        let min_data_val = Vosc::min_data(&options).max(CHUNK_SIZE);
                         // First chunk
                         let chunk_inputs = [&volume_vec[..min_data_val]];
 
-                        let (_, mut state) = indicator(&chunk_inputs, &options, None)
+                        let (_, mut state) = Vosc::indicator(&chunk_inputs, &options, None)
                             .expect("VOSC indicator failed");
 
                         // Chunks
@@ -221,7 +221,7 @@ fn bench_rust_vosc_from_state(c: &mut Criterion) {
                     let new_inputs = [&volume_vec[..volume_vec.len() - 1]];
                     let final_inputs = [&volume_vec[volume_vec.len() - 1..]];
                     let (_, mut state) =
-                        indicator(&new_inputs, &options, None).expect("Rust VOSC indicator failed");
+                        Vosc::indicator(&new_inputs, &options, None).expect("Rust VOSC indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -245,7 +245,7 @@ fn bench_rust_vosc_from_state(c: &mut Criterion) {
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
                     let (_, state) =
-                        indicator(&new_inputs, &options, None).expect("Rust VOSC indicator failed");
+                        Vosc::indicator(&new_inputs, &options, None).expect("Rust VOSC indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -285,12 +285,12 @@ fn bench_rust_vosc_from_state(c: &mut Criterion) {
 
             group.bench_function("benchmark", |b| {
                 b.iter(|| {
-                    let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                    let min_data_val = Vosc::min_data(&options).max(CHUNK_SIZE);
                     // First chunk
                     let chunk_inputs = [&volume_vec[..min_data_val]];
 
                     let (_, mut state) =
-                        indicator(&chunk_inputs, &options, None).expect("VOSC indicator failed");
+                        Vosc::indicator(&chunk_inputs, &options, None).expect("VOSC indicator failed");
 
                     // Chunks
                     let mut volume_chunks = volume_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -318,7 +318,7 @@ fn bench_rust_vosc_from_state(c: &mut Criterion) {
                 let new_inputs = [&volume_vec[..volume_vec.len() - 1]];
                 let final_inputs = [&volume_vec[volume_vec.len() - 1..]];
                 let (_, mut state) =
-                    indicator(&new_inputs, &options, None).expect("Rust VOSC indicator failed");
+                    Vosc::indicator(&new_inputs, &options, None).expect("Rust VOSC indicator failed");
 
                 let mut group = c.benchmark_group(format!(
                     "Rust VOSC from state 1 bar {{ {}, {} }}",
@@ -368,7 +368,7 @@ fn bench_rust_vosc_simd_by_assets(c: &mut Criterion) {
 
             for options in OPTIONS_LIST {
                 let min_len = padded_volume.iter().map(|v| v.len()).min().unwrap_or(0);
-                if min_len < min_data(&options) {
+                if min_len < Vosc::min_data(&options) {
                     continue;
                 }
 
@@ -447,7 +447,7 @@ fn bench_rust_vosc_optional(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, Some(&[true, true]))
+                        let result = Vosc::indicator(&inputs, &options, Some(&[true, true]))
                             .expect("Rust VOSC indicator failed");
                         black_box(&result);
                     },
@@ -476,7 +476,7 @@ fn bench_rust_vosc_optional(c: &mut Criterion) {
                 format!("Rust VOSC optional {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator(&inputs, &options, Some(&[true, true]))
+                        let result = Vosc::indicator(&inputs, &options, Some(&[true, true]))
                             .expect("Rust VOSC indicator failed");
                         black_box(&result);
                     });

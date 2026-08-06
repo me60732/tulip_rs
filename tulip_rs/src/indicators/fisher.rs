@@ -1,20 +1,19 @@
 use std::f64;
 
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::max::{State as MaxState, CHUNK_1, CHUNK_4};
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+use crate::indicators::max::State as MaxState;
 use crate::indicators::medprice::calc as calc_medprice;
 use crate::indicators::min::State as MinState;
-use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
-use crate::ring_buffer::single_buffer::mirror_buffer::{MinMaxBuffer, MirrorBuffer};
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+use crate::ring_buffer::single_buffer::mirror_buffer::MirrorBuffer;
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 2;
+pub const INPUTS: usize = 2;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -50,11 +49,11 @@ pub mod by_options {
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
-    state: State,
+    state: State<Warm>,
     period: usize,
 }
 impl IndicatorState {
-    pub fn new(state: State, period: usize) -> Self {
+    pub fn new(state: State<Warm>, period: usize) -> Self {
         Self { state, period }
     }
 }
@@ -62,7 +61,7 @@ impl IndicatorState {
 impl TIndicatorState<2> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         _optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -76,46 +75,31 @@ impl TIndicatorState<2> for IndicatorState {
         };
         let [high, low] = inputs;
 
-        if CHUNK_1.contains(&self.period) {
-            cycle_fisher::<1>(
-                (high, low),
-                self.period,
-                (&mut fisher_line, &mut signal_line),
-                &mut self.state,
-            );
-        } else if CHUNK_4.contains(&self.period) {
-            cycle_fisher::<4>(
-                (high, low),
-                self.period,
-                (&mut fisher_line, &mut signal_line),
-                &mut self.state,
-            );
-        } else {
-            cycle_fisher::<8>(
-                (high, low),
-                self.period,
-                (&mut fisher_line, &mut signal_line),
-                &mut self.state,
-            );
-        }
+        cycle_fisher(
+            (high, low),
+            self.period,
+            (&mut fisher_line, &mut signal_line),
+            &mut self.state,
+        );
 
         Ok(vec![fisher_line, signal_line])
     }
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct State {
-    pub buffer: Buffer,
-    pub min_state: MinState,
-    pub max_state: MaxState,
+#[serde(bound = "")]
+pub struct State<S = Cold> {
+    pub buffer: MirrorBuffer<S>,
+    pub min_state: MinState<S>,
+    pub max_state: MaxState<S>,
     pub val1: f64,
     pub fish: f64,
 }
 
-impl State {
+impl State<Cold> {
     pub fn new(high: f64, low: f64, period: usize) -> Self {
         let medprice = calc_medprice(high, low);
-        let mut buffer = Buffer::new(period);
+        let mut buffer = MirrorBuffer::new(period);
         buffer.push(medprice);
         State {
             buffer,
@@ -125,52 +109,53 @@ impl State {
             fish: 0.0,
         }
     }
-
+    pub fn into_full(self) -> State<Warm> {
+        State {
+            buffer: self.buffer.into_full(),
+            min_state: self.min_state.into_warm(),
+            max_state: self.max_state.into_warm(),
+            val1: self.val1,
+            fish: self.fish,
+        }
+    }
     pub fn init_state(
         high: &[f64],
         low: &[f64],
         period: usize,
         fisher_line: &mut [f64],
         signal_line: &mut [f64],
-    ) -> Self {
+    ) -> State<Warm> {
         let mut state = Self::new(high[0], low[0], period);
         let mut i = 1;
-        while state.buffer.get_count() < state.buffer.get_capacity() - 1 {
-            state.buffer.push(calc_medprice(high[i], low[i]));
+        while !state.buffer.is_full() {
+            let medprice = calc_medprice(high[i], low[i]);
+            state.buffer.push(medprice);
+            let (min, _) = state.buffer.min(&mut state.min_state, medprice);
+            let (max, _) = state.buffer.max(&mut state.max_state, medprice);
+            if i == period -1 {
+                (fisher_line[0], signal_line[0]) = state.calc_fisher(min, max, medprice);
+            }
             i += 1;
         }
-        (fisher_line[0], signal_line[0]) = state.calc::<1>(high[i], low[i], period);
-        state
-    }
-    #[inline(always)]
-    pub fn calc<const N: usize>(&mut self, high: f64, low: f64, period: usize) -> (f64, f64) {
-        let medprice = calc_medprice(high, low);
-    
-        //unsafe { state.buffer.push_unchecked(medprice); }
-        self.buffer.push(medprice);
-        let (min, _) = self
-            .buffer
-            .min::<N>(&mut self.min_state, medprice, period);
-        let (max, _) = self
-            .buffer
-            .max::<N>(&mut self.max_state, medprice, period);
-    
-        self.calc_fisher(min, max, medprice)
+       
+        state.into_full()
     }
     
+}
+impl<S> State<S> {
     #[inline(always)]
     fn calc_fisher(&mut self, min: f64, max: f64, medprice: f64) -> (f64, f64) {
         // Correctly named constants
         const PRICE_WEIGHT: f64 = 0.66; // 0.33 * 2.0 - weight for new normalized price
         const SMOOTH_WEIGHT: f64 = 0.67; // smoothing factor for exponential average
         const MIN_MM: f64 = 0.001;
-    
+
         let mut val1 = self.val1;
         let mm = (max - min).max(MIN_MM);
-    
+
         // Use mul_add for better precision
         val1 = PRICE_WEIGHT.mul_add((medprice - min) / mm - 0.5, SMOOTH_WEIGHT * val1);
-    
+
         // Clamp val1 to the range [-0.999, 0.999]
         if val1 > 0.99 {
             val1 = 0.999;
@@ -178,126 +163,28 @@ impl State {
             val1 = -0.999;
         }
         self.val1 = val1;
-    
+
         let signal = self.fish;
-    
+
         let ln_arg = (1.0 + val1) / (1.0 - val1);
-    
+
         self.fish = 0.5 * (ln_arg.ln() + signal); //state.fish);
         (self.fish, signal)
     }
 }
 
-/// Returns information about the Fisher Transform indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the Fisher Transform indicator.
-pub const INFO: Info = Info {
-    name: "fisher",
-    full_name: "Fisher Transform",
-    indicator_type: IndicatorType::Momentum,
-    inputs: &["high", "low"],
-    options: &["period"],
-    outputs: &["fisher", "fisher_signal"],
-    optional_outputs: &[],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "fisher",
-        label: "FISHER",
-        display_type: DisplayType::Indicator,
-        outputs: &["fisher", "fisher_signal"],
-    }],
-};
-
-/// Returns the minimum amount of data required for the Fisher Transform indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the Fisher Transform calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    options[0] as usize
-}
-
-/// Returns the number of output values produced by the Fisher Transform indicator given input data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the Fisher Transform calculation.
-///
-/// # Returns
-///
-/// The number of output values.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-
-/// Calculates the Fisher Transform indicator for an entire dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — high prices
-/// * `inputs[1]` — low prices
-///
-/// # Options
-///
-/// * `options[0]` — period
-///
-/// # Outputs
-///
-/// * `outputs[0]` — `fisher` line
-/// * `outputs[1]` — `fisher_signal` line
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `_optional_outputs` - Unused; Fisher Transform has no optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is the `fisher` line,
-/// `outputs[1]` is the `fisher_signal` line, and `state` can be passed
-/// to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    _optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-
-    validate_inputs(inputs, min_data(options))?;
-
-    let period = options[0] as usize;
-    let [high, low] = inputs;
-
-    let (mut fisher_line, mut signal_line) = {
-        let capacity = output_length(high.len(), options);
-        (vec![0.0; capacity], vec![0.0; capacity])
-    };
-
-    let mut state = State::init_state(high, low, period, &mut fisher_line, &mut signal_line);
-
-    let outputs = (&mut fisher_line[1..], &mut signal_line[1..]);
-    let inputs = (&high[period..], &low[period..]);
-
-    if CHUNK_1.contains(&period) {
-        cycle_fisher::<1>(inputs, period, outputs, &mut state);
-    } else if CHUNK_4.contains(&period) {
-        cycle_fisher::<4>(inputs, period, outputs, &mut state);
-    } else {
-        cycle_fisher::<8>(inputs, period, outputs, &mut state);
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64, usize);
+    type Outputs = (f64, f64);
+    
+    #[inline(always)]
+    fn calc(&mut self, (high, low, period): Self::Inputs<'_>) -> Self::Outputs {
+        let medprice = calc_medprice(high, low);
+        self.buffer.push(medprice);
+        let (min, _) = self.buffer.min(&mut self.min_state, medprice, period);
+        let (max, _) = self.buffer.max(&mut self.max_state, medprice, period);
+        self.calc_fisher(min, max, medprice)
     }
-    Ok((
-        vec![fisher_line, signal_line],
-        IndicatorState { state, period },
-    ))
 }
 
 /// Performs the main calculation loop for the Fisher Transform indicator.
@@ -308,17 +195,17 @@ pub fn indicator(
 /// * `period` - The period for the Fisher Transform calculation.
 /// * `output_lines` - A tuple containing mutable references to fisher and signal vectors.
 /// * `state` - A mutable reference to the indicator state.
-fn cycle_fisher<const N: usize>(
+fn cycle_fisher(
     inputs: (&[f64], &[f64]),
     period: usize,
     output_lines: (&mut [f64], &mut [f64]),
-    state: &mut State,
+    state: &mut State<Warm>,
 ) {
     let (fisher_line, signal_line) = output_lines;
     let (high, low) = inputs;
     for i in 0..high.len() {
         let (h, l) = unsafe { (*high.get_unchecked(i), *low.get_unchecked(i)) };
-        let (fisher, signal) = state.calc::<N>(h, l, period);
+        let (fisher, signal) = state.calc((h, l, period));
         unsafe {
             *fisher_line.get_unchecked_mut(i) = fisher;
             *signal_line.get_unchecked_mut(i) = signal;
@@ -326,4 +213,57 @@ fn cycle_fisher<const N: usize>(
     }
 }
 
+pub struct Fisher;
+impl Indicator<INPUTS, OPTIONS> for Fisher {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "fisher",
+        full_name: "Fisher Transform",
+        indicator_type: IndicatorType::Momentum,
+        inputs: &["high", "low"],
+        options: &["period"],
+        outputs: &["fisher", "fisher_signal"],
+        optional_outputs: &[],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "fisher",
+            label: "FISHER",
+            display_type: DisplayType::Indicator,
+            outputs: &["fisher", "fisher_signal"],
+        }],
+    };
 
+    fn min_data(options: &[f64; OPTIONS]) -> usize {
+        options[0] as usize
+    }
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        _optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+
+        validate_inputs(inputs, Self::min_data(options))?;
+
+        let period = options[0] as usize;
+        let [high, low] = inputs;
+
+        let (mut fisher_line, mut signal_line) = {
+            let capacity = Self::output_length(high.len(), options);
+            (vec![0.0; capacity], vec![0.0; capacity])
+        };
+
+        let mut state = State::init_state(high, low, period, &mut fisher_line, &mut signal_line);
+
+        let outputs = (&mut fisher_line[1..], &mut signal_line[1..]);
+        let inputs = (&high[period..], &low[period..]);
+
+        cycle_fisher(inputs, period, outputs, &mut state);
+        
+        Ok((
+            vec![fisher_line, signal_line],
+            IndicatorState { state, period },
+        ))
+    }
+}

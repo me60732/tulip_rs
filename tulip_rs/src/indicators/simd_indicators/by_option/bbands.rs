@@ -1,42 +1,36 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::bbands::{
-    min_data, output_length, validate_options as vo, IndicatorState, State,
-    INPUTS_WIDTH, OPTIONS_WIDTH,
+    validate_options as vo, BBands, Indicator, IndicatorState, State, INPUTS, OPTIONS,
 };
+use crate::indicators::simd_indicators::bbands_simd::{SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::{bbands_simd::Calc, stddev_simd::SimdState};
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
 /// SIMD driver for the Bollinger Bands (BBANDS) indicator, processing `N` option-set lanes per scheduling epoch.
 struct BbandsDriver {}
 
-impl Driver<State, (usize, f64)> for BbandsDriver {
+impl Driver<State<Warm>, usize> for BbandsDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD. Reads the shared input, applies each lane's options, writes outputs, and updates per-lane states.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
-        options: Vec<Option<&(usize, f64)>>,
+        mut states: Vec<&mut State<Warm>>,
+        options: Vec<Option<&usize>>,
     ) {
         let len = outputs[0][0].len();
 
         let mut i = [0usize; N];
-        let stddev_simd = {
-            let mut stddevs = [0.0; N];
-            for (lane, option) in options.iter().enumerate() {
-                if let Some(&(period, stddev)) = option {
-                    i[lane] = period;
-                    stddevs[lane] = stddev;
-                }
+        for (lane, option) in options.iter().enumerate() {
+            if let Some(&period) = option {
+                i[lane] = period;
             }
-            Simd::from_array(stddevs)
-        };
+        }
 
         // Optimization 1: Direct array construction instead of collect+try_into
-        let mut state = SimdState::new(&states);
+        let mut state = SimdState::from_states(&mut states);
 
         // Optimization 2: Pre-compute all input and output pointers
         let input_ptrs = crate::extract_input_ptrs!(inputs, N, input_ptrs);
@@ -58,8 +52,7 @@ impl Driver<State, (usize, f64)> for BbandsDriver {
                 new @ input_ptrs
             );
 
-            let (lower_band, middle_band, upper_band) =
-                state.calc_simd(stddev_simd, new_vals, old_vals);
+            let (lower_band, middle_band, upper_band) = state.calc((new_vals, old_vals));
 
             crate::write_simd_at_indices!(N, j,
                 lower_band_ptr => lower_band,
@@ -80,7 +73,7 @@ impl Driver<State, (usize, f64)> for BbandsDriver {
 /// simultaneously using SIMD parallelism.
 ///
 /// # Arguments
-/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS]`), containing
 ///   `[real]`.
 /// * `options` - An array of `N` option sets, one per SIMD lane: `[period, std_dev]`.
 /// * `optional_outputs` - Unused; Bollinger Bands has no optional outputs.
@@ -90,30 +83,28 @@ impl Driver<State, (usize, f64)> for BbandsDriver {
 /// and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH], //stock[ fields [ field [f64] ] ]
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+    options: &[&[f64; OPTIONS]; N],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, BBands::min_data)?;
     validate_options(options, Some(vo))?;
-    let mut road_train = PrimeMover::<N, State, (usize, f64)>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>, usize>::new();
 
-    let mut params = [(0usize, 0.0); N];
-    for i in 0..N {
+    let params: [(usize, f64); N] = std::array::from_fn(|i| {
         let period = options[i][0] as usize;
-        let stddev = options[i][1];
-        params[i] = (period, stddev);
-    }
+        (period, options[i][1])
+    });
+
     let mut output_buffers = Vec::with_capacity(N);
 
-    for i in 0..N {
-        let period = options[i][0] as usize;
+    for (i, &(period, std_dev)) in params.iter().enumerate() {
         let asset_inputs = vec![
             inputs[0], // real
         ];
 
         let (middle_band, upper_band, lower_band) = {
-            let capacity = output_length(inputs[0].len(), options[i]);
+            let capacity = BBands::output_length(inputs[0].len(), options[i]);
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::uninit_vec!(f64, capacity),
@@ -121,7 +112,7 @@ pub fn indicator_by_options<const N: usize>(
             )
         };
 
-        let state = State::init_state(inputs[0], period);
+        let state = State::init_state(inputs[0], period, std_dev);
 
         let mut output_buffer = vec![lower_band, middle_band, upper_band];
 
@@ -147,7 +138,7 @@ pub fn indicator_by_options<const N: usize>(
             period,
             period,
             state,
-            Some(&params[i]),
+            Some(&params[i].0),
         ));
         output_buffers.push(output_buffer);
     }
@@ -157,10 +148,8 @@ pub fn indicator_by_options<const N: usize>(
 
     let mut states = Vec::with_capacity(N);
     for (i, state) in states_vec.into_iter().enumerate() {
-        let (period, stddev) = params[i];
-        states.push(IndicatorState::new(
-            inputs[0], state, period, stddev,
-        ));
+        let (period, _) = params[i];
+        states.push(IndicatorState::new(inputs[0], state, period));
     }
     Ok((output_buffers, states))
 }

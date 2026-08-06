@@ -1,38 +1,55 @@
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::by_asset::dpo::indicator_by_assets;
-use crate::indicators::simd_indicators::sma_simd::calc_simd as calc_sma_simd;
 
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::dpo::indicator_by_options;
 
+pub use crate::indicator_types::{TSimdState, TState};
+use crate::indicators::{
+    simd_indicators::sma_simd::SimdState as SmaSimdState,
+    dpo::State,
+};
+use crate::types::Warm;
 use std::simd::Simd;
+use std::ops::{Deref, DerefMut};
 
-/// Computes one bar of the Detrended Price Oscillator (DPO) for `N` assets simultaneously
-/// using SIMD parallelism.
-///
-/// Calculates the SMA over the current window, then returns `dpo_price - sma` where
-/// `dpo_price` is the historical close offset `period/2 + 1` bars ago.
-///
-/// # Arguments
-///
-/// * `value` - Current close prices for this bar.
-/// * `sum` - Running sum used by the underlying SMA calculation; updated in place.
-/// * `prev_values` - Tuple of `(prev_value, dpo_price)`: the oldest value dropped from the SMA
-///   window and the historical close used as the DPO reference price.
-/// * `multiplier` - Per-lane SMA normalisation factor `1 / period`.
-///
-/// # Returns
-///
-/// A tuple `(dpo, sma)` for all `N` lanes.
-#[inline(always)]
-pub fn calc_simd<const N: usize>(
-    value: Simd<f64, N>,
-    sum: &mut Simd<f64, N>,
-    prev_values: (Simd<f64, N>, Simd<f64, N>),
-    multiplier: Simd<f64, N>,
-) -> (Simd<f64, N>, Simd<f64, N>) {
-    //let (sma, mut s) = (0.0, *sum);
-    let (prev_value, dpo_price) = prev_values;
-    let sma = calc_sma_simd(sum, value, prev_value, multiplier);
-    (dpo_price - sma, sma)
+#[repr(transparent)]
+pub struct SimdState<const N: usize>(pub SmaSimdState<N>);
+impl<const N: usize> Deref for SimdState<N> {
+    type Target = SmaSimdState<N>;
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
+impl<const N: usize> DerefMut for SimdState<N> {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+impl<const N: usize> TSimdState for SimdState<N> {
+    type ScalarState = State<Warm>;
+    fn from_states(states: &mut [&mut Self::ScalarState]) -> Self {
+        let mut inner: Vec<&mut _> = states.iter_mut().map(|s| &mut s.0).collect();
+        Self(SmaSimdState::from_states(&mut inner))
+    }
+    fn write_states(&self, states: &mut [&mut Self::ScalarState]) {
+        let mut inner: Vec<&mut _> = states.iter_mut().map(|s| &mut s.0).collect();
+        self.0.write_states(&mut inner)
+    }
+}
+impl<const N: usize> TState for SimdState<N> {
+    type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
+    type Outputs = (Simd<f64, N>, Simd<f64, N>);
+
+    #[inline(always)]
+    fn calc<'a>(
+        &mut self,
+        (value, prev_value, dpo_price): Self::Inputs<'a>
+    ) -> Self::Outputs {
+        let sma = self.0.calc((value, prev_value));
+        (dpo_price - sma, sma)
+    }
+}
+

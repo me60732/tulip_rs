@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::ef::{indicator as rust_ef, min_data, TIndicatorState};
-    use tulip_rs::indicators::kama::indicator as rust_kama;
+    use tulip_rs::indicators::ef::{Ef, Indicator, TIndicatorState};
+    use tulip_rs::indicators::kama::Kama;
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
     const CHUNK_SIZE: usize = 100;
@@ -36,11 +36,11 @@ mod tests {
         for options in OPTIONS_LIST {
             // Run EF directly
             let (ef_outputs, _) =
-                rust_ef(&inputs, &options, None).expect("Rust EF indicator failed");
+                Ef::indicator(&inputs, &options, None).expect("Rust EF indicator failed");
             let ef_result = &ef_outputs[0];
 
             // Run KAMA with optional EF output enabled (outputs[1] = ef line)
-            let (kama_outputs, _) = rust_kama(&inputs, &options, Some(&[true]))
+            let (kama_outputs, _) = Kama::indicator(&inputs, &options, Some(&[true]))
                 .expect("Rust KAMA indicator (with EF optional) failed");
             let kama_ef_result = &kama_outputs[1];
 
@@ -83,11 +83,11 @@ mod tests {
             for options in OPTIONS_LIST {
                 // Run EF directly
                 let (ef_outputs, _) =
-                    rust_ef(&inputs, &options, None).expect("Rust EF indicator failed");
+                    Ef::indicator(&inputs, &options, None).expect("Rust EF indicator failed");
                 let ef_result = &ef_outputs[0];
 
                 // Run KAMA with optional EF output
-                let (kama_outputs, _) = rust_kama(&inputs, &options, Some(&[true]))
+                let (kama_outputs, _) = Kama::indicator(&inputs, &options, Some(&[true]))
                     .expect("Rust KAMA indicator (with EF optional) failed");
                 let kama_ef_result = &kama_outputs[1];
 
@@ -139,15 +139,15 @@ mod tests {
             for options in OPTIONS_LIST {
                 // Full run
                 let (full_outputs, _) =
-                    rust_ef(&inputs, &options, None).expect("EF full run failed");
+                    Ef::indicator(&inputs, &options, None).expect("EF full run failed");
 
                 // Chunked run
                 let mut batch_output: Vec<f64> = Vec::new();
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Ef::min_data(&options).max(CHUNK_SIZE);
 
                 let chunk_inputs = [&close[..min_data_val]];
                 let (first_outputs, mut state) =
-                    rust_ef(&chunk_inputs, &options, None).expect("EF first chunk failed");
+                    Ef::indicator(&chunk_inputs, &options, None).expect("EF first chunk failed");
                 batch_output.extend_from_slice(&first_outputs[0]);
 
                 let mut close_chunks = close[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -221,7 +221,7 @@ mod tests {
             for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                 let stock_inputs = [stock_close.as_slice()];
                 let (regular_results, _) =
-                    rust_ef(&stock_inputs, &options, None).expect("Regular EF failed");
+                    Ef::indicator(&stock_inputs, &options, None).expect("Regular EF failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];
@@ -287,7 +287,7 @@ mod tests {
 
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 let (regular_results, _) =
-                    rust_ef(&inputs, options, None).expect("Regular EF failed");
+                    Ef::indicator(&inputs, options, None).expect("Regular EF failed");
 
                 let simd_result = &simd_results[idx][0];
                 let regular_result = &regular_results[0];

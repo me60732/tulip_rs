@@ -1,45 +1,33 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::stoch_simd::options::SimdState;
-use crate::indicators::stoch::{
-    min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
-};
-use crate::types::IndicatorError;
+use crate::indicators::simd_indicators::stoch_simd::{options::SimdState, TSimdState, TState};
+use crate::indicators::stoch::{Indicator, IndicatorState, State, Stoch, INPUTS, OPTIONS};
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 /// SIMD driver for the Stochastic Oscillator (STOCH) indicator, processing `N` option-set lanes per scheduling epoch.
 struct StochDriver {}
 
-impl Driver<State, (usize, (f64, f64))> for StochDriver {
+impl Driver<State<Warm>, usize> for StochDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
-        options: Vec<Option<&(usize, (f64, f64))>>,
+        mut states: Vec<&mut State<Warm>>,
+        options: Vec<Option<&usize>>,
     ) {
         let len = outputs[0][0].len();
-        let (look_back, multipliers, mut i_simd) = {
+        let (look_back, mut i_simd) = {
             let mut look_back = [0usize; N];
             let mut i = [0usize; N];
-            let mut multipliers = ([0.0; N], [0.0; N]);
             for (lane, option) in options.iter().enumerate() {
-                if let Some(&(k_period, multi)) = option {
+                if let Some(&k_period) = option {
                     i[lane] = k_period;
                     look_back[lane] = k_period - 1;
-                    multipliers.0[lane] = multi.0;
-                    multipliers.1[lane] = multi.1;
                 }
             }
-            (
-                Simd::from_array(look_back),
-                (
-                    Simd::from_array(multipliers.0),
-                    Simd::from_array(multipliers.1),
-                ),
-                Simd::from_array(i),
-            )
+            (Simd::from_array(look_back), Simd::from_array(i))
         };
 
         //collect outputs
@@ -47,7 +35,7 @@ impl Driver<State, (usize, (f64, f64))> for StochDriver {
             crate::extract_output_ptrs!(outputs, N, k_line_ptr, d_line_ptr);
         let (high_ptrs, low_ptrs, close_ptrs) =
             crate::extract_input_ptrs!(inputs, N, high_ptrs, low_ptrs, close_ptrs);
-        let mut state = SimdState::new(&mut states);
+        let mut state = SimdState::<N>::from_states(&mut states);
         //let look_back = self.period - 1;
 
         let one_splat = Simd::splat(1);
@@ -56,16 +44,7 @@ impl Driver<State, (usize, (f64, f64))> for StochDriver {
             let close = crate::extract_simd_inputs_at_index_splat!(i_simd[0], N,
                 close @ close_ptrs
             );
-            let (k, d) = unsafe {
-                state.calc_unchecked_simd(
-                    high_ptrs,
-                    low_ptrs,
-                    close,
-                    i_simd,
-                    look_back,
-                    multipliers,
-                )
-            };
+            let (k, d) = state.calc((high_ptrs, low_ptrs, close, i_simd, look_back));
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, j,
@@ -97,44 +76,31 @@ impl Driver<State, (usize, (f64, f64))> for StochDriver {
 /// for option set `i`, and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS],
+    options: &[&[f64; OPTIONS]; N],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, Stoch::min_data)?;
     validate_options(options, None)?;
-    let mut road_train = PrimeMover::<N, State, (usize, (f64, f64))>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>, usize>::new();
     let mut output_buffers = Vec::with_capacity(N);
 
-    let params: [(usize, (f64, f64)); N] = std::array::from_fn(|i| {
-        (
-            options[i][0] as usize,
-            multiplier(options[i][1] as usize, options[i][2] as usize),
-        )
-    });
+    let params: [usize; N] = std::array::from_fn(|i| options[i][0] as usize);
 
     for i in 0..N {
-        let asset_inputs = vec![
-            inputs[0], // high
-            inputs[1], // low
-            inputs[2], // close
-        ];
+        let [high, low, close] = *inputs;
+        let asset_inputs = vec![high, low, close];
         let mut starts = [0; 2];
         let (mut k_line, d_line, state, start);
         {
-            let (k_capacity, d_capacity) = output_length(inputs[0].len(), options[i]);
-            k_line = crate::uninit_vec!(f64, k_capacity);
-            d_line = crate::uninit_vec!(f64, d_capacity);
+            let caps = Stoch::slot_lengths(high.len(), options[i]);
+            k_line = crate::uninit_vec!(f64, caps[0]);
+            d_line = crate::uninit_vec!(f64, caps[1]);
 
             let k_slow = options[i][1] as usize;
             let d_period = options[i][2] as usize;
-            (state, starts[0], start) = State::init_state(
-                (inputs[0], inputs[1], inputs[2]),
-                params[i].0,
-                k_slow,
-                d_period,
-                &mut k_line,
-            );
+            (state, starts[0], start) =
+                State::init_state((high, low, close), params[i], k_slow, d_period, &mut k_line);
         }
 
         let mut output_buffer = vec![k_line, d_line];
@@ -158,7 +124,7 @@ pub fn indicator_by_options<const N: usize>(
             asset_outputs,
             i,
             start,
-            params[i].0,
+            params[i],
             state,
             Some(&params[i]),
         ));
@@ -170,11 +136,7 @@ pub fn indicator_by_options<const N: usize>(
     let mut states = Vec::with_capacity(N);
     for (i, state) in states_vec.into_iter().enumerate() {
         states.push(IndicatorState::new(
-            state,
-            inputs[0],
-            inputs[1],
-            params[i].1, //multipliers
-            params[i].0, //k_period
+            state, inputs[0], inputs[1], params[i], //k_period
         ));
     }
     Ok((output_buffers, states))

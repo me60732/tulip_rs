@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::simd::Simd;
-
 // ── SerdeElement ──────────────────────────────────────────────────────────────
 
 /// Serde-compatible round-trip representation for a [`BufferElement`].

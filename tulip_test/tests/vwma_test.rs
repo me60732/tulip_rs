@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::vwma::{indicator as rust_vwma, min_data, TIndicatorState};
+    use tulip_rs::indicators::vwma::{Vwma, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_vwma, ti_vwma_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
     const EPSILON: f64 = 1e-10;
@@ -60,7 +60,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice(), volume.as_slice()];
             let (outputs, _) =
-                rust_vwma(&inputs_rust, &options, None).expect("Rust VWMA indicator failed");
+                Vwma::indicator(&inputs_rust, &options, None).expect("Rust VWMA indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -146,7 +146,7 @@ mod tests {
                 // Rust implementation
                 let inputs_rust = [close.as_slice(), volume.as_slice()];
                 let (outputs, _) =
-                    rust_vwma(&inputs_rust, &options, None).expect("Rust VWMA indicator failed");
+                    Vwma::indicator(&inputs_rust, &options, None).expect("Rust VWMA indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -213,12 +213,12 @@ mod tests {
 
                 // Get full output from processing all data at once
                 let (full_outputs, _) =
-                    rust_vwma(&inputs_rust, &options, None).expect("Rust VWMA indicator failed");
+                    Vwma::indicator(&inputs_rust, &options, None).expect("Rust VWMA indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Vwma::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let close_vec = close[..min_data_val].to_vec();
@@ -226,7 +226,7 @@ mod tests {
                 let chunk_inputs = [close_vec.as_slice(), volume_vec.as_slice()];
 
                 let (first_outputs, mut state) =
-                    rust_vwma(&chunk_inputs, &options, None).expect("Rust VWMA indicator failed");
+                    Vwma::indicator(&chunk_inputs, &options, None).expect("Rust VWMA indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
                 // Process remaining data in chunks
@@ -316,7 +316,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Check min data requirement
-            let min_data_required = min_data(&options);
+            let min_data_required = Vwma::min_data(&options);
             let min_stock_len = stock_data
                 .iter()
                 .map(|(_, c, _)| c.len())
@@ -338,7 +338,7 @@ mod tests {
             // Compare with individual Rust implementations
             for i in 0..4 {
                 let individual_inputs = [stock_data[i].1.as_slice(), stock_data[i].2.as_slice()];
-                let (individual_outputs, _) = rust_vwma(&individual_inputs, &options, None)
+                let (individual_outputs, _) = Vwma::indicator(&individual_inputs, &options, None)
                     .expect("Individual Rust VWMA indicator failed");
 
                 // Compare outputs
@@ -428,7 +428,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_vwma(&inputs, options, None).expect("Regular VWMA indicator failed");
+                    Vwma::indicator(&inputs, options, None).expect("Regular VWMA indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];

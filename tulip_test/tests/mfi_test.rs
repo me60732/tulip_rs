@@ -2,7 +2,7 @@
 mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicators::mfi::indicator_by_options;
-    use tulip_rs::indicators::mfi::{indicator as rust_mfi, min_data, TIndicatorState};
+    use tulip_rs::indicators::mfi::{Mfi, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_mfi, ti_mfi_start, ti_typprice, ti_typprice_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -80,7 +80,7 @@ mod tests {
                 volume.as_slice(),
             ];
             let (outputs, _) =
-                rust_mfi(&inputs_rust, &options, None).expect("Rust MFI indicator failed");
+                Mfi::indicator(&inputs_rust, &options, None).expect("Rust MFI indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -172,7 +172,7 @@ mod tests {
                     volume.as_slice(),
                 ];
                 let (outputs, _) =
-                    rust_mfi(&inputs_rust, &options, None).expect("Rust MFI indicator failed");
+                    Mfi::indicator(&inputs_rust, &options, None).expect("Rust MFI indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -252,13 +252,13 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Get full output
-                let (full_outputs, _) = rust_mfi(&inputs_rust, &options, None)
+                let (full_outputs, _) = Mfi::indicator(&inputs_rust, &options, None)
                     .expect("Failed to run MFI indicator on full data");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Mfi::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let high_vec = high[..min_data_val].to_vec();
@@ -272,7 +272,7 @@ mod tests {
                     volume_vec.as_slice(),
                 ];
 
-                let (first_outputs, mut state) = rust_mfi(&chunk_inputs, &options, None)
+                let (first_outputs, mut state) = Mfi::indicator(&chunk_inputs, &options, None)
                     .expect("Failed to run MFI indicator on first chunk");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -367,7 +367,7 @@ mod tests {
         let optional_outputs = Some([true].as_slice()); // Request typprice output
 
         // Get Rust MFI output with typprice optional output
-        let result = rust_mfi(&inputs, &options, optional_outputs).unwrap();
+        let result = Mfi::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_typprice = &result.0[1]; // typprice is at index 1
 
         // Fail fast if Rust output is empty
@@ -454,7 +454,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get MFI with typprice optional output
                 let optional_outputs = Some(&[true][..]);
-                let (mfi_result, _) = tulip_rs::indicators::mfi::indicator(
+                let (mfi_result, _) = Mfi::indicator(
                     &[&high, &low, &close, &volume],
                     &[options[0]],
                     optional_outputs,
@@ -582,7 +582,7 @@ mod tests {
                     stock_volume.as_slice(),
                 ];
                 let (regular_results, _) =
-                    rust_mfi(&stock_inputs, &options, None).expect("Regular MFI indicator failed");
+                    Mfi::indicator(&stock_inputs, &options, None).expect("Regular MFI indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];
@@ -697,7 +697,7 @@ mod tests {
                     stock_close.as_slice(),
                     stock_volume.as_slice(),
                 ];
-                let (regular_results, _) = rust_mfi(&stock_inputs, &options, Some(&[true]))
+                let (regular_results, _) = Mfi::indicator(&stock_inputs, &options, Some(&[true]))
                     .expect("Regular MFI indicator with optional outputs failed");
 
                 let simd_result = &simd_results[stock_idx][0];
@@ -815,7 +815,7 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 let (regular_results, _) =
-                    rust_mfi(&inputs, options, None).expect("Regular MFI indicator failed");
+                    Mfi::indicator(&inputs, options, None).expect("Regular MFI indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -908,7 +908,7 @@ mod tests {
 
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
-                let (regular_results, _) = rust_mfi(&inputs, options, Some(&[true]))
+                let (regular_results, _) = Mfi::indicator(&inputs, options, Some(&[true]))
                     .expect("Regular MFI indicator with optional outputs failed");
                 let regular_mfi = &regular_results[0];
                 let regular_typprice = &regular_results[1];
@@ -1051,7 +1051,7 @@ mod tests {
 
             // Compare each SIMD result with regular indicator over the full data
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
-                let (regular_results, _) = rust_mfi(
+                let (regular_results, _) = Mfi::indicator(
                     &[
                         high.as_slice(),
                         low.as_slice(),

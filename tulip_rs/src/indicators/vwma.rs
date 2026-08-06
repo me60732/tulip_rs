@@ -1,12 +1,12 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 2;
+pub const INPUTS: usize = 2;
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -39,35 +39,15 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::vwma_simd::indicator_by_options as indicator;
 }
 
-pub const INFO: Info = Info {
-    name: "vwma",
-    full_name: "Volume Weighted Moving Average",
-    indicator_type: IndicatorType::Trend,
-    // Two inputs: close and volume.
-    inputs: &["close", "volume"],
-    // One option: period.
-    options: &["period"],
-    outputs: &["vwma"],
-    // No optional outputs.
-    optional_outputs: &[],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "vwma",
-        label: "VWMA",
-        display_type: DisplayType::Overlay,
-        outputs: &["vwma"],
-    }],
-};
-
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     close: Vec<f64>,
     volume: Vec<f64>,
-    state: State,
+    state: State<Warm>,
     period: usize,
 }
 impl IndicatorState {
-    pub fn new(close: &[f64], volume: &[f64], state: State, period: usize) -> Self {
+    pub fn new(close: &[f64], volume: &[f64], state: State<Warm>, period: usize) -> Self {
         Self {
             close: close[close.len() - period..].to_vec(),
             volume: volume[volume.len() - period..].to_vec(),
@@ -80,7 +60,7 @@ impl IndicatorState {
 impl TIndicatorState<2> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         _optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -104,29 +84,44 @@ impl TIndicatorState<2> for IndicatorState {
     }
 }
 #[derive(Serialize, Deserialize)]
-pub struct State {
+pub struct State<S = Cold> {
     pub sum: f64,
     pub vol_sum: f64,
+    pub(crate) state: std::marker::PhantomData<S>,
 }
-impl State {
+impl State<Cold> {
     pub fn new(sum: f64, vol_sum: f64) -> Self {
-        State { sum, vol_sum }
+        State {
+            sum,
+            vol_sum,
+            state: std::marker::PhantomData,
+        }
     }
     /// Initializes VWMA by computing the initial numerator and denominator sums over the first period,
     /// then computing the first VWMA value.
-    pub fn init_state(period: usize, close: &[f64], volume: &[f64]) -> Self {
+    pub fn init_state(period: usize, close: &[f64], volume: &[f64]) -> State<Warm> {
         let mut sum = 0.0;
         let mut vol_sum = 0.0;
         for i in 0..period {
             sum += close[i] * volume[i];
             vol_sum += volume[i];
         }
-        Self::new(sum, vol_sum)
+        State {
+            sum,
+            vol_sum,
+            state: std::marker::PhantomData,
+        }
     }
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64, f64, f64);
+    type Outputs = f64;
+
     #[inline(always)]
-    pub fn calc(&mut self, values: (&f64, &f64), prev_values: (&f64, &f64)) -> f64 {
-        let (close, volume) = values;
-        let (prev_close, prev_volume) = prev_values;
+    fn calc<'a>(
+        &mut self,
+        (close, volume, prev_close, prev_volume): Self::Inputs<'a>,
+    ) -> Self::Outputs {
         // Add new bar's contribution.
         self.sum += (close * volume) - (prev_close * prev_volume);
         self.vol_sum += volume - prev_volume;
@@ -136,84 +131,6 @@ impl State {
         }
         self.sum / self.vol_sum
     }
-}
-/// Returns the minimum amount of data required for the VWMA indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options: `[period]`.
-///
-/// # Returns
-///
-/// The minimum amount of data required (period + 1).
-pub fn min_data(options: &[f64]) -> usize {
-    options[0] as usize + 1
-}
-
-/// Calculates the output length based on the data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the VWMA calculation.
-///
-/// # Returns
-///
-/// The output length.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-
-/// Calculates the Volume Weighted Moving Average (VWMA) indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — `close` (close price series)
-/// * `inputs[1]` — `volume`
-///
-/// # Options
-///
-/// * `options[0]` — `period`
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `_optional_outputs` - Unused; this indicator has no optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is `vwma` and `state`
-/// can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    _optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-
-    let period = options[0] as usize;
-
-    validate_inputs(inputs, min_data(options))?;
-    let close = inputs[0];
-    let volume = inputs[1];
-
-    let mut vwma_line = {
-        let capacity = output_length(close.len(), options);
-        crate::uninit_vec!(f64, capacity)
-    };
-
-    // Initialize state.
-    let mut state = State::init_state(period, close, volume);
-
-    // Process from index = period (first full window is available).
-    cycle(close, volume, period, &mut state, &mut vwma_line);
-
-    Ok((
-        vec![vwma_line],
-        IndicatorState::new(close, volume, state, period),
-    ))
 }
 
 /// Iterates over the close and volume arrays and writes VWMA values into `vwma_line`.
@@ -225,14 +142,70 @@ pub fn indicator(
 /// * `period` - The period for the VWMA calculation.
 /// * `state` - Mutable reference to the rolling `State` (weighted sum and volume sum).
 /// * `vwma_line` - Mutable output slice for VWMA values.
-fn cycle(close: &[f64], volume: &[f64], period: usize, state: &mut State, vwma_line: &mut [f64]) {
+fn cycle(close: &[f64], volume: &[f64], period: usize, state: &mut State<Warm>, vwma_line: &mut [f64]) {
     for (j, i) in (period..close.len()).enumerate() {
         unsafe {
-            *vwma_line.get_unchecked_mut(j) = state.calc(
-                (close.get_unchecked(i), volume.get_unchecked(i)),
-                (close.get_unchecked(j), volume.get_unchecked(j)),
-            )
+            *vwma_line.get_unchecked_mut(j) = state.calc((
+                *close.get_unchecked(i),
+                *volume.get_unchecked(i),
+                *close.get_unchecked(j),
+                *volume.get_unchecked(j),
+            ))
         };
     }
 }
 
+pub struct Vwma;
+impl Indicator<INPUTS, OPTIONS> for Vwma {
+    type IndicatorState = IndicatorState;
+
+    const INFO: Info = Info {
+        name: "vwma",
+        full_name: "Volume Weighted Moving Average",
+        indicator_type: IndicatorType::Trend,
+        // Two inputs: close and volume.
+        inputs: &["close", "volume"],
+        // One option: period.
+        options: &["period"],
+        outputs: &["vwma"],
+        // No optional outputs.
+        optional_outputs: &[],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "vwma",
+            label: "VWMA",
+            display_type: DisplayType::Overlay,
+            outputs: &["vwma"],
+        }],
+    };
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        _optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+
+        let period = options[0] as usize;
+
+        validate_inputs(inputs, Self::min_data(options))?;
+        let close = inputs[0];
+        let volume = inputs[1];
+
+        let mut vwma_line = {
+            let capacity = Self::output_length(close.len(), options);
+            crate::uninit_vec!(f64, capacity)
+        };
+
+        // Initialize state.
+        let mut state = State::init_state(period, close, volume);
+
+        // Process from index = period (first full window is available).
+        cycle(close, volume, period, &mut state, &mut vwma_line);
+
+        Ok((
+            vec![vwma_line],
+            IndicatorState::new(close, volume, state, period),
+        ))
+    }
+}

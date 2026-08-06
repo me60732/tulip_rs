@@ -1,4 +1,4 @@
-use tulip_rs::indicators::natr::{indicator, TIndicatorState};
+use tulip_rs::indicators::natr::{Natr, TIndicatorState, Indicator};
 fn main() {
     let high = [
         82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98,
@@ -20,7 +20,7 @@ fn main() {
     let options = [5.0]; // Period
 
     // Calculate the Average True Range (ATR) line using the indicator function
-    let (outputs, mut state) = match indicator(&inputs, &options, None) {
+    let (outputs, mut state) = match Natr::indicator(&inputs, &options, None) {
         //Some(&[true, true])){
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),

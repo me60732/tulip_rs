@@ -1,81 +1,43 @@
-use crate::indicators::macd::State;
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::by_asset::macd::indicator_by_assets;
-use crate::indicators::simd_indicators::ema_simd::calc_simd as calc_ema_simd;
 
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::macd::indicator_by_options;
-
+use crate::types::Warm;
+use crate::indicators::macd::State;
+use crate::indicators::simd_indicators::ema_simd::SimdState as EmaSimdState;
 use std::simd::Simd;
-
+pub use crate::indicator_types::{TSimdState, TState};
 /// SIMD-parallel state for computing the MACD indicator across `N` assets simultaneously.
 /// Each field is a SIMD vector where lane `i` corresponds to asset `i`.
 pub struct SimdState<const N: usize> {
-    /// Short-period EMA value per asset lane.
-    pub short_ema: Simd<f64, N>,
-    /// Long-period EMA value per asset lane.
-    pub long_ema: Simd<f64, N>,
-    /// Signal line (EMA of MACD values) per asset lane.
-    pub signal: Simd<f64, N>,
+    pub short_ema: EmaSimdState<N>,
+    pub long_ema: EmaSimdState<N>,
+    pub signal_state: EmaSimdState<N>,
 }
-impl<const N: usize> SimdState<N> {
-    /// Gathers `N` scalar [`State`] references into a single `SimdState`, packing each field into a SIMD lane.
-    pub fn new(states: &[&mut State]) -> Self {
-        let mut short_ema = [0.0; N];
-        let mut long_ema = [0.0; N];
-        let mut signal = [0.0; N];
+impl<const N: usize> TSimdState for SimdState<N> {
+    type ScalarState = State<Warm>;
+    crate::simd_state_impl!(
+         sub: [(short_ema: EmaSimdState<N>), (long_ema: EmaSimdState<N>), (signal_state: EmaSimdState<N>)],
+         scalar: []
+    );
+}
 
-        for i in 0..N {
-            let [short, long] = states[i].ema_state.ema.to_array();
-            short_ema[i] = short;
-            long_ema[i] = long;
-            signal[i] = states[i].signal_state.ema;
-        }
-
-        Self {
-            short_ema: Simd::from_array(short_ema),
-            long_ema: Simd::from_array(long_ema),
-            signal: Simd::from_array(signal),
-        }
-    }
-
-    /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place.
-    pub fn write_states(&self, states: &mut [&mut State]) {
-        let short_ema = self.short_ema.to_array();
-        let long_ema = self.long_ema.to_array();
-        let signal = self.signal.to_array();
-
-        for (i, state) in states.iter_mut().enumerate() {
-            let [short, long] = state.ema_state.ema.as_mut_array();
-            *short = short_ema[i];
-            *long = long_ema[i];
-            state.signal_state.ema = signal[i];
-        }
-    }
-    /// Computes one MACD step across `N` lanes using SIMD parallelism.
-    ///
-    /// Updates the short and long EMAs from the current `value`, computes the
-    /// MACD line as `short_ema - long_ema`, updates the signal line as an EMA
-    /// of the MACD, and returns `(macd, signal, histogram)` for all lanes.
+impl<const N: usize> TState for SimdState<N> {
+    type Inputs<'a> = Simd<f64, N>;
+    type Outputs = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
     #[inline(always)]
-    pub fn calc_simd(
+    fn calc<'a>(
         &mut self,
-        value: Simd<f64, N>,
-        multipliers: (
-            (Simd<f64, N>, Simd<f64, N>),
-            (Simd<f64, N>, Simd<f64, N>),
-            (Simd<f64, N>, Simd<f64, N>),
-        ),
-    ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
-        //let (mut short_ema, mut long_ema, mut signal) = (state.short_ema, state.long_ema, state.signal);
-        let (short_multiplier, long_multiplier, signal_multiplier) = multipliers;
-        self.short_ema = calc_ema_simd(value, self.short_ema, short_multiplier);
-        self.long_ema = calc_ema_simd(value, self.long_ema, long_multiplier);
+        value: Self::Inputs<'a>,
+    ) -> Self::Outputs {
+        let short_ema = self.short_ema.calc(value);
+        let long_ema = self.long_ema.calc(value);
     
-        let macd_value = self.short_ema - self.long_ema;
-        self.signal = calc_ema_simd(macd_value, self.signal, signal_multiplier);
+        let macd_value = short_ema - long_ema;
+        let signal = self.signal_state.calc(macd_value);
     
-        (macd_value, self.signal, macd_value - self.signal)
+        (macd_value, signal, macd_value - signal, short_ema, long_ema)
     }
 }
 

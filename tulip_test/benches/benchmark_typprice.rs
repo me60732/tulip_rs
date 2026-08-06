@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::typprice::{indicator, min_data, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::typprice::{Typprice, Indicator, IndicatorState, TIndicatorState};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_typprice, ti_typprice_start};
@@ -146,7 +146,7 @@ fn bench_rust_typprice(c: &mut Criterion) {
             timing.measure(
                 || {
                     let result =
-                        indicator(&inputs, &OPTIONS, None).expect("Rust TYPPRICE indicator failed");
+                        Typprice::indicator(&inputs, &OPTIONS, None).expect("Rust TYPPRICE indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -175,7 +175,7 @@ fn bench_rust_typprice(c: &mut Criterion) {
         group.bench_function("Rust TYPPRICE", |b| {
             b.iter(|| {
                 let result =
-                    indicator(&inputs, &OPTIONS, None).expect("Rust TYPPRICE indicator failed");
+                    Typprice::indicator(&inputs, &OPTIONS, None).expect("Rust TYPPRICE indicator failed");
                 black_box(&result);
             });
         });
@@ -200,7 +200,7 @@ fn bench_rust_typprice_from_state(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let min_data_val = min_data(&OPTIONS).max(CHUNK_SIZE);
+                    let min_data_val = Typprice::min_data(&OPTIONS).max(CHUNK_SIZE);
                     // First chunk
                     let chunk_inputs = [
                         &high_vec[..min_data_val],
@@ -208,7 +208,7 @@ fn bench_rust_typprice_from_state(c: &mut Criterion) {
                         &close_vec[..min_data_val],
                     ];
 
-                    let (_, mut state) = indicator(&chunk_inputs, &OPTIONS, None)
+                    let (_, mut state) = Typprice::indicator(&chunk_inputs, &OPTIONS, None)
                         .expect("TYPPRICE indicator failed");
 
                     // Chunks
@@ -264,7 +264,7 @@ fn bench_rust_typprice_from_state(c: &mut Criterion) {
                 let final_low_vec = low_vec[low_vec.len() - 1..].to_vec();
                 let final_close_vec = close_vec[close_vec.len() - 1..].to_vec();
                 let (_, mut state) =
-                    indicator(&new_inputs, &OPTIONS, None).expect("Rust TYPPRICE indicator failed");
+                    Typprice::indicator(&new_inputs, &OPTIONS, None).expect("Rust TYPPRICE indicator failed");
 
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
@@ -291,7 +291,7 @@ fn bench_rust_typprice_from_state(c: &mut Criterion) {
 
                 // --- Rust_FromState_1_Bar_json benchmark ---
                 let (_, state) =
-                    indicator(&new_inputs, &OPTIONS, None).expect("Rust TYPPRICE indicator failed");
+                    Typprice::indicator(&new_inputs, &OPTIONS, None).expect("Rust TYPPRICE indicator failed");
                 let json = serde_json::to_string(&state).expect("json failed");
 
                 let mut timing = TimingMeasurements::new();
@@ -330,7 +330,7 @@ fn bench_rust_typprice_from_state(c: &mut Criterion) {
 
         group.bench_function("benchmark", |b| {
             b.iter(|| {
-                let min_data_val = min_data(&OPTIONS).max(CHUNK_SIZE);
+                let min_data_val = Typprice::min_data(&OPTIONS).max(CHUNK_SIZE);
                 // First chunk
                 let chunk_inputs = [
                     &high_vec[..min_data_val],
@@ -339,7 +339,7 @@ fn bench_rust_typprice_from_state(c: &mut Criterion) {
                 ];
 
                 let (_, mut state) =
-                    indicator(&chunk_inputs, &OPTIONS, None).expect("TYPPRICE indicator failed");
+                    Typprice::indicator(&chunk_inputs, &OPTIONS, None).expect("TYPPRICE indicator failed");
 
                 // Chunks
                 let mut high_chunks = high_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -391,7 +391,7 @@ fn bench_rust_typprice_from_state(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("benchmark", |b| {
             let (_, mut state) =
-                indicator(&new_inputs, &OPTIONS, None).expect("Rust TYPPRICE indicator failed");
+                Typprice::indicator(&new_inputs, &OPTIONS, None).expect("Rust TYPPRICE indicator failed");
             b.iter(|| {
                 let result = state
                     .batch_indicator(
@@ -413,7 +413,7 @@ fn bench_rust_typprice_from_state(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("benchmark", |b| {
             let (_, state) =
-                indicator(&new_inputs, &OPTIONS, None).expect("Rust TYPPRICE indicator failed");
+                Typprice::indicator(&new_inputs, &OPTIONS, None).expect("Rust TYPPRICE indicator failed");
             let json = serde_json::to_string(&state).expect("json failed");
             b.iter(|| {
                 let mut state: IndicatorState = serde_json::from_str(&json).expect("JSON failed");

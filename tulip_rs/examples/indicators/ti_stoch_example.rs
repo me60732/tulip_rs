@@ -1,4 +1,4 @@
-use tulip_rs::indicators::stoch::{indicator, TIndicatorState};
+use tulip_rs::indicators::stoch::{Indicator, Stoch, TIndicatorState};
 
 fn main() {
     // Test Input Data
@@ -21,7 +21,7 @@ fn main() {
     let options = [5.0, 3.0, 3.0]; // Period
 
     // Calculate the Stochastic Oscillator
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match Stoch::indicator(&inputs, &options, None) {
         Ok(output) => output,
         Err(e) => panic!("Error calculating Stochastic Oscillator: {:?}", e),
     };
@@ -34,7 +34,7 @@ fn main() {
         &close[..close.len() - 1],
     ];
 
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match Stoch::indicator(&inputs2, &options, None) {
         Ok(output) => output,
         Err(e) => panic!("Error calculating Stochastic Oscillator: {:?}", e),
     };

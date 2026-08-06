@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::ema::{indicator, min_data, TIndicatorState};
+    use tulip_rs::indicators::ema::{Ema, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_ema, ti_ema_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -56,7 +56,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                indicator(&inputs_rust, &options, None).expect("Rust EMA indicator failed");
+                Ema::indicator(&inputs_rust, &options, None).expect("Rust EMA indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -142,7 +142,7 @@ mod tests {
 
                 let inputs_rust = [close.as_slice()];
                 let (outputs, _) =
-                    indicator(&inputs_rust, &options, None).expect("Rust EMA indicator failed");
+                    Ema::indicator(&inputs_rust, &options, None).expect("Rust EMA indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -206,17 +206,17 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Get full output
-                let (full_outputs, _) = indicator(&inputs_rust, &options, None)
+                let (full_outputs, _) = Ema::indicator(&inputs_rust, &options, None)
                     .expect("Failed to run EMA indicator on full data");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Ema::min_data(&options).max(CHUNK_SIZE);
 
                 if close.len() <= min_data_val {
                     // If data is too small, just run full calculation
-                    let (outputs, _) = indicator(&inputs_rust, &options, None)
+                    let (outputs, _) = Ema::indicator(&inputs_rust, &options, None)
                         .expect("Failed to run EMA indicator");
                     batch_full_output.extend_from_slice(&outputs[0]);
                 } else {
@@ -224,7 +224,7 @@ mod tests {
                     let close_vec = close[..min_data_val].to_vec();
                     let chunk_inputs = [close_vec.as_slice()];
 
-                    let (first_outputs, mut state) = indicator(&chunk_inputs, &options, None)
+                    let (first_outputs, mut state) = Ema::indicator(&chunk_inputs, &options, None)
                         .expect("Failed to run EMA indicator on first chunk");
                     batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -323,7 +323,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    indicator(&inputs, options, None).expect("Regular EMA indicator failed");
+                    Ema::indicator(&inputs, options, None).expect("Regular EMA indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -411,7 +411,7 @@ mod tests {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_close.as_slice()];
                 let (regular_results, _) =
-                    indicator(&stock_inputs, &options, None).expect("Regular EMA indicator failed");
+                    Ema::indicator(&stock_inputs, &options, None).expect("Regular EMA indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];

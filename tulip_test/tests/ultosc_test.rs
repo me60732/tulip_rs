@@ -2,7 +2,7 @@
 mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicators::ultosc::indicator_by_options;
-    use tulip_rs::indicators::ultosc::{indicator as rust_ultosc, min_data, TIndicatorState};
+    use tulip_rs::indicators::ultosc::{Ultosc, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_ultosc, ti_ultosc_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -76,7 +76,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
             let (outputs, _) =
-                rust_ultosc(&inputs_rust, &options, None).expect("Rust ULTOSC indicator failed");
+                Ultosc::indicator(&inputs_rust, &options, None).expect("Rust ULTOSC indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -164,7 +164,7 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (outputs, _) = rust_ultosc(&inputs_rust, &options, None)
+                let (outputs, _) = Ultosc::indicator(&inputs_rust, &options, None)
                     .expect("Rust ULTOSC indicator failed");
 
                 let output_len_rust = outputs[0].len();
@@ -231,13 +231,13 @@ mod tests {
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
 
                 // Get full output from processing all data at once
-                let (full_outputs, _) = rust_ultosc(&inputs_rust, &options, None)
+                let (full_outputs, _) = Ultosc::indicator(&inputs_rust, &options, None)
                     .expect("Rust ULTOSC indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Ultosc::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let high_vec = high[..min_data_val].to_vec();
@@ -249,7 +249,7 @@ mod tests {
                     close_vec.as_slice(),
                 ];
 
-                let (first_outputs, mut state) = rust_ultosc(&chunk_inputs, &options, None)
+                let (first_outputs, mut state) = Ultosc::indicator(&chunk_inputs, &options, None)
                     .expect("Rust ULTOSC indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -340,7 +340,7 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_results, _) = rust_ultosc(&stock_inputs, &options, None)
+                let (regular_results, _) = Ultosc::indicator(&stock_inputs, &options, None)
                     .expect("Regular ULTOSC indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
@@ -483,7 +483,7 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_results, _) = rust_ultosc(&stock_inputs, &options, None)
+                let (regular_results, _) = Ultosc::indicator(&stock_inputs, &options, None)
                     .expect("Regular ULTOSC indicator failed");
 
                 let combined_values = &combined_results[asset_idx];
@@ -539,7 +539,7 @@ mod tests {
             // Compare against regular indicator for each option
             for (option_idx, option) in OPTIONS_LIST.iter().enumerate() {
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (regular_result, _) = rust_ultosc(&inputs_rust, option, None)
+                let (regular_result, _) = Ultosc::indicator(&inputs_rust, option, None)
                     .expect("Regular ULTOSC indicator failed");
 
                 let simd_values = &simd_result[option_idx][0]; // Get first (and only) output
@@ -617,7 +617,7 @@ mod tests {
             // Compare against regular indicator for each option
             for (option_idx, option) in OPTIONS_LIST.iter().enumerate() {
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (regular_result, _) = rust_ultosc(&inputs_rust, option, None)
+                let (regular_result, _) = Ultosc::indicator(&inputs_rust, option, None)
                     .expect("Regular ULTOSC indicator failed");
 
                 let combined_values = &combined_results[option_idx];
@@ -664,7 +664,7 @@ mod tests {
 
     #[test]
     fn test_ultosc_optional_outputs() {
-        use tulip_rs::indicators::tr::indicator as rust_tr;
+        use tulip_rs::indicators::tr::Tr;
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -675,17 +675,17 @@ mod tests {
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
             for options in OPTIONS_LIST {
-                if n < min_data(&options) {
+                if n < Ultosc::min_data(&options) {
                     continue;
                 }
 
                 // ULTOSC with both optional outputs enabled.
-                let (ultosc_outputs, _) = rust_ultosc(&inputs, &options, Some(&[true, true]))
+                let (ultosc_outputs, _) = Ultosc::indicator(&inputs, &options, Some(&[true, true]))
                     .expect("ULTOSC with optional outputs failed");
 
                 // Standalone TR (OPTIONS_WIDTH = 0).
                 let (tr_outputs, _) =
-                    rust_tr(&inputs, &[], None).expect("Rust TR indicator failed");
+                    Tr::indicator(&inputs, &[], None).expect("Rust TR indicator failed");
 
                 let expected_tr_len = n - 1;
 
@@ -769,7 +769,7 @@ mod tests {
                 // Run scalar indicator with both optional outputs enabled.
                 let scalar_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (scalar_results, _) =
-                    rust_ultosc(&scalar_inputs, &options, Some(&[true, true]))
+                    Ultosc::indicator(&scalar_inputs, &options, Some(&[true, true]))
                         .expect("Scalar ULTOSC with optional outputs failed");
 
                 // --- ULTOSC (primary output) ---
@@ -873,7 +873,7 @@ mod tests {
 
             for (option_idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Run scalar indicator for the same option set with optional outputs.
-                let (scalar_results, _) = rust_ultosc(&inputs, options, Some(&[true, true]))
+                let (scalar_results, _) = Ultosc::indicator(&inputs, options, Some(&[true, true]))
                     .expect("Scalar ULTOSC with optional outputs failed");
 
                 // --- ULTOSC (primary output) ---

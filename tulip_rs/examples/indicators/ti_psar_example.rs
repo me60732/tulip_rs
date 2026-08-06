@@ -1,4 +1,4 @@
-use tulip_rs::indicators::psar::{indicator, TIndicatorState};
+use tulip_rs::indicators::psar::{Psar, TIndicatorState, Indicator};
 
 fn main() {
     // Example input data: high and low prices
@@ -16,7 +16,7 @@ fn main() {
     let options = [0.2, 2.0];
 
     // Calculate the PSAR using the indicator function
-    let (outputs, mut state) = match indicator(&inputs, &options, None) {
+    let (outputs, mut state) = match Psar::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

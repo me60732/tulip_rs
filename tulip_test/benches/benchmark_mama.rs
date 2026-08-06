@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::mama::{indicator, indicator_by_assets, indicator_by_options, min_data};
+use tulip_rs::indicators::mama::{Mama, Indicator, indicator_by_assets, indicator_by_options};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::criterion_logger::TimingMeasurements;
 use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -43,7 +43,7 @@ fn bench_mama(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let r = indicator(&inputs, opts, None).expect("MAMA failed");
+                        let r = Mama::indicator(&inputs, opts, None).expect("MAMA failed");
                         black_box(&r);
                     },
                     SAMPLE_SIZE,
@@ -62,7 +62,7 @@ fn bench_mama(c: &mut Criterion) {
                 opts[0], opts[1]
             );
             group.bench_function(&label, |b| {
-                b.iter(|| black_box(indicator(&inputs, opts, None).expect("MAMA failed")));
+                b.iter(|| black_box(Mama::indicator(&inputs, opts, None).expect("MAMA failed")));
             });
         }
         group.finish();
@@ -82,9 +82,9 @@ fn bench_mama_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let seed = min_data(opts).max(CHUNK_SIZE);
+                        let seed = Mama::min_data(opts).max(CHUNK_SIZE);
                         let (_, mut state) =
-                            indicator(&[&close[..seed]], opts, None).expect("MAMA seed failed");
+                            Mama::indicator(&[&close[..seed]], opts, None).expect("MAMA seed failed");
                         for chunk in close[seed..].chunks_exact(CHUNK_SIZE) {
                             black_box(state.batch_indicator(&[chunk], None).expect("batch failed"));
                         }
@@ -106,7 +106,7 @@ fn bench_mama_from_state(c: &mut Criterion) {
 
                 if n > 1 {
                     let (_, mut state) =
-                        indicator(&[&close[..n - 1]], opts, None).expect("MAMA 1-bar seed failed");
+                        Mama::indicator(&[&close[..n - 1]], opts, None).expect("MAMA 1-bar seed failed");
                     let final_input = [&close[n - 1..]];
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -135,9 +135,9 @@ fn bench_mama_from_state(c: &mut Criterion) {
         let mut group = c.benchmark_group("mama_rust_from_state");
         group.sample_size(SAMPLE_SIZE);
         for opts in &OPTIONS_4 {
-            let seed = min_data(opts).max(CHUNK_SIZE);
+            let seed = Mama::min_data(opts).max(CHUNK_SIZE);
             let (_, mut state) =
-                indicator(&[&close[..seed]], opts, None).expect("MAMA seed failed");
+                Mama::indicator(&[&close[..seed]], opts, None).expect("MAMA seed failed");
             let label = format!(
                 "Rust MAMA/FAMA from state [fast={}, slow={}]",
                 opts[0], opts[1]
@@ -156,7 +156,7 @@ fn bench_mama_from_state(c: &mut Criterion) {
             let mut group = c.benchmark_group("mama_rust_from_state_1_bar");
             group.sample_size(SAMPLE_SIZE);
             for opts in &OPTIONS_4 {
-                let (_, mut state) = indicator(&[&close[..close.len() - 1]], opts, None)
+                let (_, mut state) = Mama::indicator(&[&close[..close.len() - 1]], opts, None)
                     .expect("MAMA 1-bar seed failed");
                 let final_input = [&close[close.len() - 1..]];
                 let label = format!(

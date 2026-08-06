@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::natr::{indicator as rust_natr, min_data, TIndicatorState};
+    use tulip_rs::indicators::natr::{Natr, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{
         ti_atr, ti_atr_start, ti_natr, ti_natr_start, ti_tr, ti_tr_start,
     };
@@ -69,7 +69,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
             let (outputs, _) =
-                rust_natr(&inputs_rust, &options, None).expect("Rust NATR indicator failed");
+                Natr::indicator(&inputs_rust, &options, None).expect("Rust NATR indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -155,7 +155,7 @@ mod tests {
                 // Rust implementation
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (outputs, _) =
-                    rust_natr(&inputs_rust, &options, None).expect("Rust NATR indicator failed");
+                    Natr::indicator(&inputs_rust, &options, None).expect("Rust NATR indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -229,13 +229,13 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Get full output
-                let (full_outputs, _) = rust_natr(&inputs_rust, &options, None)
+                let (full_outputs, _) = Natr::indicator(&inputs_rust, &options, None)
                     .expect("Failed to run NATR indicator on full data");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Natr::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let high_vec = high[..min_data_val].to_vec();
@@ -247,7 +247,7 @@ mod tests {
                     close_vec.as_slice(),
                 ];
 
-                let (first_outputs, mut state) = rust_natr(&chunk_inputs, &options, None)
+                let (first_outputs, mut state) = Natr::indicator(&chunk_inputs, &options, None)
                     .expect("Failed to run NATR indicator on first chunk");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -330,7 +330,7 @@ mod tests {
         let optional_outputs = Some([true, false].as_slice()); // Request atr output
 
         // Get Rust NATR output with atr optional output
-        let result = rust_natr(&inputs, &options, optional_outputs).unwrap();
+        let result = Natr::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_atr = &result.0[1]; // atr is at index 1
 
         // Fail fast if Rust output is empty
@@ -404,7 +404,7 @@ mod tests {
         let optional_outputs = Some([false, true].as_slice()); // Request tr output
 
         // Get Rust NATR output with tr optional output
-        let result = rust_natr(&inputs, &options, optional_outputs).unwrap();
+        let result = Natr::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_tr = &result.0[2]; // tr is at index 2
 
         // Fail fast if Rust output is empty
@@ -486,7 +486,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get NATR with ATR optional output
                 let optional_outputs = Some(&[true, false][..]);
-                let (natr_result, _) = tulip_rs::indicators::natr::indicator(
+                let (natr_result, _) = Natr::indicator(
                     &[&high, &low, &close],
                     &[options[0]],
                     optional_outputs,
@@ -566,7 +566,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get NATR with TR optional output
                 let optional_outputs = Some(&[false, true][..]);
-                let (natr_result, _) = tulip_rs::indicators::natr::indicator(
+                let (natr_result, _) = Natr::indicator(
                     &[&high, &low, &close],
                     &[options[0]],
                     optional_outputs,
@@ -687,7 +687,7 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) =
-                    rust_natr(&stock_inputs, options, None).unwrap_or_else(|_| {
+                    Natr::indicator(&stock_inputs, options, None).unwrap_or_else(|_| {
                         panic!(
                             "Regular NATR failed for {} with period {}",
                             stock_symbol, options[0]
@@ -758,7 +758,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_natr(&inputs, options, None).expect("Regular NATR indicator failed");
+                    Natr::indicator(&inputs, options, None).expect("Regular NATR indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -842,7 +842,7 @@ mod tests {
 
             for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
                 let scalar_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (scalar_results, _) = rust_natr(&scalar_inputs, &options, Some(&[true, true]))
+                let (scalar_results, _) = Natr::indicator(&scalar_inputs, &options, Some(&[true, true]))
                     .expect("Scalar NATR with optional outputs failed");
 
                 const EPSILON: f64 = 1e-8;
@@ -948,7 +948,7 @@ mod tests {
             const EPSILON: f64 = 1e-8;
 
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
-                let (scalar_results, _) = rust_natr(&inputs, options, Some(&[true, true]))
+                let (scalar_results, _) = Natr::indicator(&inputs, options, Some(&[true, true]))
                     .expect("Scalar NATR with optional outputs failed");
 
                 // ATR optional [1]

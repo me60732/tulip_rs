@@ -3,7 +3,7 @@ mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicators::volatility::indicator_by_options;
     use tulip_rs::indicators::volatility::{
-        indicator as rust_volatility, min_data, TIndicatorState,
+        Volatility, Indicator, TIndicatorState,
     };
     use tulip_test::c_bindings::{ti_volatility, ti_volatility_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -59,7 +59,7 @@ mod tests {
 
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
-            let (outputs, _) = rust_volatility(&inputs_rust, &options, None)
+            let (outputs, _) = Volatility::indicator(&inputs_rust, &options, None)
                 .expect("Rust Volatility indicator failed");
 
             let output_len_rust = outputs[0].len();
@@ -148,7 +148,7 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) = rust_volatility(&inputs_rust, &options, None)
+                let (outputs, _) = Volatility::indicator(&inputs_rust, &options, None)
                     .expect("Rust VOLATILITY indicator failed");
 
                 let output_len_rust = outputs[0].len();
@@ -215,19 +215,19 @@ mod tests {
                 let inputs_rust = [close.as_slice()];
 
                 // Get full output from processing all data at once
-                let (full_outputs, _) = rust_volatility(&inputs_rust, &options, None)
+                let (full_outputs, _) = Volatility::indicator(&inputs_rust, &options, None)
                     .expect("Rust VOLATILITY indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Volatility::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let close_vec = close[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice()];
 
-                let (first_outputs, mut state) = rust_volatility(&chunk_inputs, &options, None)
+                let (first_outputs, mut state) = Volatility::indicator(&chunk_inputs, &options, None)
                     .expect("Rust VOLATILITY indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -316,7 +316,7 @@ mod tests {
             for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_close.as_slice()];
-                let (regular_results, _) = rust_volatility(&stock_inputs, &options, None)
+                let (regular_results, _) = Volatility::indicator(&stock_inputs, &options, None)
                     .expect("Regular VOLATILITY indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
@@ -411,7 +411,7 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
-                let (regular_results, _) = rust_volatility(&inputs, options, None)
+                let (regular_results, _) = Volatility::indicator(&inputs, options, None)
                     .expect("Regular VOLATILITY indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
@@ -533,7 +533,7 @@ mod tests {
 
             // Compare each SIMD result with regular indicator over the full data
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
-                let (regular_results, _) = rust_volatility(&[close.as_slice()], options, None)
+                let (regular_results, _) = Volatility::indicator(&[close.as_slice()], options, None)
                     .expect("Regular VOLATILITY indicator failed");
                 let regular = &regular_results[0];
                 let simd_res = &all_simd_results[idx];

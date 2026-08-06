@@ -1,14 +1,14 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{TIndicatorState, TState, Indicator, IndicatorResult};
 use crate::indicators::typprice::calc as calc_typprice;
-use crate::ring_buffer::multi_buffer::multi_buffer::{MultiBuffer as Buffer, RingBuffer};
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+use crate::ring_buffer::multi_buffer::multi_buffer::MultiBuffer as Buffer;
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 4;
+pub const INPUTS: usize = 4;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -42,44 +42,11 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::mfi_simd::indicator_by_options as indicator;
 }
 
-/// Returns information about the Money Flow Index (MFI) indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the MFI indicator.
-pub const INFO: Info = Info {
-    name: "mfi",
-    indicator_type: IndicatorType::Volume,
-    full_name: "Money Flow Index",
-    inputs: &["high", "low", "close", "volume"],
-    options: &["period"],
-    outputs: &["mfi"],
-    optional_outputs: &["typprice"],
-    display_groups: &[
-        DisplayGroup {
-            offset: None,
-            id: "mfi",
-            label: "MFI",
-            display_type: DisplayType::Indicator,
-            outputs: &["mfi"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "typprice",
-            label: "Typical Price",
-            display_type: DisplayType::Overlay,
-            outputs: &["typprice"],
-        },
-    ],
-};
-/*#[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    state: State,
-}*/
+
 impl TIndicatorState<4> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -105,58 +72,44 @@ impl TIndicatorState<4> for IndicatorState {
         Ok(vec![mfi_line, typprice_line])
     }
 }
+pub type IndicatorState = State<Warm>;
 #[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    pub buffer: Buffer<2>,
+#[serde(bound = "")]
+pub struct State<S = Cold> {
+    pub buffer: Buffer<2, f64, S>,
     pub typprice: f64,
     pub pos_sum: f64,
     pub neg_sum: f64,
 }
-impl IndicatorState {
-    pub fn new(buffer: Buffer<2>, typprice: f64, pos_sum: f64, neg_sum: f64) -> Self {
-        Self {
-            buffer,
-            typprice,
-            pos_sum,
-            neg_sum,
-        }
-    }
-
+impl State<Cold> {
     pub fn init_state(
         inputs: (&[f64], &[f64], &[f64], &[f64]),
         period: usize,
         typprice_line: &mut [f64],
-    ) -> Self {
+    ) -> State<Warm> {
         let (high, low, close, volume) = inputs;
         let mut state = Self {
-            typprice: calc_typprice(&high[0], &low[0], &close[0]),
+            typprice: calc_typprice(high[0], low[0], close[0]),
             pos_sum: 0.0,
             neg_sum: 0.0,
             buffer: Buffer::new(period),
         };
 
         for i in 0..period {
-            state.calc(&high[i], &low[i], &close[i], &volume[i]);
+            state.init_calc((high[i], low[i], close[i], volume[i]));
             crate::init_store_optional_outputs!(i, high.len(),
                 typprice_line => state.typprice
             );
         }
-        state
-    }
-    /// Calculates the Money Flow Index (MFI) for the current data point.
-    ///
-    /// # Arguments
-    ///
-    /// * `high` - The current high price.
-    /// * `low` - The current low price.
-    /// * `close` - The current close price.
-    /// * `volume` - The current volume.
-    ///
-    /// # Returns
-    ///
-    /// The calculated MFI value as a percentage in the range `[0, 100]`.
+        State {
+            buffer: state.buffer.into_full(),
+            typprice: state.typprice,
+            pos_sum: state.pos_sum,
+            neg_sum: state.neg_sum,
+        }
+    } 
     #[inline(always)]
-    pub fn calc(&mut self, high: &f64, low: &f64, close: &f64, volume: &f64) -> f64 {
+    fn init_calc(&mut self, (high, low, close, volume): (f64, f64, f64, f64)) {
         let prev_typprice = self.typprice;
         self.typprice = calc_typprice(high, low, close);
 
@@ -178,17 +131,16 @@ impl IndicatorState {
             self.pos_sum += pos_flow;
             self.neg_sum += neg_flow
         }
-
-        self.pos_sum / (self.pos_sum + self.neg_sum).max(f64::EPSILON) * 100.0
     }
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64, f64, f64);
+    type Outputs = f64;
     #[inline(always)]
-    pub unsafe fn calc_unchecked(
+    fn calc<'a>(
         &mut self,
-        high: &f64,
-        low: &f64,
-        close: &f64,
-        volume: &f64,
-    ) -> f64 {
+        (high, low, close, volume): Self::Inputs<'a>
+    ) -> Self::Outputs {
         let prev_typprice = self.typprice;
         self.typprice = calc_typprice(high, low, close);
 
@@ -204,110 +156,14 @@ impl IndicatorState {
         };
 
         let [pos_flow_old, neg_flow_old] =
-            self.buffer.push_with_info_unchecked([pos_flow, neg_flow]);
+            self.buffer.push_with_info([pos_flow, neg_flow]);
         self.pos_sum += pos_flow - pos_flow_old;
         self.neg_sum += neg_flow - neg_flow_old;
 
         self.pos_sum / (self.pos_sum + self.neg_sum).max(f64::EPSILON) * 100.0
     }
 }
-/// Returns the minimum amount of data required for the MFI indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the MFI calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    options[0] as usize + 1
-}
 
-/// Calculates the output length for the MFI indicator.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the MFI calculation.
-///
-/// # Returns
-///
-/// The output length.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-
-/// Calculates the Money Flow Index (MFI) indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — high prices
-/// * `inputs[1]` — low prices
-/// * `inputs[2]` — close prices
-/// * `inputs[3]` — volume
-///
-/// # Options
-///
-/// * `options[0]` — period
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `optional_outputs` - Pass `Some(&[true])` to enable the optional output
-///   (`typprice`); `None` disables all optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where:
-/// - `outputs[0]` — `mfi`
-/// - `outputs[1]` — `typprice` (empty if not requested)
-///
-/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let period = options[0] as usize;
-
-    validate_inputs(inputs, min_data(options))?;
-    let (mut mfi_line, mut typprice_line) = {
-        let len = inputs[0].len();
-        let capacity = output_length(len, options);
-        (
-            crate::uninit_vec!(f64, capacity),
-            crate::init_optional_outputs_eff!(
-                optional_outputs, &[false],
-                typprice_line: len
-            ),
-        )
-    };
-    let offset = crate::slice_outputs_start!(mfi_line.len(), typprice_line);
-    let mut state = IndicatorState::init_state(
-        (inputs[0], inputs[1], inputs[2], inputs[3]),
-        period,
-        &mut typprice_line,
-    );
-    // Perform the main MFI calculation
-    cycle_mfi(
-        (
-            &inputs[0][period..],
-            &inputs[1][period..],
-            &inputs[2][period..],
-            &inputs[3][period..],
-        ),
-        &mut state,
-        &mut mfi_line,
-        &mut typprice_line[offset..],
-    );
-
-    Ok((vec![mfi_line, typprice_line], state))
-}
 
 /// Performs the main calculation loop for the MFI indicator.
 ///
@@ -318,25 +174,107 @@ pub fn indicator(
 /// * `mfi_line` - A mutable slice for storing the MFI output values.
 /// * `typprice_line` - A mutable slice for storing optional typical price output values.
 fn cycle_mfi(
-    inputs: (&[f64], &[f64], &[f64], &[f64]),
-    state: &mut IndicatorState,
+    (high, low, close, volume): (&[f64], &[f64], &[f64], &[f64]),
+    state: &mut State<Warm>,
     mfi_line: &mut [f64],
     typprice_line: &mut [f64],
 ) {
-    let (high, low, close, volume) = inputs;
     let (_, want_typprice) = crate::calc_want_flags!(typprice_line);
 
     for i in 0..high.len() {
         unsafe {
-            *mfi_line.get_unchecked_mut(i) = state.calc_unchecked(
-                high.get_unchecked(i),
-                low.get_unchecked(i),
-                close.get_unchecked(i),
-                volume.get_unchecked(i),
-            );
+            *mfi_line.get_unchecked_mut(i) = state.calc((
+                *high.get_unchecked(i),
+                *low.get_unchecked(i),
+                *close.get_unchecked(i),
+                *volume.get_unchecked(i),
+            ));
         }
         crate::store_optional_outputs!(i,
             want_typprice, typprice_line => state.typprice
         );
     }
+}
+
+pub struct Mfi;
+
+impl Indicator<INPUTS, OPTIONS> for Mfi {
+    type IndicatorState = IndicatorState;
+
+    const INFO: Info = Info {
+        name: "mfi",
+        indicator_type: IndicatorType::Volume,
+        full_name: "Money Flow Index",
+        inputs: &["high", "low", "close", "volume"],
+        options: &["period"],
+        outputs: &["mfi"],
+        optional_outputs: &["typprice"],
+        display_groups: &[
+            DisplayGroup {
+                offset: None,
+                id: "mfi",
+                label: "MFI",
+                display_type: DisplayType::Indicator,
+                outputs: &["mfi"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "typprice",
+                label: "Typical Price",
+                display_type: DisplayType::Overlay,
+                outputs: &["typprice"],
+            },
+        ],
+    };
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        
+        let [high, low, close, volume] = *inputs;
+        validate_inputs(inputs, Self::min_data(options))?;
+        let (mut mfi_line, mut typprice_line) = {
+            let len = high.len();
+            let capacity = Self::output_length(len, options);
+            (
+                crate::uninit_vec!(f64, capacity),
+                crate::init_optional_outputs_eff!(
+                    optional_outputs, &[false],
+                    typprice_line: len
+                ),
+            )
+        };
+        let (mut state, inputs, typprice) = {
+            let period = options[0] as usize;
+            let offset = crate::slice_outputs_start!(mfi_line.len(), typprice_line);
+            let state = State::init_state(
+                (high, low, close, volume),
+                period,
+                &mut typprice_line,
+            );
+            (state, (
+                &high[period..],
+                &low[period..],
+                &close[period..],
+                &volume[period..],
+            ),
+            &mut typprice_line[offset..]
+            )
+        };
+        
+        
+        // Perform the main MFI calculation
+        cycle_mfi(
+            inputs,
+            &mut state,
+            &mut mfi_line,
+            typprice,
+        );
+    
+        Ok((vec![mfi_line, typprice_line], state))
+    }
+    
 }

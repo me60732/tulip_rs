@@ -1,5 +1,5 @@
 use tulip_rs::indicators::roofingfilter::{
-    indicator, indicator_by_assets, indicator_by_options, TIndicatorState,
+    indicator_by_assets, indicator_by_options, Indicator, RoofingFilter, TIndicatorState,
 };
 
 // 80 bars of close prices
@@ -23,7 +23,7 @@ fn main() {
     let inputs = [CLOSE.as_slice()];
 
     // --- Full run with optional highpass output enabled ---
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true])) {
+    let (outputs, _) = match RoofingFilter::indicator(&inputs, &options, Some(&[true])) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -43,10 +43,11 @@ fn main() {
     let split = CLOSE.len() - 5;
     let inputs_partial = [&CLOSE[..split]];
 
-    let (outputs_partial, mut state) = match indicator(&inputs_partial, &options, None) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (outputs_partial, mut state) =
+        match RoofingFilter::indicator(&inputs_partial, &options, None) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
 
     println!(
         "\nPartial roofing (first {} bars, {} values):",

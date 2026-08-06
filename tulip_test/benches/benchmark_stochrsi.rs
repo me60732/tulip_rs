@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::stochrsi::{
-    indicator as rust_stochrsi, indicator_by_options, min_data, IndicatorState, TIndicatorState,
+    StochRsi, Indicator, indicator_by_options, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -136,7 +136,7 @@ fn bench_rust_stochrsi(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = rust_stochrsi(&inputs, &options, None)
+                        let result = StochRsi::indicator(&inputs, &options, None)
                             .expect("STOCHRSI indicator failed");
                         black_box(&result);
                     },
@@ -157,7 +157,7 @@ fn bench_rust_stochrsi(c: &mut Criterion) {
                 b.iter(|| {
                     let inputs = [close.as_slice()];
                     let result =
-                        rust_stochrsi(&inputs, &options, None).expect("STOCHRSI indicator failed");
+                        StochRsi::indicator(&inputs, &options, None).expect("STOCHRSI indicator failed");
                     black_box(&result);
                 });
             });
@@ -183,11 +183,11 @@ fn bench_rust_stochrsi_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data = min_data(&options).max(CHUNK_SIZE);
+                        let min_data = StochRsi::min_data(&options).max(CHUNK_SIZE);
                         // First chunk
                         let chunk_inputs = [&close[..min_data]];
 
-                        let (_, mut state) = rust_stochrsi(&chunk_inputs, &options, None)
+                        let (_, mut state) = StochRsi::indicator(&chunk_inputs, &options, None)
                             .expect("STOCHRSI indicator failed");
 
                         // Chunks
@@ -223,7 +223,7 @@ fn bench_rust_stochrsi_from_state(c: &mut Criterion) {
                 if close.len() > 1 {
                     let new_inputs = [&close[..close.len() - 1]];
                     let final_inputs = [&close[close.len() - 1..]];
-                    let (_, mut state) = rust_stochrsi(&new_inputs, &options, None)
+                    let (_, mut state) = StochRsi::indicator(&new_inputs, &options, None)
                         .expect("Rust STOCHRSI indicator failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -247,7 +247,7 @@ fn bench_rust_stochrsi_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) = rust_stochrsi(&new_inputs, &options, None)
+                    let (_, state) = StochRsi::indicator(&new_inputs, &options, None)
                         .expect("Rust STOCHRSI indicator failed");
 
                     let json = serde_json::to_string(&state).expect("json failed");
@@ -287,11 +287,11 @@ fn bench_rust_stochrsi_from_state(c: &mut Criterion) {
 
             group.bench_function("benchmark", |b| {
                 b.iter(|| {
-                    let min_data = min_data(&options).max(CHUNK_SIZE);
+                    let min_data = StochRsi::min_data(&options).max(CHUNK_SIZE);
                     // First chunk
                     let chunk_inputs = [&close[..min_data]];
 
-                    let (_, mut state) = rust_stochrsi(&chunk_inputs, &options, None)
+                    let (_, mut state) = StochRsi::indicator(&chunk_inputs, &options, None)
                         .expect("STOCHRSI indicator failed");
 
                     // Chunks
@@ -319,7 +319,7 @@ fn bench_rust_stochrsi_from_state(c: &mut Criterion) {
             if close.len() > 1 {
                 let new_inputs = [&close[..close.len() - 1]];
                 let final_inputs = [&close[close.len() - 1..]];
-                let (_, mut state) = rust_stochrsi(&new_inputs, &options, None)
+                let (_, mut state) = StochRsi::indicator(&new_inputs, &options, None)
                     .expect("Rust STOCHRSI indicator failed");
 
                 let mut group = c.benchmark_group(format!(
@@ -358,7 +358,7 @@ fn bench_rust_stochrsi_optional(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = rust_stochrsi(&inputs, &options, Some(&[true]))
+                        let result = StochRsi::indicator(&inputs, &options, Some(&[true]))
                             .expect("Rust STOCHRSI indicator failed");
                         black_box(&result);
                     },
@@ -385,7 +385,7 @@ fn bench_rust_stochrsi_optional(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust STOCHRSI {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result = rust_stochrsi(&inputs, &options, Some(&[true]))
+                    let result = StochRsi::indicator(&inputs, &options, Some(&[true]))
                         .expect("Rust STOCHRSI indicator failed");
                     black_box(&result);
                 });

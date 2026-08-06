@@ -1,18 +1,17 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
-pub use crate::indicators::md::multiplier;
-use crate::indicators::md::{calc_md, calc_md_simd, output_length as md_output_length};
-use crate::indicators::sma::calc as calc_sma;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+use crate::indicators::md::{Md, State as MdState};
 use crate::indicators::typprice::calc as typprice_calc;
-use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
+//use crate::ring_buffer::single_buffer::mirror_buffer::MirrorBuffer;
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 3;
+pub const INPUTS: usize = 3;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -46,161 +45,24 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::cci_simd::indicator_by_options as indicator;
 }
 
-/// Returns information about the Commodity Channel Index (CCI) indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the CCI indicator.
-pub const INFO: Info = Info {
-    name: "cci",
-    indicator_type: IndicatorType::Momentum,
-    full_name: "Commodity Channel Index",
-    inputs: &["high", "low", "close"],
-    options: &["period"],
-    outputs: &["cci"],
-    optional_outputs: &["sma", "md", "typprice"],
-    display_groups: &[
-        DisplayGroup {
-            offset: None,
-            id: "cci",
-            label: "CCI",
-            display_type: DisplayType::Indicator,
-            outputs: &["cci"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "sma_typprice",
-            label: "Typical Price",
-            display_type: DisplayType::Overlay,
-            outputs: &["sma", "typprice"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "md",
-            label: "Mean Deviation",
-            display_type: DisplayType::Indicator,
-            outputs: &["md"],
-        },
-    ],
-};
 #[derive(Serialize, Deserialize)]
-pub struct State {
-    pub buffer: Buffer,
-    pub sum: f64,
+#[serde(bound = "")]
+pub struct State<S = Cold> {
+    pub buffer: Buffer<S>,
+    pub md_state: MdState<S>,
 }
-impl State {
-    pub fn init_state(
-        high: &[f64],
-        low: &[f64],
-        close: &[f64],
-        period: usize,
-        out_vecs: (&mut [f64], &mut [f64], &mut [f64]),
-    ) -> State {
-        let (sma_line, md_line, typprice_line) = out_vecs;
-        let mut state = Self {
-            buffer: Buffer::new(period),
-            sum: 0.0,
-        };
-        let (mut sma, mut md) = (0.0, 0.0);
-        let mut typprice;
-        for (i, ((high_val, low_val), close_val)) in high
-            .iter()
-            .zip(low.iter())
-            .zip(close.iter())
-            .enumerate()
-            .take(period * 2 - 2)
-        {
-            if i < period {
-                typprice = typprice_calc(high_val, low_val, close_val);
-                state.buffer.push(typprice);
-                state.sum += typprice;
-            } else {
-                (_, sma, md, typprice) =
-                    state.calc(high_val, low_val, close_val, multiplier(period));
-            }
 
-            crate::init_store_optional_outputs!(i, high.len(),
-                sma_line => sma,
-                md_line => md,
-                typprice_line => typprice
-            );
-        }
-        state
-    }
-    /// Calculates the current Commodity Channel Index (CCI) value.
-    ///
-    /// # Arguments
-    ///
-    /// * `state` - Mutable reference to the CCI state (ring buffer and running sum).
-    /// * `high` - The current high price.
-    /// * `low` - The current low price.
-    /// * `close` - The current close price.
-    /// * `multiplier` - The CCI multiplier derived from the period (`1.0 / period`).
-    ///
-    /// # Returns
-    ///
-    /// A tuple `(cci, sma, md, typprice)` representing the CCI value, the SMA,
-    /// the mean deviation, and the typical price.
+impl State<Warm> {
     #[inline(always)]
-    pub fn calc(
+    fn calc<const N: usize>(
         &mut self,
-        high: &f64,
-        low: &f64,
-        close: &f64,
-        multiplier: f64,
+        (high, low, close): (f64, f64, f64)
     ) -> (f64, f64, f64, f64) {
         let typprice = typprice_calc(high, low, close);
         //let (mut mean_deviation, mut sma, mut cci) = (0.0, 0.0, 0.0);
-    
-        if let Some(old) = self.buffer.push_with_info(typprice) {
-            let sma = calc_sma(&mut self.sum, &typprice, &old, &multiplier);
-            let md = calc_md(self.buffer.get_slice(), sma, multiplier);
-    
-            let cci = (typprice - sma) / (0.015 * md);
-            if md == 0.0 {
-                return (0.0, sma, md, typprice);
-            }
-            return (cci, sma, md, typprice);
-        }
-    
-        self.sum += typprice;
-        (0.0, 0.0, 0.0, typprice)
-    }
-    /// Calculates the CCI value using SIMD-accelerated mean deviation.
-    ///
-    /// # Safety
-    ///
-    /// The ring buffer in `state` must be full before calling this function.
-    ///
-    /// # Arguments
-    ///
-    /// * `state` - Mutable reference to the CCI state (ring buffer and running sum).
-    /// * `high` - The current high price.
-    /// * `low` - The current low price.
-    /// * `close` - The current close price.
-    /// * `multiplier` - The CCI multiplier derived from the period (`1.0 / period`).
-    ///
-    /// # Returns
-    ///
-    /// A tuple `(cci, sma, md, typprice)`.
-    #[inline(always)]
-    pub unsafe fn calc_unchecked<const N: usize>(
-        &mut self,
-        high: &f64,
-        low: &f64,
-        close: &f64,
-        multiplier: f64,
-    ) -> (f64, f64, f64, f64) {
-        let typprice = typprice_calc(high, low, close);
-        //let (mut mean_deviation, mut sma, mut cci) = (0.0, 0.0, 0.0);
-        let old = self.buffer.push_with_info_unchecked(typprice);
-        let sma = calc_sma(&mut self.sum, &typprice, &old, &multiplier);
-    
-        let md = if N == 1 {
-            calc_md(self.buffer.get_slice(), sma, multiplier)
-        } else {
-            calc_md_simd::<N>(self.buffer.get_slice(), sma, multiplier)
-        };
+        let old = self.buffer.push_with_info(typprice);
+
+        let (md, sma) = self.md_state.calc((typprice, old, self.buffer.get_slice()));
         if md == 0.0 {
             return (0.0, sma, md, typprice);
         }
@@ -208,25 +70,63 @@ impl State {
         (cci, sma, md, typprice)
     }
 }
+impl State {
+    pub fn init_state(
+        high: &[f64],
+        low: &[f64],
+        close: &[f64],
+        period: usize,
+        (sma_line, md_line, typprice_line): (&mut [f64], &mut [f64], &mut [f64]),
+    ) -> State<Warm> {
+        
+        let mut buffer = Buffer::new(period);
+        let mut md_state = MdState::new(0.0, period);
+
+        let mut i = 0;
+        while !buffer.is_full() {
+            let typprice = typprice_calc(high[i], low[i], close[i]);
+            buffer.push(typprice);
+            md_state.sum += typprice;
+            crate::init_store_optional_outputs!(i, high.len(),
+                typprice_line => typprice
+            );
+            i += 1;
+        }
+        
+        let mut md_state = md_state.into_warm();
+        let mut buffer = buffer.into_full();
+        for i in period..period * 2 - 2 {
+            let typprice = typprice_calc(high[i], low[i], close[i]);
+            let old = buffer.push_with_info(typprice);
+            let (md, sma) = md_state.calc((typprice, old, buffer.get_slice()));
+
+            crate::init_store_optional_outputs!(i, high.len(),
+                sma_line => sma,
+                md_line => md,
+                typprice_line => typprice
+            );
+        }
+        State {
+            buffer,
+            md_state,
+        }
+    }
+
+}
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
-    state: State,
-    multiplier: f64,
+    state: State<Warm>,
     period: usize,
 }
 impl IndicatorState {
-    pub fn new(state: State, multiplier: f64, period: usize) -> Self {
-        Self {
-            state,
-            multiplier,
-            period,
-        }
+    pub fn new(state: State<Warm>, period: usize) -> Self {
+        Self { state, period }
     }
 }
 impl TIndicatorState<3> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -244,16 +144,14 @@ impl TIndicatorState<3> for IndicatorState {
         };
 
         match self.period {
-            1..=50 => cycle::<1>(
+            1..=49 => cycle::<1>(
                 (inputs[0], inputs[1], inputs[2]),
-                self.multiplier,
                 &mut self.state,
                 &mut cci_line,
                 (&mut sma_line, &mut md_line, &mut typprice_line),
             ),
             _ => cycle::<8>(
                 (inputs[0], inputs[1], inputs[2]),
-                self.multiplier,
                 &mut self.state,
                 &mut cci_line,
                 (&mut sma_line, &mut md_line, &mut typprice_line),
@@ -262,128 +160,6 @@ impl TIndicatorState<3> for IndicatorState {
 
         Ok(vec![cci_line, sma_line, md_line, typprice_line])
     }
-}
-
-/// Returns the minimum amount of data required for the CCI indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the CCI calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    options[0] as usize * 2 - 1
-}
-
-/// Returns the number of output values given an input data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the CCI calculation.
-///
-/// # Returns
-///
-/// The number of output values (`data_len - min_data(options) + 1`).
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-
-/// Calculates the Commodity Channel Index (CCI) indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — high prices
-/// * `inputs[1]` — low prices
-/// * `inputs[2]` — close prices
-///
-/// # Options
-///
-/// * `options[0]` — period (number of bars in the SMA / mean-deviation window)
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `optional_outputs` - Pass `Some(&[true, false, false])` to enable `sma`,
-///   `Some(&[false, true, false])` for `md`, `Some(&[false, false, true])` for
-///   `typprice`, or any combination; `None` disables all optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is `cci`, `outputs[1]` is `sma`,
-/// `outputs[2]` is `md`, and `outputs[3]` is `typprice` (empty unless requested).
-/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let period = options[0] as usize;
-    let multiplier = multiplier(period);
-
-    validate_inputs(inputs, min_data(options))?;
-    let high = inputs[0];
-    let low = inputs[1];
-    let close = inputs[2];
-
-    let (mut cci_line, mut typprice_line, mut sma_line, mut md_line);
-    {
-        let capacity = output_length(high.len(), options);
-        let md_capacity = md_output_length(high.len(), options);
-        cci_line = crate::uninit_vec!(f64, capacity);
-        (sma_line, md_line, typprice_line) = crate::init_optional_outputs_eff!(
-            optional_outputs, &[false, false, false],
-            sma_line: md_capacity,
-            md_line: md_capacity,
-            typprice_line: high.len()
-        );
-    };
-
-    let mut state = State::init_state(
-        high,
-        low,
-        close,
-        period,
-        (&mut sma_line, &mut md_line, &mut typprice_line),
-    );
-    let optional_outputs = {
-        let offset = crate::slice_outputs_start!(cci_line.len(), sma_line, md_line, typprice_line);
-        (
-            &mut sma_line[offset.0..],
-            &mut md_line[offset.1..],
-            &mut typprice_line[offset.2..],
-        )
-    };
-    let inputs = {
-        let from = period * 2 - 2;
-        (&high[from..], &low[from..], &close[from..])
-    };
-    match period {
-        1..=50 => cycle::<1>(
-            inputs,
-            multiplier,
-            &mut state,
-            &mut cci_line,
-            optional_outputs,
-        ),
-        _ => cycle::<8>(
-            inputs,
-            multiplier,
-            &mut state,
-            &mut cci_line,
-            optional_outputs,
-        ),
-    }
-
-    Ok((
-        vec![cci_line, sma_line, md_line, typprice_line],
-        IndicatorState::new(state, multiplier, period),
-    ))
 }
 
 /// Performs the main calculation loop for the CCI indicator.
@@ -396,27 +172,24 @@ pub fn indicator(
 /// * `cci_line` - Mutable slice to write the CCI output values into.
 /// * `out_vecs` - A tuple of `(sma_line, md_line, typprice_line)` for optional outputs.
 fn cycle<const N: usize>(
-    inputs: (&[f64], &[f64], &[f64]),
-    multiplier: f64,
-    state: &mut State,
+    (high, low, close): (&[f64], &[f64], &[f64]),
+    state: &mut State<Warm>,
     cci_line: &mut [f64],
-    out_vecs: (&mut [f64], &mut [f64], &mut [f64]),
+    (sma_line, md_line, typprice_line): (&mut [f64], &mut [f64], &mut [f64]),
 ) {
-    let (high, low, close) = inputs;
-    let (sma_line, md_line, typprice_line) = out_vecs;
     let (has_optional, want_typ, want_sma, want_md) =
         crate::calc_want_flags!(typprice_line, sma_line, md_line);
 
     //high.iter().zip(low.iter()).zip(close.iter()).skip(start).enumerate().for_each(|(i, ((h, l), c))| {
     for i in 0..high.len() {
-        let (h, l, c) = unsafe {
+        let inputs = unsafe {
             (
-                high.get_unchecked(i),
-                low.get_unchecked(i),
-                close.get_unchecked(i),
+                *high.get_unchecked(i),
+                *low.get_unchecked(i),
+                *close.get_unchecked(i),
             )
         };
-        let (cci, sma, md, typprice) = unsafe { state.calc_unchecked::<N>(h, l, c, multiplier) };
+        let (cci, sma, md, typprice) = state.calc::<N>(inputs);
 
         unsafe { *cci_line.get_unchecked_mut(i) = cci };
         if has_optional {
@@ -429,3 +202,110 @@ fn cycle<const N: usize>(
     }
 }
 
+pub struct Cci;
+
+impl Indicator<INPUTS, OPTIONS> for Cci {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "cci",
+        indicator_type: IndicatorType::Momentum,
+        full_name: "Commodity Channel Index",
+        inputs: &["high", "low", "close"],
+        options: &["period"],
+        outputs: &["cci"],
+        optional_outputs: &["sma", "md", "typprice"],
+        display_groups: &[
+            DisplayGroup {
+                offset: None,
+                id: "cci",
+                label: "CCI",
+                display_type: DisplayType::Indicator,
+                outputs: &["cci"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "sma_typprice",
+                label: "Typical Price",
+                display_type: DisplayType::Overlay,
+                outputs: &["sma", "typprice"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "md",
+                label: "Mean Deviation",
+                display_type: DisplayType::Indicator,
+                outputs: &["md"],
+            },
+        ],
+    };
+
+    fn min_data(options: &[f64; OPTIONS]) -> usize {
+        options[0] as usize * 2 - 1
+    }
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
+        validate_options(options)?;
+        let period = options[0] as usize;
+
+        validate_inputs(inputs, Self::min_data(options))?;
+        let high = inputs[0];
+        let low = inputs[1];
+        let close = inputs[2];
+
+        let (mut cci_line, mut typprice_line, mut sma_line, mut md_line);
+        {
+            let capacity = Self::output_length(high.len(), options);
+            let md_capacity = Md::output_length(high.len(), options);
+            cci_line = crate::uninit_vec!(f64, capacity);
+            (sma_line, md_line, typprice_line) = crate::init_optional_outputs_eff!(
+                optional_outputs, &[false, false, false],
+                sma_line: md_capacity,
+                md_line: md_capacity,
+                typprice_line: high.len()
+            );
+        };
+
+        let mut state = State::init_state(
+            high,
+            low,
+            close,
+            period,
+            (&mut sma_line, &mut md_line, &mut typprice_line),
+        );
+        let optional_outputs = {
+            let offset =
+                crate::slice_outputs_start!(cci_line.len(), sma_line, md_line, typprice_line);
+            (
+                &mut sma_line[offset.0..],
+                &mut md_line[offset.1..],
+                &mut typprice_line[offset.2..],
+            )
+        };
+        let inputs = {
+            let from = period * 2 - 2;
+            (&high[from..], &low[from..], &close[from..])
+        };
+        match period {
+            1..=49 => cycle::<1>(
+                inputs,
+                &mut state,
+                &mut cci_line,
+                optional_outputs,
+            ),
+            _ => cycle::<8>(
+                inputs,
+                &mut state,
+                &mut cci_line,
+                optional_outputs,
+            ),
+        }
+
+        Ok((
+            vec![cci_line, sma_line, md_line, typprice_line],
+            IndicatorState::new(state, period),
+        ))
+    }
+}

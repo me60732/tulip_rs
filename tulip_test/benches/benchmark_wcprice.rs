@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::wcprice::{indicator, min_data, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::wcprice::{WcPrice, Indicator, IndicatorState, TIndicatorState};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_wcprice, ti_wcprice_start};
@@ -146,7 +146,7 @@ fn bench_rust_wcprice(c: &mut Criterion) {
             timing.measure(
                 || {
                     let result =
-                        indicator(&inputs, &OPTIONS, None).expect("Rust WCPRICE indicator failed");
+                        WcPrice::indicator(&inputs, &OPTIONS, None).expect("Rust WCPRICE indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -168,7 +168,7 @@ fn bench_rust_wcprice(c: &mut Criterion) {
         group.bench_function("Rust WCPRICE", |b| {
             b.iter(|| {
                 let result =
-                    indicator(&inputs, &OPTIONS, None).expect("Rust WCPRICE indicator failed");
+                    WcPrice::indicator(&inputs, &OPTIONS, None).expect("Rust WCPRICE indicator failed");
                 black_box(&result);
             });
         });
@@ -191,7 +191,7 @@ fn bench_rust_wcprice_from_state(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let min_data_val = min_data(&OPTIONS).max(CHUNK_SIZE);
+                    let min_data_val = WcPrice::min_data(&OPTIONS).max(CHUNK_SIZE);
                     // First chunk
                     let chunk_inputs = [
                         &high[..min_data_val],
@@ -200,7 +200,7 @@ fn bench_rust_wcprice_from_state(c: &mut Criterion) {
                     ];
 
                     let (_, mut state) =
-                        indicator(&chunk_inputs, &OPTIONS, None).expect("WCPRICE indicator failed");
+                        WcPrice::indicator(&chunk_inputs, &OPTIONS, None).expect("WCPRICE indicator failed");
 
                     // Chunks
                     let mut high_chunks = high[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -253,7 +253,7 @@ fn bench_rust_wcprice_from_state(c: &mut Criterion) {
                     &close[close.len() - 1..],
                 ];
                 let (_, mut state) =
-                    indicator(&new_inputs, &OPTIONS, None).expect("Rust WCPRICE indicator failed");
+                    WcPrice::indicator(&new_inputs, &OPTIONS, None).expect("Rust WCPRICE indicator failed");
 
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
@@ -277,7 +277,7 @@ fn bench_rust_wcprice_from_state(c: &mut Criterion) {
 
                 // --- Rust_FromState_1_Bar_json benchmark ---
                 let (_, state) =
-                    indicator(&new_inputs, &OPTIONS, None).expect("Rust WCPRICE indicator failed");
+                    WcPrice::indicator(&new_inputs, &OPTIONS, None).expect("Rust WCPRICE indicator failed");
                 let json = serde_json::to_string(&state).expect("json failed");
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
@@ -312,7 +312,7 @@ fn bench_rust_wcprice_from_state(c: &mut Criterion) {
 
         group.bench_function("benchmark", |b| {
             b.iter(|| {
-                let min_data_val = min_data(&OPTIONS).max(CHUNK_SIZE);
+                let min_data_val = WcPrice::min_data(&OPTIONS).max(CHUNK_SIZE);
                 // First chunk
                 let chunk_inputs = [
                     &high_vec[..min_data_val],
@@ -321,7 +321,7 @@ fn bench_rust_wcprice_from_state(c: &mut Criterion) {
                 ];
 
                 let (_, mut state) =
-                    indicator(&chunk_inputs, &OPTIONS, None).expect("WCPRICE indicator failed");
+                    WcPrice::indicator(&chunk_inputs, &OPTIONS, None).expect("WCPRICE indicator failed");
 
                 // Chunks
                 let mut high_chunks = high_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -365,7 +365,7 @@ fn bench_rust_wcprice_from_state(c: &mut Criterion) {
                 &close_vec[close_vec.len() - 1..],
             ];
             let (_, mut state) =
-                indicator(&new_inputs, &OPTIONS, None).expect("Rust WCPRICE indicator failed");
+                WcPrice::indicator(&new_inputs, &OPTIONS, None).expect("Rust WCPRICE indicator failed");
 
             let mut group = c.benchmark_group("Rust WCPRICE from state 1 bar");
             group.sample_size(SAMPLE_SIZE);

@@ -1,48 +1,28 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
-use crate::indicators::ema::{
-    init_state, min_data, multiplier, output_length, IndicatorState, INPUTS_WIDTH, OPTIONS_WIDTH,
-};
+use crate::indicators::ema::{Ema, Indicator, IndicatorState, State, INPUTS, OPTIONS};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 //use crate::indicators::ad::output_length;
-use crate::indicators::simd_indicators::ema_simd::calc_simd;
+use crate::indicators::simd_indicators::ema_simd::{SimdState, TSimdState, TState};
 
 /// SIMD driver for the Exponential Moving Average (EMA) indicator, processing `N` option-set lanes per scheduling epoch.
-struct EmaDriver {}
+struct EmaDriver;
 
-impl Driver<f64, (f64, f64)> for EmaDriver {
+impl Driver<State<Warm>> for EmaDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD. Reads the shared input, applies each lane's options, writes outputs, and updates per-lane states.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut f64>,
-        options: Vec<Option<&(f64, f64)>>,
+        mut states: Vec<&mut State<Warm>>,
+        _options: Vec<Option<&()>>,
     ) {
         let len = outputs[0][0].len();
-        //println!("N: {:?}", N);
-        //let mut period_arr = [0usize; N];
-        let multipliers_simd = {
-            let mut multipliers = ([0.0; N], [0.0; N]);
-            for (lane, option) in options.iter().enumerate() {
-                if let Some(&multiplier) = option {
-                    //println!("{:?}", outputs[lane][0].len());
-                    multipliers.0[lane] = multiplier.0;
-                    multipliers.1[lane] = multiplier.1;
-                }
-            }
-            (
-                Simd::from_array(multipliers.0),
-                Simd::from_array(multipliers.1),
-            )
-        };
 
         // Optimization 1: Direct array construction instead of collect+try_into
-        let mut ema = Simd::<f64, N>::from_array(std::array::from_fn(|i| unsafe {
-            **states.get_unchecked(i)
-        }));
+        let mut state = SimdState::<N>::from_states(&mut states);
 
         // Optimization 2: Pre-compute all input and output pointers
         let real_ptrs = crate::extract_input_ptrs!(inputs, N, real_ptrs);
@@ -54,18 +34,14 @@ impl Driver<f64, (f64, f64)> for EmaDriver {
                 new @ real_ptrs
             );
 
-            ema = calc_simd(new_vals, ema, multipliers_simd);
+            let ema = state.calc(new_vals);
 
             crate::write_simd_at_indices!(N, i,
                 ema_line_ptr => ema
             );
         }
 
-        // Update states efficiently
-        let final_ema = ema.to_array();
-        for (i, state) in states.iter_mut().enumerate().take(N) {
-            **state = final_ema[i];
-        }
+        state.write_states(&mut states);
     }
 }
 
@@ -73,7 +49,7 @@ impl Driver<f64, (f64, f64)> for EmaDriver {
 /// simultaneously using SIMD parallelism.
 ///
 /// # Arguments
-/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS]`), containing
 ///   `[real]`.
 /// * `options` - An array of `N` option sets, one per SIMD lane: `[period]`.
 /// * `optional_outputs` - Unused; EMA has no optional outputs.
@@ -83,31 +59,29 @@ impl Driver<f64, (f64, f64)> for EmaDriver {
 /// and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH], //stock[ fields [ field [f64] ] ]
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+    options: &[&[f64; OPTIONS]; N],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, Ema::min_data)?;
     validate_options(options, None)?;
     let periods: [usize; N] = std::array::from_fn(|i| options[i][0] as usize);
 
-    let multipliers: [(f64, f64); N] = std::array::from_fn(|i| multiplier(options[i][0] as usize));
-
-    let mut road_train = PrimeMover::<N, f64, (f64, f64)>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut output_buffers = Vec::with_capacity(N);
 
-    for (i, (&period, multipliers)) in periods.iter().zip(multipliers.iter()).enumerate() {
+    for (i, &period) in periods.iter().enumerate() {
         let asset_inputs = vec![
             inputs[0], // real
         ];
 
         let ema_line = {
             let len = inputs[0].len();
-            let capacity = output_length(len, options[i]);
+            let capacity = Ema::output_length(len, options[i]);
             crate::uninit_vec!(f64, capacity)
         };
 
-        let state = init_state(inputs[0], period, *multipliers);
+        let state = State::init_state(inputs[0], period);
 
         let mut output_buffer = vec![ema_line];
 
@@ -133,17 +107,13 @@ pub fn indicator_by_options<const N: usize>(
             period,
             0,
             state,
-            Some(multipliers),
+            None,
         ));
         output_buffers.push(output_buffer);
     }
 
     let mut driver = EmaDriver {};
-    let states_vec = road_train.drive(&mut driver);
+    let states = road_train.drive(&mut driver);
 
-    let mut states = Vec::with_capacity(N);
-    for (i, state) in states_vec.into_iter().enumerate() {
-        states.push(IndicatorState::new(state, multipliers[i]));
-    }
     Ok((output_buffers, states))
 }

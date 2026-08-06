@@ -1,10 +1,8 @@
 #[cfg(test)]
 mod tests {
     use tulip_rs::indicator_types::TIndicatorState;
-    use tulip_rs::indicators::adaptivemsw::{
-        indicator as amsw_indicator, indicator_by_assets, min_data, output_length,
-    };
-    use tulip_rs::indicators::homodynediscriminator::indicator as hd_indicator;
+    use tulip_rs::indicators::adaptivemsw::{indicator_by_assets, AdaptiveMSW, Indicator};
+    use tulip_rs::indicators::homodynediscriminator::HomodyneDiscriminator;
     use tulip_rs::types::IndicatorError;
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -21,16 +19,16 @@ mod tests {
 
     #[test]
     fn test_adaptivemsw_min_data_and_output_length() {
-        assert_eq!(min_data(&[]), 23);
-        assert_eq!(output_length(23, &[]), 1);
-        assert_eq!(output_length(100, &[]), 78);
-        assert_eq!(output_length(1000, &[]), 978);
+        assert_eq!(AdaptiveMSW::min_data(&[]), 23);
+        assert_eq!(AdaptiveMSW::output_length(23, &[]), 1);
+        assert_eq!(AdaptiveMSW::output_length(100, &[]), 78);
+        assert_eq!(AdaptiveMSW::output_length(1000, &[]), 978);
     }
 
     #[test]
     fn test_adaptivemsw_not_enough_data() {
         let close: Vec<f64> = (0..22).map(|i| 100.0 + i as f64).collect();
-        let result = amsw_indicator(&[close.as_slice()], &[], None);
+        let result = AdaptiveMSW::indicator(&[close.as_slice()], &[], None);
         assert!(
             matches!(result, Err(IndicatorError::NotEnoughData)),
             "Expected NotEnoughData for {} bars (need 23)",
@@ -50,15 +48,15 @@ mod tests {
             let close = get_close_array(stock_data);
             let n = close.len();
             let (out, _) =
-                amsw_indicator(&[close.as_slice()], &[], None).expect("indicator failed");
+                AdaptiveMSW::indicator(&[close.as_slice()], &[], None).expect("indicator failed");
             assert_eq!(
                 out[0].len(),
-                output_length(n, &[]),
+                AdaptiveMSW::output_length(n, &[]),
                 "sine len: {stock_symbol}"
             );
             assert_eq!(
                 out[1].len(),
-                output_length(n, &[]),
+                AdaptiveMSW::output_length(n, &[]),
                 "lead len: {stock_symbol}"
             );
         }
@@ -77,7 +75,7 @@ mod tests {
         for (stock_symbol, stock_data) in data {
             let close = get_close_array(stock_data);
             let (out, _) =
-                amsw_indicator(&[close.as_slice()], &[], None).expect("indicator failed");
+                AdaptiveMSW::indicator(&[close.as_slice()], &[], None).expect("indicator failed");
             for (i, (&s, &l)) in out[0].iter().zip(out[1].iter()).enumerate() {
                 assert!(s.is_finite(), "sine NaN/Inf at {i}: {stock_symbol}");
                 assert!(l.is_finite(), "lead NaN/Inf at {i}: {stock_symbol}");
@@ -105,9 +103,9 @@ mod tests {
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
             let close = get_close_array(stock_data);
-            let (hd_out, _) = hd_indicator(&[close.as_slice()], &[], None).expect("HD failed");
-            let (amsw_out, _) =
-                amsw_indicator(&[close.as_slice()], &[], Some(&[true])).expect("AMSW failed");
+            let (hd_out, _) = HomodyneDiscriminator::indicator(&[close.as_slice()], &[], None).expect("HD failed");
+            let (amsw_out, _) = AdaptiveMSW::indicator(&[close.as_slice()], &[], Some(&[true]))
+                .expect("AMSW failed");
             let hd_dc = &hd_out[0];
             let amsw_dc = &amsw_out[2];
             assert_eq!(
@@ -132,14 +130,14 @@ mod tests {
     fn test_adaptivemsw_optional_outputs() {
         let close: Vec<f64> = (0..200).map(|i| 100.0 + (i as f64).sin() * 5.0).collect();
         let inputs = [close.as_slice()];
-        let expected_len = output_length(close.len(), &[]);
+        let expected_len = AdaptiveMSW::output_length(close.len(), &[]);
 
-        let (none, _) = amsw_indicator(&inputs, &[], None).unwrap();
+        let (none, _) = AdaptiveMSW::indicator(&inputs, &[], None).unwrap();
         assert_eq!(none[0].len(), expected_len, "sine len (none)");
         assert_eq!(none[1].len(), expected_len, "lead len (none)");
         assert!(none[2].is_empty(), "dc_period should be empty");
 
-        let (with_dc, _) = amsw_indicator(&inputs, &[], Some(&[true])).unwrap();
+        let (with_dc, _) = AdaptiveMSW::indicator(&inputs, &[], Some(&[true])).unwrap();
         assert_eq!(with_dc[2].len(), expected_len, "dc_period len (requested)");
 
         // Values must be consistent.
@@ -161,11 +159,11 @@ mod tests {
         for (stock_symbol, stock_data) in data {
             let close = get_close_array(stock_data);
 
-            let (ref_out, _) = amsw_indicator(&[close.as_slice()], &[], Some(&[true]))
+            let (ref_out, _) = AdaptiveMSW::indicator(&[close.as_slice()], &[], Some(&[true]))
                 .expect("reference run failed");
 
             let (first_out, mut state) =
-                amsw_indicator(&[&close[..FIRST_CHUNK]], &[], Some(&[true]))
+                AdaptiveMSW::indicator(&[&close[..FIRST_CHUNK]], &[], Some(&[true]))
                     .expect("seed run failed");
 
             let mut batch = [
@@ -246,8 +244,8 @@ mod tests {
             indicator_by_assets::<4>(&inputs_4, &[], Some(&[true])).expect("SIMD by_assets failed");
 
         for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
-            let (scalar_out, _) =
-                amsw_indicator(&[close.as_slice()], &[], Some(&[true])).expect("scalar failed");
+            let (scalar_out, _) = AdaptiveMSW::indicator(&[close.as_slice()], &[], Some(&[true]))
+                .expect("scalar failed");
 
             // dc_period: must be close (SIMD atan vs scalar atan in HD).
             let simd_dc = &simd_results[asset_idx][2];
@@ -343,7 +341,7 @@ mod tests {
             }
 
             // Reference: full scalar run.
-            let (scalar_out, _) = amsw_indicator(&[close.as_slice()], &[], Some(&[true]))
+            let (scalar_out, _) = AdaptiveMSW::indicator(&[close.as_slice()], &[], Some(&[true]))
                 .expect("scalar indicator failed");
 
             // dc_period must be within 1e-4 (SIMD atan residual from HD).
@@ -387,5 +385,4 @@ mod tests {
         }
         println!("✓ All SIMD by_assets adaptive MSW state continuity tests passed!");
     }
-
-    }
+}

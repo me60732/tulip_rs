@@ -1,12 +1,11 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
-use crate::indicators::atr::{
-    min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
-};
-use crate::indicators::simd_indicators::atr_simd::SimdState;
+use crate::indicator_types::TSimdState;
+use crate::indicators::atr::{Atr, Indicator, IndicatorState, State, INPUTS, OPTIONS};
+use crate::indicators::simd_indicators::atr_simd::{SimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::tr::output_length as tr_output_length;
-use crate::types::IndicatorError;
+use crate::indicators::tr::Tr;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
 /// SIMD driver for the Average True Range (ATR) indicator, processing `N` option-set lanes per scheduling epoch.
@@ -14,31 +13,17 @@ struct AtrDriver {
     want_optional_outputs: bool,
 }
 
-impl Driver<State, (f64, f64)> for AtrDriver {
+impl Driver<State<Warm>> for AtrDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD. Reads the shared input, applies each lane's options, writes outputs, and updates per-lane states.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
-        options: Vec<Option<&(f64, f64)>>,
+        mut states: Vec<&mut State<Warm>>,
+        _options: Vec<Option<&()>>,
     ) {
-        let mut state = SimdState::<N>::new(&states);
+        let mut state = SimdState::<N>::from_states(&mut states);
         let len = outputs[0][0].len();
-        let multipliers = {
-            let mut multipliers = ([0.0; N], [0.0; N]);
-            for (lane, option) in options.iter().enumerate() {
-                if let Some(&multiplier) = option {
-                    //println!("{:?}", outputs[lane][0].len());
-                    multipliers.0[lane] = multiplier.0;
-                    multipliers.1[lane] = multiplier.1;
-                }
-            }
-            (
-                Simd::from_array(multipliers.0),
-                Simd::from_array(multipliers.1),
-            )
-        };
 
         //collect outputs
         let (atr_line_ptr, tr_line_ptr) =
@@ -51,7 +36,7 @@ impl Driver<State, (f64, f64)> for AtrDriver {
         // Optimization 3: Simplified main loop with pre-computed offsets
         for i in 0..len {
             // Get inputs arrays for stocks
-            let (high, low, close) = crate::extract_simd_inputs_at_index_splat!(
+            let inputs = crate::extract_simd_inputs_at_index_splat!(
                 i,
                 N,
                 high @ high_ptrs,
@@ -59,7 +44,7 @@ impl Driver<State, (f64, f64)> for AtrDriver {
                 close @ close_ptrs
             );
 
-            let (atr, tr) = state.calc_simd(high, low, close, multipliers);
+            let (atr, tr) = state.calc(inputs);
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, i,
@@ -80,7 +65,7 @@ impl Driver<State, (f64, f64)> for AtrDriver {
 /// simultaneously using SIMD parallelism.
 ///
 /// # Arguments
-/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS]`), containing
 ///   `[high, low, close]`.
 /// * `options` - An array of `N` option sets, one per SIMD lane: `[period]`.
 /// * `optional_outputs` - Optional output flags: `[want_tr]`.
@@ -90,15 +75,14 @@ impl Driver<State, (f64, f64)> for AtrDriver {
 /// and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS],
+    options: &[&[f64; OPTIONS]; N],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, Atr::min_data)?;
     validate_options(options, None)?;
-    let multipliers: [(f64, f64); N] = std::array::from_fn(|i| multiplier(options[i][0] as usize));
 
-    let mut road_train = PrimeMover::<N, State, (f64, f64)>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut want_optional_outputs = false;
     let mut output_buffers = Vec::with_capacity(N);
     for i in 0..N {
@@ -108,12 +92,12 @@ pub fn indicator_by_options<const N: usize>(
             inputs[2], // close
         ];
         let len = inputs[0].len();
-        let atr_capacity = output_length(len, options[i]);
+        let atr_capacity = Atr::output_length(len, options[i]);
         let atr_line = crate::uninit_vec!(f64, atr_capacity);
 
         let mut tr_line = crate::init_optional_outputs_eff!(
             optional_outputs, &[false],
-            tr_line: tr_output_length(len, options[i])
+            tr_line: Tr::output_length(len, &[])
         );
         let period = options[i][0] as usize;
         let state = State::init_state(inputs[0], inputs[1], inputs[2], period, &mut tr_line, false);
@@ -148,7 +132,7 @@ pub fn indicator_by_options<const N: usize>(
             period,
             0,
             state,
-            Some(&multipliers[i]),
+            None,
         ));
         output_buffers.push(output_buffer);
     }
@@ -158,9 +142,5 @@ pub fn indicator_by_options<const N: usize>(
     };
     let states_vec = road_train.drive(&mut driver);
 
-    let mut states = Vec::with_capacity(N);
-    for (state, &multipliers) in states_vec.into_iter().zip(multipliers.iter()) {
-        states.push(IndicatorState::new(state, multipliers));
-    }
-    Ok((output_buffers, states))
+    Ok((output_buffers, states_vec))
 }

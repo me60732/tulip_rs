@@ -1,4 +1,6 @@
-pub use crate::indicators::simd_indicators::di_simd::SimdState;
+pub use crate::indicators::simd_indicators::di_simd::{
+    SimdState as DiSimdState, TSimdState, TState,
+};
 
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::by_asset::dx::indicator_by_assets;
@@ -6,49 +8,58 @@ pub use crate::indicators::simd_indicators::by_asset::dx::indicator_by_assets;
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::dx::indicator_by_options;
 
-use crate::indicators::simd_indicators::{
-    di_simd::calc_diup_didown_simd, simd_types::F64Constants,
-};
+use crate::indicators::dx::State;
+use crate::indicators::simd_indicators::simd_types::F64Constants;
+use std::ops::{Deref, DerefMut};
 use std::simd::{num::SimdFloat, Simd};
-
-/// Computes one bar of the Directional Movement Index (DX) for `N` assets simultaneously
-/// using SIMD parallelism.
-///
-/// Delegates to the DI SIMD routine for updating DM+ / DM- / ATR, then computes
-/// `DX = 100 * |DI+ - DI-| / (DI+ + DI-)` for all lanes.
-///
-/// # Arguments
-///
-/// * `state` - Mutable shared SIMD state (DM+ / DM- and ATR sub-states).
-/// * `high` - High prices for this bar.
-/// * `low` - Low prices for this bar.
-/// * `close` - Close prices for this bar.
-/// * `multiplier` - Per-lane Wilder smoothing decay factor.
-///
-/// # Returns
-///
-/// A tuple `(dx, atr, tr)` for all `N` lanes.
-#[inline(always)]
-pub fn calc_simd<const N: usize>(
-    state: &mut SimdState<N>,
-    high: Simd<f64, N>,
-    low: Simd<f64, N>,
-    close: Simd<f64, N>,
-    multipliers: (Simd<f64, N>, Simd<f64, N>),
-) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
-    let (_, _, atr, tr) = calc_diup_didown_simd(state, high, low, close, multipliers);
-
-    let dx = calc_dx_simd(state);
-
-    (dx, atr, tr)
+use crate::types::Warm;
+#[repr(transparent)]
+pub struct SimdState<const N: usize>(pub DiSimdState<N>);
+impl<const N: usize> Deref for SimdState<N> {
+    type Target = DiSimdState<N>;
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
-/// Derives the DX value from already-updated DI+ / DI- and ATR state lanes.
-#[inline(always)]
-pub(crate) fn calc_dx_simd<const N: usize>(state: &mut SimdState<N>) -> Simd<f64, N> {
-    let di_up = state.di_state.dmup;
-    let di_down = state.di_state.dmdown;
+impl<const N: usize> DerefMut for SimdState<N> {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+impl<const N: usize> TState for SimdState<N> {
+    type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
+    type Outputs = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
+    #[inline(always)]
+    fn calc<'a>(&mut self, inputs: Self::Inputs<'a>) -> Self::Outputs {
+        let (_, _, atr, tr) = self.calc_diup_didown(inputs);
 
-    let dm_diff = (di_up - di_down).abs();
-    let dm_sum = di_up + di_down;
-    (dm_diff * F64Constants::HUNDRED / dm_sum).simd_max(F64Constants::ZERO)
+        let dx = self.calc_dx();
+
+        (dx, atr, tr)
+    }
+}
+impl<const N: usize> SimdState<N> {
+    #[inline(always)]
+    pub(crate) fn calc_dx(&mut self) -> Simd<f64, N> {
+        let di_up = self.di_state.dmup;
+        let di_down = self.di_state.dmdown;
+
+        let dm_diff = (di_up - di_down).abs();
+        let dm_sum = di_up + di_down;
+        (dm_diff * F64Constants::HUNDRED / dm_sum).simd_max(F64Constants::ZERO)
+    }
+}
+
+impl<const N: usize> TSimdState for SimdState<N> {
+    type ScalarState = State<Warm>;
+    fn from_states(states: &mut [&mut Self::ScalarState]) -> Self {
+        let mut inner: Vec<&mut _> = states.iter_mut().map(|s| &mut s.0).collect();
+        Self(DiSimdState::from_states(&mut inner))
+    }
+    fn write_states(&self, states: &mut [&mut Self::ScalarState]) {
+        let mut inner: Vec<&mut _> = states.iter_mut().map(|s| &mut s.0).collect();
+        self.0.write_states(&mut inner)
+    }
 }

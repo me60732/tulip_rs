@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::tsf::{indicator, min_data, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::tsf::{Tsf, Indicator, IndicatorState, TIndicatorState};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_tsf, ti_tsf_start};
@@ -116,7 +116,7 @@ fn bench_rust_tsf(c: &mut Criterion) {
                 timing.measure(
                     || {
                         let result =
-                            indicator(&inputs, &options, None).expect("TSF indicator failed");
+                            Tsf::indicator(&inputs, &options, None).expect("TSF indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -133,7 +133,7 @@ fn bench_rust_tsf(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust TSF {{ {:.1} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result = indicator(&inputs, &options, None).expect("TSF indicator failed");
+                    let result = Tsf::indicator(&inputs, &options, None).expect("TSF indicator failed");
                     black_box(&result);
                 });
             });
@@ -157,13 +157,13 @@ fn bench_rust_tsf_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data = min_data(&options);
+                        let min_data = Tsf::min_data(&options);
                         // First chunk
                         let close_chunk = close[..min_data].to_vec();
                         let chunk_inputs = [close_chunk.as_slice()];
 
                         let (_, mut state) =
-                            indicator(&chunk_inputs, &options, None).expect("TSF indicator failed");
+                            Tsf::indicator(&chunk_inputs, &options, None).expect("TSF indicator failed");
 
                         // Chunks
                         let mut close_chunks = close[min_data..].chunks_exact(CHUNK_SIZE);
@@ -200,7 +200,7 @@ fn bench_rust_tsf_from_state(c: &mut Criterion) {
                     let new_inputs = [new_close_vec.as_slice()];
                     let final_close_vec = close[close.len() - 1..].to_vec();
                     let (_, mut state) =
-                        indicator(&new_inputs, &options, None).expect("Rust TSF indicator failed");
+                        Tsf::indicator(&new_inputs, &options, None).expect("Rust TSF indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -224,7 +224,7 @@ fn bench_rust_tsf_from_state(c: &mut Criterion) {
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
                     let (_, state) =
-                        indicator(&new_inputs, &options, None).expect("Rust TSF indicator failed");
+                        Tsf::indicator(&new_inputs, &options, None).expect("Rust TSF indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -257,13 +257,13 @@ fn bench_rust_tsf_from_state(c: &mut Criterion) {
         let _inputs = [&close_vec];
 
         for options in OPTIONS_LIST {
-            let min_data = min_data(&options);
+            let min_data = Tsf::min_data(&options);
             // First chunk
             let close_chunk = close_vec[..min_data].to_vec();
             let chunk_inputs = [close_chunk.as_slice()];
 
             let (_, mut state) =
-                indicator(&chunk_inputs, &options, None).expect("TSF indicator failed");
+                Tsf::indicator(&chunk_inputs, &options, None).expect("TSF indicator failed");
 
             let mut group =
                 c.benchmark_group(format!("Rust TSF from state {{ {:.1} }}", options[0]));
@@ -296,7 +296,7 @@ fn bench_rust_tsf_from_state(c: &mut Criterion) {
                 let new_inputs = [new_close_vec.as_slice()];
                 let final_close_vec = close_vec[close_vec.len() - 1..].to_vec();
                 let (_, mut state) =
-                    indicator(&new_inputs, &options, None).expect("Rust TSF indicator failed");
+                    Tsf::indicator(&new_inputs, &options, None).expect("Rust TSF indicator failed");
 
                 let mut group = c.benchmark_group(format!(
                     "Rust TSF from state 1 bar {{ {:.1} }}",
@@ -399,7 +399,7 @@ fn bench_rust_tsf_optional(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, Some(&[true, true, true]))
+                        let result = Tsf::indicator(&inputs, &options, Some(&[true, true, true]))
                             .expect("Rust TSF indicator failed");
                         black_box(&result);
                     },
@@ -426,7 +426,7 @@ fn bench_rust_tsf_optional(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust TSF {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result = indicator(&inputs, &options, Some(&[true, true, true]))
+                    let result = Tsf::indicator(&inputs, &options, Some(&[true, true, true]))
                         .expect("Rust TSF indicator failed");
                     black_box(&result);
                 });

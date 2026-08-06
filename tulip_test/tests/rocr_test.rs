@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::rocr::{indicator as rust_rocr, min_data, TIndicatorState};
+    use tulip_rs::indicators::rocr::{Rocr, Indicator, TIndicatorState};
     use tulip_rs::indicators::rocr::{indicator_by_assets, indicator_by_options};
     use tulip_test::c_bindings::{ti_rocr, ti_rocr_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -56,7 +56,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_rocr(&inputs_rust, &options, None).expect("Rust ROCR indicator failed");
+                Rocr::indicator(&inputs_rust, &options, None).expect("Rust ROCR indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -143,7 +143,7 @@ mod tests {
 
                 let inputs_rust = [close.as_slice()];
                 let (outputs, _) =
-                    rust_rocr(&inputs_rust, &options, None).expect("Rust ROCR indicator failed");
+                    Rocr::indicator(&inputs_rust, &options, None).expect("Rust ROCR indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -209,19 +209,19 @@ mod tests {
 
                 // Get full output from processing all data at once
                 let (full_outputs, _) =
-                    rust_rocr(&inputs_rust, &options, None).expect("Rust ROCR indicator failed");
+                    Rocr::indicator(&inputs_rust, &options, None).expect("Rust ROCR indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Rocr::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let close_vec = close[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice()];
 
                 let (first_outputs, mut state) =
-                    rust_rocr(&chunk_inputs, &options, None).expect("Rust ROCR indicator failed");
+                    Rocr::indicator(&chunk_inputs, &options, None).expect("Rust ROCR indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
                 // Process remaining data in chunks
@@ -299,7 +299,7 @@ mod tests {
             // Compare with individual Rust implementations
             for i in 0..4 {
                 let individual_inputs = [stock_data[i].1.as_slice()];
-                let (individual_outputs, _) = rust_rocr(&individual_inputs, &options, None)
+                let (individual_outputs, _) = Rocr::indicator(&individual_inputs, &options, None)
                     .expect("Individual Rust ROCR indicator failed");
 
                 // Compare outputs
@@ -377,7 +377,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_rocr(&inputs, options, None).expect("Regular ROCR indicator failed");
+                    Rocr::indicator(&inputs, options, None).expect("Regular ROCR indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];

@@ -1,9 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use tulip_rs::indicator_types::TIndicatorState;
-    use tulip_rs::indicators::highpass::indicator as rust_highpass;
-    use tulip_rs::indicators::highpass::indicator_by_assets;
-    use tulip_rs::indicators::highpass::indicator_by_options;
+    use tulip_rs::indicators::highpass::{
+        indicator_by_assets, indicator_by_options, HighPass, Indicator, TIndicatorState,
+    };
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
     const CHUNK_SIZE: usize = 100;
@@ -32,12 +31,12 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Full single-call reference run.
-                let (scalar_outputs, _) = rust_highpass(&[close.as_slice()], &options, None)
+                let (scalar_outputs, _) = HighPass::indicator(&[close.as_slice()], &options, None)
                     .expect("Scalar HighPass failed");
 
                 // Seeded run: process first chunk, then continue via batch_indicator.
                 let (first_out, mut state) =
-                    rust_highpass(&[&close[..FIRST_CHUNK]], &options, None)
+                    HighPass::indicator(&[&close[..FIRST_CHUNK]], &options, None)
                         .expect("HighPass seed failed");
 
                 let mut batch_output = first_out[0].clone();
@@ -116,7 +115,7 @@ mod tests {
                 .expect("SIMD by-assets HighPass failed");
 
             for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
-                let (scalar_outputs, _) = rust_highpass(&[close.as_slice()], &options, None)
+                let (scalar_outputs, _) = HighPass::indicator(&[close.as_slice()], &options, None)
                     .expect("Scalar HighPass failed");
 
                 let simd_out = &simd_results[asset_idx][0];
@@ -175,7 +174,7 @@ mod tests {
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
                 let (scalar_outputs, _) =
-                    rust_highpass(&inputs, options, None).expect("Scalar HighPass failed");
+                    HighPass::indicator(&inputs, options, None).expect("Scalar HighPass failed");
 
                 let simd_out = &simd_results[opt_idx][0];
                 let scalar_out = &scalar_outputs[0];
@@ -255,7 +254,7 @@ mod tests {
                     batch_output.extend_from_slice(&chunk_outputs[0]);
                 }
 
-                let (scalar_outputs, _) = rust_highpass(&[close.as_slice()], &options, None)
+                let (scalar_outputs, _) = HighPass::indicator(&[close.as_slice()], &options, None)
                     .expect("Scalar HighPass failed");
 
                 assert_eq!(
@@ -335,7 +334,7 @@ mod tests {
                     batch_output.extend_from_slice(&chunk_outputs[0]);
                 }
 
-                let (scalar_outputs, _) = rust_highpass(&[close.as_slice()], options, None)
+                let (scalar_outputs, _) = HighPass::indicator(&[close.as_slice()], options, None)
                     .expect("Scalar HighPass failed");
 
                 assert_eq!(
@@ -369,5 +368,4 @@ mod tests {
             }
         }
     }
-
-    }
+}

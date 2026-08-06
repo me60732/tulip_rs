@@ -1,27 +1,25 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::zlema_simd::SimdState;
-use crate::indicators::zlema::{
-    min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
-};
-use crate::types::IndicatorError;
+use crate::indicators::simd_indicators::zlema_simd::{SimdState, TSimdState, TState};
+use crate::indicators::zlema::{Indicator, IndicatorState, State, Zlema, INPUTS, OPTIONS};
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
 /// SIMD driver for the Zero Lag Exponential Moving Average (ZLEMA) indicator, processing `N` option-set lanes per scheduling epoch.
 struct ZlemaDriver {}
 
-impl Driver<State, usize> for ZlemaDriver {
+impl Driver<State<Warm>, usize> for ZlemaDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         options: Vec<Option<&usize>>,
     ) {
         let len = outputs[0][0].len();
-        let mut state = SimdState::new(&states);
+        let mut state = SimdState::from_states(&mut states);
         let mut i = [0usize; N];
         for (lane, option) in options.iter().enumerate() {
             if let Some(&lag) = option {
@@ -36,7 +34,7 @@ impl Driver<State, usize> for ZlemaDriver {
         for j in 0..len {
             let lagged = crate::extract_simd_inputs_at_index!(j, N, old @ input_ptrs);
             let current = crate::extract_simd_inputs_at_index_array!(i, N, current @ input_ptrs);
-            let zlema = state.calc_simd(current, lagged);
+            let zlema = state.calc((current, lagged));
 
             crate::write_simd_at_indices!(N, j,
                 zlema_line_ptr => zlema
@@ -58,7 +56,7 @@ impl Driver<State, usize> for ZlemaDriver {
 ///
 /// # Arguments
 /// * `inputs` - Shared input data: `inputs[0]` is `&[f64]` containing `real` (price series).
-/// * `options` - An array of `N` option sets; `options[i]` is `&[f64; OPTIONS_WIDTH]` containing
+/// * `options` - An array of `N` option sets; `options[i]` is `&[f64; OPTIONS]` containing
 ///   `[period]` for option set `i`.
 /// * `optional_outputs` - Unused; ZLEMA has no optional outputs.
 ///
@@ -67,20 +65,20 @@ impl Driver<State, usize> for ZlemaDriver {
 /// and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or any option set is invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS],
+    options: &[&[f64; OPTIONS]; N],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, Zlema::min_data)?;
     validate_options(options, None)?;
     let params: [usize; N] =
         std::array::from_fn(|i| (((options[i][0] as usize).saturating_sub(1)) / 2).max(1));
 
-    let mut road_train = PrimeMover::<N, State, usize>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>, usize>::new();
     let mut output_buffers: Vec<Vec<Vec<f64>>> = (0..N)
         .map(|i| {
             vec![{
-                let capacity = output_length(inputs[0].len(), options[i]);
+                let capacity = Zlema::output_length(inputs[0].len(), options[i]);
                 crate::uninit_vec!(f64, capacity)
             }]
         })

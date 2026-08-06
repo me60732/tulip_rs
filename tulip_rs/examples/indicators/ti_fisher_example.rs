@@ -1,5 +1,5 @@
 use tulip_rs::indicators::fisher::{
-    indicator, indicator_by_assets, indicator_by_options, TIndicatorState,
+    indicator_by_assets, indicator_by_options, Fisher, Indicator, TIndicatorState,
 };
 
 const HIGH: [f64; 15] = [
@@ -28,7 +28,7 @@ fn main() {
     let inputs = [high.as_slice(), low.as_slice()];
 
     /////////////////////// Full run ///////////////////////
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match Fisher::indicator(&inputs, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -38,7 +38,7 @@ fn main() {
     /////////////////////// Partial run + batch_indicator continuation ///////////////////////
     let inputs2 = [&high[..high.len() - 5], &low[..low.len() - 5]];
 
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match Fisher::indicator(&inputs2, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use tulip_rs::indicator_types::TIndicatorState;
-    use tulip_rs::indicators::supersmoother::indicator as rust_supersmoother;
-    use tulip_rs::indicators::supersmoother::{indicator_by_assets, indicator_by_options};
+    use tulip_rs::indicators::supersmoother::{
+        indicator_by_assets, indicator_by_options, Indicator, SuperSmoother, TIndicatorState,
+    };
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
     const CHUNK_SIZE: usize = 100;
@@ -28,8 +28,8 @@ mod tests {
             let inputs = [close.as_slice()];
 
             for options in OPTIONS_LIST {
-                let (outputs, _) =
-                    rust_supersmoother(&inputs, &options, None).expect("SuperSmoother failed");
+                let (outputs, _) = SuperSmoother::indicator(&inputs, &options, None)
+                    .expect("SuperSmoother failed");
 
                 for (i, &val) in outputs[0].iter().enumerate() {
                     if val.is_nan() {
@@ -67,12 +67,12 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Full reference run.
-                let (ref_out, _) = rust_supersmoother(&[close.as_slice()], &options, None)
+                let (ref_out, _) = SuperSmoother::indicator(&[close.as_slice()], &options, None)
                     .expect("SuperSmoother reference run failed");
 
                 // Seeded run.
                 let (first_out, mut state) =
-                    rust_supersmoother(&[&close[..FIRST_CHUNK]], &options, None)
+                    SuperSmoother::indicator(&[&close[..FIRST_CHUNK]], &options, None)
                         .expect("SuperSmoother seed failed");
 
                 let mut batch_output = first_out[0].clone();
@@ -148,8 +148,9 @@ mod tests {
                 .expect("SIMD by-assets SuperSmoother failed");
 
             for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
-                let (scalar_outputs, _) = rust_supersmoother(&[close.as_slice()], &options, None)
-                    .expect("Scalar SuperSmoother failed");
+                let (scalar_outputs, _) =
+                    SuperSmoother::indicator(&[close.as_slice()], &options, None)
+                        .expect("Scalar SuperSmoother failed");
 
                 let simd_out = &simd_results[asset_idx][0];
                 let scalar_out = &scalar_outputs[0];
@@ -207,7 +208,7 @@ mod tests {
                 .expect("SIMD by-options SuperSmoother failed");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
-                let (scalar_outputs, _) = rust_supersmoother(&inputs, options, None)
+                let (scalar_outputs, _) = SuperSmoother::indicator(&inputs, options, None)
                     .expect("Scalar SuperSmoother failed");
 
                 let simd_out = &simd_results[opt_idx][0];
@@ -288,8 +289,9 @@ mod tests {
                     batch_output.extend_from_slice(&chunk_outputs[0]);
                 }
 
-                let (scalar_outputs, _) = rust_supersmoother(&[close.as_slice()], &options, None)
-                    .expect("Scalar SuperSmoother failed");
+                let (scalar_outputs, _) =
+                    SuperSmoother::indicator(&[close.as_slice()], &options, None)
+                        .expect("Scalar SuperSmoother failed");
 
                 assert_eq!(
                     batch_output.len(),
@@ -368,8 +370,9 @@ mod tests {
                     batch_output.extend_from_slice(&chunk_outputs[0]);
                 }
 
-                let (scalar_outputs, _) = rust_supersmoother(&[close.as_slice()], options, None)
-                    .expect("Scalar SuperSmoother failed");
+                let (scalar_outputs, _) =
+                    SuperSmoother::indicator(&[close.as_slice()], options, None)
+                        .expect("Scalar SuperSmoother failed");
 
                 assert_eq!(
                     batch_output.len(),
@@ -402,5 +405,4 @@ mod tests {
             }
         }
     }
-
-    }
+}

@@ -1,4 +1,4 @@
-use tulip_rs::indicators::qstick::{indicator, TIndicatorState};
+use tulip_rs::indicators::qstick::{Indicator, QStick, TIndicatorState};
 
 fn main() {
     let open = [
@@ -12,7 +12,7 @@ fn main() {
 
     let inputs = [&open[0..open.len() - 5], &close[0..close.len() - 5]];
     let options = [5.0];
-    let (outputs, mut state) = match indicator(&inputs, &options, None) {
+    let (outputs, mut state) = match QStick::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

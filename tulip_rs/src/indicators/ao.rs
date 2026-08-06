@@ -1,19 +1,19 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
 use crate::indicators::medprice::calc as calc_medprice;
 use crate::indicators::{
     simd_indicators::sma_simd::SimdState as SmaSimdState,
-    sma::{calc as sma_calc, multiplier as sma_multiplier, output_length as sma_output_length},
+    sma::{calc as sma_calc, multiplier as sma_multiplier, Sma},
 };
-use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
 use serde::{Deserialize, Serialize};
 use std::simd::Simd;
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 2;
-
+pub const INPUTS: usize = 2;
+//pub type Init = Full;
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 0;
+pub const OPTIONS: usize = 0;
 pub const SHORT_PERIOD: usize = 5;
 pub const LONG_PERIOD: usize = 34;
 
@@ -32,40 +32,12 @@ pub mod by_assets {
     /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::ao_simd::indicator_by_assets as indicator;
 }
-/// Returns information about the Awesome Oscillator (AO) indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the AO indicator.
-pub const INFO: Info = Info {
-    name: "ao",
-    full_name: "Awesome Oscillator",
-    indicator_type: IndicatorType::Momentum,
-    inputs: &["high", "low"],
-    options: &[],
-    outputs: &["ao"],
-    optional_outputs: &["short_sma", "long_sma", "medprice"],
-    display_groups: &[
-        DisplayGroup {
-            offset: None,
-            id: "ao",
-            label: "AO",
-            display_type: DisplayType::Indicator,
-            outputs: &["ao"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "short_sma_long_sma_medprice",
-            label: "Median Price",
-            display_type: DisplayType::Overlay,
-            outputs: &["short_sma", "long_sma", "medprice"],
-        },
-    ],
-};
-pub type IndicatorState = State;
+
+pub type IndicatorState = State<Warm>;
 #[derive(Serialize, Deserialize)]
-pub struct State {
-    pub buffer: Buffer,
+#[serde(bound = "")]
+pub struct State<S = Cold> {
+    pub buffer: Buffer<S>,
     pub sma_state: SmaSimdState<2>,
 }
 
@@ -73,7 +45,7 @@ impl TIndicatorState<2> for IndicatorState {
     #[inline(always)]
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -101,8 +73,8 @@ impl TIndicatorState<2> for IndicatorState {
         Ok(vec![ao_line, short_sma_line, long_sma_line, medprice_line])
     }
 }
-impl State {
-    pub fn new(short_sum: f64, long_sum: f64) -> Self {
+impl State<Cold> {
+    pub fn new(short_sum: f64, long_sum: f64) -> State<Cold> {
         let multiplier = {
             let multi = multiplier((SHORT_PERIOD, LONG_PERIOD));
             Simd::from_array([multi.0, multi.1])
@@ -116,171 +88,60 @@ impl State {
         inputs: (&[f64], &[f64]),
         medprice_line: &mut [f64],
         short_sma_line: &mut [f64],
-    ) -> Self {
+    ) -> State<Warm> {
         let (high, low) = inputs;
         let mut state = Self::new(0.0, 0.0);
+        let [short_sum, long_sum] = state.sma_state.sum.as_mut_array();
         let (multiplier, _) = multiplier((SHORT_PERIOD, LONG_PERIOD));
         for (i, (&high_val, &low_val)) in high.iter().zip(low.iter()).take(LONG_PERIOD).enumerate()
         {
             let med_price = calc_medprice(high_val, low_val);
             let mut sma = 0.0;
             state.buffer.push(med_price);
-            state.sma_state.sum[1] += med_price;
+            *long_sum += med_price;
             if i >= SHORT_PERIOD {
                 let prev_medprice = calc_medprice(high[i - SHORT_PERIOD], low[i - SHORT_PERIOD]);
                 sma = sma_calc(
-                    &mut state.sma_state.sum[0],
+                    short_sum,
                     &med_price,
                     &prev_medprice,
                     &multiplier,
                 );
             } else {
-                state.sma_state.sum[0] += med_price;
+                *short_sum += med_price;
             }
             crate::init_store_optional_outputs!(i, high.len(),
                 medprice_line => med_price,
                 short_sma_line => sma
             );
         }
-        state
-    }
+        State {
+            sma_state: state.sma_state,
+            buffer: state.buffer.into_full()
+        }
+    }    
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64);
+    type Outputs = (f64, f64, f64, f64);
     #[inline(always)]
-    pub unsafe fn calc_unchecked(&mut self, values: (f64, f64)) -> (f64, f64, f64, f64) {
+    fn calc<'a>(&mut self, values: Self::Inputs<'a>) -> Self::Outputs {
         let (high, low) = values;
 
         let med_price = calc_medprice(high, low);
 
-        let long_old = self.buffer.push_with_info_unchecked(med_price);
+        let long_old = self.buffer.push_with_info(med_price);
         let short_old = self.buffer.get_by_period(SHORT_PERIOD);
         let [short_sma, long_sma] = self
             .sma_state
-            .calc_simd(
+            .calc((
                 Simd::splat(med_price),
                 Simd::from_array([short_old, long_old]),
-            )
+            ))
             .to_array();
 
         (short_sma - long_sma, short_sma, long_sma, med_price)
     }
-    #[inline(always)]
-    pub fn calc(&mut self, values: (f64, f64)) -> (f64, f64, f64, f64) {
-        let (high, low) = values;
-
-        let med_price = calc_medprice(high, low);
-
-        let [short_sma, long_sma] = if let Some(long_old) = self.buffer.push_with_info(med_price) {
-            let short_old = self.buffer.get_by_period(SHORT_PERIOD);
-            self.sma_state
-                .calc_simd(
-                    Simd::splat(med_price),
-                    Simd::from_array([short_old, long_old]),
-                )
-                .to_array()
-        } else {
-            let short_sma = sma_calc(
-                &mut self.sma_state.sum[0],
-                &med_price,
-                &self.buffer.get_by_period(SHORT_PERIOD),
-                &self.sma_state.multiplier[0],
-            );
-            [short_sma, 0.0]
-        };
-
-        (short_sma - long_sma, short_sma, long_sma, med_price)
-    }
-}
-/// Returns the minimum amount of data required for the AO indicator.
-///
-/// # Arguments
-///
-/// * `_options` - A slice containing the options for the AO calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(_options: &[f64]) -> usize {
-    35 // long_period
-}
-
-/// Calculates the output length for the AO indicator based on the data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the AO calculation (unused; AO has no configurable options).
-///
-/// # Returns
-///
-/// The output length.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-
-/// Calculates the Awesome Oscillator (AO) indicator over the full input dataset.
-///
-/// Uses fixed periods of 5 (short SMA) and 34 (long SMA) applied to the median price.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — high prices
-/// * `inputs[1]` — low prices
-///
-/// # Arguments
-///
-/// * `inputs` - Array of 2 input price slices (see Inputs above).
-/// * `_options` - Unused; AO has no configurable options.
-/// * `optional_outputs` - Pass `Some(&[true, false, false])` to enable individual
-///   optional outputs (`short_sma`, `long_sma`, `medprice`); `None` disables all.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is the `ao` line,
-/// `outputs[1]` is the optional `short_sma` line, `outputs[2]` is the optional `long_sma` line,
-/// and `outputs[3]` is the optional `medprice` line (each empty if not requested).
-/// `state` can be passed to `IndicatorState::batch_indicator` to continue streaming.
-///
-/// Returns `Err(IndicatorError)` if inputs are too short.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    _options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_inputs(inputs, min_data(_options))?;
-
-    let high = inputs[0];
-    let low = inputs[1];
-
-    let (mut ao_line, (mut short_sma_line, mut long_sma_line, mut medprice_line)) = {
-        let capacity = output_length(high.len(), _options);
-        let short_capacity = sma_output_length(high.len(), &[SHORT_PERIOD as f64]);
-
-        (
-            crate::uninit_vec!(f64, capacity),
-            crate::init_optional_outputs_eff!(
-                optional_outputs, &optional_outputs.unwrap_or(&[false, false, false]),
-                short_sma_line: short_capacity,
-                long_sma_line: capacity,
-                medprice_line: high.len()
-            ),
-        )
-    };
-
-    let mut state = State::init_state((high, low), &mut medprice_line, &mut short_sma_line);
-    let optional_outputs = {
-        let offsets = crate::slice_outputs_start!(ao_line.len(), medprice_line, short_sma_line);
-        (
-            &mut short_sma_line[offsets.1..],
-            long_sma_line.as_mut_slice(),
-            &mut medprice_line[offsets.0..],
-        )
-    };
-    let (high, low) = { (&high[LONG_PERIOD..], &low[LONG_PERIOD..]) };
-    cycle_ao(high, low, &mut state, &mut ao_line, optional_outputs);
-
-    Ok((
-        vec![ao_line, short_sma_line, long_sma_line, medprice_line],
-        state,
-    ))
 }
 
 /// Performs the main calculation loop for the AO indicator.
@@ -296,7 +157,7 @@ pub fn indicator(
 fn cycle_ao(
     high: &[f64],
     low: &[f64],
-    state: &mut State,
+    state: &mut State<Warm>,
     ao_line: &mut [f64],
     out_vecs: (&mut [f64], &mut [f64], &mut [f64]),
 ) {
@@ -307,7 +168,7 @@ fn cycle_ao(
     for i in 0..high.len() {
         let values = unsafe { (*high.get_unchecked(i), *low.get_unchecked(i)) };
 
-        let (ao, short_sma, long_sma, medprice) = unsafe { state.calc_unchecked(values) };
+        let (ao, short_sma, long_sma, medprice) = state.calc(values);
         unsafe { *ao_line.get_unchecked_mut(i) = ao };
 
         if has_optional {
@@ -323,4 +184,80 @@ fn cycle_ao(
 #[inline(always)]
 pub fn multiplier(periods: (usize, usize)) -> (f64, f64) {
     (sma_multiplier(periods.0), sma_multiplier(periods.1))
+}
+
+pub struct Ao;
+
+impl Indicator<INPUTS, OPTIONS> for Ao {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "ao",
+        full_name: "Awesome Oscillator",
+        indicator_type: IndicatorType::Momentum,
+        inputs: &["high", "low"],
+        options: &[],
+        outputs: &["ao"],
+        optional_outputs: &["short_sma", "long_sma", "medprice"],
+        display_groups: &[
+            DisplayGroup {
+                offset: None,
+                id: "ao",
+                label: "AO",
+                display_type: DisplayType::Indicator,
+                outputs: &["ao"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "short_sma_long_sma_medprice",
+                label: "Median Price",
+                display_type: DisplayType::Overlay,
+                outputs: &["short_sma", "long_sma", "medprice"],
+            },
+        ],
+    };
+    fn min_data(_options: &[f64; OPTIONS]) -> usize {
+        35 // long_period
+    }
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        _options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_inputs(inputs, Self::min_data(_options))?;
+    
+        let high = inputs[0];
+        let low = inputs[1];
+    
+        let (mut ao_line, (mut short_sma_line, mut long_sma_line, mut medprice_line)) = {
+            let capacity = Self::output_length(high.len(), _options);
+            let short_capacity = Sma::output_length(high.len(), &[SHORT_PERIOD as f64]);
+    
+            (
+                crate::uninit_vec!(f64, capacity),
+                crate::init_optional_outputs_eff!(
+                    optional_outputs, &optional_outputs.unwrap_or(&[false, false, false]),
+                    short_sma_line: short_capacity,
+                    long_sma_line: capacity,
+                    medprice_line: high.len()
+                ),
+            )
+        };
+    
+        let mut state = State::init_state((high, low), &mut medprice_line, &mut short_sma_line);
+        let optional_outputs = {
+            let offsets = crate::slice_outputs_start!(ao_line.len(), medprice_line, short_sma_line);
+            (
+                &mut short_sma_line[offsets.1..],
+                long_sma_line.as_mut_slice(),
+                &mut medprice_line[offsets.0..],
+            )
+        };
+        let (high, low) = { (&high[LONG_PERIOD..], &low[LONG_PERIOD..]) };
+        cycle_ao(high, low, &mut state, &mut ao_line, optional_outputs);
+    
+        Ok((
+            vec![ao_line, short_sma_line, long_sma_line, medprice_line],
+            state,
+        ))
+    }
 }

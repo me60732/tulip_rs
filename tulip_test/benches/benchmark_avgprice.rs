@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 use tulip_rs::indicators::avgprice::{
-    indicator, indicator_by_assets, min_data, IndicatorState, TIndicatorState,
+    AvgPrice, Indicator, indicator_by_assets, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -174,7 +174,7 @@ fn bench_rust_avgprice(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, None)
+                        let result = AvgPrice::indicator(&inputs, &options, None)
                             .expect("Rust AVGPRICE indicator failed");
                         black_box(&result);
                     },
@@ -207,7 +207,7 @@ fn bench_rust_avgprice(c: &mut Criterion) {
             group.bench_function("Rust AVGPRICE", |b| {
                 b.iter(|| {
                     let result =
-                        indicator(&inputs, &options, None).expect("Rust AVGPRICE indicator failed");
+                        AvgPrice::indicator(&inputs, &options, None).expect("Rust AVGPRICE indicator failed");
                     black_box(&result);
                 })
             });
@@ -235,7 +235,7 @@ fn bench_rust_avgprice_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                        let min_data_val = AvgPrice::min_data(&options).max(CHUNK_SIZE);
                         // First chunk
                         let chunk_inputs = [
                             &open_vec[..min_data_val],
@@ -244,7 +244,7 @@ fn bench_rust_avgprice_from_state(c: &mut Criterion) {
                             &close_vec[..min_data_val],
                         ];
 
-                        let (_, mut state) = indicator(&chunk_inputs, &options, None)
+                        let (_, mut state) = AvgPrice::indicator(&chunk_inputs, &options, None)
                             .expect("AVGPRICE indicator failed");
 
                         // Chunks
@@ -306,7 +306,7 @@ fn bench_rust_avgprice_from_state(c: &mut Criterion) {
                         &low_vec[low_vec.len() - 1..],
                         &close_vec[close_vec.len() - 1..],
                     ];
-                    let (_, mut state) = indicator(&new_inputs, &options, None)
+                    let (_, mut state) = AvgPrice::indicator(&new_inputs, &options, None)
                         .expect("Rust AVGPRICE indicator failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -330,7 +330,7 @@ fn bench_rust_avgprice_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) = indicator(&new_inputs, &options, None)
+                    let (_, state) = AvgPrice::indicator(&new_inputs, &options, None)
                         .expect("Rust AVGPRICE indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
@@ -369,7 +369,7 @@ fn bench_rust_avgprice_from_state(c: &mut Criterion) {
 
             group.bench_function("benchmark", |b| {
                 b.iter(|| {
-                    let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                    let min_data_val = AvgPrice::min_data(&options).max(CHUNK_SIZE);
                     // First chunk
                     let chunk_inputs = [
                         &open_vec[..min_data_val],
@@ -378,7 +378,7 @@ fn bench_rust_avgprice_from_state(c: &mut Criterion) {
                         &close_vec[..min_data_val],
                     ];
 
-                    let (_, mut state) = indicator(&chunk_inputs, &options, None)
+                    let (_, mut state) = AvgPrice::indicator(&chunk_inputs, &options, None)
                         .expect("AVGPRICE indicator failed");
 
                     // Chunks
@@ -432,7 +432,7 @@ fn bench_rust_avgprice_from_state(c: &mut Criterion) {
                     &close_vec[close_vec.len() - 1..],
                 ];
                 let (_, mut state) =
-                    indicator(&new_inputs, &options, None).expect("Rust AVGPRICE indicator failed");
+                    AvgPrice::indicator(&new_inputs, &options, None).expect("Rust AVGPRICE indicator failed");
 
                 let mut group = c.benchmark_group("Rust AVGPRICE from state 1 bar");
                 group.sample_size(SAMPLE_SIZE);

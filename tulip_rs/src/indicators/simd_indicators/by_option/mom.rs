@@ -1,6 +1,6 @@
 use crate::types::IndicatorError;
 
-use crate::indicators::mom::{indicator, IndicatorState, INPUTS_WIDTH, OPTIONS_WIDTH};
+use crate::indicators::mom::{Mom, Indicator, IndicatorState, INPUTS, OPTIONS};
 
 /// Calculates the Momentum (MOM) indicator for one asset with `N` different option sets.
 ///
@@ -18,8 +18,8 @@ use crate::indicators::mom::{indicator, IndicatorState, INPUTS_WIDTH, OPTIONS_WI
 /// and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS],
+    options: &[&[f64; OPTIONS]; N],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
     let mut all_outputs = Vec::with_capacity(N);
@@ -27,7 +27,7 @@ pub fn indicator_by_options<const N: usize>(
 
     // Just call the scalar indicator N times, no simd
     for option in options.iter() {
-        let (outputs, state) = indicator(inputs, option, _optional_outputs)?;
+        let (outputs, state) = Mom::indicator(inputs, option, _optional_outputs)?;
         all_outputs.push(outputs);
         all_states.push(state);
     }

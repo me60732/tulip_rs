@@ -1,57 +1,44 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
-use crate::indicators::simd_indicators::chandelierexit_simd::{options::Calc, SimdState};
+use crate::indicators::simd_indicators::chandelierexit_simd::{
+    options::SimdState, TSimdState, TState,
+};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::{
     chandelierexit::{
-        min_data, multiplier, output_length, validate_options as vo, IndicatorState, State,
-        INPUTS_WIDTH, OPTIONS_WIDTH,
+        validate_options as vo, ChandelierExit, Indicator, IndicatorState, State, INPUTS, OPTIONS,
     },
-    max::output_length as max_output_length,
-    tr::output_length as tr_output_length,
+    max::Max,
+    tr::Tr,
 };
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 /// SIMD driver for the Chandelier Exit indicator, processing `N` option-set lanes per scheduling epoch.
 struct ChandelierExitDriver {
     want_optional_outputs: (bool, bool, bool, bool, bool),
 }
 
-impl Driver<State, (usize, usize, (f64, (f64, f64)))> for ChandelierExitDriver {
+impl Driver<State<Warm>, (usize, usize)> for ChandelierExitDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD. Reads the shared input, applies each lane's options, writes outputs, and updates per-lane states.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
-        options: Vec<Option<&(usize, usize, (f64, (f64, f64)))>>,
+        mut states: Vec<&mut State<Warm>>,
+        options: Vec<Option<&(usize, usize)>>,
     ) {
         let len = outputs[0][0].len();
 
-        let (look_back, multipliers, mut i_simd) = {
+        let (look_back, mut i_simd) = {
             let mut look_back = [0; N];
             let mut i_array = [0; N];
-            let mut multipliers = ([0.0; N], ([0.0; N], [0.0; N]));
             for (lane, option) in options.iter().enumerate() {
-                if let Some(&(p, l, m)) = option {
+                if let Some(&(p, l)) = option {
                     look_back[lane] = l;
                     i_array[lane] = p;
-                    multipliers.0[lane] = m.0;
-                    multipliers.1 .0[lane] = m.1 .0;
-                    multipliers.1 .1[lane] = m.1 .1;
                 }
             }
-            (
-                Simd::from_array(look_back),
-                (
-                    Simd::from_array(multipliers.0),
-                    (
-                        Simd::from_array(multipliers.1 .0),
-                        Simd::from_array(multipliers.1 .1),
-                    ),
-                ),
-                Simd::from_array(i_array),
-            )
+            (Simd::from_array(look_back), Simd::from_array(i_array))
         };
 
         //collect outputs
@@ -69,7 +56,7 @@ impl Driver<State, (usize, usize, (f64, (f64, f64)))> for ChandelierExitDriver {
         let (high_ptrs, low_ptrs, close_ptrs) =
             crate::extract_input_ptrs!(inputs, N, high_ptrs, low_ptrs, close_ptrs);
 
-        let mut state = SimdState::new(&mut states);
+        let mut state = SimdState::from_states(&mut states);
         let one_splat = Simd::splat(1);
         let (has_optional, want_atr, want_tr, want_min, want_max) = self.want_optional_outputs;
         //println!("start: {:?}, N: {:?}, LEN: {:?}", start, N, real.len());
@@ -77,16 +64,8 @@ impl Driver<State, (usize, usize, (f64, (f64, f64)))> for ChandelierExitDriver {
             let close = crate::extract_simd_inputs_at_index_array!(i_simd.as_array(), N,
                 close @ close_ptrs
             );
-            let (long, short, atr, tr, min, max) = unsafe {
-                state.calc_unchecked_simd(
-                    high_ptrs,
-                    low_ptrs,
-                    close,
-                    i_simd,
-                    look_back,
-                    multipliers,
-                )
-            };
+            let (long, short, atr, tr, min, max) =
+                state.calc((high_ptrs, low_ptrs, close, i_simd, look_back));
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, j,
@@ -113,7 +92,7 @@ impl Driver<State, (usize, usize, (f64, (f64, f64)))> for ChandelierExitDriver {
 /// simultaneously using SIMD parallelism.
 ///
 /// # Arguments
-/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS]`), containing
 ///   `[high, low, close]`.
 /// * `options` - An array of `N` option sets, one per SIMD lane: `[period, multiplier]`.
 /// * `optional_outputs` - Optional flags `[want_atr, want_tr, want_min, want_max]` to enable extra outputs.
@@ -123,49 +102,44 @@ impl Driver<State, (usize, usize, (f64, (f64, f64)))> for ChandelierExitDriver {
 /// and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS],
+    options: &[&[f64; OPTIONS]; N],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, ChandelierExit::min_data)?;
     validate_options(options, Some(vo))?;
-    let params: [(usize, usize, (f64, (f64, f64))); N] = std::array::from_fn(|i| {
+    let params: [(usize, usize); N] = std::array::from_fn(|i| {
         let period = options[i][0] as usize;
-        (period, period - 1, (options[i][1], multiplier(period)))
+        (period, period - 1)
     });
-    let mut road_train = PrimeMover::<N, State, (usize, usize, (f64, (f64, f64)))>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>, (usize, usize)>::new();
     let mut output_buffers = Vec::with_capacity(N);
     let mut want_optional_outputs = (false, false, false, false, false);
-
+    let [high, low, close] = *inputs;
     for i in 0..N {
-        let asset_inputs = vec![
-            inputs[0], // high
-            inputs[1], // low
-            inputs[2], // close
-        ];
-
+        let asset_inputs = vec![high, low, close];
+        let step = options[i][1];
         let (long_line, short_line, (atr_line, mut tr_line, mut min_line, mut max_line)) = {
-            let len = inputs[0].len();
-            let capacity = output_length(len, options[i]);
-            let min_max_capacity = max_output_length(len, options[i]);
+            let len = high.len();
+            let capacity = ChandelierExit::output_length(len, options[i]);
+            let min_max_capacity = Max::output_length(len, &[options[i][0]]);
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::uninit_vec!(f64, capacity),
                 crate::init_optional_outputs_eff!(
                     optional_outputs, &[false, false, false, false],
                     atr_line: capacity,
-                    tr_line: tr_output_length(len, options[i]),
+                    tr_line: Tr::output_length(len, &[]),
                     min_line: min_max_capacity,
                     max_line: min_max_capacity
                 ),
             )
         };
-        let state = State::new(
-            inputs[0],
-            inputs[1],
-            inputs[2],
+        let state = State::init_state(
+            (high, low, close),
             params[i].0,
             params[i].1,
+            step,
             (&mut tr_line, &mut min_line, &mut max_line),
         );
         let mut starts = [0; 6];
@@ -209,14 +183,7 @@ pub fn indicator_by_options<const N: usize>(
     let mut states = Vec::with_capacity(N);
     for (state, &param) in states_vec.into_iter().zip(params.iter()) {
         let periods = (param.0, param.1);
-        let multipliers = param.2;
-        states.push(IndicatorState::new(
-            inputs[0],
-            inputs[1],
-            state,
-            periods,
-            multipliers,
-        ));
+        states.push(IndicatorState::new(inputs[0], inputs[1], state, periods));
     }
     Ok((output_buffers, states))
 }

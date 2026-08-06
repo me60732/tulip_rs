@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::linreg::{indicator as rust_linreg, min_data, TIndicatorState};
+    use tulip_rs::indicators::linreg::{Linreg, Indicator, TIndicatorState, indicator_by_assets, indicator_by_options};
     use tulip_test::c_bindings::{
         ti_linreg, ti_linreg_start, ti_linregintercept, ti_linregintercept_start, ti_linregslope,
         ti_linregslope_start,
@@ -65,7 +65,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_linreg(&inputs_rust, &options, None).expect("Rust LINREG indicator failed");
+                Linreg::indicator(&inputs_rust, &options, None).expect("Rust LINREG indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -152,7 +152,7 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) = rust_linreg(&inputs_rust, &options, None)
+                let (outputs, _) = Linreg::indicator(&inputs_rust, &options, None)
                     .expect("Rust LINREG indicator failed");
 
                 let output_len_rust = outputs[0].len();
@@ -218,19 +218,19 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Get full output
-                let (full_outputs, _) = rust_linreg(&inputs_rust, &options, None)
+                let (full_outputs, _) = Linreg::indicator(&inputs_rust, &options, None)
                     .expect("Failed to run LINREG indicator on full data");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Linreg::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let close_vec = close[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice()];
 
-                let (first_outputs, mut state) = rust_linreg(&chunk_inputs, &options, None)
+                let (first_outputs, mut state) = Linreg::indicator(&chunk_inputs, &options, None)
                     .expect("Failed to run LINREG indicator on first chunk");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -285,7 +285,6 @@ mod tests {
 
     #[test]
     fn test_linreg_simd_vs_regular_database() {
-        use tulip_rs::indicators::linreg::indicator_by_assets;
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -316,7 +315,7 @@ mod tests {
                 for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                     // Get regular indicator result for this stock
                     let stock_inputs = [stock_close.as_slice()];
-                    let (regular_results, _) = rust_linreg(&stock_inputs, &options, None)
+                    let (regular_results, _) = Linreg::indicator(&stock_inputs, &options, None)
                         .expect("Regular LINREG indicator failed");
 
                     let simd_result = &simd_results[stock_idx][0];
@@ -379,7 +378,6 @@ mod tests {
 
     #[test]
     fn test_linreg_simd_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::linreg::indicator_by_assets;
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -412,7 +410,7 @@ mod tests {
                     // Get regular indicator result for this stock with optional outputs
                     let stock_inputs = [stock_close.as_slice()];
                     let (regular_results_opt, _) =
-                        rust_linreg(&stock_inputs, &options, Some(&[true, true]))
+                        Linreg::indicator(&stock_inputs, &options, Some(&[true, true]))
                             .expect("Regular LINREG indicator with optional outputs failed");
 
                     // Compare all outputs: LINREG, slope, intercept
@@ -488,7 +486,7 @@ mod tests {
         let optional_outputs = Some([true, false].as_slice()); // Request linregslope output
 
         // Get Rust LINREG output with linregslope optional output
-        let result = rust_linreg(&inputs, &options, optional_outputs).unwrap();
+        let result = Linreg::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_linregslope = &result.0[1]; // linregslope is at index 1
 
         // Fail fast if Rust output is empty
@@ -568,7 +566,7 @@ mod tests {
         let optional_outputs = Some([true, true].as_slice()); // Request both slope and intercept outputs
 
         // Get Rust LINREG output with slope and intercept optional outputs
-        let result = rust_linreg(&inputs, &options, optional_outputs).unwrap();
+        let result = Linreg::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_slope = &result.0[1]; // slope is at index 1
         let rust_intercept = &result.0[2]; // intercept is at index 2
 
@@ -667,7 +665,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get LINREG with slope optional output
                 let optional_outputs = Some(&[true, false][..]);
-                let (linreg_result, _) = tulip_rs::indicators::linreg::indicator(
+                let (linreg_result, _) = Linreg::indicator(
                     &[&close],
                     &[options[0]],
                     optional_outputs,
@@ -750,7 +748,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get LINREG with both slope and intercept optional outputs
                 let optional_outputs = Some(&[true, true][..]);
-                let (linreg_result, _) = tulip_rs::indicators::linreg::indicator(
+                let (linreg_result, _) = Linreg::indicator(
                     &[&close],
                     &[options[0]],
                     optional_outputs,
@@ -826,8 +824,7 @@ mod tests {
 
     #[test]
     fn test_linreg_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::linreg::indicator as rust_linreg;
-        use tulip_rs::indicators::linreg::indicator_by_options;
+        
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -853,7 +850,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_linreg(&inputs, options, None).expect("Regular LINREG indicator failed");
+                    Linreg::indicator(&inputs, options, None).expect("Regular LINREG indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -914,8 +911,7 @@ mod tests {
 
     #[test]
     fn test_linreg_simd_by_options_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::linreg::indicator as rust_linreg;
-        use tulip_rs::indicators::linreg::indicator_by_options;
+        
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -944,7 +940,7 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result with optional outputs
-                let (regular_results, _) = rust_linreg(&inputs, options, optional_outputs)
+                let (regular_results, _) = Linreg::indicator(&inputs, options, optional_outputs)
                     .expect("Regular LINREG indicator with optional outputs failed");
 
                 let simd_linreg_result = &all_simd_results[idx][0];

@@ -1,4 +1,5 @@
-use tulip_rs::indicators::adosc::{indicator, TIndicatorState};
+use tulip_rs::indicators::adosc::{Adosc, Indicator, TIndicatorState};
+
 fn main() {
     let high = [
         82.15, 81.89, 83.03, 83.3, 83.85, 83.9, 83.33, 84.3, 84.84, 85.0, 85.9, 86.58, 86.98, 88.0,
@@ -25,7 +26,7 @@ fn main() {
     ];
 
     // Call the indicator function
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true, true, true])) {
+    let (outputs, _) = match Adosc::indicator(&inputs, &options, Some(&[false, false, false])) {
         Ok(results) => results,
         Err(e) => {
             println!("Error: {:?}", e.message());
@@ -47,13 +48,14 @@ fn main() {
     ];
 
     // Call the indicator function
-    let (outputs, mut state) = match indicator(&inputs, &options, Some(&[true, true, true])) {
-        Ok(results) => results,
-        Err(e) => {
-            println!("Error: {:?}", e.message());
-            return;
-        }
-    };
+    let (outputs, mut state) =
+        match Adosc::indicator(&inputs, &options, Some(&[false, false, false])) {
+            Ok(results) => results,
+            Err(e) => {
+                println!("Error: {:?}", e.message());
+                return;
+            }
+        };
 
     // Process the results
     println!("\n\nPartial ADOSC Line: {:?}", outputs[0]);

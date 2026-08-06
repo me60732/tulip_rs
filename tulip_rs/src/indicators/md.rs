@@ -1,15 +1,14 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::sma::calc as sma_calc;
-pub use crate::indicators::sma::{init_state, multiplier};
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+use crate::indicators::sma::State as SmaState;
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
-
+use std::ops::{Deref, DerefMut};
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 1;
+pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -44,41 +43,60 @@ pub mod by_options {
 }
 
 use std::simd::{num::SimdFloat, Simd};
-/// Returns information about the Mean Deviation (MD) indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the MD indicator.
-pub const INFO: Info = Info {
-    name: "md",
-    indicator_type: IndicatorType::Volatility,
-    full_name: "Mean Deviation",
-    inputs: &["real"],
-    options: &["period"],
-    outputs: &["md"],
-    optional_outputs: &["sma"],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "md",
-        label: "MD",
-        display_type: DisplayType::Indicator,
-        outputs: &["md"],
-    }],
-};
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     real: Vec<f64>,
-    multiplier: f64,
-    sum: f64,
+    state: State<Warm>,
     period: usize,
 }
+#[derive(Serialize, Deserialize)]
+#[serde(bound = "")]
+#[repr(transparent)]
+pub struct State<S = Cold>(pub SmaState<S>);
+impl<S> Deref for State<S> {
+    type Target = SmaState<S>;
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl<S> DerefMut for State<S> {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+impl State<Cold> {
+    pub fn init_state(real: &[f64], period: usize) -> State<Warm> {
+        State(SmaState::init_state(real, period))
+    }
+    pub(crate) fn into_warm(self) -> State<Warm> {
+        State(self.0.into_warm())
+    }
+    pub fn new(sum: f64, period: usize) -> Self {
+        State(SmaState::new(sum, period))
+    }
+}
+
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64, &'a [f64]);
+    type Outputs = (f64, f64);
+
+    #[inline(always)]
+    fn calc<'a>(&mut self, (value, prev_value, slice): Self::Inputs<'a>) -> (f64, f64) {
+        let sma = self.0.calc((value, prev_value));
+
+        let mean_deviation = calc_md_simd::<4>(slice, sma, self.multiplier);
+        (mean_deviation, sma)
+    }
+}
+
 impl IndicatorState {
-    pub fn new(real: &[f64], sum: f64, multiplier: f64, period: usize) -> Self {
+    pub fn new(real: &[f64], state: State<Warm>, period: usize) -> Self {
         Self {
             real: real[real.len() - period..].to_vec(),
-            multiplier,
-            sum,
+            state,
             period,
         }
     }
@@ -86,7 +104,7 @@ impl IndicatorState {
 impl TIndicatorState<1> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -103,133 +121,17 @@ impl TIndicatorState<1> for IndicatorState {
                 ),
             )
         };
-        match self.period {
-            1..=4 => {
-                self.sum = cycle_md::<1>(
-                    &self.real,
-                    self.sum,
-                    self.period,
-                    self.multiplier,
-                    &mut md_line,
-                    &mut sma_line,
-                )
-            }
-            5..=200 => {
-                self.sum = cycle_md::<4>(
-                    &self.real,
-                    self.sum,
-                    self.period,
-                    self.multiplier,
-                    &mut md_line,
-                    &mut sma_line,
-                )
-            }
-            _ => {
-                self.sum = cycle_md::<8>(
-                    &self.real,
-                    self.sum,
-                    self.period,
-                    self.multiplier,
-                    &mut md_line,
-                    &mut sma_line,
-                )
-            }
-        }
+        cycle_md(
+            &self.real,
+            &mut self.state,
+            self.period,
+            &mut md_line,
+            &mut sma_line,
+        );
 
         self.real.drain(..self.real.len() - self.period);
         Ok(vec![md_line, sma_line])
     }
-}
-
-/// Returns the minimum amount of data required for the MD indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the MD calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    options[0] as usize + 1
-}
-
-/// Calculates the output length for the MD indicator.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the MD calculation.
-///
-/// # Returns
-///
-/// The output length.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-
-/// Calculates the Mean Deviation (MD) indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — real prices
-///
-/// # Options
-///
-/// * `options[0]` — period
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `optional_outputs` - Pass `Some(&[true])` to enable the optional output
-///   (`sma`); `None` disables all optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where:
-/// - `outputs[0]` — `md`
-/// - `outputs[1]` — `sma` (empty if not requested)
-///
-/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    if options[0] < 1.0 {
-        return Err(IndicatorError::InvalidOptions);
-    }
-    validate_options(options)?;
-    let period = options[0] as usize;
-    let multiplier = multiplier(period);
-
-    validate_inputs(inputs, min_data(options))?;
-    let real = inputs[0];
-
-    let mut sum = init_state(real, period);
-    let (mut md_line, mut sma_line) = {
-        let capacity = output_length(real.len(), options);
-        (
-            crate::uninit_vec!(f64, capacity),
-            crate::init_optional_outputs_eff!(
-                optional_outputs, &[false],
-                sma_line: capacity
-            ),
-        )
-    };
-
-    match period {
-        1..=4 => sum = cycle_md::<1>(real, sum, period, multiplier, &mut md_line, &mut sma_line),
-        5..=200 => sum = cycle_md::<4>(real, sum, period, multiplier, &mut md_line, &mut sma_line),
-        _ => sum = cycle_md::<8>(real, sum, period, multiplier, &mut md_line, &mut sma_line),
-    }
-
-    Ok((
-        vec![md_line, sma_line],
-        IndicatorState::new(real, sum, multiplier, period),
-    ))
 }
 
 /// Performs the main calculation loop for the MD indicator.
@@ -246,30 +148,25 @@ pub fn indicator(
 /// # Returns
 ///
 /// The updated running sum.
-fn cycle_md<const N: usize>(
+fn cycle_md(
     real: &[f64],
-    mut sum: f64,
+    state: &mut State<Warm>,
     period: usize,
-    multiplier: f64,
     md_line: &mut [f64],
     sma_line: &mut [f64],
-) -> f64 {
+) {
     let (want_sma, _) = crate::calc_want_flags!(sma_line);
 
     for (j, i) in (period..real.len()).enumerate() {
-        let (value, prev_value, prev_slice) = unsafe {
+        let inputs = unsafe {
             (
-                real.get_unchecked(i),
-                real.get_unchecked(i - period),
-                real.get_unchecked(i + 1 - period..=i),
+                *real.get_unchecked(i),
+                *real.get_unchecked(j),
+                real.get_unchecked(j + 1..=i),
             )
         };
 
-        let (md, sma) = if N == 1 {
-            calc(value, prev_value, prev_slice, &mut sum, multiplier)
-        } else {
-            calc_simd::<N>(value, prev_value, prev_slice, &mut sum, multiplier)
-        };
+        let (md, sma) = state.calc(inputs);
         unsafe { *md_line.get_unchecked_mut(j) = md };
 
         if want_sma {
@@ -278,75 +175,83 @@ fn cycle_md<const N: usize>(
             );
         }
     }
-
-    sum
 }
 
-/// Calculates the current Mean Deviation (MD) value.
-///
-/// # Arguments
-///
-/// * `value` - The current input value.
-/// * `prev_value` - The value leaving the rolling window.
-/// * `slice` - The current window of values used to compute the mean deviation.
-/// * `sum` - A mutable reference to the running sum for the SMA.
-/// * `multiplier` - The SMA multiplier (`1.0 / period`).
-///
-/// # Returns
-///
-/// A tuple containing the MD value and the current SMA value.
-#[inline(always)]
-pub fn calc(
-    value: &f64,
-    prev_value: &f64,
-    slice: &[f64],
-    sum: &mut f64,
-    multiplier: f64,
-) -> (f64, f64) {
-    let sma = sma_calc(sum, value, prev_value, &multiplier);
+pub struct Md;
 
-    let mean_deviation = calc_md(slice, sma, multiplier);
-    (mean_deviation, sma)
-}
-#[inline(always)]
-pub fn calc_simd<const N: usize>(
-    value: &f64,
-    prev_value: &f64,
-    slice: &[f64],
-    sum: &mut f64,
-    multiplier: f64,
-) -> (f64, f64) {
-    let sma = sma_calc(sum, value, prev_value, &multiplier);
+impl Indicator<INPUTS, OPTIONS> for Md {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "md",
+        indicator_type: IndicatorType::Volatility,
+        full_name: "Mean Deviation",
+        inputs: &["real"],
+        options: &["period"],
+        outputs: &["md"],
+        optional_outputs: &["sma"],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "md",
+            label: "MD",
+            display_type: DisplayType::Indicator,
+            outputs: &["md"],
+        }],
+    };
 
-    let mean_deviation = calc_md_simd::<N>(slice, sma, multiplier);
-    (mean_deviation, sma)
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        if options[0] < 1.0 {
+            return Err(IndicatorError::InvalidOptions);
+        }
+        validate_options(options)?;
+        let period = options[0] as usize;
+
+        validate_inputs(inputs, Self::min_data(options))?;
+        let real = inputs[0];
+
+        let mut state = State::init_state(real, period);
+        let (mut md_line, mut sma_line) = {
+            let capacity = Self::output_length(real.len(), options);
+            (
+                crate::uninit_vec!(f64, capacity),
+                crate::init_optional_outputs_eff!(
+                    optional_outputs, &[false],
+                    sma_line: capacity
+                ),
+            )
+        };
+        cycle_md(real, &mut state, period, &mut md_line, &mut sma_line);
+
+        Ok((
+            vec![md_line, sma_line],
+            IndicatorState::new(real, state, period),
+        ))
+    }
 }
+
 #[inline(always)]
 pub(crate) fn calc_md_simd<const N: usize>(slice: &[f64], sma: f64, multiplier: f64) -> f64 {
     //let mut abs_dev_sum = 0.0;
     let sma_vec = Simd::<f64, N>::splat(sma);
 
-    let mut sum_vec = Simd::splat(0.0);
+    let mut sum = Simd::splat(0.0);
     for chunk in slice.chunks_exact(N) {
         let vals = Simd::from_slice(chunk);
-        //let abs_diff = (vals - sma_vec).abs();
-        sum_vec += (vals - sma_vec).abs();
-        //sum_vec += abs_diff;
+        sum += (vals - sma_vec).abs();
     }
 
-    // Sum the SIMD register
-    //let mut abs_dev_sum = sum_vec.to_array().iter().sum::<f64>();
-    let mut abs_dev_sum = sum_vec.reduce_sum();
+    let mut abs_dev_sum = sum.reduce_sum();
     // Handle remainder
     let processed_len = (slice.len() / N) * N;
     let remainder = &slice[processed_len..];
-    for &x in remainder {
-        abs_dev_sum += (x - sma).abs();
-    }
+    abs_dev_sum += remainder.iter().map(|&x| (x - sma).abs()).sum::<f64>();
 
     abs_dev_sum * multiplier
 }
 #[inline(always)]
-pub(crate) fn calc_md(real: &[f64], sma: f64, multiplier: f64) -> f64 {
+pub fn calc_md(real: &[f64], sma: f64, multiplier: f64) -> f64 {
     real.iter().map(|&x| (x - sma).abs()).sum::<f64>() * multiplier
 }

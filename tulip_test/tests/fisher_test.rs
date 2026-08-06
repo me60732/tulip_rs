@@ -1,7 +1,9 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::fisher::{indicator as rust_fisher, min_data, TIndicatorState};
+    use tulip_rs::indicators::fisher::{
+        indicator_by_assets, indicator_by_options, Fisher, Indicator, TIndicatorState,
+    };
     use tulip_test::c_bindings::{ti_fisher, ti_fisher_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
     const EPSILION: f64 = 1e-12;
@@ -73,8 +75,8 @@ mod tests {
 
             // Run the Rust implementation
             let inputs_rust = [high.as_slice(), low.as_slice()];
-            let (outputs, _) =
-                rust_fisher(&inputs_rust, &options, None).expect("Rust Fisher indicator failed");
+            let (outputs, _) = Fisher::indicator(&inputs_rust, &options, None)
+                .expect("Rust Fisher indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -211,7 +213,7 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [high.as_slice(), low.as_slice()];
-                let (outputs, _) = rust_fisher(&inputs_rust, &options, None)
+                let (outputs, _) = Fisher::indicator(&inputs_rust, &options, None)
                     .expect("Rust Fisher indicator failed");
 
                 let output_len_rust = outputs[0].len();
@@ -326,18 +328,18 @@ mod tests {
                 let inputs_rust = [high.as_slice(), low.as_slice()];
 
                 // Get full output from processing all data at once
-                let (full_outputs, _) = rust_fisher(&inputs_rust, &options, None)
+                let (full_outputs, _) = Fisher::indicator(&inputs_rust, &options, None)
                     .expect("Rust Fisher indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output_fisher = Vec::new();
                 let mut batch_full_output_signal = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Fisher::min_data(&options).max(CHUNK_SIZE);
 
                 if high.len() <= min_data_val {
                     // If data is too small, just run full calculation
-                    let (outputs, _) = rust_fisher(&inputs_rust, &options, None)
+                    let (outputs, _) = Fisher::indicator(&inputs_rust, &options, None)
                         .expect("Failed to run Fisher indicator");
                     batch_full_output_fisher.extend_from_slice(&outputs[0]);
                     batch_full_output_signal.extend_from_slice(&outputs[1]);
@@ -347,8 +349,9 @@ mod tests {
                     let low_vec = low[..min_data_val].to_vec();
                     let chunk_inputs = [high_vec.as_slice(), low_vec.as_slice()];
 
-                    let (first_outputs, mut state) = rust_fisher(&chunk_inputs, &options, None)
-                        .expect("Failed to run Fisher indicator on first chunk");
+                    let (first_outputs, mut state) =
+                        Fisher::indicator(&chunk_inputs, &options, None)
+                            .expect("Failed to run Fisher indicator on first chunk");
                     batch_full_output_fisher.extend_from_slice(&first_outputs[0]);
                     batch_full_output_signal.extend_from_slice(&first_outputs[1]);
 
@@ -433,8 +436,6 @@ mod tests {
 
     #[test]
     fn test_fisher_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::fisher::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -464,8 +465,8 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
-                let (regular_results, _) =
-                    rust_fisher(&inputs, options, None).expect("Regular Fisher indicator failed");
+                let (regular_results, _) = Fisher::indicator(&inputs, options, None)
+                    .expect("Regular Fisher indicator failed");
 
                 let simd_result = &all_simd_results[idx];
                 let regular_result = &regular_results;
@@ -558,8 +559,6 @@ mod tests {
 
     #[test]
     fn test_fisher_simd_by_assets_vs_regular_database() {
-        use tulip_rs::indicators::fisher::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -591,7 +590,7 @@ mod tests {
             {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_high.as_slice(), stock_low.as_slice()];
-                let (regular_results, _) = rust_fisher(&stock_inputs, &options, None)
+                let (regular_results, _) = Fisher::indicator(&stock_inputs, &options, None)
                     .expect("Regular Fisher indicator failed");
 
                 let simd_fisher_result = &simd_results[stock_idx][0];
@@ -699,8 +698,6 @@ mod tests {
 
     #[test]
     fn test_fisher_simd_by_options_state_handover() {
-        use tulip_rs::indicators::fisher::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -760,8 +757,8 @@ mod tests {
 
             // Compare with regular indicator processing all data at once
             for (idx, options) in options_4.iter().enumerate() {
-                let (regular_results, _) =
-                    rust_fisher(&inputs, options, None).expect("Regular Fisher indicator failed");
+                let (regular_results, _) = Fisher::indicator(&inputs, options, None)
+                    .expect("Regular Fisher indicator failed");
 
                 let combined_result = &combined_results[idx];
 
@@ -843,5 +840,4 @@ mod tests {
     }
 
     //add test code here
-
-    }
+}

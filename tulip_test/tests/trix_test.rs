@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::trix::{indicator as rust_trix, min_data, TIndicatorState};
     use tulip_rs::indicators::trix::{indicator_by_assets, indicator_by_options};
+    use tulip_rs::indicators::trix::{Indicator, TIndicatorState, Trix};
     use tulip_test::c_bindings::{
         ti_dema, ti_dema_start, ti_ema, ti_ema_start, ti_tema, ti_tema_start, ti_trix,
         ti_trix_start,
@@ -60,7 +60,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_trix(&inputs_rust, &options, None).expect("Rust TRIX indicator failed");
+                Trix::indicator(&inputs_rust, &options, None).expect("Rust TRIX indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -102,10 +102,10 @@ mod tests {
 
                 if !approx_eq!(f64, c_val, rust_val, epsilon = EPSILION) {
                     // Adjust epsilon if needed
-                    println!(
+                    /*println!(
                         "Test failed at index {}: \nC = {:?}, \nRust = {:?}, Options = {:?}",
                         index, trix_output_vec_c, outputs[0], options
-                    );
+                    );*/
                     panic!(
                         "Mismatch at index {}: C = {}, Rust = {}, Options = {:?}",
                         index, c_val, rust_val, options
@@ -145,8 +145,8 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) =
-                    rust_trix(&inputs_rust, &options, None).expect("Rust TRIX indicator failed");
+                let (outputs, _) = Trix::indicator(&inputs_rust, &options, None)
+                    .expect("Rust TRIX indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -187,6 +187,7 @@ mod tests {
                     }
 
                     if !approx_eq!(f64, c_val, rust_val, epsilon = EPSILION) {
+                        
                         println!(
                             "Test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}",
                             index, output_vec_c, outputs[0], options, stock_symbol
@@ -213,19 +214,19 @@ mod tests {
 
                 // Get full output from processing all data at once
                 let (full_outputs, _) =
-                    rust_trix(&inputs_rust, &options, None).expect("Rust TRIX indicator failed");
+                    Trix::indicator(&inputs_rust, &options, None).expect("Rust TRIX indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Trix::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let close_vec = close[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice()];
 
                 let (first_outputs, mut state) =
-                    rust_trix(&chunk_inputs, &options, None).expect("Rust TRIX indicator failed");
+                    Trix::indicator(&chunk_inputs, &options, None).expect("Rust TRIX indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
                 // Process remaining data in chunks
@@ -295,7 +296,7 @@ mod tests {
             // Run regular implementation for comparison
             let inputs_rust = [close.as_slice()];
             let (regular_outputs, _) =
-                rust_trix(&inputs_rust, &options, None).expect("Regular TRIX indicator failed");
+                Trix::indicator(&inputs_rust, &options, None).expect("Regular TRIX indicator failed");
 
             // Compare each SIMD asset output with regular output
             for (asset_idx, simd_output_data) in simd_outputs.iter().enumerate() {
@@ -364,7 +365,7 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 let min_len = padded_close.iter().map(|c| c.len()).min().unwrap_or(0);
-                if min_len < min_data(&options) {
+                if min_len < Trix::min_data(&options) {
                     continue;
                 }
 
@@ -383,7 +384,7 @@ mod tests {
                 // Compare each asset's SIMD output with its regular output
                 for (asset_idx, close_data) in padded_close.iter().enumerate().take(chunk.len()) {
                     let inputs_rust = [close_data.as_slice()];
-                    let (regular_outputs, _) = rust_trix(&inputs_rust, &options, None)
+                    let (regular_outputs, _) = Trix::indicator(&inputs_rust, &options, None)
                         .expect("Regular TRIX indicator failed");
 
                     let simd_output = &simd_outputs[asset_idx][0];
@@ -448,7 +449,7 @@ mod tests {
             // Run regular implementation for comparison with optional outputs
             let inputs_rust = [close.as_slice()];
             let (regular_outputs_opt, _) =
-                rust_trix(&inputs_rust, &options, Some(&[true, true, true]))
+                Trix::indicator(&inputs_rust, &options, Some(&[true, true, true]))
                     .expect("Regular TRIX indicator with optional outputs failed");
 
             // Compare each SIMD asset output with regular output
@@ -606,7 +607,7 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 let min_len = padded_close.iter().map(|c| c.len()).min().unwrap_or(0);
-                if min_len < min_data(&options) {
+                if min_len < Trix::min_data(&options) {
                     continue;
                 }
 
@@ -628,7 +629,7 @@ mod tests {
                     // Get regular indicator result for this stock with optional outputs
                     let stock_inputs = [close_data.as_slice()];
                     let (regular_results_opt, _) =
-                        rust_trix(&stock_inputs, &options, Some(&[true, true, true]))
+                        Trix::indicator(&stock_inputs, &options, Some(&[true, true, true]))
                             .expect("Regular TRIX indicator with optional outputs failed");
 
                     let simd_trix = &simd_results_opt[asset_idx][0];
@@ -773,7 +774,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_trix(&inputs, options, None).expect("Regular TRIX indicator failed");
+                    Trix::indicator(&inputs, options, None).expect("Regular TRIX indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -867,7 +868,7 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result with optional outputs
-                let (regular_results, _) = rust_trix(&inputs, options, optional_outputs)
+                let (regular_results, _) = Trix::indicator(&inputs, options, optional_outputs)
                     .expect("Regular TRIX indicator with optional outputs failed");
 
                 let simd_trix_result = &all_simd_results[idx][0];
@@ -1061,7 +1062,7 @@ mod tests {
         for options in OPTIONS_LIST {
             // Get Rust TRIX with TEMA optional output enabled
             let inputs_rust = [close.as_slice()];
-            let (outputs, _) = rust_trix(&inputs_rust, &options, Some(&[true, false, false]))
+            let (outputs, _) = Trix::indicator(&inputs_rust, &options, Some(&[true, false, false]))
                 .expect("Rust TRIX indicator failed");
 
             assert!(!outputs.is_empty(), "TRIX outputs should not be empty");
@@ -1150,7 +1151,7 @@ mod tests {
         for options in OPTIONS_LIST {
             // Get Rust TRIX with DEMA optional output enabled
             let inputs_rust = [close.as_slice()];
-            let (outputs, _) = rust_trix(&inputs_rust, &options, Some(&[false, true, false]))
+            let (outputs, _) = Trix::indicator(&inputs_rust, &options, Some(&[false, true, false]))
                 .expect("Rust TRIX indicator failed");
 
             assert!(!outputs.is_empty(), "TRIX outputs should not be empty");
@@ -1239,7 +1240,7 @@ mod tests {
         for options in OPTIONS_LIST {
             // Get Rust TRIX with EMA optional output enabled
             let inputs_rust = [close.as_slice()];
-            let (outputs, _) = rust_trix(&inputs_rust, &options, Some(&[false, false, true]))
+            let (outputs, _) = Trix::indicator(&inputs_rust, &options, Some(&[false, false, true]))
                 .expect("Rust TRIX indicator failed");
 
             assert!(!outputs.is_empty(), "TRIX outputs should not be empty");
@@ -1320,10 +1321,6 @@ mod tests {
         }
     }
 
-    fn get_close_array(stock_data: &[tulip_test::database::EodData]) -> Vec<f64> {
-        stock_data.iter().map(|d| d.close).collect()
-    }
-
     #[test]
     fn test_trix_database_optional_tema() {
         const EPSILON: f64 = EPSILION;
@@ -1341,7 +1338,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get TRIX with TEMA optional output
                 let optional_outputs = Some(&[true, false, false][..]);
-                let (trix_result, _) = tulip_rs::indicators::trix::indicator(
+                let (trix_result, _) = Trix::indicator(
                     &[&close],
                     &[options[0]],
                     optional_outputs,
@@ -1421,7 +1418,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get TRIX with DEMA optional output
                 let optional_outputs = Some(&[false, true, false][..]);
-                let (trix_result, _) = tulip_rs::indicators::trix::indicator(
+                let (trix_result, _) = Trix::indicator(
                     &[&close],
                     &[options[0]],
                     optional_outputs,
@@ -1501,7 +1498,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get TRIX with EMA optional output
                 let optional_outputs = Some(&[false, false, true][..]);
-                let (trix_result, _) = tulip_rs::indicators::trix::indicator(
+                let (trix_result, _) = Trix::indicator(
                     &[&close],
                     &[options[0]],
                     optional_outputs,
@@ -1564,4 +1561,7 @@ mod tests {
         }
     }
 
+    fn get_close_array(stock_data: &[tulip_test::database::EodData]) -> Vec<f64> {
+        stock_data.iter().map(|d| d.close).collect()
     }
+}

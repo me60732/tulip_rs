@@ -1,9 +1,9 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::chandelierexit::{indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::chandelierexit::{ChandelierExit, Indicator, TIndicatorState, IndicatorState, indicator_by_assets, indicator_by_options};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
+use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::criterion_logger::TimingMeasurements;
 use tulip_test::database::{get_all_stock_data, init_database_data};
-use tulip_test::benchmark_utils::SAMPLE_SIZE;
 //const SAMPLE_SIZE: usize = 30000;
 
 // Sample input data (high, low, close)
@@ -31,12 +31,7 @@ const CLOSE: [f64; 15] = [
     [50.0, 2.0],
     [100.0, 2.0],
 ];*/
-const OPTIONS_LIST: [[f64; 2]; 4] = [
-    [5.0, 3.0],
-    [14.0, 2.0],
-    [30.0, 2.0],
-    [50.0, 2.0],
-];
+const OPTIONS_LIST: [[f64; 2]; 4] = [[5.0, 3.0], [14.0, 2.0], [30.0, 2.0], [50.0, 2.0]];
 // Chunk size for from_state benchmarks
 const CHUNK_SIZE: usize = 100;
 
@@ -82,7 +77,7 @@ fn bench_rust_chandelierexit(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, None)
+                        let result = ChandelierExit::indicator(&inputs, &options, None)
                             .expect("Rust ChandExit indicator failed");
                         black_box(&result);
                     },
@@ -115,7 +110,7 @@ fn bench_rust_chandelierexit(c: &mut Criterion) {
                 format!("Rust ChandExit {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator(&inputs, &options, None)
+                        let result = ChandelierExit::indicator(&inputs, &options, None)
                             .expect("Rust ChandExit indicator failed");
                         black_box(&result);
                     });
@@ -142,15 +137,17 @@ fn bench_rust_chandelierexit_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                        let min_data_val = ChandelierExit::min_data(&options).max(CHUNK_SIZE);
 
                         let chunk_inputs = [
                             &high[..min_data_val],
                             &low[..min_data_val],
                             &close[..min_data_val],
                         ];
-                        let (_, mut state) = indicator(&chunk_inputs, &options, None)
-                            .expect("Rust ChandExit indicator failed");
+
+                        let (_, mut state) =
+                            ChandelierExit::indicator(&chunk_inputs, &options, None)
+                                .expect("Rust ChandExit indicator failed");
 
                         let mut high_chunks = high[min_data_val..].chunks_exact(CHUNK_SIZE);
                         let mut low_chunks = low[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -200,7 +197,7 @@ fn bench_rust_chandelierexit_from_state(c: &mut Criterion) {
                         &low[low.len() - 1..],
                         &close[close.len() - 1..],
                     ];
-                    let (_, mut state) = indicator(&new_inputs, &options, None)
+                    let (_, mut state) = ChandelierExit::indicator(&new_inputs, &options, None)
                         .expect("Rust ChandExit indicator failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -224,7 +221,7 @@ fn bench_rust_chandelierexit_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) = indicator(&new_inputs, &options, None)
+                    let (_, state) = ChandelierExit::indicator(&new_inputs, &options, None)
                         .expect("Rust ChandExit indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
@@ -265,14 +262,15 @@ fn bench_rust_chandelierexit_from_state(c: &mut Criterion) {
 
             group.bench_function("benchmark", |b| {
                 b.iter(|| {
-                    let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                    let min_data_val = ChandelierExit::min_data(&options).max(CHUNK_SIZE);
 
                     let chunk_inputs = [
                         &high_vec[..min_data_val],
                         &low_vec[..min_data_val],
                         &close_vec[..min_data_val],
                     ];
-                    let (_, mut state) = indicator(&chunk_inputs, &options, None)
+
+                    let (_, mut state) = ChandelierExit::indicator(&chunk_inputs, &options, None)
                         .expect("Rust ChandExit indicator failed");
 
                     let mut high_chunks = high_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -324,8 +322,12 @@ fn bench_rust_chandelierexit_optional(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, Some(&[true, true, true, true]))
-                            .expect("Rust ChandExit indicator failed");
+                        let result = ChandelierExit::indicator(
+                            &inputs,
+                            &options,
+                            Some(&[true, true, true, true]),
+                        )
+                        .expect("Rust ChandExit indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -360,8 +362,9 @@ fn bench_rust_chandelierexit_optional(c: &mut Criterion) {
                 ),
                 |b| {
                     b.iter(|| {
-                        let result = indicator(&inputs, &options, Some(&[true, true]))
-                            .expect("Rust ChandExit indicator failed");
+                        let result =
+                            ChandelierExit::indicator(&inputs, &options, Some(&[true, true]))
+                                .expect("Rust ChandExit indicator failed");
                         black_box(&result);
                     });
                 },
@@ -396,14 +399,16 @@ fn bench_rust_ta_chandelierexit(c: &mut Criterion) {
                         let mut last_long = 0.0_f64;
                         let mut last_short = 0.0_f64;
                         for i in 0..high.len() {
-                            let item = unsafe { DataItem::builder()
-                                .high(*high.get_unchecked(i))
-                                .low(*low.get_unchecked(i))
-                                .close(*close.get_unchecked(i))
-                                .open(*open.get_unchecked(i))
-                                .volume(*volume.get_unchecked(i))
-                                .build()
-                                .expect("DataItem build failed") };
+                            let item = unsafe {
+                                DataItem::builder()
+                                    .high(*high.get_unchecked(i))
+                                    .low(*low.get_unchecked(i))
+                                    .close(*close.get_unchecked(i))
+                                    .open(*open.get_unchecked(i))
+                                    .volume(*volume.get_unchecked(i))
+                                    .build()
+                                    .expect("DataItem build failed")
+                            };
                             let out = ce.next(&item);
                             last_long = out.long;
                             last_short = out.short;
@@ -464,7 +469,6 @@ fn bench_rust_ta_chandelierexit(c: &mut Criterion) {
         }
     }
 }
-
 
 /// Benchmark the Rust SIMD by-assets implementation of Chandelier Exit.
 fn bench_rust_chandelierexit_simd_by_assets(c: &mut Criterion) {

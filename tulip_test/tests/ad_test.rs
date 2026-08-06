@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::ad::{indicator, min_data, TIndicatorState};
+    use tulip_rs::indicators::ad::{Ad, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_ad, ti_ad_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
     const EPSILON: f64 = 1e-2;
@@ -78,7 +78,7 @@ mod tests {
             volume.as_slice(),
         ];
         let (outputs, _) =
-            indicator(&inputs_rust, &options, None).expect("Rust AD indicator failed");
+            Ad::indicator(&inputs_rust, &options, None).expect("Rust AD indicator failed");
 
         // Compare the outputs
         for (i, (&c_val, &rust_val)) in output_vec_c.iter().zip(outputs[0].iter()).enumerate() {
@@ -125,7 +125,6 @@ mod tests {
         for (stock_symbol, stock_data) in data {
             let (high, low, close, volume) = get_hlcv_arrays(stock_data);
 
-            let options = [];
             // run c code
             let inputs_c: Vec<*const f64> =
                 vec![high.as_ptr(), low.as_ptr(), close.as_ptr(), volume.as_ptr()];
@@ -156,7 +155,7 @@ mod tests {
                 volume.as_slice(),
             ];
             let (outputs, _) =
-                indicator(&inputs_rust, &options, None).expect("Rust AD indicator failed");
+                Ad::indicator(&inputs_rust, &[], None).expect("Rust AD indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -172,16 +171,16 @@ mod tests {
                 // Fail test if Rust has NaN
                 if rust_val.is_nan() {
                     panic!(
-                        "Rust AD has NaN at index {}: Rust = {}, Options = {:?}, Stock: {}",
-                        index, rust_val, options, stock_symbol
+                        "Rust AD has NaN at index {}: Rust = {}, Stock: {}",
+                        index, rust_val, stock_symbol
                     );
                 }
 
                 // Fail test if Rust has infinity
                 if rust_val.is_infinite() {
                     panic!(
-                        "Rust AD has infinity at index {}: Rust = {}, Options = {:?}, Stock: {}",
-                        index, rust_val, options, stock_symbol
+                        "Rust AD has infinity at index {}: Rust = {}, Stock: {}",
+                        index, rust_val, stock_symbol
                     );
                 }
 
@@ -225,12 +224,12 @@ mod tests {
 
             // Get full output from processing all data at once
             let (full_outputs, _) =
-                indicator(&inputs_rust, &options, None).expect("Rust AD indicator failed");
+                Ad::indicator(&inputs_rust, &options, None).expect("Rust AD indicator failed");
 
             // Process data in batches and accumulate outputs
             let mut batch_full_output = Vec::new();
 
-            let min_data_val = min_data(&options).max(CHUNK_SIZE);
+            let min_data_val = Ad::min_data(&options).max(CHUNK_SIZE);
 
             // First chunk - convert to Vec<&Vec<f64>>
             let high_vec = high[..min_data_val].to_vec();
@@ -245,7 +244,7 @@ mod tests {
             ];
 
             let (first_outputs, mut state) =
-                indicator(&chunk_inputs, &options, None).expect("Rust AD indicator failed");
+                Ad::indicator(&chunk_inputs, &options, None).expect("Rust AD indicator failed");
             batch_full_output.extend_from_slice(&first_outputs[0]);
 
             // Process remaining data in chunks
@@ -383,7 +382,7 @@ mod tests {
                 stock_volume.as_slice(),
             ];
             let (regular_results, _) =
-                indicator(&stock_inputs, &options, None).expect("Regular AD indicator failed");
+                Ad::indicator(&stock_inputs, &options, None).expect("Regular AD indicator failed");
 
             let simd_result = &simd_results[stock_idx][0];
             let regular_result = &regular_results[0];

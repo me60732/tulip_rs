@@ -1,14 +1,14 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
-pub use crate::indicators::linreg::State;
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
+use crate::indicators::linreg::State as LinregState;
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
 use serde::{Deserialize, Serialize};
-
+use std::ops::{Deref, DerefMut};
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 1;
+pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -41,12 +41,47 @@ pub mod by_options {
 }
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
-    state: State,
+    state: State<Warm>,
     real: Vec<f64>,
     period: usize,
 }
+
+#[derive(Serialize, Deserialize)]
+#[serde(bound="")]
+#[repr(transparent)]
+pub struct State<S = Cold>(pub LinregState<S>);
+impl<S> Deref for State<S> {
+    type Target = LinregState<S>;
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl<S> DerefMut for State<S> {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+impl State<Cold> {
+    pub fn init_state(data: &[f64], period: usize) -> State<Warm> {
+        State(LinregState::init_state(data, period))
+    }
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64);
+    type Outputs = (f64, f64, f64, f64);
+    #[inline(always)]
+    fn calc<'a>(&mut self, inputs: Self::Inputs<'a>) -> Self::Outputs {
+        let (linreg, slope, intercept);
+        (linreg, slope, intercept) = self.0.calc(inputs);
+        //let tsf = intercept + slope * (period + 1) as f64;
+        let tsf = slope.mul_add(self.n + 1.0, intercept);
+        (tsf, linreg, slope, intercept)
+    }
+}
 impl IndicatorState {
-    pub fn new(state: State, real: &[f64], period: usize) -> Self {
+    pub fn new(state: State<Warm>, real: &[f64], period: usize) -> Self {
         Self {
             state,
             real: real[real.len() - period + 1..].to_vec(),
@@ -57,7 +92,7 @@ impl IndicatorState {
 impl TIndicatorState<1> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -87,127 +122,7 @@ impl TIndicatorState<1> for IndicatorState {
         Ok(vec![tsf_line, linreg_line, slope_line, intercept_line])
     }
 }
-/// Returns information about the Time Series Forecast (TSF) indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the TSF indicator.
-pub const INFO: Info = Info {
-    name: "tsf",
-    indicator_type: IndicatorType::Trend,
-    full_name: "Time Series Forecast",
-    inputs: &["real"],
-    options: &["period"],
-    outputs: &["tsf"],
-    optional_outputs: &["linreg", "linregslope", "linregintercept"],
-    display_groups: &[
-        DisplayGroup {
-            offset: None,
-            id: "tsf_linreg_linregintercept",
-            label: "Regression",
-            display_type: DisplayType::Overlay,
-            outputs: &["tsf", "linreg", "linregintercept"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "linregslope",
-            label: "LinReg Slope",
-            display_type: DisplayType::Indicator,
-            outputs: &["linregslope"],
-        },
-    ],
-};
-/// Returns the minimum amount of data required for the TSF indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the TSF calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    options[0] as usize + 1
-}
 
-/// Calculates the output length based on the data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the TSF calculation.
-///
-/// # Returns
-///
-/// The output length.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-
-/// Calculates the Time Series Forecast (TSF) indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — real (price series)
-///
-/// # Options
-///
-/// * `options[0]` — period
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `optional_outputs` - Optional slice controlling extra output series;
-///   `optional_outputs[0] = true` enables `linreg`, `optional_outputs[1] = true` enables
-///   `linregslope`, `optional_outputs[2] = true` enables `linregintercept`.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is `tsf`,
-/// `outputs[1]` is `linreg` (empty unless requested),
-/// `outputs[2]` is `linregslope` (empty unless requested),
-/// `outputs[3]` is `linregintercept` (empty unless requested), and
-/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let period = options[0] as usize;
-
-    validate_inputs(inputs, min_data(options))?;
-
-    let real = inputs[0];
-    let (mut tsf_line, mut linreg_line, mut slope_line, mut intercept_line);
-    {
-        let capacity = output_length(real.len(), options);
-        (linreg_line, slope_line, intercept_line) = crate::init_optional_outputs_eff!(
-            optional_outputs, &[false, false, false],
-            linreg_line: capacity,
-            slope_line: capacity,
-            intercept_line: capacity
-        );
-        tsf_line = crate::uninit_vec!(f64, capacity); //Vec::with_capacity(capacity);
-    }
-    let mut state = State::init_state(&real[1..period], period);
-
-    // Perform the main TSF calculation
-    cycle_tsf(
-        &real[1..],
-        &mut state,
-        period,
-        &mut tsf_line,
-        (&mut linreg_line, &mut slope_line, &mut intercept_line),
-    );
-
-    Ok((
-        vec![tsf_line, linreg_line, slope_line, intercept_line],
-        IndicatorState::new(state, real, period),
-    ))
-}
 
 /// Performs the main calculation loop for the TSF indicator.
 ///
@@ -220,7 +135,7 @@ pub fn indicator(
 /// * `out_vecs` - A tuple of mutable slices for optional outputs `(linreg_line, slope_line, intercept_line)`.
 fn cycle_tsf(
     real: &[f64],
-    state: &mut State,
+    state: &mut State<Warm>,
     period: usize,
     tsf_line: &mut [f64],
     out_vecs: (&mut [f64], &mut [f64], &mut [f64]),
@@ -230,8 +145,8 @@ fn cycle_tsf(
         crate::calc_want_flags!(linreg_line, slope_line, intercept_line);
 
     for (j, i) in (period - 1..real.len()).enumerate() {
-        let (prev_value, value) = unsafe { (*real.get_unchecked(j), *real.get_unchecked(i)) };
-        let (tsf, linreg, slope, intercept) = Calc::calc(state, prev_value, value, period);
+        let inputs = unsafe { (*real.get_unchecked(j), *real.get_unchecked(i)) };
+        let (tsf, linreg, slope, intercept) = state.calc(inputs);
 
         unsafe { *tsf_line.get_unchecked_mut(j) = tsf };
 
@@ -245,29 +160,71 @@ fn cycle_tsf(
     }
 }
 
-pub trait Calc {
-    fn calc(&mut self, prev_value: f64, value: f64, period: usize) -> (f64, f64, f64, f64);
-}
-impl Calc for State {
-    /// Calculates the Time Series Forecast (TSF) for the current data point.
-    ///
-    /// # Arguments
-    ///
-    /// * `state` - A mutable reference to the current linear regression state.
-    /// * `prev_value` - The oldest value leaving the rolling window.
-    /// * `value` - The newest value entering the rolling window.
-    /// * `period` - The period for the TSF calculation.
-    ///
-    /// # Returns
-    ///
-    /// A tuple `(tsf, linreg, slope, intercept)` containing the forecast value, linear regression
-    /// value, slope, and intercept for the current data point.
-    #[inline(always)]
-    fn calc(&mut self, prev_value: f64, value: f64, period: usize) -> (f64, f64, f64, f64) {
-        let (linreg, slope, intercept);
-        (linreg, slope, intercept) = State::calc(self, prev_value, value, period);
-        //let tsf = intercept + slope * (period + 1) as f64;
-        let tsf = slope.mul_add((period + 1) as f64, intercept);
-        (tsf, linreg, slope, intercept)
+pub struct Tsf;
+impl Indicator<INPUTS, OPTIONS> for Tsf {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "tsf",
+        indicator_type: IndicatorType::Trend,
+        full_name: "Time Series Forecast",
+        inputs: &["real"],
+        options: &["period"],
+        outputs: &["tsf"],
+        optional_outputs: &["linreg", "linregslope", "linregintercept"],
+        display_groups: &[
+            DisplayGroup {
+                offset: None,
+                id: "tsf_linreg_linregintercept",
+                label: "Regression",
+                display_type: DisplayType::Overlay,
+                outputs: &["tsf", "linreg", "linregintercept"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "linregslope",
+                label: "LinReg Slope",
+                display_type: DisplayType::Indicator,
+                outputs: &["linregslope"],
+            },
+        ],
+    };
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        let period = options[0] as usize;
+    
+        validate_inputs(inputs, Self::min_data(options))?;
+    
+        let real = inputs[0];
+        let (mut tsf_line, mut linreg_line, mut slope_line, mut intercept_line);
+        {
+            let capacity = Self::output_length(real.len(), options);
+            (linreg_line, slope_line, intercept_line) = crate::init_optional_outputs_eff!(
+                optional_outputs, &[false, false, false],
+                linreg_line: capacity,
+                slope_line: capacity,
+                intercept_line: capacity
+            );
+            tsf_line = crate::uninit_vec!(f64, capacity); //Vec::with_capacity(capacity);
+        }
+        let mut state = State::init_state(&real[1..period], period);
+    
+        // Perform the main TSF calculation
+        cycle_tsf(
+            &real[1..],
+            &mut state,
+            period,
+            &mut tsf_line,
+            (&mut linreg_line, &mut slope_line, &mut intercept_line),
+        );
+    
+        Ok((
+            vec![tsf_line, linreg_line, slope_line, intercept_line],
+            IndicatorState::new(state, real, period),
+        ))
     }
 }

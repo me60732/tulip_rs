@@ -33,16 +33,16 @@
 //!   Small extra cost vs fixed α: one `max` + one division per bar.
 
 use crate::common::validate_inputs;
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 use crate::indicators::{cybercycle, homodynediscriminator};
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 1;
+pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1; // [alpha]
+pub const OPTIONS: usize = 1; // [alpha]
 
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::trendmode_simd::indicator_by_assets;
@@ -61,40 +61,6 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::trendmode_simd::indicator_by_options as indicator;
 }
 
-/// Metadata for the Ehlers TrendMode indicator.
-pub const INFO: Info = Info {
-    name: "trendmode",
-    indicator_type: IndicatorType::Trend,
-    full_name: "Ehlers TrendMode",
-    inputs: &["real"],
-    options: &["alpha"],
-    outputs: &["trendmode"],
-    optional_outputs: &["cycle", "peak"],
-    display_groups: &[
-        DisplayGroup {
-            offset: None,
-            id: "trendmode",
-            label: "Ehlers TrendMode",
-            display_type: DisplayType::Indicator,
-            outputs: &["trendmode"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "trendmode_cycle",
-            label: "TrendMode CyberCycle",
-            display_type: DisplayType::Indicator,
-            outputs: &["cycle"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "trendmode_peak",
-            label: "TrendMode Peak",
-            display_type: DisplayType::Indicator,
-            outputs: &["peak"],
-        },
-    ],
-};
-
 /// Per-bar filter state for the Ehlers TrendMode.
 ///
 /// Composes the full [`homodynediscriminator::State`] pipeline (adaptive DC period)
@@ -105,25 +71,43 @@ pub const INFO: Info = Info {
 /// are full and the IIR feedback is seeded. The hot path (`calc_unchecked`)
 /// operates unconditionally.
 #[derive(Serialize, Deserialize)]
-pub struct State {
+#[serde(bound = "")]
+pub struct State<S = Cold> {
     /// Embedded Homodyne Discriminator — provides `SmoothPeriod` (DC) per bar.
-    pub hd: homodynediscriminator::State,
+    pub hd: homodynediscriminator::State<S>,
     /// Embedded CyberCycle oscillator — produces `Cycle` per bar.
-    pub cc: cybercycle::State,
+    pub cc: cybercycle::State<S>,
     /// Running peak amplitude: `max(pk[1] × 0.991, |Cycle|)`.
     pub pk: f64,
+    /// Alpha value used to construct this state. `0.0` = adaptive.
+    pub alpha: f64,
+    pub(crate) is_adaptive: bool
 }
 
-impl State {
+impl State<Cold> {
     /// Creates a zeroed state ready for the first bar.
-    pub fn new() -> Self {
+    pub fn new(alpha: f64) -> Self {
         Self {
             hd: homodynediscriminator::State::new(),
-            cc: cybercycle::State::new(),
+            cc: if alpha > 0.0 {
+                cybercycle::State::new(alpha)
+            } else {
+                cybercycle::State::default()
+            },
             pk: 0.0,
+            alpha,
+            is_adaptive: alpha == 0.0,
         }
     }
-
+    pub fn into_full(self) -> State<Warm> {
+        State {
+            hd: self.hd.into_full(),
+            cc: self.cc.into_full(),
+            pk: self.pk,
+            alpha: self.alpha,
+            is_adaptive: self.is_adaptive,
+        }
+    }
     /// Builds a warmed-up state by seeding the HD and CC pipelines over 55
     /// bars, then processes bar 55 (the first valid output).
     ///
@@ -140,13 +124,8 @@ impl State {
         trendmode_line: &mut [f64],
         cycle_line: &mut [f64],
         peak_line: &mut [f64],
-    ) -> Self {
-        let mut state = Self::new();
-        let fixed_mults = if alpha > 0.0 {
-            Some(cybercycle::multiplier(alpha))
-        } else {
-            None
-        };
+    ) -> State<Warm> {
+        let mut state = Self::new(alpha);
 
         // ── Phase 1: bars 0–5 — CC seeding + HD warmup ───────────────────────
         for i in 0..6 {
@@ -169,30 +148,36 @@ impl State {
         // ── Phase 2: bars 6–21 — HD safe + CC unchecked + peak tracking ──────
         for i in 6..22 {
             state.hd.calc(real[i]);
-            let mults = match fixed_mults {
-                Some(m) => m,
-                None => cybercycle::multiplier(cybercycle::adaptive_alpha(state.hd.smooth_period)),
-            };
-            let cycle = unsafe { state.cc.calc_unchecked(real[i], mults) };
+            if alpha == 0.0 {
+                let a = cybercycle::adaptive_alpha(state.hd.smooth_period);
+                let (coef, d1, d2) = cybercycle::multiplier(a);
+                state.cc.coef = coef;
+                state.cc.d1 = d1;
+                state.cc.d2 = d2;
+            }
+            let cycle =state.cc.calc(real[i]);
             state.pk = (state.pk * 0.991).max(cycle.abs());
         }
 
         // ── Phase 3: bars 22–54 — both unchecked + peak tracking ─────────────
         for i in 22..55 {
-            unsafe { state.hd.calc_unchecked(real[i]) };
-            let mults = match fixed_mults {
-                Some(m) => m,
-                None => cybercycle::multiplier(cybercycle::adaptive_alpha(state.hd.smooth_period)),
-            };
-            let cycle = unsafe { state.cc.calc_unchecked(real[i], mults) };
+            state.hd.calc(real[i]);
+            if alpha == 0.0 {
+                let a = cybercycle::adaptive_alpha(state.hd.smooth_period);
+                let (coef, d1, d2) = cybercycle::multiplier(a);
+                state.cc.coef = coef;
+                state.cc.d1 = d1;
+                state.cc.d2 = d2;
+            }
+            let cycle = state.cc.calc(real[i]);
             state.pk = (state.pk * 0.991).max(cycle.abs());
         }
 
         // ── Bar 55: first valid output ────────────────────────────────────────
-        let trendmode = if alpha == 0.0 {
-            unsafe { state.calc_unchecked_adaptive(real[55]) }
+        let trendmode = if state.is_adaptive {
+            state.calc_adaptive(real[55])
         } else {
-            unsafe { state.calc_unchecked(real[55], fixed_mults.unwrap()) }
+           state.calc(real[55])
         };
         trendmode_line[0] = trendmode;
         if !cycle_line.is_empty() {
@@ -201,99 +186,84 @@ impl State {
         if !peak_line.is_empty() {
             peak_line[0] = state.pk;
         }
-
-        state
-    }
-
-    /// Unsafe one-bar update — skips all ring-buffer fullness guards.
-    ///
-    /// After the call:
-    /// - `state.hd.smooth_period` = DC period (current bar)
-    /// - `state.cc.cycle_prev`    = Cycle (current bar)
-    /// - `state.pk`               = peak amplitude (current bar)
-    ///
-    /// Returns `1.0` (Trend Mode) or `0.0` (Cycle Mode).
-    ///
-    /// # Safety
-    ///
-    /// All HD and CC ring buffers must be full on entry.
-    /// Guaranteed after [`init_state`](Self::init_state).
-    #[inline(always)]
-    pub unsafe fn calc_unchecked(&mut self, price: f64, multipliers: (f64, f64, f64)) -> f64 {
-        self.hd.calc_unchecked(price);
-        let cycle = self.cc.calc_unchecked(price, multipliers);
-        self.pk = (self.pk * 0.991).max(cycle.abs());
-        if self.pk > 0.0 && cycle.abs() < 0.2 * self.pk {
-            1.0
-        } else {
-            0.0
-        }
-    }
-
-    /// Unsafe one-bar update using **adaptive alpha** derived from the HD's `smooth_period`.
-    ///
-    /// After the call:
-    /// - `state.hd.smooth_period` = DC period (updated)
-    /// - `state.cc.cycle_prev`    = Cycle (current bar)
-    /// - `state.pk`               = peak amplitude (current bar)
-    ///
-    /// Returns `1.0` (Trend Mode) or `0.0` (Cycle Mode).
-    ///
-    /// # Safety
-    ///
-    /// All HD and CC ring buffers must be full on entry.
-    /// Guaranteed after [`init_state`](Self::init_state).
-    #[inline(always)]
-    pub unsafe fn calc_unchecked_adaptive(&mut self, price: f64) -> f64 {
-        self.hd.calc_unchecked(price);
-        let alpha = cybercycle::adaptive_alpha(self.hd.smooth_period);
-        let multipliers = cybercycle::multiplier(alpha);
-        let cycle = self.cc.calc_unchecked(price, multipliers);
-        self.pk = (self.pk * 0.991).max(cycle.abs());
-        if self.pk > 0.0 && cycle.abs() < 0.2 * self.pk {
-            1.0
-        } else {
-            0.0
-        }
-    }
-}
-
-impl Default for State {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Persistent state for streaming / multi-batch use.
-///
-/// Stores the precomputed filter coefficients alongside the filter state,
-/// mirroring the `cybercycle::IndicatorState` pattern.
-#[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    pub(crate) alpha: f64,
-    pub(crate) multipliers: (f64, f64, f64),
-    pub(crate) state: State,
-}
-
-impl IndicatorState {
-    pub fn new(state: State, alpha: f64) -> Self {
-        let multipliers = if alpha > 0.0 {
-            cybercycle::multiplier(alpha)
-        } else {
-            (0.0, 0.0, 0.0)
-        };
-        Self {
+        State {
+            hd: state.hd.into_full(),
+            cc: state.cc.into_full(),
+            pk: state.pk,
             alpha,
-            multipliers,
-            state,
+            is_adaptive: state.is_adaptive
         }
     }
 }
 
-impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
+impl<S> State<S>
+where
+    for<'a> homodynediscriminator::State<S>: TState<Inputs<'a> = f64>,
+    for<'a> cybercycle::State<S>: TState<Inputs<'a> = f64, Outputs = f64>,
+{
+    #[inline(always)]
+    pub fn calc_adaptive(&mut self, price: f64) -> f64 {
+        self.hd.calc(price);
+        let alpha = cybercycle::adaptive_alpha(self.hd.smooth_period);
+        let (coef, d1, d2) = cybercycle::multiplier(alpha);
+        self.cc.coef = coef;
+        self.cc.d1 = d1;
+        self.cc.d2 = d2;
+        let cycle = self.cc.calc(price);
+        self.pk = (self.pk * 0.991).max(cycle.abs());
+        if self.pk > 0.0 && cycle.abs() < 0.2 * self.pk {
+            1.0
+        } else {
+            0.0
+        }
+    }
+    #[inline(always)]
+    fn calc_dispatch(&mut self, price: f64) -> f64 {
+        if self.is_adaptive {
+            self.calc_adaptive(price)
+        } else {
+            self.hd.calc(price);
+            let cycle = self.cc.calc(price);
+            self.pk = (self.pk * 0.991).max(cycle.abs());
+            if self.pk > 0.0 && cycle.abs() < 0.2 * self.pk {
+                1.0
+            } else {
+                0.0
+            }
+        }
+    }
+}
+
+
+impl Default for State<Cold> {
+    fn default() -> Self {
+        Self::new(0.0)
+    }
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = f64;
+    type Outputs = f64; // trendmode (1.0 or 0.0)
+    #[inline(always)]
+    fn calc<'a>(&mut self, price: Self::Inputs<'a>) -> Self::Outputs {
+        self.calc_dispatch(price)
+    }
+}
+impl TState for State<Cold> {
+    type Inputs<'a> = f64;
+    type Outputs = f64; // trendmode (1.0 or 0.0)
+
+    fn calc<'a>(&mut self, price: f64) -> f64 {
+        self.calc_dispatch(price)
+    }
+}
+
+/// `IndicatorState` is the complete self-contained state — coefficients live on `cc` alongside filter history.
+pub type IndicatorState = State<Warm>;
+
+impl TIndicatorState<INPUTS> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -308,9 +278,7 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
 
         run_trendmode(
             real,
-            &mut self.state,
-            self.alpha,
-            self.multipliers,
+            self,
             &mut trendmode_line,
             &mut cycle_line,
             &mut peak_line,
@@ -324,107 +292,123 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
 // Public API
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Returns the minimum number of input bars required for any output.
-///
-/// Bars 0–54 are absorbed by the HD + CC + peak warmup; bar 55 is the first
-/// valid output.
-pub fn min_data(_options: &[f64]) -> usize {
-    56
-}
+/// Unit struct that implements [`Indicator`] for the Ehlers TrendMode.
+pub struct TrendMode;
 
+impl Indicator<INPUTS, OPTIONS> for TrendMode {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "trendmode",
+        indicator_type: IndicatorType::Trend,
+        full_name: "Ehlers TrendMode",
+        inputs: &["real"],
+        options: &["alpha"],
+        outputs: &["trendmode"],
+        optional_outputs: &["cycle", "peak"],
+        display_groups: &[
+            DisplayGroup {
+                offset: None,
+                id: "trendmode",
+                label: "Ehlers TrendMode",
+                display_type: DisplayType::Indicator,
+                outputs: &["trendmode"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "trendmode_cycle",
+                label: "TrendMode CyberCycle",
+                display_type: DisplayType::Indicator,
+                outputs: &["cycle"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "trendmode_peak",
+                label: "TrendMode Peak",
+                display_type: DisplayType::Indicator,
+                outputs: &["peak"],
+            },
+        ],
+    };
 
-/// Number of output bars for a given input length.
-pub fn output_length(data_len: usize, _options: &[f64]) -> usize {
-    data_len.saturating_sub(55)
+    fn min_data(_options: &[f64; OPTIONS]) -> usize {
+        56
+    }
+
+    fn output_length(data_len: usize, _options: &[f64; OPTIONS]) -> usize {
+        data_len.saturating_sub(55)
+    }
+
+    /// Calculates the Ehlers TrendMode over the full input dataset.
+    ///
+    /// # Inputs
+    ///
+    /// * `inputs[0]` — close (or HLC/3) price series
+    ///
+    /// # Options
+    ///
+    /// * `options[0]` — `alpha` ∈ [0, 1). `0` = adaptive (derived from DC period each bar).
+    ///   Ehlers' default fixed value is `0.07`.
+    ///
+    /// # Outputs
+    ///
+    /// * `outputs[0]` — `trendmode`: `1.0` = Trend Mode, `0.0` = Cycle Mode
+    /// * `outputs[1]` — `cycle`:    CyberCycle oscillator (optional; empty unless requested)
+    /// * `outputs[2]` — `peak`:     decaying amplitude peak (optional; empty unless requested)
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        validate_inputs(inputs, Self::min_data(options))?;
+
+        let alpha = options[0];
+        let real = inputs[0];
+        let capacity = Self::output_length(real.len(), options);
+
+        let mut trendmode_line = crate::uninit_vec!(f64, capacity);
+        let (mut cycle_line, mut peak_line) = crate::init_optional_outputs_eff!(
+            optional_outputs, &[false, false],
+            cycle_line: capacity,
+            peak_line: capacity
+        );
+
+        // init_state seeds bars 0–54 and processes bar 55 (output index 0).
+        let mut state = State::init_state(
+            real,
+            alpha,
+            &mut trendmode_line,
+            &mut cycle_line,
+            &mut peak_line,
+        );
+
+        let (cycle_tail, peak_tail) = {
+            let o = crate::slice_outputs_start!(capacity - 1, cycle_line, peak_line);
+            (&mut cycle_line[o.0..], &mut peak_line[o.1..])
+        };
+
+        // Process bars 56..n (output indices 1..capacity).
+        run_trendmode(
+            &real[Self::min_data(options)..],
+            &mut state,
+            &mut trendmode_line[1..],
+            cycle_tail,
+            peak_tail,
+        );
+
+        Ok((vec![trendmode_line, cycle_line, peak_line], state))
+    }
 }
 
 /// Validates `alpha`.
 ///
 /// * `0.0` — adaptive (derived from `SmoothPeriod` each bar via the embedded HD).
 /// * `(0.0, 1.0)` — fixed user-supplied alpha. Ehlers' default is `0.07`.
-pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), IndicatorError> {
+pub(crate) fn validate_options(options: &[f64; OPTIONS]) -> Result<(), IndicatorError> {
     if options[0] < 0.0 || options[0] >= 1.0 {
         return Err(IndicatorError::InvalidOptions);
     }
     Ok(())
-}
-
-/// Calculates the Ehlers TrendMode over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — close (or HLC/3) price series
-///
-/// # Options
-///
-/// * `options[0]` — `alpha` ∈ [0, 1). `0` = adaptive (derived from DC period each bar).
-///   Ehlers' default fixed value is `0.07`.
-///
-/// # Outputs
-///
-/// * `outputs[0]` — `trendmode`: `1.0` = Trend Mode, `0.0` = Cycle Mode
-/// * `outputs[1]` — `cycle`:    CyberCycle oscillator (optional; empty unless requested)
-/// * `outputs[2]` — `peak`:     decaying amplitude peak (optional; empty unless requested)
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `state` can be used for streaming via
-/// [`IndicatorState::batch_indicator`]. Returns `Err` if inputs are too short
-/// or `alpha` is outside `[0, 1)`.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    validate_inputs(inputs, min_data(options))?;
-
-    let alpha = options[0];
-    let multipliers = if alpha > 0.0 {
-        cybercycle::multiplier(alpha)
-    } else {
-        (0.0, 0.0, 0.0)
-    };
-    let real = inputs[0];
-    let n = real.len();
-    let capacity = output_length(n, options);
-
-    let mut trendmode_line = crate::uninit_vec!(f64, capacity);
-    let (mut cycle_line, mut peak_line) = crate::init_optional_outputs_eff!(
-        optional_outputs, &[false, false],
-        cycle_line: capacity,
-        peak_line: capacity
-    );
-
-    // init_state seeds bars 0–54 and processes bar 55 (output index 0).
-    let mut state = State::init_state(
-        real,
-        alpha,
-        &mut trendmode_line,
-        &mut cycle_line,
-        &mut peak_line,
-    );
-
-    let (cycle_tail, peak_tail) = {
-        let o = crate::slice_outputs_start!(capacity - 1, cycle_line, peak_line);
-        (&mut cycle_line[o.0..], &mut peak_line[o.1..])
-    };
-
-    // Process bars 56..n (output indices 1..capacity).
-    run_trendmode(
-        &real[min_data(options)..],
-        &mut state,
-        alpha,
-        multipliers,
-        &mut trendmode_line[1..],
-        cycle_tail,
-        peak_tail,
-    );
-
-    Ok((
-        vec![trendmode_line, cycle_line, peak_line],
-        IndicatorState::new(state, alpha),
-    ))
 }
 
 /// Shared hot loop used by both `indicator` and `batch_indicator`.
@@ -434,17 +418,15 @@ pub fn indicator(
 /// `peak`.
 fn run_trendmode(
     real: &[f64],
-    state: &mut State,
-    alpha: f64,
-    multipliers: (f64, f64, f64),
+    state: &mut State<Warm>,
     trendmode_line: &mut [f64],
     cycle_line: &mut [f64],
     peak_line: &mut [f64],
 ) {
     let (has_optional, want_cycle, want_peak) = crate::calc_want_flags!(cycle_line, peak_line);
-    if alpha == 0.0 {
+    if state.alpha == 0.0 {
         for i in 0..real.len() {
-            let trendmode = unsafe { state.calc_unchecked_adaptive(*real.get_unchecked(i)) };
+            let trendmode = state.calc_adaptive(unsafe { *real.get_unchecked(i) });
             unsafe {
                 *trendmode_line.get_unchecked_mut(i) = trendmode;
             }
@@ -457,7 +439,7 @@ fn run_trendmode(
         }
     } else {
         for i in 0..real.len() {
-            let trendmode = unsafe { state.calc_unchecked(*real.get_unchecked(i), multipliers) };
+            let trendmode = state.calc(unsafe { *real.get_unchecked(i) });
             unsafe {
                 *trendmode_line.get_unchecked_mut(i) = trendmode;
             }

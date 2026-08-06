@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::max::{indicator as rust_max, min_data, TIndicatorState};
+    use tulip_rs::indicators::max::{Max, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_max, ti_max_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -64,7 +64,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_max(&inputs_rust, &options, None).expect("Rust MAX indicator failed");
+                Max::indicator(&inputs_rust, &options, None).expect("Rust MAX indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -151,7 +151,7 @@ mod tests {
 
                 let inputs_rust = [close.as_slice()];
                 let (outputs, _) =
-                    rust_max(&inputs_rust, &options, None).expect("Rust MAX indicator failed");
+                    Max::indicator(&inputs_rust, &options, None).expect("Rust MAX indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -191,11 +191,11 @@ mod tests {
                     }
 
                     if !approx_eq!(f64, c_val, rust_val, epsilon = 1e-12) {
-                        let start = if i > 10 { i - 10 } else { 0 };
-                        let end = if i < output_len_rust - 10 { i + 10 } else { output_len_rust };
+                        let start = if index > 10 { index - 10 } else { 0 };
+                        let end = if index < output_len_rust - 10 { index + 10 } else { output_len_rust };
                         println!(
                             "Test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}",
-                            index, &max_output_vec_c[start..end], &outputs[start..end], options, stock_symbol
+                            index, &max_output_vec_c[start..end], &outputs[0][start..end], options, stock_symbol
                         );
                         panic!(
                             "Mismatch at index {}: C = {}, Rust = {}, Options = {:?}",
@@ -221,19 +221,19 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Get full output
-                let (full_outputs, _) = rust_max(&inputs_rust, &options, None)
+                let (full_outputs, _) = Max::indicator(&inputs_rust, &options, None)
                     .expect("Failed to run MAX indicator on full data");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Max::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let close_vec = close[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice()];
 
-                let (first_outputs, mut state) = rust_max(&chunk_inputs, &options, None)
+                let (first_outputs, mut state) = Max::indicator(&chunk_inputs, &options, None)
                     .expect("Failed to run MAX indicator on first chunk");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -318,7 +318,7 @@ mod tests {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_close.as_slice()];
                 let (regular_results, _) =
-                    rust_max(&stock_inputs, &options, None).expect("Regular MAX indicator failed");
+                    Max::indicator(&stock_inputs, &options, None).expect("Regular MAX indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];
@@ -406,7 +406,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_max(&inputs, options, None).expect("Regular MAX indicator failed");
+                    Max::indicator(&inputs, options, None).expect("Regular MAX indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -462,4 +462,4 @@ mod tests {
         //println!("✓ All SIMD vs Regular MAX database tests passed!");
     }
 
-    }
+}

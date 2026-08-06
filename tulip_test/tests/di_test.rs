@@ -3,7 +3,7 @@ mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicators::di::indicator_by_assets;
     use tulip_rs::indicators::di::indicator_by_options;
-    use tulip_rs::indicators::di::{indicator as rust_di, min_data, TIndicatorState};
+    use tulip_rs::indicators::di::{Di, Indicator, TIndicatorState};
     //use tulip_test::c_bindings::{ti_di, ti_di_start};
     use tulip_test::c_bindings::{ti_atr, ti_atr_start, ti_tr, ti_tr_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -88,7 +88,7 @@ mod tests {
         let options = [5.0]; // Example period
 
         // Run the Rust implementation
-        let (outputs, _) = rust_di(&inputs, &options, None).expect("Rust DI indicator failed");
+        let (outputs, _) = Di::indicator(&inputs, &options, None).expect("Rust DI indicator failed");
 
         let plus_di_rust = &outputs[0];
         let minus_di_rust = &outputs[1];
@@ -195,7 +195,7 @@ mod tests {
                 // Rust implementation
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (outputs, _) =
-                    rust_di(&inputs_rust, &options, None).expect("Rust DI indicator failed");
+                    Di::indicator&inputs_rust, &options, None).expect("Rust DI indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -310,17 +310,17 @@ mod tests {
 
                 // Get full output
                 let (full_outputs, _) =
-                    rust_di(&inputs_rust, &options, None).expect("Rust DI indicator failed");
+                    Di::indicator(&inputs_rust, &options, None).expect("Rust DI indicator failed");
 
                 // Process in batches
                 let mut batch_full_outputs = vec![Vec::new(); full_outputs.len()];
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Di::min_data(&options).max(CHUNK_SIZE);
 
                 if high.len() <= min_data_val {
                     // If data is too small, just run full calculation
                     let (outputs, _) =
-                        rust_di(&inputs_rust, &options, None).expect("Failed to run DI indicator");
+                        Di::indicator(&inputs_rust, &options, None).expect("Failed to run DI indicator");
                     for (output_idx, output) in outputs.iter().enumerate() {
                         batch_full_outputs[output_idx].extend_from_slice(output);
                     }
@@ -335,7 +335,7 @@ mod tests {
                         close_vec.as_slice(),
                     ];
 
-                    let (first_outputs, mut state) = rust_di(&chunk_inputs, &options, None)
+                    let (first_outputs, mut state) = Di::indicator(&chunk_inputs, &options, None)
                         .expect("Failed to run DI indicator on first chunk");
                     for (output_idx, output) in first_outputs.iter().enumerate() {
                         batch_full_outputs[output_idx].extend_from_slice(output);
@@ -420,7 +420,7 @@ mod tests {
         let optional_outputs = Some([true, false].as_slice()); // Request ATR output
 
         // Get Rust DI output with ATR optional output
-        let result = rust_di(&inputs, &options, optional_outputs).unwrap();
+        let result = Di::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_atr = &result.0[2]; // atr is at index 2
 
         // Fail fast if Rust output is empty
@@ -496,7 +496,7 @@ mod tests {
         let optional_outputs = Some([false, true].as_slice()); // Request TR output
 
         // Get Rust DI output with TR optional output
-        let result = rust_di(&inputs, &options, optional_outputs).unwrap();
+        let result = Di::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_tr = &result.0[3]; // tr is at index 3
 
         // Fail fast if Rust output is empty
@@ -577,7 +577,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get DI with ATR optional output
                 let optional_outputs = Some(&[true, false][..]);
-                let (di_result, _) = tulip_rs::indicators::di::indicator(
+                let (di_result, _) = Di::indicator(
                     &[&high, &low, &close],
                     &[options[0]],
                     optional_outputs,
@@ -657,7 +657,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get DI with TR optional output
                 let optional_outputs = Some(&[false, true][..]);
-                let (di_result, _) = tulip_rs::indicators::di::indicator(
+                let (di_result, _) = Di::indicator(
                     &[&high, &low, &close],
                     &[options[0]],
                     optional_outputs,
@@ -776,7 +776,7 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) =
-                    rust_di(&stock_inputs, options, None).unwrap_or_else(|_| {
+                    Di::indicator(&stock_inputs, options, None).unwrap_or_else(|_| {
                         panic!(
                             "Regular DI failed for {} with period {}",
                             stock_symbol, options[0]
@@ -875,7 +875,7 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_outputs, _) = rust_di(&stock_inputs, options, optional_outputs)
+                let (regular_outputs, _) = Di::indicator(&stock_inputs, options, optional_outputs)
                     .unwrap_or_else(|_| {
                         panic!(
                             "Regular DI with optional ATR failed for {} with period {}",
@@ -1026,7 +1026,7 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_outputs, _) = rust_di(&stock_inputs, options, optional_outputs)
+                let (regular_outputs, _) = Di::indicator(&stock_inputs, options, optional_outputs)
                     .unwrap_or_else(|_| {
                         panic!(
                             "Regular DI with optional TR failed for {} with period {}",
@@ -1146,7 +1146,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_di(&inputs, options, None).expect("Regular DI indicator failed");
+                    Di::indicator(&inputs, options, None).expect("Regular DI indicator failed");
 
                 let simd_plus_di_result = &all_simd_results[idx][0];
                 let regular_plus_di_result = &regular_results[0];
@@ -1270,7 +1270,7 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result with optional outputs
-                let (regular_results, _) = rust_di(&inputs, options, optional_outputs)
+                let (regular_results, _) = Di::indicator(&inputs, options, optional_outputs)
                     .expect("Regular DI indicator with optional outputs failed");
 
                 let simd_plus_di_result = &all_simd_results[idx][0];

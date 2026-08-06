@@ -5,11 +5,11 @@ pub use crate::indicators::simd_indicators::by_asset::fisher::indicator_by_asset
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::fisher::indicator_by_options;
 
+pub use crate::indicator_types::{TSimdState, TState};
 use crate::indicators::simd_indicators::{
-    max_simd::SimdState as MaxSimdState, medprice_simd::calc_simd as calc_medprice_simd,
-    min_simd::SimdState as MinSimdState, simd_types::F64Constants,
+    medprice_simd::calc_simd as calc_medprice_simd, simd_types::F64Constants,
 };
-pub(crate) use crate::indicators::simd_indicators::max_simd::CHUNK_1;
+use crate::types::Warm;
 use std::simd::{cmp::SimdPartialOrd, num::SimdFloat, Select, Simd, StdFloat};
 //use crate::math_simd::ln;
 /// Compile-time constants for the Fisher Transform computation.
@@ -35,27 +35,20 @@ pub trait FisherState<const N: usize> {
 /// SIMD state variants for the by-asset and by-option execution paths.
 pub mod assets {
     use super::{
-        calc_fisher, calc_medprice_simd, FisherState, MaxSimdState, MinSimdState, Simd, State,
+        calc_fisher, calc_medprice_simd, FisherState, Simd, State, TSimdState, TState, Warm,
     };
-    use crate::ring_buffer::{
-        multi_buffer::{
-            mirror_buffer::MinMaxBuffer,
-            multi_buffer::{MirrorBuffer, MultiBuffer},
-        },
-        single_buffer::mirror_buffer::MirrorBuffer as SingleMirrorBuffer,
+    use crate::indicators::simd_indicators::{
+        max_simd::assets::SimdState as MaxSimdState,
+        min_simd::assets::SimdState as MinSimdState,
     };
+    use crate::ring_buffer::multi_buffer::multi_mirror_buffer::MultiMirrorBuffer;
     /// SIMD-parallel state for computing the Fisher Transform across `N` assets simultaneously.
     /// Each field is a SIMD vector where lane `i` corresponds to asset `i`.
     pub struct SimdState<const N: usize> {
-        /// Ring buffer holding recent median-price values used for the min/max lookback window.
-        pub buffer: MultiBuffer<N>,
-        /// SIMD rolling-minimum state shared across all `N` asset lanes.
+        pub buffer: MultiMirrorBuffer<N, f64, Warm>,
         pub min_state: MinSimdState<N>,
-        /// SIMD rolling-maximum state shared across all `N` asset lanes.
         pub max_state: MaxSimdState<N>,
-        /// Smoothed normalised price value, clamped to (−0.999, 0.999) to keep the log argument positive.
         pub val1: Simd<f64, N>,
-        /// Previous bar's Fisher Transform output, used as the signal line on the next bar.
         pub fish: Simd<f64, N>,
     }
     impl<const N: usize> FisherState<N> for SimdState<N> {
@@ -72,83 +65,30 @@ pub mod assets {
             self.fish = value;
         }
     }
-    impl<const N: usize> SimdState<N> {
-        /// Gathers `N` scalar [`State`] references into a single `SimdState`, packing each field into a SIMD lane.
-        pub fn new(states: &mut [&mut State]) -> Self {
-            let mut min_refs = Vec::with_capacity(N);
-            let mut max_refs = Vec::with_capacity(N);
-            let mut buffer_slices = Vec::with_capacity(N);
-            let mut val1 = [0.0; N];
-            let mut fish = [0.0; N];
-            let capacity = states[0].buffer.capacity;
-            // Collect references and values
-            for (i, state) in states.iter_mut().enumerate() {
-                min_refs.push(&mut state.min_state);
-                max_refs.push(&mut state.max_state);
-                val1[i] = state.val1;
-                fish[i] = state.fish;
-                buffer_slices.push(state.buffer.get_slice());
-            }
-            let buffer_refs: [&[f64]; N] =
-                buffer_slices.try_into().unwrap_or_else(|v: Vec<&[f64]>| {
-                    panic!("Expected {} buffer slices, got {}", N, v.len())
-                });
+    impl<const N: usize> TSimdState for SimdState<N> {
+        type ScalarState = State<Warm>;
 
-            let buffer = MultiBuffer::from_slice(buffer_refs, capacity);
-            let min_state = MinSimdState::new(&mut min_refs);
-            let max_state = MaxSimdState::new(&mut max_refs);
+        crate::simd_state_impl!(
+             sub: [(min_state: MinSimdState<N>), (max_state: MaxSimdState<N>)],
+             scalar: [val1, fish],
+             buf: [(buffer: MultiMirrorBuffer<N, f64, Warm>, from_mirror_buffers)]
+        );
+    }
+    impl<const N: usize> TState for SimdState<N> {
+        type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>, usize);
+        type Outputs = (Simd<f64, N>, Simd<f64, N>);
 
-            Self {
-                buffer,
-                min_state,
-                max_state,
-                val1: Simd::from_array(val1),
-                fish: Simd::from_array(fish),
-            }
-        }
-        /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place.
-        pub fn write_states(&self, states: &mut [&mut State]) {
-            let mut max_refs = Vec::with_capacity(N);
-            let mut min_refs = Vec::with_capacity(N);
-            let val1 = self.val1.to_array();
-            let fish = self.fish.to_array();
-            let buffers = self.buffer.to_single_buffers();
-            // Collect references and values
-            // Use zip to pair states with buffers
-            for (i, (state, buffer)) in states.iter_mut().zip(buffers.into_iter()).enumerate() {
-                max_refs.push(&mut state.max_state);
-                min_refs.push(&mut state.min_state);
-                state.val1 = val1[i];
-                state.fish = fish[i];
-                state.buffer = buffer;
-            }
-
-            self.max_state.write_states(&mut max_refs);
-            self.min_state.write_states(&mut min_refs);
-        }
-        /// Computes one Fisher Transform step across `N` asset lanes.
-        ///
-        /// Pushes the new median price into the lookback buffer, finds the rolling
-        /// min/max over `look_back` bars (using `CHUNK_SIZE`-wide SIMD for the
-        /// window scan), then calls [`calc_fisher`] to update `val1` and produce
-        /// the transform value and its one-bar-lagged signal.
         #[inline(always)]
-        pub fn calc_simd<const CHUNK_SIZE: usize>(
+        fn calc(
             &mut self,
-            high: Simd<f64, N>,
-            low: Simd<f64, N>,
-            look_back: usize,
+            (high, low, look_back): Self::Inputs<'_>,
         ) -> (Simd<f64, N>, Simd<f64, N>) {
             let medprice = calc_medprice_simd(high, low);
 
             self.buffer.push(medprice.to_array());
 
-            let (min, _) = self
-                .buffer
-                .min::<CHUNK_SIZE>(&mut self.min_state, medprice, look_back);
-            let (max, _) = self
-                .buffer
-                .max::<CHUNK_SIZE>(&mut self.max_state, medprice, look_back);
+            let (min, _) = self.buffer.min(&mut self.min_state, medprice, look_back);
+            let (max, _) = self.buffer.max(&mut self.max_state, medprice, look_back);
             calc_fisher(self, min, max, medprice)
         }
     }
@@ -156,27 +96,20 @@ pub mod assets {
 
 pub mod options {
     use super::{
-        calc_fisher, calc_medprice_simd, FisherState, MaxSimdState, MinSimdState, Simd, State,
+        calc_fisher, calc_medprice_simd, FisherState, Simd, State, TSimdState, TState, Warm,
     };
-    use crate::ring_buffer::{
-        unsync_multi_buffer::{
-            mirror_buffer::MinMaxBuffer,
-            multi_buffer::{MirrorBuffer, UnsyncBuffer},
-        },
-        //single_buffer::mirror_buffer::MirrorBuffer as SingleMirrorBuffer,
+    use crate::indicators::simd_indicators::{
+        max_simd::options::SimdState as MaxSimdState,
+        min_simd::options::SimdState as MinSimdState,
     };
+    use crate::ring_buffer::unsync_multi_buffer::unsync_mirror_buffer::UnsyncMirrorBuffer;
     /// SIMD-parallel state for computing the Fisher Transform across `N` option lanes simultaneously.
     /// Each field is a SIMD vector where lane `i` corresponds to option set `i`.
     pub struct SimdState<const N: usize> {
-        /// Unsynchronised ring buffer holding recent median-price values, one per-option lookback window.
-        pub buffer: UnsyncBuffer<N, f64>,
-        /// SIMD rolling-minimum state for each option lane's individual lookback period.
+        pub buffer: UnsyncMirrorBuffer<N, f64, Warm>,
         pub min_state: MinSimdState<N>,
-        /// SIMD rolling-maximum state for each option lane's individual lookback period.
         pub max_state: MaxSimdState<N>,
-        /// Smoothed normalised price value per lane, clamped to (−0.999, 0.999).
         pub val1: Simd<f64, N>,
-        /// Previous bar's Fisher Transform output per lane, carried forward as the signal.
         pub fish: Simd<f64, N>,
     }
     impl<const N: usize> FisherState<N> for SimdState<N> {
@@ -193,90 +126,24 @@ pub mod options {
             self.fish = value;
         }
     }
-    impl<const N: usize> SimdState<N> {
-        /// Gathers `N` scalar [`State`] references into a single `SimdState`, packing each field into a SIMD lane.
-        pub fn new(states: &mut [&mut State]) -> Self {
-            let mut min_refs = Vec::with_capacity(N);
-            let mut max_refs = Vec::with_capacity(N);
-            let mut buffer_refs = Vec::with_capacity(N);
-            let mut val1 = [0.0; N];
-            let mut fish = [0.0; N];
+    impl<const N: usize> TSimdState for SimdState<N> {
+        type ScalarState = State<Warm>;
 
-            // Collect references and values
-            for (i, state) in states.iter_mut().enumerate() {
-                min_refs.push(&mut state.min_state);
-                max_refs.push(&mut state.max_state);
-                val1[i] = state.val1;
-                fish[i] = state.fish;
-                buffer_refs.push(&state.buffer);
-            }
+        crate::simd_state_impl!(
+            sub: [(min_state: MinSimdState<N>), (max_state: MaxSimdState<N>)],
+             scalar: [val1, fish],
+             buf: [(buffer: UnsyncMirrorBuffer<N, f64, Warm>, from_mirror_buffers)]
+        );
+    }
+    impl<const N: usize> TState for SimdState<N> {
+        type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>, Simd<usize, N>);
+        type Outputs = (Simd<f64, N>, Simd<f64, N>);
 
-            let buffer = UnsyncBuffer::from_buffers(buffer_refs);
-            let min_state = MinSimdState::new(&mut min_refs);
-            let max_state = MaxSimdState::new(&mut max_refs);
-
-            Self {
-                buffer,
-                min_state,
-                max_state,
-                val1: Simd::from_array(val1),
-                fish: Simd::from_array(fish),
-            }
-        }
-        /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place.
-        pub fn write_states(&self, states: &mut [&mut State]) {
-            let mut max_refs = Vec::with_capacity(N);
-            let mut min_refs = Vec::with_capacity(N);
-            let val1 = self.val1.to_array();
-            let fish = self.fish.to_array();
-            let buffers = self.buffer.to_f64_buffers();
-            // Collect references and values
-            // Use zip to pair states with buffers
-            for (i, (state, buffer)) in states.iter_mut().zip(buffers.into_iter()).enumerate() {
-                max_refs.push(&mut state.max_state);
-                min_refs.push(&mut state.min_state);
-                state.val1 = val1[i];
-                state.fish = fish[i];
-                state.buffer = buffer;
-            }
-
-            self.max_state.write_states(&mut max_refs);
-            self.min_state.write_states(&mut min_refs);
-        }
-        /// Computes one Fisher Transform step for `N` option lanes.
-        ///
-        /// Each lane uses its own `look_back` period derived from its option set.
-        /// Pushes the new median price into the per-lane unsynchronised buffer, computes
-        /// per-lane rolling min/max, then delegates to [`calc_fisher`].
         #[inline(always)]
-        pub fn calc_simd(
-            &mut self,
-            high: Simd<f64, N>,
-            low: Simd<f64, N>,
-            look_back: Simd<usize, N>,
-        ) -> (Simd<f64, N>, Simd<f64, N>) {
+        fn calc<'a>(&mut self, (high, low, look_back): Self::Inputs<'a>) -> Self::Outputs {
             let medprice = calc_medprice_simd(high, low);
 
             self.buffer.push(medprice);
-
-            let (min, _) = self.buffer.min(&mut self.min_state, medprice, look_back);
-            let (max, _) = self.buffer.max(&mut self.max_state, medprice, look_back);
-            calc_fisher(self, min, max, medprice)
-        }
-        /// Like [`calc_simd`](Self::calc_simd) but skips buffer-capacity bounds checks.
-        ///
-        /// # Safety
-        /// The caller must ensure the buffer has sufficient allocated capacity for all `N` lanes.
-        #[inline(always)]
-        pub unsafe fn calc_simd_unchecked(
-            &mut self,
-            high: Simd<f64, N>,
-            low: Simd<f64, N>,
-            look_back: Simd<usize, N>,
-        ) -> (Simd<f64, N>, Simd<f64, N>) {
-            let medprice = calc_medprice_simd(high, low);
-
-            unsafe { self.buffer.push_unchecked(medprice) };
 
             let (min, _) = self.buffer.min(&mut self.min_state, medprice, look_back);
             let (max, _) = self.buffer.max(&mut self.max_state, medprice, look_back);

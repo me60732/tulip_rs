@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::roc::{indicator as rust_roc, min_data, TIndicatorState};
+    use tulip_rs::indicators::roc::{Roc, Indicator, TIndicatorState};
     use tulip_rs::indicators::roc::{indicator_by_assets, indicator_by_options};
     use tulip_test::c_bindings::{ti_mom, ti_mom_start, ti_roc, ti_roc_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -65,7 +65,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_roc(&inputs_rust, &options, None).expect("Rust ROC indicator failed");
+                Roc::indicator(&inputs_rust, &options, None).expect("Rust ROC indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -151,7 +151,7 @@ mod tests {
 
                 let inputs_rust = [close.as_slice()];
                 let (outputs, _) =
-                    rust_roc(&inputs_rust, &options, None).expect("Rust ROC indicator failed");
+                    Roc::indicator(&inputs_rust, &options, None).expect("Rust ROC indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -217,19 +217,19 @@ mod tests {
 
                 // Get full output from processing all data at once
                 let (full_outputs, _) =
-                    rust_roc(&inputs_rust, &options, None).expect("Rust ROC indicator failed");
+                    Roc::indicator(&inputs_rust, &options, None).expect("Rust ROC indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Roc::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let close_vec = close[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice()];
 
                 let (first_outputs, mut state) =
-                    rust_roc(&chunk_inputs, &options, None).expect("Rust ROC indicator failed");
+                    Roc::indicator(&chunk_inputs, &options, None).expect("Rust ROC indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
                 // Process remaining data in chunks
@@ -311,7 +311,7 @@ mod tests {
             // Compare with individual Rust implementations
             for i in 0..4 {
                 let individual_inputs = [stock_data[i].1.as_slice()];
-                let (individual_outputs, _) = rust_roc(&individual_inputs, &options, None)
+                let (individual_outputs, _) = Roc::indicator(&individual_inputs, &options, None)
                     .expect("Individual Rust ROC indicator failed");
 
                 // Compare outputs
@@ -385,7 +385,7 @@ mod tests {
                 // Get regular indicator result for this stock with optional outputs
                 let stock_inputs = [stock_close.as_slice()];
                 let (regular_results_opt, _) =
-                    rust_roc(&stock_inputs, &options, Some(&[true, true]))
+                    Roc::indicator(&stock_inputs, &options, Some(&[true, true]))
                         .expect("Regular ROC indicator with optional outputs failed");
 
                 // Compare all outputs: ROC, MOM
@@ -459,7 +459,7 @@ mod tests {
         let optional_outputs = Some([true].as_slice()); // Request mom output
 
         // Get Rust ROC output with mom optional output
-        let result = rust_roc(&inputs, &options, optional_outputs).unwrap();
+        let result = Roc::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_mom = &result.0[1]; // mom is at index 1
 
         // Fail fast if Rust output is empty
@@ -540,7 +540,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get ROC with mom optional output
                 let optional_outputs = Some(&[true][..]);
-                let (roc_result, _) = tulip_rs::indicators::roc::indicator(
+                let (roc_result, _) = Roc::indicator(
                     &[&close],
                     &[options[0]],
                     optional_outputs,
@@ -646,7 +646,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_roc(&inputs, options, None).expect("Regular ROC indicator failed");
+                    Roc::indicator(&inputs, options, None).expect("Regular ROC indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -738,7 +738,7 @@ mod tests {
 
             // Compare each SIMD result with scalar indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
-                let (scalar_results, _) = rust_roc(&inputs, options, Some(&[true]))
+                let (scalar_results, _) = Roc::indicator(&inputs, options, Some(&[true]))
                     .expect("Scalar ROC with optional outputs failed");
 
                 // Compare all 2 outputs (roc, mom)

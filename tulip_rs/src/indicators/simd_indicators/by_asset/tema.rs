@@ -1,40 +1,34 @@
 //use crate::common::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 
-use crate::indicators::dema::output_length as dema_output_length;
-use crate::indicators::ema::output_length as ema_output_length;
-use crate::indicators::simd_indicators::tema_simd::{SimdState, Calc};
+use crate::indicators::dema::Dema;
+use crate::indicators::ema::Ema;
+use crate::indicators::simd_indicators::tema_simd::{SimdState, TSimdState, TState};
 use crate::indicators::tema::{
-    min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    Tema, Indicator, IndicatorState, State, INPUTS, OPTIONS,
 };
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
 
 /// SIMD driver that advances the Triple Exponential Moving Average (TEMA) across `N` asset lanes per scheduling epoch.
 struct TemaDriver {
-    multiplier: f64,
-    inv_multiplier: f64,
     want_optional_outputs: (bool, bool, bool),
 }
 
-impl Driver<State> for TemaDriver {
+impl Driver<State<Warm>> for TemaDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
         let len = inputs[0][0].len();
 
-        let mut state = SimdState::new(&states);
+        let mut state = SimdState::<N>::from_states(&mut states);
 
-        let multipliers_simd = (
-            Simd::splat(self.multiplier),
-            Simd::splat(self.inv_multiplier),
-        );
         let (has_optional, want_dema, want_ema) = self.want_optional_outputs;
         // Pre-compute pointers for maximum efficiency
         let input_ptrs = crate::extract_input_ptrs!(inputs, N, input_ptrs);
@@ -45,7 +39,7 @@ impl Driver<State> for TemaDriver {
         for i in 0..len {
             let values = crate::extract_simd_inputs_at_index!(i, N, values @ input_ptrs);
 
-            let (temas, demas, emas) = state.calc_simd(values, multipliers_simd);
+            let (temas, demas, emas) = state.calc(values);
 
             // Direct SIMD store if possible, otherwise individual stores
             unsafe {
@@ -73,7 +67,7 @@ impl Driver<State> for TemaDriver {
 /// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[real]` for asset `i`.
 /// * `options` - `options[0]` is the `period`.
 /// * `optional_outputs` - `optional_outputs[0] = true` enables `dema`,
@@ -86,28 +80,27 @@ impl Driver<State> for TemaDriver {
 /// `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, Tema::min_data(options))?;
     validate_options(options)?;
 
     let period = options[0] as usize;
-    let (multiplier, inv_multiplier) = multiplier(period);
     let mut output_buffers = Vec::with_capacity(N);
 
-    let mut road_train = PrimeMover::<N, State>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut want_optional_outputs = (false, false, false);
     for i in 0..N {
         let len = inputs[i][0].len();
-        let tema_capacity = output_length(len, options);
+        let tema_capacity = Tema::output_length(len, options);
         let tema_line = crate::uninit_vec!(f64, tema_capacity);
 
         let (mut ema_line, mut dema_line) = {
-            let ema_capacity = ema_output_length(len, options);
+            let ema_capacity = Ema::output_length(len, options);
             //println!("Len: {:?}, option: {:?}", len, period);
-            let dema_capacity = dema_output_length(len, options);
+            let dema_capacity = Dema::output_length(len, options);
             crate::init_optional_outputs_eff!(
                 optional_outputs, &[false, false],
                 ema_line: ema_capacity,
@@ -118,7 +111,6 @@ pub fn indicator_by_assets<const N: usize>(
         let state = State::init_state(
             inputs[i][0],
             period,
-            tema_capacity,
             (&mut dema_line, &mut ema_line),
         );
         let asset_inputs = vec![inputs[i][0]];
@@ -155,15 +147,9 @@ pub fn indicator_by_assets<const N: usize>(
         output_buffers.push(output_buffer);
     }
     let mut driver = TemaDriver {
-        multiplier,
-        inv_multiplier,
         want_optional_outputs,
     };
-    let states_vec = road_train.drive(&mut driver);
+    let states = road_train.drive(&mut driver);
 
-    let mut states = Vec::with_capacity(N);
-    for state in states_vec {
-        states.push(IndicatorState::new(state, (multiplier, inv_multiplier)));
-    }
     Ok((output_buffers, states))
 }

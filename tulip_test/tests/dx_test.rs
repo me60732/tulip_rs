@@ -1,9 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::dx::indicator_by_assets;
-    use tulip_rs::indicators::dx::indicator_by_options;
-    use tulip_rs::indicators::dx::{indicator as rust_dx, min_data, TIndicatorState};
+    use tulip_rs::indicators::dx::{Dx, Indicator, TIndicatorState, indicator_by_assets, indicator_by_options};
     use tulip_test::c_bindings::{ti_atr, ti_atr_start, ti_dx, ti_dx_start, ti_tr, ti_tr_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -79,7 +77,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
             let (outputs, _) =
-                rust_dx(&inputs_rust, &options, None).expect("Rust DX indicator failed");
+                Dx::indicator(&inputs_rust, &options, None).expect("Rust DX indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -164,7 +162,7 @@ mod tests {
                 // Rust implementation
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (outputs, _) =
-                    rust_dx(&inputs_rust, &options, None).expect("Rust DX indicator failed");
+                    Dx::indicator(&inputs_rust, &options, None).expect("Rust DX indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -231,17 +229,17 @@ mod tests {
 
                 // Get full output
                 let (full_outputs, _) =
-                    rust_dx(&inputs_rust, &options, None).expect("Rust DX indicator failed");
+                    Dx::indicator(&inputs_rust, &options, None).expect("Rust DX indicator failed");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Dx::min_data(&options).max(CHUNK_SIZE);
 
                 if high.len() <= min_data_val {
                     // If data is too small, just run full calculation
                     let (outputs, _) =
-                        rust_dx(&inputs_rust, &options, None).expect("Failed to run DX indicator");
+                        Dx::indicator(&inputs_rust, &options, None).expect("Failed to run DX indicator");
                     batch_full_output.extend_from_slice(&outputs[0]);
                 } else {
                     // First chunk - convert to Vec<&Vec<f64>>
@@ -254,7 +252,7 @@ mod tests {
                         close_vec.as_slice(),
                     ];
 
-                    let (first_outputs, mut state) = rust_dx(&chunk_inputs, &options, None)
+                    let (first_outputs, mut state) = Dx::indicator(&chunk_inputs, &options, None)
                         .expect("Failed to run DX indicator on first chunk");
                     batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -329,7 +327,7 @@ mod tests {
 
             // Run the Rust implementation with ATR optional output enabled
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-            let (rust_outputs, _) = rust_dx(&inputs_rust, &options, Some(&[true, false]))
+            let (rust_outputs, _) = Dx::indicator(&inputs_rust, &options, Some(&[true, false]))
                 .expect("Rust DX indicator failed");
 
             // Extract the ATR optional output (second output)
@@ -414,7 +412,7 @@ mod tests {
 
             // Run the Rust implementation with TR optional output enabled
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-            let (rust_outputs, _) = rust_dx(&inputs_rust, &options, Some(&[false, true]))
+            let (rust_outputs, _) = Dx::indicator(&inputs_rust, &options, Some(&[false, true]))
                 .expect("Rust DX indicator failed");
 
             // Extract the TR optional output (third output)
@@ -505,7 +503,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get DX with ATR optional output
                 let optional_outputs = Some(&[true, false][..]);
-                let (dx_result, _) = tulip_rs::indicators::dx::indicator(
+                let (dx_result, _) = Dx::indicator(
                     &[&high, &low, &close],
                     &[options[0]],
                     optional_outputs,
@@ -583,7 +581,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get DX with TR optional output
                 let optional_outputs = Some(&[false, true][..]);
-                let (dx_result, _) = tulip_rs::indicators::dx::indicator(
+                let (dx_result, _) = Dx::indicator(
                     &[&high, &low, &close],
                     &[options[0]],
                     optional_outputs,
@@ -702,7 +700,7 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) =
-                    rust_dx(&stock_inputs, options, None).unwrap_or_else(|_| {
+                    Dx::indicator(&stock_inputs, options, None).unwrap_or_else(|_| {
                         panic!(
                             "Regular DX failed for {} with period {}",
                             stock_symbol, options[0]
@@ -793,7 +791,7 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_outputs, _) = rust_dx(&stock_inputs, options, optional_outputs)
+                let (regular_outputs, _) = Dx::indicator(&stock_inputs, options, optional_outputs)
                     .unwrap_or_else(|_| {
                         panic!(
                             "Regular DX with optional ATR failed for {} with period {}",
@@ -920,7 +918,7 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_outputs, _) = rust_dx(&stock_inputs, options, optional_outputs)
+                let (regular_outputs, _) = Dx::indicator(&stock_inputs, options, optional_outputs)
                     .unwrap_or_else(|_| {
                         panic!(
                             "Regular DX with optional TR failed for {} with period {}",
@@ -1016,7 +1014,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_dx(&inputs, options, None).expect("Regular DX indicator failed");
+                    Dx::indicator(&inputs, options, None).expect("Regular DX indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -1094,7 +1092,7 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result with optional outputs
-                let (regular_results, _) = rust_dx(&inputs, options, optional_outputs)
+                let (regular_results, _) = Dx::indicator(&inputs, options, optional_outputs)
                     .expect("Regular DX indicator with optional outputs failed");
 
                 let simd_dx_result = &all_simd_results[idx][0];

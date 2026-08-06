@@ -1,20 +1,18 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::dx::{
-    Calc as DxCalc, output_length as dx_output_length, State as DxState,
-};
-use crate::indicators::tr::output_length as tr_output_length;
-use crate::indicators::wilders::calc as calc_wilders;
+pub use crate::indicator_types::{TIndicatorState, TState, Indicator, IndicatorResult};
+use crate::indicators::dx::{Dx, State as DxState};
+use crate::indicators::tr::Tr;
+use crate::indicators::wilders::State as WildersState;
 pub use crate::indicators::wilders::multiplier;
 use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
+    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold
 };
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 3;
+pub const INPUTS: usize = 3;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -47,58 +45,68 @@ pub mod by_options {
     /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::adx_simd::indicator_by_options as indicator;
 }
-
-/// Returns information about the Average Directional Index (ADX) indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the ADX indicator.
-pub const INFO: Info = Info {
-    name: "adx",
-    full_name: "Average Directional Index",
-    indicator_type: IndicatorType::Trend,
-    inputs: &["high", "low", "close"],
-    options: &["period"],
-    outputs: &["adx"],
-    optional_outputs: &["dx", "atr", "tr"],
-    display_groups: &[
-        DisplayGroup {
-            offset: None,
-            id: "adx_dx",
-            label: "Directional Index",
-            display_type: DisplayType::Indicator,
-            outputs: &["adx", "dx"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "true_range",
-            label: "True Range",
-            display_type: DisplayType::Indicator,
-            outputs: &["atr", "tr"],
-        },
-    ],
-};
+pub type IndicatorState = State<Warm>;
 #[derive(Serialize, Deserialize)]
-pub struct State {
-    pub dx_state: DxState,
-    pub adx: f64,
+#[serde(bound="")]
+pub struct State<S = Cold> {
+    pub dx_state: DxState<S>,
+    pub wilders_state: WildersState<S>,
 }
-
-#[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    state: State,
-    multipliers: (f64, f64),
-}
-impl IndicatorState {
-    pub fn new(state: State, multipliers: (f64, f64)) -> Self {
-        Self { state, multipliers }
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64, f64);
+    type Outputs = (f64, f64, f64, f64);
+    
+    #[inline(always)]
+    fn calc<'a>(
+        &mut self,
+        inputs: Self::Inputs<'a>
+    ) -> (f64, f64, f64, f64) {
+        let (dx, atr, tr) = self.dx_state.calc(inputs);
+        let adx = self.wilders_state.calc(dx);
+        (adx, dx, atr, tr)
     }
+}
+impl State {
+    pub fn init_state(
+        high: &[f64],
+        low: &[f64],
+        close: &[f64],
+        period: usize,
+        out_vecs: (&mut [f64], &mut [f64], &mut [f64]),
+    ) -> State<Warm> {
+        let (dx_line, atr_line, tr_line) = out_vecs;
+        let (_, inv_multiplier) = multiplier(period);
+        let mut dx_state = DxState::init_state(high, low, close, period, tr_line);
+        let mut adx = dx_state.calc_dx();
+        for (i, ((&h, &l), &c)) in high
+            .iter()
+            .zip(low.iter())
+            .zip(close.iter())
+            .enumerate()
+            .take(period * 2 - 1)
+            .skip(period)
+        {
+            let (dx, atr, tr) = dx_state.calc((h, l, c));
+            adx += dx;
+            crate::init_store_optional_outputs!(i, high.len(),
+                dx_line => dx,
+                atr_line => atr * inv_multiplier,
+                tr_line => tr
+            );
+        }
+        adx /= period as f64;
+        State { 
+            dx_state, 
+            wilders_state: WildersState::new(adx, period).into_warm()
+        }
+    }
+
 }
 impl TIndicatorState<3> for IndicatorState {
     #[inline(always)]
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -118,177 +126,14 @@ impl TIndicatorState<3> for IndicatorState {
 
         cycle_adx(
             (inputs[0], inputs[1], inputs[2]),
-            self.multipliers,
-            &mut self.state,
+            self,
             (&mut adx_line, &mut dx_line, &mut atr_line, &mut tr_line),
         );
 
         Ok(vec![adx_line, dx_line, atr_line, tr_line])
     }
 }
-impl State {
-    pub fn new(adx: f64, dm_state: (f64, f64, f64, f64), atr_state: (f64, f64)) -> Self {
-        Self {
-            adx,
-            dx_state: DxState::new(dm_state, atr_state),
-        }
-    }
-    pub fn init_state(
-        high: &[f64],
-        low: &[f64],
-        close: &[f64],
-        period: usize,
-        out_vecs: (&mut [f64], &mut [f64], &mut [f64]),
-    ) -> State {
-        let (dx_line, atr_line, tr_line) = out_vecs;
-        let multipliers = multiplier(period);
-        let mut dx_state = DxState::init_state(high, low, close, period, tr_line);
-        let mut adx = DxCalc::calc_dx(&mut dx_state);
-        for (i, ((&h, &l), &c)) in high
-            .iter()
-            .zip(low.iter())
-            .zip(close.iter())
-            .enumerate()
-            .take(period * 2 - 1)
-            .skip(period)
-        {
-            let (dx, atr, tr) = DxCalc::calc(&mut dx_state, h, l, c, multipliers);
-            adx += dx;
-            crate::init_store_optional_outputs!(i, high.len(),
-                dx_line => dx,
-                atr_line => atr * multipliers.1,
-                tr_line => tr
-            );
-        }
-        adx /= period as f64;
-        State { dx_state, adx }
-    }
-    /// Calculates the current value of the Average Directional Index (ADX) indicator.
-    ///
-    /// # Arguments
-    ///
-    /// * `high` -  high price array.
-    /// * `low` - low price array.
-    /// * `adx` - The previous ADX value.
-    /// * `dmup` - The previous DM+ value.
-    /// * `dmdown` - The previous DM- value.
-    /// * `atr` - The previous ATR value.
-    /// * `period` - The period for the ADX calculation.
-    /// * `i` - The current index.
-    /// * `start` - The starting index for the calculation.
-    ///
-    /// # Returns
-    ///
-    /// A tuple containing the current ADX value, the current DX value, the current DM+ value, the current DM- value, the current ATR value, the current TR value, the updated DM+ value, and the updated DM- value.
-    #[inline(always)]
-    pub fn calc(
-        &mut self,
-        high: f64,
-        low: f64,
-        close: f64,
-        multipliers: (f64, f64),
-    ) -> (f64, f64, f64, f64) {
-        let (dx, atr, tr) = DxCalc::calc(&mut self.dx_state, high, low, close, multipliers);
-        self.adx = calc_wilders(self.adx, dx, multipliers);
-        (self.adx, dx, atr, tr)
-    }
-}
-/// Returns the minimum amount of data required for the ADX indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the ADX calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    options[0] as usize * 2 // period
-}
-/// Calculates the output length based on the data length, options, and an optional recent-only parameter.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the ADX calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
-///
-/// # Returns
-///
-/// The output length.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
 
-/// Calculates the Average Directional Index (ADX) indicator for an entire dataset or a slice of it.
-///
-/// # Arguments
-///
-/// * `inputs` - A slice of vectors containing the high, low, and close prices.
-/// * `options` - A slice containing the period for the ADX calculation.
-/// * `recent_only` - An optional tuple indicating whether to calculate only the most recent values and the length of recent data.
-/// * `optional_outputs` - An optional slice of booleans indicating which additional outputs to generate.
-///
-/// # Returns
-///
-/// A vector of vectors containing the ADX line and any additional requested outputs.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-
-    let period = options[0] as usize;
-    let multipliers = multiplier(period);
-    validate_inputs(inputs, min_data(options))?;
-
-    let high = inputs[0];
-    let low = inputs[1];
-    let close = inputs[2];
-
-    let (mut adx_line, mut dx_line, mut atr_line, mut tr_line);
-    {
-        let dx_capacity = dx_output_length(inputs[0].len(), options);
-        let adx_capacity = output_length(inputs[0].len(), options);
-        let tr_capacity = tr_output_length(inputs[0].len(), &[]);
-        adx_line = crate::uninit_vec!(f64, adx_capacity);
-
-        (dx_line, atr_line, tr_line) = crate::init_optional_outputs_eff!(
-            optional_outputs, &[false, false, false],
-            dx_line: dx_capacity,
-            atr_line: dx_capacity,
-            tr_line: tr_capacity
-        );
-    }
-
-    let mut state = State::init_state(
-        high,
-        low,
-        close,
-        period,
-        (&mut dx_line, &mut atr_line, &mut tr_line),
-    );
-    let outputs = {
-        let offsets = crate::slice_outputs_start!(adx_line.len(), dx_line, atr_line, tr_line);
-        (
-            adx_line.as_mut_slice(),
-            &mut dx_line[offsets.0..],
-            &mut atr_line[offsets.1..],
-            &mut tr_line[offsets.2..],
-        )
-    };
-    let inputs = {
-        let from = period * 2 - 1;
-        (&high[from..], &low[from..], &close[from..])
-    };
-    cycle_adx(inputs, multipliers, &mut state, outputs);
-
-    Ok((
-        vec![adx_line, dx_line, atr_line, tr_line],
-        IndicatorState::new(state, multipliers),
-    ))
-}
 
 /// Performs the main calculation loop for the ADX indicator.
 ///
@@ -305,8 +150,7 @@ pub fn indicator(
 //#[inline(always)]
 fn cycle_adx(
     inputs: (&[f64], &[f64], &[f64]),
-    multipliers: (f64, f64),
-    state: &mut State,
+    state: &mut State<Warm>,
     out_vecs: (&mut [f64], &mut [f64], &mut [f64], &mut [f64]),
 ) {
     let (high, low, close) = inputs;
@@ -316,7 +160,7 @@ fn cycle_adx(
         crate::calc_want_flags!(dx_line, atr_line, tr_line);
 
     for i in 0..high.len() {
-        let (h, l, c) = unsafe {
+        let inputs = unsafe {
             (
                 *high.get_unchecked(i),
                 *low.get_unchecked(i),
@@ -324,7 +168,7 @@ fn cycle_adx(
             )
         };
 
-        let (adx, dx, atr, tr) = state.calc(h, l, c, multipliers);
+        let (adx, dx, atr, tr) = state.calc(inputs);
         unsafe {
             *adx_line.get_unchecked_mut(i) = adx;
         }
@@ -334,10 +178,99 @@ fn cycle_adx(
                 want_tr, tr_line => tr
             );
             crate::store_optional_outputs_corrected!(i,
-                want_atr, atr_line => corrected(atr, multipliers.1)
+                want_atr, atr_line => corrected(atr, state.dx_state.atr_state.wilders_state.inv_multiplier)
             );
         }
     }
 }
 
+pub struct Adx;
 
+impl Indicator<INPUTS, OPTIONS> for Adx {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "adx",
+        full_name: "Average Directional Index",
+        indicator_type: IndicatorType::Trend,
+        inputs: &["high", "low", "close"],
+        options: &["period"],
+        outputs: &["adx"],
+        optional_outputs: &["dx", "atr", "tr"],
+        display_groups: &[
+            DisplayGroup {
+                offset: None,
+                id: "adx_dx",
+                label: "Directional Index",
+                display_type: DisplayType::Indicator,
+                outputs: &["adx", "dx"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "true_range",
+                label: "True Range",
+                display_type: DisplayType::Indicator,
+                outputs: &["atr", "tr"],
+            },
+        ],
+    };
+    fn min_data(options: &[f64; OPTIONS]) -> usize {
+        options[0] as usize * 2 // period
+    }
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+    
+        let period = options[0] as usize;
+        validate_inputs(inputs, Self::min_data(options))?;
+    
+        let high = inputs[0];
+        let low = inputs[1];
+        let close = inputs[2];
+    
+        let (mut adx_line, mut dx_line, mut atr_line, mut tr_line);
+        {
+            let dx_capacity = Dx::output_length(inputs[0].len(), options);
+            let adx_capacity = Self::output_length(inputs[0].len(), options);
+            let tr_capacity = Tr::output_length(inputs[0].len(), &[]);
+            adx_line = crate::uninit_vec!(f64, adx_capacity);
+    
+            (dx_line, atr_line, tr_line) = crate::init_optional_outputs_eff!(
+                optional_outputs, &[false, false, false],
+                dx_line: dx_capacity,
+                atr_line: dx_capacity,
+                tr_line: tr_capacity
+            );
+        }
+    
+        let mut state = State::init_state(
+            high,
+            low,
+            close,
+            period,
+            (&mut dx_line, &mut atr_line, &mut tr_line),
+        );
+        let outputs = {
+            let offsets = crate::slice_outputs_start!(adx_line.len(), dx_line, atr_line, tr_line);
+            (
+                adx_line.as_mut_slice(),
+                &mut dx_line[offsets.0..],
+                &mut atr_line[offsets.1..],
+                &mut tr_line[offsets.2..],
+            )
+        };
+        let inputs = {
+            let from = period * 2 - 1;
+            (&high[from..], &low[from..], &close[from..])
+        };
+        cycle_adx(inputs, &mut state, outputs);
+    
+        Ok((
+            vec![adx_line, dx_line, atr_line, tr_line],
+            state,
+        ))
+    }
+}

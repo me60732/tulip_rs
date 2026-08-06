@@ -1,13 +1,13 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+pub use crate::indicator_types::{TIndicatorState, TState, Indicator, IndicatorResult};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 1;
+pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -41,45 +41,15 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::linreg_simd::indicator_by_options as indicator;
 }
 
-/// Returns information about the Linear Regression (LINREG) indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the LINREG indicator.
-pub const INFO: Info = Info {
-    name: "linreg",
-    indicator_type: IndicatorType::Trend,
-    full_name: "Linear Regression",
-    inputs: &["real"],
-    options: &["period"],
-    outputs: &["linreg"],
-    optional_outputs: &["linregslope", "linregintercept"],
-    display_groups: &[
-        DisplayGroup {
-            offset: None,
-            id: "linreg_linregintercept",
-            label: "Regression",
-            display_type: DisplayType::Overlay,
-            outputs: &["linreg", "linregintercept"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "linregslope",
-            label: "Linear Regression Slope",
-            display_type: DisplayType::Indicator,
-            outputs: &["linregslope"],
-        },
-    ],
-};
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
-    state: State,
+    state: State<Warm>,
     real: Vec<f64>,
     period: usize,
 }
 impl IndicatorState {
-    pub fn new(state: State, real: &[f64], period: usize) -> Self {
+    pub fn new(state: State<Warm>, real: &[f64], period: usize) -> Self {
         Self {
             state,
             real: real[real.len() - period + 1..].to_vec(),
@@ -90,7 +60,7 @@ impl IndicatorState {
 impl TIndicatorState<1> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -121,23 +91,27 @@ impl TIndicatorState<1> for IndicatorState {
     }
 }
 #[derive(Serialize, Deserialize)]
-pub struct State {
+pub struct State<S = Cold> {
     pub sum_x: f64,
     pub sum_y: f64,
     pub sum_xy: f64,
     pub per: f64,
+    pub n: f64,
+    pub(crate) state: std::marker::PhantomData<S>,
 }
-impl State {
-    pub fn new(sum_x: f64, sum_y: f64, sum_xy: f64, per: f64) -> Self {
+impl State<Cold> {
+    pub fn new(sum_x: f64, sum_y: f64, sum_xy: f64, per: f64, period: usize) -> Self {
         Self {
             sum_x,
             sum_y,
             sum_xy,
             per,
+            n: period as f64,
+            state: std::marker::PhantomData,
         }
     }
 
-    pub fn init_state(data: &[f64], period: usize) -> Self {
+    pub fn init_state(data: &[f64], period: usize) -> State<Warm> {
         let (mut sum_x, mut sum_xx, mut sum_y, mut sum_xy) = (0.0, 0.0, 0.0, 0.0);
         if data.len() >= period - 1 {
             for i in 0..period - 1 {
@@ -151,12 +125,23 @@ impl State {
         sum_x += period as f64;
         sum_xx += (period * period) as f64;
         let per = multiplier(period, sum_x, sum_xx);
-        Self::new(sum_x, sum_y, sum_xy, per)
+        State {
+            sum_x,
+            sum_y,
+            sum_xy,
+            per,
+            n: period as f64,
+            state: std::marker::PhantomData,
+        }
     }
+    
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64);
+    type Outputs = (f64, f64, f64);
     #[inline(always)]
-    pub fn calc(&mut self, prev_value: f64, value: f64, period: usize) -> (f64, f64, f64) {
-        let (sum_x, mut sum_y, mut sum_xy, per) = (self.sum_x, self.sum_y, self.sum_xy, self.per);
-        let n = period as f64;
+    fn calc<'a>(&mut self, (prev_value, value): Self::Inputs<'a>) -> Self::Outputs {
+        let (sum_x, mut sum_y, mut sum_xy, per, n) = (self.sum_x, self.sum_y, self.sum_xy, self.per, self.n);
     
         sum_xy += value * n;
         sum_y += value;
@@ -172,95 +157,6 @@ impl State {
         (linreg, slope, intercept)
     }
 }
-/// Returns the minimum amount of data required for the LINREG indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the LINREG calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    options[0] as usize + 1
-}
-
-/// Calculates the output length for the LINREG indicator.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the LINREG calculation.
-///
-/// # Returns
-///
-/// The output length.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-
-/// Calculates the Linear Regression (LINREG) indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — real (close) prices
-///
-/// # Options
-///
-/// * `options[0]` — period
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `optional_outputs` - Pass `Some(&[true, false])` to enable optional outputs
-///   (`linregslope`, `linregintercept`); `None` disables all optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where:
-/// - `outputs[0]` — `linreg`
-/// - `outputs[1]` — `linregslope` (empty if not requested)
-/// - `outputs[2]` — `linregintercept` (empty if not requested)
-///
-/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let period = options[0] as usize;
-
-    validate_inputs(inputs, min_data(options))?;
-    let real = inputs[0];
-    let (mut linreg_line, mut slope_line, mut intercept_line);
-    {
-        let capacity = output_length(real.len(), options);
-        (slope_line, intercept_line) = crate::init_optional_outputs_eff!(
-            optional_outputs, &[false, false],
-            slope_line: capacity,
-            intercept_line: capacity
-        );
-        linreg_line = crate::uninit_vec!(f64, capacity);
-    }
-    let mut state = State::init_state(&real[1..period], period);
-    // Perform the main LINREG calculation
-    cycle_linreg(
-        &real[1..],
-        &mut state,
-        period,
-        &mut linreg_line,
-        (&mut slope_line, &mut intercept_line),
-    );
-
-    Ok((
-        vec![linreg_line, slope_line, intercept_line],
-        IndicatorState::new(state, real, period),
-    ))
-}
 
 /// Performs the main calculation loop for the LINREG indicator using rolling sums.
 ///
@@ -273,7 +169,7 @@ pub fn indicator(
 /// * `out_vecs` - A tuple of mutable slices for optional slope and intercept outputs.
 fn cycle_linreg(
     real: &[f64],
-    state: &mut State,
+    state: &mut State<Warm>,
     period: usize,
     linreg_line: &mut [f64],
     out_vecs: (&mut [f64], &mut [f64]),
@@ -283,8 +179,8 @@ fn cycle_linreg(
         crate::calc_want_flags!(slope_line, intercept_line);
 
     for (j, i) in (period - 1..real.len()).enumerate() {
-        let (prev_value, value) = unsafe { (*real.get_unchecked(j), *real.get_unchecked(i)) };
-        let (linreg, slope, intercept) = state.calc(prev_value, value, period);
+        let inputs = unsafe { (*real.get_unchecked(j), *real.get_unchecked(i)) };
+        let (linreg, slope, intercept) = state.calc(inputs);
 
         unsafe { *linreg_line.get_unchecked_mut(j) = linreg };
         if has_optional {
@@ -302,4 +198,72 @@ fn cycle_linreg(
 #[inline]
 pub fn multiplier(period: usize, sum_x: f64, sum_xx: f64) -> f64 {
     1.0 / (period as f64 * sum_xx - sum_x.powi(2))
+}
+
+pub struct Linreg;
+
+impl Indicator<INPUTS, OPTIONS> for Linreg {
+    type IndicatorState = IndicatorState;
+
+    const INFO: Info = Info {
+        name: "linreg",
+        indicator_type: IndicatorType::Trend,
+        full_name: "Linear Regression",
+        inputs: &["real"],
+        options: &["period"],
+        outputs: &["linreg"],
+        optional_outputs: &["linregslope", "linregintercept"],
+        display_groups: &[
+            DisplayGroup {
+                offset: None,
+                id: "linreg_linregintercept",
+                label: "Regression",
+                display_type: DisplayType::Overlay,
+                outputs: &["linreg", "linregintercept"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "linregslope",
+                label: "Linear Regression Slope",
+                display_type: DisplayType::Indicator,
+                outputs: &["linregslope"],
+            },
+        ],
+    };
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        let period = options[0] as usize;
+    
+        validate_inputs(inputs, Self::min_data(options))?;
+        let real = inputs[0];
+        let (mut linreg_line, mut slope_line, mut intercept_line);
+        {
+            let capacity = Self::output_length(real.len(), options);
+            (slope_line, intercept_line) = crate::init_optional_outputs_eff!(
+                optional_outputs, &[false, false],
+                slope_line: capacity,
+                intercept_line: capacity
+            );
+            linreg_line = crate::uninit_vec!(f64, capacity);
+        }
+        let mut state = State::init_state(&real[1..period], period);
+        // Perform the main LINREG calculation
+        cycle_linreg(
+            &real[1..],
+            &mut state,
+            period,
+            &mut linreg_line,
+            (&mut slope_line, &mut intercept_line),
+        );
+    
+        Ok((
+            vec![linreg_line, slope_line, intercept_line],
+            IndicatorState::new(state, real, period),
+        ))
+    }
 }

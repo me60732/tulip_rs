@@ -1,18 +1,18 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::tr::{calc as calc_tr, output_length as tr_output_length};
+pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
+use crate::indicators::tr::{Tr, State as TrState};
 pub use crate::indicators::wilders::multiplier;
-use crate::indicators::wilders::{calc as calc_wilders, partial_calc as partial_calc_wilders};
+use crate::indicators::wilders::State as WildersState;
 use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
+    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold
 };
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 3;
+pub const INPUTS: usize = 3;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -46,45 +46,17 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::atr_simd::indicator_by_options as indicator;
 }
 
-/// Returns information about the Average True Range (ATR) indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the ATR indicator.
-pub const INFO: Info = Info {
-    name: "atr",
-    full_name: "Average True Range",
-    indicator_type: IndicatorType::Volatility,
-    inputs: &["high", "low", "close"],
-    options: &["period"],
-    outputs: &["atr"],
-    optional_outputs: &["tr"],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "atr_tr",
-        label: "True Range",
-        display_type: DisplayType::Indicator,
-        outputs: &["atr", "tr"],
-    }],
-};
+pub type IndicatorState = State<Warm>;
 #[derive(Serialize, Deserialize)]
-pub struct State {
-    pub atr: f64,
-    pub prev_close: f64,
+#[serde(bound = "")]
+pub struct State<S = Cold> {
+    pub wilders_state: WildersState<S>,
+    pub tr_state: TrState,
 }
-#[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    state: State,
-    multipliers: (f64, f64),
-}
-impl IndicatorState {
-    pub fn new(state: State, multipliers: (f64, f64)) -> Self {
-        Self { state, multipliers }
-    }
-}
-impl State {
-    pub fn new(atr: f64, prev_close: f64) -> Self {
-        Self { atr, prev_close }
+
+impl State<Cold> {
+    pub fn new(wilders_state: WildersState, tr_state: TrState) -> Self {
+        Self { wilders_state, tr_state }
     }
     pub fn init_state(
         high: &[f64],
@@ -93,14 +65,13 @@ impl State {
         period: usize,
         tr_line: &mut [f64],
         composite: bool,
-    ) -> State {
+    ) -> State<Warm> {
         let mut atr = high[0] - low[0];
-        let mut tr;
+        let mut tr_state = TrState::new(close[0]);
         if period < high.len() {
-            for (i, (&h, &l)) in high.iter().zip(low.iter()).enumerate().take(period).skip(1) {
-                let prev_close = unsafe { *close.get_unchecked(i - 1) };
-                (atr, tr) = init_calc(h, l, prev_close, atr);
-
+            for (i, ((&h, &l), &c)) in high.iter().zip(low.iter()).zip(close).enumerate().take(period).skip(1) {
+                let tr = tr_state.calc((h, l, c));
+                atr += tr;
                 if tr_line.len() > 0 {
                     tr_line[i - 1] = tr;
                 }
@@ -110,35 +81,37 @@ impl State {
             atr /= period as f64;
         }
         State {
-            atr,
-            prev_close: close[period - 1],
+            wilders_state: WildersState::new(atr, period).into_warm(),
+            tr_state: TrState::new(close[period - 1]),
         }
     }
-    #[inline(always)]
-    pub fn calc(&mut self, high: f64, low: f64, close: f64, multipliers: (f64, f64)) -> (f64, f64) {
-        let tr = calc_tr(high, low, self.prev_close);
-        self.atr = calc_wilders(self.atr, tr, multipliers);
-        self.prev_close = close;
-        (self.atr, tr)
-    }
+}
+impl State<Warm> {
     #[inline(always)]
     pub fn partial_calc(
         &mut self,
-        high: f64,
-        low: f64,
-        close: f64,
-        multipliers: (f64, f64),
+        inputs: (f64, f64, f64),
     ) -> (f64, f64) {
-        let tr = calc_tr(high, low, self.prev_close);
-        self.atr = partial_calc_wilders(self.atr, tr, multipliers.0);
-        self.prev_close = close;
-        (self.atr, tr)
+        let tr = self.tr_state.calc(inputs);
+        let atr = self.wilders_state.partial_calc(tr);
+        (atr, tr)
+    }
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64, f64);
+    type Outputs = (f64, f64);
+    
+    #[inline(always)]
+    fn calc<'a>(&mut self, inputs: Self::Inputs<'a>) -> Self::Outputs {
+        let tr = self.tr_state.calc(inputs);
+        let atr = self.wilders_state.calc(tr);
+        (atr, tr)
     }
 }
 impl TIndicatorState<3> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -151,99 +124,14 @@ impl TIndicatorState<3> for IndicatorState {
         );
         cycle_atr(
             (inputs[0], inputs[1], inputs[2]),
-            &mut self.state,
-            self.multipliers,
+            self,
             (&mut atr_line, &mut tr_line),
         );
 
         Ok(vec![atr_line, tr_line])
     }
 }
-/// Returns the minimum amount of data required for the ATR indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the ATR calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    options[0] as usize + 1 // period
-}
-/// Calculates the output length for the ATR indicator.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the ATR calculation.
-///
-/// # Returns
-///
-/// The number of output values produced by the ATR calculation.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-/// Calculates the Average True Range (ATR) indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — high prices
-/// * `inputs[1]` — low prices
-/// * `inputs[2]` — close prices
-///
-/// # Options
-///
-/// * `options[0]` — period
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `optional_outputs` - Pass `Some(&[true])` to also emit the true range (`tr`) line;
-///   `None` disables all optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is `atr`, `outputs[1]` is `tr` (optional),
-/// and `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let period = options[0] as usize;
 
-    validate_inputs(inputs, min_data(options))?;
-    let high = inputs[0];
-    let low = inputs[1];
-    let close = inputs[2];
-
-    let mut atr_line = {
-        let atr_capacity = output_length(high.len(), options);
-        crate::uninit_vec!(f64, atr_capacity)
-    };
-    let multipliers = multiplier(period);
-    let mut tr_line = crate::init_optional_outputs_eff!(
-        optional_outputs, &[false],
-        tr_line: tr_output_length(high.len(), options)
-    );
-    let mut state = State::init_state(high, low, close, period, &mut tr_line, false);
-    let tr_offset = crate::slice_outputs_start!(atr_line.len(), tr_line);
-    cycle_atr(
-        (&high[period..], &low[period..], &close[period..]),
-        &mut state,
-        multipliers,
-        (&mut atr_line, &mut tr_line[tr_offset..]),
-    );
-
-    Ok((
-        vec![atr_line, tr_line],
-        IndicatorState::new(state, multipliers),
-    ))
-}
 
 /// Performs the main calculation loop for the ATR indicator.
 ///
@@ -254,8 +142,7 @@ pub fn indicator(
 /// * `outputs` - A tuple of mutable slices for storing the ATR line and optional TR line.
 fn cycle_atr(
     inputs: (&[f64], &[f64], &[f64]),
-    state: &mut State,
-    multipliers: (f64, f64),
+    state: &mut State<Warm>,
     outputs: (&mut [f64], &mut [f64]),
 ) {
     let (high, low, close) = inputs;
@@ -265,12 +152,12 @@ fn cycle_atr(
     for i in 0..high.len() {
         let (atr, tr);
         unsafe {
-            let (h, l, c) = (
+            let inputs = (
                 *high.get_unchecked(i),
                 *low.get_unchecked(i),
                 *close.get_unchecked(i),
             );
-            (atr, tr) = calc(state, h, l, c, multipliers);
+            (atr, tr) = state.calc(inputs);
             *atr_line.get_unchecked_mut(i) = atr;
         }
         crate::store_optional_outputs!(i,
@@ -278,41 +165,60 @@ fn cycle_atr(
         );
     }
 }
-/// Calculates the current ATR and true range values.
-///
-/// # Arguments
-///
-/// * `state` - A mutable reference to the current ATR state.
-/// * `high` - The current high price.
-/// * `low` - The current low price.
-/// * `close` - The current close price.
-///
-/// # Returns
-///
-/// A tuple of `(atr, tr)` containing the updated ATR value and current true range.
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    high: f64,
-    low: f64,
-    close: f64,
-    multipliers: (f64, f64),
-) -> (f64, f64) {
-    state.calc(high, low, close, multipliers)
-}
-#[inline(always)]
-pub fn partial_calc(
-    state: &mut State,
-    high: f64,
-    low: f64,
-    close: f64,
-    multipliers: (f64, f64),
-) -> (f64, f64) {
-    state.partial_calc(high, low, close, multipliers)
-}
 
-#[inline(always)]
-pub(crate) fn init_calc(high: f64, low: f64, prev_close: f64, atr: f64) -> (f64, f64) {
-    let tr = calc_tr(high, low, prev_close);
-    (atr + tr, tr)
+
+pub struct Atr;
+impl Indicator<INPUTS, OPTIONS> for Atr {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "atr",
+        full_name: "Average True Range",
+        indicator_type: IndicatorType::Volatility,
+        inputs: &["high", "low", "close"],
+        options: &["period"],
+        outputs: &["atr"],
+        optional_outputs: &["tr"],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "atr_tr",
+            label: "True Range",
+            display_type: DisplayType::Indicator,
+            outputs: &["atr", "tr"],
+        }],
+    };
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        let period = options[0] as usize;
+    
+        validate_inputs(inputs, Self::min_data(options))?;
+        let high = inputs[0];
+        let low = inputs[1];
+        let close = inputs[2];
+    
+        let mut atr_line = {
+            let atr_capacity = Self::output_length(high.len(), options);
+            crate::uninit_vec!(f64, atr_capacity)
+        };
+        let mut tr_line = crate::init_optional_outputs_eff!(
+            optional_outputs, &[false],
+            tr_line: Tr::output_length(high.len(), &[])
+        );
+        let mut state = State::init_state(high, low, close, period, &mut tr_line, false);
+        let tr_offset = crate::slice_outputs_start!(atr_line.len(), tr_line);
+        cycle_atr(
+            (&high[period..], &low[period..], &close[period..]),
+            &mut state,
+            (&mut atr_line, &mut tr_line[tr_offset..]),
+        );
+    
+        Ok((
+            vec![atr_line, tr_line],
+            state,
+        ))
+    }
 }

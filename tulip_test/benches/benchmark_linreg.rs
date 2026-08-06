@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::linreg::{
-    indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState,
+    Linreg, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -130,7 +130,7 @@ fn bench_rust_linreg(c: &mut Criterion) {
                 timing.measure(
                     || {
                         let result =
-                            indicator(&inputs, &options, None).expect("LINREG indicator failed");
+                            Linreg::indicator(&inputs, &options, None).expect("LINREG indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -150,7 +150,7 @@ fn bench_rust_linreg(c: &mut Criterion) {
                 b.iter(|| {
                     let inputs = [close.as_slice()];
                     let result =
-                        indicator(&inputs, &options, None).expect("LINREG indicator failed");
+                        Linreg::indicator(&inputs, &options, None).expect("LINREG indicator failed");
                     black_box(&result);
                 });
             });
@@ -177,12 +177,12 @@ fn bench_rust_linreg_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data = min_data(&options);
+                        let min_data = Linreg::min_data(&options);
                         // First chunk
                         let close_chunk = close[..min_data].to_vec();
                         let chunk_inputs = [close_chunk.as_slice()];
 
-                        let (_, mut state) = indicator(&chunk_inputs, &options, None)
+                        let (_, mut state) = Linreg::indicator(&chunk_inputs, &options, None)
                             .expect("LINREG indicator failed");
 
                         // Chunks
@@ -217,7 +217,7 @@ fn bench_rust_linreg_from_state(c: &mut Criterion) {
                     let new_close = close[..close.len() - 1].to_vec();
                     let final_close = close[close.len() - 1..].to_vec();
                     let new_inputs = [new_close.as_slice()];
-                    let (_, mut state) = indicator(&new_inputs, &options, None)
+                    let (_, mut state) = Linreg::indicator(&new_inputs, &options, None)
                         .expect("Rust LINREG indicator failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -241,7 +241,7 @@ fn bench_rust_linreg_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) = indicator(&new_inputs, &options, None)
+                    let (_, state) = Linreg::indicator(&new_inputs, &options, None)
                         .expect("Rust LINREG indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
@@ -275,13 +275,13 @@ fn bench_rust_linreg_from_state(c: &mut Criterion) {
         let _inputs = [&close];
 
         for options in OPTIONS_LIST {
-            let min_data = min_data(&options);
+            let min_data = Linreg::min_data(&options);
             // First chunk
             let close_chunk = close[..min_data].to_vec();
             let chunk_inputs = [close_chunk.as_slice()];
 
             let (_, mut state) =
-                indicator(&chunk_inputs, &options, None).expect("LINREG indicator failed");
+                Linreg::indicator(&chunk_inputs, &options, None).expect("LINREG indicator failed");
 
             let mut group =
                 c.benchmark_group(format!("Rust LINREG from state {{ {:.1} }}", options[0]));
@@ -312,7 +312,7 @@ fn bench_rust_linreg_from_state(c: &mut Criterion) {
                 let final_close = close[close.len() - 1..].to_vec();
                 let new_inputs = [new_close.as_slice()];
                 let (_, mut state) =
-                    indicator(&new_inputs, &options, None).expect("Rust LINREG indicator failed");
+                    Linreg::indicator(&new_inputs, &options, None).expect("Rust LINREG indicator failed");
 
                 let mut group = c.benchmark_group(format!(
                     "Rust LINREG from state 1 bar {{ {:.1} }}",
@@ -415,7 +415,7 @@ fn bench_rust_linreg_optional(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, Some(&[true]))
+                        let result = Linreg::indicator(&inputs, &options, Some(&[true]))
                             .expect("Rust LINREG indicator failed");
                         black_box(&result);
                     },
@@ -442,7 +442,7 @@ fn bench_rust_linreg_optional(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust LINREG {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result = indicator(&inputs, &options, Some(&[true]))
+                    let result = Linreg::indicator(&inputs, &options, Some(&[true]))
                         .expect("Rust LINREG indicator failed");
                     black_box(&result);
                 });

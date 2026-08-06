@@ -1,4 +1,4 @@
-use tulip_rs::indicators::roc::{indicator, TIndicatorState};
+use tulip_rs::indicators::roc::{Indicator, Roc, TIndicatorState};
 use tulip_rs::types::IndicatorError;
 
 fn main() -> Result<(), IndicatorError> {
@@ -13,7 +13,7 @@ fn main() -> Result<(), IndicatorError> {
     let options = [5.0];
 
     // Calculate the ROC indicator for the entire dataset
-    let (outputs, mut state) = indicator(&inputs, &options, Some(&[true]))?;
+    let (outputs, mut state) = Roc::indicator(&inputs, &options, Some(&[true]))?;
     println!("ROC Indicator Result: {:?}", outputs[0]);
     println!("MOM Indicator Result: {:?}", outputs[1]);
 

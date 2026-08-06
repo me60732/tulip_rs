@@ -1,4 +1,4 @@
-use tulip_rs::indicators::chaikinmf::{indicator, TIndicatorState};
+use tulip_rs::indicators::chaikinmf::{ChaikinMf, Indicator, TIndicatorState};
 
 fn main() {
     // Test Input Data
@@ -47,7 +47,7 @@ fn main() {
     ];
 
     // Calculate the Chaikin Money Flow using the full dataset
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match ChaikinMf::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -57,7 +57,7 @@ fn main() {
     let inputs2 = [&high[..n], &low[..n], &close[..n], &volume[..n]];
 
     // Calculate the Chaikin Money Flow using a partial dataset
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match ChaikinMf::indicator(&inputs2, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

@@ -1,16 +1,15 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
-
+pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
 use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
+    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold
 };
 use serde::{Deserialize, Serialize};
 //use wide::*;
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 1;
+pub const INPUTS: usize = 1;
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 pub const OUTPUTS_WIDTH: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
@@ -45,186 +44,124 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::ema_simd::indicator_by_options as indicator;
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    multipliers: (f64, f64),
-    ema: f64,
-}
-impl IndicatorState {
-    pub fn new(ema: f64, multipliers: (f64, f64)) -> Self {
-        Self { ema, multipliers }
-    }
-    pub fn get_ema(&self) -> f64 {
-        self.ema
-    }
-    pub fn get_multipliers(&self) -> (f64, f64) {
-        self.multipliers
-    }
-    pub fn set_ema(&mut self, ema: f64) {
-        self.ema = ema;
-    }
-}
+pub type IndicatorState = State<Warm>;
+
 impl TIndicatorState<1> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         _optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
         let real: &[f64] = inputs[0];
         let mut ema_line = crate::uninit_vec!(f64, real.len());
-        //let mut ema_line = vec![0.0; real.len()];
-        //self.ema = cycle_ema(real, self.multiplier, self.ema, 0, &mut ema_line);
-        for (j, i) in (0..real.len()).enumerate() {
-            unsafe {
-                self.ema = calc(real.get_unchecked(i), self.ema, self.multipliers);
-                *ema_line.get_unchecked_mut(j) = self.ema;
-            }
-        }
+        cycle(real, self, &mut ema_line);
         Ok(vec![ema_line])
     }
 }
-/// Returns information about the Exponential Moving Average (EMA) indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the EMA indicator.
-pub const INFO: Info = Info {
-    name: "ema",
-    full_name: "Exponential Moving Average",
-    indicator_type: IndicatorType::Trend,
-    inputs: &["real"],
-    options: &["period"],
-    outputs: &["ema"],
-    optional_outputs: &[],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "ema",
-        label: "EMA",
-        display_type: DisplayType::Overlay,
-        outputs: &["ema"],
-    }],
-};
-/// Returns the number of output values produced by the EMA indicator given input data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the EMA calculation.
-///
-/// # Returns
-///
-/// The number of output values.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-/// Returns the minimum amount of data required for the EMA indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the EMA calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    options[0] as usize + 1
-}
 
-/// Initializes the EMA state by computing the initial EMA value over the first `period` elements.
-///
-/// # Arguments
-///
-/// * `real` - A slice of input values.
-/// * `period` - The EMA period.
-/// * `multipliers` - A tuple of EMA smoothing factors `(multiplier, inv_multiplier)`.
-///
-/// # Returns
-///
-/// The initial EMA value after processing the first `period` elements.
-pub fn init_state(real: &[f64], period: usize, multipliers: (f64, f64)) -> f64 {
-    let mut ema = real[0];
-    for i in 1..period {
-        ema = calc(&real[i], ema, multipliers);
-    }
-    ema
-}
 
-/// Calculates the Exponential Moving Average (EMA) indicator for an entire dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — real (close) prices
-///
-/// # Options
-///
-/// * `options[0]` — period
-///
-/// # Outputs
-///
-/// * `outputs[0]` — `ema` line
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `_optional_outputs` - Unused; EMA has no optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is the `ema` line and
-/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    _optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let period = options[0] as usize;
-    let multipliers = multiplier(period);
 
-    validate_inputs(inputs, min_data(options))?;
 
-    let mut ema = init_state(inputs[0], period, multipliers);
-    let real = &inputs[0][period..];
-    let mut ema_line = {
-        let capacity = output_length(inputs[0].len(), &[period as f64]);
-        crate::uninit_vec!(f64, capacity)
-    };
-
-    for i in 0..real.len() {
-        unsafe {
-            ema = calc(real.get_unchecked(i), ema, multipliers);
-            *ema_line.get_unchecked_mut(i) = ema;
-        }
-    }
-    Ok((vec![ema_line], IndicatorState { ema, multipliers }))
-}
-#[derive(Default, Serialize, Deserialize)]
-pub struct State {
+#[derive(Default, Serialize, Deserialize, Copy, Clone)]
+#[serde(bound="")]
+pub struct State<S = Cold> {
     pub ema: f64,
     pub inv_multiplier: f64,
-    pub multiplier: f64
+    pub multiplier: f64,
+    pub(crate) state: std::marker::PhantomData::<S>
 }
-impl State {
-    pub fn new(ema: f64, multipliers: (f64, f64)) -> Self {
+impl TState for State<Warm> {
+    type Inputs<'a> = f64;
+    type Outputs = f64;
+    #[inline(always)]
+    fn calc<'a>(&mut self, value: Self::Inputs<'a>) -> Self::Outputs {
+        self.ema = calc(value, self.ema, self.multiplier, self.inv_multiplier);
+        self.ema
+    }
+}
+impl State<Cold> {
+    pub fn new(ema: f64, period: usize) -> Self {
+        let multipliers = multiplier(period);
         Self {
             ema,
             inv_multiplier: multipliers.1,
             multiplier: multipliers.0,
+            state: std::marker::PhantomData,
         }
     }
-    #[inline(always)]
-    pub fn calc(&mut self, value: f64) -> f64 {
-        self.ema = calc(&value, self.ema, (self.multiplier, self.inv_multiplier));
-        self.ema
+    pub(crate) fn into_warm(self) -> State<Warm> {
+        State {
+            ema: self.ema,
+            inv_multiplier: self.inv_multiplier,
+            multiplier: self.multiplier,
+            state: std::marker::PhantomData,
+        }
+    }
+    pub fn init_state(real: &[f64], period: usize) -> State<Warm> {
+        let (mut ema, (multiplier, inv_multiplier)) = (real[0], multiplier(period));
+        for i in 1..period {
+            ema = calc(real[i], ema, multiplier, inv_multiplier);
+        }
+        State {
+            ema,
+            inv_multiplier,
+            multiplier,
+            state: std::marker::PhantomData,
+        }
+    }
+    
+}
+pub struct Ema;
+impl Indicator<INPUTS, OPTIONS> for Ema {
+    const INFO: Info = Info {
+        name: "ema",
+        full_name: "Exponential Moving Average",
+        indicator_type: IndicatorType::Trend,
+        inputs: &["real"],
+        options: &["period"],
+        outputs: &["ema"],
+        optional_outputs: &[],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "ema",
+            label: "EMA",
+            display_type: DisplayType::Overlay,
+            outputs: &["ema"],
+        }],
+    };
+    type IndicatorState = IndicatorState;
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        _optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        let period = options[0] as usize;
+    
+        validate_inputs(inputs, Self::min_data(options))?;
+    
+        let mut state = State::init_state(inputs[0], period);
+        let real = &inputs[0][period..];
+        let mut ema_line = {
+            let capacity = Self::output_length(inputs[0].len(), &[period as f64]);
+            crate::uninit_vec!(f64, capacity)
+        };
+    
+        cycle(real, &mut state, &mut ema_line);
+        Ok((vec![ema_line], state))
+    }
+}
+fn cycle(real: &[f64], state: &mut State<Warm>, ema_line: &mut [f64]) {
+    for i in 0..real.len() {
+        unsafe {
+            *ema_line.get_unchecked_mut(i) = state.calc(*real.get_unchecked(i));
+        }
     }
 }
 #[inline(always)]
-pub fn calc(value: &f64, prev_ema: f64, multipliers: (f64, f64)) -> f64 {
-    let (multiplier, inv_multiplier) = multipliers;
-
+pub fn calc(value: f64, prev_ema: f64, multiplier: f64, inv_multiplier: f64) -> f64 {
     //prev_ema * inv_multiplier + value * multiplier
     prev_ema.mul_add(inv_multiplier, value * multiplier)
 }

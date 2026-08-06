@@ -1,5 +1,5 @@
 use tulip_rs::indicators::hilberttransform::{
-    indicator, indicator_by_assets, indicator_by_options, TIndicatorState,
+    indicator_by_assets, indicator_by_options, HilbertTransform, Indicator, TIndicatorState,
 };
 
 // 80 bars of close prices
@@ -27,7 +27,7 @@ fn main() {
     // outputs[1] = quadrature (Q)
     // outputs[2] = roofing (optional)
     // outputs[3] = highpass (optional)
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true, true])) {
+    let (outputs, _) = match HilbertTransform::indicator(&inputs, &options, Some(&[true, true])) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -49,10 +49,11 @@ fn main() {
     let split = CLOSE.len() - 5;
     let inputs_partial = [&CLOSE[..split]];
 
-    let (outputs_partial, mut state) = match indicator(&inputs_partial, &options, None) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (outputs_partial, mut state) =
+        match HilbertTransform::indicator(&inputs_partial, &options, None) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
 
     println!(
         "\nPartial run ({} bars): I={:?}, Q={:?}",

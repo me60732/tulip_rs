@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::max::indicator as max_indicator;
-    use tulip_rs::indicators::min::indicator as min_indicator;
-    use tulip_rs::indicators::willr::{indicator as rust_willr, min_data, TIndicatorState};
+    use tulip_rs::indicators::max::Max;
+    use tulip_rs::indicators::min::Min;
+    use tulip_rs::indicators::willr::{Willr, Indicator, TIndicatorState, indicator_by_assets, indicator_by_options};
     use tulip_test::c_bindings::{ti_willr, ti_willr_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -78,7 +78,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
             let (outputs, _) =
-                rust_willr(&inputs_rust, &options, None).expect("Rust WILLR indicator failed");
+                Willr::indicator(&inputs_rust, &options, None).expect("Rust WILLR indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -164,7 +164,7 @@ mod tests {
                 // Rust implementation
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (outputs, _) =
-                    rust_willr(&inputs_rust, &options, None).expect("Rust WILLR indicator failed");
+                    Willr::indicator(&inputs_rust, &options, None).expect("Rust WILLR indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -231,12 +231,12 @@ mod tests {
 
                 // Get full output from processing all data at once
                 let (full_outputs, _) =
-                    rust_willr(&inputs_rust, &options, None).expect("Rust WILLR indicator failed");
+                    Willr::indicator(&inputs_rust, &options, None).expect("Rust WILLR indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Willr::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let high_vec = high[..min_data_val].to_vec();
@@ -249,7 +249,7 @@ mod tests {
                 ];
 
                 let (first_outputs, mut state) =
-                    rust_willr(&chunk_inputs, &options, None).expect("Rust WILLR indicator failed");
+                    Willr::indicator(&chunk_inputs, &options, None).expect("Rust WILLR indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
                 // Process remaining data in chunks
@@ -333,7 +333,7 @@ mod tests {
             for (stock_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
                 // Get regular indicator result for this stock
                 let stock_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (regular_results, _) = rust_willr(&stock_inputs, &options, None)
+                let (regular_results, _) = Willr::indicator(&stock_inputs, &options, None)
                     .expect("Regular WILLR indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
@@ -419,7 +419,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result for this option set
                 let (regular_results, _) =
-                    rust_willr(&inputs, options, None).expect("Regular WILLR indicator failed");
+                    Willr::indicator(&inputs, options, None).expect("Regular WILLR indicator failed");
 
                 let simd_result = &simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -486,11 +486,11 @@ mod tests {
         for options in OPTIONS_LIST {
             let min_options = [options[0]];
 
-            let (willr_outputs, _) = rust_willr(&inputs, &options, Some(&[true, false]))
+            let (willr_outputs, _) = Willr::indicator(&inputs, &options, Some(&[true, false]))
                 .expect("Rust WILLR indicator failed");
             let willr_min = &willr_outputs[1];
 
-            let (min_outputs, _) = min_indicator(&[low.as_slice()], &min_options, None)
+            let (min_outputs, _) = Min::indicator(&[low.as_slice()], &min_options, None)
                 .expect("Rust MIN indicator failed");
             let min_line = &min_outputs[0];
 
@@ -520,11 +520,11 @@ mod tests {
             for options in OPTIONS_LIST {
                 let min_options = [options[0]];
 
-                let (willr_outputs, _) = rust_willr(&inputs, &options, Some(&[true, false]))
+                let (willr_outputs, _) = Willr::indicator(&inputs, &options, Some(&[true, false]))
                     .expect("Rust WILLR indicator failed");
                 let willr_min = &willr_outputs[1];
 
-                let (min_outputs, _) = min_indicator(&[low.as_slice()], &min_options, None)
+                let (min_outputs, _) = Min::indicator(&[low.as_slice()], &min_options, None)
                     .expect("Rust MIN indicator failed");
                 let min_line = &min_outputs[0];
 
@@ -555,11 +555,11 @@ mod tests {
         for options in OPTIONS_LIST {
             let max_options = [options[0]];
 
-            let (willr_outputs, _) = rust_willr(&inputs, &options, Some(&[false, true]))
+            let (willr_outputs, _) = Willr::indicator(&inputs, &options, Some(&[false, true]))
                 .expect("Rust WILLR indicator failed");
             let willr_max = &willr_outputs[2];
 
-            let (max_outputs, _) = max_indicator(&[high.as_slice()], &max_options, None)
+            let (max_outputs, _) = Max::indicator(&[high.as_slice()], &max_options, None)
                 .expect("Rust MAX indicator failed");
             let max_line = &max_outputs[0];
 
@@ -589,11 +589,11 @@ mod tests {
             for options in OPTIONS_LIST {
                 let max_options = [options[0]];
 
-                let (willr_outputs, _) = rust_willr(&inputs, &options, Some(&[false, true]))
+                let (willr_outputs, _) = Willr::indicator(&inputs, &options, Some(&[false, true]))
                     .expect("Rust WILLR indicator failed");
                 let willr_max = &willr_outputs[2];
 
-                let (max_outputs, _) = max_indicator(&[high.as_slice()], &max_options, None)
+                let (max_outputs, _) = Max::indicator(&[high.as_slice()], &max_options, None)
                     .expect("Rust MAX indicator failed");
                 let max_line = &max_outputs[0];
 
@@ -618,7 +618,6 @@ mod tests {
 
     #[test]
     fn test_willr_simd_by_assets_state_continuity() {
-        use tulip_rs::indicators::willr::indicator_by_assets;
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -690,7 +689,7 @@ mod tests {
 
                 let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (full_outputs, _) =
-                    rust_willr(&inputs, &options, None).expect("scalar WILLR indicator failed");
+                    Willr::indicator(&inputs, &options, None).expect("scalar WILLR indicator failed");
 
                 assert_eq!(
                     full_outputs[0].len(),
@@ -717,7 +716,6 @@ mod tests {
 
     #[test]
     fn test_willr_simd_by_options_state_continuity() {
-        use tulip_rs::indicators::willr::indicator_by_options;
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -773,7 +771,7 @@ mod tests {
 
                 let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (full_outputs, _) =
-                    rust_willr(&inputs, options, None).expect("scalar WILLR indicator failed");
+                    Willr::indicator(&inputs, options, None).expect("scalar WILLR indicator failed");
 
                 assert_eq!(
                     full_outputs[0].len(),
@@ -800,7 +798,6 @@ mod tests {
 
     #[test]
     fn test_willr_simd_by_assets_optional_outputs() {
-        use tulip_rs::indicators::willr::indicator_by_assets;
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -827,7 +824,7 @@ mod tests {
 
             for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
                 let scalar_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (scalar_results, _) = rust_willr(&scalar_inputs, &options, Some(&[true, true]))
+                let (scalar_results, _) = Willr::indicator(&scalar_inputs, &options, Some(&[true, true]))
                     .expect("Scalar WILLR with optional outputs failed");
 
                 // Compare all 3 outputs: willr (0), min (1), max (2)

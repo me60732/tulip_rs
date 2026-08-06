@@ -1,38 +1,33 @@
 use crate::common_simd::assets::validate_inputs;
 use crate::indicators::cybercycle::{
-    min_data, multiplier, output_length, validate_options, IndicatorState, State, INPUTS_WIDTH,
-    OPTIONS_WIDTH,
+    Cybercycle, Indicator, validate_options, IndicatorState, State, INPUTS, OPTIONS,
 };
-use crate::indicators::simd_indicators::cybercycle_simd::SimdState;
+use crate::indicators::simd_indicators::cybercycle_simd::{SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
 /// SIMD driver that advances the CyberCycle across `N` asset lanes per epoch.
+///
+/// Coefficients (`coef`, `d1`, `d2`) are embedded in each lane's scalar [`State`]
+/// by [`State::init_state`] and gathered into the [`SimdState`] by
+/// [`TSimdState::from_states`] — no external multiplier vectors are needed.
 struct CycleDriver {
-    /// Whether the trigger optional output was requested.
     want_trigger: bool,
-    /// Precomputed scalar multipliers broadcast to SIMD on each bar.
-    multipliers: (f64, f64, f64),
 }
 
-impl Driver<State> for CycleDriver {
+impl Driver<State<Warm>> for CycleDriver {
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
         let len = inputs[0][0].len();
-        let mut simd_state = SimdState::new(&mut states);
 
-        // Broadcast scalar multipliers to SIMD once per epoch.
-        let mults = (
-            Simd::splat(self.multipliers.0),
-            Simd::splat(self.multipliers.1),
-            Simd::splat(self.multipliers.2),
-        );
+        // Coefficients are gathered from each lane's scalar State — no external mults needed.
+        let mut simd_state = SimdState::from_states(&mut states);
 
         let real_ptrs = crate::extract_input_ptrs!(inputs, N, real_ptrs);
         let (cycle_ptrs, trigger_ptrs) =
@@ -42,7 +37,7 @@ impl Driver<State> for CycleDriver {
             let real = crate::extract_simd_inputs_at_index!(i, N, real @ real_ptrs);
             // Safety: all ring buffers are full — guaranteed by State::init_state
             // called for every lane before PrimeMover dispatches.
-            let cycle = unsafe { simd_state.calc_simd_unchecked(real, mults) };
+            let cycle = simd_state.calc(real);
             crate::write_simd_at_indices!(N, i, cycle_ptrs => cycle);
             // trigger[i] = Cycle[i-1] = cycle_prev2 (updated inside calc_simd_unchecked)
             crate::store_simd_optional_outputs!(i, N,
@@ -73,25 +68,24 @@ impl Driver<State> for CycleDriver {
 /// Returns `Err(NotEnoughData)` if any asset has fewer than 7 bars, or
 /// `Err(InvalidOptions)` if `alpha` is not in `(0, 1)`.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N],
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N],
+    options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
     validate_options(options)?;
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, Cybercycle::min_data(options))?;
 
     let alpha = options[0];
-    let mults = multiplier(alpha);
     let want_trigger = optional_outputs
         .and_then(|f| f.first().copied())
         .unwrap_or(false);
 
     let mut output_buffers = Vec::with_capacity(N);
-    let mut road_train = PrimeMover::<N, State>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
 
     for i in 0..N {
         let len = inputs[i][0].len();
-        let capacity = output_length(len, options);
+        let capacity = Cybercycle::output_length(len, options);
 
         let mut cycle_line = crate::uninit_vec!(f64, capacity);
         let mut trigger_line: Vec<f64> = if want_trigger {
@@ -100,8 +94,9 @@ pub fn indicator_by_assets<const N: usize>(
             Vec::new()
         };
 
-        // init_state seeds bars 0–5, processes bar 6, writes outputs[0].
-        let state = State::init_state(inputs[i][0], mults, &mut cycle_line, &mut trigger_line);
+        // init_state seeds bars 0–5, processes bar 6, writes outputs[0],
+        // and embeds coef/d1/d2 from alpha into the returned State.
+        let state = State::init_state(inputs[i][0], alpha, &mut cycle_line, &mut trigger_line);
 
         // Slice outputs so the driver writes indices 1..capacity.
         let mut output_buffer = vec![cycle_line, trigger_line];
@@ -123,7 +118,7 @@ pub fn indicator_by_assets<const N: usize>(
             asset_outputs,
             i,
             // init_state consumed bars 0..6 inclusive; driver starts at bar 7 = min_data.
-            min_data(options),
+            Cybercycle::min_data(options),
             0,
             state,
             None,
@@ -132,15 +127,8 @@ pub fn indicator_by_assets<const N: usize>(
         output_buffers.push(output_buffer);
     }
 
-    let mut driver = CycleDriver {
-        want_trigger,
-        multipliers: mults,
-    };
+    let mut driver = CycleDriver { want_trigger };
     let final_states = road_train.drive(&mut driver);
 
-    let states = final_states
-        .into_iter()
-        .map(|s| IndicatorState::new(s, mults))
-        .collect();
-    Ok((output_buffers, states))
+    Ok((output_buffers, final_states))
 }

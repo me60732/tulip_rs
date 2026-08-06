@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::qstick::{indicator as rust_qstick, min_data, TIndicatorState};
+    use tulip_rs::indicators::qstick::{QStick, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_qstick, ti_qstick_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -71,7 +71,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [open.as_slice(), close.as_slice()];
             let (outputs, _) =
-                rust_qstick(&inputs_rust, &options, None).expect("Rust QSTICK indicator failed");
+                QStick::indicator(&inputs_rust, &options, None).expect("Rust QSTICK indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -159,7 +159,7 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [open.as_slice(), close.as_slice()];
-                let (outputs, _) = rust_qstick(&inputs_rust, &options, None)
+                let (outputs, _) = QStick::indicator(&inputs_rust, &options, None)
                     .expect("Rust QSTICK indicator failed");
 
                 let output_len_rust = outputs[0].len();
@@ -251,7 +251,7 @@ mod tests {
             {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_open.as_slice(), stock_close.as_slice()];
-                let (regular_results, _) = rust_qstick(&stock_inputs, &options, None)
+                let (regular_results, _) = QStick::indicator(&stock_inputs, &options, None)
                     .expect("Regular QSTICK indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
@@ -321,13 +321,13 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Get full output
-                let (full_outputs, _) = rust_qstick(&inputs_rust, &options, None)
+                let (full_outputs, _) = QStick::indicator(&inputs_rust, &options, None)
                     .expect("QSTICK indicator should work on full data");
 
                 // Process in batches
                 let mut batch_full_outputs = vec![Vec::new(); full_outputs.len()];
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = QStick::min_data(&options).max(CHUNK_SIZE);
 
                 // Process first chunk to get initial state
                 let first_chunk_size = min_data_val.min(open.len());
@@ -335,7 +335,7 @@ mod tests {
                 let first_close = close[..first_chunk_size].to_vec();
                 let first_inputs = [first_open.as_slice(), first_close.as_slice()];
 
-                let (outputs, mut state) = rust_qstick(&first_inputs, &options, None)
+                let (outputs, mut state) = QStick::indicator(&first_inputs, &options, None)
                     .expect("QSTICK indicator should work on first chunk");
 
                 for output_idx in 0..outputs.len() {
@@ -420,7 +420,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_qstick(&inputs, options, None).expect("Regular QSTICK indicator failed");
+                    QStick::indicator(&inputs, options, None).expect("Regular QSTICK indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];

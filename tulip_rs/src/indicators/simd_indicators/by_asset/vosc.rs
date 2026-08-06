@@ -1,41 +1,35 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::assets::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::vosc_simd::SimdState;
+use crate::indicators::simd_indicators::vosc_simd::{SimdState, TSimdState, TState};
 use crate::indicators::{
-    sma::output_length as sma_output_length,
-    vosc::{
-        min_data, multiplier, output_length, validate_options, IndicatorState, State, INPUTS_WIDTH,
-        OPTIONS_WIDTH,
-    },
+    sma::{Indicator, Sma},
+    vosc::{validate_options, IndicatorState, State, Vosc, INPUTS, OPTIONS},
 };
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
 /// SIMD driver that advances the Volume Oscillator (VOSC) across `N` asset lanes per scheduling epoch.
 struct VoscDriver {
-    multipliers: (f64, f64),
     long_period: usize,
     short_period: usize,
     want_optional_outputs: (bool, bool, bool),
 }
 
-impl Driver<State> for VoscDriver {
+impl Driver<State<Warm>> for VoscDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
         let len = inputs[0][0].len();
 
         // Optimization 1: Direct array construction instead of collect+try_into
-        let mut state = SimdState::new(&states);
+        let mut state = SimdState::<N>::from_states(&mut states);
         let (has_optional, want_short_sma, want_long_sma) = self.want_optional_outputs;
-        let short_multiplier = Simd::splat(self.multipliers.0);
-        let long_multiplier = Simd::splat(self.multipliers.1);
 
         // Optimization 2: Pre-compute all input and output pointers
         let input_ptrs = crate::extract_input_ptrs!(inputs, N, input_ptrs);
@@ -55,8 +49,7 @@ impl Driver<State> for VoscDriver {
                 long_volume @ j
             );
 
-            let (vosc, short_sma, long_sma) =
-                state.calc_simd(vols, short_multiplier, long_multiplier);
+            let (vosc, short_sma, long_sma) = state.calc(vols);
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, j,
@@ -80,7 +73,7 @@ impl Driver<State> for VoscDriver {
 /// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[volume]` for asset `i`.
 /// * `options` - `options[0]` is `short_period`, `options[1]` is `long_period`.
 /// * `optional_outputs` - `optional_outputs[0] = true` enables `short_sma`,
@@ -93,26 +86,25 @@ impl Driver<State> for VoscDriver {
 /// `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, Vosc::min_data(options))?;
     validate_options(options)?;
     let short_period = options[0] as usize;
     let long_period = options[1] as usize;
 
-    let mut road_train = PrimeMover::<N, State>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut output_buffers = Vec::with_capacity(N);
     let mut want_optional_outputs = (false, false, false);
-    let multipliers = multiplier(short_period, long_period);
 
     for i in 0..inputs.len() {
         let asset_inputs = vec![inputs[i][0]];
         let (vosc_line, (mut short_sma_line, long_sma_line)) = {
             let len = inputs[i][0].len();
-            let capacity = output_length(len, options);
-            let short_capacity = sma_output_length(len, &[short_period as f64]);
+            let capacity = Vosc::output_length(len, options);
+            let short_capacity = Sma::output_length(len, &[short_period as f64]);
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::init_optional_outputs_eff!(
@@ -161,7 +153,6 @@ pub fn indicator_by_assets<const N: usize>(
     let mut driver = VoscDriver {
         long_period,
         short_period,
-        multipliers,
         want_optional_outputs,
     };
     let states = road_train.drive(&mut driver);
@@ -171,7 +162,6 @@ pub fn indicator_by_assets<const N: usize>(
         indicator_states.push(IndicatorState::new(
             inputs[i][0],
             state,
-            multipliers,
             (short_period, long_period),
         ));
     }

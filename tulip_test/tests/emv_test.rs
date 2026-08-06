@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::emv::{indicator as rust_emv, min_data, TIndicatorState};
+    use tulip_rs::indicators::emv::{Emv, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_emv, ti_emv_start, ti_medprice, ti_medprice_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -72,7 +72,7 @@ mod tests {
 
         // Run the Rust implementation
         let inputs_rust = [high.as_slice(), low.as_slice(), volume.as_slice()];
-        let (outputs, _) = rust_emv(&inputs_rust, &[], None).expect("Rust EMV indicator failed");
+        let (outputs, _) = Emv::indicator(&inputs_rust, &[], None).expect("Rust EMV indicator failed");
 
         let output_len_rust = outputs[0].len();
 
@@ -155,7 +155,7 @@ mod tests {
             // Rust implementation
             let inputs_rust = [high.as_slice(), low.as_slice(), volume.as_slice()];
             let (outputs, _) =
-                rust_emv(&inputs_rust, &[], None).expect("Rust EMV indicator failed");
+                Emv::indicator(&inputs_rust, &[], None).expect("Rust EMV indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -220,17 +220,17 @@ mod tests {
 
             // Get full output
             let (full_outputs, _) =
-                rust_emv(&inputs_rust, &[], None).expect("Rust EMV indicator failed");
+                Emv::indicator(&inputs_rust, &[], None).expect("Rust EMV indicator failed");
 
             // Process in batches
             let mut batch_full_output = Vec::new();
 
-            let min_data_val = min_data(&[]).max(CHUNK_SIZE);
+            let min_data_val = Emv::min_data(&[]).max(CHUNK_SIZE);
 
             if high.len() <= min_data_val {
                 // If data is too small, just run full calculation
                 let (outputs, _) =
-                    rust_emv(&inputs_rust, &[], None).expect("Failed to run EMV indicator");
+                    Emv::indicator(&inputs_rust, &[], None).expect("Failed to run EMV indicator");
                 batch_full_output.extend_from_slice(&outputs[0]);
             } else {
                 // First chunk - convert to Vec<&Vec<f64>>
@@ -243,7 +243,7 @@ mod tests {
                     volume_vec.as_slice(),
                 ];
 
-                let (first_outputs, mut state) = rust_emv(&chunk_inputs, &[], None)
+                let (first_outputs, mut state) = Emv::indicator(&chunk_inputs, &[], None)
                     .expect("Failed to run EMV indicator on first chunk");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -365,7 +365,7 @@ mod tests {
                     stock_volume.as_slice(),
                 ];
                 let (regular_results, _) =
-                    rust_emv(&stock_inputs, &[], None).expect("Regular EMV indicator failed");
+                    Emv::indicator(&stock_inputs, &[], None).expect("Regular EMV indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];
@@ -476,7 +476,7 @@ mod tests {
                     stock_low.as_slice(),
                     stock_volume.as_slice(),
                 ];
-                let (regular_results_opt, _) = rust_emv(&stock_inputs, &[], Some(&[true]))
+                let (regular_results_opt, _) = Emv::indicator(&stock_inputs, &[], Some(&[true]))
                     .expect("Regular EMV indicator with optional outputs failed");
 
                 // Compare all outputs: EMV and medprice
@@ -551,7 +551,7 @@ mod tests {
         let optional_outputs = Some([true].as_slice()); // Request medprice output
 
         // Get Rust EMV output with medprice optional output
-        let result = rust_emv(&inputs, &options, optional_outputs).unwrap();
+        let result = Emv::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_medprice = &result.0[1]; // medprice is at index 1
 
         // Fail fast if Rust output is empty
@@ -635,7 +635,7 @@ mod tests {
 
             // Get EMV with medprice optional output
             let optional_outputs = Some(&[true][..]);
-            let (emv_result, _) = tulip_rs::indicators::emv::indicator(
+            let (emv_result, _) = Emv::indicator(
                 &[&high, &low, &volume],
                 &OPTIONS,
                 optional_outputs,

@@ -1,7 +1,10 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::vwap::{indicator as rust_vwap, min_data, TIndicatorState};
+    use tulip_rs::indicators::{
+        typprice::Typprice,
+        vwap::{Indicator, TIndicatorState, Vwap},
+    };
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
     const CHUNK_SIZE: usize = 100;
@@ -64,7 +67,8 @@ mod tests {
             volume.as_slice(),
         ];
 
-        let (outputs, _) = rust_vwap(&inputs, &OPTIONS, None).expect("Rust VWAP indicator failed");
+        let (outputs, _) =
+            Vwap::indicator(&inputs, &OPTIONS, None).expect("Rust VWAP indicator failed");
 
         for (i, &val) in outputs[0].iter().enumerate() {
             if val.is_nan() {
@@ -85,8 +89,6 @@ mod tests {
     // -------------------------------------------------------------------------
     #[test]
     fn test_vwap_optional_outputs() {
-        use tulip_rs::indicators::typprice::indicator as rust_typprice;
-
         let (high, low, close, volume) = expand_inputs();
         let inputs = [
             high.as_slice(),
@@ -96,15 +98,15 @@ mod tests {
         ];
 
         // Run VWAP with typprice optional output enabled.
-        let (vwap_outputs, _) =
-            rust_vwap(&inputs, &OPTIONS, Some(&[true])).expect("VWAP with optional outputs failed");
+        let (vwap_outputs, _) = Vwap::indicator(&inputs, &OPTIONS, Some(&[true]))
+            .expect("VWAP with optional outputs failed");
 
         let vwap_tp = &vwap_outputs[1];
 
         // Standalone typprice on the same H/L/C.
         let typprice_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
         let (tp_outputs, _) =
-            rust_typprice(&typprice_inputs, &[], None).expect("Standalone typprice failed");
+            Typprice::indicator(&typprice_inputs, &[], None).expect("Standalone typprice failed");
         let standalone_tp = &tp_outputs[0];
 
         assert_eq!(
@@ -154,7 +156,7 @@ mod tests {
             ];
 
             let (outputs, _) =
-                rust_vwap(&inputs, &OPTIONS, None).expect("Rust VWAP indicator failed");
+                Vwap::indicator(&inputs, &OPTIONS, None).expect("Rust VWAP indicator failed");
 
             for (i, &val) in outputs[0].iter().enumerate() {
                 if val.is_nan() || val.is_infinite() {
@@ -175,8 +177,6 @@ mod tests {
     // -------------------------------------------------------------------------
     #[test]
     fn test_vwap_database_optional_outputs() {
-        use tulip_rs::indicators::typprice::indicator as rust_typprice;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -190,14 +190,14 @@ mod tests {
             ];
 
             // VWAP with typprice optional output.
-            let (vwap_outputs, _) = rust_vwap(&inputs, &OPTIONS, Some(&[true]))
+            let (vwap_outputs, _) = Vwap::indicator(&inputs, &OPTIONS, Some(&[true]))
                 .expect("VWAP with optional outputs failed");
             let vwap_tp = &vwap_outputs[1];
 
             // Standalone typprice.
             let typprice_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-            let (tp_outputs, _) =
-                rust_typprice(&typprice_inputs, &[], None).expect("Standalone typprice failed");
+            let (tp_outputs, _) = Typprice::indicator(&typprice_inputs, &[], None)
+                .expect("Standalone typprice failed");
             let standalone_tp = &tp_outputs[0];
 
             assert_eq!(
@@ -253,14 +253,14 @@ mod tests {
 
             // Full output in one shot.
             let (full_outputs, _) =
-                rust_vwap(&inputs, &OPTIONS, None).expect("VWAP full run failed");
+                Vwap::indicator(&inputs, &OPTIONS, None).expect("VWAP full run failed");
 
-            let min_data_val = min_data(&OPTIONS).max(CHUNK_SIZE);
+            let min_data_val = Vwap::min_data(&OPTIONS).max(CHUNK_SIZE);
             let mut batch_full_output: Vec<f64> = Vec::new();
 
             if high.len() <= min_data_val {
                 let (outputs, _) =
-                    rust_vwap(&inputs, &OPTIONS, None).expect("VWAP indicator failed");
+                    Vwap::indicator(&inputs, &OPTIONS, None).expect("VWAP indicator failed");
                 batch_full_output.extend_from_slice(&outputs[0]);
             } else {
                 // First chunk — establishes the state.
@@ -270,8 +270,8 @@ mod tests {
                     &close[..min_data_val],
                     &volume[..min_data_val],
                 ];
-                let (first_outputs, mut state) =
-                    rust_vwap(&chunk_inputs, &OPTIONS, None).expect("VWAP first chunk failed");
+                let (first_outputs, mut state) = Vwap::indicator(&chunk_inputs, &OPTIONS, None)
+                    .expect("VWAP first chunk failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
                 // Remaining full-size chunks.
@@ -394,7 +394,7 @@ mod tests {
                 volume.as_slice(),
             ];
             let (scalar_outputs, _) =
-                rust_vwap(&scalar_inputs, &OPTIONS, None).expect("Rust VWAP failed");
+                Vwap::indicator(&scalar_inputs, &OPTIONS, None).expect("Rust VWAP failed");
 
             let simd_vwap = &simd_results[asset_idx][0];
             let scalar_vwap = &scalar_outputs[0];
@@ -508,7 +508,7 @@ mod tests {
                 volume.as_slice(),
             ];
             let (scalar_outputs, _) =
-                rust_vwap(&scalar_inputs, &OPTIONS, None).expect("Rust VWAP failed");
+                Vwap::indicator(&scalar_inputs, &OPTIONS, None).expect("Rust VWAP failed");
 
             assert_eq!(
                 batch_vwap.len(),
@@ -525,5 +525,4 @@ mod tests {
             println!("✓ SIMD by-assets state continuity ok: stock={stock_symbol}");
         }
     }
-
-    }
+}

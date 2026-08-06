@@ -28,8 +28,10 @@ pub use crate::indicators::simd_indicators::by_asset::trendmode::indicator_by_as
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::trendmode::indicator_by_options;
 
-use std::simd::{cmp::SimdPartialOrd, num::SimdFloat, Select, Simd};
+pub use crate::indicator_types::{TSimdState, TState};
 
+use std::simd::{cmp::SimdPartialOrd, num::SimdFloat, Select, Simd};
+use crate::types::Warm;
 /// Shared post-CC TrendMode pipeline used by both `assets` and `options` modes.
 ///
 /// Updates the decaying peak envelope and returns the TrendMode classification
@@ -53,9 +55,10 @@ fn trendmode_pipeline<const N: usize>(cycle: Simd<f64, N>, pk: &mut Simd<f64, N>
 /// SIMD state for `N` assets with the same α (used by `indicator_by_assets`).
 pub mod assets {
     use super::trendmode_pipeline;
+    use crate::indicator_types::{TSimdState, TState};
     use crate::indicators::simd_indicators::cybercycle_simd::SimdState as CcSimdState;
     use crate::indicators::simd_indicators::homodynediscriminator_simd::SimdState as HdSimdState;
-    use crate::indicators::trendmode;
+    use crate::indicators::trendmode::IndicatorState as State;
     use std::simd::{num::SimdFloat, Simd};
 
     /// SIMD state for N assets with a shared α.
@@ -70,42 +73,18 @@ pub mod assets {
         pub cc: CcSimdState<N>,
         /// Per-asset decaying peak amplitude: `max(pk[1] × 0.991, |Cycle|)`.
         pub pk: Simd<f64, N>,
+        /// Alpha values for all N lanes (identical across lanes in assets mode).
+        /// `alpha[0] == 0.0` signals adaptive mode.
+        pub alpha: Simd<f64, N>,
     }
 
     impl<const N: usize> SimdState<N> {
-        /// Gathers `N` scalar [`trendmode::State`] references into a `SimdState`.
-        pub fn new(states: &mut [&mut trendmode::State]) -> Self {
-            let pk = Simd::from_array(std::array::from_fn(|j| states[j].pk));
-            let hd = {
-                let refs: Vec<&mut _> = states.iter_mut().map(|s| &mut s.hd).collect();
-                HdSimdState::new(&refs)
-            };
-            let cc = {
-                let mut refs: Vec<&mut _> = states.iter_mut().map(|s| &mut s.cc).collect();
-                CcSimdState::new(&mut refs)
-            };
-            Self { hd, cc, pk }
-        }
+   
 
-        /// Scatters the SIMD state back into `N` scalar [`trendmode::State`] references.
-        pub fn write_states(&self, states: &mut [&mut trendmode::State]) {
-            {
-                let mut refs: Vec<&mut _> = states.iter_mut().map(|s| &mut s.hd).collect();
-                self.hd.write_states(&mut refs);
-            }
-            {
-                let mut refs: Vec<&mut _> = states.iter_mut().map(|s| &mut s.cc).collect();
-                self.cc.write_states(&mut refs);
-            }
-            let pk = self.pk.to_array();
-            for j in 0..N {
-                states[j].pk = pk[j];
-            }
-        }
-
-        /// One bar of TrendMode for N assets simultaneously.
+        /// One bar of TrendMode for N assets simultaneously (fixed α).
         ///
-        /// HD and CC run in SIMD; post-CC peak + classification via
+        /// HD and CC run in SIMD using the multipliers already on `self.cc` (gathered
+        /// from scalar states at construction time); post-CC peak + classification via
         /// [`trendmode_pipeline`] — no scalar loop.
         ///
         /// Returns `Simd<f64, N>` of `1.0` (Trend) / `0.0` (Cycle) per lane.
@@ -115,13 +94,9 @@ pub mod assets {
         /// All HD and CC ring buffers must be full. Guaranteed after
         /// [`trendmode::State::init_state`] for every lane.
         #[inline(always)]
-        pub unsafe fn calc_simd_unchecked(
-            &mut self,
-            real: Simd<f64, N>,
-            multipliers: (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-        ) -> Simd<f64, N> {
-            self.hd.calc_simd_unchecked(real);
-            let cycle = self.cc.calc_simd_unchecked(real, multipliers);
+        fn calc_simd(&mut self, real: Simd<f64, N>) -> Simd<f64, N> {
+            self.hd.calc(real);
+            let cycle = self.cc.calc(real);
             trendmode_pipeline(cycle, &mut self.pk)
         }
 
@@ -135,16 +110,39 @@ pub mod assets {
         /// All HD and CC ring buffers must be full. Guaranteed after
         /// [`trendmode::State::init_state`] for every lane.
         #[inline(always)]
-        pub unsafe fn calc_simd_unchecked_adaptive(&mut self, real: Simd<f64, N>) -> Simd<f64, N> {
-            self.hd.calc_simd_unchecked(real);
+        fn calc_adaptive(&mut self, real: Simd<f64, N>) -> Simd<f64, N> {
+            self.hd.calc(real);
             let effective_period = self.hd.smooth_period.simd_max(Simd::splat(3.0_f64));
             let alpha = Simd::splat(2.0_f64) / (effective_period + Simd::splat(1.0_f64));
             let one = Simd::splat(1.0_f64);
             let c = one - Simd::splat(0.5_f64) * alpha;
             let b = one - alpha;
-            let mults = (c * c, Simd::splat(2.0_f64) * b, b * b);
-            let cycle = self.cc.calc_simd_unchecked(real, mults);
+            self.cc.coef = c * c;
+            self.cc.d1 = Simd::splat(2.0_f64) * b;
+            self.cc.d2 = b * b;
+            let cycle = self.cc.calc(real);
             trendmode_pipeline(cycle, &mut self.pk)
+        }
+    }
+
+    impl<const N: usize> TSimdState for SimdState<N> {
+        type ScalarState = State;
+        crate::simd_state_impl!(
+            sub: [(hd: HdSimdState<N>), (cc: CcSimdState<N>)],
+            scalar: [pk, alpha]
+        );
+    }
+
+    impl<const N: usize> TState for SimdState<N> {
+        type Inputs<'a> = Simd<f64, N>;
+        type Outputs = Simd<f64, N>;
+        #[inline(always)]
+        fn calc<'a>(&mut self, real: Simd<f64, N>) -> Simd<f64, N> {
+            if self.alpha[0] == 0.0 {
+                self.calc_adaptive(real)
+            } else {
+                self.calc_simd(real)
+            }
         }
     }
 }
@@ -155,11 +153,13 @@ pub mod assets {
 
 /// SIMD state for 1 asset with `N` different α values (used by `indicator_by_options`).
 pub mod options {
+    use super::Warm;
     use super::trendmode_pipeline;
+    use crate::indicator_types::{TSimdState, TState};
     use crate::indicators::homodynediscriminator;
     use crate::indicators::simd_indicators::cybercycle_simd::SimdState as CcSimdState;
-    use crate::indicators::trendmode;
-    use std::simd::Simd;
+    use crate::indicators::trendmode::IndicatorState as State;
+    use std::simd::{Mask, Simd};
 
     /// SIMD state for 1 asset with N different α values.
     ///
@@ -168,45 +168,27 @@ pub mod options {
     /// assets case.
     pub struct SimdState<const N: usize> {
         /// Single shared HD state — same price input for all N lanes.
-        pub hd: homodynediscriminator::State,
+        pub hd: homodynediscriminator::State<Warm>,
         /// N CC pipelines with per-lane α multipliers.
         pub cc: CcSimdState<N>,
         /// Per-lane decaying peak amplitude.
         pub pk: Simd<f64, N>,
+        /// Fixed alpha values per lane (0.0 for adaptive lanes).
+        pub fixed_alphas: Simd<f64, N>,
+        /// Mask selecting which lanes are adaptive (alpha == 0.0).
+        pub adaptive_mask: Mask<i64, N>,
+        /// Whether any lane uses adaptive alpha.
+        pub has_adaptive: bool,
     }
 
     impl<const N: usize> SimdState<N> {
-        /// Gathers `N` scalar [`trendmode::State`] references into a `SimdState`.
-        ///
-        /// All N lanes have identical HD states (same price), so `states[0].hd`
-        /// is cloned as the shared scalar HD.
-        pub fn new(states: &mut [&mut trendmode::State]) -> Self {
-            let hd = states[0].hd.clone();
-            let pk = Simd::from_array(std::array::from_fn(|j| states[j].pk));
-            let cc = {
-                let mut refs: Vec<&mut _> = states.iter_mut().map(|s| &mut s.cc).collect();
-                CcSimdState::new(&mut refs)
-            };
-            Self { hd, cc, pk }
-        }
 
-        /// Scatters the SIMD state back into `N` scalar [`trendmode::State`] references.
-        pub fn write_states(&self, states: &mut [&mut trendmode::State]) {
-            {
-                let mut refs: Vec<&mut _> = states.iter_mut().map(|s| &mut s.cc).collect();
-                self.cc.write_states(&mut refs);
-            }
-            let pk = self.pk.to_array();
-            for j in 0..N {
-                states[j].hd = self.hd.clone();
-                states[j].pk = pk[j];
-            }
-        }
-
-        /// One bar of TrendMode for N α-option lanes simultaneously.
+        /// One bar of TrendMode for N α-option lanes simultaneously (fixed α).
         ///
-        /// HD advances once (shared price, via `real[0]`). CC runs in SIMD with
-        /// per-lane multipliers. Post-CC via [`trendmode_pipeline`].
+        /// HD advances once (shared price, via `real[0]`). CC runs in SIMD using the
+        /// multipliers already on `self.cc` (constant for fixed α; set per-bar for
+        /// adaptive lanes via [`advance_hd`] + [`advance_cc`]). Post-CC via
+        /// [`trendmode_pipeline`].
         ///
         /// Returns `Simd<f64, N>` of `1.0` (Trend) / `0.0` (Cycle) per lane.
         ///
@@ -215,14 +197,10 @@ pub mod options {
         /// All HD and CC ring buffers must be full. Guaranteed after
         /// [`trendmode::State::init_state`] for every lane.
         #[inline(always)]
-        pub unsafe fn calc_simd_unchecked(
-            &mut self,
-            real: Simd<f64, N>,
-            multipliers: (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-        ) -> Simd<f64, N> {
+        fn calc_simd(&mut self, real: Simd<f64, N>) -> Simd<f64, N> {
             // All lanes share the same price — use lane 0 for the scalar HD.
-            self.hd.calc_unchecked(real[0]);
-            let cycle = self.cc.calc_simd_unchecked(real, multipliers);
+            self.hd.calc(real[0]);
+            let cycle = self.cc.calc(real);
             trendmode_pipeline(cycle, &mut self.pk)
         }
 
@@ -233,8 +211,8 @@ pub mod options {
         /// # Safety
         /// All HD ring buffers must be full on entry.
         #[inline(always)]
-        pub unsafe fn advance_hd(&mut self, price: f64) -> f64 {
-            self.hd.calc_unchecked(price);
+        fn advance_hd(&mut self, price: f64) -> f64 {
+            self.hd.calc(price);
             self.hd.smooth_period
         }
 
@@ -246,13 +224,76 @@ pub mod options {
         /// # Safety
         /// CC ring buffers must be full on entry.
         #[inline(always)]
-        pub unsafe fn advance_cc(
+        fn advance_cc(
             &mut self,
             real: Simd<f64, N>,
             multipliers: (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
         ) -> Simd<f64, N> {
-            let cycle = self.cc.calc_simd_unchecked(real, multipliers);
+            self.cc.coef = multipliers.0;
+            self.cc.d1 = multipliers.1;
+            self.cc.d2 = multipliers.2;
+            let cycle = self.cc.calc(real);
             trendmode_pipeline(cycle, &mut self.pk)
+        }
+    }
+
+    impl<const N: usize> TSimdState for SimdState<N> {
+        type ScalarState = State;
+
+        fn from_states(states: &mut [&mut State]) -> Self {
+            let hd = states[0].hd.clone();
+            let pk = Simd::from_array(std::array::from_fn(|j| states[j].pk));
+            let cc = {
+                let mut refs: Vec<&mut _> = states.iter_mut().map(|s| &mut s.cc).collect();
+                CcSimdState::from_states(&mut refs)
+            };
+            let alpha_arr: [f64; N] = std::array::from_fn(|j| states[j].alpha);
+            let is_adaptive_arr: [bool; N] = std::array::from_fn(|j| states[j].is_adaptive);
+            let fixed_alphas = Simd::from_array(alpha_arr);
+            let adaptive_mask = Mask::from_array(is_adaptive_arr);
+            let has_adaptive = is_adaptive_arr.iter().any(|&b| b);
+            Self {
+                hd,
+                cc,
+                pk,
+                fixed_alphas,
+                adaptive_mask,
+                has_adaptive,
+            }
+        }
+
+        fn write_states(&self, states: &mut [&mut State]) {
+            {
+                let mut refs: Vec<&mut _> = states.iter_mut().map(|s| &mut s.cc).collect();
+                TSimdState::write_states(&self.cc, &mut refs);
+            }
+            let pk = self.pk.to_array();
+            for j in 0..N {
+                states[j].hd = self.hd.clone();
+                states[j].pk = pk[j];
+            }
+        }
+    }
+
+    impl<const N: usize> TState for SimdState<N> {
+        type Inputs<'a> = Simd<f64, N>;
+        type Outputs = Simd<f64, N>;
+
+        fn calc<'a>(&mut self, real: Simd<f64, N>) -> Simd<f64, N> {
+            use crate::indicators::cybercycle::adaptive_alpha;
+            use std::simd::Select;
+            if self.has_adaptive {
+                let smooth_period = self.advance_hd(real[0]);
+                let adap_a = Simd::splat(adaptive_alpha(smooth_period));
+                let effective_alpha = self.adaptive_mask.select(adap_a, self.fixed_alphas);
+                let one = Simd::splat(1.0_f64);
+                let c = one - Simd::splat(0.5_f64) * effective_alpha;
+                let b = one - effective_alpha;
+                let bar_mults = (c * c, Simd::splat(2.0_f64) * b, b * b);
+                self.advance_cc(real, bar_mults)
+            } else {
+                self.calc_simd(real)
+            }
         }
     }
 }

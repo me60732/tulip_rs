@@ -1,16 +1,7 @@
 //! Fixed-size, stack-allocated ring buffer (no mirroring).
-//!
-//! A single `vals: [T; N]` array advanced by an `index` pointer, matching the
-//! field names and semantics of the heap-based `Buffer<T>` / `RingBuffer` pair.
-//!
-//! Unlike [`FixedMirrorBuffer`](super::FixedMirrorBuffer), there is no always-ordered
-//! `view` array.  `get_slice()` returns the raw underlying storage (unordered once
-//! the buffer wraps); use `to_ordered_vec()` or `get_by_period()` when order matters.
-//!
-//! Use this type when you need a fixed-capacity ring with O(1) lookback but do
-//! **not** need a contiguous ordered window on the hot path.
 
 use crate::ring_buffer::buffer::{period_to_idx, BufferElement, SerdeElement};
+use crate::ring_buffer::single_buffer::generic_buffer::{Warm, Cold};
 use serde::{
     de::{self, MapAccess, Visitor},
     ser::SerializeStruct,
@@ -20,66 +11,121 @@ use std::{fmt, marker::PhantomData};
 
 /// A fixed-capacity, stack-allocated ring buffer without a mirrored view.
 ///
-/// Generic parameters:
-/// * `T` — element type; must implement [`BufferElement`].
-/// * `N` — compile-time capacity (number of slots).
-///
-/// # Layout (field names mirror heap-based `Buffer<T>`)
-/// ```text
-/// vals:  [T; N]   — ring storage; vals[index] is the next slot to write
-/// index: usize    — next write position (advances mod N)
-/// count: usize    — valid elements (0 <= count <= N)
-/// ```
+/// `S` encodes fill state at the type level:
+/// * [`Cold`] — warmup; `front`/`back` return `Option<T>`, `push_with_info` returns `Option<T>`.
+/// * [`Warm`]    — operational; `front`/`back` return `T`, `push_with_info` returns `T` (no branch).
 #[derive(Clone)]
-pub struct FixedRingBuffer<T: BufferElement, const N: usize> {
-    /// Ring storage — `vals[index]` is the next slot to be written.
+pub struct FixedRingBuffer<T: BufferElement, const N: usize, S = Cold> {
     pub(crate) vals: [T; N],
-    /// Next write position (advances mod `N`).  Mirrors `Buffer::index`.
     pub(crate) index: usize,
-    /// Number of valid elements currently stored (`0 <= count <= N`).
     pub(crate) count: usize,
+    pub(crate) state: PhantomData<S>,
 }
 
-impl<T: BufferElement, const N: usize> FixedRingBuffer<T, N> {
-    // ── Construction ──────────────────────────────────────────────────────────
+// ── Shared methods (any fill state) ──────────────────────────────────────────
 
-    /// Create a new, empty buffer. All slots are initialised to `T::default()`.
+impl<T: BufferElement, const N: usize, S> FixedRingBuffer<T, N, S> {
+    #[inline(always)]
+    pub fn is_full(&self) -> bool {
+        self.count == N
+    }
+    #[inline(always)]
+    pub fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+    #[inline(always)]
+    pub fn len(&self) -> usize {
+        self.count
+    }
+    #[inline(always)]
+    pub const fn capacity(&self) -> usize {
+        N
+    }
+
+    /// Raw underlying storage (unordered once the buffer has wrapped).
+    #[inline(always)]
+    pub fn get_slice(&self) -> &[T] {
+        if self.count < N {
+            &self.vals[..self.count]
+        } else {
+            &self.vals
+        }
+    }
+
+    /// O(1) lookback.  `period = 0` → newest, `period = N-1` → oldest.
+    #[inline(always)]
+    pub fn get_by_period(&self, period: usize) -> T {
+        let idx = period_to_idx(self.index, N, period);
+        unsafe { *self.vals.get_unchecked(idx) }
+    }
+
+    /// Convert a raw-slice window index to bars-ago.
+    #[inline(always)]
+    pub fn window_index_to_bars_ago(&self, window_index: usize) -> usize {
+        self.count - 1 - window_index
+    }
+
+    /// Ordered snapshot (oldest → newest). Allocates.
+    pub fn to_ordered_vec(&self) -> Vec<T> {
+        if self.count == 0 {
+            return Vec::new();
+        }
+        if self.count < N {
+            return self.vals[..self.count].to_vec();
+        }
+        let mut out = Vec::with_capacity(N);
+        out.extend_from_slice(&self.vals[self.index..]);
+        if self.index > 0 {
+            out.extend_from_slice(&self.vals[..self.index]);
+        }
+        out
+    }
+
+    /// Ordered snapshot of the newest `period` elements. Allocates.
+    pub fn to_ordered_by_period(&self, period: usize) -> Vec<T> {
+        if self.count == 0 || period == 0 {
+            return Vec::new();
+        }
+        let take = period.min(self.count);
+        (0..take)
+            .map(|i| self.get_by_period(take - 1 - i))
+            .collect()
+    }
+}
+
+// ── Cold methods ───────────────────────────────────────────────────────────
+
+impl<T: BufferElement, const N: usize> FixedRingBuffer<T, N, Cold> {
+    /// Create a new, empty buffer.
     #[inline]
     pub fn new() -> Self {
         Self {
             vals: [T::default(); N],
             index: 0,
             count: 0,
+            state: PhantomData,
         }
     }
 
-    // ── Queries ───────────────────────────────────────────────────────────────
-
-    /// `true` when the buffer holds exactly `N` elements.
+    /// Oldest element, or `None` if empty.
     #[inline(always)]
-    pub fn is_full(&self) -> bool {
-        self.count == N
+    pub fn front(&self) -> Option<T> {
+        if self.count == 0 {
+            return None;
+        }
+        let oldest = if self.count == N { self.index } else { 0 };
+        Some(unsafe { *self.vals.get_unchecked(oldest) })
     }
 
-    /// `true` when the buffer holds no elements.
+    /// Newest element, or `None` if empty.
     #[inline(always)]
-    pub fn is_empty(&self) -> bool {
-        self.count == 0
+    pub fn back(&self) -> Option<T> {
+        if self.count == 0 {
+            return None;
+        }
+        let prev = (self.index + N - 1) % N;
+        Some(unsafe { *self.vals.get_unchecked(prev) })
     }
-
-    /// Number of valid elements currently stored (`0 <= len <= N`).
-    #[inline(always)]
-    pub fn len(&self) -> usize {
-        self.count
-    }
-
-    /// The compile-time maximum capacity of this buffer (always `N`).
-    #[inline(always)]
-    pub const fn capacity(&self) -> usize {
-        N
-    }
-
-    // ── Writes ────────────────────────────────────────────────────────────────
 
     /// Push a new element, evicting the oldest when full.
     #[inline(always)]
@@ -94,153 +140,97 @@ impl<T: BufferElement, const N: usize> FixedRingBuffer<T, N> {
         }
     }
 
-    /// Push and return the evicted element, if any.
-    ///
-    /// Returns `Some(evicted)` once the buffer is full, `None` while filling.
+    /// Push and return the evicted element once full, `None` while filling.
     #[inline(always)]
     pub fn push_with_info(&mut self, value: T) -> Option<T> {
         if self.count == N {
-            Some(unsafe { self.push_with_info_unchecked(value) })
+            let evicted = unsafe { *self.vals.get_unchecked(self.index) };
+            unsafe { *self.vals.get_unchecked_mut(self.index) = value };
+            self.index += 1;
+            if self.index == N {
+                self.index = 0;
+            }
+            Some(evicted)
         } else {
             self.push(value);
             None
         }
     }
 
-    /// Push without the fullness check.
+    /// Transition to [`Warm`] once `count == N`.
     ///
-    /// # Safety
-    ///
-    /// Caller must ensure `is_full() == true`.
+    /// # Panics (debug builds)
+    /// Panics if the buffer is not yet full.
     #[inline(always)]
-    pub unsafe fn push_unchecked(&mut self, value: T) {
-        *self.vals.get_unchecked_mut(self.index) = value;
+    pub fn into_full(self) -> FixedRingBuffer<T, N, Warm> {
+        debug_assert!(
+            self.count == N,
+            "FixedRingBuffer::into_full called on non-full buffer (count={}, N={N})",
+            self.count
+        );
+        FixedRingBuffer {
+            vals: self.vals,
+            index: self.index,
+            count: self.count,
+            state: PhantomData,
+        }
+    }
+}
+
+impl<T: BufferElement, const N: usize> Default for FixedRingBuffer<T, N, Cold> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ── Warm methods ──────────────────────────────────────────────────────────────
+
+impl<T: BufferElement, const N: usize> FixedRingBuffer<T, N, Warm> {
+    /// Oldest element (always valid — buffer is full).
+    #[inline(always)]
+    pub fn front(&self) -> T {
+        unsafe { *self.vals.get_unchecked(self.index) }
+    }
+
+    /// Newest element (always valid — buffer is full).
+    #[inline(always)]
+    pub fn back(&self) -> T {
+        let prev = (self.index + N - 1) % N;
+        unsafe { *self.vals.get_unchecked(prev) }
+    }
+
+    /// Push (branchless — buffer is guaranteed full, no count update needed).
+    #[inline(always)]
+    pub fn push(&mut self, value: T) {
+        unsafe { *self.vals.get_unchecked_mut(self.index) = value };
         self.index += 1;
         if self.index == N {
             self.index = 0;
         }
     }
 
-    /// Push and return the evicted element, without the fullness check.
-    ///
-    /// # Safety
-    ///
-    /// Same precondition as [`push_unchecked`](Self::push_unchecked).
+    /// Push and return the evicted element (branchless, always evicts).
     #[inline(always)]
-    pub unsafe fn push_with_info_unchecked(&mut self, value: T) -> T {
-        let evicted = *self.vals.get_unchecked(self.index);
-        self.push_unchecked(value);
+    pub fn push_with_info(&mut self, value: T) -> T {
+        let evicted = unsafe { *self.vals.get_unchecked(self.index) };
+        unsafe { *self.vals.get_unchecked_mut(self.index) = value };
+        self.index += 1;
+        if self.index == N {
+            self.index = 0;
+        }
         evicted
-    }
-
-    // ── Reads ─────────────────────────────────────────────────────────────────
-
-    /// Raw underlying storage slice.
-    ///
-    /// Elements are in ring order — **not** guaranteed to be oldest-first once the
-    /// buffer has wrapped.  For an ordered snapshot use [`to_ordered_vec`](Self::to_ordered_vec).
-    /// While still filling (`count < N`) the slice `vals[..count]` is in insertion order.
-    #[inline(always)]
-    pub fn get_slice(&self) -> &[T] {
-        if self.count < N {
-            &self.vals[..self.count]
-        } else {
-            &self.vals
-        }
-    }
-
-    /// Newest element, or `None` if empty.
-    #[inline(always)]
-    pub fn back(&self) -> Option<T> {
-        if self.count == 0 {
-            return None;
-        }
-        // The slot written most recently is one behind index (mod N).
-        let prev = (self.index + N - 1) % N;
-        Some(unsafe { *self.vals.get_unchecked(prev) })
-    }
-
-    /// Oldest element, or `None` if empty.
-    #[inline(always)]
-    pub fn front(&self) -> Option<T> {
-        if self.count == 0 {
-            return None;
-        }
-        // When full, index points at the oldest slot (about to be overwritten).
-        // When still filling, slot 0 is the oldest.
-        let oldest = if self.count == N { self.index } else { 0 };
-        Some(unsafe { *self.vals.get_unchecked(oldest) })
-    }
-
-    /// O(1) lookback.
-    ///
-    /// `period = 0` → most recently pushed element.
-    /// `period = N - 1` → oldest stored element (when full).
-    #[inline(always)]
-    pub fn get_by_period(&self, period: usize) -> T {
-        let idx = period_to_idx(self.index, N, period);
-        unsafe { *self.vals.get_unchecked(idx) }
-    }
-
-    /// Allocate an ordered `Vec<T>` with elements from oldest to newest.
-    pub fn to_ordered_vec(&self) -> Vec<T> {
-        if self.count == 0 {
-            return Vec::new();
-        }
-        if self.count < N {
-            return self.vals[..self.count].to_vec();
-        }
-        // Full: oldest is at `index`, wraps around.
-        let mut out = Vec::with_capacity(N);
-        out.extend_from_slice(&self.vals[self.index..]);
-        if self.index > 0 {
-            out.extend_from_slice(&self.vals[..self.index]);
-        }
-        out
-    }
-
-    /// Allocate an ordered `Vec<T>` of the newest `period` elements (oldest-first).
-    pub fn to_ordered_by_period(&self, period: usize) -> Vec<T> {
-        if self.count == 0 || period == 0 {
-            return Vec::new();
-        }
-        let take = period.min(self.count);
-        // bars_ago = take-1 is the oldest of the window, bars_ago = 0 is the newest.
-        (0..take)
-            .map(|i| self.get_by_period(take - 1 - i))
-            .collect()
-    }
-
-    /// Convert a raw `vals`-slice index (from an ordered snapshot) into a "bars ago" distance.
-    ///
-    /// `window_index = count - 1` → `0` (newest).
-    /// `window_index = 0` → `count - 1` (oldest).
-    #[inline(always)]
-    pub fn window_index_to_bars_ago(&self, window_index: usize) -> usize {
-        self.count - 1 - window_index
-    }
-}
-
-impl<T: BufferElement, const N: usize> Default for FixedRingBuffer<T, N> {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
 // ── Iterator ──────────────────────────────────────────────────────────────────
 
-/// Iterator produced by `(&FixedRingBuffer).into_iter()`.
-///
-/// Yields elements from **newest to oldest** (`buf[0]` first).
-pub struct FixedRingIter<'a, T: BufferElement, const N: usize> {
-    buffer: &'a FixedRingBuffer<T, N>,
-    /// Current position expressed as bars-ago (0 = newest).
+pub struct FixedRingIter<'a, T: BufferElement, const N: usize, S> {
+    buffer: &'a FixedRingBuffer<T, N, S>,
     pos: usize,
 }
 
-impl<'a, T: BufferElement, const N: usize> Iterator for FixedRingIter<'a, T, N> {
+impl<'a, T: BufferElement, const N: usize, S> Iterator for FixedRingIter<'a, T, N, S> {
     type Item = T;
-
     #[inline]
     fn next(&mut self) -> Option<T> {
         if self.pos >= self.buffer.count {
@@ -250,23 +240,18 @@ impl<'a, T: BufferElement, const N: usize> Iterator for FixedRingIter<'a, T, N> 
         self.pos += 1;
         Some(val)
     }
-
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.buffer.count.saturating_sub(self.pos);
-        (remaining, Some(remaining))
+        let r = self.buffer.count.saturating_sub(self.pos);
+        (r, Some(r))
     }
 }
-
-impl<'a, T: BufferElement, const N: usize> ExactSizeIterator for FixedRingIter<'a, T, N> {}
-
-impl<'a, T: BufferElement, const N: usize> IntoIterator for &'a FixedRingBuffer<T, N> {
+impl<'a, T: BufferElement, const N: usize, S> ExactSizeIterator for FixedRingIter<'a, T, N, S> {}
+impl<'a, T: BufferElement, const N: usize, S> IntoIterator for &'a FixedRingBuffer<T, N, S> {
     type Item = T;
-    type IntoIter = FixedRingIter<'a, T, N>;
-
-    /// Iterate from newest to oldest (`buf[0]` first).
+    type IntoIter = FixedRingIter<'a, T, N, S>;
     #[inline]
-    fn into_iter(self) -> FixedRingIter<'a, T, N> {
+    fn into_iter(self) -> FixedRingIter<'a, T, N, S> {
         FixedRingIter {
             buffer: self,
             pos: 0,
@@ -274,10 +259,8 @@ impl<'a, T: BufferElement, const N: usize> IntoIterator for &'a FixedRingBuffer<
     }
 }
 
-impl<T: BufferElement, const N: usize> std::ops::Index<usize> for FixedRingBuffer<T, N> {
+impl<T: BufferElement, const N: usize, S> std::ops::Index<usize> for FixedRingBuffer<T, N, S> {
     type Output = T;
-
-    /// Index by bars-ago: `buf[0]` is the newest element, `buf[count-1]` is the oldest.
     #[inline]
     fn index(&self, bars_ago: usize) -> &T {
         debug_assert!(
@@ -292,15 +275,11 @@ impl<T: BufferElement, const N: usize> std::ops::Index<usize> for FixedRingBuffe
 
 // ── Serde ─────────────────────────────────────────────────────────────────────
 //
-// Hand-rolled to avoid the `where [T; N]: Serialize` bound serde's derive
-// generates for generic N, and to go through T::Repr so that non-serde types
-// like Simd<f64, N> are supported.
-//
-// Serialize  — map each element through T::to_repr, emit as a Vec<T::Repr>.
-// Deserialize — read Vec<T::Repr>, map through T::from_repr, convert to [T; N].
+// `S` carries no runtime data (PhantomData), so the wire format is unchanged.
+// Deserialization reconstructs `FixedRingBuffer<T, N, S>` from type inference.
 
-impl<T: BufferElement + SerdeElement, const N: usize> Serialize for FixedRingBuffer<T, N> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+impl<T: BufferElement + SerdeElement, const N: usize, S> Serialize for FixedRingBuffer<T, N, S> {
+    fn serialize<Ser: Serializer>(&self, serializer: Ser) -> Result<Ser::Ok, Ser::Error> {
         let mut state = serializer.serialize_struct("FixedRingBuffer", 3)?;
         let repr: Vec<T::Repr> = self.vals.iter().map(|v| T::to_repr(*v)).collect();
         state.serialize_field("vals", &repr)?;
@@ -310,20 +289,18 @@ impl<T: BufferElement + SerdeElement, const N: usize> Serialize for FixedRingBuf
     }
 }
 
-impl<'de, T: BufferElement + SerdeElement, const N: usize> Deserialize<'de>
-    for FixedRingBuffer<T, N>
+impl<'de, T: BufferElement + SerdeElement, const N: usize, S> Deserialize<'de>
+    for FixedRingBuffer<T, N, S>
 where
     T::Repr: Deserialize<'de>,
 {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         const FIELDS: &[&str] = &["vals", "index", "count"];
-
         enum Field {
             Vals,
             Index,
             Count,
         }
-
         impl<'de> Deserialize<'de> for Field {
             fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
                 struct FieldVisitor;
@@ -344,68 +321,54 @@ where
                 deserializer.deserialize_identifier(FieldVisitor)
             }
         }
-
-        struct FRBVisitor<T, const N: usize>(PhantomData<fn() -> T>);
-
-        impl<'de, T: BufferElement + SerdeElement, const N: usize> Visitor<'de> for FRBVisitor<T, N>
+        struct FRBVisitor<T, S, const N: usize>(PhantomData<fn() -> (T, S)>);
+        impl<'de, T: BufferElement + SerdeElement, const N: usize, S> Visitor<'de> for FRBVisitor<T, S, N>
         where
             T::Repr: Deserialize<'de>,
         {
-            type Value = FixedRingBuffer<T, N>;
-
+            type Value = FixedRingBuffer<T, N, S>;
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str("struct FixedRingBuffer")
             }
-
             fn visit_map<V: MapAccess<'de>>(
                 self,
                 mut map: V,
-            ) -> Result<FixedRingBuffer<T, N>, V::Error> {
+            ) -> Result<FixedRingBuffer<T, N, S>, V::Error> {
                 let mut vals: Option<Vec<T::Repr>> = None;
                 let mut index: Option<usize> = None;
                 let mut count: Option<usize> = None;
-
                 while let Some(key) = map.next_key::<Field>()? {
                     match key {
                         Field::Vals => {
-                            if vals.is_some() {
-                                return Err(de::Error::duplicate_field("vals"));
-                            }
                             vals = Some(map.next_value()?);
                         }
                         Field::Index => {
-                            if index.is_some() {
-                                return Err(de::Error::duplicate_field("index"));
-                            }
                             index = Some(map.next_value()?);
                         }
                         Field::Count => {
-                            if count.is_some() {
-                                return Err(de::Error::duplicate_field("count"));
-                            }
                             count = Some(map.next_value()?);
                         }
                     }
                 }
-
-                let vals_repr: Vec<T::Repr> =
-                    vals.ok_or_else(|| de::Error::missing_field("vals"))?;
+                let vals_repr = vals.ok_or_else(|| de::Error::missing_field("vals"))?;
                 let index = index.ok_or_else(|| de::Error::missing_field("index"))?;
                 let count = count.ok_or_else(|| de::Error::missing_field("count"))?;
-
                 let vals_vec: Vec<T> = vals_repr.into_iter().map(T::from_repr).collect();
                 let vals_arr: [T; N] = vals_vec.try_into().map_err(|v: Vec<T>| {
                     de::Error::invalid_length(v.len(), &"vals array of length N")
                 })?;
-
                 Ok(FixedRingBuffer {
                     vals: vals_arr,
                     index,
                     count,
+                    state: PhantomData,
                 })
             }
         }
-
-        deserializer.deserialize_struct("FixedRingBuffer", FIELDS, FRBVisitor::<T, N>(PhantomData))
+        deserializer.deserialize_struct(
+            "FixedRingBuffer",
+            FIELDS,
+            FRBVisitor::<T, S, N>(PhantomData),
+        )
     }
 }

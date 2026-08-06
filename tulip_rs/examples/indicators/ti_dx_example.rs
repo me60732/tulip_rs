@@ -1,4 +1,4 @@
-use tulip_rs::indicators::dx::{indicator, TIndicatorState};
+use tulip_rs::indicators::dx::{Dx, Indicator, TIndicatorState};
 
 fn main() {
     let high = [
@@ -17,7 +17,7 @@ fn main() {
 
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true, true])) {
+    let (outputs, _) = match Dx::indicator(&inputs, &options, Some(&[true, true])) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -32,7 +32,7 @@ fn main() {
     ];
 
     // Calculate the Directional Movement Index (DX) using the indicator function
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match Dx::indicator(&inputs2, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

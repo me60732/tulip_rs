@@ -1,6 +1,6 @@
 use crate::types::IndicatorError;
 
-use crate::indicators::qstick::{indicator, IndicatorState, INPUTS_WIDTH, OPTIONS_WIDTH};
+use crate::indicators::qstick::{QStick, Indicator, IndicatorState, INPUTS, OPTIONS};
 
 /// Calculates the Qstick Indicator (QSTICK) for `N` assets by calling the scalar
 /// [`indicator`] function for each asset independently.
@@ -8,7 +8,7 @@ use crate::indicators::qstick::{indicator, IndicatorState, INPUTS_WIDTH, OPTIONS
 /// No SIMD parallelism is used; each asset is processed sequentially.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[open, close]` for asset `i`.
 /// * `options` - Shared parameter array: `options[0]` = period.
 /// * `optional_outputs` - Forwarded to the scalar `indicator`.
@@ -18,8 +18,8 @@ use crate::indicators::qstick::{indicator, IndicatorState, INPUTS_WIDTH, OPTIONS
 /// and `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N],
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N],
+    options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
     let mut all_outputs = Vec::with_capacity(N);
@@ -27,7 +27,7 @@ pub fn indicator_by_assets<const N: usize>(
 
     // Just call the scalar indicator N times, no roadtrain
     for input in inputs.iter() {
-        let (outputs, state) = indicator(input, options, optional_outputs)?;
+        let (outputs, state) = QStick::indicator(input, options, optional_outputs)?;
         all_outputs.push(outputs);
         all_states.push(state);
     }

@@ -1,9 +1,6 @@
+pub use crate::ring_buffer::buffer::BufferElement;
 use crate::ring_buffer::buffer::{period_to_idx, SerdeElement};
-use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
-pub use crate::ring_buffer::{
-    buffer::BufferElement,
-    unsync_multi_buffer::{mirror_buffer::MirrorBuffer, ring_buffer::RingBuffer},
-};
+use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, Cold, Warm};
 use serde::{Deserialize, Serialize};
 use std::simd::{cmp::SimdPartialEq, Mask, Select, Simd, SimdElement};
 
@@ -21,61 +18,27 @@ impl<const N: usize> UsizeConstants<N> {
 
 /// Unsynchronized multi-lane buffer backed by per-lane Vec<T>.
 ///
+/// The `S` parameter encodes fill state at the type level:
+/// * [`Cold`] — warmup phase; `front()` / `back()` return `(Simd<T, B>, Mask<i64, B>)`.
+/// * [`Warm`]    — operational phase; `front()` / `back()` return `Simd<T, B>` (infallible).
+///
+/// Transition from `Cold` to `Warm` via [`UnsyncBuffer::into_full`].
+///
 /// We implement custom Serialize/Deserialize because `Simd<usize, B>` does not
 /// implement Serde traits; we convert the simd lanes to plain Vec<usize> for
 /// (de)serialization. Val lanes go through T::Repr for the same reason.
-pub struct UnsyncBuffer<const B: usize, T: BufferElement + SimdElement> {
+pub struct UnsyncBuffer<const B: usize, T: BufferElement + SimdElement, S = Cold> {
     pub(crate) vals: [Vec<T>; B],
     pub(crate) index: Simd<usize, B>,
     pub(crate) capacity: Simd<usize, B>,
     pub(crate) count: Simd<usize, B>,
     pub(crate) prev_idx: Simd<usize, B>,
+    pub(crate) state: std::marker::PhantomData<S>,
 }
 
-impl<const B: usize, T: BufferElement + SimdElement> UnsyncBuffer<B, T> {
-    pub(crate) fn to_f64_buffers(&self) -> Vec<Buffer<T>> {
-        let mut buffers = Vec::with_capacity(B);
-        for (lane, vals) in self.vals.iter().enumerate() {
-            buffers.push(Buffer::<T> {
-                vals: vals.to_vec(),
-                index: self.index[lane],
-                prev_idx: self.prev_idx[lane],
-                capacity: self.capacity[lane],
-                count: self.count[lane],
-            });
-        }
-        buffers
-    }
-    pub(crate) fn from_buffers(buffers: Vec<&Buffer<T>>) -> Self {
-        let mut index = [0usize; B];
-        let mut prev_idx = [0usize; B];
-        let mut capacity = [0usize; B];
-        let mut count = [0usize; B];
-        let vals: [Vec<T>; B] = std::array::from_fn(|lane| buffers[lane].vals.clone());
-        for (lane, buffer) in buffers.iter().enumerate() {
-            index[lane] = buffer.index;
-            prev_idx[lane] = buffer.prev_idx;
-            count[lane] = buffer.count;
-            capacity[lane] = buffer.capacity;
-        }
-        Self {
-            vals,
-            index: Simd::from_array(index),
-            prev_idx: Simd::from_array(prev_idx),
-            count: Simd::from_array(count),
-            capacity: Simd::from_array(capacity),
-        }
-    }
-    #[inline(always)]
-    pub(crate) fn update_internals(&mut self) {
-        self.prev_idx = self.index;
-        self.index = self.calc_index();
-        self.count = self
-            .count
-            .simd_eq(self.capacity)
-            .select(self.count, self.count + UsizeConstants::ONE);
-    }
+// ── Shared methods (valid for any fill state) ──────────────────────────────
 
+impl<const B: usize, S, T: BufferElement + SimdElement> UnsyncBuffer<B, T, S> {
     #[inline(always)]
     pub(crate) fn calc_index(&self) -> Simd<usize, B> {
         let new_idx = self.index + UsizeConstants::ONE;
@@ -90,11 +53,11 @@ impl<const B: usize, T: BufferElement + SimdElement> UnsyncBuffer<B, T> {
         self.index = self.calc_index();
         // intentionally do not modify count here
     }
+
     #[inline(always)]
-    fn get_values(&self, idx: Simd<usize, B>) -> Simd<T, B> {
-        let idx = idx.as_array(); //idx.to_array();
+    pub(crate) fn get_values(&self, idx: Simd<usize, B>) -> Simd<T, B> {
+        let idx = idx.as_array();
         let mut results = Simd::splat(T::default());
-        // zip buffers and results; iteration stops at the shorter of the two
         for ((buffer, result), &idx) in self
             .vals
             .iter()
@@ -106,27 +69,10 @@ impl<const B: usize, T: BufferElement + SimdElement> UnsyncBuffer<B, T> {
         results
     }
 
-    #[inline(always)]
-    pub fn front(&self) -> (Simd<T, B>, Mask<i64, B>) {
-        (self.get_values(self.index), self.is_full())
-    }
-    #[inline(always)]
-    pub fn front_unchecked(&self) -> Simd<T, B> {
-        self.get_values(self.index)
-    }
-
-    #[inline(always)]
-    pub fn back(&self) -> (Simd<T, B>, Mask<i64, B>) {
-        (self.get_values(self.prev_idx), self.is_full())
-    }
-    #[inline(always)]
-    pub fn back_unchecked(&self) -> Simd<T, B> {
-        self.get_values(self.prev_idx)
-    }
-
     pub fn raw_slice(&self) -> &[Vec<T>; B] {
         &self.vals
     }
+
     #[inline(always)]
     pub fn get_count(&self) -> Simd<usize, B> {
         self.count
@@ -135,6 +81,7 @@ impl<const B: usize, T: BufferElement + SimdElement> UnsyncBuffer<B, T> {
     pub fn get_idx(&self) -> Simd<usize, B> {
         self.index
     }
+
     #[inline(always)]
     pub fn is_full(&self) -> Mask<i64, B> {
         self.count.simd_eq(self.capacity).cast::<i64>()
@@ -147,12 +94,215 @@ impl<const B: usize, T: BufferElement + SimdElement> UnsyncBuffer<B, T> {
     pub fn get_capacity(&self) -> Simd<usize, B> {
         self.capacity
     }
+
+    /// Return an iterator over a single `lane`, from newest to oldest.
+    ///
+    /// # Panics
+    /// Panics if `lane >= B`.
+    #[inline]
+    pub fn lane_iter(&self, lane: usize) -> UnsyncLaneIter<'_, B, T, S> {
+        assert!(lane < B, "lane {lane} out of bounds (B={B})");
+        UnsyncLaneIter {
+            buffer: self,
+            lane,
+            pos: 0,
+            count: self.count[lane],
+        }
+    }
+
+    /// Contiguous mirror-window slices per lane: `vals[lane][index[lane] .. index[lane] + count[lane] - offset]`.
+    /// Valid when each `vals[lane]` was allocated as a mirror buffer (length `2 * capacity[lane]`).
+    #[inline(always)]
+    pub fn get_slices(&self, offset: usize) -> [&[T]; B] {
+        std::array::from_fn(|lane| {
+            if self.count[lane] == 0 {
+                return &[] as &[T];
+            } else if self.count[lane] == self.capacity[lane] {
+                return unsafe {
+                    self.vals[lane].get_unchecked(
+                        self.index[lane]..self.index[lane] + self.count[lane] - offset,
+                    )
+                };
+            }
+            unsafe { self.vals[lane].get_unchecked(0..self.count[lane] - offset) }
+        })
+    }
+
+    /// Convert a mirror-window index (0 = oldest) for a given lane to bars-ago (0 = newest).
+    #[inline(always)]
+    pub fn window_index_to_bars_ago(&self, window_index: usize, lane: usize) -> usize {
+        self.count[lane] - 1 - window_index
+    }
+}
+
+// ── Cold-specific methods ────────────────────────────────────────────────
+
+impl<const B: usize, T: BufferElement + SimdElement> UnsyncBuffer<B, T, Cold> {
+    pub fn new(capacity: [usize; B]) -> Self {
+        let vals = core::array::from_fn(|i| vec![T::default(); capacity[i]]);
+        Self {
+            vals,
+            index: Simd::splat(0),
+            prev_idx: Simd::splat(0),
+            capacity: Simd::from_array(capacity),
+            count: Simd::splat(0),
+            state: std::marker::PhantomData,
+        }
+    }
+
+    pub(crate) fn from_f64_buffers(buffers: Vec<&Buffer<Warm, T>>) -> UnsyncBuffer<B, T, Warm> {
+        let mut index = [0usize; B];
+        let mut prev_idx = [0usize; B];
+        let mut capacity = [0usize; B];
+        let mut count = [0usize; B];
+        let vals: [Vec<T>; B] = std::array::from_fn(|lane| buffers[lane].vals.clone());
+        for (lane, buffer) in buffers.iter().enumerate() {
+            index[lane] = buffer.index;
+            prev_idx[lane] = buffer.prev_idx;
+            count[lane] = buffer.count;
+            capacity[lane] = buffer.capacity;
+        }
+        UnsyncBuffer {
+            vals,
+            index: Simd::from_array(index),
+            prev_idx: Simd::from_array(prev_idx),
+            count: Simd::from_array(count),
+            capacity: Simd::from_array(capacity),
+            state: std::marker::PhantomData::<Warm>,
+        }
+    }
+
+    #[inline(always)]
+    pub fn front(&self) -> (Simd<T, B>, Mask<i64, B>) {
+        (self.get_values(self.index), self.is_full())
+    }
+
+    #[inline(always)]
+    pub fn front_unchecked(&self) -> Simd<T, B> {
+        self.get_values(self.index)
+    }
+
+    #[inline(always)]
+    pub fn back(&self) -> (Simd<T, B>, Mask<i64, B>) {
+        (self.get_values(self.prev_idx), self.is_full())
+    }
+
+    #[inline(always)]
+    pub fn back_unchecked(&self) -> Simd<T, B> {
+        self.get_values(self.prev_idx)
+    }
+
+    /// Transition into an [`UnsyncBuffer<B, T, Warm>`].
+    ///
+    /// # Panics (debug builds)
+    /// Panics when `debug_assertions` are enabled and not all lanes are full.
+    #[inline(always)]
+    pub fn into_full(self) -> UnsyncBuffer<B, T, Warm> {
+        debug_assert!(
+            self.count.simd_eq(self.capacity).to_bitmask() == (1u64 << B) - 1,
+            "UnsyncBuffer::into_full: not all lanes are full"
+        );
+        UnsyncBuffer {
+            vals: self.vals,
+            index: self.index,
+            capacity: self.capacity,
+            count: self.count,
+            prev_idx: self.prev_idx,
+            state: std::marker::PhantomData,
+        }
+    }
+}
+
+// ── Warm-specific methods ───────────────────────────────────────────────────
+
+impl<const B: usize, T: BufferElement + SimdElement> UnsyncBuffer<B, T, Warm> {
+    pub fn new(capacity: [usize; B]) -> Self {
+        let vals = core::array::from_fn(|i| vec![T::default(); capacity[i]]);
+        let capacity_simd = Simd::from_array(capacity);
+        Self {
+            vals,
+            index: Simd::splat(0),
+            prev_idx: capacity_simd - Simd::splat(1),
+            capacity: capacity_simd,
+            count: capacity_simd,
+            state: std::marker::PhantomData,
+        }
+    }
+
+    #[inline(always)]
+    pub fn push(&mut self, values: Simd<T, B>) {
+        write_values(self, values);
+        self.update_internals_unchecked();
+    }
+
+    #[inline(always)]
+    pub fn push_with_info(&mut self, values: Simd<T, B>) -> (Simd<T, B>, Mask<i64, B>) {
+        let replaced = write_values_pop(self, values);
+        self.update_internals_unchecked();
+        (replaced, Mask::splat(true))
+    }
+
+    #[inline(always)]
+    pub fn get_slice(&self, lane: usize) -> &[T] {
+        &self.vals[lane]
+    }
+
+    /// Oldest element (all lanes guaranteed non-empty — buffer is full).
+    #[inline(always)]
+    pub fn front(&self) -> Simd<T, B> {
+        self.get_values(self.index)
+    }
+
+    /// Most recently pushed element (all lanes guaranteed non-empty — buffer is full).
+    #[inline(always)]
+    pub fn back(&self) -> Simd<T, B> {
+        self.get_values(self.prev_idx)
+    }
+
+    /// Split this SIMD unsync buffer into `B` scalar `Buffer<Warm, T>` instances (one per lane).
+    pub(crate) fn to_f64_buffers(&self) -> Vec<Buffer<Warm, T>> {
+        let mut buffers = Vec::with_capacity(B);
+        for (lane, vals) in self.vals.iter().enumerate() {
+            buffers.push(Buffer::<Warm, T> {
+                vals: vals.to_vec(),
+                index: self.index[lane],
+                prev_idx: self.prev_idx[lane],
+                capacity: self.capacity[lane],
+                count: self.count[lane],
+                state: std::marker::PhantomData::<Warm>,
+            });
+        }
+        buffers
+    }
+
+    /// Merge `B` scalar `Buffer<Warm, T>` instances back into an `UnsyncBuffer<B, T, Warm>`.
+    pub(crate) fn from_f64_buffers(buffers: Vec<&Buffer<Warm, T>>) -> UnsyncBuffer<B, T, Warm> {
+        let mut index = [0usize; B];
+        let mut prev_idx = [0usize; B];
+        let mut capacity = [0usize; B];
+        let mut count = [0usize; B];
+        let vals: [Vec<T>; B] = std::array::from_fn(|lane| buffers[lane].vals.clone());
+        for (lane, buffer) in buffers.iter().enumerate() {
+            index[lane] = buffer.index;
+            prev_idx[lane] = buffer.prev_idx;
+            count[lane] = buffer.count;
+            capacity[lane] = buffer.capacity;
+        }
+        UnsyncBuffer {
+            vals,
+            index: Simd::from_array(index),
+            prev_idx: Simd::from_array(prev_idx),
+            count: Simd::from_array(count),
+            capacity: Simd::from_array(capacity),
+            state: std::marker::PhantomData::<Warm>,
+        }
+    }
 }
 
 // ── Index ──────────────────────────────────────────────────────────────────
 
-impl<const B: usize, T: BufferElement + SimdElement> std::ops::Index<(usize, usize)>
-    for UnsyncBuffer<B, T>
+impl<const B: usize, S, T: BufferElement + SimdElement> std::ops::Index<(usize, usize)>
+    for UnsyncBuffer<B, T, S>
 {
     type Output = T;
 
@@ -179,32 +329,17 @@ impl<const B: usize, T: BufferElement + SimdElement> std::ops::Index<(usize, usi
 ///
 /// Yields elements from **newest to oldest** (bars-ago order).
 /// Obtain via [`UnsyncBuffer::lane_iter`].
-pub struct UnsyncLaneIter<'a, const B: usize, T: BufferElement + SimdElement> {
-    buffer: &'a UnsyncBuffer<B, T>,
+pub struct UnsyncLaneIter<'a, const B: usize, T: BufferElement + SimdElement, S = Cold> {
+    buffer: &'a UnsyncBuffer<B, T, S>,
     lane: usize,
     /// Current position expressed as bars-ago (0 = newest).
     pos: usize,
     count: usize,
 }
 
-impl<const B: usize, T: BufferElement + SimdElement> UnsyncBuffer<B, T> {
-    /// Return an iterator over a single `lane`, from newest to oldest.
-    ///
-    /// # Panics
-    /// Panics if `lane >= B`.
-    #[inline]
-    pub fn lane_iter(&self, lane: usize) -> UnsyncLaneIter<'_, B, T> {
-        assert!(lane < B, "lane {lane} out of bounds (B={B})");
-        UnsyncLaneIter {
-            buffer: self,
-            lane,
-            pos: 0,
-            count: self.count[lane],
-        }
-    }
-}
-
-impl<'a, const B: usize, T: BufferElement + SimdElement> Iterator for UnsyncLaneIter<'a, B, T> {
+impl<'a, const B: usize, S, T: BufferElement + SimdElement> Iterator
+    for UnsyncLaneIter<'a, B, T, S>
+{
     type Item = T;
 
     #[inline]
@@ -229,8 +364,8 @@ impl<'a, const B: usize, T: BufferElement + SimdElement> Iterator for UnsyncLane
     }
 }
 
-impl<'a, const B: usize, T: BufferElement + SimdElement> ExactSizeIterator
-    for UnsyncLaneIter<'a, B, T>
+impl<'a, const B: usize, S, T: BufferElement + SimdElement> ExactSizeIterator
+    for UnsyncLaneIter<'a, B, T, S>
 {
 }
 
@@ -245,12 +380,12 @@ struct MultiBufferSerde<R> {
     prev_idx: Vec<usize>,
 }
 
-impl<const B: usize, T: BufferElement + SerdeElement + SimdElement> Serialize
-    for UnsyncBuffer<B, T>
+impl<const B: usize, S, T: BufferElement + SerdeElement + SimdElement> Serialize
+    for UnsyncBuffer<B, T, S>
 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize<Ser>(&self, serializer: Ser) -> Result<Ser::Ok, Ser::Error>
     where
-        S: serde::Serializer,
+        Ser: serde::Serializer,
     {
         let helper = MultiBufferSerde {
             vals: self
@@ -267,8 +402,8 @@ impl<const B: usize, T: BufferElement + SerdeElement + SimdElement> Serialize
     }
 }
 
-impl<'de, const B: usize, T: BufferElement + SerdeElement + SimdElement> Deserialize<'de>
-    for UnsyncBuffer<B, T>
+impl<'de, const B: usize, S, T: BufferElement + SerdeElement + SimdElement> Deserialize<'de>
+    for UnsyncBuffer<B, T, S>
 where
     T::Repr: Deserialize<'de>,
 {
@@ -318,16 +453,120 @@ where
             capacity: Simd::from_array(capacity_arr),
             count: Simd::from_array(count_arr),
             prev_idx: Simd::from_array(prev_arr),
+            state: std::marker::PhantomData,
         })
     }
 }
 
+// ── Shared inner helpers for UnsyncMirrorBuffer ─────────────────────────────
+
 #[inline(always)]
-pub(crate) fn write_values<const B: usize, T: BufferElement + SimdElement>(
-    buffer: &mut UnsyncBuffer<B, T>,
+pub(super) fn usb_next_index<const B: usize>(
+    index: Simd<usize, B>,
+    capacity: Simd<usize, B>,
+) -> Simd<usize, B> {
+    let new_idx = index + Simd::splat(1);
+    new_idx.simd_eq(capacity).select(Simd::splat(0), new_idx)
+}
+
+#[inline(always)]
+pub(super) fn usb_advance<const B: usize>(
+    buf_index: &mut Simd<usize, B>,
+    prev_idx: &mut Simd<usize, B>,
+    count: &mut Simd<usize, B>,
+    capacity: Simd<usize, B>,
+) {
+    *prev_idx = *buf_index;
+    *buf_index = usb_next_index(*buf_index, capacity);
+    let at_cap = count.simd_eq(capacity);
+    *count = at_cap.select(*count, *count + Simd::splat(1));
+}
+
+#[inline(always)]
+pub(super) fn usb_advance_unchecked<const B: usize>(
+    buf_index: &mut Simd<usize, B>,
+    prev_idx: &mut Simd<usize, B>,
+    capacity: Simd<usize, B>,
+) {
+    *prev_idx = *buf_index;
+    *buf_index = usb_next_index(*buf_index, capacity);
+}
+
+#[inline(always)]
+pub(super) fn usb_get_values<const B: usize, T: BufferElement + SimdElement>(
+    vals: &[Vec<T>; B],
+    idx: Simd<usize, B>,
+) -> Simd<T, B> {
+    let idx = idx.as_array();
+    let mut results = Simd::splat(T::default());
+    for ((buffer, result), &idx) in vals
+        .iter()
+        .zip(results.as_mut_array().iter_mut())
+        .zip(idx.iter())
+    {
+        *result = unsafe { *buffer.get_unchecked(idx) };
+    }
+    results
+}
+
+#[inline(always)]
+pub(super) fn usb_write_mirror<const B: usize, T: BufferElement + SimdElement>(
+    vals: &mut [Vec<T>; B],
+    index: &Simd<usize, B>,
+    capacity: &Simd<usize, B>,
     values: Simd<T, B>,
 ) {
-    let idx = buffer.index.as_array(); //.to_array();
+    let idx = index.as_array();
+    let cap = capacity.to_array();
+    for (((buff, &val), &idx), &cap) in vals
+        .iter_mut()
+        .zip(values.as_array().iter())
+        .zip(idx.iter())
+        .zip(cap.iter())
+    {
+        unsafe {
+            *buff.get_unchecked_mut(idx) = val;
+        }
+        unsafe {
+            *buff.get_unchecked_mut(idx + cap) = val;
+        }
+    }
+}
+
+#[inline(always)]
+pub(super) fn usb_write_mirror_pop<const B: usize, T: BufferElement + SimdElement>(
+    vals: &mut [Vec<T>; B],
+    index: &Simd<usize, B>,
+    capacity: &Simd<usize, B>,
+    values: Simd<T, B>,
+) -> Simd<T, B> {
+    let idx = index.as_array();
+    let cap = capacity.to_array();
+    let mut results = Simd::splat(T::default());
+    for ((((buff, &val), result), &idx), &cap) in vals
+        .iter_mut()
+        .zip(values.as_array().iter())
+        .zip(results.as_mut_array().iter_mut())
+        .zip(idx.iter())
+        .zip(cap.iter())
+    {
+        *result = unsafe { *buff.get_unchecked(idx) };
+        unsafe {
+            *buff.get_unchecked_mut(idx) = val;
+        }
+        unsafe {
+            *buff.get_unchecked_mut(idx + cap) = val;
+        }
+    }
+    results
+}
+
+#[inline(always)]
+pub(crate) fn write_values<const B: usize, S, T: BufferElement + SimdElement>(
+    buffer: &mut UnsyncBuffer<B, T, S>,
+    values: Simd<T, B>,
+) {
+    let idx = buffer.index.as_array();
     for ((buff, &vals), &idx) in buffer
         .vals
         .iter_mut()
@@ -339,11 +578,11 @@ pub(crate) fn write_values<const B: usize, T: BufferElement + SimdElement>(
 }
 
 #[inline(always)]
-pub(crate) fn write_values_pop<const B: usize, T: BufferElement + SimdElement>(
-    buffer: &mut UnsyncBuffer<B, T>,
+pub(crate) fn write_values_pop<const B: usize, S, T: BufferElement + SimdElement>(
+    buffer: &mut UnsyncBuffer<B, T, S>,
     values: Simd<T, B>,
 ) -> Simd<T, B> {
-    let idx = buffer.index.as_array(); //.to_array();
+    let idx = buffer.index.as_array();
     let mut results = Simd::splat(T::default());
     for (((buff, &vals), result), &idx) in buffer
         .vals
@@ -357,21 +596,3 @@ pub(crate) fn write_values_pop<const B: usize, T: BufferElement + SimdElement>(
     }
     results
 }
-
-/*#[inline(always)]
-pub(crate) fn period_to_idx<const N: usize>(
-    index: Simd<usize, N>,
-    capacity: Simd<usize, N>,
-    periods: Simd<usize, N>,
-) -> Simd<usize, N>
-where
-    LaneCount<N>: SupportedLaneCount,
-{
-    // index - periods - 1  (with wrap-around handled by adding capacity when negative)
-    let mut idx = index.cast::<i32>() - periods.cast::<i32>() - UsizeConstants::ONE.cast::<i32>();
-    idx = idx
-        .simd_le(UsizeConstants::ZERO.cast::<i32>())
-        .select(idx + capacity.cast::<i32>(), idx);
-
-    idx.cast::<usize>()
-}*/

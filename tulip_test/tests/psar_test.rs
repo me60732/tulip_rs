@@ -2,7 +2,7 @@
 mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicators::psar::{
-        indicator as rust_psar, indicator_by_assets, indicator_by_options, min_data,
+        Psar, Indicator, indicator_by_assets, indicator_by_options,
         TIndicatorState,
     };
     use tulip_test::c_bindings::{ti_psar, ti_psar_start};
@@ -71,7 +71,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [high.as_slice(), low.as_slice()];
             let (outputs, _) =
-                rust_psar(&inputs_rust, &options, None).expect("Rust PSAR indicator failed");
+                Psar::indicator(&inputs_rust, &options, None).expect("Rust PSAR indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -157,7 +157,7 @@ mod tests {
                 // Rust implementation
                 let inputs_rust = [high.as_slice(), low.as_slice()];
                 let (outputs, _) =
-                    rust_psar(&inputs_rust, &options, None).expect("Rust PSAR indicator failed");
+                    Psar::indicator(&inputs_rust, &options, None).expect("Rust PSAR indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -222,13 +222,13 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Get full output
-                let (full_outputs, _) = rust_psar(&inputs_rust, &options, None)
+                let (full_outputs, _) = Psar::indicator(&inputs_rust, &options, None)
                     .expect("PSAR indicator should work on full data");
 
                 // Process in batches
                 let mut batch_full_outputs = vec![Vec::new(); full_outputs.len()];
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Psar::min_data(&options).max(CHUNK_SIZE);
 
                 // Process first chunk to get initial state
                 let first_chunk_size = min_data_val.min(high.len());
@@ -236,7 +236,7 @@ mod tests {
                 let first_low = low[..first_chunk_size].to_vec();
                 let first_inputs = [first_high.as_slice(), first_low.as_slice()];
 
-                let (outputs, mut state) = rust_psar(&first_inputs, &options, None)
+                let (outputs, mut state) = Psar::indicator(&first_inputs, &options, None)
                     .expect("PSAR indicator should work on first chunk");
 
                 for output_idx in 0..outputs.len() {
@@ -326,7 +326,7 @@ mod tests {
             {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_high.as_slice(), stock_low.as_slice()];
-                let (regular_results, _) = rust_psar(&stock_inputs, &options, None)
+                let (regular_results, _) = Psar::indicator(&stock_inputs, &options, None)
                     .expect("Regular PSAR indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
@@ -406,7 +406,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_psar(&inputs, options, None).expect("Regular PSAR indicator failed");
+                    Psar::indicator(&inputs, options, None).expect("Regular PSAR indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];

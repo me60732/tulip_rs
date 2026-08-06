@@ -1,4 +1,4 @@
-use tulip_rs::indicators::ppo::{indicator, TIndicatorState};
+use tulip_rs::indicators::ppo::{Indicator, Ppo, TIndicatorState};
 
 fn main() {
     // Example input data: close prices
@@ -10,7 +10,7 @@ fn main() {
     let options = [2.0, 5.0];
 
     let inputs = [close.as_slice()];
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true, true])) {
+    let (outputs, _) = match Ppo::indicator(&inputs, &options, Some(&[true, true])) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -21,7 +21,7 @@ fn main() {
     let inputs = [&close[..close.len() - 5]];
 
     // Calculate the PPO using the indicator function
-    let (outputs, mut state) = match indicator(&inputs, &options, None) {
+    let (outputs, mut state) = match Ppo::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

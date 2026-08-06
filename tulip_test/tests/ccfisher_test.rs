@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use tulip_rs::indicator_types::TIndicatorState;
-    use tulip_rs::indicators::ccfisher::{indicator, min_data, output_length};
-    use tulip_rs::indicators::cybercycle::{indicator as cc_indicator, min_data as cc_min_data};
+    use tulip_rs::indicator_types::{Indicator, TIndicatorState};
+    use tulip_rs::indicators::ccfisher::CcFisher;
+    use tulip_rs::indicators::cybercycle::Cybercycle;
     use tulip_rs::types::IndicatorError;
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -20,13 +20,13 @@ mod tests {
 
     #[test]
     fn test_ccfisher_min_data() {
-        assert_eq!(min_data(&[0.07]), 56, "min_data must be 56");
+        assert_eq!(CcFisher::min_data(&[0.07]), 56, "min_data must be 56");
 
-        assert_eq!(output_length(56, &[0.07]), 1, "output_length(56) must be 1");
+        assert_eq!(CcFisher::output_length(56, &[0.07]), 1, "CcFisher::output_length(56) must be 1");
         assert_eq!(
-            output_length(100, &[0.07]),
+            CcFisher::output_length(100, &[0.07]),
             45,
-            "output_length(100) must be 45"
+            "CcFisher::output_length(100) must be 45"
         );
     }
 
@@ -37,7 +37,7 @@ mod tests {
     #[test]
     fn test_ccfisher_not_enough_data() {
         let close: Vec<f64> = (0..55).map(|i| 100.0 + i as f64).collect();
-        let result = indicator(&[close.as_slice()], &[0.07], None);
+        let result = CcFisher::indicator(&[close.as_slice()], &[0.07], None);
         assert!(
             matches!(result, Err(IndicatorError::NotEnoughData)),
             "Expected NotEnoughData for {} bars (need 56), got {:?}",
@@ -59,7 +59,7 @@ mod tests {
         for bad_alpha in [-0.1_f64, 1.0, 1.5] {
             assert!(
                 matches!(
-                    indicator(&inputs, &[bad_alpha], None),
+                    CcFisher::indicator(&inputs, &[bad_alpha], None),
                     Err(IndicatorError::InvalidOptions)
                 ),
                 "alpha={bad_alpha} should be InvalidOptions"
@@ -79,7 +79,7 @@ mod tests {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
-            let (out, _) = indicator(&inputs, &[0.0], Some(&[true, true, true]))
+            let (out, _) = CcFisher::indicator(&inputs, &[0.0], Some(&[true, true, true]))
                 .expect("CCFisher adaptive failed");
 
             // fisher and signal: finite
@@ -126,7 +126,7 @@ mod tests {
             }
 
             // Adaptive must differ from fixed alpha=0.07.
-            let (fixed_out, _) = indicator(&inputs, &[0.07], None).expect("fixed run");
+            let (fixed_out, _) = CcFisher::indicator(&inputs, &[0.07], None).expect("fixed run");
             let differ = out[0]
                 .iter()
                 .zip(fixed_out[0].iter())
@@ -151,7 +151,7 @@ mod tests {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
             for options in OPTIONS_LIST {
-                let (out, _) = indicator(&inputs, &options, Some(&[true, true, true]))
+                let (out, _) = CcFisher::indicator(&inputs, &options, Some(&[true, true, true]))
                     .expect("CCFisher failed");
                 let labels = ["fisher", "signal", "trendmode", "cycle", "peak"];
                 for k in 0..5 {
@@ -180,7 +180,7 @@ mod tests {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
             for options in OPTIONS_LIST {
-                let (out, _) = indicator(&inputs, &options, Some(&[true, false, false]))
+                let (out, _) = CcFisher::indicator(&inputs, &options, Some(&[true, false, false]))
                     .expect("CCFisher failed");
                 for (i, &v) in out[2].iter().enumerate() {
                     assert!(
@@ -211,14 +211,14 @@ mod tests {
                 if options[0] == 0.0 {
                     continue;
                 }
-                let (cf_out, _) = indicator(&inputs, &options, Some(&[false, true, false]))
+                let (cf_out, _) = CcFisher::indicator(&inputs, &options, Some(&[false, true, false]))
                     .expect("CCFisher failed");
-                let (cc_out, _) = cc_indicator(&inputs, &options, None).expect("CyberCycle failed");
+                let (cc_out, _) = Cybercycle::indicator(&inputs, &options, None).expect("CyberCycle failed");
 
                 // CCFisher outputs start at bar 55 (min_data=56, output_length=n-55).
                 // CyberCycle outputs start at bar 6 (min_data=7, output_length=n-6).
                 // So CCFisher output[i] corresponds to CyberCycle output[i + 49].
-                let cc_offset = min_data(&options) - cc_min_data(&options);
+                let cc_offset = CcFisher::min_data(&options) - Cybercycle::min_data(&options);
                 let cycle_from_cf = &cf_out[3];
                 let cycle_from_cc = &cc_out[0][cc_offset..];
 
@@ -254,7 +254,7 @@ mod tests {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
             for options in OPTIONS_LIST {
-                let (out, _) = indicator(&inputs, &options, Some(&[false, false, true]))
+                let (out, _) = CcFisher::indicator(&inputs, &options, Some(&[false, false, true]))
                     .expect("CCFisher failed");
                 let peak = &out[4];
                 for (i, &v) in peak.iter().enumerate() {
@@ -285,7 +285,7 @@ mod tests {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
             for options in OPTIONS_LIST {
-                let (out, _) = indicator(&inputs, &options, None).expect("CCFisher failed");
+                let (out, _) = CcFisher::indicator(&inputs, &options, None).expect("CCFisher failed");
                 let fisher = &out[0];
                 let signal = &out[1];
                 for i in 1..fisher.len() {
@@ -305,7 +305,7 @@ mod tests {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // State continuity: indicator() first chunk + batch_indicator() remainder
+    // State continuity: CcFisher::indicator() first chunk + batch_indicator() remainder
     // must be bit-exact to a full single-call run (all five outputs).
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -319,10 +319,10 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 let (ref_out, _) =
-                    indicator(&[close.as_slice()], &options, Some(&[true, true, true]))
+                    CcFisher::indicator(&[close.as_slice()], &options, Some(&[true, true, true]))
                         .expect("ref run");
 
-                let (first_out, mut state) = indicator(
+                let (first_out, mut state) = CcFisher::indicator(
                     &[&close[..FIRST_CHUNK]],
                     &options,
                     Some(&[true, true, true]),
@@ -416,7 +416,7 @@ mod tests {
             let labels = ["fisher", "signal"];
             for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
                 let (scalar_out, _) =
-                    indicator(&[close.as_slice()], &options, None).expect("scalar");
+                    CcFisher::indicator(&[close.as_slice()], &options, None).expect("scalar");
 
                 for k in 0..2 {
                     let simd_line = &simd_results[asset_idx][k];
@@ -474,7 +474,7 @@ mod tests {
 
             let labels = ["fisher", "signal"];
             for (lane, alpha) in scalar_alphas.iter().enumerate() {
-                let (scalar_out, _) = indicator(&inputs, alpha, None).expect("scalar failed");
+                let (scalar_out, _) = CcFisher::indicator(&inputs, alpha, None).expect("scalar failed");
 
                 for k in 0..2 {
                     let simd_line = &simd_results[lane][k];
@@ -533,7 +533,7 @@ mod tests {
 
             let labels = ["fisher", "signal"];
             for (lane, options) in OPTIONS_LIST.iter().enumerate() {
-                let (scalar_out, _) = indicator(&inputs, options, None).expect("scalar failed");
+                let (scalar_out, _) = CcFisher::indicator(&inputs, options, None).expect("scalar failed");
 
                 for k in 0..2 {
                     let simd_line = &simd_results[lane][k];
@@ -564,5 +564,4 @@ mod tests {
             }
         }
     }
-
-    }
+}

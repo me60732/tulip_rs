@@ -1,11 +1,9 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
-use crate::indicators::linreg::{
-    min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
-};
-use crate::indicators::simd_indicators::linreg_simd::SimdState;
+use crate::indicators::linreg::{Indicator, IndicatorState, Linreg, State, INPUTS, OPTIONS};
+use crate::indicators::simd_indicators::linreg_simd::{SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
 /// SIMD driver for the Linear Regression (LINREG) indicator, processing `N` option-set lanes per scheduling epoch.
@@ -13,28 +11,23 @@ struct LinregDriver {
     want_optional_outputs: (bool, bool, bool),
 }
 
-impl Driver<State, usize> for LinregDriver {
+impl Driver<State<Warm>, usize> for LinregDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD. Reads the shared input, applies each lane's options, writes outputs, and updates per-lane states.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         options: Vec<Option<&usize>>,
     ) {
-        let mut state = SimdState::<N>::new_mut_ref(&states);
+        let mut state = SimdState::<N>::from_states(&mut states);
         let len = outputs[0][0].len();
-        let (mut i, period_simd) = {
-            let mut i = [0usize; N];
-            let mut periods = [0.0; N];
-            for (lane, option) in options.iter().enumerate() {
-                if let Some(&period) = option {
-                    i[lane] = period;
-                    periods[lane] = period as f64;
-                }
+        let mut i = [0usize; N];
+        for (lane, option) in options.iter().enumerate() {
+            if let Some(&period) = option {
+                i[lane] = period;
             }
-            (i, Simd::from_array(periods))
-        };
+        }
 
         let (has_optional, want_slope, want_intercept) = self.want_optional_outputs;
         // Optimization 1: Direct array construction instead of collect+try_into
@@ -59,7 +52,7 @@ impl Driver<State, usize> for LinregDriver {
             );
             let prev_real = crate::extract_simd_inputs_at_index!(j+1, N, real @ real_ptrs);
 
-            let (linreg, slope, intercept) = state.calc_simd(prev_real, real, period_simd);
+            let (linreg, slope, intercept) = state.calc((prev_real, real));
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, j,
@@ -86,7 +79,7 @@ impl Driver<State, usize> for LinregDriver {
 /// simultaneously using SIMD parallelism.
 ///
 /// # Arguments
-/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS]`), containing
 ///   `[real]`.
 /// * `options` - An array of `N` option sets, one per SIMD lane: `[period]`.
 /// * `optional_outputs` - Optional output flags: `[want_linregslope, want_linregintercept]`.
@@ -96,15 +89,15 @@ impl Driver<State, usize> for LinregDriver {
 /// and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS],
+    options: &[&[f64; OPTIONS]; N],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, Linreg::min_data)?;
     validate_options(options, None)?;
     let params: [usize; N] = std::array::from_fn(|i| options[i][0] as usize);
 
-    let mut road_train = PrimeMover::<N, State, usize>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>, usize>::new();
     let mut want_optional_outputs = (false, false, false);
     let mut output_buffers = Vec::with_capacity(N);
     for i in 0..N {
@@ -115,7 +108,7 @@ pub fn indicator_by_options<const N: usize>(
 
         let (linreg_line, slope_line, intercept_line);
         {
-            let capacity = output_length(inputs[0].len(), options[i]);
+            let capacity = Linreg::output_length(inputs[0].len(), options[i]);
             (slope_line, intercept_line) = crate::init_optional_outputs_eff!(
                 optional_outputs, &[false, false],
                 slope_line: capacity,

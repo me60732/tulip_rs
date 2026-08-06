@@ -1,5 +1,5 @@
 use tulip_rs::indicators::smaenvelope::{
-    indicator, indicator_by_assets, indicator_by_options, TIndicatorState,
+    indicator_by_assets, indicator_by_options, Indicator, SmaEnvelope, TIndicatorState,
 };
 
 fn main() {
@@ -12,7 +12,7 @@ fn main() {
     let inputs = [close.as_slice()];
 
     /////////////////////// Full run — all three bands ///////////////////////
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match SmaEnvelope::indicator(&inputs, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -23,7 +23,7 @@ fn main() {
     /////////////////////// Partial run + batch_indicator continuation ///////////////////////
     let inputs2 = [&close[0..close.len() - 5]];
 
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match SmaEnvelope::indicator(&inputs2, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

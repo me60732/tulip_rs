@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::willr::{indicator, min_data, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::willr::{Willr, Indicator, TIndicatorState, IndicatorState};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_willr, ti_willr_start};
@@ -165,7 +165,7 @@ fn bench_rust_willr(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, None)
+                        let result = Willr::indicator(&inputs, &options, None)
                             .expect("Rust WILLR indicator failed");
                         black_box(&result);
                     },
@@ -197,7 +197,7 @@ fn bench_rust_willr(c: &mut Criterion) {
             group.bench_function(format!("Rust WILLR {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result =
-                        indicator(&inputs, &options, None).expect("Rust WILLR indicator failed");
+                        Willr::indicator(&inputs, &options, None).expect("Rust WILLR indicator failed");
                     black_box(&result);
                 });
             });
@@ -224,7 +224,7 @@ fn bench_rust_willr_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                        let min_data_val = Willr::min_data(&options).max(CHUNK_SIZE);
                         // First chunk
                         let chunk_inputs = [
                             &high_vec[..min_data_val],
@@ -232,7 +232,7 @@ fn bench_rust_willr_from_state(c: &mut Criterion) {
                             &close_vec[..min_data_val],
                         ];
 
-                        let (_, mut state) = indicator(&chunk_inputs, &options, None)
+                        let (_, mut state) = Willr::indicator(&chunk_inputs, &options, None)
                             .expect("WILLR indicator failed");
 
                         // Chunks
@@ -286,7 +286,7 @@ fn bench_rust_willr_from_state(c: &mut Criterion) {
                     let final_high_vec = high_vec[high_vec.len() - 1..].to_vec();
                     let final_low_vec = low_vec[low_vec.len() - 1..].to_vec();
                     let final_close_vec = close_vec[close_vec.len() - 1..].to_vec();
-                    let (_, mut state) = indicator(&new_inputs, &options, None)
+                    let (_, mut state) = Willr::indicator(&new_inputs, &options, None)
                         .expect("Rust WILLR indicator failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -313,7 +313,7 @@ fn bench_rust_willr_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) = indicator(&new_inputs, &options, None)
+                    let (_, state) = Willr::indicator(&new_inputs, &options, None)
                         .expect("Rust WILLR indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
@@ -356,7 +356,7 @@ fn bench_rust_willr_from_state(c: &mut Criterion) {
 
             group.bench_function("benchmark", |b| {
                 b.iter(|| {
-                    let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                    let min_data_val = Willr::min_data(&options).max(CHUNK_SIZE);
                     // First chunk
                     let chunk_inputs = [
                         &high_vec[..min_data_val],
@@ -365,7 +365,7 @@ fn bench_rust_willr_from_state(c: &mut Criterion) {
                     ];
 
                     let (_, mut state) =
-                        indicator(&chunk_inputs, &options, None).expect("WILLR indicator failed");
+                        Willr::indicator(&chunk_inputs, &options, None).expect("WILLR indicator failed");
 
                     // Chunks
                     let mut high_chunks = high_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -411,7 +411,7 @@ fn bench_rust_willr_from_state(c: &mut Criterion) {
                 let final_low_vec = low_vec[low_vec.len() - 1..].to_vec();
                 let final_close_vec = close_vec[close_vec.len() - 1..].to_vec();
                 let (_, mut state) =
-                    indicator(&new_inputs, &options, None).expect("Rust WILLR indicator failed");
+                    Willr::indicator(&new_inputs, &options, None).expect("Rust WILLR indicator failed");
 
                 let mut group =
                     c.benchmark_group(format!("Rust WILLR from state 1 bar {{ {} }}", options[0]));
@@ -609,7 +609,7 @@ fn bench_rust_willr_optional(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, Some(&[true, true]))
+                        let result = Willr::indicator(&inputs, &options, Some(&[true, true]))
                             .expect("Rust WILLR optional indicator failed");
                         black_box(&result);
                     },
@@ -639,7 +639,7 @@ fn bench_rust_willr_optional(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust WILLR optional {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result = indicator(&inputs, &options, Some(&[true, true]))
+                    let result = Willr::indicator(&inputs, &options, Some(&[true, true]))
                         .expect("Rust WILLR optional indicator failed");
                     black_box(&result);
                 });

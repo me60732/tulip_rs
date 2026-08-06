@@ -1,10 +1,10 @@
 use crate::common_simd::assets::validate_inputs;
 use crate::indicators::adaptivemsw::{
-    min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    AdaptiveMSW, Indicator, IndicatorState, State, INPUTS, OPTIONS,
 };
-use crate::indicators::simd_indicators::adaptivemsw_simd::SimdState;
+use crate::indicators::simd_indicators::adaptivemsw_simd::{SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
 /// SIMD driver that advances the Adaptive MESA Sine Wave across `N` lanes per epoch.
@@ -13,16 +13,16 @@ struct AdaptiveMswDriver {
     want_optional_outputs: (bool, bool),
 }
 
-impl Driver<State> for AdaptiveMswDriver {
+impl Driver<State<Warm>> for AdaptiveMswDriver {
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
         let len = inputs[0][0].len();
-        let mut simd_state = SimdState::new(&mut states);
+        let mut simd_state = SimdState::from_states(&mut states);
 
         let (has_optional, want_dc) = self.want_optional_outputs;
 
@@ -32,8 +32,7 @@ impl Driver<State> for AdaptiveMswDriver {
 
         for i in 0..len {
             let real = crate::extract_simd_inputs_at_index!(i, N, real @ real_ptrs);
-            // Safety: all HD ring buffers full — guaranteed by State::init_state.
-            let (sine, lead) = unsafe { simd_state.calc_simd_unchecked(real) };
+            let (sine, lead) = simd_state.calc(real);
             crate::write_simd_at_indices!(N, i,
                 sine_ptrs => sine,
                 lead_ptrs => lead
@@ -64,19 +63,19 @@ impl Driver<State> for AdaptiveMswDriver {
 /// `Ok((outputs, states))` where `outputs[i][0]` = sine, `[1]` = lead_sine,
 /// `[2]` = dc_period (empty unless requested).
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N],
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N],
+    options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, AdaptiveMSW::min_data(options))?;
 
     let mut output_buffers = Vec::with_capacity(N);
-    let mut road_train = PrimeMover::<N, State>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut want_optional_outputs = (false, false);
 
     for i in 0..N {
         let len = inputs[i][0].len();
-        let capacity = output_length(len, options);
+        let capacity = AdaptiveMSW::output_length(len, options);
 
         let (mut sine_line, mut lead_line) = (
             crate::uninit_vec!(f64, capacity),
@@ -116,7 +115,7 @@ pub fn indicator_by_assets<const N: usize>(
             vec![inputs[i][0]],
             asset_outputs,
             i,
-            min_data(options),
+            AdaptiveMSW::min_data(options),
             0,
             state,
             None,
@@ -130,6 +129,6 @@ pub fn indicator_by_assets<const N: usize>(
     };
     let final_states = road_train.drive(&mut driver);
 
-    let states = final_states.into_iter().map(IndicatorState::new).collect();
+    let states: Vec<IndicatorState> = final_states;
     Ok((output_buffers, states))
 }

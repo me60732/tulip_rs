@@ -1,4 +1,4 @@
-use tulip_rs::indicators::apo::{indicator, TIndicatorState};
+use tulip_rs::indicators::apo::{Apo, TIndicatorState, Indicator};
 
 fn main() {
     // Example input data: close prices
@@ -10,7 +10,7 @@ fn main() {
     let options = [2.0, 5.0];
     let inputs = [close.as_slice()];
 
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true, true])) {
+    let (outputs, _) = match Apo::indicator(&inputs, &options, Some(&[true, true])) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -22,7 +22,7 @@ fn main() {
     let inputs2 = [&close[0..close.len() - 5]];
 
     // Calculate the APO using the indicator function
-    let (outputs2, mut state2) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state2) = match Apo::indicator(&inputs2, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

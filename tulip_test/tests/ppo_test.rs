@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::ppo::{indicator as rust_ppo, min_data, TIndicatorState};
+    use tulip_rs::indicators::ppo::{Ppo, Indicator, TIndicatorState, indicator_by_assets, indicator_by_options};
     use tulip_test::c_bindings::{ti_ema, ti_ema_start, ti_ppo, ti_ppo_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -59,7 +59,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_ppo(&inputs_rust, &options, None).expect("Rust PPO indicator failed");
+                Ppo::indicator(&inputs_rust, &options, None).expect("Rust PPO indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -145,7 +145,7 @@ mod tests {
                 // Rust implementation
                 let inputs_rust = [close.as_slice()];
                 let (outputs, _) =
-                    rust_ppo(&inputs_rust, &options, None).expect("Rust PPO indicator failed");
+                    Ppo::indicator(&inputs_rust, &options, None).expect("Rust PPO indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -210,20 +210,20 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Get full output
-                let (full_outputs, _) = rust_ppo(&inputs_rust, &options, None)
+                let (full_outputs, _) = Ppo::indicator(&inputs_rust, &options, None)
                     .expect("PPO indicator should work on full data");
 
                 // Process in batches
                 let mut batch_full_outputs = vec![Vec::new(); full_outputs.len()];
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Ppo::min_data(&options).max(CHUNK_SIZE);
 
                 // Process first chunk to get initial state
                 let first_chunk_size = min_data_val.min(close.len());
                 let first_close = close[..first_chunk_size].to_vec();
                 let first_inputs = [first_close.as_slice()];
 
-                let (outputs, mut state) = rust_ppo(&first_inputs, &options, None)
+                let (outputs, mut state) = Ppo::indicator(&first_inputs, &options, None)
                     .expect("PPO indicator should work on first chunk");
 
                 for output_idx in 0..outputs.len() {
@@ -280,7 +280,7 @@ mod tests {
 
     #[test]
     fn test_ppo_simd_vs_regular_database() {
-        use tulip_rs::indicators::ppo::indicator_by_assets;
+       
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -313,7 +313,7 @@ mod tests {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_close.as_slice()];
                 let (regular_results, _) =
-                    rust_ppo(&stock_inputs, &options, None).expect("Regular PPO indicator failed");
+                    Ppo::indicator(&stock_inputs, &options, None).expect("Regular PPO indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];
@@ -374,7 +374,7 @@ mod tests {
 
     #[test]
     fn test_ppo_simd_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::ppo::indicator_by_assets;
+       
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -410,7 +410,7 @@ mod tests {
                     // Get regular indicator result for this stock with optional outputs
                     let stock_inputs = [stock_close.as_slice()];
                     let (regular_results_opt, _) =
-                        rust_ppo(&stock_inputs, &options, Some(&[true, true]))
+                        Ppo::indicator(&stock_inputs, &options, Some(&[true, true]))
                             .expect("Regular PPO indicator with optional outputs failed");
 
                     // Compare all outputs: PPO, short_ema, long_ema
@@ -492,7 +492,7 @@ mod tests {
         let optional_outputs = Some([true, false].as_slice()); // Request short_ema output
 
         // Get Rust PPO output with short_ema optional output
-        let result = rust_ppo(&inputs, &options, optional_outputs).unwrap();
+        let result = Ppo::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_short_ema = &result.0[1]; // short_ema is at index 1
 
         // Fail fast if Rust output is empty
@@ -576,7 +576,7 @@ mod tests {
         let optional_outputs = Some([false, true].as_slice()); // Request long_ema output
 
         // Get Rust PPO output with long_ema optional output
-        let result = rust_ppo(&inputs, &options, optional_outputs).unwrap();
+        let result = Ppo::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_long_ema = &result.0[2]; // long_ema is at index 2
 
         // Fail fast if Rust output is empty
@@ -663,7 +663,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get PPO with short_ema optional output
                 let optional_outputs = Some(&[true, false][..]);
-                let (ppo_result, _) = tulip_rs::indicators::ppo::indicator(
+                let (ppo_result, _) = Ppo::indicator(
                     &[&close],
                     &[options[0], options[1]],
                     optional_outputs,
@@ -743,7 +743,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get PPO with long_ema optional output
                 let optional_outputs = Some(&[false, true][..]);
-                let (ppo_result, _) = tulip_rs::indicators::ppo::indicator(
+                let (ppo_result, _) = Ppo::indicator(
                     &[&close],
                     &[options[0], options[1]],
                     optional_outputs,
@@ -808,7 +808,7 @@ mod tests {
 
     #[test]
     fn test_ppo_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::ppo::indicator_by_options;
+       
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -834,7 +834,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_ppo(&inputs, options, None).expect("Regular PPO indicator failed");
+                    Ppo::indicator(&inputs, options, None).expect("Regular PPO indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -885,7 +885,7 @@ mod tests {
 
     #[test]
     fn test_ppo_simd_by_options_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::ppo::indicator_by_options;
+       
         const EPSILON: f64 = 1e-10;
 
         init_database_data();
@@ -912,7 +912,7 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result with optional outputs
-                let (regular_results, _) = rust_ppo(&inputs, options, optional_outputs)
+                let (regular_results, _) = Ppo::indicator(&inputs, options, optional_outputs)
                     .expect("Regular PPO indicator with optional outputs failed");
 
                 let simd_results = &simd_results_4[idx];

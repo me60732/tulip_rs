@@ -1,10 +1,10 @@
 //use crate::common::validate_inputs;
 use crate::indicators::mfi::{
-    min_data, output_length, IndicatorState as State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    Mfi, Indicator, IndicatorState, State, INPUTS, OPTIONS,
 };
-use crate::indicators::simd_indicators::mfi_simd::assets::SimdState;
+use crate::indicators::simd_indicators::mfi_simd::{TSimdState, TState, assets::SimdState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
 
@@ -14,7 +14,7 @@ struct MfiDriver {
     want_optional_outputs: bool,
 }
 
-impl Driver<State> for MfiDriver {
+impl Driver<State<Warm>> for MfiDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     ///
     /// Reads from `inputs[asset][field]` (high, low, close, volume), writes the MFI to
@@ -24,10 +24,10 @@ impl Driver<State> for MfiDriver {
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
-        let mut state = SimdState::<N>::new(&mut states);
+        let mut state = SimdState::<N>::from_states(&mut states);
         let len = inputs[0][0].len();
 
         let want_typprice = self.want_optional_outputs;
@@ -42,7 +42,7 @@ impl Driver<State> for MfiDriver {
         // Optimization 3: Simplified main loop with pre-computed offsets
         for i in 0..len {
             // Get inputs arrays for stocks
-            let (high, low, close, volume) = crate::extract_simd_inputs_at_index!(
+            let inputs = crate::extract_simd_inputs_at_index!(
                 i,
                 N,
                 high @ high_ptrs,
@@ -51,7 +51,7 @@ impl Driver<State> for MfiDriver {
                 volume @ volume_ptrs
             );
 
-            let mfi = unsafe { state.calc_unchecked_simd(high, low, close, volume) };
+            let mfi = state.calc(inputs);
             //unsafe { calc_simd(&mut state, high, low, close, multiplier) };
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, i,
@@ -73,7 +73,7 @@ impl Driver<State> for MfiDriver {
 /// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[high, low, close, volume]` for asset `i`.
 /// * `options` - Shared options slice; `options[0]` is the period.
 /// * `optional_outputs` - Optional slice selecting extra outputs: index `0` = `typprice`.
@@ -84,15 +84,15 @@ impl Driver<State> for MfiDriver {
 /// [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<Vec<f64>>>, Vec<State>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
+    validate_inputs::<INPUTS>(inputs, Mfi::min_data(options))?;
     validate_options(options)?;
     let period = options[0] as usize;
 
-    let mut road_train = PrimeMover::<N, State>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut output_buffers = Vec::with_capacity(N);
     let mut want_optional_outputs = false;
     for i in 0..N {
@@ -105,7 +105,7 @@ pub fn indicator_by_assets<const N: usize>(
 
         let (mfi_line, mut typprice_line) = {
             let len = inputs[i][0].len();
-            let capacity = output_length(len, options);
+            let capacity = Mfi::output_length(len, options);
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::init_optional_outputs_eff!(

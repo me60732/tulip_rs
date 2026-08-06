@@ -1,7 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::di::{
-    indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState,
-};
+use tulip_rs::indicators::di::{indicator_by_assets, indicator_by_options};
+use tulip_rs::indicators::di::{Di, Indicator, TIndicatorState, IndicatorState};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_di, ti_di_start};
@@ -148,7 +147,7 @@ fn bench_rust_di(c: &mut Criterion) {
                 timing.measure(
                     || {
                         let result =
-                            indicator(&inputs, &options, None).expect("DI indicator failed");
+                            Di::indicator(&inputs, &options, None).expect("DI indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -167,7 +166,8 @@ fn bench_rust_di(c: &mut Criterion) {
             group.bench_function("benchmark", |b| {
                 b.iter(|| {
                     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-                    let result = indicator(&inputs, &options, None).expect("DI indicator failed");
+                    let result =
+                        Di::indicator(&inputs, &options, None).expect("DI indicator failed");
                     black_box(&result);
                 });
             });
@@ -194,7 +194,7 @@ fn bench_rust_di_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                        let min_data_val = Di::min_data(&options).max(CHUNK_SIZE);
                         // First chunk
                         let chunk_inputs = [
                             &high[..min_data_val],
@@ -202,8 +202,8 @@ fn bench_rust_di_from_state(c: &mut Criterion) {
                             &close[..min_data_val],
                         ];
 
-                        let (_, mut state) =
-                            indicator(&chunk_inputs, &options, None).expect("DI Indicator Failed");
+                        let (_, mut state) = Di::indicator(&chunk_inputs, &options, None)
+                            .expect("DI Indicator Failed");
 
                         // Chunks
                         let mut high_chunks = high[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -255,7 +255,7 @@ fn bench_rust_di_from_state(c: &mut Criterion) {
                         &close[close.len() - 1..],
                     ];
                     let (_, mut state) =
-                        indicator(&new_inputs, &options, None).expect("Rust DI indicator failed");
+                        Di::indicator(&new_inputs, &options, None).expect("Rust DI indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -278,7 +278,7 @@ fn bench_rust_di_from_state(c: &mut Criterion) {
                     );
 
                     let (_, state) =
-                        indicator(&new_inputs, &options, None).expect("Rust DI indicator failed");
+                        Di::indicator(&new_inputs, &options, None).expect("Rust DI indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -318,7 +318,7 @@ fn bench_rust_di_from_state(c: &mut Criterion) {
                 //let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
                 b.iter(|| {
-                    let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                    let min_data_val = Di::min_data(&options).max(CHUNK_SIZE);
                     // First chunk
                     let chunk_inputs = [
                         &high[..min_data_val],
@@ -327,7 +327,7 @@ fn bench_rust_di_from_state(c: &mut Criterion) {
                     ];
 
                     let (_, mut state) =
-                        indicator(&chunk_inputs, &options, None).expect("DI indicator failed");
+                        Di::indicator(&chunk_inputs, &options, None).expect("DI indicator failed");
 
                     // Chunks
                     let mut high_chunks = high[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -482,7 +482,7 @@ fn bench_rust_di_optional(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, Some(&[true, true]))
+                        let result = Di::indicator(&inputs, &options, Some(&[true, true]))
                             .expect("Rust DI indicator failed");
                         black_box(&result);
                     },
@@ -509,7 +509,7 @@ fn bench_rust_di_optional(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust DI {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result = indicator(&inputs, &options, Some(&[true, true]))
+                    let result = Di::indicator(&inputs, &options, Some(&[true, true]))
                         .expect("Rust DI indicator failed");
                     black_box(&result);
                 });

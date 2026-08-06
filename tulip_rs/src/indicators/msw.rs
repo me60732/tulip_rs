@@ -34,7 +34,7 @@
 //!   *cached twiddles* (no trig — pure FMA) to prevent floating-point drift.
 
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
@@ -65,10 +65,10 @@ pub fn twiddles_for_period(period: usize) -> (&'static [f64], &'static [f64]) {
 }
 
 /// Number of input price series required.
-pub const INPUTS_WIDTH: usize = 1;
+pub const INPUTS: usize = 1;
 
 /// Number of option parameters required.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -109,24 +109,6 @@ const HPI: f64 = PI * 0.5;
 /// 1/√2 — used in the angle-addition identity for sin(phase + π/4).
 const INV_SQRT2: f64 = std::f64::consts::FRAC_1_SQRT_2;
 
-// ── Indicator metadata ────────────────────────────────────────────────────────
-
-pub const INFO: Info = Info {
-    name: "msw",
-    full_name: "Mesa Sine Wave",
-    indicator_type: IndicatorType::Cycle,
-    inputs: &["real"],
-    options: &["period"],
-    outputs: &["msw_sine", "msw_lead"],
-    optional_outputs: &[],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "msw",
-        label: "MSW",
-        display_type: DisplayType::Indicator,
-        outputs: &["msw_sine", "msw_lead"],
-    }],
-};
 
 // ── Per-bar state ─────────────────────────────────────────────────────────────
 
@@ -159,21 +141,19 @@ impl State {
             wi,
         }
     }
-    /// Advances the Sliding DFT by one bar and writes the outputs into `state`.
+}
+
+impl TState for State {
+    /// `(new_sample, old_sample)` — price entering and leaving the SDFT window.
+    type Inputs<'a> = (f64, f64);
+    /// `(sine, lead_sine)` output pair.
+    type Outputs = (f64, f64);
+    /// Advances the Sliding DFT by one bar.
     ///
-    /// This is the per-bar "calc" function, equivalent to `msw::calc` in the
-    /// original implementation.  Other indicators can call this directly once they
-    /// have seeded `state` (e.g. via `dot_product_simd` + `State::new`).
-    ///
-    /// # Arguments
-    /// * `state`      — SDFT accumulator; updated in-place.
-    /// * `new_sample` — Price entering the window (newest bar).
-    /// * `old_sample` — Price leaving the window (oldest bar, `period` steps back).
-    ///
-    /// # Returns
-    /// `(sine, lead_sine)` for this bar.
+    /// `new_sample` — price entering the window; `old_sample` — price leaving.
+    /// Returns `(sine, lead_sine)` for this bar.
     #[inline(always)]
-    pub fn calc(&mut self, new_sample: f64, old_sample: f64) -> (f64, f64) {
+    fn calc<'a>(&mut self, (new_sample, old_sample): Self::Inputs<'a>) -> Self::Outputs {
         let rp = self.wr.mul_add(self.rp, -(self.wi * self.ip)) + (new_sample - old_sample);
         let ip = self.wr.mul_add(self.ip, self.wi * self.rp);
         self.rp = rp;
@@ -244,7 +224,7 @@ impl IndicatorState {
 impl TIndicatorState<1> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         _optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -272,91 +252,90 @@ impl TIndicatorState<1> for IndicatorState {
     }
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
-
-/// Returns the minimum number of input bars required.
-pub fn min_data(options: &[f64]) -> usize {
-    options[0] as usize + 1
-}
-
-/// Returns the number of output bars produced from `data_len` input bars.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
 
 /// Returns `1 / period` — the DFT frequency multiplier for a given period.
 pub fn multiplier(period: usize) -> f64 {
     1.0 / period as f64
 }
 
-/// Calculates the optimised MESA Sine Wave over the full input dataset.
-///
-/// # Inputs
-/// * `inputs[0]` — real (price series, e.g. close)
-///
-/// # Options
-/// * `options[0]` — period
-///
-/// # Returns
-/// `Ok((outputs, state))` where `outputs[0]` = `msw_sine`, `outputs[1]` = `msw_lead`,
-/// and `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    _optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let period = options[0] as usize;
-    let mult = multiplier(period);
+/// Zero-size marker type — entry point for the `Indicator` trait API.
+pub struct Msw;
 
-    validate_inputs(inputs, min_data(options))?;
-    let real = inputs[0];
+impl Indicator<INPUTS, OPTIONS> for Msw {
+    type IndicatorState = IndicatorState;
 
-    let capacity = output_length(real.len(), options);
-    let mut sine_line = crate::uninit_vec!(f64, capacity);
-    let mut lead_line = crate::uninit_vec!(f64, capacity);
-
-    // Twiddles computed once here; stored in IndicatorState for re-use.
-    // Use the static const table when the period is in range to avoid runtime trig.
-    let (cos_twiddles, sin_twiddles) = if (6..=50).contains(&period) {
-        let (c, s) = twiddles_for_period(period);
-        (c.to_vec(), s.to_vec())
-    } else {
-        precompute_twiddles(period, mult)
+    const INFO: Info = Info {
+        name: "msw",
+        full_name: "Mesa Sine Wave",
+        indicator_type: IndicatorType::Cycle,
+        inputs: &["real"],
+        options: &["period"],
+        outputs: &["msw_sine", "msw_lead"],
+        optional_outputs: &[],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "msw",
+            label: "MSW",
+            display_type: DisplayType::Indicator,
+            outputs: &["msw_sine", "msw_lead"],
+        }],
     };
 
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        _optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        let period = options[0] as usize;
+        let mult = multiplier(period);
 
-    let state = match period {
-        0..=7 => cycle_msw_sdft::<4>(
-            real,
-            period,
-            mult,
-            &cos_twiddles,
-            &sin_twiddles,
-            &mut sine_line,
-            &mut lead_line,
-        ),
-        _ => cycle_msw_sdft::<8>(
-            real,
-            period,
-            mult,
-            &cos_twiddles,
-            &sin_twiddles,
-            &mut sine_line,
-            &mut lead_line,
-        ),
-    };
+        validate_inputs(inputs, Self::min_data(options))?;
+        let real = inputs[0];
 
-    Ok((
-        vec![sine_line, lead_line],
-        IndicatorState {
-            state,
-            real: real[real.len() - period..].to_vec(),
-            period,
-            cos_twiddles,
-            sin_twiddles,
-        },
-    ))
+        let capacity = Self::output_length(real.len(), options);
+        let mut sine_line = crate::uninit_vec!(f64, capacity);
+        let mut lead_line = crate::uninit_vec!(f64, capacity);
+
+        let (cos_twiddles, sin_twiddles) = if (6..=50).contains(&period) {
+            let (c, s) = twiddles_for_period(period);
+            (c.to_vec(), s.to_vec())
+        } else {
+            precompute_twiddles(period, mult)
+        };
+
+        let state = match period {
+            0..=7 => cycle_msw_sdft::<4>(
+                real,
+                period,
+                mult,
+                &cos_twiddles,
+                &sin_twiddles,
+                &mut sine_line,
+                &mut lead_line,
+            ),
+            _ => cycle_msw_sdft::<8>(
+                real,
+                period,
+                mult,
+                &cos_twiddles,
+                &sin_twiddles,
+                &mut sine_line,
+                &mut lead_line,
+            ),
+        };
+
+        Ok((
+            vec![sine_line, lead_line],
+            IndicatorState {
+                state,
+                real: real[real.len() - period..].to_vec(),
+                period,
+                cos_twiddles,
+                sin_twiddles,
+            },
+        ))
+    }
 }
 
 /// SDFT hot loop — iterates over `real[period..]`, calling `calc` for each bar.
@@ -373,9 +352,7 @@ fn cycle_sdft(
     lead_line: &mut [f64],
 ) {
     for (j, i) in (period..real.len()).enumerate() {
-        let (sine, lead) = state.calc(unsafe { *real.get_unchecked(i) }, unsafe {
-            *real.get_unchecked(j)
-        });
+        let (sine, lead) = state.calc(unsafe { (*real.get_unchecked(i), *real.get_unchecked(j)) });
         unsafe {
             *sine_line.get_unchecked_mut(j) = sine;
             *lead_line.get_unchecked_mut(j) = lead;
@@ -423,7 +400,6 @@ pub fn calc_rp_ip<const N: usize>(window: &[f64], multiplier: f64) -> (f64, f64)
         dot_product_simd::<N>(window, &cos_twiddles, &sin_twiddles)
     }
 }
-
 
 /// Full per-bar DFT + phase — drop-in replacement for the old `msw::calc`.
 ///

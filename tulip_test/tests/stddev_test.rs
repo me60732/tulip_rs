@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::stddev::{indicator as rust_stddev, min_data, TIndicatorState};
+    use tulip_rs::indicators::stddev::{StdDev, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_sma, ti_sma_start, ti_stddev, ti_stddev_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
     const EPSILON: f64 = 1e-6;
@@ -58,7 +58,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_stddev(&inputs_rust, &options, None).expect("Rust STDDEV indicator failed");
+                StdDev::indicator(&inputs_rust, &options, None).expect("Rust STDDEV indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -147,7 +147,7 @@ mod tests {
                 assert_eq!(ret, 0, "ti_stddev returned error code {}", ret);
 
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) = rust_stddev(&inputs_rust, &options, None)
+                let (outputs, _) = StdDev::indicator(&inputs_rust, &options, None)
                     .expect("Rust STDDEV indicator failed");
 
                 let output_len_rust = outputs[0].len();
@@ -213,19 +213,19 @@ mod tests {
                 let inputs_rust = [close.as_slice()];
 
                 // Get full output from processing all data at once
-                let (full_outputs, _) = rust_stddev(&inputs_rust, &options, None)
+                let (full_outputs, _) = StdDev::indicator(&inputs_rust, &options, None)
                     .expect("Rust STDDEV indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = StdDev::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let close_vec = close[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice()];
 
-                let (first_outputs, mut state) = rust_stddev(&chunk_inputs, &options, None)
+                let (first_outputs, mut state) = StdDev::indicator(&chunk_inputs, &options, None)
                     .expect("Rust STDDEV indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -313,7 +313,7 @@ mod tests {
                 for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                     // Get regular indicator result for this stock
                     let stock_inputs = [stock_close.as_slice()];
-                    let (regular_results, _) = rust_stddev(&stock_inputs, &options, None)
+                    let (regular_results, _) = StdDev::indicator(&stock_inputs, &options, None)
                         .expect("Regular STDDEV indicator failed");
 
                     let simd_result = &simd_results[stock_idx][0];
@@ -404,7 +404,7 @@ mod tests {
                     // Get regular indicator result for this stock with optional outputs
                     let stock_inputs = [stock_close.as_slice()];
                     let (regular_results_opt, _) =
-                        rust_stddev(&stock_inputs, &options, Some(&[true]))
+                        StdDev::indicator(&stock_inputs, &options, Some(&[true]))
                             .expect("Regular STDDEV indicator with optional outputs failed");
 
                     // Compare all outputs: STDDEV, SMA
@@ -486,7 +486,7 @@ mod tests {
         let optional_outputs = Some([true].as_slice()); // Request sma output
 
         // Get Rust STDDEV output with sma optional output
-        let result = rust_stddev(&inputs, &options, optional_outputs).unwrap();
+        let result = StdDev::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_sma = &result.0[1]; // sma is at index 1
 
         // Fail fast if Rust output is empty
@@ -567,7 +567,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get STDDEV with SMA optional output
                 let optional_outputs = Some(&[true][..]);
-                let (stddev_result, _) = tulip_rs::indicators::stddev::indicator(
+                let (stddev_result, _) = StdDev::indicator(
                     &[&close],
                     &[options[0]],
                     optional_outputs,
@@ -669,7 +669,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_stddev(&inputs, options, None).expect("Regular STDDEV indicator failed");
+                    StdDev::indicator(&inputs, options, None).expect("Regular STDDEV indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -761,7 +761,7 @@ mod tests {
             // Compare each SIMD result with regular indicator (with optional outputs)
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result with optional outputs
-                let (regular_results, _) = rust_stddev(&inputs, options, optional_outputs)
+                let (regular_results, _) = StdDev::indicator(&inputs, options, optional_outputs)
                     .expect("Regular STDDEV indicator with optional outputs failed");
 
                 // For STDDEV the outputs are: [STDDEV, SMA]

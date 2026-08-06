@@ -1,4 +1,4 @@
-use tulip_rs::indicators::obv::{indicator, TIndicatorState};
+use tulip_rs::indicators::obv::{Indicator, Obv, TIndicatorState};
 
 fn main() {
     // Example input data: close prices and volume
@@ -16,7 +16,7 @@ fn main() {
     let options = [];
 
     // Calculate the OBV using the indicator function
-    let (outputs, mut state) = match indicator(&inputs, &options, None) {
+    let (outputs, mut state) = match Obv::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

@@ -1,8 +1,6 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
-use crate::indicators::rocr::{
-    min_data, output_length, IndicatorState, INPUTS_WIDTH, OPTIONS_WIDTH,
-};
+use crate::indicators::rocr::{Indicator, IndicatorState, Rocr, INPUTS, OPTIONS};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;
@@ -10,7 +8,7 @@ use std::simd::Simd;
 use crate::indicators::simd_indicators::rocr_simd::calc_simd;
 
 /// SIMD driver for the Rate of Change Ratio (ROCR) indicator, processing `N` option-set lanes per scheduling epoch.
-struct RocrDriver {}
+struct RocrDriver;
 
 impl Driver<bool, usize> for RocrDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
@@ -81,11 +79,11 @@ impl Driver<bool, usize> for RocrDriver {
 /// and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS],
+    options: &[&[f64; OPTIONS]; N],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, Rocr::min_data)?;
     validate_options(options, None)?;
 
     let periods: [usize; N] = std::array::from_fn(|i| options[i][0] as usize);
@@ -94,7 +92,7 @@ pub fn indicator_by_options<const N: usize>(
     let mut output_buffers: Vec<Vec<Vec<f64>>> = (0..N)
         .map(|i| {
             vec![{
-                let capacity = output_length(inputs[0].len(), options[i]);
+                let capacity = Rocr::output_length(inputs[0].len(), options[i]);
                 crate::uninit_vec!(f64, capacity)
             }]
         })
@@ -121,7 +119,7 @@ pub fn indicator_by_options<const N: usize>(
             ));
         }
     }
-    let mut driver = RocrDriver {};
+    let mut driver = RocrDriver;
     road_train.drive(&mut driver);
 
     let mut states = Vec::with_capacity(N);
@@ -132,7 +130,7 @@ pub fn indicator_by_options<const N: usize>(
 }
 
 /*pub fn indicator_by_assets_from_state<const N: usize>(
-    inputs: &[ &[ &[f64]; INPUTS_WIDTH]; N],
+    inputs: &[ &[ &[f64]; INPUTS]; N],
     states: &mut [IndicatorState; N],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<[Vec<Vec<f64>>; N], IndicatorError>

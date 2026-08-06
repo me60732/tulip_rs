@@ -251,7 +251,8 @@ impl EmaState {
         self.ema = ema_calc(
             Simd::from_array([high - low, (open - close).abs(), close, close]),
             self.ema,
-            self.multipliers,
+            self.multipliers.0,
+            self.multipliers.1
         );
     }
 }

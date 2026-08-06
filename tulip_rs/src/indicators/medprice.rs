@@ -1,13 +1,13 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{TIndicatorState, Indicator, IndicatorResult};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 2;
+pub const INPUTS: usize = 2;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 0;
+pub const OPTIONS: usize = 0;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -31,91 +31,15 @@ pub struct IndicatorState;
 impl TIndicatorState<2> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         _optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         process(inputs)
     }
 }
-/// Returns information about the Median Price (MEDPRICE) indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the MEDPRICE indicator.
-pub const INFO: Info = Info {
-    name: "medprice",
-    full_name: "Median Price",
-    indicator_type: IndicatorType::Price,
-    inputs: &["high", "low"],
-    options: &[],
-    outputs: &["medprice"],
-    optional_outputs: &[],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "medprice",
-        label: "MEDPRICE",
-        display_type: DisplayType::Overlay,
-        outputs: &["medprice"],
-    }],
-};
-/// Returns the minimum amount of data required for the MEDPRICE indicator.
-///
-/// # Arguments
-///
-/// * `_options` - A slice containing the options for the MEDPRICE calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(_options: &[f64]) -> usize {
-    1 // Only one data point is needed to calculate the median price
-}
 
-/// Calculates the output length for the MEDPRICE indicator.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `_options` - A slice containing the options for the MEDPRICE calculation.
-///
-/// # Returns
-///
-/// The output length.
-pub fn output_length(data_len: usize, _options: &[f64]) -> usize {
-    data_len
-}
-
-/// Calculates the Median Price (MEDPRICE) indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — high prices
-/// * `inputs[1]` — low prices
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Unused; pass `&[]` (this indicator has no options).
-/// * `optional_outputs` - Unused; this indicator has no optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where:
-/// - `outputs[0]` — `medprice`
-///
-/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short.
-
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    _options: &[f64; OPTIONS_WIDTH],
-    _optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    let outputs = process(inputs)?;
-    Ok((outputs, IndicatorState))
-}
 #[inline(always)]
-fn process(inputs: &[&[f64]; INPUTS_WIDTH]) -> Result<Vec<Vec<f64>>, IndicatorError> {
+fn process(inputs: &[&[f64]; INPUTS]) -> Result<Vec<Vec<f64>>, IndicatorError> {
     validate_inputs(inputs, 1)?;
     let high = inputs[0];
     let low = inputs[1];
@@ -133,4 +57,43 @@ fn process(inputs: &[&[f64]; INPUTS_WIDTH]) -> Result<Vec<Vec<f64>>, IndicatorEr
 #[inline(always)]
 pub fn calc(high: f64, low: f64) -> f64 {
     0.5 * (high + low)
+}
+
+pub struct Medprice;
+impl Indicator<INPUTS, OPTIONS> for Medprice {
+    type IndicatorState = IndicatorState;
+
+    const INFO: Info = Info {
+        name: "medprice",
+        full_name: "Median Price",
+        indicator_type: IndicatorType::Price,
+        inputs: &["high", "low"],
+        options: &[],
+        outputs: &["medprice"],
+        optional_outputs: &[],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "medprice",
+            label: "MEDPRICE",
+            display_type: DisplayType::Overlay,
+            outputs: &["medprice"],
+        }],
+    };
+
+    fn min_data(_options: &[f64; OPTIONS]) -> usize {
+        1 // Only one data point is needed to calculate the median price
+    }
+
+    fn output_length(data_len: usize, _options: &[f64; OPTIONS]) -> usize {
+        data_len
+    }
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        _options: &[f64; OPTIONS],
+        _optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        let outputs = process(inputs)?;
+        Ok((outputs, IndicatorState))
+    }
 }

@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::instantaneoustrendline::{indicator, indicator_by_assets, min_data};
+use tulip_rs::indicators::instantaneoustrendline::{InstantaneousTrendline, Indicator, indicator_by_assets};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::criterion_logger::TimingMeasurements;
 use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -40,7 +40,7 @@ fn bench_it(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator(&inputs, &[], None).expect("IT failed");
+                    let result = InstantaneousTrendline::indicator(&inputs, &[], None).expect("IT failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -61,7 +61,7 @@ fn bench_it(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust Instantaneous Trendline", |b| {
             b.iter(|| {
-                let result = indicator(&inputs, &[], None).expect("IT failed");
+                let result = InstantaneousTrendline::indicator(&inputs, &[], None).expect("IT failed");
                 black_box(&result);
             });
         });
@@ -83,8 +83,8 @@ fn bench_it_from_state(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let seed = min_data(&[]).max(CHUNK_SIZE);
-                    let (_, mut state) = indicator(&[&close[..seed]], &[], None)
+                    let seed = InstantaneousTrendline::min_data(&[]).max(CHUNK_SIZE);
+                    let (_, mut state) = InstantaneousTrendline::indicator(&[&close[..seed]], &[], None)
                         .expect("IT seed failed");
                     for chunk in close[seed..].chunks_exact(CHUNK_SIZE) {
                         black_box(
@@ -115,7 +115,7 @@ fn bench_it_from_state(c: &mut Criterion) {
 
             // --- single-bar update ---
             if n > 1 {
-                let (_, mut state) = indicator(&[&close[..n - 1]], &[], None)
+                let (_, mut state) = InstantaneousTrendline::indicator(&[&close[..n - 1]], &[], None)
                     .expect("IT seed (1-bar) failed");
                 let final_input = [&close[n - 1..]];
                 let mut timing = TimingMeasurements::new();
@@ -141,8 +141,8 @@ fn bench_it_from_state(c: &mut Criterion) {
         }
     } else {
         let close_vec = expand_inputs();
-        let seed = min_data(&[]).max(CHUNK_SIZE);
-        let (_, mut state) = indicator(&[&close_vec[..seed]], &[], None)
+        let seed = InstantaneousTrendline::min_data(&[]).max(CHUNK_SIZE);
+        let (_, mut state) = InstantaneousTrendline::indicator(&[&close_vec[..seed]], &[], None)
             .expect("IT seed failed");
 
         let mut group = c.benchmark_group("instantaneoustrendline_rust_from_state");
@@ -161,7 +161,7 @@ fn bench_it_from_state(c: &mut Criterion) {
         group.finish();
 
         if close_vec.len() > 1 {
-            let (_, mut state) = indicator(&[&close_vec[..close_vec.len() - 1]], &[], None)
+            let (_, mut state) = InstantaneousTrendline::indicator(&[&close_vec[..close_vec.len() - 1]], &[], None)
                 .expect("IT seed (1-bar) failed");
             let final_input = [&close_vec[close_vec.len() - 1..]];
             let mut group = c.benchmark_group("instantaneoustrendline_rust_from_state_1_bar");

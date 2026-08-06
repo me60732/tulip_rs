@@ -1,7 +1,10 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::kvo::{indicator as rust_kvo, min_data, TIndicatorState};
+    use tulip_rs::indicators::{
+        kvo::{Kvo, Indicator, TIndicatorState},
+        ema::Ema
+    };
     use tulip_test::c_bindings::{ti_kvo, ti_kvo_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -95,7 +98,7 @@ mod tests {
                 volume.as_slice(),
             ];
             let (outputs, _) =
-                rust_kvo(&inputs_rust, &options, None).expect("Rust KVO indicator failed");
+                Kvo::indicator(&inputs_rust, &options, None).expect("Rust KVO indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -187,7 +190,7 @@ mod tests {
                     volume.as_slice(),
                 ];
                 let (outputs, _) =
-                    rust_kvo(&inputs_rust, &options, None).expect("Rust KVO indicator failed");
+                    Kvo::indicator(&inputs_rust, &options, None).expect("Rust KVO indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -266,13 +269,13 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Get full output
-                let (full_outputs, _) = rust_kvo(&inputs_rust, &options, None)
+                let (full_outputs, _) = Kvo::indicator(&inputs_rust, &options, None)
                     .expect("KVO indicator should work on full data");
 
                 // Process in batches
                 let mut batch_full_outputs = vec![Vec::new(); full_outputs.len()];
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Kvo::min_data(&options).max(CHUNK_SIZE);
 
                 // Process first chunk to get initial state
                 let first_chunk_size = min_data_val.min(high.len());
@@ -287,7 +290,7 @@ mod tests {
                     first_volume.as_slice(),
                 ];
 
-                let (outputs, mut state) = rust_kvo(&first_inputs, &options, None)
+                let (outputs, mut state) = Kvo::indicator(&first_inputs, &options, None)
                     .expect("KVO indicator should work on first chunk");
 
                 for output_idx in 0..outputs.len() {
@@ -412,7 +415,7 @@ mod tests {
                     volume.as_slice(),
                 ];
                 let (regular_results, _) =
-                    rust_kvo(&stock_inputs, &options, None).expect("Regular KVO indicator failed");
+                    Kvo::indicator(&stock_inputs, &options, None).expect("Regular KVO indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];
@@ -536,7 +539,7 @@ mod tests {
                         volume.as_slice(),
                     ];
                     let (regular_results_opt, _) =
-                        rust_kvo(&stock_inputs, &options, Some(&[true, true]))
+                        Kvo::indicator(&stock_inputs, &options, Some(&[true, true]))
                             .expect("Regular KVO indicator with optional outputs failed");
 
                     // Compare all outputs: KVO, short_ema, long_ema
@@ -604,7 +607,6 @@ mod tests {
 
     #[test]
     fn test_kvo_optional_outputs_validation() {
-        use tulip_rs::indicators::ema;
 
         let high = HIGH.to_vec();
         let low = LOW.to_vec();
@@ -620,7 +622,7 @@ mod tests {
         let optional_outputs = Some([true, true].as_slice()); // Request both short_ema and long_ema outputs
 
         // Get Rust KVO output with optional outputs
-        let result = rust_kvo(&inputs, &options, optional_outputs).unwrap();
+        let result = Kvo::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_short_ema = &result.0[1]; // short_ema is at index 1
         let rust_long_ema = &result.0[2]; // long_ema is at index 2
 
@@ -633,8 +635,8 @@ mod tests {
         }
 
         // Calculate expected lengths using EMA output_length function
-        let short_expected_len = ema::output_length(inputs[0].len(), &[options[0]]);
-        let long_expected_len = ema::output_length(inputs[0].len(), &[options[1]]);
+        let short_expected_len = Ema::output_length(inputs[0].len(), &[options[0]]);
+        let long_expected_len = Ema::output_length(inputs[0].len(), &[options[1]]);
 
         println!("KVO Optional Outputs Validation:");
         /*println!(
@@ -718,7 +720,6 @@ mod tests {
 
     #[test]
     fn test_kvo_optional_outputs_database_validation() {
-        use tulip_rs::indicators::ema;
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -741,7 +742,7 @@ mod tests {
 
             for &options in OPTIONS_LIST.iter() {
                 // Skip options that require more data than available
-                let min_required = rust_kvo(&inputs[..4].try_into().unwrap(), &options, None)
+                let min_required = Kvo::indicator(&inputs[..4].try_into().unwrap(), &options, None)
                     .map(|_| true)
                     .unwrap_or(false);
                 if !min_required {
@@ -751,7 +752,7 @@ mod tests {
                 let optional_outputs = Some([true, true].as_slice()); // Request both EMAs
 
                 let result =
-                    match rust_kvo(&inputs[..4].try_into().unwrap(), &options, optional_outputs) {
+                    match Kvo::indicator(&inputs[..4].try_into().unwrap(), &options, optional_outputs) {
                         Ok(result) => result,
                         Err(_) => continue, // Skip if not enough data
                     };
@@ -774,8 +775,8 @@ mod tests {
                 );
 
                 // Calculate expected lengths
-                let short_expected_len = ema::output_length(inputs[0].len(), &[options[0]]);
-                let long_expected_len = ema::output_length(inputs[0].len(), &[options[1]]);
+                let short_expected_len = Ema::output_length(inputs[0].len(), &[options[0]]);
+                let long_expected_len = Ema::output_length(inputs[0].len(), &[options[1]]);
 
                 // Validate lengths match expected EMA lengths (allowing for KVO's specific requirements)
                 assert!(
@@ -879,7 +880,6 @@ mod tests {
 
     #[test]
     fn test_kvo_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::kvo::indicator as rust_kvo;
         use tulip_rs::indicators::kvo::indicator_by_options;
 
         init_database_data();
@@ -910,7 +910,7 @@ mod tests {
                 .expect("SIMD KVO 2-wide failed");
 
             // Process last option with regular indicator (as single lane)
-            let (simd_results_1, _) = rust_kvo(&inputs, &OPTIONS_LIST[6], None)
+            let (simd_results_1, _) = Kvo::indicator(&inputs, &OPTIONS_LIST[6], None)
                 .expect("Regular KVO indicator failed for last option");
 
             // Combine SIMD results
@@ -933,7 +933,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_kvo(&inputs, options, None).expect("Regular KVO indicator failed");
+                    Kvo::indicator(&inputs, options, None).expect("Regular KVO indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -1030,7 +1030,7 @@ mod tests {
                     .expect("SIMD KVO 2-wide with optional outputs failed");
 
             // Process last option with scalar indicator
-            let (simd_results_1, _) = rust_kvo(&inputs, &OPTIONS_LIST[6], Some(&[true, true]))
+            let (simd_results_1, _) = Kvo::indicator(&inputs, &OPTIONS_LIST[6], Some(&[true, true]))
                 .expect("Scalar KVO with optional outputs failed for last option");
 
             // Combine results
@@ -1045,7 +1045,7 @@ mod tests {
 
             // Compare each result with scalar indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
-                let (scalar_results, _) = rust_kvo(&inputs, options, Some(&[true, true]))
+                let (scalar_results, _) = Kvo::indicator(&inputs, options, Some(&[true, true]))
                     .expect("Scalar KVO with optional outputs failed");
 
                 // Compare all 3 outputs (kvo, short_ema, long_ema)
@@ -1077,4 +1077,4 @@ mod tests {
         println!("✓ All SIMD by-options KVO optional output tests passed!");
     }
 
-    }
+}

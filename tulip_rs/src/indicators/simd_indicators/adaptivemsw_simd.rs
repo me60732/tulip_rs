@@ -1,11 +1,12 @@
-use crate::indicators::adaptivemsw::State;
+pub use crate::indicator_types::{TSimdState, TState};
+use crate::indicators::adaptivemsw::IndicatorState as State;
 use crate::indicators::msw;
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::by_asset::adaptivemsw::indicator_by_assets;
 use crate::indicators::simd_indicators::homodynediscriminator_simd::SimdState as HdSimdState;
 use crate::ring_buffer::fixed_single_buffer::FixedMirrorBuffer;
 use std::simd::Simd;
-
+use crate::types::Warm;
 /// SIMD-parallel state for the Adaptive MESA Sine Wave across `N` assets simultaneously.
 ///
 /// The Homodyne Discriminator pipeline runs fully in SIMD across all `N` lanes,
@@ -33,47 +34,47 @@ impl<const N: usize> SimdState<N> {
             std::array::from_fn(|j| states[j].price_buf.clone());
 
         // Second pass: collect mutable HD references.
-        let mut hd_refs: Vec<&mut crate::indicators::homodynediscriminator::State> =
+        let mut hd_refs: Vec<&mut crate::indicators::homodynediscriminator::State<Warm>> =
             Vec::with_capacity(N);
         for state in states.iter_mut() {
             hd_refs.push(&mut state.hd);
         }
 
-        let hd = HdSimdState::new(&hd_refs);
+        let hd = HdSimdState::from_states(&mut hd_refs);
 
         Self { hd, price_bufs }
     }
 
     /// Scatters the SIMD state back into `N` scalar [`State`] references.
     pub fn write_states(&self, states: &mut [&mut State]) {
-        let mut hd_refs: Vec<&mut crate::indicators::homodynediscriminator::State> =
+        let mut hd_refs: Vec<&mut crate::indicators::homodynediscriminator::State<Warm>> =
             Vec::with_capacity(N);
         for (j, state) in states.iter_mut().enumerate() {
             hd_refs.push(&mut state.hd);
             state.price_buf = self.price_bufs[j].clone();
         }
-        self.hd.write_states(&mut hd_refs);
+        TSimdState::write_states(&self.hd, &mut hd_refs);
     }
 
-    /// Computes one bar of the Adaptive MESA Sine Wave for `N` assets simultaneously.
-    ///
-    /// The HD runs fully in SIMD across all N lanes. Each asset's DFT then runs
-    /// independently (using the 8-wide SIMD `calc_rp_ip` internally), because the
-    /// adaptive period may differ per asset.
-    ///
-    /// Returns `(sine_vec, lead_vec)` — one value per lane.
-    ///
-    /// # Safety
-    ///
-    /// All HD ring buffers must be full on entry. Guaranteed after [`State::init_state`]
-    /// for every lane before [`SimdState::new`].
-    #[inline(always)]
-    pub unsafe fn calc_simd_unchecked(
-        &mut self,
-        real: Simd<f64, N>,
-    ) -> (Simd<f64, N>, Simd<f64, N>) {
+}
+
+impl<const N: usize> TSimdState for SimdState<N> {
+    type ScalarState = State;
+    fn from_states(states: &mut [&mut State]) -> Self {
+        Self::new(states)
+    }
+    fn write_states(&self, states: &mut [&mut State]) {
+        SimdState::write_states(self, states);
+    }
+}
+
+impl<const N: usize> TState for SimdState<N> {
+    type Inputs<'a> = Simd<f64, N>;
+    type Outputs = (Simd<f64, N>, Simd<f64, N>); // (sine, lead_sine)
+
+    fn calc<'a>(&mut self, real: Simd<f64, N>) -> (Simd<f64, N>, Simd<f64, N>) {
         // Run HD for all N lanes simultaneously.
-        let dc = self.hd.calc_simd_unchecked(real);
+        let dc = self.hd.calc(real);
         let dc_arr = dc.to_array();
         let real_arr = real.to_array();
 

@@ -8,10 +8,12 @@ use serde::{
     ser::SerializeStruct,
     Deserialize, Deserializer, Serialize, Serializer,
 };
+pub use crate::indicator_types::{TState, TSimdState};
 use std::fmt;
 use std::marker::PhantomData;
 use std::simd::{Simd, StdFloat};
-
+use crate::indicators::ema::State;
+use crate::types::Warm;
 /// Computes the EMA multiplier pair for `N` lanes with potentially different periods.
 ///
 /// Returns `(per, 1 - per)` where `per = 2.0 / (period + 1.0)` for each lane,
@@ -50,6 +52,17 @@ pub struct SimdState<const N: usize> {
     pub multiplier: Simd<f64, N>,
 }
 
+impl<const N: usize> TSimdState for SimdState<N> {
+    type ScalarState = State<Warm>;
+    crate::simd_state_write!(
+         sub: [],
+         scalar: [ema]
+    );
+    crate::simd_state_from_state!(
+         sub: [],
+         scalar: [ema, inv_multiplier, multiplier]
+    );
+}
 impl<const N: usize> SimdState<N> {
     pub fn new(ema: Simd<f64, N>, multipliers: (Simd<f64, N>, Simd<f64, N>)) -> Self {
         Self {
@@ -58,17 +71,25 @@ impl<const N: usize> SimdState<N> {
             multiplier: multipliers.0,
         }
     }
+    
+    pub fn extract<const S: usize, const L: usize>(&self) -> SimdState<L> {
+        let multiplier = self.multiplier.extract::<S, L>();
+        let inv_multiplier = self.inv_multiplier.extract::<S, L>();
+        let ema = self.ema.extract::<S, L>();
+
+        SimdState::new(ema, (multiplier, inv_multiplier))
+    }
+}
+impl<const N: usize> TState for SimdState<N> {
+    type Inputs<'a> = Simd<f64, N>;
+    type Outputs = Simd<f64, N>;
+
     #[inline(always)]
-    pub fn calc_simd(&mut self, value: Simd<f64, N>) -> Simd<f64, N> {
-        self.ema = calc_simd(value, self.ema, (self.multiplier, self.inv_multiplier));
-        //prev_ema * inv_multiplier + value * multiplier
-        /*self.ema = self
-            .ema
-            .mul_add(self.inv_multiplier, value * self.multiplier);*/
+    fn calc<'a>(&mut self, value: Self::Inputs<'a>) -> Self::Outputs {
+        self.ema = calc_simd(value, self.ema, self.multiplier, self.inv_multiplier);
         self.ema
     }
 }
-
 // ── Serde ─────────────────────────────────────────────────────────────────────
 //
 // Hand-rolled because `#[derive(Serialize, Deserialize)]` generates a
@@ -205,9 +226,8 @@ where
 pub fn calc_simd<const N: usize>(
     value: Simd<f64, N>,
     prev_ema: Simd<f64, N>,
-    multipliers: (Simd<f64, N>, Simd<f64, N>),
+    multiplier: Simd<f64, N>, 
+    inv_multiplier: Simd<f64, N>,
 ) -> Simd<f64, N> {
-    let (multiplier, inv_multiplier) = multipliers;
-    //prev_ema * inv_multiplier + value * multiplier
     prev_ema.mul_add(inv_multiplier, value * multiplier)
 }

@@ -1,5 +1,5 @@
 use tulip_rs::indicators::elderray::{
-    indicator, indicator_by_assets, indicator_by_options, TIndicatorState,
+    indicator_by_assets, indicator_by_options, Elderray, Indicator, TIndicatorState,
 };
 
 fn main() {
@@ -20,7 +20,7 @@ fn main() {
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
     /////////////////////// Full run — bull and bear power ///////////////////////
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match Elderray::indicator(&inputs, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -28,7 +28,7 @@ fn main() {
     println!("Bear Power (low  − EMA): {:?}", outputs[1]);
 
     /////////////////////// Full run with optional EMA output ///////////////////////
-    let (outputs_with_ema, _) = match indicator(&inputs, &options, Some(&[true])) {
+    let (outputs_with_ema, _) = match Elderray::indicator(&inputs, &options, Some(&[true])) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -43,7 +43,7 @@ fn main() {
         &close[0..close.len() - 5],
     ];
 
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match Elderray::indicator(&inputs2, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

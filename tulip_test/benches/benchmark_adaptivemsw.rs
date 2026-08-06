@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::adaptivemsw::{indicator, indicator_by_assets, min_data};
+use tulip_rs::indicators::adaptivemsw::{AdaptiveMSW, Indicator, indicator_by_assets};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::criterion_logger::TimingMeasurements;
 use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -38,7 +38,7 @@ fn bench_adaptivemsw(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator(&inputs, &[], None).expect("Adaptive MSW failed");
+                    let result = AdaptiveMSW::indicator(&inputs, &[], None).expect("Adaptive MSW failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -52,7 +52,7 @@ fn bench_adaptivemsw(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust Adaptive MESA Sine Wave", |b| {
             b.iter(|| {
-                let result = indicator(&inputs, &[], None).expect("Adaptive MSW failed");
+                let result = AdaptiveMSW::indicator(&inputs, &[], None).expect("Adaptive MSW failed");
                 black_box(&result);
             });
         });
@@ -73,9 +73,9 @@ fn bench_adaptivemsw_from_state(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let seed = min_data(&[]).max(CHUNK_SIZE);
+                    let seed = AdaptiveMSW::min_data(&[]).max(CHUNK_SIZE);
                     let (_, mut state) =
-                        indicator(&[&close[..seed]], &[], None).expect("AMSW seed failed");
+                        AdaptiveMSW::indicator(&[&close[..seed]], &[], None).expect("AMSW seed failed");
                     for chunk in close[seed..].chunks_exact(CHUNK_SIZE) {
                         black_box(
                             state
@@ -105,7 +105,7 @@ fn bench_adaptivemsw_from_state(c: &mut Criterion) {
 
             if n > 1 {
                 let (_, mut state) =
-                    indicator(&[&close[..n - 1]], &[], None).expect("AMSW seed (1-bar) failed");
+                    AdaptiveMSW::indicator(&[&close[..n - 1]], &[], None).expect("AMSW seed (1-bar) failed");
                 let final_input = [&close[n - 1..]];
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
@@ -130,8 +130,8 @@ fn bench_adaptivemsw_from_state(c: &mut Criterion) {
         }
     } else {
         let close_vec = expand_inputs();
-        let seed = min_data(&[]).max(CHUNK_SIZE);
-        let (_, mut state) = indicator(&[&close_vec[..seed]], &[], None).expect("AMSW seed failed");
+        let seed = AdaptiveMSW::min_data(&[]).max(CHUNK_SIZE);
+        let (_, mut state) = AdaptiveMSW::indicator(&[&close_vec[..seed]], &[], None).expect("AMSW seed failed");
 
         let mut group = c.benchmark_group("adaptivemsw_rust_from_state");
         group.sample_size(SAMPLE_SIZE);
@@ -149,7 +149,7 @@ fn bench_adaptivemsw_from_state(c: &mut Criterion) {
         group.finish();
 
         if close_vec.len() > 1 {
-            let (_, mut state) = indicator(&[&close_vec[..close_vec.len() - 1]], &[], None)
+            let (_, mut state) = AdaptiveMSW::indicator(&[&close_vec[..close_vec.len() - 1]], &[], None)
                 .expect("AMSW seed (1-bar) failed");
             let final_input = [&close_vec[close_vec.len() - 1..]];
             let mut group = c.benchmark_group("adaptivemsw_rust_from_state_1_bar");

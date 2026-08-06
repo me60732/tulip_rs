@@ -1,20 +1,19 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 pub use crate::indicators::adx::multiplier;
-use crate::indicators::adx::{output_length as adx_output_length, State as AdxState};
+use crate::indicators::adx::{Adx, State as AdxState};
 
-use crate::indicators::dx::output_length as dx_output_length;
-use crate::indicators::tr::output_length as tr_output_length;
-use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
-
+use crate::indicators::dx::Dx;
+use crate::indicators::tr::Tr;
+use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, Warm, Cold};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 3;
+pub const INPUTS: usize = 3;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -48,56 +47,66 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::adxr_simd::indicator_by_options as indicator;
 }
 
-/// Returns information about the Average Directional Movement Rating (ADXR) indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the ADXR indicator.
-pub const INFO: Info = Info {
-    name: "adxr",
-    full_name: "Average Directional Movement Rating",
-    indicator_type: IndicatorType::Trend,
-    inputs: &["high", "low", "close"],
-    options: &["period"],
-    outputs: &["adxr"],
-    optional_outputs: &["adx", "dx", "atr", "tr"],
-    display_groups: &[
-        DisplayGroup {
-            offset: None,
-            id: "adxr_adx_dx",
-            label: "Directional Index",
-            display_type: DisplayType::Indicator,
-            outputs: &["adxr", "adx", "dx"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "true_range",
-            label: "True Range",
-            display_type: DisplayType::Indicator,
-            outputs: &["atr", "tr"],
-        },
-    ],
-};
+pub type IndicatorState = State<Warm>;
+
 #[derive(Serialize, Deserialize)]
-pub struct State {
-    pub adx_state: AdxState,
-    pub buffer: Buffer<f64>,
+#[serde(bound = "")]
+pub struct State<S = Cold> {
+    pub adx_state: AdxState<S>,
+    pub buffer: Buffer<S, f64>,
 }
-#[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    state: State,
-    multipliers: (f64, f64),
-}
-impl IndicatorState {
-    pub fn new(state: State, multipliers: (f64, f64)) -> Self {
-        Self { state, multipliers }
+
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64, f64);
+    type Outputs = (f64, f64, f64, f64, f64);
+
+    #[inline(always)]
+    fn calc<'a>(&mut self, inputs: Self::Inputs<'a>) -> (f64, f64, f64, f64, f64) {
+        let (adx, dx, atr, tr) = self.adx_state.calc(inputs);
+        let adxr = 0.5 * (adx + self.buffer.push_with_info(adx));
+
+        (adxr, adx, dx, atr, tr)
     }
 }
+impl State<Cold> {
+    pub fn init_state(
+        high: &[f64],
+        low: &[f64],
+        close: &[f64],
+        period: usize,
+        out_vecs: (&mut [f64], &mut [f64], &mut [f64], &mut [f64]),
+    ) -> State<Warm> {
+        let (adx_line, dx_line, atr_line, tr_line) = out_vecs;
+        let mut adx_state =
+            AdxState::init_state(high, low, close, period, (dx_line, atr_line, tr_line));
+        let mut prev_adx = Buffer::new(period - 1);
+        prev_adx.push(adx_state.wilders_state.wilders);
+
+        let mut i = period * 2 - 1;
+        let multipliers = multiplier(period);
+        while !prev_adx.is_full() {
+            let (adx, dx, atr, tr) = adx_state.calc((high[i], low[i], close[i]));
+            prev_adx.push(adx);
+            crate::init_store_optional_outputs!(i, high.len(),
+                adx_line => adx,
+                dx_line => dx,
+                atr_line => atr * multipliers.1,
+                tr_line => tr
+            );
+            i += 1;
+        }
+        State {
+            adx_state,
+            buffer: prev_adx.into_full()
+        }
+    }
+}
+
 impl TIndicatorState<3> for IndicatorState {
     #[inline(always)]
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -124,201 +133,12 @@ impl TIndicatorState<3> for IndicatorState {
             &high,
             &low,
             &close,
-            &mut self.state,
-            self.multipliers,
+            self,
             &mut adxr_line,
             (&mut adx_line, &mut dx_line, &mut atr_line, &mut tr_line),
         );
         Ok(vec![adxr_line, adx_line, dx_line, atr_line, tr_line])
     }
-}
-impl State {
-    pub fn new(adx_state: AdxState, buffer: Buffer) -> Self {
-        Self { adx_state, buffer }
-    }
-    pub fn init_state(
-        high: &[f64],
-        low: &[f64],
-        close: &[f64],
-        period: usize,
-        out_vecs: (&mut [f64], &mut [f64], &mut [f64], &mut [f64]),
-    ) -> State {
-        let (adx_line, dx_line, atr_line, tr_line) = out_vecs;
-        let mut adx_state =
-            AdxState::init_state(high, low, close, period, (dx_line, atr_line, tr_line));
-        let mut prev_adx = Buffer::new(period - 1);
-        prev_adx.push(adx_state.adx);
-
-        let mut i = period * 2 - 1;
-        let multipliers = multiplier(period);
-        while !prev_adx.is_full() {
-            let (adx, dx, atr, tr) =
-                adx_state.calc(high[i], low[i], close[i], multipliers);
-            prev_adx.push(adx);
-            crate::init_store_optional_outputs!(i, high.len(),
-                adx_line => adx,
-                dx_line => dx,
-                atr_line => atr * multipliers.1,
-                tr_line => tr
-            );
-            i += 1;
-        }
-
-        State::new(adx_state, prev_adx)
-    }
-    #[inline(always)]
-    pub fn calc(
-        &mut self,
-        high: f64,
-        low: f64,
-        close: f64,
-        multipliers: (f64, f64),
-    ) -> (f64, f64, f64, f64, f64) {
-        let (adx, dx, atr, tr) = self.adx_state.calc(high, low, close, multipliers);
-    
-        let prev_adx = self.buffer.push_with_info(adx);
-        let mut adxr = 0.0;
-        if let Some(pa) = prev_adx {
-            adxr = 0.5 * (adx + pa);
-        }
-    
-        (adxr, adx, dx, atr, tr)
-    }
-    #[inline(always)]
-    pub unsafe fn calc_unchecked(
-        &mut self,
-        high: f64,
-        low: f64,
-        close: f64,
-        multipliers: (f64, f64),
-    ) -> (f64, f64, f64, f64, f64) {
-        let (adx, dx, atr, tr) = self.adx_state.calc(high, low, close, multipliers);
-        let adxr = 0.5 * (adx + self.buffer.push_with_info_unchecked(adx));
-    
-        (adxr, adx, dx, atr, tr)
-    }
-}
-/// Returns the minimum amount of data required based on the given options.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the period for the ADXR calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    (options[0] as usize - 1) * 3 + 1 // period
-}
-/// Calculates the output length for the ADXR indicator based on the data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the period for the ADXR calculation.
-///
-/// # Returns
-///
-/// The output length.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-/// Calculates the Average Directional Movement Index Rating (ADXR) indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — high prices
-/// * `inputs[1]` — low prices
-/// * `inputs[2]` — close prices
-///
-/// # Options
-///
-/// * `options[0]` — period (must be >= 2)
-///
-/// # Arguments
-///
-/// * `inputs` - Array of 3 input price slices (see Inputs above).
-/// * `options` - Array of 1 indicator option (see Options above).
-/// * `optional_outputs` - Pass `Some(&[true, false, false, false])` to enable individual
-///   optional outputs (`adx`, `dx`, `atr`, `tr`); `None` disables all.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is the `adxr` line,
-/// `outputs[1]` is the optional `adx` line, `outputs[2]` is the optional `dx` line,
-/// `outputs[3]` is the optional `atr` line, and `outputs[4]` is the optional `tr` line
-/// (each empty if not requested).
-/// `state` can be passed to `IndicatorState::batch_indicator` to continue streaming.
-///
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let period = options[0] as usize;
-    let multipliers = multiplier(period);
-    validate_inputs(inputs, min_data(options))?;
-
-    /*let mut adxr_line: Vec<f64> = Vec::with_capacity(adxr_capacity);
-    unsafe { adxr_line.set_len(adxr_capacity); }*/
-    //let mut adxr_line = vec![0.0; adxr_capacity]; // Vec::with_capacity(adxr_capacity);
-    let (mut adxr_line, (mut adx_line, mut dx_line, mut atr_line, mut tr_line)) = {
-        let len = inputs[0].len();
-        let adxr_capacity = output_length(len, options);
-        let adx_capacity = adx_output_length(len, options);
-        let dx_capacity = dx_output_length(len, options);
-        let tr_capacity = tr_output_length(len, options);
-
-        (
-            crate::uninit_vec!(f64, adxr_capacity),
-            crate::init_optional_outputs_eff!(
-                optional_outputs, &[false, false, false, false],
-                adx_line: adx_capacity,
-                dx_line: dx_capacity,
-                atr_line: dx_capacity,
-                tr_line: tr_capacity
-            ),
-        )
-    };
-
-    let mut state = State::init_state(
-        inputs[0], // high
-        inputs[1], //low
-        inputs[2], //close
-        period,
-        (&mut adx_line, &mut dx_line, &mut atr_line, &mut tr_line),
-    );
-    let (high, low, close) = {
-        let from = inputs[0].len() - adxr_line.len();
-        (&inputs[0][from..], &inputs[1][from..], &inputs[2][from..])
-    };
-    let outputs = {
-        let offsets =
-            crate::slice_outputs_start!(adxr_line.len(), adx_line, dx_line, atr_line, tr_line);
-        (
-            &mut adx_line[offsets.0..],
-            &mut dx_line[offsets.1..],
-            &mut atr_line[offsets.2..],
-            &mut tr_line[offsets.3..],
-        )
-    };
-
-    cycle_adxr(
-        high,
-        low,
-        close,
-        &mut state,
-        multipliers,
-        &mut adxr_line,
-        outputs,
-    );
-
-    Ok((
-        vec![adxr_line, adx_line, dx_line, atr_line, tr_line],
-        IndicatorState::new(state, multipliers),
-    ))
 }
 
 /// Performs the main calculation loop for the ADXR indicator.
@@ -332,13 +152,12 @@ pub fn indicator(
 /// * `inv_multiplier` - The inverse ATR multiplier used to scale ATR values.
 /// * `adxr_line` - A mutable slice for storing the resulting ADXR line values.
 /// * `out_vecs` - A tuple of mutable slices for optional outputs: ADX, DX, ATR, and TR lines.
-#[inline(always)]
+//#[inline(always)]
 fn cycle_adxr(
     high: &[f64],
     low: &[f64],
     close: &[f64],
-    state: &mut State,
-    multipliers: (f64, f64),
+    state: &mut State<Warm>,
     adxr_line: &mut [f64],
     out_vecs: (&mut [f64], &mut [f64], &mut [f64], &mut [f64]),
 ) {
@@ -347,7 +166,7 @@ fn cycle_adxr(
         crate::calc_want_flags!(adx_line, dx_line, atr_line, tr_line);
 
     for i in 0..high.len() {
-        let (h, l, c) = unsafe {
+        let inputs = unsafe {
             (
                 *high.get_unchecked(i),
                 *low.get_unchecked(i),
@@ -355,7 +174,7 @@ fn cycle_adxr(
             )
         };
 
-        let (adxr, adx, dx, atr, tr) = unsafe { state.calc_unchecked(h, l, c, multipliers) };
+        let (adxr, adx, dx, atr, tr) = state.calc(inputs);
 
         unsafe {
             *adxr_line.get_unchecked_mut(i) = adxr;
@@ -367,10 +186,101 @@ fn cycle_adxr(
                 want_tr, tr_line => tr
             );
             crate::store_optional_outputs_corrected!(i,
-                want_atr, atr_line => corrected(atr, multipliers.1)
+                want_atr, atr_line => corrected(atr, state.adx_state.dx_state.atr_state.wilders_state.inv_multiplier)
             );
         }
     }
 }
 
+pub struct Adxr;
 
+impl Indicator<INPUTS, OPTIONS> for Adxr {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "adxr",
+        full_name: "Average Directional Movement Rating",
+        indicator_type: IndicatorType::Trend,
+        inputs: &["high", "low", "close"],
+        options: &["period"],
+        outputs: &["adxr"],
+        optional_outputs: &["adx", "dx", "atr", "tr"],
+        display_groups: &[
+            DisplayGroup {
+                offset: None,
+                id: "adxr_adx_dx",
+                label: "Directional Index",
+                display_type: DisplayType::Indicator,
+                outputs: &["adxr", "adx", "dx"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "true_range",
+                label: "True Range",
+                display_type: DisplayType::Indicator,
+                outputs: &["atr", "tr"],
+            },
+        ],
+    };
+
+    fn min_data(options: &[f64; OPTIONS]) -> usize {
+        (options[0] as usize - 1) * 3 + 1 // period
+    }
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        let period = options[0] as usize;
+        validate_inputs(inputs, Self::min_data(options))?;
+
+        /*let mut adxr_line: Vec<f64> = Vec::with_capacity(adxr_capacity);
+        unsafe { adxr_line.set_len(adxr_capacity); }*/
+        //let mut adxr_line = vec![0.0; adxr_capacity]; // Vec::with_capacity(adxr_capacity);
+        let (mut adxr_line, (mut adx_line, mut dx_line, mut atr_line, mut tr_line)) = {
+            let len = inputs[0].len();
+            let adxr_capacity = Self::output_length(len, options);
+            let adx_capacity = Adx::output_length(len, options);
+            let dx_capacity = Dx::output_length(len, options);
+            let tr_capacity = Tr::output_length(len, &[]);
+
+            (
+                crate::uninit_vec!(f64, adxr_capacity),
+                crate::init_optional_outputs_eff!(
+                    optional_outputs, &[false, false, false, false],
+                    adx_line: adx_capacity,
+                    dx_line: dx_capacity,
+                    atr_line: dx_capacity,
+                    tr_line: tr_capacity
+                ),
+            )
+        };
+
+        let mut state = State::init_state(
+            inputs[0], // high
+            inputs[1], //low
+            inputs[2], //close
+            period,
+            (&mut adx_line, &mut dx_line, &mut atr_line, &mut tr_line),
+        );
+        let (high, low, close) = {
+            let from = inputs[0].len() - adxr_line.len();
+            (&inputs[0][from..], &inputs[1][from..], &inputs[2][from..])
+        };
+        let outputs = {
+            let offsets =
+                crate::slice_outputs_start!(adxr_line.len(), adx_line, dx_line, atr_line, tr_line);
+            (
+                &mut adx_line[offsets.0..],
+                &mut dx_line[offsets.1..],
+                &mut atr_line[offsets.2..],
+                &mut tr_line[offsets.3..],
+            )
+        };
+
+        cycle_adxr(high, low, close, &mut state, &mut adxr_line, outputs);
+
+        Ok((vec![adxr_line, adx_line, dx_line, atr_line, tr_line], state))
+    }
+}

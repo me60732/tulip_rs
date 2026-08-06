@@ -1,36 +1,34 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::assets::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::vidya_simd::SimdState;
-use crate::indicators::stddev::output_length as stddev_output_length;
+use crate::indicators::simd_indicators::vidya_simd::{SimdState, TSimdState, TState};
+use crate::indicators::stddev::StdDev;
 use crate::indicators::vidya::{
-    min_data, output_length, validate_options, IndicatorState, State, INPUTS_WIDTH,
-    OPTIONS_WIDTH,
+    Vidya, Indicator, validate_options, IndicatorState, State, INPUTS,
+    OPTIONS,
 };
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
 /// SIMD driver that advances the Variable Index Dynamic Average (VIDYA) across `N` asset lanes per scheduling epoch.
 struct VidyaDriver {
     periods: (usize, usize),
     want_optional_outputs: (bool, bool, bool, bool, bool),
-    alpha: f64,
 }
 
-impl Driver<State> for VidyaDriver {
+impl Driver<State<Warm>> for VidyaDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
         let len = inputs[0][0].len();
         let (short_period, long_period) = self.periods;
-        let mut state = SimdState::new(&mut states);
+        let mut state = SimdState::from_states(&mut states);
 
-        let alpha = Simd::splat(self.alpha);
         
         let (has_optional, want_short_sma, want_long_sma, want_short_sd, want_long_sd) =
             self.want_optional_outputs;
@@ -54,13 +52,13 @@ impl Driver<State> for VidyaDriver {
 
         // Optimized main loop with minimal overhead
         for (j, i) in (long_period..len).enumerate() {
-            let (value, short_value, long_value) = crate::extract_simd_at_indices!(N, input_ptrs,
+            let inputs = crate::extract_simd_at_indices!(N, input_ptrs,
                 value @ i,
                 short_value @ i-short_period,
                 long_value @ j
             );
             let (vidya, short_sma, long_sma, short_sd, long_sd) =
-                state.calc_simd(value, short_value, long_value, alpha);
+                state.calc(inputs);
 
             // Direct SIMD store if possible, otherwise individual stores
             crate::write_simd_at_indices!(N, j,
@@ -88,7 +86,7 @@ impl Driver<State> for VidyaDriver {
 /// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[real]` for asset `i`.
 /// * `options` - `options[0]` is `short_period`, `options[1]` is `long_period`,
 ///   `options[2]` is `alpha`.
@@ -106,11 +104,11 @@ impl Driver<State> for VidyaDriver {
 /// `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, Vidya::min_data(options))?;
     validate_options(options)?;
     let short_period = options[0] as usize;
     let long_period = options[1] as usize;
@@ -118,12 +116,12 @@ pub fn indicator_by_assets<const N: usize>(
 
     let mut output_buffers = Vec::with_capacity(N);
 
-    let mut road_train = PrimeMover::<N, State>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut want_optional_outputs = (false, false, false, false, false);
 
     for i in 0..N {
         let len = inputs[i][0].len();
-        let capacity = output_length(len, options);
+        let capacity = Vidya::output_length(len, options);
         let (
             mut vidya_line,
             mut short_sma_line,
@@ -132,8 +130,8 @@ pub fn indicator_by_assets<const N: usize>(
             mut long_sd_line,
         );
         {
-            let short_capacity = stddev_output_length(len, &[short_period as f64]);
-            let long_capacity = stddev_output_length(len, &[long_period as f64]);
+            let short_capacity = StdDev::output_length(len, &[short_period as f64]);
+            let long_capacity = StdDev::output_length(len, &[long_period as f64]);
             vidya_line = crate::uninit_vec!(f64, capacity);
             (short_sma_line, long_sma_line, short_sd_line, long_sd_line) = crate::init_optional_outputs_eff!(
                 optional_outputs, &[false, false, false, false],
@@ -206,7 +204,6 @@ pub fn indicator_by_assets<const N: usize>(
     }
     let mut driver = VidyaDriver {
         periods: (short_period, long_period),
-        alpha,
         want_optional_outputs,
     };
     let states_vec = road_train.drive(&mut driver);
@@ -217,7 +214,6 @@ pub fn indicator_by_assets<const N: usize>(
             inputs[i][0],
             state,
             (short_period, long_period),
-            alpha,
         ));
     }
     Ok((output_buffers, states))

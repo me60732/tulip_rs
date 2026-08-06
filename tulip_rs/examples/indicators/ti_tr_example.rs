@@ -1,4 +1,4 @@
-use tulip_rs::indicators::tr::{indicator, TIndicatorState};
+use tulip_rs::indicators::tr::{Indicator, TIndicatorState, Tr};
 
 fn main() {
     let high = [
@@ -21,7 +21,7 @@ fn main() {
     ];
 
     // Calculate the True Range (TR) line using the indicator function
-    let (outputs, mut state) = match indicator(&inputs, &[], None) {
+    let (outputs, mut state) = match Tr::indicator(&inputs, &[], None) {
         Ok(result) => result,
         Err(e) => {
             println!("Error: {:?}", e);

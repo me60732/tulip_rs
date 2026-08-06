@@ -4,52 +4,29 @@ pub use crate::indicators::simd_indicators::by_asset::vosc::indicator_by_assets;
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::vosc::indicator_by_options;
 use crate::indicators::simd_indicators::{
-    simd_types::F64Constants, sma_simd::calc_simd as sma_calc_simd,
+    simd_types::F64Constants, sma_simd::SimdState as SmaSimdState,
 };
 use crate::indicators::vosc::State;
-
+pub use crate::indicator_types::{TSimdState, TState};
 use std::simd::{cmp::SimdPartialEq, *};
+use crate::types::Warm;
+
 /// SIMD-parallel state for the Volume Oscillator (VOSC) indicator, holding `N` lanes of per-asset state.
 pub struct SimdState<const N: usize> {
-    pub short_sum: Simd<f64, N>,
-    pub long_sum: Simd<f64, N>,
+    pub short_state: SmaSimdState<N>,
+    pub long_state: SmaSimdState<N>,
 }
 
-impl<const N: usize> SimdState<N> {
-    /// Constructs a `SimdState` by gathering scalar per-asset states into SIMD vectors.
-    pub fn new(states: &[&mut State]) -> Self {
-        let mut short_sum = [0.0; N];
-        let mut long_sum = [0.0; N];
-
-        for i in 0..N {
-            short_sum[i] = states[i].short_sum;
-            long_sum[i] = states[i].long_sum;
-        }
-        Self {
-            short_sum: Simd::from_array(short_sum),
-            long_sum: Simd::from_array(long_sum),
-        }
-    }
-    /// Converts the SIMD state into an array of `N` scalar [`State`] values.
-    pub fn to_states(&self) -> [State; N] {
-        let short_sum = self.short_sum.to_array();
-        let long_sum = self.long_sum.to_array();
-
-        let states: [State; N] = std::array::from_fn(|i| State::new(short_sum[i], long_sum[i]));
-
-        states
-    }
-    /// Writes the current SIMD lane values back into the provided scalar per-asset states.
-    pub fn write_states(&self, states: &mut [&mut State]) {
-        let short_sum = self.short_sum.to_array();
-        let long_sum = self.long_sum.to_array();
-
-        for i in 0..N {
-            states[i].short_sum = short_sum[i];
-            states[i].long_sum = long_sum[i];
-        }
-    }
-
+impl<const N: usize> TSimdState for SimdState<N> {
+    type ScalarState = State<Warm>;
+    crate::simd_state_impl!(
+         sub: [(short_state: SmaSimdState<N>), (long_state: SmaSimdState<N>)],
+         scalar: []
+    );
+}
+impl<const N: usize> TState for SimdState<N> {
+    type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
+    type Outputs = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
     /// Computes one bar of the Volume Oscillator (VOSC) for `N` assets simultaneously
     /// using SIMD parallelism.
     ///
@@ -67,14 +44,12 @@ impl<const N: usize> SimdState<N> {
     ///
     /// A tuple `(vosc, fast_sma, slow_sma)` for all `N` lanes.
     #[inline(always)]
-    pub fn calc_simd(
+    fn calc<'a>(
         &mut self,
-        vols: (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-        short_multiplier: Simd<f64, N>,
-        long_multiplier: Simd<f64, N>,
-    ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
-        let fast_sma = sma_calc_simd(&mut self.short_sum, vols.0, vols.1, short_multiplier);
-        let slow_sma = sma_calc_simd(&mut self.long_sum, vols.0, vols.2, long_multiplier);
+        vols: Self::Inputs<'a>,
+    ) -> Self::Outputs {
+        let fast_sma = self.short_state.calc((vols.0, vols.1));
+        let slow_sma = self.long_state.calc((vols.0, vols.2));
 
         // Create a mask for non-zero slow_sma values
         let non_zero_mask = slow_sma.simd_ne(F64Constants::ZERO);
@@ -91,27 +66,3 @@ impl<const N: usize> SimdState<N> {
     }
 }
 
-/// Computes one bar of the Volume Oscillator (VOSC) for `N` assets simultaneously
-/// using SIMD parallelism.
-///
-/// Thin wrapper delegating to [`SimdState::calc_simd`].
-///
-/// # Arguments
-///
-/// * `state` - Mutable SIMD state.
-/// * `vols` - Tuple of `(current_volume, prev_short_volume, prev_long_volume)`.
-/// * `short_multiplier` - Per-lane SMA factor `1 / short_period`.
-/// * `long_multiplier` - Per-lane SMA factor `1 / long_period`.
-///
-/// # Returns
-///
-/// A tuple `(vosc, fast_sma, slow_sma)` for all `N` lanes.
-#[inline(always)]
-pub fn calc_simd<const N: usize>(
-    state: &mut SimdState<N>,
-    vols: (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-    short_multiplier: Simd<f64, N>,
-    long_multiplier: Simd<f64, N>,
-) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
-    state.calc_simd(vols, short_multiplier, long_multiplier)
-}

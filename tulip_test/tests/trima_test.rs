@@ -2,7 +2,7 @@
 mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicators::trima::indicator_by_assets;
-    use tulip_rs::indicators::trima::{indicator as rust_trima, min_data, TIndicatorState};
+    use tulip_rs::indicators::trima::{Trima, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_trima, ti_trima_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
     const EPSILON: f64 = 1e-8;
@@ -55,7 +55,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_trima(&inputs_rust, &options, None).expect("Rust TRIMA indicator failed");
+                Trima::indicator(&inputs_rust, &options, None).expect("Rust TRIMA indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -142,7 +142,7 @@ mod tests {
 
                 let inputs_rust = [close.as_slice()];
                 let (outputs, _) =
-                    rust_trima(&inputs_rust, &options, None).expect("Rust TRIMA indicator failed");
+                    Trima::indicator(&inputs_rust, &options, None).expect("Rust TRIMA indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -208,19 +208,19 @@ mod tests {
 
                 // Get full output from processing all data at once
                 let (full_outputs, _) =
-                    rust_trima(&inputs_rust, &options, None).expect("Rust TRIMA indicator failed");
+                    Trima::indicator(&inputs_rust, &options, None).expect("Rust TRIMA indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Trima::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let close_vec = close[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice()];
 
                 let (first_outputs, mut state) =
-                    rust_trima(&chunk_inputs, &options, None).expect("Rust TRIMA indicator failed");
+                    Trima::indicator(&chunk_inputs, &options, None).expect("Rust TRIMA indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
                 // Process remaining data in chunks
@@ -299,7 +299,7 @@ mod tests {
             for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_close.as_slice()];
-                let (regular_results, _) = rust_trima(&stock_inputs, &options, None)
+                let (regular_results, _) = Trima::indicator(&stock_inputs, &options, None)
                     .expect("Regular TRIMA indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
@@ -391,7 +391,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_trima(&inputs, options, None).expect("Regular TRIMA indicator failed");
+                    Trima::indicator(&inputs, options, None).expect("Regular TRIMA indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];

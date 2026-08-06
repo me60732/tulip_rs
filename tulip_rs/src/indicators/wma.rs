@@ -1,13 +1,13 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::sma::{calc as calc_sma, multiplier as sma_multiplier};
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
+use crate::indicators::sma::{State as SmaState, multiplier as sma_multiplier};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 1;
+pub const INPUTS: usize = 1;
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -43,15 +43,13 @@ pub mod by_options {
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     real: Vec<f64>,
-    multipliers: (f64, f64, f64),
-    state: State,
+    state: State<Warm>,
     period: usize,
 }
 impl IndicatorState {
-    pub fn new(real: &[f64], multipliers: (f64, f64, f64), state: State, period: usize) -> Self {
+    pub fn new(real: &[f64], state: State<Warm>, period: usize) -> Self {
         Self {
             real: real[real.len() - period..].to_vec(),
-            multipliers,
             state,
             period,
         }
@@ -60,7 +58,7 @@ impl IndicatorState {
 impl TIndicatorState<1> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -82,7 +80,6 @@ impl TIndicatorState<1> for IndicatorState {
             &self.real,
             &mut self.state,
             self.period,
-            self.multipliers,
             (&mut wma_line, &mut sma_line),
         );
         self.real.drain(..self.real.len() - self.period);
@@ -92,151 +89,60 @@ impl TIndicatorState<1> for IndicatorState {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct State {
-    pub sum: f64,
+#[serde(bound="")]
+pub struct State<S = Cold> {
+    pub sma_state: SmaState<S>,
     pub weighted_sum: f64,
+    pub(crate) period: f64, 
+    pub(crate) weights: f64
 }
-impl State {
-    pub fn new(sum: f64, weighted_sum: f64) -> Self {
-        State { sum, weighted_sum }
+impl State<Cold> {
+    pub fn new(sum: f64, weighted_sum: f64, period: usize) -> Self {
+        let (_, weights, n) = multiplier(period);
+        Self { 
+            sma_state: SmaState::new(sum, period),
+            weighted_sum, 
+            weights, 
+            period: n
+        }
     }
-    pub fn init_state(prev_real: &[f64]) -> Self {
+    pub fn init_state(prev_real: &[f64], period: usize) -> State<Warm> {
         let mut sum: f64 = 0.0;
         let mut weighted_sum: f64 = 0.0;
 
-        for (i, &value) in prev_real.iter().enumerate() {
+        for (i, &value) in prev_real.iter().take(period).enumerate() {
             sum += value;
             weighted_sum += value * (i + 1) as f64;
         }
-        Self { sum, weighted_sum }
+        let (_, weights, n) = multiplier(period);
+        State {
+            sma_state: SmaState::new(sum, period).into_warm(),
+            weighted_sum,
+            weights,
+            period: n
+        }
     }
+    
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64);
+    type Outputs = (f64, f64);
+
     #[inline(always)]
-    pub fn calc(
+    fn calc<'a>(
         &mut self,
-        prev_value: &f64,
-        value: &f64,
-        multipliers: (f64, f64, f64),
-    ) -> (f64, f64) {
-        let (multiplier, weights, n) = multipliers;
+        (value, prev_value): Self::Inputs<'a>
+    ) -> Self::Outputs {
+        self.weighted_sum -= self.sma_state.sum;
 
-        self.weighted_sum -= self.sum;
+        let sma = self.sma_state.calc((value, prev_value));
 
-        let sma = calc_sma(&mut self.sum, value, prev_value, &multiplier);
+        self.weighted_sum += value * self.period;
 
-        self.weighted_sum += value * n;
-
-        let wma = self.weighted_sum / weights;
+        let wma = self.weighted_sum * self.weights;
 
         (wma, sma)
     }
-}
-/// Returns information about the Weighted Moving Average (WMA) indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the WMA indicator.
-pub const INFO: Info = Info {
-    name: "wma",
-    indicator_type: IndicatorType::Trend,
-    full_name: "Weighted Moving Average",
-    inputs: &["real"],
-    options: &["period"],
-    outputs: &["wma"],
-    optional_outputs: &["sma"],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "wma",
-        label: "Moving Averages",
-        display_type: DisplayType::Overlay,
-        outputs: &["wma", "sma"],
-    }],
-};
-/// Returns the minimum amount of data required for the WMA indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the WMA calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    options[0] as usize + 1
-}
-
-/// Calculates the output length based on the data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the WMA calculation.
-///
-/// # Returns
-///
-/// The output length.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-
-/// Calculates the Weighted Moving Average (WMA) indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — `real` (price series)
-///
-/// # Options
-///
-/// * `options[0]` — `period`
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `optional_outputs` - Pass `Some(&[true])` to enable the optional `sma` output;
-///   `None` disables it.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is `wma` and `state`
-/// can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let period = options[0] as usize;
-    let multipliers = multiplier(period);
-
-    validate_inputs(inputs, min_data(options))?;
-    let real = inputs[0];
-
-    let (mut wma_line, mut sma_line) = {
-        let capacity = output_length(real.len(), options);
-        (
-            crate::uninit_vec!(f64, capacity),
-            crate::init_optional_outputs_eff!(
-                optional_outputs, &[false],
-                sma_line: capacity
-            ),
-        )
-    };
-
-    let mut state = State::init_state(&real[0..period]);
-
-    cycle_wma(
-        real,
-        &mut state,
-        period,
-        multipliers,
-        (&mut wma_line, &mut sma_line),
-    );
-
-    Ok((
-        vec![wma_line, sma_line],
-        IndicatorState::new(real, multipliers, state, period),
-    ))
 }
 
 /// Performs the main calculation loop for the WMA indicator using rolling sums.
@@ -250,9 +156,8 @@ pub fn indicator(
 /// * `out_vecs` - Mutable output slices: `(wma_line, sma_line)`.
 fn cycle_wma(
     real: &[f64],
-    state: &mut State,
+    state: &mut State<Warm>,
     period: usize,
-    multipliers: (f64, f64, f64),
     out_vecs: (&mut [f64], &mut [f64]),
 ) {
     let (wma_line, sma_line) = out_vecs;
@@ -261,7 +166,7 @@ fn cycle_wma(
     for (j, i) in (period..real.len()).enumerate() {
         let (wma, sma);
         unsafe {
-            (wma, sma) = state.calc(real.get_unchecked(j), real.get_unchecked(i), multipliers);
+            (wma, sma) = state.calc((*real.get_unchecked(i), *real.get_unchecked(j)));
             *wma_line.get_unchecked_mut(j) = wma;
         }
         crate::store_optional_outputs!(j,
@@ -270,9 +175,73 @@ fn cycle_wma(
     }
 }
 
-#[inline(always)]
+/*#[inline(always)]
 pub fn multiplier(period: usize) -> (f64, f64, f64) {
     let n = period as f64;
     let weights = n * (n + 1.0) / 2.0;
     (sma_multiplier(period), weights, n)
+}*/
+pub fn multiplier(period: usize) -> (f64, f64, f64) {
+    let n = period as f64;
+    let weights_recip = 2.0 / (n * (n + 1.0));  // reciprocal, computed once
+    (sma_multiplier(period), weights_recip, n)
+}
+
+pub struct Wma;
+impl Indicator<INPUTS, OPTIONS> for Wma {
+    type IndicatorState = IndicatorState;
+
+    const INFO: Info = Info {
+        name: "wma",
+        indicator_type: IndicatorType::Trend,
+        full_name: "Weighted Moving Average",
+        inputs: &["real"],
+        options: &["period"],
+        outputs: &["wma"],
+        optional_outputs: &["sma"],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "wma",
+            label: "Moving Averages",
+            display_type: DisplayType::Overlay,
+            outputs: &["wma", "sma"],
+        }],
+    };
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
+        validate_options(options)?;
+        let period = options[0] as usize;
+    
+        validate_inputs(inputs, Self::min_data(options))?;
+        let real = inputs[0];
+    
+        let (mut wma_line, mut sma_line) = {
+            let capacity = Self::output_length(real.len(), options);
+            (
+                crate::uninit_vec!(f64, capacity),
+                crate::init_optional_outputs_eff!(
+                    optional_outputs, &[false],
+                    sma_line: capacity
+                ),
+            )
+        };
+    
+        let mut state = State::init_state(real, period);
+    
+        cycle_wma(
+            real,
+            &mut state,
+            period,
+            (&mut wma_line, &mut sma_line),
+        );
+    
+        Ok((
+            vec![wma_line, sma_line],
+            IndicatorState::new(real, state, period),
+        ))
+    }
 }

@@ -1,5 +1,6 @@
 use crate::ring_buffer::buffer::{period_to_idx, BufferElement};
 use crate::ring_buffer::multi_type_buffer::layout::{Layout, SerdeElement};
+use crate::ring_buffer::single_buffer::generic_buffer::{Cold, Warm};
 use serde::{Deserialize, Serialize};
 
 // ── Struct ────────────────────────────────────────────────────────────────────
@@ -8,6 +9,14 @@ use serde::{Deserialize, Serialize};
 ///
 /// `L` is a tuple type such as `(f64, Simd<f64, 2>)` that implements [`Layout`].
 /// Each tuple element corresponds to one internal `Vec` of a distinct type.
+///
+/// The `S` typestate parameter tracks whether the buffer has been fully filled:
+/// * [`Cold`] — warmup phase; `push_with_info` returns `Option<L::Values>`,
+///   `front`/`back` return `Option<L::Values>`.
+/// * [`Warm`]    — operational phase; `push_with_info` returns `L::Values`
+///   (always evicts, no branch), `front`/`back` return `L::Values` (infallible).
+///
+/// Transition from `Cold` to `Warm` via [`MultiTypeBuffer::into_full`].
 ///
 /// # Ring buffer usage
 /// ```ignore
@@ -21,17 +30,18 @@ use serde::{Deserialize, Serialize};
 /// buf.push_mirror((high, low));
 /// let (h_slice, l_slice) = buf.get_slices(0);
 /// ```
-pub struct MultiTypeBuffer<L: Layout> {
+pub struct MultiTypeBuffer<L: Layout, S = Cold> {
     pub(crate) vecs: L::Vecs,
     pub(crate) index: usize,
     pub(crate) capacity: usize,
     pub(crate) count: usize,
     pub(crate) prev_idx: usize,
+    pub(crate) state: std::marker::PhantomData<S>,
 }
 
 // ── Clone ─────────────────────────────────────────────────────────────────────
 
-impl<L: Layout> Clone for MultiTypeBuffer<L>
+impl<L: Layout, S> Clone for MultiTypeBuffer<L, S>
 where
     L::Vecs: Clone,
 {
@@ -42,106 +52,20 @@ where
             capacity: self.capacity,
             count: self.count,
             prev_idx: self.prev_idx,
+            state: std::marker::PhantomData,
         }
     }
 }
 
-// ── Core methods ──────────────────────────────────────────────────────────────
+// ── Shared methods (valid for any fill state) ─────────────────────────────────
 
-impl<L: Layout> MultiTypeBuffer<L> {
-    // ── Construction ──────────────────────────────────────────────────────────
-
-    /// Create a ring buffer with `capacity` slots.
-    pub fn new(capacity: usize) -> Self {
-        Self {
-            vecs: L::make_vecs(capacity),
-            index: 0,
-            prev_idx: 0,
-            capacity,
-            count: 0,
-        }
-    }
-
-    /// Create a mirror buffer (allocates `capacity * 2` storage).
-    pub fn new_mirror(capacity: usize) -> Self {
-        Self {
-            vecs: L::make_mirror_vecs(capacity),
-            index: 0,
-            prev_idx: 0,
-            capacity,
-            count: 0,
-        }
-    }
-
-    // ── Ring buffer push ───────────────────────────────────────────────────────
-
+impl<L: Layout, S> MultiTypeBuffer<L, S> {
+    /// Fetch the element that was pushed `period` bars ago (0 = most recent).
     #[inline(always)]
-    pub fn push(&mut self, values: L::Values) {
-        L::write_values(&mut self.vecs, self.index, values);
-        self.update_internals();
+    pub fn get_by_period(&self, period: usize) -> L::Values {
+        let idx = period_to_idx(self.index, self.capacity, period);
+        L::read_values(&self.vecs, idx)
     }
-
-    #[inline(always)]
-    pub unsafe fn push_unchecked(&mut self, values: L::Values) {
-        L::write_values(&mut self.vecs, self.index, values);
-        self.update_internals_unchecked();
-    }
-
-    /// Push a value; if the buffer is full returns the evicted oldest value.
-    #[inline(always)]
-    pub fn push_with_info(&mut self, values: L::Values) -> Option<L::Values> {
-        if self.count == self.capacity {
-            let evicted = L::write_values_pop(&mut self.vecs, self.index, values);
-            self.update_internals_unchecked();
-            return Some(evicted);
-        }
-        L::write_values(&mut self.vecs, self.index, values);
-        self.update_internals();
-        None
-    }
-
-    /// Push a value assuming the buffer is already full; returns the evicted value.
-    ///
-    /// # Safety
-    /// The buffer must be full (`is_full() == true`).
-    #[inline(always)]
-    pub unsafe fn push_with_info_unchecked(&mut self, values: L::Values) -> L::Values {
-        let evicted = L::write_values_pop(&mut self.vecs, self.index, values);
-        self.update_internals_unchecked();
-        evicted
-    }
-
-    // ── Mirror buffer push ────────────────────────────────────────────────────
-
-    /// Push to a mirror buffer (writes to `idx` and `idx + capacity`).
-    #[inline(always)]
-    pub fn push_mirror(&mut self, values: L::Values) {
-        L::write_mirror(&mut self.vecs, self.index, self.capacity, values);
-        self.update_internals();
-    }
-
-    #[inline(always)]
-    pub unsafe fn push_mirror_unchecked(&mut self, values: L::Values) {
-        L::write_mirror(&mut self.vecs, self.index, self.capacity, values);
-        self.update_internals_unchecked();
-    }
-
-    /// Push to a mirror buffer; returns the evicted value when full.
-    /// Note: index does **not** advance when the buffer is full, matching the
-    /// behaviour of the existing `MirrorBuffer` impl — use `push_mirror` for
-    /// the steady-state streaming loop.
-    #[inline(always)]
-    pub fn push_mirror_with_info(&mut self, values: L::Values) -> Option<L::Values> {
-        if self.count == self.capacity {
-            let evicted = L::write_mirror_pop(&mut self.vecs, self.index, self.capacity, values);
-            return Some(evicted);
-        }
-        L::write_mirror(&mut self.vecs, self.index, self.capacity, values);
-        self.update_internals();
-        None
-    }
-
-    // ── Mirror buffer read ────────────────────────────────────────────────────
 
     /// Return a tuple of contiguous slices — one per internal buffer — trimmed
     /// by `offset` from the newest end.
@@ -157,59 +81,10 @@ impl<L: Layout> MultiTypeBuffer<L> {
         }
     }
 
-    // ── Reads ─────────────────────────────────────────────────────────────────
-
-    /// The oldest element currently in the buffer (`None` if empty).
-    #[inline(always)]
-    pub fn front(&self) -> Option<L::Values> {
-        if self.count == 0 {
-            None
-        } else {
-            Some(L::read_values(&self.vecs, self.index))
-        }
-    }
-
-    /// The oldest element, without a bounds check.
-    ///
-    /// # Safety
-    /// Buffer must be non-empty.
-    #[inline(always)]
-    pub unsafe fn front_unchecked(&self) -> L::Values {
-        L::read_values(&self.vecs, self.index)
-    }
-
-    /// The most recently pushed element (`None` if empty).
-    #[inline(always)]
-    pub fn back(&self) -> Option<L::Values> {
-        if self.count == 0 {
-            None
-        } else {
-            Some(L::read_values(&self.vecs, self.prev_idx))
-        }
-    }
-
-    /// The most recently pushed element, without a bounds check.
-    ///
-    /// # Safety
-    /// Buffer must be non-empty.
-    #[inline(always)]
-    pub unsafe fn back_unchecked(&self) -> L::Values {
-        L::read_values(&self.vecs, self.prev_idx)
-    }
-
-    /// Fetch the element that was pushed `period` bars ago (0 = most recent).
-    #[inline(always)]
-    pub fn get_by_period(&self, period: usize) -> L::Values {
-        let idx = period_to_idx(self.index, self.capacity, period);
-        L::read_values(&self.vecs, idx)
-    }
-
     /// Return all stored elements in chronological order (oldest → newest).
     pub fn to_ordered_vecs(&self) -> L::Vecs {
         L::to_ordered_vecs(&self.vecs, self.index, self.capacity, self.count)
     }
-
-    // ── Inspection ────────────────────────────────────────────────────────────
 
     pub fn is_full(&self) -> bool {
         self.count == self.capacity
@@ -226,8 +101,6 @@ impl<L: Layout> MultiTypeBuffer<L> {
     pub fn get_prev_idx(&self) -> usize {
         self.prev_idx
     }
-
-    // ── Internal ──────────────────────────────────────────────────────────────
 
     #[inline(always)]
     fn update_internals(&mut self) {
@@ -255,6 +128,185 @@ impl<L: Layout> MultiTypeBuffer<L> {
     }
 }
 
+// ── Cold methods ───────────────────────────────────────────────────────────
+
+impl<L: Layout> MultiTypeBuffer<L, Cold> {
+    // ── Construction ──────────────────────────────────────────────────────────
+
+    /// Create a ring buffer with `capacity` slots.
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            vecs: L::make_vecs(capacity),
+            index: 0,
+            prev_idx: 0,
+            capacity,
+            count: 0,
+            state: std::marker::PhantomData,
+        }
+    }
+
+    /// Create a mirror buffer (allocates `capacity * 2` storage).
+    pub fn new_mirror(capacity: usize) -> Self {
+        Self {
+            vecs: L::make_mirror_vecs(capacity),
+            index: 0,
+            prev_idx: 0,
+            capacity,
+            count: 0,
+            state: std::marker::PhantomData,
+        }
+    }
+
+    // ── Ring buffer push ───────────────────────────────────────────────────────
+
+    #[inline(always)]
+    pub fn push(&mut self, values: L::Values) {
+        L::write_values(&mut self.vecs, self.index, values);
+        self.update_internals();
+    }
+
+    /// Push a value; returns the evicted oldest value when the buffer is full.
+    #[inline(always)]
+    pub fn push_with_info(&mut self, values: L::Values) -> Option<L::Values> {
+        if self.count == self.capacity {
+            let evicted = L::write_values_pop(&mut self.vecs, self.index, values);
+            self.update_internals_unchecked();
+            return Some(evicted);
+        }
+        L::write_values(&mut self.vecs, self.index, values);
+        self.update_internals();
+        None
+    }
+
+    // ── Mirror buffer push ────────────────────────────────────────────────────
+
+    /// Push to a mirror buffer (writes to `idx` and `idx + capacity`).
+    #[inline(always)]
+    pub fn push_mirror(&mut self, values: L::Values) {
+        L::write_mirror(&mut self.vecs, self.index, self.capacity, values);
+        self.update_internals();
+    }
+
+    /// Push to a mirror buffer; returns the evicted value when full.
+    ///
+    /// Note: index does **not** advance when the buffer is full, matching the
+    /// behaviour of the existing `MirrorBuffer` impl — use `push_mirror` for
+    /// the steady-state streaming loop.
+    #[inline(always)]
+    pub fn push_mirror_with_info(&mut self, values: L::Values) -> Option<L::Values> {
+        if self.count == self.capacity {
+            let evicted = L::write_mirror_pop(&mut self.vecs, self.index, self.capacity, values);
+            return Some(evicted);
+        }
+        L::write_mirror(&mut self.vecs, self.index, self.capacity, values);
+        self.update_internals();
+        None
+    }
+
+    // ── Reads ─────────────────────────────────────────────────────────────────
+
+    /// The oldest element currently in the buffer (`None` if empty).
+    #[inline(always)]
+    pub fn front(&self) -> Option<L::Values> {
+        if self.count == 0 {
+            None
+        } else {
+            Some(L::read_values(&self.vecs, self.index))
+        }
+    }
+
+    /// The most recently pushed element (`None` if empty).
+    #[inline(always)]
+    pub fn back(&self) -> Option<L::Values> {
+        if self.count == 0 {
+            None
+        } else {
+            Some(L::read_values(&self.vecs, self.prev_idx))
+        }
+    }
+
+    /// Transition into a [`MultiTypeBuffer<L, Warm>`].
+    ///
+    /// # Panics (debug builds)
+    /// Panics when `debug_assertions` are enabled and `is_full()` is `false`.
+    pub fn into_full(self) -> MultiTypeBuffer<L, Warm> {
+        debug_assert!(
+            self.is_full(),
+            "MultiTypeBuffer::into_full called on non-full buffer (count={}, capacity={})",
+            self.count,
+            self.capacity
+        );
+        MultiTypeBuffer {
+            vecs: self.vecs,
+            index: self.index,
+            capacity: self.capacity,
+            count: self.count,
+            prev_idx: self.prev_idx,
+            state: std::marker::PhantomData,
+        }
+    }
+}
+
+// ── Warm methods ──────────────────────────────────────────────────────────────
+
+impl<L: Layout> MultiTypeBuffer<L, Warm> {
+    // ── Ring buffer push ───────────────────────────────────────────────────────
+
+    /// Push `values`, discarding the evicted element.
+    ///
+    /// Branchless: safe because the buffer is known to be full at the type level.
+    #[inline(always)]
+    pub fn push(&mut self, values: L::Values) {
+        L::write_values(&mut self.vecs, self.index, values);
+        self.update_internals_unchecked();
+    }
+
+    /// Push `values`, evict the oldest element, and return it.
+    ///
+    /// Safe because the buffer is known to be full at the type level — no branch needed.
+    #[inline(always)]
+    pub fn push_with_info(&mut self, values: L::Values) -> L::Values {
+        let evicted = L::write_values_pop(&mut self.vecs, self.index, values);
+        self.update_internals_unchecked();
+        evicted
+    }
+
+    // ── Mirror buffer push ────────────────────────────────────────────────────
+
+    /// Push to a mirror buffer (writes to `idx` and `idx + capacity`).
+    ///
+    /// Branchless: safe because the buffer is known to be full at the type level.
+    #[inline(always)]
+    pub fn push_mirror(&mut self, values: L::Values) {
+        L::write_mirror(&mut self.vecs, self.index, self.capacity, values);
+        self.update_internals_unchecked();
+    }
+
+    /// Push to a mirror buffer; returns the evicted value.
+    ///
+    /// Note: index does **not** advance — preserves the original full-buffer
+    /// behavior where `update_internals` was not called.
+    #[inline(always)]
+    pub fn push_mirror_with_info(&mut self, values: L::Values) -> L::Values {
+        L::write_mirror_pop(&mut self.vecs, self.index, self.capacity, values)
+        // deliberately no update_internals — matches original behavior
+    }
+
+    // ── Reads ─────────────────────────────────────────────────────────────────
+
+    /// The oldest element (always valid; buffer is guaranteed non-empty).
+    #[inline(always)]
+    pub fn front(&self) -> L::Values {
+        L::read_values(&self.vecs, self.index)
+    }
+
+    /// The most recently pushed element (always valid; buffer is guaranteed non-empty).
+    #[inline(always)]
+    pub fn back(&self) -> L::Values {
+        L::read_values(&self.vecs, self.prev_idx)
+    }
+}
+
 // ── Layout + Serde macro ──────────────────────────────────────────────────────
 //
 // Generates, for each tuple arity:
@@ -266,6 +318,10 @@ impl<L: Layout> MultiTypeBuffer<L> {
 //   { index, capacity, count, prev_idx, vecs }
 // where `vecs` is a tuple-of-sequences — each inner sequence holds the
 // `SerdeElement::Repr` values for that buffer.
+//
+// The `S` typestate parameter carries no runtime information (PhantomData) and
+// is NOT emitted to the wire.  Deserialized values come back as `Cold`
+// (the default); call `.into_full()` if the operational phase is needed.
 
 macro_rules! impl_layout {
     ($n:expr; $(($T:ident, $i:tt)),+) => {
@@ -342,7 +398,7 @@ macro_rules! impl_layout {
 
         // ── Serialize ─────────────────────────────────────────────────────────
 
-        impl<$($T: SerdeElement + BufferElement),+> Serialize for MultiTypeBuffer<($($T,)+)>
+        impl<Stat, $($T: SerdeElement + BufferElement),+> Serialize for MultiTypeBuffer<($($T,)+), Stat>
         where $($T::Repr: Serialize),+
         {
             fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -363,18 +419,18 @@ macro_rules! impl_layout {
 
         // ── Deserialize ───────────────────────────────────────────────────────
 
-        impl<'de, $($T: SerdeElement + BufferElement),+> Deserialize<'de> for MultiTypeBuffer<($($T,)+)>
+        impl<'de, Stat, $($T: SerdeElement + BufferElement),+> Deserialize<'de> for MultiTypeBuffer<($($T,)+), Stat>
         where $($T::Repr: Deserialize<'de>),+
         {
             fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
                 use serde::de::{MapAccess, Visitor};
 
-                struct MtbVisitor<$($T),+>(std::marker::PhantomData<($($T,)+)>);
+                struct MtbVisitor<Stat, $($T),+>(std::marker::PhantomData<(Stat, $($T,)+)>);
 
-                impl<'de, $($T: SerdeElement + BufferElement),+> Visitor<'de> for MtbVisitor<$($T),+>
+                impl<'de, Stat, $($T: SerdeElement + BufferElement),+> Visitor<'de> for MtbVisitor<Stat, $($T),+>
                 where $($T::Repr: Deserialize<'de>),+
                 {
-                    type Value = MultiTypeBuffer<($($T,)+)>;
+                    type Value = MultiTypeBuffer<($($T,)+), Stat>;
 
                     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                         f.write_str("a MultiTypeBuffer struct")
@@ -408,7 +464,7 @@ macro_rules! impl_layout {
                             $( vecs_repr.$i.into_iter().map($T::from_repr).collect(), )+
                         );
 
-                        Ok(MultiTypeBuffer { vecs, index, capacity, count, prev_idx })
+                        Ok(MultiTypeBuffer { vecs, index, capacity, count, prev_idx, state: std::marker::PhantomData })
                     }
                 }
 
@@ -416,7 +472,7 @@ macro_rules! impl_layout {
                 deserializer.deserialize_struct(
                     "MultiTypeBuffer",
                     FIELDS,
-                    MtbVisitor::<$($T),+>(std::marker::PhantomData),
+                    MtbVisitor::<Stat, $($T),+>(std::marker::PhantomData),
                 )
             }
         }

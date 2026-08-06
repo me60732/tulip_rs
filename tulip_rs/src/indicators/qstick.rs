@@ -1,14 +1,15 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
-pub use crate::indicators::sma::multiplier;
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+pub use crate::indicator_types::{TIndicatorState, TState, Indicator, IndicatorResult};
+pub use crate::indicators::sma::State as SmaState;
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
 use serde::{Deserialize, Serialize};
+use std::ops::{Deref, DerefMut};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 2;
+pub const INPUTS: usize = 2;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -46,18 +47,55 @@ pub mod by_options {
 pub struct IndicatorState {
     open: Vec<f64>,
     close: Vec<f64>,
+    state: State<Warm>,
     period: usize,
-    sum: f64,
-    multiplier: f64,
 }
+#[derive(Serialize, Deserialize)]
+#[serde(bound="")]
+#[repr(transparent)]
+pub struct State<S = Cold>(pub SmaState<S>);
+impl<S> Deref for State<S> {
+    type Target = SmaState<S>;
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl<S> DerefMut for State<S> {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+impl State<Cold> {
+    pub fn init_state(open: &[f64], close: &[f64], period: usize) -> State<Warm> {
+        let mut sum = 0.0;
+        for i in 0..period {
+            sum += close[i] - open[i];
+        }
+        State(SmaState::new(sum, period).into_warm())
+    }
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64, f64, f64);
+    type Outputs = f64;
+    #[inline(always)]
+    fn calc<'a>(
+        &mut self,
+        (open, close, prev_open, prev_close): Self::Inputs<'a>
+    ) -> Self::Outputs {
+        self.0.calc((close - open, prev_close - prev_open))
+    }
+}
+
+
 impl IndicatorState {
-    pub fn new(open: &[f64], close: &[f64], sum: f64, period: usize, multiplier: f64) -> Self {
+    pub fn new(open: &[f64], close: &[f64], state: State<Warm>, period: usize) -> Self {
         Self {
             open: open[open.len() - period..].to_vec(),
             close: close[close.len() - period..].to_vec(),
-            sum,
             period,
-            multiplier,
+            state
         }
     }
 }
@@ -65,7 +103,7 @@ impl IndicatorState {
 impl TIndicatorState<2> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         _optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -77,14 +115,13 @@ impl TIndicatorState<2> for IndicatorState {
             let capacity = inputs[0].len();
             crate::uninit_vec!(f64, capacity)
         };
-
-        self.sum = cycle_qstick(
+        
+        cycle_qstick(
             &self.open,
             &self.close,
             self.period,
-            self.multiplier,
+            &mut self.state,
             &mut qstick_line,
-            self.sum,
         );
 
         self.close.drain(..self.close.len() - self.period);
@@ -94,110 +131,8 @@ impl TIndicatorState<2> for IndicatorState {
     }
 }
 
-/// Returns information about the QStick indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the QStick indicator.
-pub const INFO: Info = Info {
-    name: "qstick",
-    full_name: "QStick",
-    indicator_type: IndicatorType::Momentum,
-    inputs: &["open", "close"],
-    options: &["period"],
-    outputs: &["qstick"],
-    optional_outputs: &[],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "qstick",
-        label: "QSTICK",
-        display_type: DisplayType::Indicator,
-        outputs: &["qstick"],
-    }],
-};
-/// Returns the minimum amount of data required for the QStick indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the QStick calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    options[0] as usize + 1
-}
-/// Calculates the output length for the QStick indicator given the input data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the QStick calculation.
-///
-/// # Returns
-///
-/// The output length.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-/// Calculates the QStick indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — open prices
-/// * `inputs[1]` — close prices
-///
-/// # Options
-///
-/// * `options[0]` — period
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `_optional_outputs` - Unused; this indicator has no optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where:
-/// - `outputs[0]` — `qstick`
-///
-/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    _optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let period = options[0] as usize;
-    let multiplier = multiplier(period);
 
-    validate_inputs(inputs, min_data(options))?;
-    let open = inputs[0];
-    let close = inputs[1];
 
-    let mut qstick_line = {
-        let capacity = output_length(open.len(), options);
-        crate::uninit_vec!(f64, capacity)
-    };
-
-    let mut sum = init(open, close, period);
-    sum = cycle_qstick(open, close, period, multiplier, &mut qstick_line, sum);
-
-    Ok((
-        vec![qstick_line],
-        IndicatorState::new(open, close, sum, period, multiplier),
-    ))
-}
-#[inline(always)]
-pub fn init(open: &[f64], close: &[f64], period: usize) -> f64 {
-    let mut sum = 0.0;
-    for i in 0..period {
-        sum += close[i] - open[i];
-    }
-    sum
-}
 /// Performs the main calculation loop for the QStick indicator.
 ///
 /// # Arguments
@@ -216,50 +151,65 @@ fn cycle_qstick(
     open: &[f64],
     close: &[f64],
     period: usize,
-    multiplier: f64,
+    state: &mut State<Warm>,
     qstick_line: &mut [f64],
-    mut sum: f64,
-) -> f64 {
+) {
     for (j, i) in (period..open.len()).enumerate() {
         unsafe {
-            *qstick_line.get_unchecked_mut(j) = calc(
+            *qstick_line.get_unchecked_mut(j) = state.calc((
                 *open.get_unchecked(i),
                 *close.get_unchecked(i),
                 *open.get_unchecked(j),
                 *close.get_unchecked(j),
-                &mut sum,
-                multiplier,
-            );
+            ));
         }
     }
-
-    sum
 }
-/// Calculates the QStick value for a single bar of data.
-///
-/// # Arguments
-///
-/// * `open` - The open price for the current bar.
-/// * `close` - The close price for the current bar.
-/// * `prev_open` - The open price for the previous bar.
-/// * `prev_close` - The close price for the previous bar.
-/// * `sum` - The current sum of the differences between close and open prices.
-/// * `multiplier` - The multiplier for the QStick calculation.
-///
-/// # Returns
-///
-/// The QStick value for the current bar.
-#[inline(always)]
-pub fn calc(
-    open: f64,
-    close: f64,
-    prev_open: f64,
-    prev_close: f64,
-    sum: &mut f64,
-    multiplier: f64,
-) -> f64 {
-    let mut s = *sum;
-    s += (close - open) - (prev_close - prev_open);
-    *sum = s;
-    s * multiplier
+
+
+pub struct QStick;
+impl Indicator<INPUTS, OPTIONS> for QStick {
+    type IndicatorState = IndicatorState;
+
+    const INFO: Info = Info {
+        name: "qstick",
+        full_name: "QStick",
+        indicator_type: IndicatorType::Momentum,
+        inputs: &["open", "close"],
+        options: &["period"],
+        outputs: &["qstick"],
+        optional_outputs: &[],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "qstick",
+            label: "QSTICK",
+            display_type: DisplayType::Indicator,
+            outputs: &["qstick"],
+        }],
+    };
+    
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        _optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        let period = options[0] as usize;
+    
+        validate_inputs(inputs, Self::min_data(options))?;
+        let [open, close] = *inputs;
+
+        let mut qstick_line = {
+            let capacity = Self::output_length(open.len(), options);
+            crate::uninit_vec!(f64, capacity)
+        };
+    
+        let mut state = State::init_state(open, close, period);
+        cycle_qstick(open, close, period, &mut state, &mut qstick_line);
+    
+        Ok((
+            vec![qstick_line],
+            IndicatorState::new(open, close, state, period),
+        ))
+    }
 }

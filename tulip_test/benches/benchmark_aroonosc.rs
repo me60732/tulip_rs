@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::aroonosc::{indicator, min_data, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::aroonosc::{AroonOsc, Indicator, TIndicatorState, IndicatorState};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 //const SAMPLE_SIZE: usize = 30000;
@@ -156,7 +156,7 @@ fn bench_rust_aroonosc(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, None)
+                        let result = AroonOsc::indicator(&inputs, &options, None)
                             .expect("Rust AROONOSC indicator failed");
                         black_box(&result);
                     },
@@ -176,8 +176,8 @@ fn bench_rust_aroonosc(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust AROONOSC {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result =
-                        indicator(&inputs, &options, None).expect("Rust AROONOSC indicator failed");
+                    let result = AroonOsc::indicator(&inputs, &options, None)
+                        .expect("Rust AROONOSC indicator failed");
                     black_box(&result);
                 });
             });
@@ -203,11 +203,11 @@ fn bench_rust_aroonosc_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data = min_data(&options);
+                        let min_data = AroonOsc::min_data(&options);
                         // First chunk
                         let chunk_inputs = [&high[..min_data], &low[..min_data]];
 
-                        let (_, mut state) = indicator(&chunk_inputs, &options, None)
+                        let (_, mut state) = AroonOsc::indicator(&chunk_inputs, &options, None)
                             .expect("AROONOSC indicator failed");
 
                         // Chunks
@@ -246,7 +246,7 @@ fn bench_rust_aroonosc_from_state(c: &mut Criterion) {
                 if inputs[0].len() > 1 {
                     let new_inputs = [&high[..high.len() - 1], &low[..low.len() - 1]];
                     let final_inputs = [&high[high.len() - 1..], &low[low.len() - 1..]];
-                    let (_, mut state) = indicator(&new_inputs, &options, None)
+                    let (_, mut state) = AroonOsc::indicator(&new_inputs, &options, None)
                         .expect("Rust AROONOSC indicator failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -270,7 +270,7 @@ fn bench_rust_aroonosc_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) = indicator(&new_inputs, &options, None)
+                    let (_, state) = AroonOsc::indicator(&new_inputs, &options, None)
                         .expect("Rust AROONOSC indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
@@ -309,11 +309,11 @@ fn bench_rust_aroonosc_from_state(c: &mut Criterion) {
 
             group.bench_function("benchmark", |b| {
                 b.iter(|| {
-                    let min_data = min_data(&options);
+                    let min_data = AroonOsc::min_data(&options);
                     // First chunk
                     let chunk_inputs = [&high_vec[..min_data], &low_vec[..min_data]];
 
-                    let (_, mut state) = indicator(&chunk_inputs, &options, None)
+                    let (_, mut state) = AroonOsc::indicator(&chunk_inputs, &options, None)
                         .expect("AROONOSC indicator failed");
 
                     // Chunks
@@ -359,7 +359,7 @@ fn bench_rust_aroonosc_optional(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, Some(&[true, true]))
+                        let result = AroonOsc::indicator(&inputs, &options, Some(&[true, true]))
                             .expect("Rust AROONOSC indicator failed");
                         black_box(&result);
                     },
@@ -386,7 +386,7 @@ fn bench_rust_aroonosc_optional(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust AROONOSC {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result = indicator(&inputs, &options, Some(&[true, true]))
+                    let result = AroonOsc::indicator(&inputs, &options, Some(&[true, true]))
                         .expect("Rust AROONOSC indicator failed");
                     black_box(&result);
                 });

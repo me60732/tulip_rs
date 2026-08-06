@@ -1,5 +1,5 @@
 use tulip_rs::indicators::mama::{
-    indicator, indicator_by_assets, indicator_by_options, TIndicatorState,
+    indicator_by_assets, indicator_by_options, Indicator, Mama, TIndicatorState,
 };
 
 // 80 bars of close prices
@@ -28,7 +28,7 @@ fn main() {
 
     // --- Full run with optional dc_period and alpha outputs ---
     // optional_outputs = [dc_period, alpha]
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true, true])) {
+    let (outputs, _) = match Mama::indicator(&inputs, &options, Some(&[true, true])) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -56,7 +56,7 @@ fn main() {
     let split = CLOSE.len() - 5;
     let inputs_partial = [&CLOSE[..split]];
 
-    let (outputs_partial, mut state) = match indicator(&inputs_partial, &options, None) {
+    let (outputs_partial, mut state) = match Mama::indicator(&inputs_partial, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

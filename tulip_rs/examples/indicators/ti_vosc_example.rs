@@ -1,4 +1,4 @@
-use tulip_rs::indicators::vosc::{indicator, TIndicatorState};
+use tulip_rs::indicators::vosc::{Indicator, TIndicatorState, Vosc};
 fn main() {
     let volume = [
         5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0, 3798000.0, 3936200.0, 4732000.0,
@@ -8,7 +8,7 @@ fn main() {
 
     let inputs = [volume.as_slice()];
 
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match Vosc::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -17,7 +17,7 @@ fn main() {
 
     let inputs2 = [&volume[..volume.len() - 5]];
 
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match Vosc::indicator(&inputs2, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

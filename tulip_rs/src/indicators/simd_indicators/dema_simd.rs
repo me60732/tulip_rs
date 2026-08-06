@@ -6,89 +6,48 @@ pub use crate::indicators::simd_indicators::by_asset::dema::indicator_by_assets;
 pub use crate::indicators::simd_indicators::by_option::dema::indicator_by_options;
 
 use crate::indicators::simd_indicators::{
-    ema_simd::calc_simd as calc_ema_simd, simd_types::F64Constants,
+    ema_simd::{calc_simd as calc_ema_simd, SimdState as EmaSimdState}, 
+    simd_types::F64Constants,
 };
+use crate::types::Warm;
+pub use crate::indicator_types::{TSimdState, TState};
 use std::simd::{Simd, StdFloat};
-
+use std::ops::{Deref, DerefMut};
 /// SIMD-parallel state for computing the Double Exponential Moving Average (DEMA) across `N`
 /// assets simultaneously. Each field is a SIMD vector where lane `i` corresponds to asset `i`.
 pub struct SimdState<const N: usize> {
-    /// First-order EMA of the input price series.
-    pub ema1: Simd<f64, N>,
-    /// Second-order EMA — EMA of `ema1`.
+    pub ema_state: EmaSimdState<N>,
     pub ema2: Simd<f64, N>,
 }
-impl<const N: usize> SimdState<N> {
-    /// Gathers `N` mutable scalar [`State`] references into a single `SimdState`,
-    /// packing each field into a SIMD lane.
-    pub fn new_mut_ref(states: &[&mut State]) -> Self {
-        let mut ema1 = [0.0; N];
-        let mut ema2 = [0.0; N];
+impl<const N: usize> Deref for SimdState<N> {
+    type Target = EmaSimdState<N>;
+    fn deref(&self) -> &Self::Target { &self.ema_state }
+}
+impl<const N: usize> DerefMut for SimdState<N> {
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.ema_state }
+}
+impl<const N: usize> TSimdState for SimdState<N> {
+    type ScalarState = State<Warm>;
+    crate::simd_state_impl!(
+         sub: [(ema_state: EmaSimdState<N>)],
+         scalar: [ema2]
+    );
+}
 
-        for i in 0..N {
-            ema1[i] = states[i].ema1;
-            ema2[i] = states[i].ema2;
-        }
-        Self {
-            ema1: Simd::from_array(ema1),
-            ema2: Simd::from_array(ema2),
-        }
-    }
-    /// Gathers `N` immutable scalar [`State`] references into a single `SimdState`,
-    /// packing each field into a SIMD lane.
-    pub fn new(states: &[&State]) -> Self {
-        let mut ema1 = [0.0; N];
-        let mut ema2 = [0.0; N];
-
-        for i in 0..N {
-            ema1[i] = states[i].ema1;
-            ema2[i] = states[i].ema2;
-        }
-        Self {
-            ema1: Simd::from_array(ema1),
-            ema2: Simd::from_array(ema2),
-        }
-    }
-    /// Scatters the SIMD state back into an array of `N` scalar [`State`] values.
-    pub fn to_states(&self) -> [State; N] {
-        let ema1 = self.ema1.to_array();
-        let ema2 = self.ema2.to_array();
-
-        let states: [State; N] = std::array::from_fn(|i| State::new(ema1[i], ema2[i]));
-
-        states
-    }
-    /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place,
-    /// avoiding allocation compared to [`to_states`].
-    pub fn write_states(&self, states: &mut [&mut State]) {
-        let ema1 = self.ema1.to_array();
-        let ema2 = self.ema2.to_array();
-
-        for i in 0..N {
-            states[i].ema1 = ema1[i];
-            states[i].ema2 = ema2[i];
-        }
-    }
-    /// Advances the DEMA by one bar for `N` assets simultaneously.
-    ///
-    /// Applies EMA twice: `ema1 = EMA(value)`, `ema2 = EMA(ema1)`. Returns
-    /// `DEMA = 2 * ema1 - ema2` (using a fused multiply-add) and the intermediate `ema1`.
-    ///
-    /// # Returns
-    ///
-    /// A tuple `(dema, ema1)` of SIMD vectors for all `N` lanes.
+impl<const N: usize> TState for SimdState<N> {
+    type Inputs<'a> = Simd<f64, N>;
+    type Outputs = (Simd<f64, N>, Simd<f64, N>);
     #[inline(always)]
-    pub fn calc_simd(
+    fn calc<'a>(
         &mut self,
-        value: Simd<f64, N>,
-        multiplier: (Simd<f64, N>, Simd<f64, N>),
-    ) -> (Simd<f64, N>, Simd<f64, N>) {
-        self.ema1 = calc_ema_simd(value, self.ema1, multiplier);
-        self.ema2 = calc_ema_simd(self.ema1, self.ema2, multiplier);
+        value: Self::Inputs<'a>,
+    ) -> Self::Outputs {
+        let ema1 = self.ema_state.calc(value);
+        self.ema2 = calc_ema_simd(ema1, self.ema2, self.multiplier, self.inv_multiplier);
         //(F64Constants::TWO * state.ema1 - state.ema2, state.ema1)
         (
-            self.ema1.mul_add(F64Constants::TWO, -self.ema2),
-            self.ema1,
+            ema1.mul_add(F64Constants::TWO, -self.ema2),
+            ema1,
         )
     }
 }

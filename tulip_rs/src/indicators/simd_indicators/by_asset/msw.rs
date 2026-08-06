@@ -1,8 +1,7 @@
 //use crate::common::validate_inputs;
+use crate::indicator_types::Indicator;
 use crate::indicators::msw::precompute_twiddles;
-use crate::indicators::msw::{
-    min_data, multiplier, output_length, IndicatorState, INPUTS_WIDTH, OPTIONS_WIDTH,
-};
+use crate::indicators::msw::{multiplier, IndicatorState, Msw, INPUTS, OPTIONS};
 use crate::indicators::simd_indicators::msw_simd::assets::calc_simd_precomputed;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
@@ -60,7 +59,7 @@ impl Driver<()> for MswDriver {
 /// assets into SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[real]` for asset `i`.
 /// * `options` - `[period]` — the look-back window length for the sine-wave fit.
 /// * `_optional_outputs` - Unused; MSW produces no optional outputs.
@@ -71,11 +70,11 @@ impl Driver<()> for MswDriver {
 /// final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    options: &[f64; OPTIONS],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, Msw::min_data(options))?;
     validate_options(options)?;
     let period = options[0] as usize;
     let multiplier = multiplier(period);
@@ -86,7 +85,7 @@ pub fn indicator_by_assets<const N: usize>(
     for (i, &input) in inputs.into_iter().enumerate() {
         let asset_inputs = vec![input[0]];
         let (sine_line, lead_line) = {
-            let capacity = output_length(input[0].len(), options);
+            let capacity = Msw::output_length(input[0].len(), options);
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::uninit_vec!(f64, capacity),

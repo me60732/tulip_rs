@@ -1,4 +1,6 @@
-use tulip_rs::indicators::adaptivemsw::{indicator, indicator_by_assets, TIndicatorState};
+use tulip_rs::indicators::adaptivemsw::{
+    indicator_by_assets, AdaptiveMSW, Indicator, TIndicatorState,
+};
 
 // 80 bars of close prices
 const CLOSE: [f64; 80] = [
@@ -25,7 +27,7 @@ fn main() {
     // outputs[0] = sine
     // outputs[1] = lead_sine
     // outputs[2] = dc_period (optional)
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true])) {
+    let (outputs, _) = match AdaptiveMSW::indicator(&inputs, &options, Some(&[true])) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -49,7 +51,8 @@ fn main() {
     let split = CLOSE.len() - 5;
     let inputs_partial = [&CLOSE[..split]];
 
-    let (outputs_partial, mut state) = match indicator(&inputs_partial, &options, None) {
+    let (outputs_partial, mut state) = match AdaptiveMSW::indicator(&inputs_partial, &options, None)
+    {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

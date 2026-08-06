@@ -8,7 +8,7 @@
 ///   cargo test -p tulip_test --test bhp_trendmode_analysis -- --nocapture
 #[cfg(test)]
 mod analysis {
-    use tulip_rs::indicators::trendmode::indicator;
+    use tulip_rs::indicators::trendmode::{Indicator, TrendMode};
 
     // ─────────────────────────────────────────────────────────────────────
     // 1 000 bars: BHP.ASX adjusted close  2021-08-10 … 2025-07-24
@@ -1056,7 +1056,7 @@ mod analysis {
     fn bhp_trendmode_analysis() {
         // ── Run the indicator ────────────────────────────────────────────
         let close: Vec<f64> = BHP.iter().map(|&(_, c)| c).collect();
-        let (out, _) = indicator(&[close.as_slice()], &[0.07], Some(&[true, true]))
+        let (out, _) = TrendMode::indicator(&[close.as_slice()], &[0.07], Some(&[true, true]))
             .expect("TrendMode indicator failed");
 
         let trendmode = &out[0]; // len = n - 55 = 945

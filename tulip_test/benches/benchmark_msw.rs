@@ -1,6 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use tulip_rs::indicator_types::Indicator;
 use tulip_rs::indicators::msw::{
-    indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState,
+    indicator_by_assets, indicator_by_options, IndicatorState, Msw, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 //use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -142,8 +143,8 @@ fn bench_rust_msw(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result =
-                            indicator(&inputs, &options, None).expect("Rust MSW indicator failed");
+                        let result = Msw::indicator(&inputs, &options, None)
+                            .expect("Rust MSW indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -163,7 +164,7 @@ fn bench_rust_msw(c: &mut Criterion) {
             group.bench_function(format!("Rust MSW {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result =
-                        indicator(&inputs, &options, None).expect("Rust MSW indicator failed");
+                        Msw::indicator(&inputs, &options, None).expect("Rust MSW indicator failed");
                     black_box(&result);
                 });
             });
@@ -188,12 +189,12 @@ fn bench_rust_msw_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data = min_data(&options).max(CHUNK_SIZE);
+                        let min_data = Msw::min_data(&options).max(CHUNK_SIZE);
                         // First chunk
                         let chunk_inputs = [&close[..min_data]];
 
-                        let (_, mut state) =
-                            indicator(&chunk_inputs, &options, None).expect("MSW indicator failed");
+                        let (_, mut state) = Msw::indicator(&chunk_inputs, &options, None)
+                            .expect("MSW indicator failed");
 
                         // Chunks
                         let mut close_chunks = close[min_data..].chunks_exact(CHUNK_SIZE);
@@ -228,8 +229,8 @@ fn bench_rust_msw_from_state(c: &mut Criterion) {
                 if inputs[0].len() > 1 {
                     let new_inputs = [&close[..close.len() - 1]];
                     let final_inputs = [&close[close.len() - 1..]];
-                    let (_, mut state) =
-                        indicator(&new_inputs, &options, None).expect("Rust MSW indicator failed");
+                    let (_, mut state) = Msw::indicator(&new_inputs, &options, None)
+                        .expect("Rust MSW indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -252,8 +253,8 @@ fn bench_rust_msw_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) =
-                        indicator(&new_inputs, &options, None).expect("Rust MSW indicator failed");
+                    let (_, state) = Msw::indicator(&new_inputs, &options, None)
+                        .expect("Rust MSW indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -291,12 +292,12 @@ fn bench_rust_msw_from_state(c: &mut Criterion) {
 
             group.bench_function("benchmark", |b| {
                 b.iter(|| {
-                    let min_data = min_data(&options).max(CHUNK_SIZE);
+                    let min_data = Msw::min_data(&options).max(CHUNK_SIZE);
                     // First chunk
                     let chunk_inputs = [&close_vec[..min_data]];
 
-                    let (_, mut state) =
-                        indicator(&chunk_inputs, &options, None).expect("MSW indicator failed");
+                    let (_, mut state) = Msw::indicator(&chunk_inputs, &options, None)
+                        .expect("MSW indicator failed");
 
                     // Chunks
                     let mut close_chunks = close_vec[min_data..].chunks_exact(CHUNK_SIZE);
@@ -324,7 +325,7 @@ fn bench_rust_msw_from_state(c: &mut Criterion) {
                 let new_inputs = [&close_vec[..close_vec.len() - 1]];
                 let final_inputs = [&close_vec[close_vec.len() - 1..]];
                 let (_, mut state) =
-                    indicator(&new_inputs, &options, None).expect("Rust MSW indicator failed");
+                    Msw::indicator(&new_inputs, &options, None).expect("Rust MSW indicator failed");
 
                 let mut group =
                     c.benchmark_group(format!("Rust MSW from state 1 bar {{ {:.1} }}", options[0]));
@@ -465,6 +466,5 @@ criterion_group!(
     bench_rust_msw,
     bench_c_msw,
     bench_rust_msw_from_state,
-    
 );
 criterion_main!(benches);

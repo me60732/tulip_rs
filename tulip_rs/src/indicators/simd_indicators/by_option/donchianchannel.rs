@@ -1,15 +1,17 @@
 use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::donchianchannel::{
-    min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    DonchianChannel, Indicator, IndicatorState, State, INPUTS, OPTIONS,
 };
-use crate::indicators::simd_indicators::donchianchannel_simd::{options::Calc, SimdState};
+use crate::indicators::simd_indicators::donchianchannel_simd::{
+    options::SimdState, TSimdState, TState,
+};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 /// SIMD driver for the Donchian Channel indicator, processing `N` option-set lanes per scheduling epoch.
 struct DonchianChannelDriver;
 
-impl Driver<State, usize> for DonchianChannelDriver {
+impl Driver<State<Warm>, usize> for DonchianChannelDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
     ///
     /// Reads the shared input, applies each lane's period, writes lower/middle/upper outputs,
@@ -18,7 +20,7 @@ impl Driver<State, usize> for DonchianChannelDriver {
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         options: Vec<Option<&usize>>,
     ) {
         let len = outputs[0][0].len();
@@ -41,12 +43,11 @@ impl Driver<State, usize> for DonchianChannelDriver {
 
         let (high_ptrs, low_ptrs) = crate::extract_input_ptrs!(inputs, N, high_ptrs, low_ptrs);
 
-        let mut state = SimdState::new(&mut states);
+        let mut state = SimdState::<N>::from_states(&mut states);
         let one_splat = Simd::splat(1);
 
         for j in 0..len {
-            let (lower, middle, upper) =
-                unsafe { state.calc_unchecked_simd(high_ptrs, low_ptrs, i_simd, look_back) };
+            let (lower, middle, upper) = state.calc((high_ptrs, low_ptrs, i_simd, look_back));
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, j,
@@ -66,7 +67,7 @@ impl Driver<State, usize> for DonchianChannelDriver {
 /// simultaneously using SIMD parallelism.
 ///
 /// # Arguments
-/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS]`), containing
 ///   `[high, low]`.
 /// * `options` - An array of `N` option sets, one per SIMD lane: `[period]`.
 /// * `_optional_outputs` - Unused; pass `None`.
@@ -76,17 +77,17 @@ impl Driver<State, usize> for DonchianChannelDriver {
 /// and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS],
+    options: &[&[f64; OPTIONS]; N],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, DonchianChannel::min_data)?;
     validate_options(options, None)?;
     let periods: [(usize, usize); N] = std::array::from_fn(|i| {
         let period = options[i][0] as usize;
         (period, period - 1)
     });
-    let mut road_train = PrimeMover::<N, State, usize>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>, usize>::new();
     let mut output_buffers = Vec::with_capacity(N);
 
     let [high, low] = *inputs;
@@ -95,14 +96,14 @@ pub fn indicator_by_options<const N: usize>(
 
         let (lower_line, middle_line, upper_line) = {
             let len = high.len();
-            let capacity = output_length(len, options[i]);
+            let capacity = DonchianChannel::output_length(len, options[i]);
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::uninit_vec!(f64, capacity),
                 crate::uninit_vec!(f64, capacity),
             )
         };
-        let state = State::new(high, low, periods[i]);
+        let state = State::init_state(high, low, periods[i].1);
 
         let mut output_buffer = vec![lower_line, middle_line, upper_line];
 

@@ -1,4 +1,4 @@
-use tulip_rs::indicators::cci::{indicator, TIndicatorState};
+use tulip_rs::indicators::cci::{Cci, TIndicatorState, Indicator};
 
 fn main() {
     // Example input data: high, low, and close prices
@@ -20,7 +20,7 @@ fn main() {
 
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
-    let (indicators, _) = match indicator(&inputs, &options, Some(&[true, true, true])) {
+    let (indicators, _) = match Cci::indicator(&inputs, &options, Some(&[true, true, true])) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -37,7 +37,7 @@ fn main() {
     ];
 
     // Calculate the CCI using the indicator function
-    let (indicators, mut state) = match indicator(&inputs2, &options, None) {
+    let (indicators, mut state) = match Cci::indicator(&inputs2, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

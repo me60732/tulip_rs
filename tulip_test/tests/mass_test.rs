@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::mass::{indicator as rust_mass, min_data, TIndicatorState};
+    use tulip_rs::indicators::mass::{Mass, Indicator, TIndicatorState, indicator_by_assets, indicator_by_options};
     use tulip_test::c_bindings::{ti_mass, ti_mass_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -65,7 +65,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [high.as_slice(), low.as_slice()];
             let (outputs, _) =
-                rust_mass(&inputs_rust, &options, None).expect("Rust MASS indicator failed");
+                Mass::indicator(&inputs_rust, &options, None).expect("Rust MASS indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -131,13 +131,13 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Get full output
-                let (full_outputs, _) = rust_mass(&inputs_rust, &options, None)
+                let (full_outputs, _) = Mass::indicator(&inputs_rust, &options, None)
                     .expect("MASS indicator should work on full data");
 
                 // Process in batches
                 let mut batch_full_outputs = vec![Vec::new(); full_outputs.len()];
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Mass::min_data(&options).max(CHUNK_SIZE);
 
                 // Process first chunk to get initial state
                 let first_chunk_size = min_data_val.min(high.len());
@@ -145,7 +145,7 @@ mod tests {
                 let first_low = low[..first_chunk_size].to_vec();
                 let first_inputs = [first_high.as_slice(), first_low.as_slice()];
 
-                let (outputs, mut state) = rust_mass(&first_inputs, &options, None)
+                let (outputs, mut state) = Mass::indicator(&first_inputs, &options, None)
                     .expect("MASS indicator should work on first chunk");
 
                 for output_idx in 0..outputs.len() {
@@ -232,7 +232,7 @@ mod tests {
                 // Rust implementation
                 let inputs_rust = [high.as_slice(), low.as_slice()];
                 let (outputs, _) =
-                    rust_mass(&inputs_rust, &options, None).expect("Rust MASS indicator failed");
+                    Mass::indicator(&inputs_rust, &options, None).expect("Rust MASS indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -289,7 +289,7 @@ mod tests {
 
     #[test]
     fn test_mass_simd_by_assets_vs_regular_database() {
-        use tulip_rs::indicators::mass::indicator_by_assets;
+        
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -322,7 +322,7 @@ mod tests {
             {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_high.as_slice(), stock_low.as_slice()];
-                let (regular_results, _) = rust_mass(&stock_inputs, &options, None)
+                let (regular_results, _) = Mass::indicator(&stock_inputs, &options, None)
                     .expect("Regular MASS indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
@@ -379,7 +379,7 @@ mod tests {
 
     #[test]
     fn test_mass_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::mass::indicator_by_options;
+        
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -420,7 +420,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_mass(&inputs, options, None).expect("Regular MASS indicator failed");
+                    Mass::indicator(&inputs, options, None).expect("Regular MASS indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -481,7 +481,7 @@ mod tests {
 
     #[test]
     fn test_mass_simd_state_handover_by_options() {
-        use tulip_rs::indicators::mass::indicator_by_options;
+        
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -549,7 +549,7 @@ mod tests {
             // Compare each SIMD result with regular indicator over the full data
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 let (regular_results, _) =
-                    rust_mass(&[high.as_slice(), low.as_slice()], options, None)
+                    Mass::indicator(&[high.as_slice(), low.as_slice()], options, None)
                         .expect("Regular MASS indicator failed");
                 let regular = &regular_results[0];
                 let simd_res = &all_simd_results[idx];

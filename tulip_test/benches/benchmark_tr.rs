@@ -1,5 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::tr::{indicator, min_data, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::tr::{Tr, Indicator, TIndicatorState, IndicatorState};
+use tulip_rs::indicators::tr::indicator_by_assets as rust_tr_simd;
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 //use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_tr, ti_tr_start};
@@ -29,7 +30,6 @@ const OPTIONS: [f64; 0] = [];
 // Chunk size for from_state benchmarks
 const CHUNK_SIZE: usize = 100;
 
-use tulip_rs::indicators::tr::indicator_by_assets as rust_tr_simd;
 
 fn expand_inputs() -> (Vec<f64>, Vec<f64>, Vec<f64>) {
     let mut high_vec = HIGH.to_vec();
@@ -142,7 +142,7 @@ fn bench_rust_tr(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator(&inputs, &OPTIONS, None); //.expect("Rust TR indicator failed");
+                    let result = Tr::indicator(&inputs, &OPTIONS, None); //.expect("Rust TR indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -170,7 +170,7 @@ fn bench_rust_tr(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust TR", |b| {
             b.iter(|| {
-                let result = indicator(&inputs, &OPTIONS, None).expect("Rust TR indicator failed");
+                let result = Tr::indicator(&inputs, &OPTIONS, None).expect("Rust TR indicator failed");
                 black_box(&result);
             });
         });
@@ -204,7 +204,7 @@ fn bench_rust_tr_from_state(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let min_data_val = min_data(&OPTIONS).max(CHUNK_SIZE);
+                    let min_data_val = Tr::min_data(&OPTIONS).max(CHUNK_SIZE);
                     // First chunk
                     let chunk_inputs = [
                         &high[..min_data_val],
@@ -213,7 +213,7 @@ fn bench_rust_tr_from_state(c: &mut Criterion) {
                     ];
 
                     let (_, mut state) =
-                        indicator(&chunk_inputs, &OPTIONS, None).expect("Rust TR indicator failed");
+                        Tr::indicator(&chunk_inputs, &OPTIONS, None).expect("Rust TR indicator failed");
 
                     // Chunks
                     let mut high_chunks = high[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -254,7 +254,7 @@ fn bench_rust_tr_from_state(c: &mut Criterion) {
             );
 
             let (_, mut state) =
-                indicator(&new_inputs, &OPTIONS, None).expect("Rust TR indicator failed");
+                Tr::indicator(&new_inputs, &OPTIONS, None).expect("Rust TR indicator failed");
 
             let mut timing = TimingMeasurements::new();
             timing.measure(
@@ -277,7 +277,7 @@ fn bench_rust_tr_from_state(c: &mut Criterion) {
             );
 
             let (_, state) =
-                indicator(&new_inputs, &OPTIONS, None).expect("Rust TR indicator failed");
+                Tr::indicator(&new_inputs, &OPTIONS, None).expect("Rust TR indicator failed");
             let json = serde_json::to_string(&state).expect("json failed");
 
             let mut timing = TimingMeasurements::new();
@@ -310,7 +310,7 @@ fn bench_rust_tr_from_state(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust TR from state", |b| {
             b.iter(|| {
-                let min_data_val = min_data(&OPTIONS).max(CHUNK_SIZE);
+                let min_data_val = Tr::min_data(&OPTIONS).max(CHUNK_SIZE);
                 // First chunk
                 let chunk_inputs = [
                     &high_vec[..min_data_val],
@@ -319,7 +319,7 @@ fn bench_rust_tr_from_state(c: &mut Criterion) {
                 ];
 
                 let (_, mut state) =
-                    indicator(&chunk_inputs, &OPTIONS, None).expect("Rust TR indicator failed");
+                    Tr::indicator(&chunk_inputs, &OPTIONS, None).expect("Rust TR indicator failed");
 
                 // Chunks
                 let mut high_chunks = high_vec[min_data_val..].chunks_exact(CHUNK_SIZE);

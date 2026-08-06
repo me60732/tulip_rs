@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::adxr::{indicator, IndicatorState, TIndicatorState};
 use tulip_rs::indicators::adxr::{indicator_by_assets, indicator_by_options};
+use tulip_rs::indicators::adxr::{Adxr, Indicator, TIndicatorState, IndicatorState};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_adxr, ti_adxr_start};
@@ -137,8 +137,8 @@ fn bench_rust_adxr(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result =
-                            indicator(&inputs, &options, None).expect("Rust ADXR indicator failed");
+                        let result = Adxr::indicator(&inputs, &options, None)
+                            .expect("Rust ADXR indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -161,8 +161,8 @@ fn bench_rust_adxr(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust ADXR {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result =
-                        indicator(&inputs, &options, None).expect("Rust ADXR indicator failed");
+                    let result = Adxr::indicator(&inputs, &options, None)
+                        .expect("Rust ADXR indicator failed");
                     black_box(&result);
                 });
             });
@@ -188,8 +188,9 @@ fn bench_rust_adxr_optional(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, Some(&[true, true, true, true]))
-                            .expect("Rust ADXR indicator failed");
+                        let result =
+                            Adxr::indicator(&inputs, &options, Some(&[true, true, true, true]))
+                                .expect("Rust ADXR indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -219,8 +220,9 @@ fn bench_rust_adxr_optional(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust ADXR {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result = indicator(&inputs, &options, Some(&[true, true, true, true]))
-                        .expect("Rust ADXR indicator failed");
+                    let result =
+                        Adxr::indicator(&inputs, &options, Some(&[true, true, true, true]))
+                            .expect("Rust ADXR indicator failed");
                     black_box(&result);
                 });
             });
@@ -255,8 +257,8 @@ fn bench_rust_adxr_from_state(c: &mut Criterion) {
                             &close[..CHUNK_SIZE],
                         ];
 
-                        let (_, mut state) =
-                            indicator(&chunk_inputs, &options, None).expect("DX indicator failed");
+                        let (_, mut state) = Adxr::indicator(&chunk_inputs, &options, None)
+                            .expect("Rust ADXR from state indicator failed");
 
                         // Chunks
                         let mut high_chunks = high[CHUNK_SIZE..].chunks_exact(CHUNK_SIZE);
@@ -307,8 +309,8 @@ fn bench_rust_adxr_from_state(c: &mut Criterion) {
                         &low[low.len() - 1..],
                         &close[close.len() - 1..],
                     ];
-                    let (_, mut state) =
-                        indicator(&new_inputs, &options, None).expect("Rust DX indicator failed");
+                    let (_, mut state) = Adxr::indicator(&new_inputs, &options, None)
+                        .expect("Rust ADXR from state indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -330,8 +332,8 @@ fn bench_rust_adxr_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) =
-                        indicator(&new_inputs, &options, None).expect("Rust DX indicator failed");
+                    let (_, state) = Adxr::indicator(&new_inputs, &options, None)
+                        .expect("Rust ADXR from state indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -376,8 +378,8 @@ fn bench_rust_adxr_from_state(c: &mut Criterion) {
                         &close[..CHUNK_SIZE],
                     ];
 
-                    let (_, mut state) =
-                        indicator(&chunk_inputs, &options, None).expect("ADX indicator failed");
+                    let (_, mut state) = Adxr::indicator(&chunk_inputs, &options, None)
+                        .expect("ADX indicator failed");
 
                     // Chunks
                     let mut high_chunks = high[CHUNK_SIZE..].chunks_exact(CHUNK_SIZE);

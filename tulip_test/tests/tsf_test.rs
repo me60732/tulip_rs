@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::tsf::{indicator as rust_tsf, min_data, TIndicatorState};
+    use tulip_rs::indicators::tsf::{Tsf, Indicator as rust_tsf, TIndicatorState};
     use tulip_test::c_bindings::{
         ti_linreg, ti_linreg_start, ti_linregintercept, ti_linregintercept_start, ti_linregslope,
         ti_linregslope_start, ti_tsf, ti_tsf_start,
@@ -58,7 +58,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_tsf(&inputs_rust, &options, None).expect("Rust TSF indicator failed");
+                Tsf::indicator(&inputs_rust, &options, None).expect("Rust TSF indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -144,7 +144,7 @@ mod tests {
                 // Rust implementation
                 let inputs_rust = [close.as_slice()];
                 let (outputs, _) =
-                    rust_tsf(&inputs_rust, &options, None).expect("Rust TSF indicator failed");
+                    Tsf::indicator(&inputs_rust, &options, None).expect("Rust TSF indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -211,19 +211,19 @@ mod tests {
 
                 // Get full output from processing all data at once
                 let (full_outputs, _) =
-                    rust_tsf(&inputs_rust, &options, None).expect("Rust TSF indicator failed");
+                    Tsf::indicator(&inputs_rust, &options, None).expect("Rust TSF indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Tsf::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let close_vec = close[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice()];
 
                 let (first_outputs, mut state) =
-                    rust_tsf(&chunk_inputs, &options, None).expect("Rust TSF indicator failed");
+                    Tsf::indicator(&chunk_inputs, &options, None).expect("Rust TSF indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
                 // Process remaining data in chunks
@@ -306,7 +306,7 @@ mod tests {
                 for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                     // Get regular indicator result for this stock
                     let stock_inputs = [stock_close.as_slice()];
-                    let (regular_results, _) = rust_tsf(&stock_inputs, &options, None)
+                    let (regular_results, _) = Tsf::indicator(&stock_inputs, &options, None)
                         .expect("Regular TSF indicator failed");
 
                     let simd_result = &simd_results[stock_idx][0];
@@ -402,7 +402,7 @@ mod tests {
                     // Get regular indicator result for this stock with optional outputs
                     let stock_inputs = [stock_close.as_slice()];
                     let (regular_results_opt, _) =
-                        rust_tsf(&stock_inputs, &options, Some(&[true, true, true]))
+                        Tsf::indicator(&stock_inputs, &options, Some(&[true, true, true]))
                             .expect("Regular TSF indicator with optional outputs failed");
 
                     // Compare all outputs: TSF, linreg, slope, intercept
@@ -498,7 +498,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_tsf(&inputs, options, None).expect("Regular TSF indicator failed");
+                    Tsf::indicator(&inputs, options, None).expect("Regular TSF indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -588,7 +588,7 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result with optional outputs
-                let (regular_results, _) = rust_tsf(&inputs, options, optional_outputs)
+                let (regular_results, _) = Tsf::indicator(&inputs, options, optional_outputs)
                     .expect("Regular TSF indicator with optional outputs failed");
 
                 let simd_tsf_result = &all_simd_results[idx][0];
@@ -783,7 +783,7 @@ mod tests {
         let optional_outputs = Some([true, false, false].as_slice()); // Request linreg output
 
         // Get Rust TSF output with linreg optional output
-        let result = rust_tsf(&inputs, &options, optional_outputs).unwrap();
+        let result = Tsf::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_linreg = &result.0[1]; // linreg is at index 1
 
         // Fail fast if Rust output is empty
@@ -861,7 +861,7 @@ mod tests {
         let optional_outputs = Some([false, true, false].as_slice()); // Request slope output
 
         // Get Rust TSF output with slope optional output
-        let result = rust_tsf(&inputs, &options, optional_outputs).unwrap();
+        let result = Tsf::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_slope = &result.0[2]; // slope is at index 2
 
         // Fail fast if Rust output is empty
@@ -939,7 +939,7 @@ mod tests {
         let optional_outputs = Some([false, true, true].as_slice()); // Request both slope and intercept outputs
 
         // Get Rust TSF output with slope and intercept optional outputs
-        let result = rust_tsf(&inputs, &options, optional_outputs).unwrap();
+        let result = Tsf::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_slope = &result.0[2]; // slope is at index 2
         let rust_intercept = &result.0[3]; // intercept is at index 3
 
@@ -1035,7 +1035,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get TSF with linreg optional output
                 let optional_outputs = Some(&[true, false, false][..]);
-                let (tsf_result, _) = tulip_rs::indicators::tsf::indicator(
+                let (tsf_result, _) = Tsf::indicator(
                     &[&close],
                     &[options[0]],
                     optional_outputs,
@@ -1118,7 +1118,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get TSF with slope optional output
                 let optional_outputs = Some(&[false, true, false][..]);
-                let (tsf_result, _) = tulip_rs::indicators::tsf::indicator(
+                let (tsf_result, _) = Tsf::indicator(
                     &[&close],
                     &[options[0]],
                     optional_outputs,
@@ -1201,7 +1201,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get TSF with both slope and intercept optional outputs
                 let optional_outputs = Some(&[false, true, true][..]);
-                let (tsf_result, _) = tulip_rs::indicators::tsf::indicator(
+                let (tsf_result, _) = Tsf::indicator(
                     &[&close],
                     &[options[0]],
                     optional_outputs,

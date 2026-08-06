@@ -1,23 +1,23 @@
 use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::chaikinmf::{
-    min_data, output_length, IndicatorState as State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    ChaikinMf, Indicator, IndicatorState, State, INPUTS, OPTIONS,
 };
-use crate::indicators::simd_indicators::chaikinmf_simd::options::SimdState;
+use crate::indicators::simd_indicators::chaikinmf_simd::{TState, options::SimdState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 
 struct ChaikinMfDriver;
 
-impl Driver<State, usize> for ChaikinMfDriver {
+impl Driver<State<Warm>, usize> for ChaikinMfDriver {
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         options: Vec<Option<&usize>>,
     ) {
         let periods: [usize; N] = std::array::from_fn(|i| *options[i].unwrap());
-        let mut state = SimdState::<N>::new(&mut states, periods);
+        let mut state = SimdState::<N>::from_states(&mut states, periods);
         let len = outputs[0][0].len();
 
         let cmf_line_ptr = crate::extract_output_ptrs!(outputs, N, cmf_line_ptr);
@@ -25,7 +25,7 @@ impl Driver<State, usize> for ChaikinMfDriver {
             crate::extract_input_ptrs!(inputs, N, high_ptrs, low_ptrs, close_ptrs, volume_ptrs);
 
         for i in 0..len {
-            let (high, low, close, volume) = unsafe {
+            let inputs = unsafe {
                 (
                     *high_ptrs[0].add(i),
                     *low_ptrs[0].add(i),
@@ -34,7 +34,7 @@ impl Driver<State, usize> for ChaikinMfDriver {
                 )
             };
 
-            let cmf = unsafe { state.calc_unchecked_simd(high, low, close, volume) };
+            let cmf = state.calc(inputs);
 
             crate::write_simd_at_indices!(N, i,
                 cmf_line_ptr => cmf
@@ -49,7 +49,7 @@ impl Driver<State, usize> for ChaikinMfDriver {
 /// using SIMD parallelism.
 ///
 /// # Arguments
-/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`),
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS]`),
 ///   containing `[high, low, close, volume]`.
 /// * `options` - An array of `N` option sets, one per SIMD lane: `[period]`.
 /// * `_optional_outputs` - Unused; ChaikinMF has no optional output lines.
@@ -59,15 +59,15 @@ impl Driver<State, usize> for ChaikinMfDriver {
 /// and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS],
+    options: &[&[f64; OPTIONS]; N],
     _optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<Vec<f64>>>, Vec<State>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
+    validate_inputs::<OPTIONS>(inputs, options, ChaikinMf::min_data)?;
     validate_options(options, None)?;
     let periods: [usize; N] = std::array::from_fn(|i| options[i][0] as usize);
 
-    let mut road_train = PrimeMover::<N, State, usize>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>, usize>::new();
     let mut output_buffers = Vec::with_capacity(N);
 
     let [high, low, close, volume] = *inputs;
@@ -76,7 +76,7 @@ pub fn indicator_by_options<const N: usize>(
 
         let cmf_line = {
             let len = high.len();
-            let capacity = output_length(len, options[i]);
+            let capacity = ChaikinMf::output_length(len, options[i]);
             crate::uninit_vec!(f64, capacity)
         };
 

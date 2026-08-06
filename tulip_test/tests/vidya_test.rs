@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::vidya::{indicator as rust_vidya, min_data, TIndicatorState};
+    use tulip_rs::indicators::vidya::{Vidya, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{
         ti_sma, ti_sma_start, ti_stddev, ti_stddev_start, ti_vidya, ti_vidya_start,
     };
@@ -65,7 +65,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_vidya(&inputs_rust, &options, None).expect("Rust VIDYA indicator failed");
+                Vidya::indicator(&inputs_rust, &options, None).expect("Rust VIDYA indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -151,7 +151,7 @@ mod tests {
                 // Rust implementation
                 let inputs_rust = [close.as_slice()];
                 let (outputs, _) =
-                    rust_vidya(&inputs_rust, &options, None).expect("Rust VIDYA indicator failed");
+                    Vidya::indicator(&inputs_rust, &options, None).expect("Rust VIDYA indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -218,19 +218,19 @@ mod tests {
 
                 // Get full output from processing all data at once
                 let (full_outputs, _) =
-                    rust_vidya(&inputs_rust, &options, None).expect("Rust VIDYA indicator failed");
+                    Vidya::indicator(&inputs_rust, &options, None).expect("Rust VIDYA indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Vidya::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let close_vec = close[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice()];
 
                 let (first_outputs, mut state) =
-                    rust_vidya(&chunk_inputs, &options, None).expect("Rust VIDYA indicator failed");
+                    Vidya::indicator(&chunk_inputs, &options, None).expect("Rust VIDYA indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
                 // Process remaining data in chunks
@@ -318,7 +318,7 @@ mod tests {
             for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_close.as_slice()];
-                let (regular_results, _) = rust_vidya(&stock_inputs, &options, None)
+                let (regular_results, _) = Vidya::indicator(&stock_inputs, &options, None)
                     .expect("Regular VIDYA indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
@@ -416,7 +416,7 @@ mod tests {
                 // Get regular indicator result for this stock with optional outputs
                 let stock_inputs = [stock_close.as_slice()];
                 let (regular_results, _) =
-                    rust_vidya(&stock_inputs, &options, Some(&optional_flags))
+                    Vidya::indicator(&stock_inputs, &options, Some(&optional_flags))
                         .expect("Regular VIDYA indicator with optional outputs failed");
 
                 // Compare all outputs (main + optional)
@@ -500,7 +500,7 @@ mod tests {
             // Get Rust VIDYA with short_sma optional output enabled
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_vidya(&inputs_rust, &options, Some(&[true, false, false, false]))
+                Vidya::indicator(&inputs_rust, &options, Some(&[true, false, false, false]))
                     .expect("Rust VIDYA indicator failed");
 
             assert!(!outputs.is_empty(), "VIDYA outputs should not be empty");
@@ -591,7 +591,7 @@ mod tests {
             // Get Rust VIDYA with long_sma optional output enabled
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_vidya(&inputs_rust, &options, Some(&[false, true, false, false]))
+                Vidya::indicator(&inputs_rust, &options, Some(&[false, true, false, false]))
                     .expect("Rust VIDYA indicator failed");
 
             assert!(!outputs.is_empty(), "VIDYA outputs should not be empty");
@@ -682,7 +682,7 @@ mod tests {
             // Get Rust VIDYA with short_stddev optional output enabled
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_vidya(&inputs_rust, &options, Some(&[false, false, true, false]))
+                Vidya::indicator(&inputs_rust, &options, Some(&[false, false, true, false]))
                     .expect("Rust VIDYA indicator failed");
 
             assert!(!outputs.is_empty(), "VIDYA outputs should not be empty");
@@ -776,7 +776,7 @@ mod tests {
             // Get Rust VIDYA with long_stddev optional output enabled
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_vidya(&inputs_rust, &options, Some(&[false, false, false, true]))
+                Vidya::indicator(&inputs_rust, &options, Some(&[false, false, false, true]))
                     .expect("Rust VIDYA indicator failed");
 
             assert!(!outputs.is_empty(), "VIDYA outputs should not be empty");
@@ -875,7 +875,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get VIDYA with short_sma optional output
                 let optional_outputs = Some(&[true, false, false, false][..]);
-                let (vidya_result, _) = tulip_rs::indicators::vidya::indicator(
+                let (vidya_result, _) = Vidya::indicator(
                     &[&close],
                     &[options[0], options[1], options[2]],
                     optional_outputs,
@@ -953,7 +953,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get VIDYA with long_sma optional output
                 let optional_outputs = Some(&[false, true, false, false][..]);
-                let (vidya_result, _) = tulip_rs::indicators::vidya::indicator(
+                let (vidya_result, _) = Vidya::indicator(
                     &[&close],
                     &[options[0], options[1], options[2]],
                     optional_outputs,
@@ -1031,7 +1031,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get VIDYA with short_stddev optional output
                 let optional_outputs = Some(&[false, false, true, false][..]);
-                let (vidya_result, _) = tulip_rs::indicators::vidya::indicator(
+                let (vidya_result, _) = Vidya::indicator(
                     &[&close],
                     &[options[0], options[1], options[2]],
                     optional_outputs,
@@ -1112,7 +1112,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get VIDYA with long_stddev optional output
                 let optional_outputs = Some(&[false, false, false, true][..]);
-                let (vidya_result, _) = tulip_rs::indicators::vidya::indicator(
+                let (vidya_result, _) = Vidya::indicator(
                     &[&close],
                     &[options[0], options[1], options[2]],
                     optional_outputs,
@@ -1217,7 +1217,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_vidya(&inputs, options, None).expect("Regular VIDYA indicator failed");
+                    Vidya::indicator(&inputs, options, None).expect("Regular VIDYA indicator failed");
 
                 // main VIDYA output
                 let simd_result = &all_simd_results[idx][0];
@@ -1315,7 +1315,7 @@ mod tests {
             // Compare each SIMD result with regular indicator (with optional outputs)
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result with optional outputs
-                let (regular_results, _) = rust_vidya(&inputs, options, optional_outputs)
+                let (regular_results, _) = Vidya::indicator(&inputs, options, optional_outputs)
                     .expect("Regular VIDYA indicator with optional outputs failed");
 
                 // For VIDYA the outputs are: [VIDYA, short_sma, long_sma, short_stddev, long_stddev]

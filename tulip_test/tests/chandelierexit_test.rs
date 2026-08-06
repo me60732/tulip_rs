@@ -1,13 +1,11 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::atr::indicator as atr_indicator;
-    use tulip_rs::indicators::chandelierexit::{
-        indicator, indicator_by_assets, indicator_by_options, min_data, TIndicatorState,
-    };
-    use tulip_rs::indicators::max::indicator as max_indicator;
-    use tulip_rs::indicators::min::indicator as min_indicator;
-    use tulip_rs::indicators::tr::indicator as tr_indicator;
+    use tulip_rs::indicators::atr::Atr;
+    use tulip_rs::indicators::chandelierexit::{ChandelierExit, Indicator, TIndicatorState, indicator_by_assets, indicator_by_options};
+    use tulip_rs::indicators::max::Max;
+    use tulip_rs::indicators::min::Min;
+    use tulip_rs::indicators::tr::Tr;
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
     const CHUNK_SIZE: usize = 100;
@@ -62,16 +60,16 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 let (full_outputs, _) =
-                    indicator(&inputs, &options, None).expect("Rust CE indicator failed");
+                    ChandelierExit::indicator(&inputs, &options, None).expect("Rust CE indicator failed");
 
                 let mut batch_long: Vec<f64> = Vec::new();
                 let mut batch_short: Vec<f64> = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = ChandelierExit::min_data(&options).max(CHUNK_SIZE);
 
                 if high.len() <= min_data_val {
                     let (outputs, _) =
-                        indicator(&inputs, &options, None).expect("Rust CE indicator failed");
+                        ChandelierExit::indicator(&inputs, &options, None).expect("Rust CE indicator failed");
                     batch_long.extend_from_slice(&outputs[0]);
                     batch_short.extend_from_slice(&outputs[1]);
                 } else {
@@ -80,7 +78,7 @@ mod tests {
                         &low[..min_data_val],
                         &close[..min_data_val],
                     ];
-                    let (first_outputs, mut state) = indicator(&chunk_inputs, &options, None)
+                    let (first_outputs, mut state) = ChandelierExit::indicator(&chunk_inputs, &options, None)
                         .expect("Rust CE indicator failed on first chunk");
                     batch_long.extend_from_slice(&first_outputs[0]);
                     batch_short.extend_from_slice(&first_outputs[1]);
@@ -157,12 +155,12 @@ mod tests {
         for options in OPTIONS_LIST {
             let atr_options = [options[0]];
 
-            let (ce_outputs, _) = indicator(&inputs, &options, Some(&[true, false]))
+            let (ce_outputs, _) = ChandelierExit::indicator(&inputs, &options, Some(&[true, false]))
                 .expect("Rust CE indicator failed");
             let ce_atr = &ce_outputs[2];
 
             let (atr_outputs, _) =
-                atr_indicator(&inputs, &atr_options, None).expect("Rust ATR indicator failed");
+                Atr::indicator(&inputs, &atr_options, None).expect("Rust ATR indicator failed");
             let atr_line = &atr_outputs[0];
 
             let compare_len = ce_atr.len().min(atr_line.len());
@@ -199,12 +197,12 @@ mod tests {
             for options in OPTIONS_LIST {
                 let atr_options = [options[0]];
 
-                let (ce_outputs, _) = indicator(&inputs, &options, Some(&[true, false]))
+                let (ce_outputs, _) = ChandelierExit::indicator(&inputs, &options, Some(&[true, false]))
                     .expect("Rust CE indicator failed");
                 let ce_atr = &ce_outputs[2];
 
                 let (atr_outputs, _) =
-                    atr_indicator(&inputs, &atr_options, None).expect("Rust ATR indicator failed");
+                    Atr::indicator(&inputs, &atr_options, None).expect("Rust ATR indicator failed");
                 let atr_line = &atr_outputs[0];
 
                 let compare_len = ce_atr.len().min(atr_line.len());
@@ -242,12 +240,12 @@ mod tests {
         for options in OPTIONS_LIST {
             let tr_options: [f64; 0] = [];
 
-            let (ce_outputs, _) = indicator(&inputs, &options, Some(&[true, true]))
+            let (ce_outputs, _) = ChandelierExit::indicator(&inputs, &options, Some(&[true, true]))
                 .expect("Rust CE indicator failed");
             let ce_tr = &ce_outputs[3];
 
             let (tr_outputs, _) =
-                tr_indicator(&inputs, &tr_options, None).expect("Rust TR indicator failed");
+                Tr::indicator(&inputs, &tr_options, None).expect("Rust TR indicator failed");
             let tr_line = &tr_outputs[0];
 
             let compare_len = ce_tr.len().min(tr_line.len());
@@ -284,12 +282,12 @@ mod tests {
             for options in OPTIONS_LIST {
                 let tr_options: [f64; 0] = [];
 
-                let (ce_outputs, _) = indicator(&inputs, &options, Some(&[true, true]))
+                let (ce_outputs, _) = ChandelierExit::indicator(&inputs, &options, Some(&[true, true]))
                     .expect("Rust CE indicator failed");
                 let ce_tr = &ce_outputs[3];
 
                 let (tr_outputs, _) =
-                    tr_indicator(&inputs, &tr_options, None).expect("Rust TR indicator failed");
+                    Tr::indicator(&inputs, &tr_options, None).expect("Rust TR indicator failed");
                 let tr_line = &tr_outputs[0];
 
                 let compare_len = ce_tr.len().min(tr_line.len());
@@ -327,11 +325,11 @@ mod tests {
         for options in OPTIONS_LIST {
             let min_options = [options[0]];
 
-            let (ce_outputs, _) = indicator(&inputs, &options, Some(&[false, false, true, false]))
+            let (ce_outputs, _) = ChandelierExit::indicator(&inputs, &options, Some(&[false, false, true, false]))
                 .expect("Rust CE indicator failed");
             let ce_min = &ce_outputs[4];
 
-            let (min_outputs, _) = min_indicator(&[low.as_slice()], &min_options, None)
+            let (min_outputs, _) = Min::indicator(&[low.as_slice()], &min_options, None)
                 .expect("Rust MIN indicator failed");
             let min_line = &min_outputs[0];
 
@@ -364,11 +362,11 @@ mod tests {
                 let min_options = [options[0]];
 
                 let (ce_outputs, _) =
-                    indicator(&inputs, &options, Some(&[false, false, true, false]))
+                    ChandelierExit::indicator(&inputs, &options, Some(&[false, false, true, false]))
                         .expect("Rust CE indicator failed");
                 let ce_min = &ce_outputs[4];
 
-                let (min_outputs, _) = min_indicator(&[low.as_slice()], &min_options, None)
+                let (min_outputs, _) = Min::indicator(&[low.as_slice()], &min_options, None)
                     .expect("Rust MIN indicator failed");
                 let min_line = &min_outputs[0];
 
@@ -401,11 +399,11 @@ mod tests {
         for options in OPTIONS_LIST {
             let max_options = [options[0]];
 
-            let (ce_outputs, _) = indicator(&inputs, &options, Some(&[false, false, false, true]))
+            let (ce_outputs, _) = ChandelierExit::indicator(&inputs, &options, Some(&[false, false, false, true]))
                 .expect("Rust CE indicator failed");
             let ce_max = &ce_outputs[5];
 
-            let (max_outputs, _) = max_indicator(&[high.as_slice()], &max_options, None)
+            let (max_outputs, _) = Max::indicator(&[high.as_slice()], &max_options, None)
                 .expect("Rust MAX indicator failed");
             let max_line = &max_outputs[0];
 
@@ -438,11 +436,11 @@ mod tests {
                 let max_options = [options[0]];
 
                 let (ce_outputs, _) =
-                    indicator(&inputs, &options, Some(&[false, false, false, true]))
+                    ChandelierExit::indicator(&inputs, &options, Some(&[false, false, false, true]))
                         .expect("Rust CE indicator failed");
                 let ce_max = &ce_outputs[5];
 
-                let (max_outputs, _) = max_indicator(&[high.as_slice()], &max_options, None)
+                let (max_outputs, _) = Max::indicator(&[high.as_slice()], &max_options, None)
                     .expect("Rust MAX indicator failed");
                 let max_line = &max_outputs[0];
 
@@ -494,7 +492,7 @@ mod tests {
             for (stock_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
                 let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (regular_results, _) =
-                    indicator(&inputs, &options, None).expect("CE indicator failed");
+                    ChandelierExit::indicator(&inputs, &options, None).expect("CE indicator failed");
 
                 for (out_idx, out_name) in ["long", "short"].iter().enumerate() {
                     let simd = &simd_results[stock_idx][out_idx];
@@ -558,7 +556,7 @@ mod tests {
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
                 let (regular_results, _) =
-                    indicator(&inputs, options, None).expect("CE indicator failed");
+                    ChandelierExit::indicator(&inputs, options, None).expect("CE indicator failed");
 
                 for (out_idx, out_name) in ["long", "short"].iter().enumerate() {
                     let simd = &simd_results[opt_idx][out_idx];
@@ -612,7 +610,7 @@ mod tests {
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
                 let (regular_results, _) =
-                    indicator(&inputs, options, Some(&[true, false])).expect("CE indicator failed");
+                    ChandelierExit::indicator(&inputs, options, Some(&[true, false])).expect("CE indicator failed");
 
                 let simd_atr = &simd_results[opt_idx][2];
                 let regular_atr = &regular_results[2];
@@ -664,7 +662,7 @@ mod tests {
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
                 let (regular_results, _) =
-                    indicator(&inputs, options, Some(&[false, true])).expect("CE indicator failed");
+                    ChandelierExit::indicator(&inputs, options, Some(&[false, true])).expect("CE indicator failed");
 
                 let simd_tr = &simd_results[opt_idx][3];
                 let regular_tr = &regular_results[3];
@@ -721,7 +719,7 @@ mod tests {
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
                 let (regular_results, _) =
-                    indicator(&inputs, options, Some(&[false, false, true, false]))
+                    ChandelierExit::indicator(&inputs, options, Some(&[false, false, true, false]))
                         .expect("CE indicator failed");
 
                 let simd_min = &simd_results[opt_idx][4];
@@ -774,7 +772,7 @@ mod tests {
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
                 let (regular_results, _) =
-                    indicator(&inputs, options, Some(&[false, false, false, true]))
+                    ChandelierExit::indicator(&inputs, options, Some(&[false, false, false, true]))
                         .expect("CE indicator failed");
 
                 let simd_max = &simd_results[opt_idx][5];
@@ -880,7 +878,7 @@ mod tests {
 
                 let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (full_outputs, _) =
-                    indicator(&inputs, &options, None).expect("scalar indicator failed");
+                    ChandelierExit::indicator(&inputs, &options, None).expect("scalar indicator failed");
 
                 assert_eq!(
                     full_outputs[0].len(),
@@ -974,7 +972,7 @@ mod tests {
 
                 let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (full_outputs, _) =
-                    indicator(&inputs, options, None).expect("scalar indicator failed");
+                    ChandelierExit::indicator(&inputs, options, None).expect("scalar indicator failed");
 
                 assert_eq!(
                     full_outputs[0].len(),
@@ -1037,7 +1035,7 @@ mod tests {
             for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
                 let scalar_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (scalar_results, _) =
-                    indicator(&scalar_inputs, &options, Some(&[true, true, true, true]))
+                    ChandelierExit::indicator(&scalar_inputs, &options, Some(&[true, true, true, true]))
                         .expect("Scalar Chandelier Exit with optional outputs failed");
 
                 // Compare all 6 outputs (long, short, atr, tr, min, max)

@@ -1,10 +1,12 @@
 use crate::common_simd::assets::validate_inputs;
 use crate::indicators::instantaneoustrendline::{
-    min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    InstantaneousTrendline as IT, Indicator, IndicatorState, State, INPUTS, OPTIONS,
 };
-use crate::indicators::simd_indicators::instantaneoustrendline_simd::SimdState;
+use crate::indicators::simd_indicators::instantaneoustrendline_simd::{
+    SimdState, TSimdState, TState,
+};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
 /// SIMD driver that advances the Instantaneous Trendline across `N` asset lanes per epoch.
@@ -13,17 +15,17 @@ struct ItDriver {
     want_optional_outputs: (bool, bool, bool, bool),
 }
 
-impl Driver<State> for ItDriver {
+impl Driver<State<Warm>> for ItDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
         let len = inputs[0][0].len();
-        let mut simd_state = SimdState::new(&mut states);
+        let mut simd_state = SimdState::from_states(&mut states);
 
         let (has_optional, want_trigger, want_dc, want_alpha) = self.want_optional_outputs;
 
@@ -39,9 +41,7 @@ impl Driver<State> for ItDriver {
 
         for i in 0..len {
             let real = crate::extract_simd_inputs_at_index!(i, N, real @ real_ptrs);
-            // Safety: all HD ring buffers are full — guaranteed by State::init_state
-            // called during indicator_by_assets setup before PrimeMover dispatches.
-            let it = unsafe { simd_state.calc_simd_unchecked(real) };
+            let it = simd_state.calc(real);
             crate::write_simd_at_indices!(N, i, trendline_ptrs => it);
             if has_optional {
                 // trigger = 2·IT − IT[1] = 2·it_prev − it_prev2 (after state update)
@@ -79,19 +79,19 @@ impl Driver<State> for ItDriver {
 /// is `alpha`, and `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError::NotEnoughData)` if any input is shorter than 23 bars.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N],
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N],
+    options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, IT::min_data(options))?;
 
     let mut output_buffers = Vec::with_capacity(N);
-    let mut road_train = PrimeMover::<N, State>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut want_optional_outputs = (false, false, false, false);
 
     for i in 0..N {
         let len = inputs[i][0].len();
-        let capacity = output_length(len, options);
+        let capacity = IT::output_length(len, options);
 
         let mut trendline_line = crate::uninit_vec!(f64, capacity);
         let (mut trigger_line, mut dc_period_line, mut alpha_line) = crate::init_optional_outputs!(
@@ -136,7 +136,7 @@ pub fn indicator_by_assets<const N: usize>(
             asset_outputs,
             i,
             // init_state consumed bars 0..22 inclusive, so driver starts at bar 23 = min_data.
-            min_data(options),
+            IT::min_data(options),
             0,
             state,
             None,
@@ -148,8 +148,7 @@ pub fn indicator_by_assets<const N: usize>(
     let mut driver = ItDriver {
         want_optional_outputs,
     };
-    let final_states = road_train.drive(&mut driver);
+    let states = road_train.drive(&mut driver);
 
-    let states = final_states.into_iter().map(IndicatorState::new).collect();
     Ok((output_buffers, states))
 }

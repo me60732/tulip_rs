@@ -1,4 +1,4 @@
-use tulip_rs::indicators::di::{indicator, TIndicatorState};
+use tulip_rs::indicators::di::{Di, Indicator, TIndicatorState};
 
 fn main() {
     let high = [
@@ -17,7 +17,7 @@ fn main() {
 
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true, true])) {
+    let (outputs, _) = match Di::indicator(&inputs, &options, Some(&[true, true])) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -34,7 +34,7 @@ fn main() {
     ];
 
     // Calculate the Directional Indicator (DI) lines using the indicator function
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match Di::indicator(&inputs2, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

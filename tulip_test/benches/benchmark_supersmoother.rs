@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::supersmoother::{
-    indicator, indicator_by_assets, indicator_by_options, min_data, TIndicatorState,
+    indicator_by_assets, indicator_by_options, Indicator, SuperSmoother, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -44,7 +44,7 @@ fn bench_rust_supersmoother(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, None)
+                        let result = SuperSmoother::indicator(&inputs, &options, None)
                             .expect("Rust SuperSmoother indicator failed");
                         black_box(&result);
                     },
@@ -71,7 +71,7 @@ fn bench_rust_supersmoother(c: &mut Criterion) {
                 format!("Rust SuperSmoother {{ period: {} }}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator(&inputs, &options, None)
+                        let result = SuperSmoother::indicator(&inputs, &options, None)
                             .expect("Rust SuperSmoother indicator failed");
                         black_box(&result);
                     });
@@ -102,9 +102,10 @@ fn bench_rust_supersmoother_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let seed = min_data(&options).max(CHUNK_SIZE);
-                        let (_, mut state) = indicator(&[&close[..seed]], &options, None)
-                            .expect("SuperSmoother seed failed");
+                        let seed = SuperSmoother::min_data(&options).max(CHUNK_SIZE);
+                        let (_, mut state) =
+                            SuperSmoother::indicator(&[&close[..seed]], &options, None)
+                                .expect("SuperSmoother seed failed");
 
                         let mut chunks = close[seed..].chunks_exact(CHUNK_SIZE);
                         for chunk in chunks.by_ref() {
@@ -136,8 +137,9 @@ fn bench_rust_supersmoother_from_state(c: &mut Criterion) {
 
                 // --- single-bar update ---
                 if n > 1 {
-                    let (_, mut state) = indicator(&[&close[..n - 1]], &options, None)
-                        .expect("SuperSmoother seed (1-bar) failed");
+                    let (_, mut state) =
+                        SuperSmoother::indicator(&[&close[..n - 1]], &options, None)
+                            .expect("SuperSmoother seed (1-bar) failed");
                     let final_input = [&close[n - 1..]];
 
                     let mut timing = TimingMeasurements::new();
@@ -166,8 +168,8 @@ fn bench_rust_supersmoother_from_state(c: &mut Criterion) {
         let close_vec = expand_inputs();
 
         for options in OPTIONS_LIST {
-            let seed = min_data(&options).max(CHUNK_SIZE);
-            let (_, mut state) = indicator(&[&close_vec[..seed]], &options, None)
+            let seed = SuperSmoother::min_data(&options).max(CHUNK_SIZE);
+            let (_, mut state) = SuperSmoother::indicator(&[&close_vec[..seed]], &options, None)
                 .expect("SuperSmoother seed failed");
 
             let mut group = c.benchmark_group("supersmoother_rust_from_state");
@@ -200,7 +202,7 @@ fn bench_rust_supersmoother_from_state(c: &mut Criterion) {
             // Single-bar update bench
             if close_vec.len() > 1 {
                 let (_, mut state) =
-                    indicator(&[&close_vec[..close_vec.len() - 1]], &options, None)
+                    SuperSmoother::indicator(&[&close_vec[..close_vec.len() - 1]], &options, None)
                         .expect("SuperSmoother seed (1-bar) failed");
                 let final_input = [&close_vec[close_vec.len() - 1..]];
 

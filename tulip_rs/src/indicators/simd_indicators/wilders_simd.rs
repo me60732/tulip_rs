@@ -10,37 +10,40 @@ use serde::{
     ser::SerializeStruct,
     Deserialize, Deserializer, Serialize, Serializer,
 };
+pub use crate::indicator_types::{TState, TSimdState};
+use crate::indicators::wilders::State;
+use crate::types::Warm;
 use std::fmt;
 use std::marker::PhantomData;
-/// Initialises the Wilder's Smoothing SIMD state from raw input slices.
-///
-/// Computes the simple average of the first `period` values for each lane
-/// as the seed for subsequent exponential smoothing.
-///
-/// # Arguments
-///
-/// * `inputs` - Per-lane input slices; must each contain at least `period` values.
-/// * `period` - Number of bars to average for the initial smoothed value.
-///
-/// # Returns
-///
-/// SIMD vector containing the initial Wilder's smoothed value for each lane.
-pub fn init_state<'a, const N: usize>(inputs: &[&'a [f64]; N], period: usize) -> Simd<f64, N> {
-    let input_ptrs: [*const f64; N] = std::array::from_fn(|i| inputs[i].as_ptr());
-    let mut wilders = Simd::splat(0.0);
-    for i in 0..period {
-        let values = Simd::from_array(std::array::from_fn(|j| unsafe { *input_ptrs[j].add(i) }));
-        wilders += values;
-    }
 
-    wilders /= Simd::splat(period as f64);
-
-    wilders
-}
 pub struct SimdState<const N: usize> {
     pub wilders: Simd<f64, N>,
     pub multiplier: Simd<f64, N>,
     pub inv_multiplier: Simd<f64, N>
+}
+impl<const N: usize> TState for SimdState<N> {
+    type Inputs<'a> = Simd<f64, N>;
+    type Outputs = Simd<f64, N>;
+    #[inline(always)]
+    fn calc<'a>(
+        &mut self,
+        value: Self::Inputs<'a>
+    ) -> Simd<f64, N> {
+        self.wilders = self.wilders.mul_add(self.multiplier, value * self.inv_multiplier);
+        self.wilders
+    }
+}
+impl<const N: usize> TSimdState for SimdState<N> {
+    type ScalarState = State<Warm>;
+
+    crate::simd_state_from_state!(
+        sub: [],
+        scalar: [wilders, multiplier, inv_multiplier]
+    );
+    crate::simd_state_write!(
+        sub: [],
+        scalar: [wilders]
+    );
 }
 impl<const N: usize> SimdState<N> {
     pub fn new(wilders: Simd<f64, N>, multipliers: (Simd<f64, N>, Simd<f64, N>)) -> Self {
@@ -49,11 +52,6 @@ impl<const N: usize> SimdState<N> {
             multiplier: multipliers.0,
             inv_multiplier: multipliers.1,
         }
-    }
-    #[inline(always)]
-    pub fn calc_simd(&mut self, real: Simd<f64, N>) -> Simd<f64, N> {
-        self.wilders = calc_simd(self.wilders, real, (self.multiplier, self.inv_multiplier));
-        self.wilders
     }
     #[inline(always)]
     pub fn partial_calc_simd(

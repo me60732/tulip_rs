@@ -1,4 +1,4 @@
-use tulip_rs::indicators::vortex::{indicator, TIndicatorState};
+use tulip_rs::indicators::vortex::{Vortex, TIndicatorState, Indicator};
 
 fn main() {
     // Test Input Data
@@ -20,7 +20,7 @@ fn main() {
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
     // Calculate the Vortex Indicator using the full dataset (no optional outputs)
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match Vortex::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -28,7 +28,7 @@ fn main() {
     println!("Full VI- Line: {:?}", outputs[1]);
 
     // Calculate again with optional TR output enabled
-    let (outputs_with_tr, _) = match indicator(&inputs, &options, Some(&[true])) {
+    let (outputs_with_tr, _) = match Vortex::indicator(&inputs, &options, Some(&[true])) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -40,7 +40,7 @@ fn main() {
     let inputs2 = [&high[..n], &low[..n], &close[..n]];
 
     // Calculate the Vortex Indicator using a partial dataset
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match Vortex::indicator(&inputs2, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::adxr::{indicator as rust_adxr, min_data, TIndicatorState};
+    use tulip_rs::indicators::adxr::{Adxr, Indicator, TIndicatorState};
     use tulip_rs::indicators::adxr::{indicator_by_assets, indicator_by_options};
     use tulip_test::c_bindings::{
         ti_adx, ti_adx_start, ti_adxr, ti_adxr_start, ti_atr, ti_atr_start, ti_dx, ti_dx_start,
@@ -85,7 +85,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
             let (outputs, _) =
-                rust_adxr(&inputs_rust, &options, None).expect("Rust ADXR indicator failed");
+            Adxr::indicator(&inputs_rust, &options, None).expect("Rust ADXR indicator failed");
 
             // Compare the outputs
             for (i, (&c_val, &rust_val)) in output_vec_c.iter().zip(outputs[0].iter()).enumerate() {
@@ -156,7 +156,7 @@ mod tests {
                 // Rust implementation
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (outputs, _) =
-                    rust_adxr(&inputs_rust, &options, None).expect("Rust ADXR indicator failed");
+                    Adxr::indicator(&inputs_rust, &options, None).expect("Rust ADXR indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -225,7 +225,7 @@ mod tests {
             // Run the Rust implementation with ADX optional output enabled
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
             let (rust_outputs, _) =
-                rust_adxr(&inputs_rust, &options, Some(&[true, false, false, false]))
+                Adxr::indicator(&inputs_rust, &options, Some(&[true, false, false, false]))
                     .expect("Rust ADXR indicator failed");
 
             // Extract the ADX optional output (second output)
@@ -314,7 +314,7 @@ mod tests {
             // Run the Rust implementation with DX optional output enabled
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
             let (rust_outputs, _) =
-                rust_adxr(&inputs_rust, &options, Some(&[false, true, false, false]))
+                Adxr::indicator(&inputs_rust, &options, Some(&[false, true, false, false]))
                     .expect("Rust ADXR indicator failed");
 
             // Extract the DX optional output (third output)
@@ -403,7 +403,7 @@ mod tests {
             // Run the Rust implementation with ATR optional output enabled
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
             let (rust_outputs, _) =
-                rust_adxr(&inputs_rust, &options, Some(&[false, false, true, false]))
+                Adxr::indicator(&inputs_rust, &options, Some(&[false, false, true, false]))
                     .expect("Rust ADXR indicator failed");
 
             // Extract the ATR optional output (fourth output)
@@ -492,7 +492,7 @@ mod tests {
             // Run the Rust implementation with TR optional output enabled
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
             let (rust_outputs, _) =
-                rust_adxr(&inputs_rust, &options, Some(&[false, false, false, true]))
+                Adxr::indicator(&inputs_rust, &options, Some(&[false, false, false, true]))
                     .expect("Rust ADXR indicator failed");
 
             // Extract the TR optional output (fifth output)
@@ -580,12 +580,12 @@ mod tests {
 
                 // Get full output from processing all data at once
                 let (full_outputs, _) =
-                    rust_adxr(&inputs_rust, &options, None).expect("Rust ADXR indicator failed");
+                    Adxr::indicator(&inputs_rust, &options, None).expect("Rust ADXR indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Adxr::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let high_vec = high[..min_data_val].to_vec();
@@ -598,7 +598,7 @@ mod tests {
                 ];
 
                 let (first_outputs, mut state) =
-                    rust_adxr(&chunk_inputs, &options, None).expect("Rust ADXR indicator failed");
+                    Adxr::indicator(&chunk_inputs, &options, None).expect("Rust ADXR indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
                 // Process remaining data in chunks
@@ -686,7 +686,7 @@ mod tests {
                 // Get Rust ADXR with ADX optional output enabled
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (rust_outputs, _) =
-                    rust_adxr(&inputs_rust, &options, Some(&[true, false, false, false]))
+                    Adxr::indicator(&inputs_rust, &options, Some(&[true, false, false, false]))
                         .expect("Rust ADXR indicator with ADX optional output failed");
 
                 let rust_adx = &rust_outputs[1]; // ADX is at index 1
@@ -772,7 +772,7 @@ mod tests {
                 // Get Rust ADXR with DX optional output enabled
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (rust_outputs, _) =
-                    rust_adxr(&inputs_rust, &options, Some(&[false, true, false, false]))
+                    Adxr::indicator(&inputs_rust, &options, Some(&[false, true, false, false]))
                         .expect("Rust ADXR indicator with DX optional output failed");
 
                 let rust_dx = &rust_outputs[2]; // DX is at index 2
@@ -858,7 +858,7 @@ mod tests {
                 // Get Rust ADXR with ATR optional output enabled
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (rust_outputs, _) =
-                    rust_adxr(&inputs_rust, &options, Some(&[false, false, true, false]))
+                    Adxr::indicator(&inputs_rust, &options, Some(&[false, false, true, false]))
                         .expect("Rust ADXR indicator with ATR optional output failed");
 
                 let rust_atr = &rust_outputs[3]; // ATR is at index 3
@@ -944,7 +944,7 @@ mod tests {
                 // Get Rust ADXR with TR optional output enabled
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (rust_outputs, _) =
-                    rust_adxr(&inputs_rust, &options, Some(&[false, false, false, true]))
+                    Adxr::indicator(&inputs_rust, &options, Some(&[false, false, false, true]))
                         .expect("Rust ADXR indicator with TR optional output failed");
 
                 let rust_tr = &rust_outputs[4]; // TR is at index 4
@@ -1069,7 +1069,7 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_outputs, _) =
-                    rust_adxr(&stock_inputs, options, None).unwrap_or_else(|_| {
+                    Adxr::indicator(&stock_inputs, options, None).unwrap_or_else(|_| {
                         panic!(
                             "Regular ADXR failed for {} with period {}",
                             stock_symbol, options[0]
@@ -1160,7 +1160,7 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_outputs, _) = rust_adxr(&stock_inputs, options, optional_outputs)
+                let (regular_outputs, _) = Adxr::indicator(&stock_inputs, options, optional_outputs)
                     .unwrap_or_else(|_| {
                         panic!(
                             "Regular ADXR with optional ADX failed for {} with period {}",
@@ -1272,7 +1272,7 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_outputs, _) = rust_adxr(&stock_inputs, options, optional_outputs)
+                let (regular_outputs, _) = Adxr::indicator(&stock_inputs, options, optional_outputs)
                     .unwrap_or_else(|_| {
                         panic!(
                             "Regular ADXR with optional DX failed for {} with period {}",
@@ -1379,7 +1379,7 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_outputs, _) = rust_adxr(&stock_inputs, options, optional_outputs)
+                let (regular_outputs, _) = Adxr::indicator(&stock_inputs, options, optional_outputs)
                     .unwrap_or_else(|_| {
                         panic!(
                             "Regular ADXR with optional ATR failed for {} with period {}",
@@ -1486,7 +1486,7 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_outputs, _) = rust_adxr(&stock_inputs, options, optional_outputs)
+                let (regular_outputs, _) = Adxr::indicator(&stock_inputs, options, optional_outputs)
                     .unwrap_or_else(|_| {
                         panic!(
                             "Regular ADXR with optional TR failed for {} with period {}",
@@ -1684,7 +1684,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_adxr(&inputs, options, None).expect("Regular ADXR indicator failed");
+                    Adxr::indicator(&inputs, options, None).expect("Regular ADXR indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -1762,7 +1762,7 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result with optional outputs
-                let (regular_results, _) = rust_adxr(&inputs, options, optional_outputs)
+                let (regular_results, _) = Adxr::indicator(&inputs, options, optional_outputs)
                     .expect("Regular ADXR indicator with optional outputs failed");
 
                 let simd_adxr_result = &all_simd_results[idx][0];
@@ -1965,7 +1965,7 @@ mod tests {
 
             // Compare each SIMD result with regular indicator over the full data
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
-                let (regular_results, _) = rust_adxr(
+                let (regular_results, _) = Adxr::indicator(
                     &[high.as_slice(), low.as_slice(), close.as_slice()],
                     options,
                     None,

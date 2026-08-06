@@ -1,4 +1,4 @@
-use tulip_rs::indicators::pvi::{indicator, TIndicatorState};
+use tulip_rs::indicators::pvi::{Indicator, Pvi, TIndicatorState};
 
 fn main() {
     // Example input data: close prices and volume
@@ -16,7 +16,7 @@ fn main() {
     let options = [];
 
     // Calculate the pvi using the indicator function
-    let (outputs, mut state) = match indicator(&inputs, &options, None) {
+    let (outputs, mut state) = match Pvi::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

@@ -1,19 +1,16 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::max::{
-    CHUNK_1, CHUNK_4,
-};
+pub use crate::indicator_types::{TIndicatorState, TState, Indicator, IndicatorResult};
 
 pub use crate::indicators::{max::State as MaxState, min::State as MinState};
 
-use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 3;
+pub const INPUTS: usize = 3;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 3;
+pub const OPTIONS: usize = 3;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -49,23 +46,20 @@ pub mod by_options {
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
-    state: State,
+    state: State<Warm>,
     high: Vec<f64>,
     low: Vec<f64>,
-    multipliers: (f64, f64),
     k_period: usize,
 }
 impl IndicatorState {
     pub fn new(
-        state: State,
+        state: State<Warm>,
         high: &[f64],
         low: &[f64],
-        multipliers: (f64, f64),
         k_period: usize,
     ) -> Self {
         Self {
             state,
-            multipliers,
             high: high[high.len() - k_period..].to_vec(),
             low: low[low.len() - k_period..].to_vec(),
             k_period,
@@ -76,7 +70,7 @@ impl IndicatorState {
 impl TIndicatorState<3> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         _optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -93,35 +87,13 @@ impl TIndicatorState<3> for IndicatorState {
                 crate::uninit_vec!(f64, capacity),
             )
         };
-
-        if CHUNK_1.contains(&self.k_period) {
-            cycle::<1>(
-                (&self.high, &self.low, close),
-                self.k_period,
-                0,
-                self.multipliers,
-                &mut self.state,
-                (&mut k_line, &mut d_line),
-            );
-        } else if CHUNK_4.contains(&self.k_period) {
-            cycle::<4>(
-                (&self.high, &self.low, close),
-                self.k_period,
-                0,
-                self.multipliers,
-                &mut self.state,
-                (&mut k_line, &mut d_line),
-            );
-        } else {
-            cycle::<8>(
-                (&self.high, &self.low, close),
-                self.k_period,
-                0,
-                self.multipliers,
-                &mut self.state,
-                (&mut k_line, &mut d_line),
-            );
-        }
+        cycle(
+            (&self.high, &self.low, close),
+            self.k_period,
+            0,
+            &mut self.state,
+            (&mut k_line, &mut d_line),
+        );
 
         self.high.drain(..self.high.len() - self.k_period);
         self.low.drain(..self.low.len() - self.k_period);
@@ -130,17 +102,21 @@ impl TIndicatorState<3> for IndicatorState {
     }
 }
 #[derive(Serialize, Deserialize)]
-pub struct State {
-    pub prev_k: Buffer,
-    pub prev_d: Buffer,
-    pub min_state: MinState,
-    pub max_state: MaxState,
+#[serde(bound = "")]
+pub struct State<S = Cold> {
+    pub prev_k: Buffer<S>,
+    pub prev_d: Buffer<S>,
+    pub min_state: MinState<S>,
+    pub max_state: MaxState<S>,
     pub k_sum: f64,
     pub d_sum: f64,
+    pub k_multiplier: f64,
+    pub d_multiplier: f64
 }
 
-impl State {
+impl State<Cold> {
     pub fn new(min: (f64, usize), max: (f64, usize), k_slow: usize, d_period: usize) -> Self {
+        let (k_multiplier, d_multiplier) = multiplier(k_slow, d_period);
         State {
             min_state: MinState::new(min.0, min.1),
             max_state: MaxState::new(max.0, max.1),
@@ -148,280 +124,116 @@ impl State {
             prev_d: Buffer::new(d_period),
             k_sum: 0.0,
             d_sum: 0.0,
+            k_multiplier,
+            d_multiplier,
         }
     }
+    
     pub fn init_state(
         inputs: (&[f64], &[f64], &[f64]),
         k_period: usize,
         k_slow: usize,
         d_period: usize,
         k_line: &mut [f64],
-    ) -> (Self, usize, usize) {
+    ) -> (State<Warm>, usize, usize) {
         let (high, low, _) = inputs;
-        let mut state = Self::new((low[0], k_period), (high[0], k_period), k_slow, d_period);
-        let (k_multiplier, _d_multiplier) = &multiplier(k_slow, d_period);
+    
+        let mut min_state = MinState::init_state(low, k_period + 1);
+        let mut max_state = MaxState::init_state(high, k_period + 1);
+        let mut prev_k = Buffer::new(k_slow);
+        let mut prev_d = Buffer::new(d_period);
+        let mut k_sum = 0.0;
+        let mut d_sum = 0.0;
+        let (k_multiplier, d_multiplier) = multiplier(k_slow, d_period);
         let mut k_count = 0;
         let mut start = 0;
         for i in k_period + 1..k_period + k_slow + d_period {
-            let k_fast = state.calc_kfast(
+            let k_fast = calc_kfast::<4>(
+                &mut min_state,
+                &mut max_state,
                 inputs,
                 i,
                 k_period,
             );
-            state.k_sum += k_fast;
-            if let Some(k_old) = state.prev_k.push_with_info(k_fast) {
-                state.k_sum -= k_old;
+            k_sum += k_fast;
+            if let Some(k_old) = prev_k.push_with_info(k_fast) {
+                k_sum -= k_old;
             }
-            if state.prev_k.is_full() {
+            if prev_k.is_full() {
                 // Buffer was full so a value was replaced.
-                let k = state.k_sum * k_multiplier;
+                let k = k_sum * k_multiplier;
                 k_line[k_count] = k;
                 k_count += 1;
-                state.d_sum += k;
-                state.prev_d.push(k);
+                d_sum += k;
+                prev_d.push(k);
             }
             start = i;
         }
         start += 1;
-        (state, k_count, start)
+        (State {
+            prev_k: prev_k.into_full(),
+            prev_d: prev_d.into_full(),
+            min_state,
+            max_state,
+            k_sum,
+            d_sum,
+            k_multiplier,
+            d_multiplier,
+        }, k_count, start)
     }
-    /// Calculates the Stochastic Oscillator %K and %D values for a single data point.
-    ///
-    /// # Arguments
-    ///
-    /// * `state` - A mutable reference to the current `State`.
-    /// * `inputs` - A tuple of three slices: `(high, low, close)`.
-    /// * `i` - The current index within `close`.
-    /// * `k_period` - The lookback period for the fast %K calculation.
-    /// * `multipliers` - A tuple `(k_multiplier, d_multiplier)` for the slow %K and %D averages.
-    ///
-    /// # Returns
-    ///
-    /// A tuple `(k, d)` — the slow %K and %D values for the current bar.
+}
+
+impl TState for State<Warm> {
+    type Inputs<'a> = ((&'a [f64], &'a [f64], &'a [f64]), usize, usize);
+    type Outputs = (f64, f64);
     #[inline(always)]
-    pub fn calc(
+    fn calc(
         &mut self,
-        inputs: (&[f64], &[f64], &[f64]),
-        i: usize,
-        k_period: usize,
-        multipliers: (f64, f64),
+        inputs: ((&[f64], &[f64], &[f64]), usize, usize),
     ) -> (f64, f64) {
-        let (k_multiplier, d_multiplier) = multipliers;
+        self.calc_chuncked::<4>(inputs)
+    }
+}
+impl State<Warm> {
+    #[inline(always)]
+    pub fn calc_chuncked<const N: usize>(
+        &mut self,
+        (inputs, i, k_period): ((&[f64], &[f64], &[f64]), usize, usize),
+    ) -> (f64, f64) {
     
-        let kfast = self.calc_kfast(
+        let kfast = calc_kfast::<N>(
+            &mut self.min_state,
+            &mut self.max_state,
             inputs,
             i,
             k_period,
         );
     
-        if let Some(old_k) = self.prev_k.push_with_info(kfast) {
-            self.k_sum += kfast - old_k;
-        } else {
-            self.k_sum += kfast;
-        }
-        let k = self.k_sum * k_multiplier;
-        if let Some(old_d) = self.prev_d.push_with_info(k) {
-            self.d_sum += k - old_d;
-        } else {
-            self.d_sum += k;
-        }
-    
-        (k, self.d_sum * d_multiplier)
-    }
-    #[inline(always)]
-    unsafe fn calc_unchecked<const N: usize>(
-        &mut self,
-        inputs: (&[f64], &[f64], &[f64]),
-        i: usize,
-        k_period: usize,
-        multipliers: (f64, f64),
-    ) -> (f64, f64) {
-        let (k_multiplier, d_multiplier) = multipliers;
-    
-        let kfast = self.calc_kfast_unchecked::<N>(
-            inputs,
-            i,
-            k_period,
-        );
-    
-        let old_k = self.prev_k.push_with_info_unchecked(kfast);
+        let old_k = self.prev_k.push_with_info(kfast);
         self.k_sum += kfast - old_k;
-        let k = self.k_sum * k_multiplier;
-        let old_d = self.prev_d.push_with_info_unchecked(k);
+        let k = self.k_sum * self.k_multiplier;
+        let old_d = self.prev_d.push_with_info(k);
         self.d_sum += k - old_d;
     
-        (k, self.d_sum * d_multiplier)
-    }
-    
-    #[inline(always)]
-    fn calc_kfast(
-        &mut self,
-        inputs: (&[f64], &[f64], &[f64]),
-        i: usize,
-        period: usize,
-    ) -> f64 {
-        let (high, low, close) = inputs;
-        let shift = low.len() - close.len();
-    
-        let (min, _) = self.min_state.calc(low, i + shift, (period, period - 1));
-        let (max, _) = self.max_state.calc(high, i + shift, (period, period - 1));
-    
-        100.0 * (close[i] - min) / (max - min).max(f64::EPSILON)
-    }
-    #[inline(always)]
-    unsafe fn calc_kfast_unchecked<const N: usize>(
-        &mut self,
-        inputs: (&[f64], &[f64], &[f64]),
-        i: usize,
-        period: usize,
-    ) -> f64 {
-        let (high, low, close) = inputs;
-        let shift = low.len() - close.len();
-    
-        let (min, _) = self.min_state.calc_unchecked::<N>(low, i + shift, (period, period - 1));
-        let (max, _) = self.max_state.calc_unchecked::<N>(high, i + shift, (period, period - 1));
-    
-        100.0 * (close.get_unchecked(i) - min) / (max - min).max(f64::EPSILON)
+        (k, self.d_sum * self.d_multiplier)
     }
 }
-/// Returns information about the Stochastic Oscillator indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the Stochastic Oscillator indicator.
-pub const INFO: Info = Info {
-    name: "stoch",
-    full_name: "Stochastic Oscillator",
-    indicator_type: IndicatorType::Momentum,
-    inputs: &["high", "low", "close"],
-    options: &["k_period", "k_slow", "d_period"],
-    outputs: &["stoch_k", "stoch_d"],
-    optional_outputs: &[],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "stoch",
-        label: "STOCH",
-        display_type: DisplayType::Indicator,
-        outputs: &["stoch_k", "stoch_d"],
-    }],
-};
-/// Returns the minimum amount of data required for the Stochastic Oscillator indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the Stochastic Oscillator calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    (options[0] + options[1] + options[2]) as usize + 1
+
+#[inline(always)]
+fn calc_kfast<const N: usize>(
+    min_state: &mut MinState<Warm>,
+    max_state: &mut MaxState<Warm>,
+    (high, low, close): (&[f64], &[f64], &[f64]),
+    i: usize,
+    period: usize,
+) -> f64 {
+    let shift = low.len() - close.len();
+
+    let (min, _) = unsafe { min_state.calc_chuncked_unchecked::<N>((low, i + shift, (period, period - 1))) };
+    let (max, _) = unsafe { max_state.calc_chuncked_unchecked::<N>((high, i + shift, (period, period - 1))) };
+
+    100.0 * (close[i] - min) / (max - min).max(f64::EPSILON)
 }
-
-/// Calculates the output lengths for the Stochastic Oscillator given the input data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the Stochastic Oscillator calculation.
-///
-/// # Returns
-///
-/// A tuple `(k_capacity, d_capacity)` representing the total %K output length and the %D output length.
-pub fn output_length(data_len: usize, options: &[f64]) -> (usize, usize) {
-    let d_capacity = data_len - min_data(options) + 1;
-    (d_capacity + options[2] as usize, d_capacity)
-}
-
-/// Calculates the Stochastic Oscillator indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — high prices
-/// * `inputs[1]` — low prices
-/// * `inputs[2]` — close prices
-///
-/// # Options
-///
-/// * `options[0]` — k_period
-/// * `options[1]` — k_slow
-/// * `options[2]` — d_period
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `_optional_outputs` - Unused; this indicator has no optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where:
-/// - `outputs[0]` — `stoch_k`
-/// - `outputs[1]` — `stoch_d`
-///
-/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    _optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let k_period = options[0] as usize;
-
-    validate_inputs(inputs, min_data(options))?;
-    let [high, low, close] = inputs;
-
-    let (mut k_line, mut d_line, mut state, outputs, start, multipliers);
-    {
-        let (k_capacity, d_capacity) = output_length(high.len(), options);
-        k_line = crate::uninit_vec!(f64, k_capacity);
-        d_line = crate::uninit_vec!(f64, d_capacity);
-
-        let k_slow = options[1] as usize;
-        let d_period = options[2] as usize;
-        multipliers = multiplier(k_slow, d_period);
-        let k_count;
-        (state, k_count, start) =
-            State::init_state((high, low, close), k_period, k_slow, d_period, &mut k_line);
-        outputs = (&mut k_line[k_count..], d_line.as_mut_slice());
-    }
-
-    if CHUNK_1.contains(&k_period) {
-        cycle::<1>(
-            (high, low, close),
-            k_period,
-            start,
-            multipliers,
-            &mut state,
-            outputs,
-        );
-    } else if CHUNK_4.contains(&k_period) {
-        cycle::<4>(
-            (high, low, close),
-            k_period,
-            start,
-            multipliers,
-            &mut state,
-            outputs,
-        );
-    } else {
-        cycle::<8>(
-            (high, low, close),
-            k_period,
-            start,
-            multipliers,
-            &mut state,
-            outputs,
-        );
-    }
-
-    Ok((
-        vec![k_line, d_line],
-        IndicatorState::new(state, high, low, multipliers, k_period),
-    ))
-}
-
 /// Performs the main calculation loop for the Stochastic Oscillator indicator.
 ///
 /// # Arguments
@@ -432,23 +244,18 @@ pub fn indicator(
 /// * `multipliers` - A tuple `(k_multiplier, d_multiplier)` for the slow %K and %D averages.
 /// * `state` - A mutable reference to the current `State`.
 /// * `outputs` - A mutable tuple `(k_line, d_line)` of output slices.
-fn cycle<const N: usize>(
+fn cycle(
     inputs: (&[f64], &[f64], &[f64]),
     k_period: usize,
     start: usize,
-    multipliers: (f64, f64),
-    state: &mut State,
-    outputs: (&mut [f64], &mut [f64]),
+    state: &mut State<Warm>,
+    (k_line, d_line): (&mut [f64], &mut [f64]),
 ) {
-    let close = inputs.2;
-    let (k_line, d_line) = outputs;
-
-    for (j, i) in (start..close.len()).enumerate() {
+    for (j, i) in (start..inputs.2.len()).enumerate() {
         unsafe {
             (*k_line.get_unchecked_mut(j), *d_line.get_unchecked_mut(j)) =
-                state.calc_unchecked::<N>(inputs, i, k_period, multipliers);
+                state.calc((inputs, i, k_period));
         }
-        //k_count += 1;
     }
 }
 
@@ -456,4 +263,74 @@ fn cycle<const N: usize>(
 #[inline(always)]
 pub fn multiplier(k_slow: usize, d_period: usize) -> (f64, f64) {
     (1.0 / k_slow as f64, 1.0 / d_period as f64)
+}
+
+
+pub struct Stoch;
+
+impl Indicator<INPUTS, OPTIONS> for Stoch {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "stoch",
+        full_name: "Stochastic Oscillator",
+        indicator_type: IndicatorType::Momentum,
+        inputs: &["high", "low", "close"],
+        options: &["k_period", "k_slow", "d_period"],
+        outputs: &["stoch_k", "stoch_d"],
+        optional_outputs: &[],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "stoch",
+            label: "STOCH",
+            display_type: DisplayType::Indicator,
+            outputs: &["stoch_k", "stoch_d"],
+        }],
+    };
+
+    fn min_data(options: &[f64; OPTIONS]) -> usize {
+        (options[0] + options[1] + options[2]) as usize + 1
+    }
+
+    fn slot_lengths(data_len: usize, options: &[f64; OPTIONS]) -> Vec<usize> {
+        let d_capacity = data_len - Self::min_data(options) + 1;
+        vec![d_capacity + options[2] as usize, d_capacity]
+    }
+    
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        _optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        let k_period = options[0] as usize;
+    
+        validate_inputs(inputs, Self::min_data(options))?;
+        let [high, low, close] = inputs;
+    
+        let (mut k_line, mut d_line, mut state, outputs, start);
+        {
+            let caps = Self::slot_lengths(high.len(), options);
+            k_line = crate::uninit_vec!(f64, caps[0]);
+            d_line = crate::uninit_vec!(f64, caps[1]);
+    
+            let k_slow = options[1] as usize;
+            let d_period = options[2] as usize;
+            let k_count;
+            (state, k_count, start) =
+                State::init_state((high, low, close), k_period, k_slow, d_period, &mut k_line);
+            outputs = (&mut k_line[k_count..], d_line.as_mut_slice());
+        }
+        cycle(
+            (high, low, close),
+            k_period,
+            start,
+            &mut state,
+            outputs,
+        );
+    
+        Ok((
+            vec![k_line, d_line],
+            IndicatorState::new(state, high, low, k_period),
+        ))
+    }
 }

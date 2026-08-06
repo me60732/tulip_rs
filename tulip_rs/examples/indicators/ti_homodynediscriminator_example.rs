@@ -1,5 +1,5 @@
 use tulip_rs::indicators::homodynediscriminator::{
-    indicator, indicator_by_assets, TIndicatorState,
+    indicator_by_assets, HomodyneDiscriminator, Indicator, TIndicatorState,
 };
 
 // 80 bars of close prices
@@ -22,7 +22,7 @@ fn main() {
     let inputs = [CLOSE.as_slice()];
 
     // --- Full run ---
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match HomodyneDiscriminator::indicator(&inputs, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -36,10 +36,11 @@ fn main() {
     let split = CLOSE.len() - 5;
     let inputs_partial = [&CLOSE[..split]];
 
-    let (outputs_partial, mut state) = match indicator(&inputs_partial, &options, None) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (outputs_partial, mut state) =
+        match HomodyneDiscriminator::indicator(&inputs_partial, &options, None) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
 
     println!(
         "\nPartial run ({} bars, {} values):",

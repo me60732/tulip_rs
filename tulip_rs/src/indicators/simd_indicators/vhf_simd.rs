@@ -1,106 +1,57 @@
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::by_asset::vhf::indicator_by_assets;
 
+pub use crate::indicator_types::{TSimdState, TState};
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::vhf::indicator_by_options;
-use crate::indicators::simd_indicators::{
-    max_simd::SimdState as SimdMaxState, min_simd::SimdState as SimdMinState,
-};
-pub(crate) use crate::indicators::simd_indicators::max_simd::CHUNK_1;
+
 use crate::indicators::vhf::State;
-use std::simd::{num::SimdFloat, Simd};
-
 /// SIMD-parallel state for the Vertical Horizontal Filter (VHF) indicator, holding `N` lanes of per-asset state.
-pub struct SimdState<const N: usize> {
-    min_state: SimdMinState<N>,
-    max_state: SimdMaxState<N>,
-    sum: Simd<f64, N>,
-}
-impl<const N: usize> SimdState<N> {
-    /// Constructs a `SimdState` by gathering scalar per-asset states into SIMD vectors.
-    pub fn new(states: &mut [&mut State]) -> Self {
-        let mut min_state = Vec::with_capacity(N);
-        let mut max_state = Vec::with_capacity(N);
-        let mut sum = [0.0; N];
-        for (i, state) in states.iter_mut().enumerate() {
-            min_state.push(&mut state.min_state);
-            max_state.push(&mut state.max_state);
-            sum[i] = state.sum;
-        }
-        let min_state = SimdMinState::new(&min_state);
-        let max_state = SimdMaxState::new(&max_state);
-
-        Self {
-            min_state,
-            max_state,
-            sum: Simd::from_array(sum),
-        }
-    }
-    /// Writes the current SIMD lane values back into the provided scalar per-asset states.
-    pub fn write_states(&self, states: &mut [&mut State]) {
-        let mut max_refs = Vec::with_capacity(N);
-        let mut min_refs = Vec::with_capacity(N);
-        let sum = self.sum.as_array();
-
-        for (i, state) in states.iter_mut().enumerate() {
-            max_refs.push(&mut state.max_state);
-            min_refs.push(&mut state.min_state);
-            state.sum = sum[i];
-        }
-        self.max_state.write_states(&mut max_refs);
-        self.min_state.write_states(&mut min_refs);
-    }
-}
+use crate::types::Warm;
+use std::simd::{num::SimdFloat, Simd};
 pub mod assets {
     //! Per-asset road SIMD helpers for the Vertical Horizontal Filter (VHF) indicator.
     use super::*;
     use crate::indicators::simd_indicators::{
-        max_simd::assets::Calc as CalcMax, min_simd::assets::Calc as CalcMin,
+        max_simd::assets::SimdState as MaxSimdState, min_simd::assets::SimdState as MinSimdState,
     };
-
-    /// Trait providing the unchecked per-asset SIMD VHF computation.
-    pub trait Calc<const N: usize> {
-        /// Computes VHF for `N` asset lanes simultaneously (unsafe, bounds-unchecked).
-        ///
-        /// Updates the rolling absolute-change sum and finds the high/low over the window,
-        /// then returns `(max - min) / sum` for each lane.
-        ///
-        /// # Arguments
-        ///
-        /// * `values` - Tuple `(current, prev, oldest_in_window, dropped)` needed for the running sum.
-        /// * `real` - Raw price pointers used for window min/max scans.
-        /// * `look_back` - Window size (same for all lanes in assets mode).
-        /// * `i` - Current bar index.
-        ///
-        /// # Safety
-        /// `real` pointers must be valid for reads in `[i - look_back, i]`.
-        unsafe fn calc_unchecked_simd<const WINDOW_LANES: usize>(
-            &mut self,
-            values: (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-            real: [*const f64; N],
-            look_back: usize,
-            i: usize,
-        ) -> Simd<f64, N>;
+    use crate::ring_buffer::single_buffer::generic_buffer::{SimdBuffer, SimdRingBuffer};
+    pub struct SimdState<const N: usize> {
+        buffer: SimdBuffer<N>,
+        min_state: MinSimdState<N>,
+        max_state: MaxSimdState<N>,
+        prev_real: Simd<f64, N>,
+        sum: Simd<f64, N>,
     }
+    impl<const N: usize> TSimdState for SimdState<N> {
+        type ScalarState = State<Warm>;
+        crate::simd_state_impl!(
+            sub: [(min_state: MinSimdState<N>), (max_state: MaxSimdState<N>)],
+            scalar: [sum, prev_real],
+            buf: [(buffer: SimdBuffer<N>, from_f64_buffers)]
+        );
+    }
+    /// Trait providing the unchecked per-asset SIMD VHF computation.
+    
+    impl<const N: usize> TState for SimdState<N> {
+        type Inputs<'a> = (Simd<f64, N>, [*const f64; N], usize, usize);
+        type Outputs = Simd<f64, N>;
 
-    impl<const N: usize> Calc<N> for SimdState<N> {
         #[inline(always)]
-        unsafe fn calc_unchecked_simd<const WINDOW_LANES: usize>(
+        fn calc(
             &mut self,
-            values: (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-            real: [*const f64; N],
-            look_back: usize,
-            i: usize,
-        ) -> Simd<f64, N> {
-            let (value, prev_real, old_real, drop_real) = values;
-            self.sum += (value - prev_real).abs() - (old_real - drop_real).abs();
+            (value, real, look_back, i): Self::Inputs<'_>
+        ) -> Self::Outputs {
+            let new = (value - self.prev_real).abs();
+            self.sum += new - self.buffer.push_with_info(new);
+            self.prev_real = value;
 
             let (min, _) = self
                 .min_state
-                .calc_unchecked_simd_w_current::<WINDOW_LANES>(real, i, look_back, value);
+                .calc_w_current::<4>((real, i, look_back, value));
             let (max, _) = self
                 .max_state
-                .calc_unchecked_simd_w_current::<WINDOW_LANES>(real, i, look_back, value);
+                .calc_w_current::<4>((real, i, look_back, value));
 
             (max - min) / self.sum.simd_max(Simd::splat(f64::EPSILON))
         }
@@ -111,42 +62,44 @@ pub mod options {
     //! Per-option road SIMD helpers for the Vertical Horizontal Filter (VHF) indicator.
     use super::*;
     use crate::indicators::simd_indicators::{
-        max_simd::options::Calc as CalcMax, min_simd::options::Calc as CalcMin,
+        max_simd::options::SimdState as MaxSimdState, min_simd::options::SimdState as MinSimdState,
     };
-    /// Trait providing the unchecked per-option SIMD VHF computation.
-    pub trait Calc<const N: usize> {
-        /// Computes VHF for `N` option lanes simultaneously (unsafe, bounds-unchecked).
-        ///
-        /// Each lane may have a different look-back period supplied via `look_back: Simd<usize, N>`.
-        ///
-        /// # Safety
-        /// `real` pointers must each be valid for reads within their respective window.
-        unsafe fn calc_unchecked_simd(
-            &mut self,
-            values: (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-            real: [*const f64; N],
-            look_back: Simd<usize, N>,
-            i: Simd<usize, N>,
-        ) -> Simd<f64, N>;
+    use crate::ring_buffer::unsync_multi_buffer::multi_buffer::UnsyncBuffer;
+    pub struct SimdState<const N: usize> {
+        buffer: UnsyncBuffer<N, f64, Warm>,
+        min_state: MinSimdState<N>,
+        max_state: MaxSimdState<N>,
+        prev_real: Simd<f64, N>,
+        sum: Simd<f64, N>,
     }
-    impl<const N: usize> Calc<N> for SimdState<N> {
-        #[inline(always)]
-        unsafe fn calc_unchecked_simd(
-            &mut self,
-            values: (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-            real: [*const f64; N],
-            look_back: Simd<usize, N>,
-            i: Simd<usize, N>,
-        ) -> Simd<f64, N> {
-            let (value, prev_real, old_real, drop_real) = values;
-            self.sum += (value - prev_real).abs() - (old_real - drop_real).abs();
+    impl<const N: usize> TSimdState for SimdState<N> {
+        type ScalarState = State<Warm>;
+        crate::simd_state_impl!(
+            sub: [(min_state: MinSimdState<N>), (max_state: MaxSimdState<N>)],
+            scalar: [sum, prev_real],
+            buf: [(buffer: UnsyncBuffer<N, f64, Warm>, from_f64_buffers)]
+        );
+    }
+    
+    impl<const N: usize> TState for SimdState<N> {
+        type Inputs<'a> = (Simd<f64, N>, [*const f64; N], Simd<usize, N>, Simd<usize, N>);
+        type Outputs = Simd<f64, N>;
 
+        
+        #[inline(always)]
+        fn calc(
+            &mut self,
+            (value, real, look_back, i): Self::Inputs<'_>
+        ) -> Self::Outputs {
+            let new = (value - self.prev_real).abs();
+            self.sum += new - self.buffer.push_with_info(new).0;
+            self.prev_real = value;
             let (min, _) = self
                 .min_state
-                .calc_unchecked_simd_w_current(real, i, look_back, value);
+                .calc_w_current((real, i, look_back, value));
             let (max, _) = self
                 .max_state
-                .calc_unchecked_simd_w_current(real, i, look_back, value);
+                .calc_w_current((real, i, look_back, value));
 
             (max - min) / self.sum.simd_max(Simd::splat(f64::EPSILON))
         }

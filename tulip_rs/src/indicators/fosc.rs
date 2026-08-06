@@ -1,15 +1,15 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{TIndicatorState, Indicator, IndicatorResult, TState};
 //use crate::indicators::linreg::State as LinregState;
-use crate::indicators::tsf::{Calc as TsfCalc, output_length as tsf_output_length, State as TsfState};
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+use crate::indicators::tsf::{Tsf, State as TsfState};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 1;
+pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -45,12 +45,12 @@ pub mod by_options {
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
-    state: State,
+    state: State<Warm>,
     real: Vec<f64>,
     period: usize,
 }
 impl IndicatorState {
-    pub fn new(state: State, real: &[f64], period: usize) -> Self {
+    pub fn new(state: State<Warm>, real: &[f64], period: usize) -> Self {
         Self {
             state,
             real: real[real.len() - period + 1..].to_vec(),
@@ -86,7 +86,6 @@ impl TIndicatorState<1> for IndicatorState {
             &self.real,
             &mut self.state,
             self.period,
-            self.period - 1,
             (
                 &mut fosc_line,
                 &mut tsf_line,
@@ -108,30 +107,29 @@ impl TIndicatorState<1> for IndicatorState {
     }
 }
 #[derive(Serialize, Deserialize)]
-pub struct State {
-    pub tsf_state: TsfState,
+#[serde(bound = "")]
+pub struct State<S = Cold> {
+    pub tsf_state: TsfState<S>,
     pub tsf: f64,
 }
-impl State {
-    pub fn new(tsf: f64, sum_x: f64, sum_y: f64, sum_xy: f64, per: f64) -> Self {
+impl State<Cold> {
+    /*pub fn new(tsf: f64, sum_x: f64, sum_y: f64, sum_xy: f64, per: f64) -> Self {
         Self {
             tsf,
             tsf_state: TsfState::new(sum_x, sum_y, sum_xy, per),
         }
-    }
+    }*/
     pub fn init_state(
         real: &[f64],
         period: usize,
-        out_vecs: (&mut [f64], &mut [f64], &mut [f64], &mut [f64]),
-    ) -> Self {
-        let (tsf_line, linreg_line, slope_line, intercept_line) = out_vecs;
+        (tsf_line, linreg_line, slope_line, intercept_line): (&mut [f64], &mut [f64], &mut [f64], &mut [f64]),
+    ) -> State<Warm> {
         let (has_optional, _, _, _, _) =
             crate::calc_want_flags!(tsf_line, linreg_line, slope_line, intercept_line);
-        let mut state = Self {
-            tsf: 0.0,
-            tsf_state: TsfState::init_state(&real[1..period], period),
-        };
-        let (_, tsf, linreg, slope, intercept) = state.calc(real[1], real[period], period);
+
+        let mut tsf_state = TsfState::init_state(&real[1..period], period);
+        let (tsf, linreg, slope, intercept) = tsf_state.calc((real[1], real[period]));
+        
         if has_optional {
             crate::init_store_optional_outputs!(period, real.len(),
                 tsf_line => tsf,
@@ -140,177 +138,28 @@ impl State {
                 intercept_line => intercept
             );
         }
-        state
+        State {
+            tsf_state,
+            tsf,
+        }
     }
+
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64);
+    type Outputs = (f64, f64, f64, f64, f64);
     #[inline(always)]
-    pub fn calc(
+    fn calc<'a>(
         &mut self,
-        prev_value: f64,
-        value: f64,
-        period: usize,
-    ) -> (f64, f64, f64, f64, f64) {
+        (prev_value, value): Self::Inputs<'a>
+    ) ->  Self::Outputs {
         let fosc = 100.0 * (value - self.tsf) / value; //.max(f64::EPSILON);
     
         let (tsf, linreg, slope, intercept) =
-            TsfCalc::calc(&mut self.tsf_state, prev_value, value, period);
+            self.tsf_state.calc((prev_value, value));
         self.tsf = tsf;
         (fosc, tsf, linreg, slope, intercept)
     }
-}
-
-/// Returns information about the Forecast Oscillator (FOSC) indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the FOSC indicator.
-pub const INFO: Info = Info {
-    name: "fosc",
-    indicator_type: IndicatorType::Trend,
-    full_name: "Forecast Oscillator",
-    inputs: &["real"],
-    options: &["period"],
-    outputs: &["fosc"],
-    optional_outputs: &["tsf", "linreg", "linregslope", "linregintercept"],
-    display_groups: &[
-        DisplayGroup {
-            offset: None,
-            id: "fosc",
-            label: "FOSC",
-            display_type: DisplayType::Indicator,
-            outputs: &["fosc"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "tsf_linreg_linregintercept",
-            label: "Regression",
-            display_type: DisplayType::Overlay,
-            outputs: &["tsf", "linreg", "linregintercept"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "linregslope",
-            label: "LinReg Slope",
-            display_type: DisplayType::Indicator,
-            outputs: &["linregslope"],
-        },
-    ],
-};
-/// Returns the minimum amount of data required for the FOSC indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the FOSC calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    options[0] as usize + 2
-}
-
-/// Returns the number of output values produced by the FOSC indicator given input data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the FOSC calculation.
-///
-/// # Returns
-///
-/// The number of output values.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-
-/// Calculates the Forecast Oscillator (FOSC) indicator for an entire dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — real (close) prices
-///
-/// # Options
-///
-/// * `options[0]` — period
-///
-/// # Outputs
-///
-/// * `outputs[0]` — `fosc` line
-/// * `outputs[1]` — `tsf` (optional, if requested)
-/// * `outputs[2]` — `linreg` (optional, if requested)
-/// * `outputs[3]` — `linregslope` (optional, if requested)
-/// * `outputs[4]` — `linregintercept` (optional, if requested)
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `optional_outputs` - Optional slice selecting which extra outputs to compute:
-///   index `0` = `tsf`, `1` = `linreg`, `2` = `linregslope`, `3` = `linregintercept`.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is the `fosc` line and
-/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let period = options[0] as usize;
-
-    validate_inputs(inputs, min_data(options))?;
-
-    let real = inputs[0];
-    let (mut fosc_line, mut tsf_line, mut linreg_line, mut slope_line, mut intercept_line);
-    {
-        let capacity = output_length(real.len(), options);
-        let tsf_capacity = tsf_output_length(real.len(), options);
-        (tsf_line, linreg_line, slope_line, intercept_line) = crate::init_optional_outputs_eff!(
-            optional_outputs, &[false, false, false, false],
-            tsf_line: tsf_capacity,
-            linreg_line: tsf_capacity,
-            slope_line: tsf_capacity,
-            intercept_line: tsf_capacity
-        );
-
-        fosc_line = crate::uninit_vec!(f64, capacity);
-    }
-    let mut state = State::init_state(
-        real,
-        period,
-        (
-            &mut tsf_line,
-            &mut linreg_line,
-            &mut slope_line,
-            &mut intercept_line,
-        ),
-    );
-    let outputs = {
-        let offsets = crate::slice_outputs_start!(
-            fosc_line.len(),
-            tsf_line,
-            linreg_line,
-            slope_line,
-            intercept_line
-        );
-        (
-            fosc_line.as_mut_slice(),
-            &mut tsf_line[offsets.0..],
-            &mut linreg_line[offsets.1..],
-            &mut slope_line[offsets.2..],
-            &mut intercept_line[offsets.3..],
-        )
-    };
-
-    // Perform the main FOSC calculation
-    cycle_fosc(&real[2..], &mut state, period, period - 1, outputs);
-
-    Ok((
-        vec![fosc_line, tsf_line, linreg_line, slope_line, intercept_line],
-        IndicatorState::new(state, real, period),
-    ))
 }
 
 /// Performs the main calculation loop for the FOSC indicator using rolling sums.
@@ -326,20 +175,20 @@ pub fn indicator(
 //#[inline(always)]
 fn cycle_fosc(
     real: &[f64],
-    state: &mut State,
+    state: &mut State<Warm>,
     period: usize,
-    start: usize,
-    out_vecs: (&mut [f64], &mut [f64], &mut [f64], &mut [f64], &mut [f64]),
+    (fosc_line, tsf_line, linreg_line, slope_line, intercept_line): (&mut [f64], &mut [f64], &mut [f64], &mut [f64], &mut [f64]),
 ) {
-    let (fosc_line, tsf_line, linreg_line, slope_line, intercept_line) = out_vecs;
     let (has_optional, want_tsf, want_linreg, want_slope, want_intercept) =
         crate::calc_want_flags!(tsf_line, linreg_line, slope_line, intercept_line);
 
     //for (i, &value) in real.iter().enumerate().skip(start) {
-    for (j, i) in (start..real.len()).enumerate() {
-        let prev_value = unsafe { *real.get_unchecked(j) };
-        let value = unsafe { *real.get_unchecked(i) };
-        let (fosc, tsf, linreg, slope, intercept) = state.calc(prev_value, value, period);
+    for (j, i) in (period-1..real.len()).enumerate() {
+        let inputs = unsafe {( 
+            *real.get_unchecked(j), 
+            *real.get_unchecked(i)
+        )};
+        let (fosc, tsf, linreg, slope, intercept) = state.calc(inputs);
 
         unsafe { *fosc_line.get_unchecked_mut(j) = fosc };
 
@@ -354,4 +203,117 @@ fn cycle_fosc(
     }
 }
 
+pub struct Fosc;
+impl Indicator<INPUTS, OPTIONS> for Fosc {
+    type IndicatorState = IndicatorState;
+    /// Returns information about the Forecast Oscillator (FOSC) indicator.
+    ///
+    /// # Returns
+    ///
+    /// An `Info` struct containing metadata about the FOSC indicator.
+    const INFO: Info = Info {
+        name: "fosc",
+        indicator_type: IndicatorType::Trend,
+        full_name: "Forecast Oscillator",
+        inputs: &["real"],
+        options: &["period"],
+        outputs: &["fosc"],
+        optional_outputs: &["tsf", "linreg", "linregslope", "linregintercept"],
+        display_groups: &[
+            DisplayGroup {
+                offset: None,
+                id: "fosc",
+                label: "FOSC",
+                display_type: DisplayType::Indicator,
+                outputs: &["fosc"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "tsf_linreg_linregintercept",
+                label: "Regression",
+                display_type: DisplayType::Overlay,
+                outputs: &["tsf", "linreg", "linregintercept"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "linregslope",
+                label: "LinReg Slope",
+                display_type: DisplayType::Indicator,
+                outputs: &["linregslope"],
+            },
+        ],
+    };
+    /// Returns the minimum amount of data required for the FOSC indicator.
+    ///
+    /// # Arguments
+    ///
+    /// * `options` - A slice containing the options for the FOSC calculation.
+    ///
+    /// # Returns
+    ///
+    /// The minimum amount of data required.
+    fn min_data(options: &[f64; OPTIONS]) -> usize {
+        options[0] as usize + 2
+    }
 
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        let period = options[0] as usize;
+    
+        validate_inputs(inputs, Self::min_data(options))?;
+    
+        let real = inputs[0];
+        let (mut fosc_line, mut tsf_line, mut linreg_line, mut slope_line, mut intercept_line);
+        {
+            let capacity = Self::output_length(real.len(), options);
+            let tsf_capacity = Tsf::output_length(real.len(), options);
+            (tsf_line, linreg_line, slope_line, intercept_line) = crate::init_optional_outputs_eff!(
+                optional_outputs, &[false, false, false, false],
+                tsf_line: tsf_capacity,
+                linreg_line: tsf_capacity,
+                slope_line: tsf_capacity,
+                intercept_line: tsf_capacity
+            );
+    
+            fosc_line = crate::uninit_vec!(f64, capacity);
+        }
+        let mut state = State::init_state(
+            real,
+            period,
+            (
+                &mut tsf_line,
+                &mut linreg_line,
+                &mut slope_line,
+                &mut intercept_line,
+            ),
+        );
+        let outputs = {
+            let offsets = crate::slice_outputs_start!(
+                fosc_line.len(),
+                tsf_line,
+                linreg_line,
+                slope_line,
+                intercept_line
+            );
+            (
+                fosc_line.as_mut_slice(),
+                &mut tsf_line[offsets.0..],
+                &mut linreg_line[offsets.1..],
+                &mut slope_line[offsets.2..],
+                &mut intercept_line[offsets.3..],
+            )
+        };
+    
+        // Perform the main FOSC calculation
+        cycle_fosc(&real[2..], &mut state, period, outputs);
+    
+        Ok((
+            vec![fosc_line, tsf_line, linreg_line, slope_line, intercept_line],
+            IndicatorState::new(state, real, period),
+        ))
+    }
+}

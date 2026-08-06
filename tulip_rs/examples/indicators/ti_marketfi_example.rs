@@ -1,4 +1,4 @@
-use tulip_rs::indicators::marketfi::{indicator, TIndicatorState};
+use tulip_rs::indicators::marketfi::{Marketfi, TIndicatorState, Indicator};
 
 fn main() {
     // Test Input Data
@@ -23,7 +23,7 @@ fn main() {
     let options = [];
 
     // Calculate the MarketFI using the full dataset
-    let (outputs, mut state) = match indicator(&inputs, &options, None) {
+    let (outputs, mut state) = match Marketfi::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

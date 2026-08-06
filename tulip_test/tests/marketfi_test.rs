@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::marketfi::{indicator as rust_marketfi, min_data, TIndicatorState};
+    use tulip_rs::indicators::marketfi::{Marketfi, Indicator,TIndicatorState};
     use tulip_test::c_bindings::{ti_marketfi, ti_marketfi_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -76,7 +76,7 @@ mod tests {
         // Run the Rust implementation
         let inputs_rust = [high.as_slice(), low.as_slice(), volume.as_slice()];
         let (outputs, _) =
-            rust_marketfi(&inputs_rust, &[], None).expect("Rust MARKETFI indicator failed");
+            Marketfi::indicator(&inputs_rust, &[], None).expect("Rust MARKETFI indicator failed");
 
         let output_len_rust = outputs[0].len();
 
@@ -162,7 +162,7 @@ mod tests {
             // Rust implementation
             let inputs_rust = [high.as_slice(), low.as_slice(), volume.as_slice()];
             let (outputs, _) =
-                rust_marketfi(&inputs_rust, &[], None).expect("Rust MarketFI indicator failed");
+                Marketfi::indicator(&inputs_rust, &[], None).expect("Rust MarketFI indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -225,13 +225,13 @@ mod tests {
             let inputs_rust = [high.as_slice(), low.as_slice(), volume.as_slice()];
 
             // Get full output
-            let (full_outputs, _) = rust_marketfi(&inputs_rust, &[], None)
+            let (full_outputs, _) = Marketfi::indicator(&inputs_rust, &[], None)
                 .expect("Failed to run MARKETFI indicator on full data");
 
             // Process in batches
             let mut batch_full_output = Vec::new();
 
-            let min_data_val = min_data(&[]).max(CHUNK_SIZE);
+            let min_data_val = Marketfi::min_data(&[]).max(CHUNK_SIZE);
 
             // First chunk - convert to Vec<&Vec<f64>>
             let high_vec = high[..min_data_val].to_vec();
@@ -243,7 +243,7 @@ mod tests {
                 volume_vec.as_slice(),
             ];
 
-            let (first_outputs, mut state) = rust_marketfi(&chunk_inputs, &[], None)
+            let (first_outputs, mut state) = Marketfi::indicator(&chunk_inputs, &[], None)
                 .expect("Failed to run MARKETFI indicator on first chunk");
             batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -354,7 +354,7 @@ mod tests {
                 stock_volume.as_slice(),
             ];
             let (regular_results, _) =
-                rust_marketfi(&stock_inputs, &[], None).expect("Regular MARKETFI indicator failed");
+                Marketfi::indicator(&stock_inputs, &[], None).expect("Regular MARKETFI indicator failed");
 
             let simd_result = &simd_results[stock_idx][0];
             let regular_result = &regular_results[0];

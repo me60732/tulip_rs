@@ -1,4 +1,4 @@
-use tulip_rs::indicators::vhf::{indicator, TIndicatorState};
+use tulip_rs::indicators::vhf::{Vhf, TIndicatorState, Indicator};
 
 fn main() {
     // Example input data (close prices)
@@ -14,7 +14,7 @@ fn main() {
     let options = [period];
 
     // Calculate the vhf indicator values
-    let (result, _) = match indicator(&inputs, &options, None) {
+    let (result, _) = match Vhf::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -22,7 +22,7 @@ fn main() {
     println!("Full VHF Line: {:?}", result[0]);
 
     let inputs2 = [&close[..close.len() - 5]];
-    let (result2, mut state2) = match indicator(&inputs2, &options, None) {
+    let (result2, mut state2) = match Vhf::indicator(&inputs2, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

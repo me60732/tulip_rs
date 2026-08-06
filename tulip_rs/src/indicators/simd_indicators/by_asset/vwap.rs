@@ -1,9 +1,9 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::assets::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::vwap_simd::SimdState;
+use crate::indicators::simd_indicators::vwap_simd::{SimdState, TSimdState, TState};
 use crate::indicators::vwap::{
-    min_data, output_length, IndicatorState as State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    Vwap, Indicator, IndicatorState as State, INPUTS, OPTIONS,
 };
 use crate::types::IndicatorError;
 use std::simd::Simd;
@@ -22,7 +22,7 @@ impl Driver<State> for VwapDriver {
         _options: Vec<Option<&()>>,
     ) {
         let len = inputs[0][0].len();
-        let mut state = SimdState::new(&states);
+        let mut state = SimdState::from_states(&mut states);
         // Optimization 2: Pre-compute all input and output pointers
         let (high_ptrs, low_ptrs, close_ptrs, volume_ptrs) =
             crate::extract_input_ptrs!(inputs, N, high_ptrs, low_ptrs, close_ptrs, volume_ptrs);
@@ -31,14 +31,14 @@ impl Driver<State> for VwapDriver {
         let want_tp = self.want_optional_outputs;
         // Optimization 3: Simplified main loop with pre-computed offsets
         for i in 0..len {
-            let (high, low, close, volume) = crate::extract_simd_inputs_at_index!(i, N,
+            let inputs = crate::extract_simd_inputs_at_index!(i, N,
                 high @ high_ptrs,
                 low @ low_ptrs,
                 close @ close_ptrs,
                 volume @ volume_ptrs
             );
 
-            let (vwap, tp) = state.calc_simd(high, low, close, volume);
+            let (vwap, tp) = state.calc(inputs);
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, i,
@@ -60,7 +60,7 @@ impl Driver<State> for VwapDriver {
 /// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[high, low, close, volume]` for asset `i`.
 /// * `_options` - Unused; VWAP has no configurable options.
 /// * `optional_outputs` - Pass `Some(&[true])` to include `typprice` as `outputs[i][1]`.
@@ -71,11 +71,11 @@ impl Driver<State> for VwapDriver {
 /// `states[i]` is the final [`State`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    _options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    _options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<State>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(&[]))?;
+    validate_inputs::<INPUTS>(inputs, Vwap::min_data(&[]))?;
 
     let mut road_train = PrimeMover::<N, State>::new();
     let mut want_optional_outputs = false;
@@ -85,7 +85,7 @@ pub fn indicator_by_assets<const N: usize>(
         let asset_inputs = vec![high, low, close, volume];
 
         let (vwap_line, typprice_line) = {
-            let capacity = output_length(high.len(), &[]);
+            let capacity = Vwap::output_length(high.len(), &[]);
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::init_optional_outputs_eff!(

@@ -9,10 +9,10 @@ pub mod import {
     //! sub-modules for the Ultimate Oscillator (ULTOSC) indicator.
     pub(crate) use crate::indicators::simd_indicators::simd_types::F64Constants;
     pub(crate) use crate::indicators::ultosc::State;
-    pub(crate) use crate::ring_buffer::multi_buffer::multi_buffer::{MultiBuffer, RingBuffer};
+    pub(crate) use crate::ring_buffer::multi_buffer::multi_buffer::MultiBuffer;
     pub(crate) use std::simd::{num::SimdFloat, Simd};
     pub(crate) struct UltoscF64Constants<const N: usize>;
-
+    pub(crate) use crate::types::Warm;
     impl<const N: usize> UltoscF64Constants<N> {
         pub const DIV: Simd<f64, N> = Simd::splat(100.0 / 7.0);
     }
@@ -21,11 +21,12 @@ pub mod import {
 pub mod assets {
     //! Per-asset SIMD state and compute for the Ultimate Oscillator (ULTOSC) indicator.
     use super::import::*;
+    pub use crate::indicator_types::{TSimdState, TState};
     pub(crate) use crate::ring_buffer::multi_buffer::multi_buffer::SimdRingBuffer;
     /// SIMD-parallel state for the Ultimate Oscillator (ULTOSC) indicator, holding `N` lanes of
     /// per-asset state.
     pub struct SimdState<const N: usize> {
-        buffer: MultiBuffer<2, Simd<f64, N>>,
+        buffer: MultiBuffer<2, Simd<f64, N>, Warm>,
 
         bp_short_sum: Simd<f64, N>,
         bp_medium_sum: Simd<f64, N>,
@@ -38,15 +39,16 @@ pub mod assets {
         prev_close: Simd<f64, N>,
     }
 
-    impl<const N: usize> SimdState<N> {
+    impl<const N: usize> TSimdState for SimdState<N> {
+        type ScalarState = State<Warm>;
         /// Constructs a [`SimdState`] by interleaving the fields of `N` scalar [`State`] references
         /// into SIMD lanes.
-        pub fn new(states: &mut [&mut State]) -> Self {
+        fn from_states(states: &mut [&mut Self::ScalarState]) -> Self {
             debug_assert_eq!(states.len(), N, "Number of states must match SIMD width");
 
-            let buffer_refs: [&MultiBuffer<2, f64>; N] =
+            let buffer_refs: [&MultiBuffer<2, f64, Warm>; N] =
                 core::array::from_fn(|i| &states[i].buffer);
-            let buffer = <MultiBuffer<2, Simd<f64, N>> as SimdRingBuffer<2, N>>::from_f64_buffers(
+            let buffer = <MultiBuffer<2, Simd<f64, N>, Warm> as SimdRingBuffer<2, N>>::from_f64_buffers(
                 buffer_refs,
             );
 
@@ -80,37 +82,8 @@ pub mod assets {
             }
         }
 
-        /// Converts this SIMD state into an owned array of `N` scalar [`State`] values.
-        pub fn to_states(&self) -> [State; N] {
-            let buffers = self.buffer.to_f64_buffers();
-            let bp_short_sum = self.bp_short_sum.to_array();
-            let bp_medium_sum = self.bp_medium_sum.to_array();
-            let bp_long_sum = self.bp_long_sum.to_array();
-            let tr_short_sum = self.tr_short_sum.to_array();
-            let tr_medium_sum = self.tr_medium_sum.to_array();
-            let tr_long_sum = self.tr_long_sum.to_array();
-            let prev_close = self.prev_close.to_array();
-            // Use into_iter() to consume the arrays and avoid move issues
-            let mut states_vec = Vec::<State>::with_capacity(N);
-            for (i, buffer) in buffers.into_iter().enumerate() {
-                states_vec.push(State {
-                    buffer,
-                    bp_long_sum: bp_long_sum[i],
-                    bp_sums_2x: Simd::<f64, 2>::from_array([bp_short_sum[i], bp_medium_sum[i]]),
-                    tr_long_sum: tr_long_sum[i],
-                    tr_sums_2x: Simd::<f64, 2>::from_array([tr_short_sum[i], tr_medium_sum[i]]),
-                    prev_close: prev_close[i],
-                });
-            }
-
-            // Convert Vec to array
-            states_vec
-                .try_into()
-                .unwrap_or_else(|_| panic!("Failed to convert states_vec to array"))
-        }
-
         /// Writes SIMD state back into `N` scalar [`State`] references.
-        pub fn write_states(&self, states: &mut [&mut State]) {
+        fn write_states(&self, states: &mut [&mut Self::ScalarState]) {
             // First, handle the buffer updates
             let buffers = self.buffer.to_f64_buffers();
             let bp_short_sum = self.bp_short_sum.to_array();
@@ -136,97 +109,22 @@ pub mod assets {
                 states[i].prev_close = prev_close[i];
             }
         }
+    }
+    impl<const N: usize> TState for SimdState<N> {
+        type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, usize, usize);
+        type Outputs = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
 
-        /// Computes one bar of the Ultimate Oscillator for `N` assets simultaneously.
-        ///
-        /// Updates the rolling buying-pressure and true-range sums for the short, medium, and long
-        /// periods, then returns the weighted oscillator value for each lane. Returns `0.0` lanes
-        /// until the long-period buffer is full.
-        ///
-        /// # Arguments
-        ///
-        /// * `high` - High prices for this bar.
-        /// * `low` - Low prices for this bar.
-        /// * `close` - Close prices for this bar.
-        /// * `periods` - Tuple `(short_period, medium_period)` for the shorter rolling windows.
-        ///
-        /// # Returns
-        ///
-        /// ULTOSC values in the range `[0, 100]` for all `N` lanes, or `0.0` while warming up.
         #[inline(always)]
-        pub fn calc(
+        fn calc<'a>(
             &mut self,
-            high: Simd<f64, N>,
-            low: Simd<f64, N>,
-            close: Simd<f64, N>,
-            periods: (usize, usize),
-        ) -> Simd<f64, N> {
-            let (short_period, medium_period) = periods;
-
+            (high, low, close, short_period, medium_period): Self::Inputs<'a>,
+        ) -> Self::Outputs {
             let true_low = low.simd_min(self.prev_close);
             let true_high = high.simd_max(self.prev_close);
             let bp = close - true_low;
             let tr = true_high - true_low;
 
-            if let Some([old_bp, old_tr]) = self.buffer.push_with_info([bp, tr]) {
-                self.bp_long_sum += bp - old_bp;
-                self.tr_long_sum += tr - old_tr;
-            } else {
-                self.bp_long_sum += bp;
-                self.tr_long_sum += tr;
-            }
-            let [[bp_short, bp_medium], [tr_short, tr_medium]] = self
-                .buffer
-                .get_by_periods::<2>([short_period, medium_period]);
-            self.bp_short_sum += bp - bp_short;
-            self.bp_medium_sum += bp - bp_medium;
-            self.tr_short_sum += tr - tr_short;
-            self.tr_medium_sum += tr - tr_medium;
-
-            self.prev_close = close;
-
-            if self.buffer.is_full() {
-                let first = F64Constants::FOUR * (self.bp_short_sum / self.tr_short_sum);
-                let second = F64Constants::TWO * (self.bp_medium_sum / self.tr_medium_sum);
-                let third = self.bp_long_sum / self.tr_long_sum;
-                return (first + second + third) * UltoscF64Constants::DIV;
-            }
-            F64Constants::ZERO
-        }
-        /// Unchecked variant of [`calc`](SimdState::calc) that assumes the long-period ring buffer
-        /// is already full.
-        ///
-        /// # Arguments
-        ///
-        /// * `high` - High prices for this bar.
-        /// * `low` - Low prices for this bar.
-        /// * `close` - Close prices for this bar.
-        /// * `periods` - Tuple `(short_period, medium_period)` for the shorter rolling windows.
-        ///
-        /// # Returns
-        ///
-        /// ULTOSC values for all `N` lanes.
-        ///
-        /// # Safety
-        ///
-        /// The internal ring buffer must be fully initialised (i.e., at least `long_period` bars
-        /// have been processed) before calling this function. Calling it on an uninitialised buffer
-        /// will produce incorrect results or undefined behaviour.
-        #[inline(always)]
-        pub unsafe fn calc_unchecked(
-            &mut self,
-            high: &Simd<f64, N>,
-            low: &Simd<f64, N>,
-            close: &Simd<f64, N>,
-            periods: (usize, usize),
-        ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
-            let (short_period, medium_period) = periods;
-            let true_low = low.simd_min(self.prev_close);
-            let true_high = high.simd_max(self.prev_close);
-            let bp = close - true_low;
-            let tr = true_high - true_low;
-
-            let [old_bp, old_tr] = self.buffer.push_with_info_unchecked([bp, tr]);
+            let [old_bp, old_tr] = self.buffer.push_with_info([bp, tr]);
             self.bp_long_sum += bp - old_bp;
             self.tr_long_sum += tr - old_tr;
 
@@ -238,7 +136,7 @@ pub mod assets {
             self.tr_short_sum += tr - tr_short;
             self.tr_medium_sum += tr - tr_medium;
 
-            self.prev_close = *close;
+            self.prev_close = close;
 
             let first = F64Constants::FOUR * (self.bp_short_sum / self.tr_short_sum);
             let second = F64Constants::TWO * (self.bp_medium_sum / self.tr_medium_sum);
@@ -247,15 +145,17 @@ pub mod assets {
             (((first + second + third) * UltoscF64Constants::DIV), tr, bp)
         }
     }
+
 }
 
 pub mod options {
     //! Per-option SIMD state and compute for the Ultimate Oscillator (ULTOSC) indicator.
     use super::import::*;
+    pub use crate::indicator_types::{TSimdState, TState};
     /// SIMD-parallel state for the Ultimate Oscillator (ULTOSC) indicator, holding `N` lanes of
     /// per-option state.
     pub struct SimdState<const N: usize> {
-        buffer: MultiBuffer<2>,
+        buffer: MultiBuffer<2, f64, Warm>,
         periods: ([usize; N], [usize; N], [usize; N]),
         bp_short_sum: Simd<f64, N>,
         bp_medium_sum: Simd<f64, N>,
@@ -278,8 +178,8 @@ pub mod options {
         ///
         /// * `states` - Mutable references to `N` scalar states (one per option set).
         /// * `periods` - Arrays of `(short_period, medium_period, long_period)` for each lane.
-        pub fn new(
-            states: &mut [&mut State],
+        pub fn from_states(
+            states: &mut [&mut State<Warm>],
             periods: ([usize; N], [usize; N], [usize; N]),
         ) -> Self {
             debug_assert_eq!(states.len(), N, "Number of states must match SIMD width");
@@ -322,7 +222,7 @@ pub mod options {
         }
 
         /// Writes SIMD state back into `N` scalar [`State`] references, one per option-set lane.
-        pub fn write_states(&self, states: &mut [&mut State]) {
+        pub fn write_states(&self, states: &mut [&mut State<Warm>]) {
             // First, handle the buffer updates
             let vals: [[Vec<f64>; 2]; N] =
                 std::array::from_fn(|i| self.buffer.to_ordered_by_period(self.periods.2[i]));
@@ -343,6 +243,7 @@ pub mod options {
                         prev_idx: len - 1,
                         count: len,
                         capacity: len,
+                        state: std::marker::PhantomData,
                     }
                 };
 
@@ -360,32 +261,16 @@ pub mod options {
             }
         }
 
-        /// Unchecked SIMD variant that computes one ULTOSC bar for `N` option-set lanes simultaneously.
-        ///
-        /// Accepts scalar `high`, `low`, `close` inputs (shared across all option lanes) and returns
-        /// a SIMD vector of ULTOSC values, one per option-set lane.
-        ///
-        /// # Arguments
-        ///
-        /// * `high` - High price for this bar (scalar, shared across lanes).
-        /// * `low` - Low price for this bar (scalar, shared across lanes).
-        /// * `close` - Close price for this bar (scalar, shared across lanes).
-        ///
-        /// # Returns
-        ///
-        /// ULTOSC values for all `N` option-set lanes.
-        ///
-        /// # Safety
-        ///
-        /// The internal ring buffer must be fully initialised (i.e., at least `max(long_period)`
-        /// bars have been processed) before calling this function.
+    }
+    impl<const N: usize> TState for SimdState<N> {
+        type Inputs<'a> = (f64, f64, f64);
+        type Outputs = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
+        
         #[inline(always)]
-        pub unsafe fn calc_unchecked(
+        fn calc<'a>(
             &mut self,
-            high: f64,
-            low: f64,
-            close: f64,
-        ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
+            (high, low, close): Self::Inputs<'a>
+        ) -> Self::Outputs {
             let (short_period, medium_period, long_period) = self.periods;
             let true_low = low.min(self.prev_close);
             let true_high = high.max(self.prev_close);
@@ -394,7 +279,7 @@ pub mod options {
 
             let [bp_long_old, tr_long_old] = self
                 .buffer
-                .push_with_info_periods_unchecked([bp, tr], long_period);
+                .push_with_info_periods([bp, tr], long_period);
             let bp = Simd::splat(bp);
             let tr = Simd::splat(tr);
 

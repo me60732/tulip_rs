@@ -1,13 +1,11 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::tr::{indicator as rust_tr, min_data, TIndicatorState};
+    use tulip_rs::indicators::tr::{Indicator, TIndicatorState, Tr, indicator_by_assets};
     use tulip_test::c_bindings::{ti_tr, ti_tr_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
     //#[cfg(feature = "nightly")]
-    use tulip_rs::indicators::tr::indicator_by_assets as rust_tr_simd;
-
     const CHUNK_SIZE: usize = 100;
 
     const HIGH: [f64; 15] = [
@@ -66,7 +64,7 @@ mod tests {
 
         // Run the Rust implementation
         let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-        let (outputs, _) = rust_tr(&inputs_rust, &[], None).expect("Rust TR indicator failed");
+        let (outputs, _) = Tr::indicator(&inputs_rust, &[], None).expect("Rust TR indicator failed");
 
         let output_len_rust = outputs[0].len();
 
@@ -147,7 +145,7 @@ mod tests {
             assert_eq!(ret, 0, "ti_tr returned error code {}", ret);
 
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-            let (outputs, _) = rust_tr(&inputs_rust, &[], None).expect("Rust TR indicator failed");
+            let (outputs, _) = Tr::indicator(&inputs_rust, &[], None).expect("Rust TR indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -211,12 +209,12 @@ mod tests {
 
             // Get full output from processing all data at once
             let (full_outputs, _) =
-                rust_tr(&inputs_rust, &options, None).expect("Rust TR indicator failed");
+                Tr::indicator(&inputs_rust, &options, None).expect("Rust TR indicator failed");
 
             // Process data in batches and accumulate outputs
             let mut batch_full_output = Vec::new();
 
-            let min_data_val = min_data(&options).max(CHUNK_SIZE);
+            let min_data_val = Tr::min_data(&options).max(CHUNK_SIZE);
 
             // First chunk - convert to Vec<&Vec<f64>>
             let high_vec = high[..min_data_val].to_vec();
@@ -229,7 +227,7 @@ mod tests {
             ];
 
             let (first_outputs, mut state) =
-                rust_tr(&chunk_inputs, &options, None).expect("Rust TR indicator failed");
+                Tr::indicator(&chunk_inputs, &options, None).expect("Rust TR indicator failed");
             batch_full_output.extend_from_slice(&first_outputs[0]);
 
             // Process remaining data in chunks
@@ -322,7 +320,7 @@ mod tests {
 
         // Get SIMD by assets result
         let (simd_results, _) =
-            rust_tr_simd::<4>(&inputs, &options, None).expect("SIMD by assets TR indicator failed");
+            indicator_by_assets::<4>(&inputs, &options, None).expect("SIMD by assets TR indicator failed");
 
         // Compare each SIMD result with regular indicator for each stock
         for (stock_idx, (stock_symbol, stock_high, stock_low, stock_close)) in
@@ -334,7 +332,7 @@ mod tests {
                 stock_low.as_slice(),
                 stock_close.as_slice(),
             ];
-            let (regular_outputs, _) = rust_tr(&stock_inputs, &options, None)
+            let (regular_outputs, _) = Tr::indicator(&stock_inputs, &options, None)
                 .unwrap_or_else(|_| panic!("Regular TR failed for {}", stock_symbol));
 
             // Compare SIMD result with regular result
@@ -370,5 +368,4 @@ mod tests {
         let close: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
         (high, low, close)
     }
-
-    }
+}

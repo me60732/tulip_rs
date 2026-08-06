@@ -1,10 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use tulip_rs::indicators::tr::indicator as rust_tr;
-    use tulip_rs::indicators::vortex::{
-        indicator as rust_vortex, indicator_by_assets, indicator_by_options, min_data,
-        TIndicatorState,
-    };
+    use tulip_rs::indicators::tr::Tr;
+    use tulip_rs::indicators::vortex::{Vortex, Indicator, TIndicatorState, indicator_by_assets, indicator_by_options};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
     const CHUNK_SIZE: usize = 100;
@@ -73,11 +70,11 @@ mod tests {
             let period = options[0] as usize;
 
             // Vortex with optional TR enabled
-            let (vortex_outputs, _) = rust_vortex(&inputs, &options, Some(&[true]))
+            let (vortex_outputs, _) = Vortex::indicator(&inputs, &options, Some(&[true]))
                 .expect("Rust Vortex indicator failed");
 
             // Standalone Rust TR (options is empty — OPTIONS_WIDTH = 0)
-            let (tr_outputs, _) = rust_tr(&inputs, &[], None).expect("Rust TR indicator failed");
+            let (tr_outputs, _) = Tr::indicator(&inputs, &[], None).expect("Rust TR indicator failed");
 
             let n = high.len();
             let expected_main_len = n - period - 1; // output_length(n, options)
@@ -137,17 +134,17 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 let period = options[0] as usize;
-                if n < min_data(&options) {
+                if n < Vortex::min_data(&options) {
                     continue; // skip stocks too short for this period
                 }
 
                 // Vortex with optional TR enabled
-                let (vortex_outputs, _) = rust_vortex(&inputs, &options, Some(&[true]))
+                let (vortex_outputs, _) = Vortex::indicator(&inputs, &options, Some(&[true]))
                     .expect("Rust Vortex indicator failed");
 
                 // Standalone Rust TR
                 let (tr_outputs, _) =
-                    rust_tr(&inputs, &[], None).expect("Rust TR indicator failed");
+                    Tr::indicator(&inputs, &[], None).expect("Rust TR indicator failed");
 
                 let expected_tr_len = n - 1;
 
@@ -197,23 +194,23 @@ mod tests {
             let n = high.len();
 
             for options in OPTIONS_LIST {
-                if n < min_data(&options) {
+                if n < Vortex::min_data(&options) {
                     continue;
                 }
 
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
 
                 // Full indicator on all data (reference)
-                let (full_outputs, _) = rust_vortex(&inputs_rust, &options, None)
+                let (full_outputs, _) = Vortex::indicator(&inputs_rust, &options, None)
                     .expect("Rust Vortex indicator failed");
 
                 // Streaming: seed on first chunk, then feed the rest in CHUNK_SIZE slices
                 let mut batch_full_outputs = vec![Vec::new(); full_outputs.len()];
 
-                let seed_len = min_data(&options).max(CHUNK_SIZE);
+                let seed_len = Vortex::min_data(&options).max(CHUNK_SIZE);
                 let chunk_inputs = [&high[..seed_len], &low[..seed_len], &close[..seed_len]];
 
-                let (first_outputs, mut state) = rust_vortex(&chunk_inputs, &options, None)
+                let (first_outputs, mut state) = Vortex::indicator(&chunk_inputs, &options, None)
                     .expect("Vortex indicator (seed) failed");
 
                 for output_idx in 0..first_outputs.len() {
@@ -316,7 +313,7 @@ mod tests {
             for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
                 let scalar_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (scalar_outputs, _) =
-                    rust_vortex(&scalar_inputs, &options, None).expect("Rust Vortex failed");
+                    Vortex::indicator(&scalar_inputs, &options, None).expect("Rust Vortex failed");
 
                 let simd_vi_up = &simd_results[asset_idx][0];
                 let simd_vi_down = &simd_results[asset_idx][1];
@@ -372,11 +369,11 @@ mod tests {
                 .expect("SIMD by options Vortex failed");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
-                if high.len() < min_data(options) {
+                if high.len() < Vortex::min_data(options) {
                     continue;
                 }
                 let (scalar_outputs, _) =
-                    rust_vortex(&inputs, options, None).expect("Rust Vortex failed");
+                    Vortex::indicator(&inputs, options, None).expect("Rust Vortex failed");
 
                 let simd_vi_up = &simd_results[opt_idx][0];
                 let simd_vi_down = &simd_results[opt_idx][1];
@@ -487,7 +484,7 @@ mod tests {
 
                 let scalar_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (scalar_outputs, _) =
-                    rust_vortex(&scalar_inputs, &options, None).expect("Rust Vortex failed");
+                    Vortex::indicator(&scalar_inputs, &options, None).expect("Rust Vortex failed");
 
                 assert_eq!(
                     batch_vi_up.len(),
@@ -580,7 +577,7 @@ mod tests {
 
                 let scalar_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (scalar_outputs, _) =
-                    rust_vortex(&scalar_inputs, options, None).expect("Rust Vortex failed");
+                    Vortex::indicator(&scalar_inputs, options, None).expect("Rust Vortex failed");
 
                 assert_eq!(
                     batch_vi_up.len(),
@@ -640,7 +637,7 @@ mod tests {
 
             for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
                 let scalar_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (scalar_outputs, _) = rust_vortex(&scalar_inputs, &options, Some(&[true]))
+                let (scalar_outputs, _) = Vortex::indicator(&scalar_inputs, &options, Some(&[true]))
                     .expect("Scalar Vortex with optional outputs failed");
 
                 // Primary outputs: vi_up [0], vi_down [1]
@@ -715,7 +712,7 @@ mod tests {
                 .expect("SIMD by-options Vortex with optional outputs failed");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
-                let (scalar_outputs, _) = rust_vortex(&inputs, options, Some(&[true]))
+                let (scalar_outputs, _) = Vortex::indicator(&inputs, options, Some(&[true]))
                     .expect("Scalar Vortex with optional outputs failed");
 
                 // Primary outputs: vi_up [0], vi_down [1]

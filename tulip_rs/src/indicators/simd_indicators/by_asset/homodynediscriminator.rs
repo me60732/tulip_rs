@@ -1,16 +1,18 @@
 use crate::common_simd::assets::validate_inputs;
 use crate::indicators::homodynediscriminator::{
-    min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    HomodyneDiscriminator, Indicator, IndicatorState, State, INPUTS, OPTIONS,
 };
-use crate::indicators::simd_indicators::homodynediscriminator_simd::SimdState;
+use crate::indicators::simd_indicators::homodynediscriminator_simd::{
+    SimdState, TSimdState, TState,
+};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
 /// SIMD driver that advances the Homodyne Discriminator across `N` asset lanes per scheduling epoch.
 struct HomodyneDriver;
 
-impl Driver<State> for HomodyneDriver {
+impl Driver<State<Warm>> for HomodyneDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     ///
     /// Gathers per-asset states into a [`SimdState`], runs the four-stage HT pipeline
@@ -20,21 +22,18 @@ impl Driver<State> for HomodyneDriver {
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
         let len = inputs[0][0].len();
-        let mut simd_state = SimdState::new(&states);
+        let mut simd_state = SimdState::<N>::from_states(&mut states);
 
         let real_ptrs = crate::extract_input_ptrs!(inputs, N, real_ptrs);
         let dc_period_ptrs = crate::extract_output_ptrs!(outputs, N, dc_period_ptrs);
 
         for i in 0..len {
             let real = crate::extract_simd_inputs_at_index!(i, N, real @ real_ptrs);
-            // Safety: all ring buffers are full — guaranteed by State::init_state
-            // called during indicator_by_assets setup, before PrimeMover dispatches
-            // to this driver for the first time.
-            let dc = unsafe { simd_state.calc_simd_unchecked(real) };
+            let dc = simd_state.calc(real);
             crate::write_simd_at_indices!(N, i, dc_period_ptrs => dc);
         }
 
@@ -62,14 +61,14 @@ impl Driver<State> for HomodyneDriver {
 /// Returns `Err(IndicatorError::NotEnoughData)` if any input is shorter than
 /// [`min_data`] (23 bars).
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N],
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N],
+    options: &[f64; OPTIONS],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, HomodyneDiscriminator::min_data(options))?;
 
     let mut output_buffers = Vec::with_capacity(N);
-    let mut road_train = PrimeMover::<N, State>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
 
     for i in 0..N {
         // Warm up this asset's scalar state: processes bars 0..21 (22 bars)
@@ -77,7 +76,7 @@ pub fn indicator_by_assets<const N: usize>(
         let state = State::init_state(inputs[i][0]);
 
         let dc_period_line = {
-            let capacity = output_length(inputs[i][0].len(), options);
+            let capacity = HomodyneDiscriminator::output_length(inputs[i][0].len(), options);
             crate::uninit_vec!(f64, capacity)
         };
         let mut output_buffer = vec![dc_period_line];
@@ -93,7 +92,7 @@ pub fn indicator_by_assets<const N: usize>(
             i,
             // inputs_idx = 22 = min_data - 1: init_state consumed bars 0..21,
             // so the driver's first slice starts at bar 22.
-            min_data(options) - 1,
+            HomodyneDiscriminator::min_data(options) - 1,
             // start_offset = 0: no warm-up prepend needed — the state is already hot.
             0,
             state,
@@ -105,6 +104,5 @@ pub fn indicator_by_assets<const N: usize>(
     let mut driver = HomodyneDriver;
     let final_states = road_train.drive(&mut driver);
 
-    let states = final_states.into_iter().map(IndicatorState::new).collect();
-    Ok((output_buffers, states))
+    Ok((output_buffers, final_states))
 }

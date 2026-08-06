@@ -1,10 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use tulip_rs::indicator_types::TIndicatorState;
-    use tulip_rs::indicators::homodynediscriminator::indicator as homodynediscriminator;
-    use tulip_rs::indicators::homodynediscriminator::{
-        indicator_by_assets, min_data, output_length,
-    };
+    use tulip_rs::indicator_types::{Indicator, TIndicatorState};
+    use tulip_rs::indicators::homodynediscriminator::{indicator_by_assets, HomodyneDiscriminator};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
     const CHUNK_SIZE: usize = 100;
@@ -19,17 +16,17 @@ mod tests {
 
     #[test]
     fn test_homodynediscriminator_min_data_and_output_length() {
-        assert_eq!(min_data(&[]), 23);
-        assert_eq!(output_length(23, &[]), 1);
-        assert_eq!(output_length(100, &[]), 78);
-        assert_eq!(output_length(1000, &[]), 978);
+        assert_eq!(HomodyneDiscriminator::min_data(&[]), 23);
+        assert_eq!(HomodyneDiscriminator::output_length(23, &[]), 1);
+        assert_eq!(HomodyneDiscriminator::output_length(100, &[]), 78);
+        assert_eq!(HomodyneDiscriminator::output_length(1000, &[]), 978);
     }
 
     #[test]
     fn test_homodynediscriminator_not_enough_data() {
         let close: Vec<f64> = (0..22).map(|i| 100.0 + i as f64).collect();
         let inputs = [close.as_slice()];
-        let result = homodynediscriminator(&inputs, &[], None);
+        let result = HomodyneDiscriminator::indicator(&inputs, &[], None);
         assert!(
             result.is_err(),
             "Expected NotEnoughData for {} bars (need 23)",
@@ -52,11 +49,11 @@ mod tests {
         for (stock_symbol, stock_data) in data {
             let close = get_close_array(stock_data);
 
-            let (ref_out, _) = homodynediscriminator(&[close.as_slice()], &[], None)
+            let (ref_out, _) = HomodyneDiscriminator::indicator(&[close.as_slice()], &[], None)
                 .expect("reference run failed");
             let ref_dc = &ref_out[0];
 
-            let (first_out, mut state) = homodynediscriminator(&[&close[..FIRST_CHUNK]], &[], None)
+            let (first_out, mut state) = HomodyneDiscriminator::indicator(&[&close[..FIRST_CHUNK]], &[], None)
                 .expect("seed run failed");
 
             let mut batch_dc = first_out[0].clone();
@@ -106,7 +103,7 @@ mod tests {
         for (stock_symbol, stock_data) in data {
             let close = get_close_array(stock_data);
             let (out, _) =
-                homodynediscriminator(&[close.as_slice()], &[], None).expect("indicator failed");
+                HomodyneDiscriminator::indicator(&[close.as_slice()], &[], None).expect("indicator failed");
             let dc = &out[0];
 
             for (i, &v) in dc.iter().enumerate() {
@@ -136,10 +133,10 @@ mod tests {
             let close = get_close_array(stock_data);
             let n = close.len();
             let (out, _) =
-                homodynediscriminator(&[close.as_slice()], &[], None).expect("indicator failed");
+                HomodyneDiscriminator::indicator(&[close.as_slice()], &[], None).expect("indicator failed");
             assert_eq!(
                 out[0].len(),
-                output_length(n, &[]),
+                HomodyneDiscriminator::output_length(n, &[]),
                 "length mismatch: stock={stock_symbol}"
             );
         }
@@ -174,7 +171,7 @@ mod tests {
             indicator_by_assets::<4>(&inputs, &[], None).expect("SIMD by_assets failed");
 
         for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
-            let (scalar_out, _) = homodynediscriminator(&[stock_close.as_slice()], &[], None)
+            let (scalar_out, _) = HomodyneDiscriminator::indicator(&[stock_close.as_slice()], &[], None)
                 .expect("scalar indicator failed");
 
             let simd_dc = &simd_results[stock_idx][0];
@@ -265,7 +262,7 @@ mod tests {
             }
 
             // Reference: full scalar run.
-            let (scalar_out, _) = homodynediscriminator(&[close.as_slice()], &[], None)
+            let (scalar_out, _) = HomodyneDiscriminator::indicator(&[close.as_slice()], &[], None)
                 .expect("scalar indicator failed");
             let scalar_dc = &scalar_out[0];
 
@@ -296,5 +293,4 @@ mod tests {
 
         println!("✓ All SIMD by_assets state continuity tests passed!");
     }
-
-    }
+}

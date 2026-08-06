@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 use tulip_rs::indicators::sma::{
-    indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState,
+    Sma, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
 };
 
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
@@ -130,7 +130,7 @@ fn bench_rust_sma(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        indicator(&inputs, &options, None).expect("Rust SMA indicator failed");
+                        Sma::indicator(&inputs, &options, None).expect("Rust SMA indicator failed");
                     },
                     SAMPLE_SIZE,
                 );
@@ -155,7 +155,7 @@ fn bench_rust_sma(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust SMA {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    indicator(&inputs, &options, None).expect("Rust SMA indicator failed");
+                    Sma::indicator(&inputs, &options, None).expect("Rust SMA indicator failed");
                 });
             });
             group.finish();
@@ -182,11 +182,11 @@ fn bench_rust_sma_from_state(_c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                        let min_data_val = Sma::min_data(&options).max(CHUNK_SIZE);
                         // First chunk
                         let chunk_inputs = [&close_vec[..min_data_val]];
 
-                        let (_, mut state) = indicator(&chunk_inputs, &options, None)
+                        let (_, mut state) = Sma::indicator(&chunk_inputs, &options, None)
                             .expect("Rust SMA indicator failed");
 
                         // Chunks
@@ -222,7 +222,7 @@ fn bench_rust_sma_from_state(_c: &mut Criterion) {
                 // --- Rust_FromState_1_Bar benchmark ---
                 if inputs[0].len() > 1 {
                     let (_, state) =
-                        indicator(&new_inputs, &options, None).expect("Rust SMA indicator failed");
+                        Sma::indicator(&new_inputs, &options, None).expect("Rust SMA indicator failed");
                     //let bin = bincode::serde::encode_to_vec(&state, bincode::config::standard()).expect("bincode encode failed");
                     let json = serde_json::to_string(&state).expect("json failed");
                     let mut timing = TimingMeasurements::new();
@@ -249,7 +249,7 @@ fn bench_rust_sma_from_state(_c: &mut Criterion) {
                     );
 
                     let (_, mut state) =
-                        indicator(&new_inputs, &options, None).expect("Rust SMA indicator failed");
+                        Sma::indicator(&new_inputs, &options, None).expect("Rust SMA indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(

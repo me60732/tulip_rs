@@ -1,4 +1,4 @@
-use tulip_rs::indicators::cvi::{indicator, TIndicatorState};
+use tulip_rs::indicators::cvi::{Cvi, Indicator, TIndicatorState};
 
 fn main() {
     // Example data: high and low prices
@@ -15,7 +15,7 @@ fn main() {
     let inputs = [high.as_slice(), low.as_slice()];
 
     // Calculate the CVI indicator
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match Cvi::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -24,7 +24,7 @@ fn main() {
     let inputs2 = [&high[0..high.len() - 1], &low[0..low.len() - 1]];
 
     // Calculate the CVI indicator
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match Cvi::indicator(&inputs2, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

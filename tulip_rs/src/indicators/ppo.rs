@@ -1,18 +1,18 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
 use crate::indicators::ema::{
-    calc as calc_ema, multiplier as ema_multiplier, output_length as ema_output_length,
+    State as EmaState, Ema,
 };
 use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
+    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold
 };
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 1;
+pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 2;
+pub const OPTIONS: usize = 2;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -46,20 +46,10 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::ppo_simd::indicator_by_options as indicator;
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    multipliers: ((f64, f64), (f64, f64)),
-    state: State,
-}
-impl IndicatorState {
-    pub fn new(state: State, multipliers: ((f64, f64), (f64, f64))) -> Self {
-        Self { state, multipliers }
-    }
-}
 impl TIndicatorState<1> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -78,200 +68,166 @@ impl TIndicatorState<1> for IndicatorState {
         }
         cycle_ppo(
             real,
-            self.multipliers,
             &mut ppo_line,
-            &mut self.state,
+            self,
             (&mut short_ema_line, &mut long_ema_line),
         );
 
         Ok(vec![ppo_line, short_ema_line, long_ema_line])
     }
 }
+pub type IndicatorState = State<Warm>;
 #[derive(Serialize, Deserialize)]
-pub struct State {
-    pub short_ema: f64,
-    pub long_ema: f64,
+#[serde(bound="")]
+pub struct State<S = Cold> {
+    pub short_ema: EmaState<S>,
+    pub long_ema: EmaState<S>,
 }
 impl State {
-    pub fn new(short_ema: f64, long_ema: f64) -> Self {
+    pub fn new(short_ema: f64, long_ema: f64, (short_period, long_period): (usize, usize)) -> Self {
         State {
-            short_ema,
-            long_ema,
+            short_ema: EmaState::new(short_ema, short_period),
+            long_ema: EmaState::new(long_ema, long_period),
         }
     }
-    pub fn init_state(real: &[f64], periods: (usize, usize), short_ema_line: &mut [f64]) -> Self {
-        let (short_multiplier, long_multiplier) = multiplier(periods.0, periods.1);
-        let (_, long_period) = periods;
-        let (mut short_ema, mut long_ema) = (real[0], real[0]);
+    pub fn init_state(real: &[f64], (short_period, long_period): (usize, usize), short_ema_line: &mut [f64]) -> State<Warm> {
+        let mut short_ema = EmaState::new(real[0], short_period).into_warm();
+        let mut long_ema = EmaState::new(real[0], long_period).into_warm();
         for i in 1..long_period {
-            short_ema = calc_ema(&real[i], short_ema, short_multiplier);
-            long_ema = calc_ema(&real[i], long_ema, long_multiplier);
+            let short_ema = short_ema.calc(real[i]);
+            long_ema.calc(real[i]);
             crate::init_store_optional_outputs!(i, real.len(),
                 short_ema_line => short_ema
             );
         }
 
-        Self {
+        State {
             short_ema,
             long_ema,
         }
     }
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = f64;
+    type Outputs = (f64, f64, f64);
+    
     /// Performs the core calculation for the Percentage Price Oscillator (PPO) indicator.
     #[inline(always)]
-    pub fn calc(&mut self, real: &f64, multipliers: ((f64, f64), (f64, f64))) -> f64 {
-        let (short_multiplier, long_multiplier) = multipliers;
+    fn calc<'a>(&mut self, real: Self::Inputs<'a>) -> Self::Outputs {
     
-        self.short_ema = calc_ema(real, self.short_ema, short_multiplier);
-        self.long_ema = calc_ema(real, self.long_ema, long_multiplier);
-    
-        let long_ema_safe = self.long_ema.max(f64::EPSILON);
-        (self.short_ema - self.long_ema) * 100.0 / long_ema_safe
+        let short_ema = self.short_ema.calc(real);
+        let long_ema = self.long_ema.calc(real).max(f64::EPSILON);
+
+        ((short_ema - long_ema) * 100.0 / long_ema, short_ema, long_ema)
     }
 }
-/// Returns information about the Percentage Price Oscillator (PPO) indicator.
-pub const INFO: Info = Info {
-    name: "ppo",
-    full_name: "Percentage Price Oscillator",
-    indicator_type: IndicatorType::Momentum,
-    inputs: &["real"],
-    options: &["short_period", "long_period"],
-    outputs: &["ppo"],
-    optional_outputs: &["short_ema", "long_ema"],
-    display_groups: &[
-        DisplayGroup {
-            offset: None,
-            id: "ppo",
-            label: "PPO",
-            display_type: DisplayType::Indicator,
-            outputs: &["ppo"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "short_ema_long_ema",
-            label: "EMAs",
-            display_type: DisplayType::Overlay,
-            outputs: &["short_ema", "long_ema"],
-        },
-    ],
-};
-/// Returns the minimum amount of data required for the PPO indicator.
-pub fn min_data(options: &[f64]) -> usize {
-    options[1] as usize + 1
-}
 
-/// Returns the output length for the PPO indicator.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), IndicatorError> {
+pub(crate) fn validate_options(options: &[f64; OPTIONS]) -> Result<(), IndicatorError> {
     if options[0] < 1.0 || options[1] <= options[0] {
         return Err(IndicatorError::InvalidOptions);
     }
     Ok(())
 }
-/// Calculates the Percentage Price Oscillator (PPO) indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — real (a price series, e.g. close)
-///
-/// # Options
-///
-/// * `options[0]` — short_period
-/// * `options[1]` — long_period
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `optional_outputs` - Optional slice of booleans enabling extra outputs:
-///   `[0]` → `short_ema`, `[1]` → `long_ema`.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is the `ppo` line,
-/// `outputs[1]` is the `short_ema` line (empty if not requested), and
-/// `outputs[2]` is the `long_ema` line (empty if not requested). `state` can be
-/// passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    validate_inputs(inputs, min_data(options))?;
 
-    let real = inputs[0];
-
-    let (mut ppo_line, mut short_ema_line, mut long_ema_line, mut state, long_period, multipliers);
-    {
-        let short_period = options[0] as usize;
-        long_period = options[1] as usize;
-        multipliers = multiplier(short_period, long_period);
-        let capacity = output_length(real.len(), options);
-        let short_ema_capacity = ema_output_length(real.len(), &[short_period as f64]);
-
-        ppo_line = crate::uninit_vec!(f64, capacity);
-
-        (short_ema_line, long_ema_line) = crate::init_optional_outputs_eff!(
-            optional_outputs, &[false, false],
-            short_ema_line: short_ema_capacity,
-            long_ema_line: capacity
-        );
-
-        state = State::init_state(real, (short_period, long_period), &mut short_ema_line);
-    }
-    let optional_outputs = {
-        let offset = crate::slice_outputs_start!(ppo_line.len(), short_ema_line);
-        (&mut short_ema_line[offset..], long_ema_line.as_mut_slice())
-    };
-
-    cycle_ppo(
-        &real[long_period..],
-        multipliers,
-        &mut ppo_line,
-        &mut state,
-        optional_outputs,
-    );
-
-    Ok((
-        vec![ppo_line, short_ema_line, long_ema_line],
-        IndicatorState::new(state, multipliers),
-    ))
-}
 
 /// Iterates over the input data and applies the calc function.
 fn cycle_ppo(
     real: &[f64],
-    multipliers: ((f64, f64), (f64, f64)),
     ppo_line: &mut [f64],
-    state: &mut State,
-    out_vecs: (&mut [f64], &mut [f64]),
+    state: &mut State<Warm>,
+    (short_ema_line, long_ema_line): (&mut [f64], &mut [f64]),
 ) {
-    let (short_ema_line, long_ema_line) = out_vecs;
     let (has_optional, want_short, want_long) =
         crate::calc_want_flags!(short_ema_line, long_ema_line);
 
     for i in 0..real.len() {
-        let value = unsafe { real.get_unchecked(i) };
+        let value = unsafe { *real.get_unchecked(i) };
 
-        let ppo = state.calc(value, multipliers);
+        let (ppo, short_ema, long_ema) = state.calc(value);
 
         unsafe { *ppo_line.get_unchecked_mut(i) = ppo };
 
         if has_optional {
             crate::store_optional_outputs!(i,
-                want_short, short_ema_line => state.short_ema,
-                want_long, long_ema_line => state.long_ema
+                want_short, short_ema_line => short_ema,
+                want_long, long_ema_line => long_ema
             );
         }
     }
 }
 
 
+pub struct Ppo;
 
-#[inline(always)]
-pub fn multiplier(short_period: usize, long_period: usize) -> ((f64, f64), (f64, f64)) {
-    (ema_multiplier(short_period), ema_multiplier(long_period))
+impl Indicator<INPUTS, OPTIONS> for Ppo {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "ppo",
+        full_name: "Percentage Price Oscillator",
+        indicator_type: IndicatorType::Momentum,
+        inputs: &["real"],
+        options: &["short_period", "long_period"],
+        outputs: &["ppo"],
+        optional_outputs: &["short_ema", "long_ema"],
+        display_groups: &[
+            DisplayGroup {
+                offset: None,
+                id: "ppo",
+                label: "PPO",
+                display_type: DisplayType::Indicator,
+                outputs: &["ppo"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "short_ema_long_ema",
+                label: "EMAs",
+                display_type: DisplayType::Overlay,
+                outputs: &["short_ema", "long_ema"],
+            },
+        ],
+    };
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        validate_inputs(inputs, Self::min_data(options))?;
+
+        let (mut ppo_line, mut short_ema_line, mut long_ema_line, mut state, real);
+        {
+            let short_period = options[0] as usize;
+            let long_period = options[1] as usize;
+            let capacity = Self::output_length(inputs[0].len(), options);
+            let short_ema_capacity = Ema::output_length(inputs[0].len(), &[short_period as f64]);
+    
+            ppo_line = crate::uninit_vec!(f64, capacity);
+    
+            (short_ema_line, long_ema_line) = crate::init_optional_outputs_eff!(
+                optional_outputs, &[false, false],
+                short_ema_line: short_ema_capacity,
+                long_ema_line: capacity
+            );
+    
+            state = State::init_state(inputs[0], (short_period, long_period), &mut short_ema_line);
+            real = &inputs[0][long_period..];
+        }
+        let optional_outputs = {
+            let offset = crate::slice_outputs_start!(ppo_line.len(), short_ema_line);
+            (&mut short_ema_line[offset..], long_ema_line.as_mut_slice())
+        };
+    
+        cycle_ppo(
+            real,
+            &mut ppo_line,
+            &mut state,
+            optional_outputs,
+        );
+    
+        Ok((
+            vec![ppo_line, short_ema_line, long_ema_line],
+            state,
+        ))
+    }
 }

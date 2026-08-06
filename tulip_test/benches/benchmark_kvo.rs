@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::kvo::{
-    indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState,
+    indicator_by_assets, indicator_by_options, Indicator, IndicatorState, Kvo, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -117,26 +117,23 @@ fn bench_c_kvo(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("kvo_c");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(
-                format!("C KVO {{ {}, {} }}", options[0], options[1]),
-                |b| {
-                    b.iter(|| {
-                        let mut output_vec = vec![0.0_f64; output_len];
-                        let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
+            group.bench_function(format!("C KVO {{ {}, {} }}", options[0], options[1]), |b| {
+                b.iter(|| {
+                    let mut output_vec = vec![0.0_f64; output_len];
+                    let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
 
-                        let ret = unsafe {
-                            ti_kvo(
-                                high_vec.len() as i32,
-                                inputs.as_ptr(),
-                                options.as_ptr(),
-                                outputs.as_mut_ptr(),
-                            )
-                        };
-                        assert_eq!(ret, 0, "ti_kvo returned error code {}", ret);
-                        black_box(&output_vec);
-                    });
-                },
-            );
+                    let ret = unsafe {
+                        ti_kvo(
+                            high_vec.len() as i32,
+                            inputs.as_ptr(),
+                            options.as_ptr(),
+                            outputs.as_mut_ptr(),
+                        )
+                    };
+                    assert_eq!(ret, 0, "ti_kvo returned error code {}", ret);
+                    black_box(&output_vec);
+                });
+            });
             group.finish();
         }
     }
@@ -165,8 +162,8 @@ fn bench_rust_kvo(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result =
-                            indicator(&inputs, &options, None).expect("Rust KVO indicator failed");
+                        let result = Kvo::indicator(&inputs, &options, None)
+                            .expect("Rust KVO Kvo::indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -199,8 +196,8 @@ fn bench_rust_kvo(c: &mut Criterion) {
                 format!("Rust KVO {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
-                        let result =
-                            indicator(&inputs, &options, None).expect("Rust KVO indicator failed");
+                        let result = Kvo::indicator(&inputs, &options, None)
+                            .expect("Rust KVO Kvo::indicator failed");
                         black_box(&result);
                     });
                 },
@@ -233,8 +230,8 @@ fn bench_rust_kvo_optional(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, Some(&[true, true]))
-                            .expect("Rust KVO indicator failed");
+                        let result = Kvo::indicator(&inputs, &options, Some(&[true, true]))
+                            .expect("Rust KVO Kvo::indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -267,8 +264,8 @@ fn bench_rust_kvo_optional(c: &mut Criterion) {
                 format!("Rust KVO optional {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator(&inputs, &options, Some(&[true, true]))
-                            .expect("Rust KVO indicator failed");
+                        let result = Kvo::indicator(&inputs, &options, Some(&[true, true]))
+                            .expect("Rust KVO Kvo::indicator failed");
                         black_box(&result);
                     });
                 },
@@ -308,7 +305,7 @@ fn bench_rust_kvo_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                        let min_data_val = Kvo::min_data(&options).max(CHUNK_SIZE);
                         // First chunk
                         let chunk_inputs = [
                             &high[..min_data_val],
@@ -317,8 +314,8 @@ fn bench_rust_kvo_from_state(c: &mut Criterion) {
                             &volume[..min_data_val],
                         ];
 
-                        let (_, mut state) = indicator(&chunk_inputs, &options, None)
-                            .expect("Rust KVO indicator failed");
+                        let (_, mut state) = Kvo::indicator(&chunk_inputs, &options, None)
+                            .expect("Rust KVO Kvo::indicator failed");
 
                         // Chunks
                         let mut high_chunks = high[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -361,15 +358,15 @@ fn bench_rust_kvo_from_state(c: &mut Criterion) {
                     Some(stock_symbol),
                 );
 
-                let (_, mut state) =
-                    indicator(&new_inputs, &options, None).expect("Rust KVO indicator failed");
+                let (_, mut state) = Kvo::indicator(&new_inputs, &options, None)
+                    .expect("Rust KVO Kvo::indicator failed");
 
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
                         let result = state
                             .batch_indicator(&final_inputs, None)
-                            .expect("Rust KVO from state indicator failed");
+                            .expect("Rust KVO from state Kvo::indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -384,8 +381,8 @@ fn bench_rust_kvo_from_state(c: &mut Criterion) {
                     Some(stock_symbol),
                 );
 
-                let (_, state) =
-                    indicator(&new_inputs, &options, None).expect("Rust KVO indicator failed");
+                let (_, state) = Kvo::indicator(&new_inputs, &options, None)
+                    .expect("Rust KVO Kvo::indicator failed");
                 let json = serde_json::to_string(&state).expect("json failed");
 
                 let mut timing = TimingMeasurements::new();
@@ -395,7 +392,7 @@ fn bench_rust_kvo_from_state(c: &mut Criterion) {
                             serde_json::from_str(&json).expect("JSON failed");
                         let result = state
                             .batch_indicator(&final_inputs, None)
-                            .expect("Rust KVO from state indicator failed");
+                            .expect("Rust KVO from state Kvo::indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -422,7 +419,7 @@ fn bench_rust_kvo_from_state(c: &mut Criterion) {
                 format!("Rust KVO from state {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
-                        let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                        let min_data_val = Kvo::min_data(&options).max(CHUNK_SIZE);
                         // First chunk
                         let chunk_inputs = [
                             &high_vec[..min_data_val],
@@ -431,8 +428,8 @@ fn bench_rust_kvo_from_state(c: &mut Criterion) {
                             &volume_vec[..min_data_val],
                         ];
 
-                        let (_, mut state) = indicator(&chunk_inputs, &options, None)
-                            .expect("Rust KVO indicator failed");
+                        let (_, mut state) = Kvo::indicator(&chunk_inputs, &options, None)
+                            .expect("Rust KVO Kvo::indicator failed");
 
                         // Chunks
                         let mut high_chunks = high_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -526,7 +523,7 @@ fn bench_rust_kvo_simd_by_assets(c: &mut Criterion) {
             timing.measure(
                 || {
                     let result = indicator_by_assets::<4>(&inputs, &options, None)
-                        .expect("Rust SIMD by assets KVO indicator failed");
+                        .expect("Rust SIMD by assets KVO Kvo::indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -561,7 +558,7 @@ fn bench_rust_kvo_simd_by_assets(c: &mut Criterion) {
                 |b| {
                     b.iter(|| {
                         let result = indicator_by_assets::<4>(&inputs, &options, None)
-                            .expect("Rust SIMD by assets KVO indicator failed");
+                            .expect("Rust SIMD by assets KVO Kvo::indicator failed");
                         black_box(&result);
                     });
                 },
@@ -603,7 +600,7 @@ fn bench_rust_kvo_simd_by_options(c: &mut Criterion) {
                     ];
 
                     let result = indicator_by_options::<4>(&inputs, &options_4, None)
-                        .expect("Rust SIMD by options KVO indicator failed");
+                        .expect("Rust SIMD by options KVO Kvo::indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -640,7 +637,7 @@ fn bench_rust_kvo_simd_by_options(c: &mut Criterion) {
                 ];
 
                 let result = indicator_by_options::<4>(&inputs, &options_4, None)
-                    .expect("Rust SIMD by options KVO indicator failed");
+                    .expect("Rust SIMD by options KVO Kvo::indicator failed");
                 black_box(&result);
             });
         });

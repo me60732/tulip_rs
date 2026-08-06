@@ -2,12 +2,12 @@
 use crate::common::validate_options;
 use crate::common_simd::assets::validate_inputs;
 use crate::indicators::fosc::{
-    min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    Fosc, Indicator, IndicatorState, State, INPUTS, OPTIONS,
 };
-pub use crate::indicators::simd_indicators::fosc_simd::SimdState;
+pub use crate::indicators::simd_indicators::fosc_simd::{SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::tsf::output_length as tsf_output_length;
-use crate::types::IndicatorError;
+use crate::indicators::tsf::Tsf;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
 /// SIMD driver that advances the Forecast Oscillator (FOSC) across `N` asset lanes
@@ -17,7 +17,7 @@ struct FoscDriver {
     period: usize,
 }
 
-impl Driver<State> for FoscDriver {
+impl Driver<State<Warm>> for FoscDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     ///
     /// Reads from `inputs[asset][0]` (real), writes the FOSC to `outputs[asset][0]`,
@@ -28,12 +28,11 @@ impl Driver<State> for FoscDriver {
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
-        let mut state = SimdState::<N>::new(&states);
+        let mut state = SimdState::<N>::from_states(&mut states);
         let len = inputs[0][0].len();
-        let simd_period = Simd::splat(self.period as f64);
         let (has_optional, want_tsf, want_linreg, want_slope, want_intercept) =
             self.want_optional_outputs;
         // Optimization 1: Direct array construction instead of collect+try_into
@@ -54,12 +53,12 @@ impl Driver<State> for FoscDriver {
         // Optimization 3: Simplified main loop with pre-computed offsets
         for (j, i) in (self.period..len).enumerate() {
             // Get inputs arrays for stocks
-            let (real, prev_real) = crate::extract_simd_at_indices!(N, real_ptrs,
-                real @ i,
-                prev_real @ j + 1
+            let inputs = crate::extract_simd_at_indices!(N, real_ptrs,
+                prev_real @ j + 1,
+                real @ i
             );
             let (fosc, tsf, linreg, slope, intercept) =
-                state.calc_simd(prev_real, real, simd_period);
+                state.calc(inputs);
 
             crate::write_simd_at_indices!(N, j,
                 fosc_line_ptr => fosc
@@ -86,7 +85,7 @@ impl Driver<State> for FoscDriver {
 /// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[real]` for asset `i`.
 /// * `options` - Shared options slice; `options[0]` is the period.
 /// * `optional_outputs` - Optional slice selecting extra outputs: index `0` = `tsf`,
@@ -98,15 +97,15 @@ impl Driver<State> for FoscDriver {
 /// for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, Fosc::min_data(options))?;
     validate_options(options)?;
     let period = options[0] as usize;
 
-    let mut road_train = PrimeMover::<N, State>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut want_optional_outputs = (false, false, false, false, false);
     let mut output_buffers = Vec::with_capacity(N);
     for i in 0..N {
@@ -114,10 +113,10 @@ pub fn indicator_by_assets<const N: usize>(
             inputs[i][0], // real
         ];
 
-        let capacity = output_length(inputs[i][0].len(), options);
+        let capacity = Fosc::output_length(inputs[i][0].len(), options);
         let fosc_line = crate::uninit_vec!(f64, capacity);
         let (mut tsf_line, mut linreg_line, mut slope_line, mut intercept_line) = {
-            let tsf_capacity = tsf_output_length(inputs[i][0].len(), options);
+            let tsf_capacity = Tsf::output_length(inputs[i][0].len(), options);
 
             crate::init_optional_outputs_eff!(
                 optional_outputs, &[false, false, false, false],

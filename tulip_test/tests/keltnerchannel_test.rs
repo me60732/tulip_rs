@@ -1,12 +1,10 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::atr::indicator as atr_indicator;
-    use tulip_rs::indicators::ema::indicator as ema_indicator;
-    use tulip_rs::indicators::keltnerchannel::{
-        indicator, indicator_by_assets, indicator_by_options, min_data, TIndicatorState,
-    };
-    use tulip_rs::indicators::tr::indicator as tr_indicator;
+    use tulip_rs::indicators::atr::Atr;
+    use tulip_rs::indicators::ema::Ema;
+    use tulip_rs::indicators::keltnerchannel::{KeltnerChannel, Indicator, TIndicatorState, indicator_by_assets, indicator_by_options};
+    use tulip_rs::indicators::tr::Tr;
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
     const CHUNK_SIZE: usize = 100;
@@ -62,17 +60,17 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 let (full_outputs, _) =
-                    indicator(&inputs, &options, None).expect("Rust KC indicator failed");
+                    KeltnerChannel::indicator(&inputs, &options, None).expect("Rust KC indicator failed");
 
                 let mut batch_lower: Vec<f64> = Vec::new();
                 let mut batch_middle: Vec<f64> = Vec::new();
                 let mut batch_upper: Vec<f64> = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = KeltnerChannel::min_data(&options).max(CHUNK_SIZE);
 
                 if high.len() <= min_data_val {
                     let (outputs, _) =
-                        indicator(&inputs, &options, None).expect("Rust KC indicator failed");
+                        KeltnerChannel::indicator(&inputs, &options, None).expect("Rust KC indicator failed");
                     batch_lower.extend_from_slice(&outputs[0]);
                     batch_middle.extend_from_slice(&outputs[1]);
                     batch_upper.extend_from_slice(&outputs[2]);
@@ -82,7 +80,7 @@ mod tests {
                         &low[..min_data_val],
                         &close[..min_data_val],
                     ];
-                    let (first_outputs, mut state) = indicator(&chunk_inputs, &options, None)
+                    let (first_outputs, mut state) = KeltnerChannel::indicator(&chunk_inputs, &options, None)
                         .expect("Rust KC indicator failed on first chunk");
                     batch_lower.extend_from_slice(&first_outputs[0]);
                     batch_middle.extend_from_slice(&first_outputs[1]);
@@ -154,11 +152,11 @@ mod tests {
             let ema_options = [options[0]];
 
             let (kc_outputs, _) =
-                indicator(&inputs, &options, None).expect("Rust KC indicator failed");
+                KeltnerChannel::indicator(&inputs, &options, None).expect("Rust KC indicator failed");
             let kc_middle = &kc_outputs[1];
 
             let (ema_outputs, _) =
-                ema_indicator(&ema_inputs, &ema_options, None).expect("Rust EMA indicator failed");
+                Ema::indicator(&ema_inputs, &ema_options, None).expect("Rust EMA indicator failed");
             let ema_line = &ema_outputs[0];
 
             let compare_len = kc_middle.len().min(ema_line.len());
@@ -196,10 +194,10 @@ mod tests {
                 let ema_options = [options[0]];
 
                 let (kc_outputs, _) =
-                    indicator(&inputs, &options, None).expect("Rust KC indicator failed");
+                    KeltnerChannel::indicator(&inputs, &options, None).expect("Rust KC indicator failed");
                 let kc_middle = &kc_outputs[1];
 
-                let (ema_outputs, _) = ema_indicator(&ema_inputs, &ema_options, None)
+                let (ema_outputs, _) = Ema::indicator(&ema_inputs, &ema_options, None)
                     .expect("Rust EMA indicator failed");
                 let ema_line = &ema_outputs[0];
 
@@ -242,12 +240,12 @@ mod tests {
             let atr_options = [options[0]];
 
             // outputs: [lower, middle, upper, atr, tr]
-            let (kc_outputs, _) = indicator(&inputs, &options, Some(&[true, false]))
+            let (kc_outputs, _) = KeltnerChannel::indicator(&inputs, &options, Some(&[true, false]))
                 .expect("Rust KC indicator failed");
             let kc_atr = &kc_outputs[3];
 
             let (atr_outputs, _) =
-                atr_indicator(&inputs, &atr_options, None).expect("Rust ATR indicator failed");
+                Atr::indicator(&inputs, &atr_options, None).expect("Rust ATR indicator failed");
             let atr_line = &atr_outputs[0];
 
             let compare_len = kc_atr.len().min(atr_line.len());
@@ -285,12 +283,12 @@ mod tests {
             for options in OPTIONS_LIST {
                 let atr_options = [options[0]];
 
-                let (kc_outputs, _) = indicator(&inputs, &options, Some(&[true, false]))
+                let (kc_outputs, _) = KeltnerChannel::indicator(&inputs, &options, Some(&[true, false]))
                     .expect("Rust KC indicator failed");
                 let kc_atr = &kc_outputs[3];
 
                 let (atr_outputs, _) =
-                    atr_indicator(&inputs, &atr_options, None).expect("Rust ATR indicator failed");
+                    Atr::indicator(&inputs, &atr_options, None).expect("Rust ATR indicator failed");
                 let atr_line = &atr_outputs[0];
 
                 let compare_len = kc_atr.len().min(atr_line.len());
@@ -332,12 +330,12 @@ mod tests {
             let tr_options: [f64; 0] = [];
 
             // outputs: [lower, middle, upper, atr, tr]
-            let (kc_outputs, _) = indicator(&inputs, &options, Some(&[true, true]))
+            let (kc_outputs, _) = KeltnerChannel::indicator(&inputs, &options, Some(&[true, true]))
                 .expect("Rust KC indicator failed");
             let kc_tr = &kc_outputs[4];
 
             let (tr_outputs, _) =
-                tr_indicator(&inputs, &tr_options, None).expect("Rust TR indicator failed");
+                Tr::indicator(&inputs, &tr_options, None).expect("Rust TR indicator failed");
             let tr_line = &tr_outputs[0];
 
             let compare_len = kc_tr.len().min(tr_line.len());
@@ -375,12 +373,12 @@ mod tests {
             for options in OPTIONS_LIST {
                 let tr_options: [f64; 0] = [];
 
-                let (kc_outputs, _) = indicator(&inputs, &options, Some(&[true, true]))
+                let (kc_outputs, _) = KeltnerChannel::indicator(&inputs, &options, Some(&[true, true]))
                     .expect("Rust KC indicator failed");
                 let kc_tr = &kc_outputs[4];
 
                 let (tr_outputs, _) =
-                    tr_indicator(&inputs, &tr_options, None).expect("Rust TR indicator failed");
+                    Tr::indicator(&inputs, &tr_options, None).expect("Rust TR indicator failed");
                 let tr_line = &tr_outputs[0];
 
                 let compare_len = kc_tr.len().min(tr_line.len());
@@ -440,7 +438,7 @@ mod tests {
             for (stock_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
                 let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (regular_results, _) =
-                    indicator(&inputs, &options, None).expect("KC indicator failed");
+                    KeltnerChannel::indicator(&inputs, &options, None).expect("KC indicator failed");
 
                 for (out_idx, out_name) in ["lower", "middle", "upper"].iter().enumerate() {
                     let simd = &simd_results[stock_idx][out_idx];
@@ -496,7 +494,7 @@ mod tests {
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
                 let (regular_results, _) =
-                    indicator(&inputs, options, None).expect("KC indicator failed");
+                    KeltnerChannel::indicator(&inputs, options, None).expect("KC indicator failed");
 
                 for (out_idx, out_name) in ["lower", "middle", "upper"].iter().enumerate() {
                     let simd = &simd_results[opt_idx][out_idx];
@@ -554,7 +552,7 @@ mod tests {
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
                 let (regular_results, _) =
-                    indicator(&inputs, options, Some(&[true, false])).expect("KC indicator failed");
+                    KeltnerChannel::indicator(&inputs, options, Some(&[true, false])).expect("KC indicator failed");
 
                 let simd_atr = &simd_results[opt_idx][3];
                 let regular_atr = &regular_results[3];
@@ -609,7 +607,7 @@ mod tests {
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
                 let (regular_results, _) =
-                    indicator(&inputs, options, Some(&[false, true])).expect("KC indicator failed");
+                    KeltnerChannel::indicator(&inputs, options, Some(&[false, true])).expect("KC indicator failed");
 
                 let simd_tr = &simd_results[opt_idx][4];
                 let regular_tr = &regular_results[4];
@@ -674,7 +672,7 @@ mod tests {
 
             for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
                 let scalar_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (scalar_results, _) = indicator(&scalar_inputs, &options, Some(&[true, true]))
+                let (scalar_results, _) = KeltnerChannel::indicator(&scalar_inputs, &options, Some(&[true, true]))
                     .expect("Scalar Keltner Channel with optional outputs failed");
 
                 // Compare all 5 outputs (lower, middle, upper, atr, tr)

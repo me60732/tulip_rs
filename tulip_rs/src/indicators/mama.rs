@@ -37,9 +37,9 @@
 //! benchmark comparison is valid as a throughput measurement.
 
 use crate::common::validate_inputs;
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 use crate::indicators::homodynediscriminator;
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "simd_assets")]
@@ -59,45 +59,12 @@ pub mod by_options {
 }
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 1;
+pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
 /// `[fast_limit, slow_limit]`
-pub const OPTIONS_WIDTH: usize = 2;
+pub const OPTIONS: usize = 2;
 
-/// Metadata describing the MAMA / FAMA indicator.
-pub const INFO: Info = Info {
-    name: "mama",
-    indicator_type: IndicatorType::Trend,
-    full_name: "MESA Adaptive Moving Average",
-    inputs: &["real"],
-    options: &["fast_limit", "slow_limit"],
-    outputs: &["mama", "fama"],
-    optional_outputs: &["dc_period", "alpha"],
-    display_groups: &[
-        DisplayGroup {
-            offset: None,
-            id: "mama",
-            label: "MAMA / FAMA",
-            display_type: DisplayType::Overlay,
-            outputs: &["mama", "fama"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "mama_dc_period",
-            label: "MAMA Dominant Cycle Period",
-            display_type: DisplayType::Indicator,
-            outputs: &["dc_period"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "mama_alpha",
-            label: "MAMA Alpha",
-            display_type: DisplayType::Indicator,
-            outputs: &["alpha"],
-        },
-    ],
-};
 
 /// Per-bar state for the Ehlers MESA Adaptive Moving Average (MAMA) and
 /// Following Adaptive Moving Average (FAMA).
@@ -123,32 +90,29 @@ pub const INFO: Info = Info {
 /// exactly (seeded from the first-output-bar price so that α·p + (1−α)·p = p). Subsequent
 /// bars evolve from this seed.
 #[derive(Serialize, Deserialize)]
-pub struct State {
+#[serde(bound = "")]
+pub struct State<S = Cold> {
     /// Full Homodyne Discriminator pipeline (stages 0–3 and IIR discriminator).
-    pub hd: homodynediscriminator::State,
-
-    /// Instantaneous phase (degrees) from the previous bar — used to compute DeltaPhase.
+    pub hd: homodynediscriminator::State<S>,
     pub prev_phase: f64,
-
-    /// Current MAMA value.
     pub mama: f64,
-
-    /// Current FAMA value.
     pub fama: f64,
-
-    /// Last computed adaptive alpha (stored for optional output; cheap to keep vs. re-compute).
     pub alpha: f64,
+    pub fast_limit: f64,
+    pub slow_limit: f64
 }
 
 impl State {
     /// Creates a new, zeroed state ready for the first bar.
-    pub fn new() -> Self {
+    pub fn new(fast_limit: f64, slow_limit: f64) -> Self {
         Self {
             hd: homodynediscriminator::State::new(),
             prev_phase: 0.0,
             mama: 0.0,
             fama: 0.0,
             alpha: 0.0,
+            fast_limit,
+            slow_limit,
         }
     }
 
@@ -167,70 +131,39 @@ impl State {
         fama_line: &mut [f64],
         dc_period_line: &mut [f64],
         alpha_line: &mut [f64],
-    ) -> Self {
-        let mut state = Self::new();
-        let mut i = 0;
-
-        // Feed warmup bars through the HD pipeline only (no MAMA computation needed).
-        while !state.hd.all_buffers_full() {
-            state.hd.calc(real[i]);
-            i += 1;
-        }
-
-        // After the loop, i = min_data - 1 = 22 (the first output bar, 0-indexed).
-        // Seed MAMA and FAMA from that bar's price so the first output is price-exact:
-        //   mama = α·price + (1−α)·price_seed = price (when price_seed = price).
-        let seed = real[i];
-        state.mama = seed;
-        state.fama = seed;
-
-        // Process bar 22 (first valid bar) — HD buffers are full, safe to use unchecked.
-        let (mama, fama) = unsafe { state.calc_unchecked(real[i], fast_limit, slow_limit) };
+    ) -> State<Warm> {
+        let hd = homodynediscriminator::State::init_state(real);
+    
+        // Seed MAMA and FAMA from bar 22's price so first output is price-exact.
+        let seed = real[22];
+    
+        let mut state = State::<Warm> {
+            hd,
+            prev_phase: 0.0,
+            mama: seed,
+            fama: seed,
+            alpha: 0.0,
+            fast_limit,
+            slow_limit,
+        };
+    
+        // Process bar 22 — first valid output
+        let (mama, fama) = state.calc(real[22]);
         mama_line[0] = mama;
         fama_line[0] = fama;
-
+    
         let (_, want_dc, want_alpha) = crate::calc_want_flags!(dc_period_line, alpha_line);
         crate::store_optional_outputs!(0,
             want_dc,    dc_period_line => state.hd.smooth_period,
             want_alpha, alpha_line     => state.alpha
         );
-
+    
         state
     }
 
-    /// One-bar update. Returns `(mama, fama)`.
-    ///
-    /// Returns `(0.0, 0.0)` while any HD ring buffer is still filling (warmup guard).
-    /// After [`init_state`] all buffers are guaranteed full, so the guards are
-    /// cost-free on every production bar.
-    #[inline(always)]
-    pub fn calc(&mut self, real: f64, fast_limit: f64, slow_limit: f64) -> (f64, f64) {
-        let (_, i1, q1) = self.hd.calc_with_iq(real);
-        if !self.hd.all_buffers_full() {
-            return (0.0, 0.0);
-        }
-        self.apply_mama(real, i1, q1, fast_limit, slow_limit);
-        (self.mama, self.fama)
-    }
 
-    /// Unsafe one-bar update — skips all ring-buffer fullness guards.
-    ///
-    /// # Safety
-    ///
-    /// All HD ring buffers must be full on entry. This is guaranteed after
-    /// [`init_state`] and on every subsequent bar in the cycle loop.
-    #[inline(always)]
-    pub unsafe fn calc_unchecked(
-        &mut self,
-        real: f64,
-        fast_limit: f64,
-        slow_limit: f64,
-    ) -> (f64, f64) {
-        let (_, i1, q1) = self.hd.calc_unchecked_with_iq(real);
-        self.apply_mama(real, i1, q1, fast_limit, slow_limit);
-        (self.mama, self.fama)
-    }
-
+}
+impl<S> State<S> {
     /// Applies the MAMA-specific computation: phase delta → adaptive alpha → EMA updates.
     ///
     /// Shared by [`calc`](Self::calc) and [`calc_unchecked`](Self::calc_unchecked).
@@ -240,7 +173,7 @@ impl State {
     /// convention and TA-Lib's implementation, ensuring that `fast_limit / delta_phase`
     /// produces the expected alpha range with Ehlers' default parameters.
     #[inline(always)]
-    fn apply_mama(&mut self, real: f64, i1: f64, q1: f64, fast_limit: f64, slow_limit: f64) {
+    fn apply_mama(&mut self, real: f64, i1: f64, q1: f64) {
         const RAD_TO_DEG: f64 = 180.0 / std::f64::consts::PI;
 
         // Instantaneous phase in degrees. Guard against I1 = 0 (undefined atan).
@@ -256,7 +189,7 @@ impl State {
         self.prev_phase = phase;
 
         // Adaptive alpha: larger when phase barely moved (slow market), capped at FastLimit.
-        self.alpha = (fast_limit / delta_phase).clamp(slow_limit, fast_limit);
+        self.alpha = (self.fast_limit / delta_phase).clamp(self.slow_limit, self.fast_limit);
 
         // MAMA — standard EMA with adaptive alpha.
         self.mama = self.alpha.mul_add(real, (1.0 - self.alpha) * self.mama);
@@ -266,36 +199,46 @@ impl State {
         self.fama = half_alpha.mul_add(self.mama, (1.0 - half_alpha) * self.fama);
     }
 }
-
-impl Default for State {
+impl TState for State<Cold> {
+    type Inputs<'a> = f64;
+    type Outputs = (f64, f64);
+    
+    #[inline(always)]
+    fn calc<'a>(&mut self, real: Self::Inputs<'a>) -> Self::Outputs {
+        let (_, i1, q1) = self.hd.calc_with_iq(real);
+        if !self.hd.all_buffers_full() {
+            return (0.0, 0.0);
+        }
+        self.apply_mama(real, i1, q1);
+        (self.mama, self.fama)
+    }
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = f64;
+    type Outputs = (f64, f64);
+    #[inline(always)]
+    fn calc<'a>(
+        &mut self,
+        real: Self::Inputs<'a>,
+    ) -> Self::Outputs {
+        let (_, i1, q1) = self.hd.calc_with_iq(real);
+        self.apply_mama(real, i1, q1);
+        (self.mama, self.fama)
+    }
+}
+/*impl Default for State {
     fn default() -> Self {
         Self::new()
     }
-}
+}*/
 
-/// Streaming indicator state, wrapping [`State`] together with the fixed limits
-/// for use with [`batch_indicator`].
-#[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    state: State,
-    fast_limit: f64,
-    slow_limit: f64,
-}
+pub type IndicatorState = State<Warm>;
 
-impl IndicatorState {
-    pub fn new(state: State, fast_limit: f64, slow_limit: f64) -> Self {
-        Self {
-            state,
-            fast_limit,
-            slow_limit,
-        }
-    }
-}
 
-impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
+impl TIndicatorState<INPUTS> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -313,9 +256,7 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
 
         cycle(
             inputs[0],
-            &mut self.state,
-            self.fast_limit,
-            self.slow_limit,
+            self,
             &mut mama_line,
             &mut fama_line,
             (&mut dc_period_line, &mut alpha_line),
@@ -325,18 +266,118 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
     }
 }
 
-/// Returns the minimum number of input bars required for MAMA / FAMA.
-///
-/// Fixed at 23 — identical to the Homodyne Discriminator warmup, since MAMA
-/// embeds the full HD pipeline and adds no extra ring buffers.
-pub fn min_data(_options: &[f64]) -> usize {
-    23
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Indicator trait
+// ─────────────────────────────────────────────────────────────────────────────
 
+/// Unit struct that implements [`Indicator`] for MAMA / FAMA.
+pub struct Mama;
 
-/// Returns the number of output values produced for a given input length.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
+impl Indicator<INPUTS, OPTIONS> for Mama {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "mama",
+        indicator_type: IndicatorType::Trend,
+        full_name: "MESA Adaptive Moving Average",
+        inputs: &["real"],
+        options: &["fast_limit", "slow_limit"],
+        outputs: &["mama", "fama"],
+        optional_outputs: &["dc_period", "alpha"],
+        display_groups: &[
+            DisplayGroup {
+                offset: None,
+                id: "mama",
+                label: "MAMA / FAMA",
+                display_type: DisplayType::Overlay,
+                outputs: &["mama", "fama"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "mama_dc_period",
+                label: "MAMA Dominant Cycle Period",
+                display_type: DisplayType::Indicator,
+                outputs: &["dc_period"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "mama_alpha",
+                label: "MAMA Alpha",
+                display_type: DisplayType::Indicator,
+                outputs: &["alpha"],
+            },
+        ],
+    };
+
+    fn min_data(_options: &[f64; OPTIONS]) -> usize {
+        23
+    }
+
+    fn output_length(data_len: usize, _options: &[f64; OPTIONS]) -> usize {
+        data_len.saturating_sub(22)
+    }
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        let fast_limit = options[0];
+        let slow_limit = options[1];
+    
+        validate_inputs(inputs, Self::min_data(options))?;
+        let real = inputs[0];
+        let capacity = Self::output_length(real.len(), options);
+    
+        let (mut mama_line, mut fama_line, (mut dc_period_line, mut alpha_line)) = (
+            crate::uninit_vec!(f64, capacity),
+            crate::uninit_vec!(f64, capacity),
+            crate::init_optional_outputs!(
+                optional_outputs, &[false, false],
+                dc_period_line: capacity,
+                alpha_line: capacity
+            ),
+        );
+    
+        // init_state fills HD buffers, seeds MAMA/FAMA from first-output-bar price,
+        // processes bar (min_data − 1) = 22, and writes to output[0].
+        let mut state = State::init_state(
+            real,
+            fast_limit,
+            slow_limit,
+            &mut mama_line,
+            &mut fama_line,
+            &mut dc_period_line,
+            &mut alpha_line,
+        );
+    
+        // cycle processes bars min_data..len-1 and writes to output[1..].
+        let real_tail = &real[Self::min_data(options)..];
+        let (_, want_dc, want_alpha) = crate::calc_want_flags!(dc_period_line, alpha_line);
+        let dc_tail = if want_dc {
+            &mut dc_period_line[1..]
+        } else {
+            &mut dc_period_line[..]
+        };
+        let alpha_tail = if want_alpha {
+            &mut alpha_line[1..]
+        } else {
+            &mut alpha_line[..]
+        };
+    
+        cycle(
+            real_tail,
+            &mut state,
+            &mut mama_line[1..],
+            &mut fama_line[1..],
+            (dc_tail, alpha_tail),
+        );
+    
+        Ok((
+            vec![mama_line, fama_line, dc_period_line, alpha_line],
+            state,
+        ))
+    }
 }
 
 /// Validates MAMA options.
@@ -346,115 +387,13 @@ pub fn output_length(data_len: usize, options: &[f64]) -> usize {
 /// Returns [`IndicatorError::InvalidOptions`] if:
 /// - `fast_limit` is not in `(0.0, 1.0]`
 /// - `slow_limit` is not in `(0.0, fast_limit)`
-pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), IndicatorError> {
+pub(crate) fn validate_options(options: &[f64; OPTIONS]) -> Result<(), IndicatorError> {
     let fast = options[0];
     let slow = options[1];
     if fast <= 0.0 || fast > 1.0 || slow <= 0.0 || slow >= fast {
         return Err(IndicatorError::InvalidOptions);
     }
     Ok(())
-}
-
-/// Calculates MAMA and FAMA over the full input dataset.
-///
-/// Applies the Ehlers Homodyne Discriminator pipeline to extract the dominant
-/// cycle period, then uses the instantaneous phase rate of change to derive
-/// an adaptive smoothing coefficient α for each bar:
-///
-/// ```text
-/// α = clamp(fast_limit / DeltaPhase°, slow_limit, fast_limit)
-/// MAMA = α · price + (1 − α) · MAMA[1]
-/// FAMA = ½α · MAMA  + (1 − ½α) · FAMA[1]
-/// ```
-///
-/// # Inputs
-///
-/// * `inputs[0]` — `real` price series (typically close, or `(high + low) / 2`)
-///
-/// # Options
-///
-/// * `options[0]` — `fast_limit`: maximum alpha (Ehlers default: **0.5**)
-/// * `options[1]` — `slow_limit`: minimum alpha (Ehlers default: **0.05**)
-///
-/// # Optional outputs
-///
-/// * index 0 — `dc_period`: dominant cycle period (`SmoothPeriod` from the embedded HD)
-/// * index 1 — `alpha`: adaptive smoothing coefficient used each bar
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is `mama`, `outputs[1]` is `fama`,
-/// `outputs[2]` is `dc_period` (empty unless requested), and `outputs[3]` is
-/// `alpha` (empty unless requested). `state` can be passed to
-/// `IndicatorState::batch_indicator` for streaming updates.
-///
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-///
-/// > **Note:** The first ~50 output bars should be treated as transient while the
-/// > embedded IIR smoothers (I2, Q2, Re, Im, Period) converge from their zero seeds.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let fast_limit = options[0];
-    let slow_limit = options[1];
-
-    validate_inputs(inputs, min_data(options))?;
-    let real = inputs[0];
-    let capacity = output_length(real.len(), options);
-
-    let (mut mama_line, mut fama_line, (mut dc_period_line, mut alpha_line)) = (
-        crate::uninit_vec!(f64, capacity),
-        crate::uninit_vec!(f64, capacity),
-        crate::init_optional_outputs!(
-            optional_outputs, &[false, false],
-            dc_period_line: capacity,
-            alpha_line: capacity
-        ),
-    );
-
-    // init_state fills HD buffers, seeds MAMA/FAMA from first-output-bar price,
-    // processes bar (min_data − 1) = 22, and writes to output[0].
-    let mut state = State::init_state(
-        real,
-        fast_limit,
-        slow_limit,
-        &mut mama_line,
-        &mut fama_line,
-        &mut dc_period_line,
-        &mut alpha_line,
-    );
-
-    // cycle processes bars min_data..len-1 and writes to output[1..].
-    let real_tail = &real[min_data(options)..];
-    let (_, want_dc, want_alpha) = crate::calc_want_flags!(dc_period_line, alpha_line);
-    let dc_tail = if want_dc {
-        &mut dc_period_line[1..]
-    } else {
-        &mut dc_period_line[..]
-    };
-    let alpha_tail = if want_alpha {
-        &mut alpha_line[1..]
-    } else {
-        &mut alpha_line[..]
-    };
-
-    cycle(
-        real_tail,
-        &mut state,
-        fast_limit,
-        slow_limit,
-        &mut mama_line[1..],
-        &mut fama_line[1..],
-        (dc_tail, alpha_tail),
-    );
-
-    Ok((
-        vec![mama_line, fama_line, dc_period_line, alpha_line],
-        IndicatorState::new(state, fast_limit, slow_limit),
-    ))
 }
 
 /// Core calculation loop for MAMA / FAMA.
@@ -464,9 +403,7 @@ pub fn indicator(
 /// `dc_period` / `alpha` when those slices are non-empty.
 fn cycle(
     real: &[f64],
-    state: &mut State,
-    fast_limit: f64,
-    slow_limit: f64,
+    state: &mut State<Warm>,
     mama_line: &mut [f64],
     fama_line: &mut [f64],
     optional_outputs: (&mut [f64], &mut [f64]),
@@ -476,7 +413,7 @@ fn cycle(
 
     for i in 0..real.len() {
         let (mama, fama) =
-            unsafe { state.calc_unchecked(*real.get_unchecked(i), fast_limit, slow_limit) };
+            state.calc(unsafe { *real.get_unchecked(i) } );
 
         unsafe {
             *mama_line.get_unchecked_mut(i) = mama;

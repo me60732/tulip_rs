@@ -1,5 +1,8 @@
 use std::{error::Error, fmt};
-
+#[derive(Clone, Default)]
+pub struct Warm;
+#[derive(Clone, Default)]
+pub struct Cold;
 #[derive(Debug, Clone, Copy, Default)]
 pub enum DisplayType {
     /// The indicator is drawn on top of the price chart (e.g. moving averages, Bollinger Bands).

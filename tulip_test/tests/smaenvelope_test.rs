@@ -2,7 +2,7 @@
 mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicators::smaenvelope::{
-        indicator as rust_smaenvelope, min_data, output_length, IndicatorState, TIndicatorState,
+        SmaEnvelope, Indicator, IndicatorState, TIndicatorState,
     };
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -47,11 +47,11 @@ mod tests {
         for options in OPTIONS_LIST {
             let inputs = [close.as_slice()];
             let (outputs, _) =
-                rust_smaenvelope(&inputs, &options, None).expect("SMA Envelope indicator failed");
+                SmaEnvelope::indicator(&inputs, &options, None).expect("SMA Envelope indicator failed");
 
             assert_eq!(outputs.len(), 3, "expected 3 output bands");
 
-            let expected_len = output_length(close.len(), &options);
+            let expected_len = SmaEnvelope::output_length(close.len(), &options);
             assert_eq!(
                 outputs[0].len(),
                 expected_len,
@@ -130,7 +130,7 @@ mod tests {
     fn test_smaenvelope_invalid_options_period_zero() {
         let close = expand_close();
         let inputs = [close.as_slice()];
-        let result = rust_smaenvelope(&inputs, &[0.0, 2.5], None);
+        let result = SmaEnvelope::indicator(&inputs, &[0.0, 2.5], None);
         assert!(result.is_err(), "expected Err for period=0, got Ok");
     }
 
@@ -138,7 +138,7 @@ mod tests {
     fn test_smaenvelope_invalid_options_percentage_zero() {
         let close = expand_close();
         let inputs = [close.as_slice()];
-        let result = rust_smaenvelope(&inputs, &[14.0, 0.0], None);
+        let result = SmaEnvelope::indicator(&inputs, &[14.0, 0.0], None);
         assert!(result.is_err(), "expected Err for percentage=0, got Ok");
     }
 
@@ -146,7 +146,7 @@ mod tests {
     fn test_smaenvelope_invalid_options_percentage_negative() {
         let close = expand_close();
         let inputs = [close.as_slice()];
-        let result = rust_smaenvelope(&inputs, &[14.0, -1.0], None);
+        let result = SmaEnvelope::indicator(&inputs, &[14.0, -1.0], None);
         assert!(result.is_err(), "expected Err for percentage=-1, got Ok");
     }
 
@@ -154,7 +154,7 @@ mod tests {
     fn test_smaenvelope_too_few_inputs() {
         // Only 1 bar — always too short for any valid period
         let inputs = [&[100.0_f64][..]];
-        let result = rust_smaenvelope(&inputs, &[5.0, 2.5], None);
+        let result = SmaEnvelope::indicator(&inputs, &[5.0, 2.5], None);
         assert!(result.is_err(), "expected Err for 1-bar input, got Ok");
     }
 
@@ -172,12 +172,12 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Reference: run the full indicator on all data
-            let (full_outputs, _) = rust_smaenvelope(&inputs, &options, None)
+            let (full_outputs, _) = SmaEnvelope::indicator(&inputs, &options, None)
                 .expect("SMA Envelope full indicator failed");
 
             // Streaming: seed state with the minimum required bars, then
             // process the remainder in CHUNK_SIZE chunks
-            let min = min_data(&options);
+            let min = SmaEnvelope::min_data(&options);
             // Ensure the seed slice is at least CHUNK_SIZE so we have a
             // meaningful first batch
             let seed_len = min.max(CHUNK_SIZE);
@@ -185,7 +185,7 @@ mod tests {
             let mut batch_outputs: Vec<Vec<f64>> = vec![Vec::new(); 3];
 
             let chunk_inputs = [&close[..seed_len]];
-            let (first_out, mut state) = rust_smaenvelope(&chunk_inputs, &options, None)
+            let (first_out, mut state) = SmaEnvelope::indicator(&chunk_inputs, &options, None)
                 .expect("SMA Envelope seed indicator failed");
             for band in 0..3 {
                 batch_outputs[band].extend_from_slice(&first_out[band]);
@@ -252,14 +252,14 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Reference
-            let (full_outputs, _) = rust_smaenvelope(&inputs, &options, None)
+            let (full_outputs, _) = SmaEnvelope::indicator(&inputs, &options, None)
                 .expect("SMA Envelope full indicator failed");
 
-            // Seed with exactly min_data bars to obtain state
-            let min = min_data(&options);
+            // Seed with exactly SmaEnvelope::min_data bars to obtain state
+            let min = SmaEnvelope::min_data(&options);
             let chunk_inputs = [&close[..min]];
             let (first_out, mut state) =
-                rust_smaenvelope(&chunk_inputs, &options, None).expect("SMA Envelope seed failed");
+                SmaEnvelope::indicator(&chunk_inputs, &options, None).expect("SMA Envelope seed failed");
 
             let mut batch_outputs: Vec<Vec<f64>> = vec![Vec::new(); 3];
             for band in 0..3 {
@@ -315,16 +315,16 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Reference
-            let (full_outputs, _) = rust_smaenvelope(&inputs, &options, None)
+            let (full_outputs, _) = SmaEnvelope::indicator(&inputs, &options, None)
                 .expect("SMA Envelope full indicator failed");
 
-            let min = min_data(&options);
+            let min = SmaEnvelope::min_data(&options);
             let seed_len = min.max(CHUNK_SIZE);
 
             // Seed up to seed_len bars to obtain initial state
             let chunk_inputs = [&close[..seed_len]];
             let (first_out, state) =
-                rust_smaenvelope(&chunk_inputs, &options, None).expect("SMA Envelope seed failed");
+                SmaEnvelope::indicator(&chunk_inputs, &options, None).expect("SMA Envelope seed failed");
 
             let mut batch_outputs: Vec<Vec<f64>> = vec![Vec::new(); 3];
             for band in 0..3 {
@@ -388,22 +388,22 @@ mod tests {
     // Edge-case: minimum-length input
     // -------------------------------------------------------------------------
 
-    /// When the input is exactly `min_data` bars the indicator should produce
+    /// When the input is exactly `SmaEnvelope::min_data` bars the indicator should produce
     /// exactly one output value per band.
     #[test]
     fn test_smaenvelope_min_data_produces_one_output() {
         let close = expand_close();
 
         for options in OPTIONS_LIST {
-            let min = min_data(&options);
+            let min = SmaEnvelope::min_data(&options);
             let inputs = [&close[..min]];
-            let (outputs, _) = rust_smaenvelope(&inputs, &options, None)
-                .expect("SMA Envelope failed at min_data length");
+            let (outputs, _) = SmaEnvelope::indicator(&inputs, &options, None)
+                .expect("SMA Envelope failed at SmaEnvelope::min_data length");
             for band in 0..3 {
                 assert_eq!(
                     outputs[band].len(),
                     1,
-                    "expected 1 output for band {} at min_data length for options {:?}",
+                    "expected 1 output for band {} at SmaEnvelope::min_data length for options {:?}",
                     band,
                     options
                 );
@@ -411,22 +411,22 @@ mod tests {
         }
     }
 
-    /// When the input has exactly `min_data - 1` bars the indicator must return
+    /// When the input has exactly `SmaEnvelope::min_data - 1` bars the indicator must return
     /// an error (too few inputs).
     #[test]
     fn test_smaenvelope_below_min_data_returns_error() {
         let close = expand_close();
 
         for options in OPTIONS_LIST {
-            let min = min_data(&options);
+            let min = SmaEnvelope::min_data(&options);
             if min == 0 {
                 continue; // nothing to test
             }
             let inputs = [&close[..min - 1]];
-            let result = rust_smaenvelope(&inputs, &options, None);
+            let result = SmaEnvelope::indicator(&inputs, &options, None);
             assert!(
                 result.is_err(),
-                "expected Err for {} bars (min_data-1) with options {:?}, got Ok",
+                "expected Err for {} bars (SmaEnvelope::min_data-1) with options {:?}, got Ok",
                 min - 1,
                 options
             );
@@ -468,7 +468,7 @@ mod tests {
 
             for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                 let stock_inputs = [stock_close.as_slice()];
-                let (regular_results, _) = rust_smaenvelope(&stock_inputs, &options, None)
+                let (regular_results, _) = SmaEnvelope::indicator(&stock_inputs, &options, None)
                     .expect("Scalar SMA Envelope failed");
 
                 for (output_idx, output_name) in output_names.iter().enumerate() {
@@ -550,7 +550,7 @@ mod tests {
 
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 let (regular_results, _) =
-                    rust_smaenvelope(&inputs, options, None).expect("Scalar SMA Envelope failed");
+                    SmaEnvelope::indicator(&inputs, options, None).expect("Scalar SMA Envelope failed");
 
                 assert_eq!(
                     simd_results[idx].len(),

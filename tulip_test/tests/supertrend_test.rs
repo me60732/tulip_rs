@@ -1,12 +1,10 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::atr::indicator as atr_indicator;
-    use tulip_rs::indicators::medprice::indicator as medprice_indicator;
-    use tulip_rs::indicators::supertrend::{
-        indicator, indicator_by_assets, indicator_by_options, min_data, TIndicatorState,
-    };
-    use tulip_rs::indicators::tr::indicator as tr_indicator;
+    use tulip_rs::indicators::atr::Atr;
+    use tulip_rs::indicators::medprice::Medprice;
+    use tulip_rs::indicators::supertrend::{Indicator, SuperTrend, TIndicatorState, indicator_by_assets, indicator_by_options};
+    use tulip_rs::indicators::tr::Tr;
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
     const CHUNK_SIZE: usize = 100;
@@ -62,14 +60,14 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 let (full_outputs, _) =
-                    indicator(&inputs, &options, None).expect("Rust Supertrend failed");
+                    SuperTrend::indicator(&inputs, &options, None).expect("Rust Supertrend failed");
 
                 let mut batch_st: Vec<f64> = Vec::new();
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = SuperTrend::min_data(&options).max(CHUNK_SIZE);
 
                 if high.len() <= min_data_val {
-                    let (outputs, _) =
-                        indicator(&inputs, &options, None).expect("Rust Supertrend failed");
+                    let (outputs, _) = SuperTrend::indicator(&inputs, &options, None)
+                        .expect("Rust Supertrend failed");
                     batch_st.extend_from_slice(&outputs[0]);
                 } else {
                     let chunk_inputs = [
@@ -77,8 +75,9 @@ mod tests {
                         &low[..min_data_val],
                         &close[..min_data_val],
                     ];
-                    let (first_outputs, mut state) = indicator(&chunk_inputs, &options, None)
-                        .expect("Rust Supertrend failed on first chunk");
+                    let (first_outputs, mut state) =
+                        SuperTrend::indicator(&chunk_inputs, &options, None)
+                            .expect("Rust Supertrend failed on first chunk");
                     batch_st.extend_from_slice(&first_outputs[0]);
 
                     let mut high_chunks = high[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -138,12 +137,13 @@ mod tests {
             let atr_options = [options[0]];
 
             // optional_outputs[0] = atr → outputs[1]
-            let (st_outputs, _) = indicator(&inputs, &options, Some(&[true, false, false]))
-                .expect("Rust Supertrend failed");
+            let (st_outputs, _) =
+                SuperTrend::indicator(&inputs, &options, Some(&[true, false, false]))
+                    .expect("Rust Supertrend failed");
             let st_atr = &st_outputs[1];
 
             let (atr_outputs, _) =
-                atr_indicator(&inputs, &atr_options, None).expect("Rust ATR indicator failed");
+                Atr::indicator(&inputs, &atr_options, None).expect("Rust ATR indicator failed");
             let atr_line = &atr_outputs[0];
 
             let compare_len = st_atr.len().min(atr_line.len());
@@ -180,12 +180,13 @@ mod tests {
             for options in OPTIONS_LIST {
                 let atr_options = [options[0]];
 
-                let (st_outputs, _) = indicator(&inputs, &options, Some(&[true, false, false]))
-                    .expect("Rust Supertrend failed");
+                let (st_outputs, _) =
+                    SuperTrend::indicator(&inputs, &options, Some(&[true, false, false]))
+                        .expect("Rust Supertrend failed");
                 let st_atr = &st_outputs[1];
 
                 let (atr_outputs, _) =
-                    atr_indicator(&inputs, &atr_options, None).expect("Rust ATR indicator failed");
+                    Atr::indicator(&inputs, &atr_options, None).expect("Rust ATR indicator failed");
                 let atr_line = &atr_outputs[0];
 
                 let compare_len = st_atr.len().min(atr_line.len());
@@ -224,12 +225,13 @@ mod tests {
             let tr_options: [f64; 0] = [];
 
             // optional_outputs[1] = tr → outputs[2]
-            let (st_outputs, _) = indicator(&inputs, &options, Some(&[false, true, false]))
-                .expect("Rust Supertrend failed");
+            let (st_outputs, _) =
+                SuperTrend::indicator(&inputs, &options, Some(&[false, true, false]))
+                    .expect("Rust Supertrend failed");
             let st_tr = &st_outputs[2];
 
             let (tr_outputs, _) =
-                tr_indicator(&inputs, &tr_options, None).expect("Rust TR indicator failed");
+                Tr::indicator(&inputs, &tr_options, None).expect("Rust TR indicator failed");
             let tr_line = &tr_outputs[0];
 
             let compare_len = st_tr.len().min(tr_line.len());
@@ -266,12 +268,13 @@ mod tests {
             for options in OPTIONS_LIST {
                 let tr_options: [f64; 0] = [];
 
-                let (st_outputs, _) = indicator(&inputs, &options, Some(&[false, true, false]))
-                    .expect("Rust Supertrend failed");
+                let (st_outputs, _) =
+                    SuperTrend::indicator(&inputs, &options, Some(&[false, true, false]))
+                        .expect("Rust Supertrend failed");
                 let st_tr = &st_outputs[2];
 
                 let (tr_outputs, _) =
-                    tr_indicator(&inputs, &tr_options, None).expect("Rust TR indicator failed");
+                    Tr::indicator(&inputs, &tr_options, None).expect("Rust TR indicator failed");
                 let tr_line = &tr_outputs[0];
 
                 let compare_len = st_tr.len().min(tr_line.len());
@@ -310,11 +313,12 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // optional_outputs[2] = medprice → outputs[3]
-            let (st_outputs, _) = indicator(&inputs, &options, Some(&[false, false, true]))
-                .expect("Rust Supertrend failed");
+            let (st_outputs, _) =
+                SuperTrend::indicator(&inputs, &options, Some(&[false, false, true]))
+                    .expect("Rust Supertrend failed");
             let st_med = &st_outputs[3];
 
-            let (med_outputs, _) = medprice_indicator(&medprice_inputs, &medprice_options, None)
+            let (med_outputs, _) = Medprice::indicator(&medprice_inputs, &medprice_options, None)
                 .expect("Rust medprice indicator failed");
             let med_line = &med_outputs[0];
 
@@ -349,12 +353,13 @@ mod tests {
             let medprice_options: [f64; 0] = [];
 
             for options in OPTIONS_LIST {
-                let (st_outputs, _) = indicator(&inputs, &options, Some(&[false, false, true]))
-                    .expect("Rust Supertrend failed");
+                let (st_outputs, _) =
+                    SuperTrend::indicator(&inputs, &options, Some(&[false, false, true]))
+                        .expect("Rust Supertrend failed");
                 let st_med = &st_outputs[3];
 
                 let (med_outputs, _) =
-                    medprice_indicator(&medprice_inputs, &medprice_options, None)
+                    Medprice::indicator(&medprice_inputs, &medprice_options, None)
                         .expect("Rust medprice indicator failed");
                 let med_line = &med_outputs[0];
 
@@ -407,8 +412,8 @@ mod tests {
 
             for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
                 let scalar_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (scalar_outputs, _) =
-                    indicator(&scalar_inputs, &options, None).expect("Scalar Supertrend failed");
+                let (scalar_outputs, _) = SuperTrend::indicator(&scalar_inputs, &options, None)
+                    .expect("Scalar Supertrend failed");
 
                 let simd_st = &simd_results[asset_idx][0];
                 let scalar_st = &scalar_outputs[0];
@@ -452,11 +457,11 @@ mod tests {
                 .expect("SIMD by-options Supertrend failed");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
-                if high.len() < min_data(options) {
+                if high.len() < SuperTrend::min_data(options) {
                     continue;
                 }
-                let (scalar_outputs, _) =
-                    indicator(&inputs, options, None).expect("Scalar Supertrend failed");
+                let (scalar_outputs, _) = SuperTrend::indicator(&inputs, options, None)
+                    .expect("Scalar Supertrend failed");
 
                 let simd_st = &simd_results[opt_idx][0];
                 let scalar_st = &scalar_outputs[0];
@@ -551,8 +556,8 @@ mod tests {
                 }
 
                 let scalar_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (scalar_outputs, _) =
-                    indicator(&scalar_inputs, &options, None).expect("Scalar Supertrend failed");
+                let (scalar_outputs, _) = SuperTrend::indicator(&scalar_inputs, &options, None)
+                    .expect("Scalar Supertrend failed");
 
                 assert_eq!(
                     batch_st.len(),
@@ -628,8 +633,8 @@ mod tests {
                 }
 
                 let scalar_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (scalar_outputs, _) =
-                    indicator(&scalar_inputs, options, None).expect("Scalar Supertrend failed");
+                let (scalar_outputs, _) = SuperTrend::indicator(&scalar_inputs, options, None)
+                    .expect("Scalar Supertrend failed");
 
                 assert_eq!(
                     batch_st.len(),
@@ -678,7 +683,7 @@ mod tests {
             for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
                 let scalar_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (scalar_outputs, _) =
-                    indicator(&scalar_inputs, &options, Some(&[true, true, true]))
+                    SuperTrend::indicator(&scalar_inputs, &options, Some(&[true, true, true]))
                         .expect("Scalar Supertrend with optional outputs failed");
 
                 // Check all 4 outputs: st[0], atr[1], tr[2], medprice[3]
@@ -728,8 +733,9 @@ mod tests {
                     .expect("SIMD by-options Supertrend with optional outputs failed");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
-                let (scalar_outputs, _) = indicator(&inputs, options, Some(&[true, true, true]))
-                    .expect("Scalar Supertrend with optional outputs failed");
+                let (scalar_outputs, _) =
+                    SuperTrend::indicator(&inputs, options, Some(&[true, true, true]))
+                        .expect("Scalar Supertrend with optional outputs failed");
 
                 // Check all 4 outputs: st[0], atr[1], tr[2], medprice[3]
                 for out_idx in 0..4 {
@@ -752,5 +758,4 @@ mod tests {
             }
         }
     }
-
-    }
+}

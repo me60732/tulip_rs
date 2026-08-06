@@ -1,5 +1,5 @@
 //use tulip_rs::common::IndicatorState;
-use tulip_rs::indicators::ad::{indicator, TIndicatorState};
+use tulip_rs::indicators::ad::{Ad, Indicator, TIndicatorState};
 
 fn main() {
     let high = [
@@ -26,7 +26,7 @@ fn main() {
         &volume[0..volume.len() - 5], // Volume
     ];
     let options = [];
-    let (outputs, mut state) = match indicator(&inputs, &options, None) {
+    let (outputs, mut state) = match Ad::indicator(&inputs, &options, None) {
         Ok(result) => result,
         Err(e) => {
             println!("Error: {:?}", e.message());

@@ -1,21 +1,21 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 
-pub use crate::indicators::max::{min_data, output_length};
+pub use crate::indicators::max::Max;
 use crate::indicators::{
-    max::{State as MaxState, CHUNK_1, CHUNK_4},
+    max::State as MaxState,
     medprice::calc as calc_medprice,
     min::State as MinState,
 };
 
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 2;
+pub const INPUTS: usize = 2;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -53,22 +53,11 @@ pub mod by_options {
 pub struct IndicatorState {
     high: Vec<f64>,
     low: Vec<f64>,
-    state: State,
+    state: State<Warm>,
     periods: (usize, usize),
 }
 impl IndicatorState {
-    /// Creates a new `IndicatorState` for streaming continuation.
-    ///
-    /// Retains the trailing `period - 1` high and low bars needed to maintain the sliding
-    /// max/min windows across batch calls.
-    ///
-    /// # Arguments
-    ///
-    /// * `state` - Internal min/max state after the last computed bar.
-    /// * `high` - Full high price slice from the just-completed batch.
-    /// * `low` - Full low price slice from the just-completed batch.
-    /// * `periods` - Tuple `(period, trail)` where `trail = period - 1`.
-    pub fn new(state: State, high: &[f64], low: &[f64], periods: (usize, usize)) -> Self {
+    pub fn new(state: State<Warm>, high: &[f64], low: &[f64], periods: (usize, usize)) -> Self {
         Self {
             high: high[high.len() - periods.1..].to_vec(),
             low: low[low.len() - periods.1..].to_vec(),
@@ -77,10 +66,10 @@ impl IndicatorState {
         }
     }
 }
-impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
+impl TIndicatorState<INPUTS> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         _optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -95,29 +84,12 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
                 crate::uninit_vec!(f64, capacity),
             )
         };
-
-        if CHUNK_1.contains(&self.periods.0) {
-            cycle::<1>(
-                (&self.high, &self.low),
-                self.periods,
-                (&mut lower_line, &mut middle_line, &mut upper_line),
-                &mut self.state,
-            );
-        } else if CHUNK_4.contains(&self.periods.0) {
-            cycle::<4>(
-                (&self.high, &self.low),
-                self.periods,
-                (&mut lower_line, &mut middle_line, &mut upper_line),
-                &mut self.state,
-            );
-        } else {
-            cycle::<8>(
-                (&self.high, &self.low),
-                self.periods,
-                (&mut lower_line, &mut middle_line, &mut upper_line),
-                &mut self.state,
-            );
-        }
+        cycle(
+            (&self.high, &self.low),
+            self.periods,
+            (&mut lower_line, &mut middle_line, &mut upper_line),
+            &mut self.state,
+        );
 
         self.high.drain(..self.high.len() - self.periods.1);
         self.low.drain(..self.low.len() - self.periods.1);
@@ -126,20 +98,13 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
     }
 }
 #[derive(Serialize, Deserialize)]
-pub struct State {
-    pub min_state: MinState,
-    pub max_state: MaxState,
+#[serde(bound="")]
+pub struct State<S = Cold> {
+    pub min_state: MinState<S>,
+    pub max_state: MaxState<S>,
 }
+
 impl State {
-    /// Initialises the Donchian Channel state from the seed bar.
-    ///
-    /// Seeds the min/max sliding windows at the first `low`/`high` value.
-    ///
-    /// # Arguments
-    ///
-    /// * `high` - High prices; must contain at least `period` elements.
-    /// * `low` - Low prices; must contain at least `period` elements.
-    /// * `periods` - Tuple `(period, trail)` where `trail = period - 1`.
     pub fn new(high: &[f64], low: &[f64], periods: (usize, usize)) -> Self {
         let min_state = MinState::new(low[0], periods.1);
         let max_state = MaxState::new(high[0], periods.1);
@@ -148,16 +113,23 @@ impl State {
             max_state,
         }
     }
+    pub fn init_state(high: &[f64], low: &[f64], look_back: usize) -> State<Warm> {
+        let min_state = MinState::init_state(low, look_back);
+        let max_state = MaxState::init_state(high, look_back);
+        State {
+            min_state,
+            max_state,
+        }
+    }
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = (&'a [f64], &'a [f64], usize, (usize, usize));
+    type Outputs = (f64, f64, f64);
+
     #[inline(always)]
-    pub fn calc(
-        &mut self,
-        inputs: (&[f64], &[f64]),
-        i: usize,
-        periods: (usize, usize),
-    ) -> (f64, f64, f64) {
-        let (high, low) = inputs;
-        let (min, _) = self.min_state.calc(low, i, periods);
-        let (max, _) = self.max_state.calc(high, i, periods);
+    fn calc<'a>(&mut self, (high, low, i, periods): Self::Inputs<'a>) -> (f64, f64, f64) {
+        let (min, _) = self.min_state.calc((low, i, periods));
+        let (max, _) = self.max_state.calc((high, i, periods));
 
         let middle = calc_medprice(max, min);
 
@@ -184,123 +156,27 @@ impl State {
     ///
     /// A tuple `(lower, middle, upper)` for the current bar.
     #[inline(always)]
-    pub(crate) unsafe fn calc_unchecked<const N: usize>(
+    unsafe fn calc_unchecked(
         &mut self,
-        inputs: (&[f64], &[f64]),
-        i: usize,
-        periods: (usize, usize),
+        inputs: Self::Inputs<'_>,
+    ) -> Self::Outputs {
+        self.calc_chuncked_unchecked::<4>(inputs)
+    }
+}
+impl State<Warm> {
+    #[inline(always)]
+    pub unsafe fn calc_chuncked_unchecked<const N: usize>(
+        &mut self,
+        (high, low, i, periods): (&[f64], &[f64], usize, (usize, usize)),
     ) -> (f64, f64, f64) {
-        let (high, low) = inputs;
-        let (min, _) = self.min_state.calc_unchecked::<N>(low, i, periods);
-        let (max, _) = self.max_state.calc_unchecked::<N>(high, i, periods);
+        let (min, _) = self.min_state.calc_chuncked_unchecked::<N>((low, i, periods));
+        let (max, _) = self.max_state.calc_chuncked_unchecked::<N>((high, i, periods));
 
         let middle = calc_medprice(max, min);
 
         (min, middle, max)
     }
 }
-/// Returns information about the Donchian Channel indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the Donchian Channel indicator.
-pub const INFO: Info = Info {
-    name: "donchianchannel",
-    full_name: "Donchian Channel",
-    indicator_type: IndicatorType::Trend,
-    inputs: &["high", "low"],
-    options: &["period"],
-    outputs: &["lower", "middle", "upper"],
-    optional_outputs: &[],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "donchianchannel",
-        label: "Donchian Channel",
-        display_type: DisplayType::Overlay,
-        outputs: &["lower", "middle", "upper"],
-    }],
-};
-
-/// Calculates the Donchian Channel indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — high prices
-/// * `inputs[1]` — low prices
-///
-/// # Options
-///
-/// * `options[0]` — period (highest-high / lowest-low lookback window)
-///
-/// # Outputs
-///
-/// * `outputs[0]` — `lower` band (lowest low over `period` bars)
-/// * `outputs[1]` — `middle` band (`(upper + lower) / 2`)
-/// * `outputs[2]` — `upper` band (highest high over `period` bars)
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `optional_outputs` - Unused; pass `None`.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is `lower`, `outputs[1]` is `middle`,
-/// `outputs[2]` is `upper`, and `state` can be passed to
-/// `IndicatorState::batch_indicator` for streaming continuation.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    _optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-
-    validate_inputs(inputs, min_data(options))?;
-
-    let periods = (options[0] as usize, options[0] as usize - 1);
-    let [high, low] = inputs;
-
-    let (mut lower_line, mut middle_line, mut upper_line) = {
-        let capacity = output_length(high.len(), options);
-        (
-            crate::uninit_vec!(f64, capacity),
-            crate::uninit_vec!(f64, capacity),
-            crate::uninit_vec!(f64, capacity),
-        )
-    };
-
-    let mut state = State::new(high, low, periods);
-
-    if CHUNK_1.contains(&periods.0) {
-        cycle::<1>(
-            (high, low),
-            periods,
-            (&mut lower_line, &mut middle_line, &mut upper_line),
-            &mut state,
-        );
-    } else if CHUNK_4.contains(&periods.0) {
-        cycle::<4>(
-            (high, low),
-            periods,
-            (&mut lower_line, &mut middle_line, &mut upper_line),
-            &mut state,
-        );
-    } else {
-        cycle::<8>(
-            (high, low),
-            periods,
-            (&mut lower_line, &mut middle_line, &mut upper_line),
-            &mut state,
-        );
-    }
-    Ok((
-        vec![lower_line, middle_line, upper_line],
-        IndicatorState::new(state, high, low, periods),
-    ))
-}
-
 /// Performs the main calculation loop for the Donchian Channel indicator.
 ///
 /// # Arguments
@@ -309,20 +185,81 @@ pub fn indicator(
 /// * `periods` - A tuple of `(period, trail)` where `trail = period - 1`.
 /// * `output_lines` - A tuple of mutable slices for storing `(lower, middle, upper)`.
 /// * `state` - A mutable reference to the current indicator state.
-fn cycle<const N: usize>(
-    inputs: (&[f64], &[f64]),
+fn cycle(
+    (high, low): (&[f64], &[f64]),
     periods: (usize, usize),
     output_lines: (&mut [f64], &mut [f64], &mut [f64]),
-    state: &mut State,
+    state: &mut State<Warm>,
 ) {
     let (lower_line, middle_line, upper_line) = output_lines;
 
-    for (j, i) in (periods.1..inputs.0.len()).enumerate() {
+    for (j, i) in (periods.1..high.len()).enumerate() {
         unsafe {
-            let (lower, middle, upper) = state.calc_unchecked::<N>(inputs, i, periods);
+            let (lower, middle, upper) = state.calc_unchecked((high, low, i, periods));
             *lower_line.get_unchecked_mut(j) = lower;
             *middle_line.get_unchecked_mut(j) = middle;
             *upper_line.get_unchecked_mut(j) = upper;
         }
+    }
+}
+
+pub struct DonchianChannel;
+
+impl Indicator<INPUTS, OPTIONS> for DonchianChannel {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "donchianchannel",
+        full_name: "Donchian Channel",
+        indicator_type: IndicatorType::Trend,
+        inputs: &["high", "low"],
+        options: &["period"],
+        outputs: &["lower", "middle", "upper"],
+        optional_outputs: &[],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "donchianchannel",
+            label: "Donchian Channel",
+            display_type: DisplayType::Overlay,
+            outputs: &["lower", "middle", "upper"],
+        }],
+    };
+
+    fn min_data(options: &[f64; OPTIONS]) -> usize {
+        options[0] as usize
+    }
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        _optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+
+        validate_inputs(inputs, Max::min_data(options))?;
+
+        let periods = (options[0] as usize, options[0] as usize - 1);
+        let [high, low] = inputs;
+
+        let (mut lower_line, mut middle_line, mut upper_line) = {
+            let capacity = Self::output_length(high.len(), options);
+            (
+                crate::uninit_vec!(f64, capacity),
+                crate::uninit_vec!(f64, capacity),
+                crate::uninit_vec!(f64, capacity),
+            )
+        };
+
+        let mut state = State::init_state(high, low, periods.1);
+        cycle(
+            (high, low),
+            periods,
+            (&mut lower_line, &mut middle_line, &mut upper_line),
+            &mut state,
+        );
+        
+        Ok((
+            vec![lower_line, middle_line, upper_line],
+            IndicatorState::new(state, high, low, periods),
+        ))
     }
 }

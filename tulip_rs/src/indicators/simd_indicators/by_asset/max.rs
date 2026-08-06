@@ -1,19 +1,19 @@
 //use crate::common::validate_inputs;
 use crate::indicators::max::{
-    min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    Max, Indicator, IndicatorState, State, INPUTS, OPTIONS,
 };
-use crate::indicators::simd_indicators::max_simd::{assets::Calc, SimdState, CHUNK_1};
+use crate::indicators::simd_indicators::max_simd::{assets::SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 
 /// SIMD driver that advances the Maximum Value (max) across `N` asset lanes per scheduling
 /// epoch.
 struct MaxDriver {
-    periods: (usize, usize),
+    look_back: usize,
 }
 
-impl Driver<State> for MaxDriver {
+impl Driver<State<Warm>> for MaxDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     ///
     /// Reads from `inputs[asset][0]` (real), writes the rolling maximum to
@@ -22,7 +22,7 @@ impl Driver<State> for MaxDriver {
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
         let len = inputs[0][0].len();
@@ -30,27 +30,15 @@ impl Driver<State> for MaxDriver {
         //collect outputs
         let max_line_ptr = crate::extract_output_ptrs!(outputs, N, max_line_ptr);
         let real_ptrs = crate::extract_input_ptrs!(inputs, N, real_ptrs);
-        let mut state = SimdState::new(&states);
-        let (period, look_back) = self.periods;
+        let mut state = SimdState::<N>::from_states(&mut states);
 
-        if CHUNK_1.contains(&period) {
-            for (j, i) in (self.periods.1..len).enumerate() {
-                let (max, _) = unsafe { state.calc_unchecked_simd::<1>(real_ptrs, i, look_back) };
+        for (j, i) in (self.look_back..len).enumerate() {
+            let (max, _) = state.calc((real_ptrs, i, self.look_back));
 
-                // Store results using pre-computed pointers
-                crate::write_simd_at_indices!(N, j,
-                    max_line_ptr => max
-                );
-            }
-        } else {
-            for (j, i) in (self.periods.1..len).enumerate() {
-                let (max, _) = unsafe { state.calc_unchecked_simd::<4>(real_ptrs, i, look_back) };
-
-                // Store results using pre-computed pointers
-                crate::write_simd_at_indices!(N, j,
-                    max_line_ptr => max
-                );
-            }
+            // Store results using pre-computed pointers
+            crate::write_simd_at_indices!(N, j,
+                max_line_ptr => max
+            );
         }
 
         // Update states efficiently
@@ -63,7 +51,7 @@ impl Driver<State> for MaxDriver {
 /// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[real]` for asset `i`.
 /// * `options` - Shared options slice; `options[0]` is the period.
 /// * `_optional_outputs` - Unused; max has no optional outputs.
@@ -73,15 +61,15 @@ impl Driver<State> for MaxDriver {
 /// and `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    options: &[f64; OPTIONS],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, Max::min_data(options))?;
     validate_options(options)?;
     let periods = (options[0] as usize, options[0] as usize - 1);
 
-    let mut road_train = PrimeMover::<N, State>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut output_buffers = Vec::with_capacity(N);
 
     for i in 0..N {
@@ -91,14 +79,11 @@ pub fn indicator_by_assets<const N: usize>(
 
         let max_line = {
             let len = inputs[i][0].len();
-            let capacity = output_length(len, options);
+            let capacity = Max::output_length(len, options);
             crate::uninit_vec!(f64, capacity)
         };
 
-        let state = State::new(
-            inputs[i][0][0], // real
-            periods.1,
-        );
+        let state = State::init_state(inputs[i][0], periods.1);
 
         let mut output_buffer = vec![max_line];
 
@@ -129,7 +114,7 @@ pub fn indicator_by_assets<const N: usize>(
         output_buffers.push(output_buffer);
     }
 
-    let mut driver = MaxDriver { periods };
+    let mut driver = MaxDriver { look_back: periods.1 };
     let states_vec = road_train.drive(&mut driver);
 
     let mut states = Vec::with_capacity(N);

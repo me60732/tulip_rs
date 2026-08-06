@@ -30,7 +30,7 @@ pub(crate) mod options {
     pub(crate) fn validate_inputs<const OPTIONS_WIDTH: usize>(
         inputs: &[&[f64]],
         options: &[&[f64; OPTIONS_WIDTH]],
-        min_data: fn(&[f64]) -> usize,
+        min_data: fn(&[f64; OPTIONS_WIDTH]) -> usize,
     ) -> Result<(), IndicatorError> {
         let mut min_len = 0;
         for &option in options.iter() {

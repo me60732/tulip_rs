@@ -1,4 +1,4 @@
-use tulip_rs::indicators::kama::{indicator, TIndicatorState};
+use tulip_rs::indicators::kama::{Indicator, Kama, TIndicatorState};
 
 fn main() {
     let close = [
@@ -9,7 +9,7 @@ fn main() {
 
     let inputs = [close.as_slice()];
 
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match Kama::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -17,7 +17,7 @@ fn main() {
 
     let new_inputs = [&close[0..close.len() - 5]];
 
-    let (outputs2, mut state) = match indicator(&new_inputs, &options, None) {
+    let (outputs2, mut state) = match Kama::indicator(&new_inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::min::{indicator as rust_min, min_data, TIndicatorState};
     use tulip_test::c_bindings::{ti_min, ti_min_start};
+    use tulip_rs::indicators::min::{Indicator, Min, TIndicatorState};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
     const CHUNK_SIZE: usize = 100;
@@ -69,7 +69,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_min(&inputs_rust, &options, None).expect("Rust MIN indicator failed");
+                Min::indicator(&inputs_rust, &options, None).expect("Rust MIN indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -156,7 +156,7 @@ mod tests {
 
                 let inputs_rust = [close.as_slice()];
                 let (outputs, _) =
-                    rust_min(&inputs_rust, &options, None).expect("Rust MIN indicator failed");
+                    Min::indicator(&inputs_rust, &options, None).expect("Rust MIN indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -246,7 +246,7 @@ mod tests {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_close.as_slice()];
                 let (regular_results, _) =
-                    rust_min(&stock_inputs, &options, None).expect("Regular MIN indicator failed");
+                    Min::indicator(&stock_inputs, &options, None).expect("Regular MIN indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];
@@ -315,19 +315,19 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Get full output
-                let (full_outputs, _) = rust_min(&inputs_rust, &options, None)
+                let (full_outputs, _) = Min::indicator(&inputs_rust, &options, None)
                     .expect("Failed to run MIN indicator on full data");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Min::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let close_vec = close[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice()];
 
-                let (first_outputs, mut state) = rust_min(&chunk_inputs, &options, None)
+                let (first_outputs, mut state) = Min::indicator(&chunk_inputs, &options, None)
                     .expect("Failed to run MIN indicator on first chunk");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -408,7 +408,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_min(&inputs, options, None).expect("Regular MIN indicator failed");
+                    Min::indicator(&inputs, options, None).expect("Regular MIN indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -463,5 +463,4 @@ mod tests {
 
         //println!("✓ All SIMD vs Regular MIN database tests passed!");
     }
-
-    }
+}

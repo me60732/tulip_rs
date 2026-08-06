@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::wma::{indicator as rust_wma, min_data, TIndicatorState};
+    use tulip_rs::indicators::wma::{Wma, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_sma, ti_sma_start, ti_wma, ti_wma_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -55,7 +55,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_wma(&inputs_rust, &options, None).expect("Rust WMA indicator failed");
+                Wma::indicator(&inputs_rust, &options, None).expect("Rust WMA indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -142,7 +142,7 @@ mod tests {
 
                 let inputs_rust = [close.as_slice()];
                 let (outputs, _) =
-                    rust_wma(&inputs_rust, &options, None).expect("Rust WMA indicator failed");
+                    Wma::indicator(&inputs_rust, &options, None).expect("Rust WMA indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -208,16 +208,16 @@ mod tests {
 
                 // Get full output
                 let (full_outputs, _) =
-                    rust_wma(&inputs_rust, &options, None).expect("Rust WMA indicator failed");
+                    Wma::indicator(&inputs_rust, &options, None).expect("Rust WMA indicator failed");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Wma::min_data(&options).max(CHUNK_SIZE);
 
                 if close.len() <= min_data_val {
                     // If data is too small, just run full calculation
-                    let (outputs, _) = rust_wma(&inputs_rust, &options, None)
+                    let (outputs, _) = Wma::indicator(&inputs_rust, &options, None)
                         .expect("Failed to run WMA indicator");
                     batch_full_output.extend_from_slice(&outputs[0]);
                 } else {
@@ -225,7 +225,7 @@ mod tests {
                     let close_vec = close[..min_data_val].to_vec();
                     let chunk_inputs = [close_vec.as_slice()];
 
-                    let (first_outputs, mut state) = rust_wma(&chunk_inputs, &options, None)
+                    let (first_outputs, mut state) = Wma::indicator(&chunk_inputs, &options, None)
                         .expect("Failed to run WMA indicator on first chunk");
                     batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -315,7 +315,7 @@ mod tests {
                 for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                     // Get regular indicator result for this stock
                     let stock_inputs = [stock_close.as_slice()];
-                    let (regular_results, _) = rust_wma(&stock_inputs, &options, None)
+                    let (regular_results, _) = Wma::indicator(&stock_inputs, &options, None)
                         .expect("Regular WMA indicator failed");
 
                     let simd_result = &simd_results[stock_idx][0];
@@ -413,7 +413,7 @@ mod tests {
                 for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                     // Get regular indicator result for this stock with optional outputs
                     let stock_inputs = [stock_close.as_slice()];
-                    let (regular_results_opt, _) = rust_wma(&stock_inputs, &options, Some(&[true]))
+                    let (regular_results_opt, _) = Wma::indicator(&stock_inputs, &options, Some(&[true]))
                         .expect("Regular WMA indicator with optional outputs failed");
 
                     // Compare all outputs: WMA, SMA
@@ -489,7 +489,7 @@ mod tests {
         let optional_outputs = Some([true].as_slice()); // Request sma output
 
         // Get Rust WMA output with sma optional output
-        let result = rust_wma(&inputs, &options, optional_outputs).unwrap();
+        let result = Wma::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_sma = &result.0[1]; // sma is at index 1
 
         // Fail fast if Rust output is empty
@@ -571,7 +571,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get WMA with SMA optional output
                 let optional_outputs = Some(&[true][..]);
-                let (wma_result, _) = tulip_rs::indicators::wma::indicator(
+                let (wma_result, _) = Wma::indicator(
                     &[&close],
                     &[options[0]],
                     optional_outputs,
@@ -674,7 +674,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_wma(&inputs, options, None).expect("Regular WMA indicator failed");
+                    Wma::indicator(&inputs, options, None).expect("Regular WMA indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -765,7 +765,7 @@ mod tests {
             // Compare each SIMD result with regular indicator (with optional outputs)
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result with optional outputs
-                let (regular_results, _) = rust_wma(&inputs, options, optional_outputs)
+                let (regular_results, _) = Wma::indicator(&inputs, options, optional_outputs)
                     .expect("Regular WMA indicator with optional outputs failed");
 
                 // For WMA the outputs are: [WMA, SMA]

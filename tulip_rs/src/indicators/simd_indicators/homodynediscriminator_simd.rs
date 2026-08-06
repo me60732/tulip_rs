@@ -1,4 +1,5 @@
-use crate::indicators::homodynediscriminator::State;
+pub use crate::indicator_types::{TSimdState, TState};
+use crate::indicators::homodynediscriminator::IndicatorState as State;
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::by_asset::homodynediscriminator::indicator_by_assets;
 
@@ -6,7 +7,7 @@ use crate::indicators::simd_indicators::hilberttransform_simd::{ht_kernel, ht_ke
 use crate::math_simd::trig::simd_atan;
 use crate::ring_buffer::fixed_single_buffer::{FixedRingBuffer, FixedSimdRingBuffer};
 use std::simd::{cmp::SimdPartialEq, num::SimdFloat, Select, Simd, StdFloat};
-
+use crate::types::Warm;
 /// SIMD-parallel state for the Ehlers Homodyne Discriminator across `N` assets simultaneously.
 ///
 /// Mirrors [`State`] but packs `N` independent assets into each SIMD vector,
@@ -23,14 +24,14 @@ use std::simd::{cmp::SimdPartialEq, num::SimdFloat, Select, Simd, StdFloat};
 /// `atan(Im/Re)` computation in [`apply_discriminator_simd`].
 pub struct SimdState<const N: usize> {
     // Stage 0: 4-bar Hann-weighted smooth
-    pub price_buf: FixedRingBuffer<Simd<f64, N>, 4>,
+    pub price_buf: FixedRingBuffer<Simd<f64, N>, 4, Warm>,
     // Stage 1: smooth → Detrender
-    smooth_buf: FixedRingBuffer<Simd<f64, N>, 7>,
+    smooth_buf: FixedRingBuffer<Simd<f64, N>, 7, Warm>,
     // Stage 2: Detrender → I1, Q1
-    detrender_buf: FixedRingBuffer<Simd<f64, N>, 7>,
+    detrender_buf: FixedRingBuffer<Simd<f64, N>, 7, Warm>,
     // Stage 3: separate I1 and Q1 histories for the 90° phase-advance kernel
-    i1_buf: FixedRingBuffer<Simd<f64, N>, 7>,
-    q1_buf: FixedRingBuffer<Simd<f64, N>, 7>,
+    i1_buf: FixedRingBuffer<Simd<f64, N>, 7, Warm>,
+    q1_buf: FixedRingBuffer<Simd<f64, N>, 7, Warm>,
     // IIR state for the homodyne discriminator
     i2_prev: Simd<f64, N>,
     q2_prev: Simd<f64, N>,
@@ -41,7 +42,9 @@ pub struct SimdState<const N: usize> {
     pub(crate) smooth_period: Simd<f64, N>,
 }
 
-impl<const N: usize> SimdState<N> {
+impl<const N: usize> TSimdState for SimdState<N> {
+    type ScalarState = State;
+
     /// Gathers `N` scalar [`State`] references into a single [`SimdState`],
     /// packing each asset's ring buffers and IIR scalars into SIMD lanes.
     ///
@@ -49,28 +52,30 @@ impl<const N: usize> SimdState<N> {
     /// split back into two separate per-asset `FixedRingBuffer<f64, 7>` instances,
     /// then merged across assets into `i1_buf` and `q1_buf` via
     /// [`FixedSimdRingBuffer::from_f64_buffers`] (which normalises the ring head to `index = 0`).
-    pub fn new(states: &[&mut State]) -> Self {
+    fn from_states(states: &mut [&mut State]) -> Self {
         // Each iq1_buf slot is Simd<f64, 2>: lane 0 = i1, lane 1 = q1.
         // Extract them into two separate scalar ring buffers per asset.
-        let i1_scalar: [FixedRingBuffer<f64, 7>; N] = std::array::from_fn(|j| FixedRingBuffer {
+        let i1_scalar: [FixedRingBuffer<f64, 7, Warm>; N] = std::array::from_fn(|j| FixedRingBuffer {
             vals: std::array::from_fn(|k| states[j].iq1_buf.vals[k].to_array()[0]),
             index: states[j].iq1_buf.index,
             count: states[j].iq1_buf.count,
+            state: std::marker::PhantomData::<Warm>
         });
-        let q1_scalar: [FixedRingBuffer<f64, 7>; N] = std::array::from_fn(|j| FixedRingBuffer {
+        let q1_scalar: [FixedRingBuffer<f64, 7, Warm>; N] = std::array::from_fn(|j| FixedRingBuffer {
             vals: std::array::from_fn(|k| states[j].iq1_buf.vals[k].to_array()[1]),
             index: states[j].iq1_buf.index,
             count: states[j].iq1_buf.count,
+            state: std::marker::PhantomData::<Warm>
         });
 
-        let price_refs: [&FixedRingBuffer<f64, 4>; N] =
+        let price_refs: [&FixedRingBuffer<f64, 4, Warm>; N] =
             std::array::from_fn(|j| &states[j].price_buf);
-        let smooth_refs: [&FixedRingBuffer<f64, 7>; N] =
+        let smooth_refs: [&FixedRingBuffer<f64, 7, Warm>; N] =
             std::array::from_fn(|j| &states[j].smooth_buf);
-        let detrender_refs: [&FixedRingBuffer<f64, 7>; N] =
+        let detrender_refs: [&FixedRingBuffer<f64, 7, Warm>; N] =
             std::array::from_fn(|j| &states[j].detrender_buf);
-        let i1_refs: [&FixedRingBuffer<f64, 7>; N] = std::array::from_fn(|j| &i1_scalar[j]);
-        let q1_refs: [&FixedRingBuffer<f64, 7>; N] = std::array::from_fn(|j| &q1_scalar[j]);
+        let i1_refs: [&FixedRingBuffer<f64, 7, Warm>; N] = std::array::from_fn(|j| &i1_scalar[j]);
+        let q1_refs: [&FixedRingBuffer<f64, 7, Warm>; N] = std::array::from_fn(|j| &q1_scalar[j]);
 
         Self {
             price_buf: FixedSimdRingBuffer::from_f64_buffers(&price_refs),
@@ -93,7 +98,7 @@ impl<const N: usize> SimdState<N> {
     /// The SIMD `i1_buf`/`q1_buf` are scattered to per-asset `FixedRingBuffer<f64, 7>`
     /// instances via [`FixedRingBuffer::to_f64_buffers`], then repacked into each
     /// scalar state's `iq1_buf: FixedRingBuffer<Simd<f64, 2>, 7>` (lane 0 = i1, lane 1 = q1).
-    pub fn write_states(&self, states: &mut [&mut State]) {
+    fn write_states(&self, states: &mut [&mut State]) {
         let price_bufs = self.price_buf.to_f64_buffers();
         let smooth_bufs = self.smooth_buf.to_f64_buffers();
         let detrender_bufs = self.detrender_buf.to_f64_buffers();
@@ -117,6 +122,7 @@ impl<const N: usize> SimdState<N> {
                 }),
                 index: i1_bufs[j].index,
                 count: i1_bufs[j].count,
+                state: std::marker::PhantomData::<Warm>
             };
             state.i2_prev = i2_arr[j];
             state.q2_prev = q2_arr[j];
@@ -126,25 +132,19 @@ impl<const N: usize> SimdState<N> {
             state.smooth_period = sp_arr[j];
         }
     }
+}
 
-    /// Computes one bar of the Homodyne Discriminator for `N` assets simultaneously.
+impl<const N: usize> TState for SimdState<N> {
+    type Inputs<'a> = Simd<f64, N>;
+    type Outputs = Simd<f64, N>;
+
+    /// Safe single-bar update — delegates to `calc_simd_unchecked`.
     ///
-    /// Executes the full four-stage pipeline:
-    /// 1. 4-bar Hann smooth (two independent FMAs, serial depth 2)
-    /// 2. Detrender (7-tap Hilbert kernel on `smooth_buf`)
-    /// 3. I1 / Q1 (7-tap Hilbert kernel on `detrender_buf`)
-    /// 4. jI / jQ via [`ht_kernel_pair`] across `i1_buf` and `q1_buf` simultaneously
-    ///
-    /// Then calls [`apply_discriminator_simd`] for the homodyne / period-smoothing logic.
-    ///
-    /// # Safety
-    ///
-    /// All five ring buffers must be full on entry. This is guaranteed when [`SimdState::new`]
-    /// is constructed from states returned by [`State::init_state`].
+    /// Only call once all ring buffers are full (guaranteed by the driver
+    /// infrastructure after [`TSimdState::from_states`]).
     #[inline(always)]
-    pub unsafe fn calc_simd_unchecked(&mut self, real: Simd<f64, N>) -> Simd<f64, N> {
-        // ── Stage 0: 4-bar Hann-weighted smooth ──────────────────────────────
-        self.price_buf.push_unchecked(real);
+    fn calc<'a>(&mut self, real: Self::Inputs<'a>) -> Self::Outputs {
+        self.price_buf.push(real);
         let ab = Simd::splat(4.0).mul_add(self.price_buf[0], Simd::splat(3.0) * self.price_buf[1]);
         let cd = Simd::splat(2.0).mul_add(self.price_buf[2], self.price_buf[3]);
         let smooth = (ab + cd) * Simd::splat(0.1);
@@ -153,22 +153,24 @@ impl<const N: usize> SimdState<N> {
         let gain = Simd::splat(0.075).mul_add(self.period, Simd::splat(0.54));
 
         // ── Stage 1: Detrender ────────────────────────────────────────────────
-        self.smooth_buf.push_unchecked(smooth);
+        self.smooth_buf.push(smooth);
         let (_, detrender) = ht_kernel(&self.smooth_buf, gain);
 
         // ── Stage 2: I1, Q1 ──────────────────────────────────────────────────
-        self.detrender_buf.push_unchecked(detrender);
+        self.detrender_buf.push(detrender);
         let (i1, q1) = ht_kernel(&self.detrender_buf, gain);
 
         // ── Stage 3: jI and jQ via interleaved FMAs across both buffers ───────
         // ht_kernel_pair returns (I_a, Q_a, I_b, Q_b); we need Q_a = jI, Q_b = jQ.
-        self.i1_buf.push_unchecked(i1);
-        self.q1_buf.push_unchecked(q1);
+        self.i1_buf.push(i1);
+        self.q1_buf.push(q1);
         let (_, j_i, _, j_q) = ht_kernel_pair(&self.i1_buf, &self.q1_buf, gain);
 
         self.apply_discriminator_simd(i1, q1, j_i, j_q)
     }
+}
 
+impl<const N: usize> SimdState<N> {
     /// One-bar update returning `(smooth_period, i1, q1)` for all `N` lanes.
     ///
     /// Identical to [`calc_simd_unchecked`](Self::calc_simd_unchecked) but also returns the
@@ -179,25 +181,25 @@ impl<const N: usize> SimdState<N> {
     ///
     /// All five ring buffers must be full on entry.
     #[inline(always)]
-    pub unsafe fn calc_simd_unchecked_with_iq(
+    pub fn calc_with_iq(
         &mut self,
         real: Simd<f64, N>,
     ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
-        self.price_buf.push_unchecked(real);
+        self.price_buf.push(real);
         let ab = Simd::splat(4.0).mul_add(self.price_buf[0], Simd::splat(3.0) * self.price_buf[1]);
         let cd = Simd::splat(2.0).mul_add(self.price_buf[2], self.price_buf[3]);
         let smooth = (ab + cd) * Simd::splat(0.1);
 
         let gain = Simd::splat(0.075).mul_add(self.period, Simd::splat(0.54));
 
-        self.smooth_buf.push_unchecked(smooth);
+        self.smooth_buf.push(smooth);
         let (_, detrender) = ht_kernel(&self.smooth_buf, gain);
 
-        self.detrender_buf.push_unchecked(detrender);
+        self.detrender_buf.push(detrender);
         let (i1, q1) = ht_kernel(&self.detrender_buf, gain);
 
-        self.i1_buf.push_unchecked(i1);
-        self.q1_buf.push_unchecked(q1);
+        self.i1_buf.push(i1);
+        self.q1_buf.push(q1);
         let (_, j_i, _, j_q) = ht_kernel_pair(&self.i1_buf, &self.q1_buf, gain);
 
         let smooth_period = self.apply_discriminator_simd(i1, q1, j_i, j_q);

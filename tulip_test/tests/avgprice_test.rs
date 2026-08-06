@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::avgprice::{indicator, min_data, TIndicatorState};
+    use tulip_rs::indicators::avgprice::{AvgPrice, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_avgprice, ti_avgprice_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -79,7 +79,7 @@ mod tests {
             close.as_slice(),
         ];
         let (outputs, _) =
-            indicator(&inputs_rust, &[], None).expect("Rust AVGPRICE indicator failed");
+            AvgPrice::indicator(&inputs_rust, &[], None).expect("Rust AVGPRICE indicator failed");
 
         let output_len_rust = outputs[0].len();
         let options: [f64; 0] = [];
@@ -173,7 +173,7 @@ mod tests {
                 close.as_slice(),
             ];
             let (outputs, _) =
-                indicator(&inputs_rust, &[], None).expect("Rust AVGPRICE indicator failed");
+                AvgPrice::indicator(&inputs_rust, &[], None).expect("Rust AVGPRICE indicator failed");
 
             let output_len_rust = outputs[0].len();
             let options: [f64; 0] = [];
@@ -241,17 +241,17 @@ mod tests {
             let options: [f64; 0] = [];
 
             // Get full output
-            let (full_outputs, _) = indicator(&inputs_rust, &options, None)
+            let (full_outputs, _) = AvgPrice::indicator(&inputs_rust, &options, None)
                 .expect("Failed to run AVGPRICE indicator on full data");
 
             // Process in batches
             let mut batch_full_output = Vec::new();
 
-            let min_data_val = min_data(&options).max(CHUNK_SIZE);
+            let min_data_val = AvgPrice::min_data(&options).max(CHUNK_SIZE);
 
             if open.len() <= min_data_val {
                 // If data is too small, just run full calculation
-                let (outputs, _) = indicator(&inputs_rust, &options, None)
+                let (outputs, _) = AvgPrice::indicator(&inputs_rust, &options, None)
                     .expect("Failed to run AVGPRICE indicator");
                 batch_full_output.extend_from_slice(&outputs[0]);
             } else {
@@ -267,7 +267,7 @@ mod tests {
                     close_vec.as_slice(),
                 ];
 
-                let (first_outputs, mut state) = indicator(&chunk_inputs, &options, None)
+                let (first_outputs, mut state) = AvgPrice::indicator(&chunk_inputs, &options, None)
                     .expect("Failed to run AVGPRICE indicator on first chunk");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -419,7 +419,7 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_results, _) = indicator(&stock_inputs, &options, None)
+                let (regular_results, _) = AvgPrice::indicator(&stock_inputs, &options, None)
                     .expect("Regular AVGPRICE indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
@@ -473,5 +473,4 @@ mod tests {
 
         println!("✓ All SIMD by assets vs Regular AVGPRICE database tests passed!");
     }
-
-    }
+}

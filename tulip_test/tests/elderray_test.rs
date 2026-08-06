@@ -1,10 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use tulip_rs::indicators::elderray::{
-        indicator as rust_elderray, indicator_by_assets, indicator_by_options, min_data,
-        TIndicatorState,
-    };
-    use tulip_rs::indicators::ema::indicator as rust_ema;
+    use tulip_rs::indicators::elderray::{Elderray, Indicator, TIndicatorState, indicator_by_assets, indicator_by_options};
+    use tulip_rs::indicators::ema::Ema;
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
     const CHUNK_SIZE: usize = 100;
@@ -67,7 +64,7 @@ mod tests {
             let period = options[0] as usize;
 
             // Elder-ray with optional EMA enabled
-            let (outputs, _) = rust_elderray(
+            let (outputs, _) = Elderray::indicator(
                 &[high.as_slice(), low.as_slice(), close.as_slice()],
                 &options,
                 Some(&[true]),
@@ -76,7 +73,7 @@ mod tests {
 
             // Standalone Rust EMA on close (same code path)
             let (ema_outputs, _) =
-                rust_ema(&[close.as_slice()], &options, None).expect("Rust EMA indicator failed");
+                Ema::indicator(&[close.as_slice()], &options, None).expect("Rust EMA indicator failed");
 
             let n = outputs[0].len();
 
@@ -143,7 +140,7 @@ mod tests {
                 let period = options[0] as usize;
 
                 // Elder-ray with optional EMA
-                let (outputs, _) = rust_elderray(
+                let (outputs, _) = Elderray::indicator(
                     &[high.as_slice(), low.as_slice(), close.as_slice()],
                     &options,
                     Some(&[true]),
@@ -151,7 +148,7 @@ mod tests {
                 .expect("Rust Elder-ray indicator failed");
 
                 // Standalone Rust EMA
-                let (ema_outputs, _) = rust_ema(&[close.as_slice()], &options, None)
+                let (ema_outputs, _) = Ema::indicator(&[close.as_slice()], &options, None)
                     .expect("Rust EMA indicator failed");
 
                 let n = outputs[0].len();
@@ -206,20 +203,20 @@ mod tests {
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
 
                 // Full indicator on all data (reference)
-                let (full_outputs, _) = rust_elderray(&inputs_rust, &options, None)
+                let (full_outputs, _) = Elderray::indicator(&inputs_rust, &options, None)
                     .expect("Rust Elder-ray indicator failed");
 
                 // Streaming: seed with the minimum required bars, then chunk
                 let mut batch_full_outputs = vec![Vec::new(); 2]; // bull and bear only
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Elderray::min_data(&options).max(CHUNK_SIZE);
                 let chunk_inputs = [
                     &high[..min_data_val],
                     &low[..min_data_val],
                     &close[..min_data_val],
                 ];
 
-                let (first_outputs, mut state) = rust_elderray(&chunk_inputs, &options, None)
+                let (first_outputs, mut state) = Elderray::indicator(&chunk_inputs, &options, None)
                     .expect("Elder-ray indicator failed on first chunk");
 
                 for output_idx in 0..2 {
@@ -313,7 +310,7 @@ mod tests {
                 .expect("SIMD by-assets Elder-ray failed");
 
             for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
-                let (ref_outputs, _) = rust_elderray(
+                let (ref_outputs, _) = Elderray::indicator(
                     &[high.as_slice(), low.as_slice(), close.as_slice()],
                     &options,
                     None,
@@ -377,7 +374,7 @@ mod tests {
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
                 let (ref_outputs, _) =
-                    rust_elderray(&inputs, options, None).expect("Rust Elder-ray failed");
+                    Elderray::indicator(&inputs, options, None).expect("Rust Elder-ray failed");
 
                 let simd_bull = &simd_results[opt_idx][0];
                 let simd_bear = &simd_results[opt_idx][1];
@@ -488,7 +485,7 @@ mod tests {
                     batch_bear.extend_from_slice(&chunk_outputs[1]);
                 }
 
-                let (ref_outputs, _) = rust_elderray(
+                let (ref_outputs, _) = Elderray::indicator(
                     &[high.as_slice(), low.as_slice(), close.as_slice()],
                     &options,
                     None,
@@ -587,7 +584,7 @@ mod tests {
 
                 let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (ref_outputs, _) =
-                    rust_elderray(&inputs, options, None).expect("Rust Elder-ray failed");
+                    Elderray::indicator(&inputs, options, None).expect("Rust Elder-ray failed");
                 let ref_bull = &ref_outputs[0];
                 let ref_bear = &ref_outputs[1];
 
@@ -648,7 +645,7 @@ mod tests {
 
             for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
                 let scalar_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (scalar_outputs, _) = rust_elderray(&scalar_inputs, &options, Some(&[true]))
+                let (scalar_outputs, _) = Elderray::indicator(&scalar_inputs, &options, Some(&[true]))
                     .expect("Scalar Elder-ray with optional outputs failed");
 
                 // Primary outputs: bull [0], bear [1]
@@ -722,7 +719,7 @@ mod tests {
                 .expect("SIMD by-options Elder-ray with optional outputs failed");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
-                let (scalar_outputs, _) = rust_elderray(&inputs, options, Some(&[true]))
+                let (scalar_outputs, _) = Elderray::indicator(&inputs, options, Some(&[true]))
                     .expect("Scalar Elder-ray with optional outputs failed");
 
                 // Primary outputs: bull [0], bear [1]

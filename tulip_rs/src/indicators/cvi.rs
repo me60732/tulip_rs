@@ -1,16 +1,16 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::ema::calc as calc_ema;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 pub use crate::indicators::ema::multiplier;
-pub use crate::ring_buffer::single_buffer::generic_buffer::{Buffer as State, RingBuffer};
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+use crate::indicators::ema::State as EmaState;
+pub use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 2;
+pub const INPUTS: usize = 2;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -44,192 +44,70 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::cvi_simd::indicator_by_options as indicator;
 }
 
-pub trait BufferExt {
-    fn init_state(inputs: &[&[f64]; INPUTS_WIDTH], period: usize) -> State;
-    fn calc(&mut self, high: &f64, low: &f64, multiplier: (f64, f64)) -> f64;
-    unsafe fn calc_unchecked(&mut self, high: &f64, low: &f64, multiplier: (f64, f64)) -> f64;
+#[derive(Serialize, Deserialize)]
+#[serde(bound = "")]
+pub struct State<S = Cold> {
+    pub buffer: Buffer<S>,
+    pub ema_state: EmaState<S>,
 }
-impl BufferExt for State {
-    fn init_state(inputs: &[&[f64]; INPUTS_WIDTH], period: usize) -> Self {
-        let mut state = State::new(period);
-
-        let (high, low) = (inputs[0], inputs[1]);
-        let multiplier = multiplier(period);
-        for (i, (&h, &l)) in high.iter().zip(low.iter()).enumerate().take(period * 2 - 1) {
-            if i < period {
-                let hl_diff = (h - l).max(f64::EPSILON);
-                let base = state.back().unwrap_or(hl_diff);
-
-                let ema = calc_ema(&hl_diff, base, multiplier);
-                state.push(ema);
-                continue;
-            }
-            state.calc(&h, &l, multiplier);
-        }
-
-        state
-    }
-    /// Calculates the current CVI value.
-    ///
-    /// # Arguments
-    ///
-    /// * `buffer` - Mutable reference to the ring buffer holding recent EMA values.
-    /// * `high` - The current high price.
-    /// * `low` - The current low price.
-    /// * `multiplier` - A tuple `(multiplier, inv_multiplier)` for the EMA calculation.
-    ///
-    /// # Returns
-    ///
-    /// The CVI value as a percentage change between the current and oldest EMA in the buffer.
-    #[inline]
-    fn calc(&mut self, high: &f64, low: &f64, multiplier: (f64, f64)) -> f64 {
-        let prev_ema = self.back().unwrap();
-        let old_ema = self.front().unwrap();
-        let hl_diff = (high - low).max(f64::EPSILON);
-        let ema = calc_ema(&hl_diff, prev_ema, multiplier);
-        self.push(ema);
-        if old_ema.abs() < f64::EPSILON {
-            0.0
-        } else {
-            (ema - old_ema) / old_ema * 100.0
+impl State<Cold> {
+    pub fn new(ema: f64, period: usize) -> State<Cold> {
+        Self {
+            buffer: Buffer::new(period),
+            ema_state: EmaState::new(ema, period),
         }
     }
+    pub fn init_state([high, low]: &[&[f64]; INPUTS], period: usize) -> State<Warm> {
+        use crate::indicators::ema::{calc as calc_ema, multiplier};
+        let (multiplier, inv_multiplier) = multiplier(period);
+        let mut ema = high[0] - low[0];
+        let mut buffer = Buffer::new(period);
+
+        for i in 1..period * 2 - 1 {
+            ema = calc_ema(high[i] - low[i], ema, multiplier, inv_multiplier);
+            buffer.push(ema);
+        }
+        State {
+            buffer: buffer.into_full(),
+            ema_state: EmaState::<Warm> {
+                ema,
+                inv_multiplier,
+                multiplier,
+                state: std::marker::PhantomData::<Warm>,
+            },
+        }
+    }
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64);
+    type Outputs = f64;
+
     #[inline(always)]
-    unsafe fn calc_unchecked(
-        &mut self,
-        high: &f64,
-        low: &f64,
-        multiplier: (f64, f64),
-    ) -> f64 {
-        let prev_ema = self.back_unchecked();
-        let old_ema = self.front_unchecked();
+    fn calc(&mut self, (high, low): (f64, f64)) -> f64 {
+        let old_ema = self.buffer.front();
         let hl_diff = (high - low).max(f64::EPSILON);
-        let ema = calc_ema(&hl_diff, prev_ema, multiplier);
-        self.push_unchecked(ema);
+        let ema = self.ema_state.calc(hl_diff);
+        self.buffer.push(ema);
 
         (ema - old_ema) / old_ema * 100.0
     }
 }
-#[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    state: State,
-    multiplier: (f64, f64),
-}
-impl IndicatorState {
-    pub fn new(state: State, multiplier: (f64, f64)) -> Self {
-        Self { state, multiplier }
-    }
-}
+
+pub type IndicatorState = State<Warm>;
 impl TIndicatorState<2> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         _optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
 
         let mut cvi_line = crate::uninit_vec!(f64, inputs[0].len());
         let [high, low] = inputs;
-        cycle(high, low, self.multiplier, &mut self.state, &mut cvi_line);
+        cycle((high, low), self, &mut cvi_line);
 
         Ok(vec![cvi_line])
     }
-}
-/// Returns information about the Chaikin Volatility Indicator (CVI).
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the CVI indicator.
-pub const INFO: Info = Info {
-    name: "cvi",
-    indicator_type: IndicatorType::Volatility,
-    full_name: "Chaikin Volatility Indicator",
-    inputs: &["high", "low"],
-    options: &["period"],
-    outputs: &["cvi"],
-    optional_outputs: &[],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "cvi",
-        label: "CVI",
-        display_type: DisplayType::Indicator,
-        outputs: &["cvi"],
-    }],
-};
-/// Returns the minimum amount of data required for the CVI indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the CVI calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    (options[0] * 2.0) as usize
-}
-
-/// Returns the number of output values given an input data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the CVI calculation.
-///
-/// # Returns
-///
-/// The number of output values (`data_len - min_data(options) + 1`).
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-
-/// Calculates the Chaikin Volatility Indicator (CVI) over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — high prices
-/// * `inputs[1]` — low prices
-///
-/// # Options
-///
-/// * `options[0]` — period (EMA window used to smooth the high-low range)
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `_optional_outputs` - Unused; CVI has no optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is `cvi` and `state`
-/// can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    _optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let period = options[0] as usize;
-
-    validate_inputs(inputs, min_data(options))?;
-
-    let mut cvi_line = {
-        let capacity = output_length(inputs[0].len(), options);
-        crate::uninit_vec!(f64, capacity)
-    };
-
-    let mut state = State::init_state(inputs, period);
-
-    let multiplier = multiplier(period);
-    let (high, low) = {
-        let from = period * 2 - 1;
-        (&inputs[0][from..], &inputs[1][from..])
-    };
-    cycle(high, low, multiplier, &mut state, &mut cvi_line);
-
-    Ok((vec![cvi_line], IndicatorState { state, multiplier }))
 }
 
 /// Performs the main calculation loop for the CVI indicator.
@@ -241,20 +119,64 @@ pub fn indicator(
 /// * `multiplier` - A tuple `(multiplier, inv_multiplier)` derived from the EMA period.
 /// * `state` - Mutable reference to the ring buffer holding recent EMA values.
 /// * `cvi_line` - Mutable slice to write the CVI output values into.
-fn cycle(
-    high: &[f64],
-    low: &[f64],
-    multiplier: (f64, f64),
-    state: &mut State,
-    cvi_line: &mut [f64],
-) {
+fn cycle((high, low): (&[f64], &[f64]), state: &mut State<Warm>, cvi_line: &mut [f64]) {
     for i in 0..high.len() {
         unsafe {
-            *cvi_line.get_unchecked_mut(i) = state.calc_unchecked(
-                high.get_unchecked(i),
-                low.get_unchecked(i),
-                multiplier,
-            );
+            *cvi_line.get_unchecked_mut(i) =
+                state.calc((*high.get_unchecked(i), *low.get_unchecked(i)));
         }
+    }
+}
+
+pub struct Cvi;
+
+impl Indicator<INPUTS, OPTIONS> for Cvi {
+    type IndicatorState = IndicatorState;
+
+    const INFO: Info = Info {
+        name: "cvi",
+        indicator_type: IndicatorType::Volatility,
+        full_name: "Chaikin Volatility Indicator",
+        inputs: &["high", "low"],
+        options: &["period"],
+        outputs: &["cvi"],
+        optional_outputs: &[],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "cvi",
+            label: "CVI",
+            display_type: DisplayType::Indicator,
+            outputs: &["cvi"],
+        }],
+    };
+
+    fn min_data(options: &[f64; OPTIONS]) -> usize {
+        (options[0] * 2.0) as usize
+    }
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        _optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        let period = options[0] as usize;
+
+        validate_inputs(inputs, Self::min_data(options))?;
+
+        let mut cvi_line = {
+            let capacity = Self::output_length(inputs[0].len(), options);
+            crate::uninit_vec!(f64, capacity)
+        };
+
+        let mut state = State::init_state(&inputs, period);
+
+        let (high, low) = {
+            let from = period * 2 - 1;
+            (&inputs[0][from..], &inputs[1][from..])
+        };
+        cycle((high, low), &mut state, &mut cvi_line);
+
+        Ok((vec![cvi_line], state))
     }
 }

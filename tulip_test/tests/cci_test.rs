@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::cci::{indicator, min_data, TIndicatorState};
+    use tulip_rs::indicators::cci::{Cci, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{
         ti_cci, ti_cci_start, ti_md, ti_md_start, ti_sma, ti_sma_start, ti_typprice,
         ti_typprice_start,
@@ -79,7 +79,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
             let (outputs, _) =
-                indicator(&inputs_rust, &options, None).expect("Rust CCI indicator failed");
+                Cci::indicator(&inputs_rust, &options, None).expect("Rust CCI indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -164,7 +164,7 @@ mod tests {
                 // Rust implementation
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (outputs, _) =
-                    indicator(&inputs_rust, &options, None).expect("Rust CCI indicator failed");
+                    Cci::indicator(&inputs_rust, &options, None).expect("Rust CCI indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -229,17 +229,17 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Get full output
-                let (full_outputs, _) = indicator(&inputs_rust, &options, None)
+                let (full_outputs, _) = Cci::indicator(&inputs_rust, &options, None)
                     .expect("Failed to run CCI indicator on full data");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Cci::min_data(&options).max(CHUNK_SIZE);
 
                 if high.len() <= min_data_val {
                     // If data is too small, just run full calculation
-                    let (outputs, _) = indicator(&inputs_rust, &options, None)
+                    let (outputs, _) = Cci::indicator(&inputs_rust, &options, None)
                         .expect("Failed to run CCI indicator");
                     batch_full_output.extend_from_slice(&outputs[0]);
                 } else {
@@ -253,7 +253,7 @@ mod tests {
                         close_vec.as_slice(),
                     ];
 
-                    let (first_outputs, mut state) = indicator(&chunk_inputs, &options, None)
+                    let (first_outputs, mut state) = Cci::indicator(&chunk_inputs, &options, None)
                         .expect("Failed to run CCI indicator on first chunk");
                     batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -341,7 +341,7 @@ mod tests {
 
             // Run the Rust implementation with typprice optional output enabled
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-            let (rust_outputs, _) = indicator(&inputs_rust, &options, Some(&[false, false, true]))
+            let (rust_outputs, _) = Cci::indicator(&inputs_rust, &options, Some(&[false, false, true]))
                 .expect("Rust CCI indicator failed");
 
             // Extract the typprice optional output (fourth output)
@@ -448,7 +448,7 @@ mod tests {
 
             // Run the Rust implementation with SMA optional output enabled
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-            let (rust_outputs, _) = indicator(&inputs_rust, &options, Some(&[true, false, false]))
+            let (rust_outputs, _) = Cci::indicator(&inputs_rust, &options, Some(&[true, false, false]))
                 .expect("Rust CCI indicator failed");
 
             // Extract the SMA optional output (second output)
@@ -564,7 +564,7 @@ mod tests {
 
             // Run the Rust implementation with MD optional output enabled
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-            let (rust_outputs, _) = indicator(&inputs_rust, &options, Some(&[false, true, false]))
+            let (rust_outputs, _) = Cci::indicator(&inputs_rust, &options, Some(&[false, true, false]))
                 .expect("Rust CCI indicator failed");
 
             // Extract the MD optional output (third output)
@@ -685,7 +685,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get CCI with typprice optional output
                 let optional_outputs = Some(&[false, false, true][..]);
-                let (cci_result, _) = tulip_rs::indicators::cci::indicator(
+                let (cci_result, _) = tulip_rs::indicators::cci::Cci::indicator(
                     &[&high, &low, &close],
                     &[options[0]],
                     optional_outputs,
@@ -766,7 +766,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get CCI with SMA optional output
                 let optional_outputs = Some(&[true, false, false][..]);
-                let (cci_result, _) = tulip_rs::indicators::cci::indicator(
+                let (cci_result, _) = tulip_rs::indicators::cci::Cci::indicator(
                     &[&high, &low, &close],
                     &[options[0]],
                     optional_outputs,
@@ -863,7 +863,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get CCI with MD optional output
                 let optional_outputs = Some(&[false, true, false][..]);
-                let (cci_result, _) = tulip_rs::indicators::cci::indicator(
+                let (cci_result, _) = tulip_rs::indicators::cci::Cci::indicator(
                     &[&high, &low, &close],
                     &[options[0]],
                     optional_outputs,
@@ -1003,7 +1003,7 @@ mod tests {
                         stock_low.as_slice(),
                         stock_close.as_slice(),
                     ];
-                    let (regular_results, _) = indicator(&stock_inputs, &options, None)
+                    let (regular_results, _) = Cci::indicator(&stock_inputs, &options, None)
                         .expect("Regular CCI indicator failed");
 
                     let simd_result = &simd_results[stock_idx][0];
@@ -1120,7 +1120,7 @@ mod tests {
                         stock_low.as_slice(),
                         stock_close.as_slice(),
                     ];
-                    let (regular_results, _) = indicator(&stock_inputs, &options, optional_outputs)
+                    let (regular_results, _) = Cci::indicator(&stock_inputs, &options, optional_outputs)
                         .expect("Regular CCI indicator with optional outputs failed");
 
                     // Compare CCI output (index 0)
@@ -1270,7 +1270,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    indicator(&inputs, options, None).expect("Regular CCI indicator failed");
+                    Cci::indicator(&inputs, options, None).expect("Regular CCI indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -1357,7 +1357,7 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result with optional outputs
-                let (regular_results, _) = indicator(&inputs, options, optional_outputs)
+                let (regular_results, _) = Cci::indicator(&inputs, options, optional_outputs)
                     .expect("Regular CCI indicator with optional outputs failed");
 
                 let simd_cci_result = &all_simd_results[idx][0];
@@ -1612,7 +1612,7 @@ mod tests {
 
             // Compare each SIMD result with regular indicator over the full data
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
-                let (regular_results, _) = indicator(
+                let (regular_results, _) = Cci::indicator(
                     &[high.as_slice(), low.as_slice(), close.as_slice()],
                     options,
                     None,

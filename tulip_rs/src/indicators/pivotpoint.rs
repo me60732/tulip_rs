@@ -3,10 +3,10 @@ pub use crate::indicator_types::TIndicatorState;
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 3;
+pub const INPUTS: usize = 3;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// Returns information about the Pivot Point indicator.
 ///
@@ -39,7 +39,7 @@ pub struct IndicatorState {
 impl TIndicatorState<3> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         _optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -108,8 +108,8 @@ pub fn output_length(_data_len: usize, _options: &[f64]) -> usize {
 /// for streaming. Returns `Err(IndicatorError)` if inputs are too short or
 /// options are invalid.
 pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[f64]; INPUTS],
+    options: &[f64; OPTIONS],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
     validate_options(options)?;

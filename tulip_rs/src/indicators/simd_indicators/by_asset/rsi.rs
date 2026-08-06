@@ -1,36 +1,31 @@
 //use crate::common::validate_inputs;
 use crate::indicators::rsi::{
-    min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    Rsi, Indicator, IndicatorState, State, INPUTS, OPTIONS,
 };
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::rsi_simd::SimdState;
-use crate::types::IndicatorError;
+use crate::indicators::simd_indicators::rsi_simd::{SimdState, TSimdState, TState};
+use crate::types::{IndicatorError, Warm};
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
 
 /// SIMD driver that advances the Relative Strength Index (RSI) across `N` asset lanes per scheduling epoch.
-struct RsiDriver {
-    multipliers: (f64, f64),
-}
+struct RsiDriver;
 
-impl Driver<State> for RsiDriver {
+impl Driver<State<Warm>> for RsiDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
         let len = inputs[0][0].len();
         //let output_len = len - self.period;
 
         // Optimization 1: Direct array construction instead of collect+try_into
-        let mut state = SimdState::new(&states);
-        let multipliers_simd = (
-            Simd::splat(self.multipliers.0),
-            Simd::splat(self.multipliers.1),
-        );
+        let mut state = SimdState::<N>::from_states(&mut states);
+
         // Optimization 2: Pre-compute all input and output pointers
         let real_ptrs = crate::extract_input_ptrs!(inputs, N, real_ptrs);
 
@@ -43,7 +38,7 @@ impl Driver<State> for RsiDriver {
                 current @ real_ptrs
             );
 
-            let rsi = state.calc_simd(current, multipliers_simd);
+            let rsi = state.calc(current);
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, i,
@@ -63,7 +58,7 @@ impl Driver<State> for RsiDriver {
 /// SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[real]` for asset `i`.
 /// * `options` - `[period]` — the smoothing period for the RSI calculation.
 /// * `_optional_outputs` - Unused; RSI produces no optional outputs.
@@ -73,22 +68,21 @@ impl Driver<State> for RsiDriver {
 /// and `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    options: &[f64; OPTIONS],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, Rsi::min_data(options))?;
     validate_options(options)?;
-    
-    let multipliers = multiplier(options[0] as usize);
-    let mut road_train = PrimeMover::<N, State>::new();
+
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut output_buffers = Vec::with_capacity(N);
     let period = options[0] as usize;
     
     for i in 0..N {
         let asset_inputs = vec![inputs[i][0]];
         let rsi_line = {
-            let capacity = output_length(inputs[i][0].len(), options);
+            let capacity = Rsi::output_length(inputs[i][0].len(), options);
             crate::uninit_vec!(f64, capacity)
         };
         let mut output_buffer = vec![rsi_line];
@@ -119,14 +113,8 @@ pub fn indicator_by_assets<const N: usize>(
         ));
         output_buffers.push(output_buffer);
     }
-    let mut driver = RsiDriver {
-        multipliers
-    };
-    let states_vec = road_train.drive(&mut driver);
+    let mut driver = RsiDriver;
+    let states = road_train.drive(&mut driver);
 
-    let mut states = Vec::with_capacity(N);
-    for state in states_vec.into_iter() {
-        states.push(IndicatorState::new(state));
-    }
     Ok((output_buffers, states))
 }

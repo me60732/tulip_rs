@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 use tulip_rs::indicators::kama::{
-    indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState,
+    Kama, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -124,7 +124,7 @@ fn bench_rust_kama(c: &mut Criterion) {
                 timing.measure(
                     || {
                         let result =
-                            indicator(&inputs, &options, None).expect("Rust KAMA indicator failed");
+                            Kama::indicator(&inputs, &options, None).expect("Rust KAMA Kama::indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -143,7 +143,7 @@ fn bench_rust_kama(c: &mut Criterion) {
             group.bench_function("benchmark", |b| {
                 b.iter(|| {
                     let inputs = [close.as_slice()];
-                    let result = indicator(&inputs, &options, None).expect("KAMA indicator failed");
+                    let result = Kama::indicator(&inputs, &options, None).expect("KAMA Kama::indicator failed");
                     black_box(&result);
                 });
             });
@@ -168,12 +168,12 @@ fn bench_rust_kama_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data = min_data(&options);
+                        let min_data = Kama::min_data(&options);
                         // First chunk
                         let chunk_inputs = [&close[..min_data]];
 
-                        let (_, mut state) = indicator(&chunk_inputs, &options, None)
-                            .expect("KAMA indicator failed");
+                        let (_, mut state) = Kama::indicator(&chunk_inputs, &options, None)
+                            .expect("KAMA Kama::indicator failed");
 
                         // Chunks
                         let mut close_chunks = close[min_data..].chunks_exact(CHUNK_SIZE);
@@ -209,14 +209,14 @@ fn bench_rust_kama_from_state(c: &mut Criterion) {
                     let new_inputs = [&close[..close.len() - 1]];
                     let final_inputs = [&close[close.len() - 1..]];
                     let (_, mut state) =
-                        indicator(&new_inputs, &options, None).expect("Rust KAMA indicator failed");
+                        Kama::indicator(&new_inputs, &options, None).expect("Rust KAMA Kama::indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
                         || {
                             let result = state
                                 .batch_indicator(&final_inputs, None)
-                                .expect("Rust KAMA from state indicator failed");
+                                .expect("Rust KAMA from state Kama::indicator failed");
                             black_box(&result);
                         },
                         SAMPLE_SIZE,
@@ -233,7 +233,7 @@ fn bench_rust_kama_from_state(c: &mut Criterion) {
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
                     let (_, state) =
-                        indicator(&new_inputs, &options, None).expect("Rust KAMA indicator failed");
+                        Kama::indicator(&new_inputs, &options, None).expect("Rust KAMA Kama::indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -243,7 +243,7 @@ fn bench_rust_kama_from_state(c: &mut Criterion) {
                                 serde_json::from_str(&json).expect("JSON failed");
                             let result = state
                                 .batch_indicator(&final_inputs, None)
-                                .expect("Rust KAMA from state indicator failed");
+                                .expect("Rust KAMA from state Kama::indicator failed");
                             black_box(&result);
                         },
                         SAMPLE_SIZE,
@@ -266,12 +266,12 @@ fn bench_rust_kama_from_state(c: &mut Criterion) {
         let _inputs = [&close_vec];
 
         for options in OPTIONS_LIST {
-            let min_data = min_data(&options);
+            let min_data = Kama::min_data(&options);
             // First chunk
             let chunk_inputs = [&close_vec[..min_data]];
 
             let (_, mut state) =
-                indicator(&chunk_inputs, &options, None).expect("KAMA indicator failed");
+                Kama::indicator(&chunk_inputs, &options, None).expect("KAMA Kama::indicator failed");
 
             let mut group =
                 c.benchmark_group(format!("Rust KAMA from state {{ {:.1} }}", options[0]));
@@ -303,7 +303,7 @@ fn bench_rust_kama_from_state(c: &mut Criterion) {
                 let new_inputs = [&close_vec[..close_vec.len() - 1]];
                 let final_inputs = [&close_vec[close_vec.len() - 1..]];
                 let (_, mut state) =
-                    indicator(&new_inputs, &options, None).expect("Rust KAMA indicator failed");
+                    Kama::indicator(&new_inputs, &options, None).expect("Rust KAMA Kama::indicator failed");
 
                 let mut group = c.benchmark_group(format!(
                     "Rust KAMA from state 1 bar {{ {:.1} }}",
@@ -314,7 +314,7 @@ fn bench_rust_kama_from_state(c: &mut Criterion) {
                     b.iter(|| {
                         let result = state
                             .batch_indicator(&final_inputs, None)
-                            .expect("Rust KAMA from state indicator failed");
+                            .expect("Rust KAMA from state Kama::indicator failed");
                         black_box(&result);
                     });
                 });
@@ -351,7 +351,7 @@ fn bench_rust_kama_simd_by_assets(c: &mut Criterion) {
             timing.measure(
                 || {
                     let result = indicator_by_assets::<4>(&inputs, &options, None)
-                        .expect("Rust SIMD by assets KAMA indicator failed");
+                        .expect("Rust SIMD by assets KAMA Kama::indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -377,7 +377,7 @@ fn bench_rust_kama_simd_by_assets(c: &mut Criterion) {
             c.bench_function(&format!("SIMD by assets KAMA {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result = indicator_by_assets::<4>(&inputs, &options, None)
-                        .expect("Rust SIMD by assets KAMA indicator failed");
+                        .expect("Rust SIMD by assets KAMA Kama::indicator failed");
                     black_box(&result);
                 });
             });
@@ -479,7 +479,7 @@ fn bench_rust_kama_simd_by_options(c: &mut Criterion) {
                         &OPTIONS_LIST[3],
                     ];
                     let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
-                        .expect("Rust SIMD by options KAMA indicator failed");
+                        .expect("Rust SIMD by options KAMA Kama::indicator failed");
                     black_box(&result_4);
                 },
                 SAMPLE_SIZE,
@@ -511,7 +511,7 @@ fn bench_rust_kama_simd_by_options(c: &mut Criterion) {
                     &OPTIONS_LIST[3],
                 ];
                 let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
-                    .expect("Rust SIMD by options KAMA indicator failed");
+                    .expect("Rust SIMD by options KAMA Kama::indicator failed");
                 black_box(&result_4);
             });
         });
@@ -535,8 +535,8 @@ fn bench_rust_kama_optional(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, Some(&[true]))
-                            .expect("Rust KAMA indicator failed");
+                        let result = Kama::indicator(&inputs, &options, Some(&[true]))
+                            .expect("Rust KAMA Kama::indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -562,8 +562,8 @@ fn bench_rust_kama_optional(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust KAMA optional {{ {:.1} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result = indicator(&inputs, &options, Some(&[true]))
-                        .expect("Rust KAMA indicator failed");
+                    let result = Kama::indicator(&inputs, &options, Some(&[true]))
+                        .expect("Rust KAMA Kama::indicator failed");
                     black_box(&result);
                 });
             });

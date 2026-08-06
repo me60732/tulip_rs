@@ -1,4 +1,4 @@
-use tulip_rs::indicators::dema::{indicator, TIndicatorState};
+use tulip_rs::indicators::dema::{Dema, TIndicatorState, Indicator};
 
 fn main() {
     let close = [
@@ -10,7 +10,7 @@ fn main() {
     let options = [5.0]; // Period
 
     // Example with recent_only parameter set to false
-    let (outputs, mut state) = match indicator(&inputs, &options, Some(&[true])) {
+    let (outputs, mut state) = match Dema::indicator(&inputs, &options, Some(&[true])) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

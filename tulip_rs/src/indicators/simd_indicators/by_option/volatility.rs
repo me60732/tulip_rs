@@ -1,22 +1,22 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::volatility_simd::options::SimdState;
+use crate::indicators::simd_indicators::volatility_simd::{TState, options::SimdState};
 use crate::indicators::volatility::{
-    min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    Volatility, Indicator, IndicatorState, State, INPUTS, OPTIONS,
 };
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 
 /// SIMD driver for the Volatility Indicator (VOLATILITY) indicator, processing `N` option-set lanes per scheduling epoch.
 struct VolatilityDriver {}
 
-impl Driver<State, usize> for VolatilityDriver {
+impl Driver<State<Warm>, usize> for VolatilityDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         options: Vec<Option<&usize>>,
     ) {
         let periods = {
@@ -29,7 +29,7 @@ impl Driver<State, usize> for VolatilityDriver {
             periods
         };
 
-        let mut state = SimdState::<N>::new(&mut states, periods);
+        let mut state = SimdState::<N>::from_states(&mut states, periods);
         let len = inputs[0][0].len();
 
         //collect outputs
@@ -42,7 +42,7 @@ impl Driver<State, usize> for VolatilityDriver {
             // Get inputs arrays for stocks
             let real = unsafe { *real_ptrs[0].add(i) };
 
-            let volatility = unsafe { state.calc_unchecked_simd(real) };
+            let volatility = state.calc(real);
 
             crate::write_simd_at_indices!(N, i,
                 volatility_line_ptr => volatility
@@ -61,7 +61,7 @@ impl Driver<State, usize> for VolatilityDriver {
 ///
 /// # Arguments
 /// * `inputs` - Shared input data: `inputs[0]` is `&[f64]` containing `real` (price series).
-/// * `options` - An array of `N` option sets; `options[i]` is `&[f64; OPTIONS_WIDTH]` containing
+/// * `options` - An array of `N` option sets; `options[i]` is `&[f64; OPTIONS]` containing
 ///   `[period]` for option set `i`.
 /// * `optional_outputs` - Unused; VOLATILITY has no optional outputs.
 ///
@@ -70,14 +70,14 @@ impl Driver<State, usize> for VolatilityDriver {
 /// and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or any option set is invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH], //stock[ fields [ field [f64] ] ]
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+    options: &[&[f64; OPTIONS]; N],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, Volatility::min_data)?;
     validate_options(options, None)?;
     let params: [usize; N] = std::array::from_fn(|i| options[i][0] as usize);
-    let mut road_train = PrimeMover::<N, State, usize>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>, usize>::new();
     let mut output_buffers = Vec::with_capacity(N);
 
     for i in 0..N {
@@ -86,7 +86,7 @@ pub fn indicator_by_options<const N: usize>(
         ];
 
         let volatility_line = {
-            let capacity = output_length(inputs[0].len(), options[i]);
+            let capacity = Volatility::output_length(inputs[0].len(), options[i]);
             crate::uninit_vec!(f64, capacity)
         };
 
@@ -122,11 +122,7 @@ pub fn indicator_by_options<const N: usize>(
     }
 
     let mut driver = VolatilityDriver {};
-    let states_vec = road_train.drive(&mut driver);
+    let states = road_train.drive(&mut driver);
 
-    let mut states = Vec::with_capacity(N);
-    for state in states_vec.into_iter() {
-        states.push(IndicatorState::new(state));
-    }
     Ok((output_buffers, states))
 }

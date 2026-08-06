@@ -1,4 +1,4 @@
-use tulip_rs::indicators::md::{indicator, TIndicatorState};
+use tulip_rs::indicators::md::{Md, TIndicatorState, Indicator};
 
 fn main() {
     // Example input data: real prices
@@ -10,7 +10,7 @@ fn main() {
     let options = [5.0];
 
     let inputs = [close.as_slice()];
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true])) {
+    let (outputs, _) = match Md::indicator(&inputs, &options, Some(&[true])) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -19,7 +19,7 @@ fn main() {
 
     let inputs2 = [&close[0..close.len() - 5]];
     // Calculate the MD using the indicator function
-    let (outputs2, mut state) = match indicator(&inputs2, &options, Some(&[true])) {
+    let (outputs2, mut state) = match Md::indicator(&inputs2, &options, Some(&[true])) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

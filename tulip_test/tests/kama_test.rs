@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::kama::{indicator as rust_kama, min_data, TIndicatorState};
+    use tulip_rs::indicators::kama::{Kama, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_kama, ti_kama_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
-
+    use tulip_rs::indicators::ef::Ef;
     const CHUNK_SIZE: usize = 100;
 
     const CLOSE: [f64; 15] = [
@@ -59,7 +59,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_kama(&inputs_rust, &options, None).expect("Rust KAMA indicator failed");
+                Kama::indicator(&inputs_rust, &options, None).expect("Rust KAMA indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -144,7 +144,7 @@ mod tests {
                 // Rust implementation
                 let inputs_rust = [close.as_slice()];
                 let (outputs, _) =
-                    rust_kama(&inputs_rust, &options, None).expect("Rust KAMA indicator failed");
+                    Kama::indicator(&inputs_rust, &options, None).expect("Rust KAMA indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -212,19 +212,19 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Get full output
-                let (full_outputs, _) = rust_kama(&inputs_rust, &options, None)
+                let (full_outputs, _) = Kama::indicator(&inputs_rust, &options, None)
                     .expect("Failed to run KAMA indicator on full data");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Kama::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let close_vec = close[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice()];
 
-                let (first_outputs, mut state) = rust_kama(&chunk_inputs, &options, None)
+                let (first_outputs, mut state) = Kama::indicator(&chunk_inputs, &options, None)
                     .expect("Failed to run KAMA indicator on first chunk");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -309,7 +309,7 @@ mod tests {
             for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_close.as_slice()];
-                let (regular_results, _) = rust_kama(&stock_inputs, &options, None)
+                let (regular_results, _) = Kama::indicator(&stock_inputs, &options, None)
                     .expect("Regular KAMA indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
@@ -394,7 +394,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_kama(&inputs, options, None).expect("Regular KAMA indicator failed");
+                    Kama::indicator(&inputs, options, None).expect("Regular KAMA indicator failed");
 
                 let simd_result = &simd_results_4[idx][0];
                 let regular_result = &regular_results[0];
@@ -459,16 +459,16 @@ mod tests {
 
     #[test]
     fn test_kama_scalar_optional_ef_vs_standalone() {
-        use tulip_rs::indicators::ef::indicator as rust_ef;
+        
 
         let close = expand_close();
         let inputs = [close.as_slice()];
 
         for options in OPTIONS_LIST {
             let (kama_outputs, _) =
-                rust_kama(&inputs, &options, Some(&[true])).expect("KAMA with optional ef failed");
+                Kama::indicator(&inputs, &options, Some(&[true])).expect("KAMA with optional ef failed");
             let (ef_outputs, _) =
-                rust_ef(&inputs, &options, None).expect("Standalone EF indicator failed");
+                Ef::indicator(&inputs, &options, None).expect("Standalone EF indicator failed");
 
             // Both should have length n - period
             assert_eq!(
@@ -495,7 +495,6 @@ mod tests {
 
     #[test]
     fn test_kama_scalar_optional_ef_database() {
-        use tulip_rs::indicators::ef::indicator as rust_ef;
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -505,10 +504,10 @@ mod tests {
             let inputs = [close.as_slice()];
 
             for options in OPTIONS_LIST {
-                let (kama_outputs, _) = rust_kama(&inputs, &options, Some(&[true]))
+                let (kama_outputs, _) = Kama::indicator(&inputs, &options, Some(&[true]))
                     .expect("KAMA with optional ef failed");
                 let (ef_outputs, _) =
-                    rust_ef(&inputs, &options, None).expect("Standalone EF indicator failed");
+                    Ef::indicator(&inputs, &options, None).expect("Standalone EF indicator failed");
 
                 assert_eq!(
                     kama_outputs[1].len(),
@@ -558,7 +557,7 @@ mod tests {
 
             for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
                 let scalar_inputs = [close.as_slice()];
-                let (scalar_results, _) = rust_kama(&scalar_inputs, &options, Some(&[true]))
+                let (scalar_results, _) = Kama::indicator(&scalar_inputs, &options, Some(&[true]))
                     .expect("Scalar KAMA with optional outputs failed");
 
                 // Primary output: kama [0]
@@ -635,7 +634,7 @@ mod tests {
                 .expect("SIMD by-options KAMA with optional outputs failed");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
-                let (scalar_results, _) = rust_kama(&inputs, options, Some(&[true]))
+                let (scalar_results, _) = Kama::indicator(&inputs, options, Some(&[true]))
                     .expect("Scalar KAMA with optional outputs failed");
 
                 // Primary output: kama [0]

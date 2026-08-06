@@ -1,5 +1,5 @@
 use tulip_rs::indicators::min::{
-    indicator, indicator_by_assets, indicator_by_options, TIndicatorState,
+    indicator_by_assets, indicator_by_options, Indicator, Min, TIndicatorState,
 };
 
 const CLOSE: [f64; 20] = [
@@ -22,7 +22,7 @@ fn main() {
     let inputs = [close.as_slice()];
 
     /////////////////////// Full run ///////////////////////
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match Min::indicator(&inputs, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -31,7 +31,7 @@ fn main() {
     /////////////////////// Partial run + batch_indicator continuation ///////////////////////
     let inputs2 = [&close[..close.len() - 5]];
 
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match Min::indicator(&inputs2, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

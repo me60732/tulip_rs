@@ -2,27 +2,23 @@
 use crate::common::validate_options;
 use crate::common_simd::assets::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
-
+pub use crate::indicator_types::{TSimdState, TState, Indicator};
 use crate::indicators::simd_indicators::trvi_simd::assets::SimdState;
 use crate::indicators::{
-    ema::output_length as ema_output_length,
-    tr::output_length as tr_output_length,
-    trvi::{
-        min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
-    },
+    ema::Ema,
+    tr::Tr,
+    trvi::{Trvi, IndicatorState, State, INPUTS, OPTIONS},
 };
 
 /// SIMD driver that advances the True Range Volatility Indicator (TRVI) across `N` asset lanes
 /// per scheduling epoch.
 struct TrviDriver {
-    /// Pre-computed EMA smoothing factors `(multiplier, inv_multiplier)` for the given period.
-    multiplier: (f64, f64),
     want_optional_outputs: (bool, bool, bool),
 }
 
-impl Driver<State> for TrviDriver {
+impl Driver<State<Warm>> for TrviDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     ///
     /// Reads from `inputs[asset][field]` (high, low, close), writes TRVI values to
@@ -31,17 +27,12 @@ impl Driver<State> for TrviDriver {
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
-        let mut state = SimdState::<N>::new(&mut states);
+        let mut state = SimdState::<N>::from_states(&mut states);
         let len = inputs[0][0].len();
-
-        let multiplier = (
-            Simd::splat(self.multiplier.0),
-            Simd::splat(self.multiplier.1),
-        );
-
+        
         //collect outputs
         let (trvi_line_ptr, tr_line_ptr, ema_line_ptr) =
             crate::extract_output_ptrs!(outputs, N, trvi, tr, ema);
@@ -52,7 +43,7 @@ impl Driver<State> for TrviDriver {
         // Optimization 3: Simplified main loop with pre-computed offsets
         for i in 0..len {
             // Get inputs arrays for stocks
-            let (high, low, close) = crate::extract_simd_inputs_at_index!(
+            let inputs = crate::extract_simd_inputs_at_index!(
                 i,
                 N,
                 high @ high_ptrs,
@@ -60,8 +51,7 @@ impl Driver<State> for TrviDriver {
                 close @ close_ptrs
             );
 
-            let (trvi, tr, ema) =
-                unsafe { state.calc_unchecked_simd(high, low, close, multiplier) };
+            let (trvi, tr, ema) = state.calc(inputs);
 
             crate::write_simd_at_indices!(N, i,
                 trvi_line_ptr => trvi
@@ -88,7 +78,7 @@ impl Driver<State> for TrviDriver {
 /// to batch assets into SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[high, low, close]` for asset `i`.
 /// * `options` - Shared options applied to all `N` assets: `[period]`.
 /// * `optional_outputs` - Pass `Some(&[true, true])` to also emit the `tr` and `ema`
@@ -100,16 +90,15 @@ impl Driver<State> for TrviDriver {
 /// and `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, Trvi::min_data(options))?;
     validate_options(options)?;
     let period = options[0] as usize;
-    let multiplier = multiplier(period);
 
-    let mut road_train = PrimeMover::<N, State>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut output_buffers = Vec::with_capacity(N);
     let mut want_optional_outputs = (false, false, false);
     for i in 0..N {
@@ -117,14 +106,14 @@ pub fn indicator_by_assets<const N: usize>(
         let asset_inputs = vec![high, low, close];
 
         let (trvi_line, (mut tr_line, mut ema_line)) = {
-            let capacity = output_length(high.len(), options);
-            let tr_capacity = tr_output_length(high.len(), options);
+            let capacity = Trvi::output_length(high.len(), options);
+            let tr_capacity = Tr::output_length(high.len(), &[]);
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::init_optional_outputs_eff!(
                     optional_outputs, &[false, false],
                     tr_line: tr_capacity,
-                    ema_line: ema_output_length(tr_capacity, options)
+                    ema_line: Ema::output_length(tr_capacity, options)
                 ),
             )
         };
@@ -166,14 +155,9 @@ pub fn indicator_by_assets<const N: usize>(
     }
 
     let mut driver = TrviDriver {
-        multiplier,
         want_optional_outputs,
     };
-    let states_vec = road_train.drive(&mut driver);
+    let states = road_train.drive(&mut driver);
 
-    let mut states = Vec::with_capacity(N);
-    for state in states_vec.into_iter() {
-        states.push(IndicatorState::new(state, multiplier));
-    }
     Ok((output_buffers, states))
 }

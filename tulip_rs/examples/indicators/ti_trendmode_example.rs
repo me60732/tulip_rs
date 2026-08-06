@@ -1,5 +1,5 @@
 use tulip_rs::indicators::trendmode::{
-    indicator, indicator_by_assets, indicator_by_options, TIndicatorState,
+    indicator_by_assets, indicator_by_options, Indicator, TIndicatorState, TrendMode,
 };
 
 // 80 bars of close prices (trendmode needs min_data = 56)
@@ -29,7 +29,7 @@ fn main() {
     // outputs[0] = trendmode  (1.0 = Trend, 0.0 = Cycle)
     // outputs[1] = cycle      (CyberCycle oscillator, optional)
     // outputs[2] = peak       (decaying amplitude peak, optional)
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true, true])) {
+    let (outputs, _) = match TrendMode::indicator(&inputs, &options, Some(&[true, true])) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -41,7 +41,7 @@ fn main() {
 
     // --- Adaptive alpha example (alpha = 0.0) ---
     let options_adaptive = [0.0];
-    let (outputs_adaptive, _) = match indicator(&inputs, &options_adaptive, None) {
+    let (outputs_adaptive, _) = match TrendMode::indicator(&inputs, &options_adaptive, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -51,7 +51,7 @@ fn main() {
     let split = CLOSE.len() - 5;
     let inputs_partial = [&CLOSE[..split]];
 
-    let (outputs_partial, mut state) = match indicator(&inputs_partial, &options, None) {
+    let (outputs_partial, mut state) = match TrendMode::indicator(&inputs_partial, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

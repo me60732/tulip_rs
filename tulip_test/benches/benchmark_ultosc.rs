@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::ultosc::indicator_by_options;
-use tulip_rs::indicators::ultosc::{indicator, min_data, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::ultosc::{Ultosc, Indicator, TIndicatorState, IndicatorState};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_ultosc, ti_ultosc_start};
@@ -153,7 +153,7 @@ fn bench_rust_ultosc(c: &mut Criterion) {
                 timing.measure(
                     || {
                         let result =
-                            indicator(&inputs, &options, None).expect("ULTOSC indicator failed");
+                            Ultosc::indicator(&inputs, &options, None).expect("ULTOSC indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -183,7 +183,7 @@ fn bench_rust_ultosc(c: &mut Criterion) {
                 |b| {
                     b.iter(|| {
                         let result =
-                            indicator(&inputs, &options, None).expect("ULTOSC indicator failed");
+                            Ultosc::indicator(&inputs, &options, None).expect("ULTOSC indicator failed");
                         black_box(&result);
                     });
                 },
@@ -207,7 +207,7 @@ fn bench_rust_ultosc_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                        let min_data_val = Ultosc::min_data(&options).max(CHUNK_SIZE);
                         // First chunk
                         let chunk_inputs = [
                             &high[..min_data_val],
@@ -215,7 +215,7 @@ fn bench_rust_ultosc_from_state(c: &mut Criterion) {
                             &close[..min_data_val],
                         ];
 
-                        let (_, mut state) = indicator(&chunk_inputs, &options, None)
+                        let (_, mut state) = Ultosc::indicator(&chunk_inputs, &options, None)
                             .expect("ULTOSC indicator failed");
 
                         // Chunks
@@ -268,7 +268,7 @@ fn bench_rust_ultosc_from_state(c: &mut Criterion) {
                         &close[close.len() - 1..],
                     ];
                     let (_, mut state) =
-                        indicator(&new_inputs, &options, None).expect("ULTOSC indicator failed");
+                        Ultosc::indicator(&new_inputs, &options, None).expect("ULTOSC indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -291,7 +291,7 @@ fn bench_rust_ultosc_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) = indicator(&new_inputs, &options, None)
+                    let (_, state) = Ultosc::indicator(&new_inputs, &options, None)
                         .expect("Rust ULTOSC indicator failed");
                     let bin = bincode::serde::encode_to_vec(&state, bincode::config::standard())
                         .expect("bincode encode failed");
@@ -337,7 +337,7 @@ fn bench_rust_ultosc_from_state(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function("benchmark", |b| {
                 b.iter(|| {
-                    let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                    let min_data_val = Ultosc::min_data(&options).max(CHUNK_SIZE);
                     // First chunk
                     let chunk_inputs = [
                         &high_vec[..min_data_val],
@@ -346,7 +346,7 @@ fn bench_rust_ultosc_from_state(c: &mut Criterion) {
                     ];
 
                     let (_, mut state) =
-                        indicator(&chunk_inputs, &options, None).expect("ULTOSC indicator failed");
+                        Ultosc::indicator(&chunk_inputs, &options, None).expect("ULTOSC indicator failed");
 
                     // Chunks
                     let mut high_chunks = high_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -390,7 +390,7 @@ fn bench_rust_ultosc_from_state(c: &mut Criterion) {
                     &close_vec[close_vec.len() - 1..],
                 ];
                 let (_, mut state) =
-                    indicator(&new_inputs, &options, None).expect("ULTOSC indicator failed");
+                    Ultosc::indicator(&new_inputs, &options, None).expect("ULTOSC indicator failed");
 
                 let mut group = c.benchmark_group(format!(
                     "Rust ULTOSC from state 1 bar {{ {:.1}, {:.1}, {:.1} }}",
@@ -571,7 +571,7 @@ fn bench_rust_ultosc_optional(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, Some(&[true, true]))
+                        let result = Ultosc::indicator(&inputs, &options, Some(&[true, true]))
                             .expect("ULTOSC optional indicator failed");
                         black_box(&result);
                     },
@@ -605,7 +605,7 @@ fn bench_rust_ultosc_optional(c: &mut Criterion) {
                 ),
                 |b| {
                     b.iter(|| {
-                        let result = indicator(&inputs, &options, Some(&[true, true]))
+                        let result = Ultosc::indicator(&inputs, &options, Some(&[true, true]))
                             .expect("ULTOSC optional indicator failed");
                         black_box(&result);
                     });

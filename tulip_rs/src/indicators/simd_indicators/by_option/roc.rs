@@ -1,8 +1,6 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
-use crate::indicators::roc::{
-    min_data, output_length, IndicatorState, INPUTS_WIDTH, OPTIONS_WIDTH,
-};
+use crate::indicators::roc::{Indicator, IndicatorState, Roc, INPUTS, OPTIONS};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;
@@ -82,11 +80,11 @@ impl Driver<bool, usize> for RocDriver {
 /// [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS],
+    options: &[&[f64; OPTIONS]; N],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, Roc::min_data)?;
     validate_options(options, None)?;
 
     let periods: [usize; N] = std::array::from_fn(|i| options[i][0] as usize);
@@ -99,7 +97,7 @@ pub fn indicator_by_options<const N: usize>(
         ];
 
         let (roc_line, mom_line) = {
-            let capacity = output_length(inputs[0].len(), options[i]);
+            let capacity = Roc::output_length(inputs[0].len(), options[i]);
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::init_optional_outputs_eff!(

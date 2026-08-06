@@ -1,13 +1,13 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{TIndicatorState, Indicator, IndicatorResult};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 3;
+pub const INPUTS: usize = 3;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 0;
+pub const OPTIONS: usize = 0;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -30,89 +30,15 @@ pub struct IndicatorState;
 impl TIndicatorState<3> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         _optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         process(inputs)
     }
 }
-/// Returns information about the Typical Price (TYPPRICE) indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the TYPPRICE indicator.
-pub const INFO: Info = Info {
-    name: "typprice",
-    full_name: "Typical Price",
-    indicator_type: IndicatorType::Price,
-    inputs: &["high", "low", "close"],
-    options: &[],
-    outputs: &["typprice"],
-    optional_outputs: &[],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "typprice",
-        label: "TYPPRICE",
-        display_type: DisplayType::Overlay,
-        outputs: &["typprice"],
-    }],
-};
-/// Returns the minimum amount of data required for the TYPPRICE indicator.
-///
-/// # Arguments
-///
-/// * `_options` - A slice containing the options for the TYPPRICE calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(_options: &[f64]) -> usize {
-    1
-}
 
-/// Calculates the output length based on the data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `_options` - A slice containing the options for the TYPPRICE calculation (unused).
-///
-/// # Returns
-///
-/// The output length.
-pub fn output_length(data_len: usize, _options: &[f64]) -> usize {
-    data_len
-}
-
-/// Calculates the Typical Price (TYPPRICE) indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — high prices
-/// * `inputs[1]` — low prices
-/// * `inputs[2]` — close prices
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `_options` - Unused; TYPPRICE has no options.
-/// * `_optional_outputs` - Unused; TYPPRICE has no optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is `typprice` and
-/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    _options: &[f64; OPTIONS_WIDTH],
-    _optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    let outputs = process(inputs)?;
-    Ok((outputs, IndicatorState))
-}
 #[inline(always)]
-fn process(inputs: &[&[f64]; INPUTS_WIDTH]) -> Result<Vec<Vec<f64>>, IndicatorError> {
+fn process(inputs: &[&[f64]; INPUTS]) -> Result<Vec<Vec<f64>>, IndicatorError> {
     validate_inputs(inputs, 1)?;
     let high = inputs[0];
     let low = inputs[1];
@@ -136,9 +62,9 @@ fn cycle_typprice(inputs: (&[f64], &[f64], &[f64]), typprice_line: &mut [f64]) {
     for i in 0..high.len() {
         unsafe {
             *typprice_line.get_unchecked_mut(i) = calc(
-                high.get_unchecked(i),
-                low.get_unchecked(i),
-                close.get_unchecked(i),
+                *high.get_unchecked(i),
+                *low.get_unchecked(i),
+                *close.get_unchecked(i),
             );
         }
     }
@@ -157,6 +83,44 @@ fn cycle_typprice(inputs: (&[f64], &[f64], &[f64]), typprice_line: &mut [f64]) {
 /// The TYPPRICE value.
 const DIV: f64 = 1.0 / 3.0;
 #[inline(always)]
-pub fn calc(high: &f64, low: &f64, close: &f64) -> f64 {
+pub fn calc(high: f64, low: f64, close: f64) -> f64 {
     (high + low + close) * DIV
+}
+
+pub struct Typprice;
+impl Indicator<INPUTS, OPTIONS> for Typprice {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "typprice",
+        full_name: "Typical Price",
+        indicator_type: IndicatorType::Price,
+        inputs: &["high", "low", "close"],
+        options: &[],
+        outputs: &["typprice"],
+        optional_outputs: &[],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "typprice",
+            label: "TYPPRICE",
+            display_type: DisplayType::Overlay,
+            outputs: &["typprice"],
+        }],
+    };
+
+    fn min_data(_options: &[f64; OPTIONS]) -> usize {
+        1
+    }
+
+    fn output_length(data_len: usize, _options: &[f64; OPTIONS]) -> usize {
+        data_len
+    }
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        _options: &[f64; OPTIONS],
+        _optional_outputs: Option<&[bool]>,
+    ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
+        let outputs = process(inputs)?;
+        Ok((outputs, IndicatorState))
+    }
 }

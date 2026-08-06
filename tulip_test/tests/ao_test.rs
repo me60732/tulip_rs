@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::ao::{indicator, min_data, TIndicatorState};
+    use tulip_rs::indicators::ao::{Ao, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{
         ti_ao, ti_ao_start, ti_medprice, ti_medprice_start, ti_sma, ti_sma_start,
     };
@@ -71,7 +71,7 @@ mod tests {
         // Run the Rust implementation
         let inputs_rust = [high.as_slice(), low.as_slice()];
         let (outputs, _) =
-            indicator(&inputs_rust, &OPTIONS, None).expect("Rust AO indicator failed");
+            Ao::indicator(&inputs_rust, &OPTIONS, None).expect("Rust AO indicator failed");
 
         // Compare the outputs
         // Compare the outputs in reverse for the length of the Rust outputs
@@ -151,7 +151,7 @@ mod tests {
             // Rust implementation
             let inputs_rust = [high.as_slice(), low.as_slice()];
             let (outputs, _) =
-                indicator(&inputs_rust, &[], None).expect("Rust AO indicator failed");
+                Ao::indicator(&inputs_rust, &[], None).expect("Rust AO indicator failed");
 
             let output_len_rust = outputs[0].len();
             let options: [f64; 0] = [];
@@ -215,18 +215,18 @@ mod tests {
             let options: [f64; 0] = [];
 
             // Get full output
-            let (full_outputs, _) = indicator(&inputs_rust, &options, None)
+            let (full_outputs, _) = Ao::indicator(&inputs_rust, &options, None)
                 .expect("Failed to run AO indicator on full data");
 
             // Process in batches
             let mut batch_full_output = Vec::new();
 
-            let min_data_val = min_data(&options).max(CHUNK_SIZE);
+            let min_data_val = Ao::min_data(&options).max(CHUNK_SIZE);
 
             if high.len() <= min_data_val {
                 // If data is too small, just run full calculation
                 let (outputs, _) =
-                    indicator(&inputs_rust, &options, None).expect("Failed to run AO indicator");
+                    Ao::indicator(&inputs_rust, &options, None).expect("Failed to run AO indicator");
                 batch_full_output.extend_from_slice(&outputs[0]);
             } else {
                 // First chunk - convert to Vec<&Vec<f64>>
@@ -234,7 +234,7 @@ mod tests {
                 let low_vec = low[..min_data_val].to_vec();
                 let chunk_inputs = [high_vec.as_slice(), low_vec.as_slice()];
 
-                let (first_outputs, mut state) = indicator(&chunk_inputs, &options, None)
+                let (first_outputs, mut state) = Ao::indicator(&chunk_inputs, &options, None)
                     .expect("Failed to run AO indicator on first chunk");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -300,7 +300,7 @@ mod tests {
 
         // Get Rust AO with short SMA optional output enabled
         let inputs_rust = [high.as_slice(), low.as_slice()];
-        let (rust_outputs, _) = indicator(&inputs_rust, &OPTIONS, Some(&[true, false, false]))
+        let (rust_outputs, _) = Ao::indicator(&inputs_rust, &OPTIONS, Some(&[true, false, false]))
             .expect("Rust AO indicator with short SMA optional output failed");
 
         let rust_short_sma = &rust_outputs[1]; // short_sma is at index 1
@@ -398,7 +398,7 @@ mod tests {
 
         // Get Rust AO with long SMA optional output enabled
         let inputs_rust = [high.as_slice(), low.as_slice()];
-        let (rust_outputs, _) = indicator(&inputs_rust, &OPTIONS, Some(&[false, true, false]))
+        let (rust_outputs, _) = Ao::indicator(&inputs_rust, &OPTIONS, Some(&[false, true, false]))
             .expect("Rust AO indicator with long SMA optional output failed");
 
         let rust_long_sma = &rust_outputs[2]; // long_sma is at index 2
@@ -492,7 +492,7 @@ mod tests {
 
         // Get Rust AO with medprice optional output enabled
         let inputs_rust = [high.as_slice(), low.as_slice()];
-        let (rust_outputs, _) = indicator(&inputs_rust, &OPTIONS, Some(&[false, false, true]))
+        let (rust_outputs, _) = Ao::indicator(&inputs_rust, &OPTIONS, Some(&[false, false, true]))
             .expect("Rust AO indicator with medprice optional output failed");
 
         let rust_medprice = &rust_outputs[3]; // medprice is at index 3
@@ -570,7 +570,7 @@ mod tests {
 
             // Get Rust AO with short SMA optional output enabled
             let inputs_rust = [high.as_slice(), low.as_slice()];
-            let (rust_outputs, _) = indicator(&inputs_rust, &[], Some(&[true, false, false]))
+            let (rust_outputs, _) = Ao::indicator(&inputs_rust, &[], Some(&[true, false, false]))
                 .expect("Rust AO indicator with short SMA optional output failed");
 
             let rust_short_sma = &rust_outputs[1]; // short_sma is at index 1
@@ -678,7 +678,7 @@ mod tests {
 
             // Get Rust AO with long SMA optional output enabled
             let inputs_rust = [high.as_slice(), low.as_slice()];
-            let (rust_outputs, _) = indicator(&inputs_rust, &[], Some(&[false, true, false]))
+            let (rust_outputs, _) = Ao::indicator(&inputs_rust, &[], Some(&[false, true, false]))
                 .expect("Rust AO indicator with long SMA optional output failed");
 
             let rust_long_sma = &rust_outputs[2]; // long_sma is at index 2
@@ -786,7 +786,7 @@ mod tests {
 
             // Get Rust AO with medprice optional output enabled
             let inputs_rust = [high.as_slice(), low.as_slice()];
-            let (rust_outputs, _) = indicator(&inputs_rust, &[], Some(&[false, false, true]))
+            let (rust_outputs, _) = Ao::indicator(&inputs_rust, &[], Some(&[false, false, true]))
                 .expect("Rust AO indicator with medprice optional output failed");
 
             let rust_medprice = &rust_outputs[3]; // medprice is at index 3
@@ -893,7 +893,7 @@ mod tests {
                 // Get regular indicator result for this stock
                 let stock_inputs = [high.as_slice(), low.as_slice()];
                 let (regular_results, _) =
-                    indicator(&stock_inputs, &OPTIONS, None).expect("Regular AO indicator failed");
+                    Ao::indicator(&stock_inputs, &OPTIONS, None).expect("Regular AO indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];
@@ -989,7 +989,7 @@ mod tests {
                 // Get regular indicator result for this stock with optional outputs
                 let stock_inputs = [high.as_slice(), low.as_slice()];
                 let (regular_results, _) =
-                    indicator(&stock_inputs, &OPTIONS, Some(&[true, true, true]))
+                    Ao::indicator(&stock_inputs, &OPTIONS, Some(&[true, true, true]))
                         .expect("Regular AO indicator failed");
 
                 let simd_ao_result = &simd_results[stock_idx][0];

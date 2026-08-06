@@ -1,23 +1,18 @@
 //use crate::common::validate_inputs;
 use crate::common::validate_options;
 use crate::common_simd::assets::validate_inputs;
-use crate::indicators::aroon::{
-    min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH
-};
-use crate::indicators::simd_indicators::aroon_simd::{assets::Calc, SimdState, CHUNK_1};
+use crate::indicators::aroon::{Aroon, Indicator, IndicatorState, State, INPUTS, OPTIONS};
+use crate::indicators::simd_indicators::aroon_simd::{assets::SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::IndicatorError;
-use std::simd::Simd;
+use crate::types::{IndicatorError, Warm};
 /// SIMD driver that advances the Aroon Indicator (AROON) across `N` asset lanes per scheduling
 /// epoch.
 struct AroonDriver {
     /// The look-back period used to find the highest high and lowest low.
     period: usize,
-    /// Pre-computed `100.0 / period` scaling factor applied to Aroon values.
-    multiplier: f64,
 }
 
-impl Driver<State> for AroonDriver {
+impl Driver<State<Warm>> for AroonDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     ///
     /// Reads from `inputs[asset][field]` (high, low), writes to `outputs[asset][output]`,
@@ -26,7 +21,7 @@ impl Driver<State> for AroonDriver {
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
         let len = inputs[0][0].len();
@@ -35,45 +30,15 @@ impl Driver<State> for AroonDriver {
         let (aroon_down_ptr, aroon_up_ptr) =
             crate::extract_output_ptrs!(outputs, N, aroon_down_ptr, aroon_up_ptr);
         let (high_ptrs, low_ptrs) = crate::extract_input_ptrs!(inputs, N, high_ptrs, low_ptrs);
-        let mut state = SimdState::new(&mut states);
-        let multiplier = Simd::splat(self.multiplier);
-        //let current: Vec<Simd<f64, N>> = crate::create_simd_vec_from_inputs!(real_ptrs, N, len);
-        if CHUNK_1.contains(&self.period) {
-            for (j, i) in (self.period..len).enumerate() {
-                let (aroon_down, aroon_up) = unsafe {
-                    state.calc_unchecked_simd::<1>(
-                        high_ptrs,
-                        low_ptrs,
-                        i,
-                        self.period,
-                        multiplier,
-                    )
-                };
+        let mut state = SimdState::<N>::from_states(&mut states);
+        for (j, i) in (self.period..len).enumerate() {
+            let (aroon_down, aroon_up) = state.calc((high_ptrs, low_ptrs, i, self.period));
 
-                // Store results using pre-computed pointers
-                crate::write_simd_at_indices!(N, j,
-                    aroon_down_ptr => aroon_down,
-                    aroon_up_ptr => aroon_up
-                );
-            }
-        } else {
-            for (j, i) in (self.period..len).enumerate() {
-                let (aroon_down, aroon_up) = unsafe {
-                    state.calc_unchecked_simd::<4>(
-                        high_ptrs,
-                        low_ptrs,
-                        i,
-                        self.period,
-                        multiplier,
-                    )
-                };
-
-                // Store results using pre-computed pointers
-                crate::write_simd_at_indices!(N, j,
-                    aroon_down_ptr => aroon_down,
-                    aroon_up_ptr => aroon_up
-                );
-            }
+            // Store results using pre-computed pointers
+            crate::write_simd_at_indices!(N, j,
+                aroon_down_ptr => aroon_down,
+                aroon_up_ptr => aroon_up
+            );
         }
         // Update states efficiently
         state.write_states(&mut states);
@@ -87,7 +52,7 @@ impl Driver<State> for AroonDriver {
 /// scheduler to batch assets into SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[high, low]` for asset `i`.
 /// * `options` - Shared options applied to all `N` assets: `[period]`.
 /// * `_optional_outputs` - Unused; AROON has no optional output lines.
@@ -97,38 +62,29 @@ impl Driver<State> for AroonDriver {
 /// for asset `i` and `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    options: &[f64; OPTIONS],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, Aroon::min_data(options))?;
     validate_options(options)?;
     let period = options[0] as usize;
-    let multiplier = multiplier(period);
-    let mut road_train = PrimeMover::<N, State>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut output_buffers = Vec::with_capacity(N);
 
     for i in 0..N {
-        let asset_inputs = vec![
-            inputs[i][0], // high
-            inputs[i][1], // low
-        ];
+        let [high, low] = *inputs[i];
+        let asset_inputs = vec![high, low];
 
         let (aroon_down_line, aroon_up_line) = {
-            let len = inputs[i][0].len();
-            let capacity = output_length(len, options);
+            let len = high.len();
+            let capacity = Aroon::output_length(len, options);
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::uninit_vec!(f64, capacity),
             )
         };
-
-        let state = State::new(
-            inputs[i][1][0], // low
-            period,
-            inputs[i][0][0], // high
-            period,
-        );
+        let state = State::init_state(high, low, period);
 
         let mut output_buffer = vec![aroon_down_line, aroon_up_line];
 
@@ -158,7 +114,7 @@ pub fn indicator_by_assets<const N: usize>(
         output_buffers.push(output_buffer);
     }
 
-    let mut driver = AroonDriver { period, multiplier };
+    let mut driver = AroonDriver { period };
     let states_vec = road_train.drive(&mut driver);
     let mut states = Vec::with_capacity(N);
     for (i, state) in states_vec.into_iter().enumerate() {
@@ -167,7 +123,6 @@ pub fn indicator_by_assets<const N: usize>(
             inputs[i][1],
             state,
             period,
-            multiplier,
         ));
     }
     Ok((output_buffers, states))

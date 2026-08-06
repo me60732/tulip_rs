@@ -1,17 +1,17 @@
 use crate::common::validate_inputs;
 use crate::common_simd::{deserialize_f64x2, serialize_f64x2};
-pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::tr::output_length as tr_output_length;
-use crate::ring_buffer::multi_buffer::multi_buffer::{MultiBuffer as Buffer, RingBuffer};
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+use crate::indicators::tr::Tr;
+use crate::ring_buffer::multi_buffer::multi_buffer::MultiBuffer as Buffer;
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 //use wide::*;
 use std::simd::{num::SimdFloat, Simd};
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 3;
+pub const INPUTS: usize = 3;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 3;
+pub const OPTIONS: usize = 3;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -43,45 +43,14 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::ultosc_simd::indicator_by_options as indicator;
 }
 const MULTIPLIERS: Simd<f64, 2> = Simd::from_array([4.0, 2.0]);
-/// Returns information about the Ultimate Oscillator (ULTOSC) indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the ULTOSC indicator.
-pub const INFO: Info = Info {
-    name: "ultosc",
-    full_name: "Ultimate Oscillator",
-    indicator_type: IndicatorType::Momentum,
-    // Inputs are expected to be: high, low, close
-    inputs: &["high", "low", "close"],
-    // Options: short_period, medium_period, long_period
-    options: &["short_period", "medium_period", "long_period"],
-    outputs: &["ultosc", "tr", "bp"],
-    optional_outputs: &[],
-    display_groups: &[
-        DisplayGroup {
-            offset: None,
-            id: "ultosc",
-            label: "ULTOSC",
-            display_type: DisplayType::Indicator,
-            outputs: &["ultosc"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "tr_bp",
-            label: "Buying Pressure",
-            display_type: DisplayType::Indicator,
-            outputs: &["tr", "bp"],
-        },
-    ],
-};
+
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
-    state: State,
+    state: State<Warm>,
     periods: (usize, usize),
 }
 impl IndicatorState {
-    pub fn new(state: State, periods: (usize, usize)) -> Self {
+    pub fn new(state: State<Warm>, periods: (usize, usize)) -> Self {
         Self { state, periods }
     }
 }
@@ -89,7 +58,7 @@ impl IndicatorState {
 impl TIndicatorState<3> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -121,8 +90,9 @@ impl TIndicatorState<3> for IndicatorState {
     }
 }
 #[derive(Serialize, Deserialize)]
-pub struct State {
-    pub buffer: Buffer<2>,
+#[serde(bound = "")]
+pub struct State<S = Cold> {
+    pub buffer: Buffer<2, f64, S>,
 
     #[serde(
         serialize_with = "serialize_f64x2",
@@ -140,7 +110,7 @@ pub struct State {
     pub prev_close: f64,
 }
 
-impl State {
+impl State<Cold> {
     pub fn new(long_period: usize, prev_close: f64) -> Self {
         Self {
             buffer: Buffer::new(long_period),
@@ -159,11 +129,11 @@ impl State {
         ultosc_line: &mut [f64],
         tr_line: &mut [f64],
         bp_line: &mut [f64],
-    ) -> Self {
+    ) -> State<Warm> {
         let long_period = periods.2;
         let mut state = Self::new(long_period, close[0]);
         let (has_optional, want_tr, want_bp) = crate::calc_want_flags!(tr_line, bp_line);
-        for (i, ((high_val, low_val), close_val)) in high
+        for (i, ((&high_val, &low_val), &close_val)) in high
             .iter()
             .zip(low.iter())
             .zip(close.iter())
@@ -171,7 +141,7 @@ impl State {
             .skip(1)
             .take(long_period)
         {
-            let (ult, tr, bp) = state.calc(high_val, low_val, close_val, (periods.0, periods.1));
+            let (ult, tr, bp) = state.calc((high_val, low_val, close_val, periods.0, periods.1));
             if i == long_period {
                 ultosc_line[0] = ult;
             }
@@ -182,19 +152,21 @@ impl State {
                 );
             }
         }
-        state
+        State {
+            buffer: state.buffer.into_full(),
+            bp_sums_2x: state.bp_sums_2x,
+            tr_sums_2x: state.tr_sums_2x,
+            bp_long_sum: state.bp_long_sum,
+            tr_long_sum: state.tr_long_sum,
+            prev_close: state.prev_close,
+        }
     }
-
     #[inline(always)]
-    pub fn calc(
+    fn calc<'a>(
         &mut self,
-        high: &f64,
-        low: &f64,
-        close: &f64,
-        periods: (usize, usize),
+        (high, low, close, short_period, medium_period): (f64, f64, f64, usize, usize),
     ) -> (f64, f64, f64) {
         const DIV: f64 = 100.0 / 7.0;
-        let (short_period, medium_period) = periods;
 
         let true_low = low.min(self.prev_close);
         let true_high = high.max(self.prev_close);
@@ -222,7 +194,7 @@ impl State {
 
         self.bp_sums_2x += bp_x2 - bp_r;
         self.tr_sums_2x += tr_x2 - tr_r;
-        self.prev_close = *close;
+        self.prev_close = close;
 
         if self.buffer.is_full() {
             let weight_sum = (MULTIPLIERS * self.bp_sums_2x / self.tr_sums_2x).reduce_sum();
@@ -232,23 +204,24 @@ impl State {
         }
         (0.0, tr, bp)
     }
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64, f64, usize, usize);
+    type Outputs = (f64, f64, f64);
+
     #[inline(always)]
-    pub unsafe fn calc_unchecked(
+    fn calc<'a>(
         &mut self,
-        high: f64,
-        low: f64,
-        close: f64,
-        periods: (usize, usize),
-    ) -> (f64, f64, f64) {
+        (high, low, close, short_period, medium_period): Self::Inputs<'a>,
+    ) -> Self::Outputs {
         const DIV: f64 = 100.0 / 7.0;
 
-        let (short_period, medium_period) = periods;
         let true_low = low.min(self.prev_close);
         let true_high = high.max(self.prev_close);
         let bp = close - true_low;
         let tr = true_high - true_low;
 
-        let [old_bp, old_tr] = self.buffer.push_with_info_unchecked([bp, tr]);
+        let [old_bp, old_tr] = self.buffer.push_with_info([bp, tr]);
         self.bp_long_sum += bp - old_bp;
         self.tr_long_sum += tr - old_tr;
 
@@ -273,124 +246,13 @@ impl State {
         (((weight_sum + third) * DIV), tr, bp)
     }
 }
-/// Returns the minimum amount of data required for the ULTOSC indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing `[short_period, medium_period, long_period]` for the ULTOSC calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    options[2] as usize + 1
-}
-/// Calculates the output length based on the data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the ULTOSC calculation.
-///
-/// # Returns
-///
-/// The output length.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), IndicatorError> {
+
+
+pub(crate) fn validate_options(options: &[f64; OPTIONS]) -> Result<(), IndicatorError> {
     if options[0] < 1.0 || options[1] < options[0] || options[2] < options[1] {
         return Err(IndicatorError::InvalidOptions);
     }
     Ok(())
-}
-/// Calculates the Ultimate Oscillator (ULTOSC) indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — high prices
-/// * `inputs[1]` — low prices
-/// * `inputs[2]` — close prices
-///
-/// # Options
-///
-/// * `options[0]` — short_period
-/// * `options[1]` — medium_period
-/// * `options[2]` — long_period
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `_optional_outputs` - Unused; ULTOSC has no optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is `ultosc` and
-/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let periods = (
-        options[0] as usize,
-        options[1] as usize,
-        options[2] as usize,
-    );
-
-    validate_inputs(inputs, min_data(options))?;
-    let [high, low, close] = inputs;
-
-    let (mut ultosc_line, (mut tr_line, mut bp_line)) = {
-        let capacity = output_length(high.len(), options);
-        let tr_capacity = tr_output_length(high.len(), options);
-        (
-            crate::uninit_vec!(f64, capacity),
-            crate::init_optional_outputs_eff!(
-                optional_outputs, &[false, false],
-                tr_line: tr_capacity,
-                bp_line: tr_capacity
-            ),
-        )
-    };
-
-    let mut state = State::init_state(
-        high,
-        low,
-        close,
-        periods,
-        &mut ultosc_line,
-        &mut tr_line,
-        &mut bp_line,
-    );
-    let (tr, bp) = {
-        let mut offset = crate::slice_outputs_start!(ultosc_line.len(), tr_line);
-        if offset > 0 {
-            offset += 1;
-        }
-        (&mut tr_line[offset..], &mut bp_line[offset..])
-    };
-    // Single-pass calculation loop.
-    cycle(
-        &high[periods.2 + 1..],
-        &low[periods.2 + 1..],
-        &close[periods.2 + 1..],
-        (periods.0, periods.1),
-        &mut state,
-        &mut ultosc_line[1..],
-        (tr, bp),
-    );
-
-    Ok((
-        vec![ultosc_line, tr_line, bp_line],
-        IndicatorState {
-            periods: (periods.0, periods.1),
-            state,
-        },
-    ))
 }
 
 /// Performs the main calculation loop for the ULTOSC indicator.
@@ -408,7 +270,7 @@ fn cycle(
     low: &[f64],
     close: &[f64],
     periods: (usize, usize),
-    state: &mut State,
+    state: &mut State<Warm>,
     ultosc_line: &mut [f64],
     optional_outputs: (&mut [f64], &mut [f64]),
 ) {
@@ -417,20 +279,119 @@ fn cycle(
 
     for i in 0..high.len() {
         let (ultosc, tr, bp);
-        unsafe {
-            (ultosc, tr, bp) = state.calc_unchecked(
+        let (high, low, close) = unsafe {
+            (
                 *high.get_unchecked(i),
                 *low.get_unchecked(i),
                 *close.get_unchecked(i),
-                periods,
-            );
-            *ultosc_line.get_unchecked_mut(i) = ultosc;
-        }
+            )
+        };
+
+        (ultosc, tr, bp) = state.calc((high, low, close, periods.0, periods.1));
+        unsafe { *ultosc_line.get_unchecked_mut(i) = ultosc };
+
         if has_optional {
             crate::store_optional_outputs!(i,
                 want_tr, tr_line => tr,
                 want_bp, bp_line => bp
             );
         }
+    }
+}
+
+pub struct Ultosc;
+
+impl Indicator<INPUTS, OPTIONS> for Ultosc {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "ultosc",
+        full_name: "Ultimate Oscillator",
+        indicator_type: IndicatorType::Momentum,
+        // Inputs are expected to be: high, low, close
+        inputs: &["high", "low", "close"],
+        // Options: short_period, medium_period, long_period
+        options: &["short_period", "medium_period", "long_period"],
+        outputs: &["ultosc", "tr", "bp"],
+        optional_outputs: &[],
+        display_groups: &[
+            DisplayGroup {
+                offset: None,
+                id: "ultosc",
+                label: "ULTOSC",
+                display_type: DisplayType::Indicator,
+                outputs: &["ultosc"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "tr_bp",
+                label: "Buying Pressure",
+                display_type: DisplayType::Indicator,
+                outputs: &["tr", "bp"],
+            },
+        ],
+    };
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        let periods = (
+            options[0] as usize,
+            options[1] as usize,
+            options[2] as usize,
+        );
+
+        validate_inputs(inputs, Self::min_data(options))?;
+        let [high, low, close] = inputs;
+
+        let (mut ultosc_line, (mut tr_line, mut bp_line)) = {
+            let capacity = Self::output_length(high.len(), options);
+            let tr_capacity = Tr::output_length(high.len(), &[]);
+            (
+                crate::uninit_vec!(f64, capacity),
+                crate::init_optional_outputs_eff!(
+                    optional_outputs, &[false, false],
+                    tr_line: tr_capacity,
+                    bp_line: tr_capacity
+                ),
+            )
+        };
+
+        let mut state = State::init_state(
+            high,
+            low,
+            close,
+            periods,
+            &mut ultosc_line,
+            &mut tr_line,
+            &mut bp_line,
+        );
+        let (tr, bp) = {
+            let mut offset = crate::slice_outputs_start!(ultosc_line.len(), tr_line);
+            if offset > 0 {
+                offset += 1;
+            }
+            (&mut tr_line[offset..], &mut bp_line[offset..])
+        };
+        // Single-pass calculation loop.
+        cycle(
+            &high[periods.2 + 1..],
+            &low[periods.2 + 1..],
+            &close[periods.2 + 1..],
+            (periods.0, periods.1),
+            &mut state,
+            &mut ultosc_line[1..],
+            (tr, bp),
+        );
+
+        Ok((
+            vec![ultosc_line, tr_line, bp_line],
+            IndicatorState {
+                periods: (periods.0, periods.1),
+                state,
+            },
+        ))
     }
 }

@@ -4,31 +4,33 @@ pub use crate::indicators::simd_indicators::by_asset::chaikinmf::indicator_by_as
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::chaikinmf::indicator_by_options;
 
+pub use crate::indicator_types::{TSimdState, TState};
 pub(crate) mod imports {
     pub(crate) use crate::indicators::chaikinmf::IndicatorState as State;
     pub(crate) use crate::indicators::simd_indicators::simd_types::F64Constants;
-    pub(crate) use crate::ring_buffer::multi_buffer::multi_buffer::{MultiBuffer, RingBuffer};
+    pub(crate) use crate::ring_buffer::multi_buffer::multi_buffer::MultiBuffer;
     pub(crate) use std::simd::{num::SimdFloat, Simd};
 }
-
+use crate::types::Warm;
 pub mod assets {
     use super::imports::*;
-    use crate::ring_buffer::single_buffer::generic_buffer::{
-        Buffer, RingBuffer as SingleRingBuffer,
-    };
+    use super::*;
+    use crate::{indicator_types::TSimdState, ring_buffer::single_buffer::generic_buffer::Buffer};
 
     /// SIMD-parallel state for computing Chaikin Money Flow (CMF) across `N` assets simultaneously.
     /// Each field is a SIMD vector where lane `i` corresponds to asset `i`.
     pub struct SimdState<const N: usize> {
-        buffer: MultiBuffer<2, Simd<f64, N>>,
+        buffer: MultiBuffer<2, Simd<f64, N>, Warm>,
         vol_sum: Simd<f64, N>,
         mfv_sum: Simd<f64, N>,
     }
 
-    impl<const N: usize> SimdState<N> {
+    impl<const N: usize> TSimdState for SimdState<N> {
+        type ScalarState = State;
+
         /// Gathers `N` scalar [`State`] references into a single `SimdState`,
         /// packing each asset's ring-buffer history and running sums into SIMD lanes.
-        pub fn new(states: &mut [&mut State]) -> Self {
+        fn from_states(states: &mut [&mut State]) -> Self {
             let buffer_refs: [Vec<Simd<f64, 2>>; N] =
                 core::array::from_fn(|i| states[i].buffer.to_ordered_vec());
             let mfv_sum: [f64; N] = core::array::from_fn(|i| states[i].sums[0]);
@@ -55,6 +57,7 @@ pub mod assets {
                 capacity: len,
                 count: len,
                 prev_idx: len - 1,
+                state: std::marker::PhantomData,
             };
 
             Self {
@@ -66,7 +69,7 @@ pub mod assets {
 
         /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place,
         /// unpacking each lane's ring-buffer history and running sums.
-        pub fn write_states(&self, states: &mut [&mut State]) {
+        fn write_states(&self, states: &mut [&mut State]) {
             let mfv_sum = self.mfv_sum.to_array();
             let vol_sum = self.vol_sum.to_array();
             let capacity = self.buffer.capacity;
@@ -84,11 +87,15 @@ pub mod assets {
                     capacity,
                     count: self.buffer.count,
                     prev_idx: self.buffer.prev_idx,
+                    state: std::marker::PhantomData::<Warm>,
                 };
                 states[n].sums = Simd::from_array([mfv_sum[n], vol_sum[n]]);
             }
         }
-
+    }
+    impl<const N: usize> TState for SimdState<N> {
+        type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
+        type Outputs = Simd<f64, N>;
         /// Computes one CMF step across `N` asset lanes using SIMD parallelism.
         ///
         /// Calculates `mfv = ((close - low) - (high - close)) / (high - low) * volume`
@@ -98,18 +105,12 @@ pub mod assets {
         /// # Safety
         /// Caller must ensure all `N` ring buffers have been fully seeded.
         #[inline(always)]
-        pub unsafe fn calc_unchecked(
-            &mut self,
-            high: Simd<f64, N>,
-            low: Simd<f64, N>,
-            close: Simd<f64, N>,
-            volume: Simd<f64, N>,
-        ) -> Simd<f64, N> {
+        fn calc<'a>(&mut self, (high, low, close, volume): Self::Inputs<'a>) -> Self::Outputs {
             let mfv = ((close - low) - (high - close))
                 / (high - low).simd_max(F64Constants::EPSILON)
                 * volume;
 
-            let [old_mfv, old_vol] = self.buffer.push_with_info_unchecked([mfv, volume]);
+            let [old_mfv, old_vol] = self.buffer.push_with_info([mfv, volume]);
             self.vol_sum += volume - old_vol;
             self.mfv_sum += mfv - old_mfv;
 
@@ -120,9 +121,8 @@ pub mod assets {
 
 pub mod options {
     use super::imports::*;
-    use crate::ring_buffer::single_buffer::generic_buffer::{
-        Buffer, RingBuffer as SingleRingBuffer,
-    };
+    use super::*;
+    use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
 
     /// SIMD-parallel state for computing Chaikin Money Flow across `N` option lanes
     /// (different periods) on a single asset simultaneously.
@@ -130,7 +130,7 @@ pub mod options {
     /// The buffer is sized to the widest period and shared across all lanes;
     /// each lane reads back its own period via `push_with_info_periods_unchecked`.
     pub struct SimdState<const N: usize> {
-        buffer: MultiBuffer<2>,
+        buffer: MultiBuffer<2, f64, Warm>,
         mfv_sum: Simd<f64, N>,
         vol_sum: Simd<f64, N>,
         periods: [usize; N],
@@ -141,7 +141,7 @@ pub mod options {
         /// into a single `SimdState`, using the widest period's buffer as the shared ring buffer.
         ///
         /// Running sums for each lane are copied from the corresponding scalar state.
-        pub fn new(states: &mut [&mut State], periods: [usize; N]) -> Self {
+        pub fn from_states(states: &mut [&mut State], periods: [usize; N]) -> Self {
             debug_assert_eq!(states.len(), N, "Number of states must match SIMD width");
 
             // Use the widest-period buffer as the shared multi-buffer
@@ -168,6 +168,7 @@ pub mod options {
                 prev_idx: capacity - 1,
                 capacity,
                 count: capacity,
+                state: std::marker::PhantomData::<Warm>,
             };
 
             let mfv_sum: [f64; N] = core::array::from_fn(|i| states[i].sums[0]);
@@ -205,28 +206,27 @@ pub mod options {
                     prev_idx: capacity - 1,
                     capacity,
                     count: capacity,
+                    state: std::marker::PhantomData::<Warm>,
                 };
                 states[i].sums = Simd::from_array([mfv_sum[i], vol_sum[i]]);
             }
         }
+    }
+    impl<const N: usize> TState for SimdState<N> {
+        type Inputs<'a> = (f64, f64, f64, f64);
+        type Outputs = Simd<f64, N>;
 
         /// Computes one Chaikin MF step for `N` period lanes on a single scalar bar.
         ///
         /// # Safety
         /// Caller must ensure the buffer has capacity for one more element.
         #[inline(always)]
-        pub unsafe fn calc_unchecked_simd(
-            &mut self,
-            high: f64,
-            low: f64,
-            close: f64,
-            volume: f64,
-        ) -> Simd<f64, N> {
+        fn calc<'a>(&mut self, (high, low, close, volume): Self::Inputs<'a>) -> Self::Outputs {
             let mfv = ((close - low) - (high - close)) / (high - low).max(f64::EPSILON) * volume;
 
             let [mfv_old, vol_old] = self
                 .buffer
-                .push_with_info_periods_unchecked([mfv, volume], self.periods);
+                .push_with_info_periods([mfv, volume], self.periods);
             self.mfv_sum += Simd::splat(mfv) - Simd::from_array(mfv_old);
             self.vol_sum += Simd::splat(volume) - Simd::from_array(vol_old);
 

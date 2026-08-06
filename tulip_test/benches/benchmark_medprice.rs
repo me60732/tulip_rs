@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::medprice::{
-    indicator, indicator_by_assets, min_data, IndicatorState, TIndicatorState,
+    Medprice, Indicator, indicator_by_assets, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -118,7 +118,7 @@ fn bench_rust_medprice(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator(&inputs, &[], None).expect("MEDPRICE indicator failed");
+                    let result = Medprice::indicator(&inputs, &[], None).expect("MEDPRICE Medprice::indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -133,7 +133,7 @@ fn bench_rust_medprice(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust MEDPRICE", |b| {
             b.iter(|| {
-                let result = indicator(&inputs, &[], None).expect("MEDPRICE indicator failed");
+                let result = Medprice::indicator(&inputs, &[], None).expect("MEDPRICE Medprice::indicator failed");
                 black_box(&result);
             });
         });
@@ -154,12 +154,12 @@ fn bench_rust_medprice_from_state(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let min_data_val = min_data(&[]).max(CHUNK_SIZE);
+                    let min_data_val = Medprice::min_data(&[]).max(CHUNK_SIZE);
                     // First chunk
                     let chunk_inputs = [&high[..min_data_val], &low[..min_data_val]];
 
                     let (_, mut state) =
-                        indicator(&chunk_inputs, &[], None).expect("MEDPRICE indicator failed");
+                        Medprice::indicator(&chunk_inputs, &[], None).expect("MEDPRICE Medprice::indicator failed");
 
                     // Chunks
                     let mut high_chunks = high[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -205,7 +205,7 @@ fn bench_rust_medprice_from_state(c: &mut Criterion) {
                 let final_high_vec = high[high.len() - 1..].to_vec();
                 let final_low_vec = low[low.len() - 1..].to_vec();
                 let (_, mut state) =
-                    indicator(&new_inputs, &[], None).expect("Rust MEDPRICE indicator failed");
+                    Medprice::indicator(&new_inputs, &[], None).expect("Rust MEDPRICE Medprice::indicator failed");
 
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
@@ -215,7 +215,7 @@ fn bench_rust_medprice_from_state(c: &mut Criterion) {
                                 &[final_high_vec.as_slice(), final_low_vec.as_slice()],
                                 None,
                             )
-                            .expect("Rust MEDPRICE from state indicator failed");
+                            .expect("Rust MEDPRICE from state Medprice::indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -232,7 +232,7 @@ fn bench_rust_medprice_from_state(c: &mut Criterion) {
 
                 // --- Rust_FromState_1_Bar_json benchmark ---
                 let (_, state) =
-                    indicator(&new_inputs, &[], None).expect("Rust MEDPRICE indicator failed");
+                    Medprice::indicator(&new_inputs, &[], None).expect("Rust MEDPRICE Medprice::indicator failed");
                 let json = serde_json::to_string(&state).expect("json failed");
 
                 let mut timing = TimingMeasurements::new();
@@ -245,7 +245,7 @@ fn bench_rust_medprice_from_state(c: &mut Criterion) {
                                 &[final_high_vec.as_slice(), final_low_vec.as_slice()],
                                 None,
                             )
-                            .expect("Rust MEDPRICE from state indicator failed");
+                            .expect("Rust MEDPRICE from state Medprice::indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -271,12 +271,12 @@ fn bench_rust_medprice_from_state(c: &mut Criterion) {
 
         group.bench_function("benchmark", |b| {
             b.iter(|| {
-                let min_data_val = min_data(&[]).max(CHUNK_SIZE);
+                let min_data_val = Medprice::min_data(&[]).max(CHUNK_SIZE);
                 // First chunk
                 let chunk_inputs = [&high_vec[..min_data_val], &low_vec[..min_data_val]];
 
                 let (_, mut state) =
-                    indicator(&chunk_inputs, &[], None).expect("MEDPRICE indicator failed");
+                    Medprice::indicator(&chunk_inputs, &[], None).expect("MEDPRICE Medprice::indicator failed");
 
                 // Chunks
                 let mut high_chunks = high_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -312,7 +312,7 @@ fn bench_rust_medprice_from_state(c: &mut Criterion) {
             let final_high_vec = high_vec[high_vec.len() - 1..].to_vec();
             let final_low_vec = low_vec[low_vec.len() - 1..].to_vec();
             let (_, mut state) =
-                indicator(&new_inputs, &[], None).expect("Rust MEDPRICE indicator failed");
+                Medprice::indicator(&new_inputs, &[], None).expect("Rust MEDPRICE Medprice::indicator failed");
 
             let mut group = c.benchmark_group("Rust MEDPRICE from state 1 bar");
             group.sample_size(SAMPLE_SIZE);
@@ -323,7 +323,7 @@ fn bench_rust_medprice_from_state(c: &mut Criterion) {
                             &[final_high_vec.as_slice(), final_low_vec.as_slice()],
                             None,
                         )
-                        .expect("Rust MEDPRICE from state indicator failed");
+                        .expect("Rust MEDPRICE from state Medprice::indicator failed");
                     black_box(&result);
                 });
             });
@@ -362,7 +362,7 @@ fn bench_rust_medprice_simd_by_assets(c: &mut Criterion) {
         timing.measure(
             || {
                 let result = indicator_by_assets::<4>(&inputs, &[], None)
-                    .expect("Rust SIMD by assets MEDPRICE indicator failed");
+                    .expect("Rust SIMD by assets MEDPRICE Medprice::indicator failed");
                 black_box(&result);
             },
             SAMPLE_SIZE,
@@ -393,7 +393,7 @@ fn bench_rust_medprice_simd_by_assets(c: &mut Criterion) {
         group.bench_function("Rust SIMD by assets MEDPRICE", |b| {
             b.iter(|| {
                 let result = indicator_by_assets::<4>(&inputs, &[], None)
-                    .expect("Rust SIMD by assets MEDPRICE indicator failed");
+                    .expect("Rust SIMD by assets MEDPRICE Medprice::indicator failed");
                 black_box(&result);
             });
         });

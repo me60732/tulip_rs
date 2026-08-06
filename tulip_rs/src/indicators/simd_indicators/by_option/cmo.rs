@@ -1,38 +1,35 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
-use crate::indicators::cmo::{
-    min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
-};
-use crate::indicators::simd_indicators::cmo_simd::SimdState;
+use crate::indicators::cmo::{Cmo, Indicator, IndicatorState, State, INPUTS, OPTIONS};
+use crate::indicators::simd_indicators::cmo_simd::{SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
 /// SIMD driver for the Chande Momentum Oscillator (CMO) indicator, processing `N` option-set lanes per scheduling epoch.
 struct CmoDriver;
 
-impl Driver<State, usize> for CmoDriver {
+impl Driver<State<Warm>, usize> for CmoDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD. Reads the shared input, applies each lane's options, writes outputs, and updates per-lane states.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         options: Vec<Option<&usize>>,
     ) {
         let len = outputs[0][0].len();
 
         let mut i = [0usize; N];
-        let mut prev_i = [0usize; N];
+        //let mut prev_i = [0usize; N];
         for (lane, option) in options.iter().enumerate() {
             if let Some(&period) = option {
-                i[lane] = period + 1;
-                prev_i[lane] = period;
+                i[lane] = period;
             }
         }
 
         // Optimization 1: Direct array construction instead of collect+try_into
-        let mut state = SimdState::new(&states);
+        let mut state = SimdState::from_states(&mut states);
 
         // Optimization 2: Pre-compute all input and output pointers
         let input_ptrs = crate::extract_input_ptrs!(inputs, N, real_ptrs);
@@ -41,22 +38,18 @@ impl Driver<State, usize> for CmoDriver {
         // Optimization 3: Simplified main loop with pre-computed offsets
         for j in 0..len {
             // Get new and old values using pre-computed pointers
-            let (current, prev) = crate::extract_simd_at_indices_array!(N, input_ptrs,
-                current @ i,
-                prev @ prev_i
+            let curr = crate::extract_simd_at_indices_array!(N, input_ptrs,
+                current @ i
             );
-            let (prev_before, prev_period) = crate::extract_simd_at_indices!(N, input_ptrs,
-                prev_before @ j,
-                prev_period @ j + 1
+            let old = crate::extract_simd_at_indices!(N, input_ptrs,
+                prev_period @ j
             );
-            let cmo = state.calc_simd(prev_before, prev_period, current, prev);
+            let cmo = state.calc((curr, old));
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, j,
                 cmo_line_ptr => cmo
             );
-
-            prev_i = i;
 
             for i in i.iter_mut() {
                 *i += 1;
@@ -71,7 +64,7 @@ impl Driver<State, usize> for CmoDriver {
 /// simultaneously using SIMD parallelism.
 ///
 /// # Arguments
-/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS]`), containing
 ///   `[real]`.
 /// * `options` - An array of `N` option sets, one per SIMD lane: `[period]`.
 /// * `optional_outputs` - Unused; CMO has no optional outputs.
@@ -81,13 +74,13 @@ impl Driver<State, usize> for CmoDriver {
 /// and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH], //stock[ fields [ field [f64] ] ]
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+    options: &[&[f64; OPTIONS]; N],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, Cmo::min_data)?;
     validate_options(options, None)?;
-    let mut road_train = PrimeMover::<N, State, usize>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>, usize>::new();
 
     let mut params = [0usize; N];
     for i in 0..N {
@@ -102,7 +95,7 @@ pub fn indicator_by_options<const N: usize>(
         ];
 
         let cmo_line = {
-            let capacity = output_length(inputs[0].len(), options[i]);
+            let capacity = Cmo::output_length(inputs[0].len(), options[i]);
             crate::uninit_vec!(f64, capacity)
         };
 
@@ -129,8 +122,8 @@ pub fn indicator_by_options<const N: usize>(
             asset_inputs,
             asset_outputs,
             i,
-            period,
             period + 1,
+            period,
             state,
             Some(&params[i]),
         ));

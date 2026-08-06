@@ -319,3 +319,265 @@ macro_rules! extract_simd_from_ptrs {
         }
     };
 }
+
+// ════════════════════════════════════════════════════════════════════════════════
+// simd_state_from_state! / simd_state_write! / simd_state_impl!
+// boilerplate-reducing macros for TSimdState::from_states / write_states
+// ════════════════════════════════════════════════════════════════════════════════
+
+/// Generates only the `from_states()` method inside a `TSimdState` trait impl block.
+///
+/// Three field categories, all optional:
+/// - `sub`  — sub-states gathered as `&mut` refs, constructed via `SubType::from_states(&mut refs)`
+/// - `f64`  — scalar fields packed into `[f64; N]` arrays then wrapped with `Simd::from_array`
+/// - `buf`  — SIMD ring-buffer fields gathered as immutable refs (`&state.field`) and
+///            constructed via the named method: `(field: SimdBufType, constructor_method)`
+///
+/// Field names must match between `SimdState` and `Self::ScalarState`. Either list may be
+/// empty. Trailing commas are allowed. Omitting `buf:` is backwards-compatible.
+///
+/// # Usage — sub + f64 only
+/// ```
+/// simd_state_from_state!(
+///     sub: [(dx_state: DxSimdState<N>)],
+///     f64: [adx, prev_close]
+/// );
+/// ```
+///
+/// # Usage — with ring buffers
+/// ```
+/// simd_state_from_state!(
+///     sub: [(adx_state: AdxSimdState<N>)],
+///     scalar: [],
+///     buf: [(buffer: SimdBuffer<N>, from_f64_buffers)]
+/// );
+/// ```
+#[macro_export]
+macro_rules! simd_state_from_state {
+    // Full form: sub + scalar + buf + mask
+    (
+        sub: [ $( ($sf_field:ident : $SubType:path) ),* $(,)? ],
+        scalar: [ $( $ff_field:ident ),* $(,)? ],
+        buf: [ $( ($bf_field:ident : $BufType:path, $constructor:ident) ),* $(,)? ],
+        mask: [ $( $mf_field:ident ),* $(,)? ]
+    ) => {
+        fn from_states(states: &mut [&mut Self::ScalarState]) -> Self {
+            $( let mut $sf_field = Vec::with_capacity(N); )*
+            $( let mut $ff_field = [Default::default(); N]; )*
+            $( let mut $bf_field = Vec::with_capacity(N); )*
+            $( let mut $mf_field = [false; N]; )*
+
+            // Single shared loop: gather sub-state refs, scalar values, immutable buffer refs,
+            // and mask values. _i suppresses the unused-variable warning when scalar/mask lists are empty.
+            for (_i, state) in states.iter_mut().enumerate() {
+                $( $sf_field.push(&mut state.$sf_field); )*
+                $( $ff_field[_i] = state.$ff_field; )*
+                $( $bf_field.push(&state.$bf_field); )*
+                $( $mf_field[_i] = state.$mf_field; )*
+            }
+
+            $( let $sf_field = <$SubType>::from_states(&mut $sf_field); )*
+            $( let $bf_field = <$BufType>::$constructor($bf_field); )*
+
+            Self {
+                $( $sf_field, )*
+                $( $ff_field: Simd::from_array($ff_field), )*
+                $( $bf_field, )*
+                $( $mf_field: Mask::from_array($mf_field), )*
+            }
+        }
+    };
+    // Short form: sub + scalar + buf (no mask)
+    (
+        sub: [ $( ($sf_field:ident : $SubType:path) ),* $(,)? ],
+        scalar: [ $( $ff_field:ident ),* $(,)? ],
+        buf: [ $( ($bf_field:ident : $BufType:path, $constructor:ident) ),* $(,)? ]
+    ) => {
+        crate::simd_state_from_state!(
+            sub: [ $( ($sf_field : $SubType) ),* ],
+            scalar: [ $( $ff_field ),* ],
+            buf: [ $( ($bf_field : $BufType, $constructor) ),* ],
+            mask: []
+        );
+    };
+    // Short form: sub + scalar only (no buf, no mask)
+    (
+        sub: [ $( ($sf_field:ident : $SubType:path) ),* $(,)? ],
+        scalar: [ $( $ff_field:ident ),* $(,)? ]
+    ) => {
+        crate::simd_state_from_state!(
+            sub: [ $( ($sf_field : $SubType) ),* ],
+            scalar: [ $( $ff_field ),* ],
+            buf: [],
+            mask: []
+        );
+    };
+}
+
+/// Generates only the `write_states()` method inside a `TSimdState` trait impl block.
+///
+/// Use alongside [`simd_state_from_state!`]. List only the fields that should be scattered
+/// back — omit read-only fields such as cached multipliers.
+///
+/// Buffer fields are scattered via `self.field.to_f64_buffers()` in a separate drain pass
+/// before the main sub-state / f64 loop, so `states` can be safely re-borrowed. The
+/// constructor name in `buf` entries is accepted for syntax consistency with
+/// [`simd_state_from_state!`] but is not used here.
+///
+/// # Usage — sub + f64 only
+/// ```
+/// simd_state_write!(
+///     sub: [(dx_state: DxSimdState<N>)],
+///     f64: [adx]
+/// );
+/// ```
+///
+/// # Usage — with ring buffers
+/// ```
+/// simd_state_write!(
+///     sub: [(adx_state: AdxSimdState<N>)],
+///     scalar: [],
+///     buf: [(buffer: SimdBuffer<N>, from_f64_buffers)]
+/// );
+/// ```
+#[macro_export]
+macro_rules! simd_state_write {
+    // Full form: sub + scalar + buf + mask
+    (
+        sub: [ $( ($sf_field:ident : $SubType:path) ),* $(,)? ],
+        scalar: [ $( $ff_field:ident ),* $(,)? ],
+        buf: [ $( ($bf_field:ident : $BufType:path, $constructor:ident) ),* $(,)? ],
+        mask: [ $( $mf_field:ident ),* $(,)? ]
+    ) => {
+        fn write_states(&self, states: &mut [&mut Self::ScalarState]) {
+            $( let mut $sf_field = Vec::with_capacity(N); )*
+            $( let $ff_field = self.$ff_field.to_array(); )*
+            $( let mut $bf_field = self.$bf_field.to_f64_buffers(); )*
+            $( let $mf_field = self.$mf_field.to_array(); )*
+
+            // Scatter each buffer field back via drain before the main loop.
+            // Each drain fully consumes its iterator, releasing the borrow on states
+            // so it can be re-borrowed in the loop below.
+            $(
+                for (buf, state) in $bf_field.drain(..).zip(states.iter_mut()) {
+                    state.$bf_field = buf;
+                }
+            )*
+
+            // Main loop: collect sub-state refs and scatter scalar and mask values.
+            for (_i, state) in states.iter_mut().enumerate() {
+                $( $sf_field.push(&mut state.$sf_field); )*
+                $( state.$ff_field = $ff_field[_i]; )*
+                $( state.$mf_field = $mf_field[_i]; )*
+            }
+
+            $( self.$sf_field.write_states(&mut $sf_field); )*
+        }
+    };
+    // Short form: sub + scalar + buf (no mask)
+    (
+        sub: [ $( ($sf_field:ident : $SubType:path) ),* $(,)? ],
+        scalar: [ $( $ff_field:ident ),* $(,)? ],
+        buf: [ $( ($bf_field:ident : $BufType:path, $constructor:ident) ),* $(,)? ]
+    ) => {
+        crate::simd_state_write!(
+            sub: [ $( ($sf_field : $SubType) ),* ],
+            scalar: [ $( $ff_field ),* ],
+            buf: [ $( ($bf_field : $BufType, $constructor) ),* ],
+            mask: []
+        );
+    };
+    // Short form: sub + scalar only (no buf, no mask)
+    (
+        sub: [ $( ($sf_field:ident : $SubType:path) ),* $(,)? ],
+        scalar: [ $( $ff_field:ident ),* $(,)? ]
+    ) => {
+        crate::simd_state_write!(
+            sub: [ $( ($sf_field : $SubType) ),* ],
+            scalar: [ $( $ff_field ),* ],
+            buf: [],
+            mask: []
+        );
+    };
+}
+
+/// Generates both `from_states()` and `write_states()` with identical field lists, for the
+/// common case where every field round-trips to and from the scalar state.
+///
+/// Equivalent to calling [`simd_state_from_state!`] and [`simd_state_write!`] with the same
+/// arguments. When some fields should not be written back (e.g. cached multipliers), use
+/// those two macros separately instead.
+///
+/// # Usage — sub + f64 only
+/// ```
+/// impl<const N: usize> TSimdState for SimdState<N> {
+///     type ScalarState = State;
+///     simd_state_impl!(
+///         sub: [(dx_state: DxSimdState<N>)],
+///         scalar: [adx, prev_close]
+///     );
+/// }
+/// ```
+///
+/// # Usage — with ring buffers
+/// ```
+/// simd_state_impl!(
+///     sub: [(adx_state: AdxSimdState<N>)],
+///     scalar: [],
+///     buf: [(buffer: SimdBuffer<N>, from_f64_buffers)]
+/// );
+/// ```
+#[macro_export]
+macro_rules! simd_state_impl {
+    // Full form: sub + scalar + buf + mask
+    (
+        sub: [ $( ($sf_field:ident : $SubType:path) ),* $(,)? ],
+        scalar: [ $( $ff_field:ident ),* $(,)? ],
+        buf: [ $( ($bf_field:ident : $BufType:path, $constructor:ident) ),* $(,)? ],
+        mask: [ $( $mf_field:ident ),* $(,)? ]
+    ) => {
+        crate::simd_state_from_state!(
+            sub: [ $( ($sf_field : $SubType) ),* ],
+            scalar: [ $( $ff_field ),* ],
+            buf: [ $( ($bf_field : $BufType, $constructor) ),* ],
+            mask: [ $( $mf_field ),* ]
+        );
+        crate::simd_state_write!(
+            sub: [ $( ($sf_field : $SubType) ),* ],
+            scalar: [ $( $ff_field ),* ],
+            buf: [ $( ($bf_field : $BufType, $constructor) ),* ],
+            mask: [ $( $mf_field ),* ]
+        );
+    };
+    // Short form: sub + scalar + buf (no mask)
+    (
+        sub: [ $( ($sf_field:ident : $SubType:path) ),* $(,)? ],
+        scalar: [ $( $ff_field:ident ),* $(,)? ],
+        buf: [ $( ($bf_field:ident : $BufType:path, $constructor:ident) ),* $(,)? ]
+    ) => {
+        crate::simd_state_from_state!(
+            sub: [ $( ($sf_field : $SubType) ),* ],
+            scalar: [ $( $ff_field ),* ],
+            buf: [ $( ($bf_field : $BufType, $constructor) ),* ]
+        );
+        crate::simd_state_write!(
+            sub: [ $( ($sf_field : $SubType) ),* ],
+            scalar: [ $( $ff_field ),* ],
+            buf: [ $( ($bf_field : $BufType, $constructor) ),* ]
+        );
+    };
+    // Short form: sub + scalar only (no buf, no mask)
+    (
+        sub: [ $( ($sf_field:ident : $SubType:path) ),* $(,)? ],
+        scalar: [ $( $ff_field:ident ),* $(,)? ]
+    ) => {
+        crate::simd_state_from_state!(
+            sub: [ $( ($sf_field : $SubType) ),* ],
+            scalar: [ $( $ff_field ),* ]
+        );
+        crate::simd_state_write!(
+            sub: [ $( ($sf_field : $SubType) ),* ],
+            scalar: [ $( $ff_field ),* ]
+        );
+    };
+}

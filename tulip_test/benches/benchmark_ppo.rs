@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::ppo::{
-    indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState,
+    Ppo, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -123,7 +123,7 @@ fn bench_rust_ppo(c: &mut Criterion) {
                 timing.measure(
                     || {
                         let result =
-                            indicator(&inputs, &options, None).expect("PPO indicator failed");
+                            Ppo::indicator(&inputs, &options, None).expect("PPO Ppo::indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -146,7 +146,7 @@ fn bench_rust_ppo(c: &mut Criterion) {
                 |b| {
                     b.iter(|| {
                         let result =
-                            indicator(&inputs, &options, None).expect("PPO indicator failed");
+                            Ppo::indicator(&inputs, &options, None).expect("PPO Ppo::indicator failed");
                         black_box(&result);
                     });
                 },
@@ -170,12 +170,12 @@ fn bench_rust_ppo_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data = min_data(&options).max(CHUNK_SIZE);
+                        let min_data = Ppo::min_data(&options).max(CHUNK_SIZE);
                         // First chunk
                         let chunk_inputs = [&close[..min_data]];
 
                         let (_, mut state) =
-                            indicator(&chunk_inputs, &options, None).expect("PPO indicator failed");
+                            Ppo::indicator(&chunk_inputs, &options, None).expect("PPO Ppo::indicator failed");
 
                         // Chunks
                         let mut close_chunks = close[min_data..].chunks_exact(CHUNK_SIZE);
@@ -210,14 +210,14 @@ fn bench_rust_ppo_from_state(c: &mut Criterion) {
                     let new_inputs = [new_close_vec.as_slice()];
                     let final_close_vec = close[close.len() - 1..].to_vec();
                     let (_, mut state) =
-                        indicator(&new_inputs, &options, None).expect("Rust PPO indicator failed");
+                        Ppo::indicator(&new_inputs, &options, None).expect("Rust PPO Ppo::indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
                         || {
                             let result = state
                                 .batch_indicator(&[final_close_vec.as_slice()], None)
-                                .expect("Rust PPO from state indicator failed");
+                                .expect("Rust PPO from state Ppo::indicator failed");
                             black_box(&result);
                         },
                         SAMPLE_SIZE,
@@ -234,7 +234,7 @@ fn bench_rust_ppo_from_state(c: &mut Criterion) {
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
                     let (_, state) =
-                        indicator(&new_inputs, &options, None).expect("Rust PPO indicator failed");
+                        Ppo::indicator(&new_inputs, &options, None).expect("Rust PPO Ppo::indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -244,7 +244,7 @@ fn bench_rust_ppo_from_state(c: &mut Criterion) {
                                 serde_json::from_str(&json).expect("JSON failed");
                             let result = state
                                 .batch_indicator(&[final_close_vec.as_slice()], None)
-                                .expect("Rust PPO from state indicator failed");
+                                .expect("Rust PPO from state Ppo::indicator failed");
                             black_box(&result);
                         },
                         SAMPLE_SIZE,
@@ -275,12 +275,12 @@ fn bench_rust_ppo_from_state(c: &mut Criterion) {
 
             group.bench_function("benchmark", |b| {
                 b.iter(|| {
-                    let min_data = min_data(&options).max(CHUNK_SIZE);
+                    let min_data = Ppo::min_data(&options).max(CHUNK_SIZE);
                     // First chunk
                     let chunk_inputs = [&close_vec[..min_data]];
 
                     let (_, mut state) =
-                        indicator(&chunk_inputs, &options, None).expect("PPO indicator failed");
+                        Ppo::indicator(&chunk_inputs, &options, None).expect("PPO Ppo::indicator failed");
 
                     // Chunks
                     let mut close_chunks = close_vec[min_data..].chunks_exact(CHUNK_SIZE);
@@ -307,7 +307,7 @@ fn bench_rust_ppo_from_state(c: &mut Criterion) {
                 let new_inputs = [new_close_vec.as_slice()];
                 let final_close_vec = close_vec[close_vec.len() - 1..].to_vec();
                 let (_, mut state) =
-                    indicator(&new_inputs, &options, None).expect("Rust PPO indicator failed");
+                    Ppo::indicator(&new_inputs, &options, None).expect("Rust PPO Ppo::indicator failed");
 
                 let mut group = c.benchmark_group(format!(
                     "Rust PPO from state 1 bar {{ {:.1}, {:.1} }}",
@@ -318,7 +318,7 @@ fn bench_rust_ppo_from_state(c: &mut Criterion) {
                     b.iter(|| {
                         let result = state
                             .batch_indicator(&[final_close_vec.as_slice()], None)
-                            .expect("Rust PPO from state indicator failed");
+                            .expect("Rust PPO from state Ppo::indicator failed");
                         black_box(&result);
                     });
                 });
@@ -419,8 +419,8 @@ fn bench_rust_ppo_optional(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, Some(&[true, true]))
-                            .expect("Rust PPO indicator failed");
+                        let result = Ppo::indicator(&inputs, &options, Some(&[true, true]))
+                            .expect("Rust PPO Ppo::indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -448,8 +448,8 @@ fn bench_rust_ppo_optional(c: &mut Criterion) {
                 format!("Rust PPO {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator(&inputs, &options, Some(&[true, true]))
-                            .expect("Rust PPO indicator failed");
+                        let result = Ppo::indicator(&inputs, &options, Some(&[true, true]))
+                            .expect("Rust PPO Ppo::indicator failed");
                         black_box(&result);
                     });
                 },
@@ -486,7 +486,7 @@ fn bench_rust_ppo_simd_by_assets(c: &mut Criterion) {
             timing.measure(
                 || {
                     let result = indicator_by_assets::<4>(&inputs, &options, None)
-                        .expect("Rust SIMD by assets PPO indicator failed");
+                        .expect("Rust SIMD by assets PPO Ppo::indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -520,7 +520,7 @@ fn bench_rust_ppo_simd_by_assets(c: &mut Criterion) {
                 |b| {
                     b.iter(|| {
                         let result = indicator_by_assets::<4>(&inputs, &options, None)
-                            .expect("Rust SIMD by assets PPO indicator failed");
+                            .expect("Rust SIMD by assets PPO Ppo::indicator failed");
                         black_box(&result);
                     });
                 },
@@ -553,7 +553,7 @@ fn bench_rust_ppo_simd_by_options(c: &mut Criterion) {
                         &OPTIONS_LIST[3],
                     ];
                     let result = indicator_by_options::<4>(&inputs, &options_4, None)
-                        .expect("Rust SIMD PPO indicator failed");
+                        .expect("Rust SIMD PPO Ppo::indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -586,7 +586,7 @@ fn bench_rust_ppo_simd_by_options(c: &mut Criterion) {
                 ];
                 let result =
                     tulip_rs::indicators::ppo::indicator_by_options::<4>(&inputs, &options_4, None)
-                        .expect("Rust SIMD PPO indicator failed");
+                        .expect("Rust SIMD PPO Ppo::indicator failed");
                 black_box(&result);
             });
         });

@@ -1,26 +1,24 @@
 use crate::common_simd::assets::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
-use crate::indicators::simd_indicators::supertrend_simd::SimdState;
+use crate::indicators::simd_indicators::supertrend_simd::{SimdState, TSimdState, TState};
 use crate::indicators::{
-    medprice::output_length as medprice_output_length,
+    medprice::Medprice,
     supertrend::{
-        min_data, multiplier, output_length, validate_options, IndicatorState, State, INPUTS_WIDTH,
-        OPTIONS_WIDTH,
+        SuperTrend, Indicator, validate_options, IndicatorState, State, INPUTS,
+        OPTIONS,
     },
-    tr::output_length as tr_output_length,
+    tr::Tr,
 };
 
 /// SIMD driver that advances the SuperTrend indicator across `N` asset lanes per scheduling epoch.
 struct SuperTrendDriver {
-    multipliers: (f64, f64),
-    step: f64,
     want_optional_outputs: (bool, bool, bool, bool),
 }
 
-impl Driver<State> for SuperTrendDriver {
+impl Driver<State<Warm>> for SuperTrendDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     ///
     /// Reads from `inputs[asset][field]` (high, low, close), writes to
@@ -29,16 +27,11 @@ impl Driver<State> for SuperTrendDriver {
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
-        let mut state = SimdState::<N>::new(&mut states);
+        let mut state = SimdState::<N>::from_states(&mut states);
         let len = inputs[0][0].len();
-        let multipliers = (
-            Simd::splat(self.multipliers.0),
-            Simd::splat(self.multipliers.1),
-        );
-        let step = Simd::splat(self.step);
 
         let (has_optional, want_atr, want_tr, want_medprice) = self.want_optional_outputs;
         //collect outputs
@@ -52,7 +45,7 @@ impl Driver<State> for SuperTrendDriver {
         // Optimization 3: Simplified main loop with pre-computed offsets
         for i in 0..len {
             // Get inputs arrays for stocks
-            let (high, low, close) = crate::extract_simd_inputs_at_index!(
+            let inputs = crate::extract_simd_inputs_at_index!(
                 i,
                 N,
                 high @ high_ptrs,
@@ -60,7 +53,7 @@ impl Driver<State> for SuperTrendDriver {
                 close @ close_ptrs
             );
 
-            let (st, atr, tr, medprice) = state.calc_simd(high, low, close, step, multipliers);
+            let (st, atr, tr, medprice) = state.calc(inputs);
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, i,
@@ -88,7 +81,7 @@ impl Driver<State> for SuperTrendDriver {
 /// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[high, low, close]` for asset `i`.
 /// * `options` - Shared options applied to all `N` assets: `[period, step]`.
 /// * `optional_outputs` - Optional output flags: `[want_atr, want_tr, want_medprice]`.
@@ -99,17 +92,16 @@ impl Driver<State> for SuperTrendDriver {
 /// [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, SuperTrend::min_data(options))?;
     validate_options(options)?;
     let period = options[0] as usize;
     let step = options[1];
-    let multipliers = multiplier(period);
 
-    let mut road_train = PrimeMover::<N, State>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut want_optional_outputs = (false, false, false, false);
     let mut output_buffers = Vec::with_capacity(N);
     for i in 0..N {
@@ -117,9 +109,9 @@ pub fn indicator_by_assets<const N: usize>(
         let asset_inputs = vec![high, low, close];
 
         let (st_line, (atr_line, mut tr_line, mut medprice_line)) = {
-            let capacity = output_length(high.len(), options);
-            let tr_capacity = tr_output_length(high.len(), options);
-            let med_capacity = medprice_output_length(high.len(), options);
+            let capacity = SuperTrend::output_length(high.len(), options);
+            let tr_capacity = Tr::output_length(high.len(), &[]);
+            let med_capacity = Medprice::output_length(high.len(), &[]);
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::init_optional_outputs_eff!(
@@ -178,15 +170,9 @@ pub fn indicator_by_assets<const N: usize>(
     }
 
     let mut driver = SuperTrendDriver {
-        multipliers,
-        step,
         want_optional_outputs,
     };
-    let states_vec = road_train.drive(&mut driver);
+    let states = road_train.drive(&mut driver);
 
-    let mut states = Vec::with_capacity(N);
-    for state in states_vec.into_iter() {
-        states.push(IndicatorState::new(state, step, multipliers));
-    }
     Ok((output_buffers, states))
 }

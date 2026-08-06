@@ -1,4 +1,4 @@
-use tulip_rs::indicators::willr::{indicator, TIndicatorState};
+use tulip_rs::indicators::willr::{Willr, TIndicatorState, Indicator};
 
 fn main() {
     // Test Input Data
@@ -21,7 +21,7 @@ fn main() {
     let options = [5.0]; // Period
 
     // Calculate the Williams %R
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match Willr::indicator(&inputs, &options, None) {
         Ok(output) => output,
         Err(e) => panic!("Error calculating Williams %R: {:?}", e),
     };
@@ -34,7 +34,7 @@ fn main() {
         &close[..close.len() - 1],
     ];
 
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match Willr::indicator(&inputs2, &options, None) {
         Ok(output) => output,
         Err(e) => panic!("Error calculating Williams %R: {:?}", e),
     };

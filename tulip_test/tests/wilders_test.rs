@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::wilders::{indicator as rust_wilders, min_data, TIndicatorState};
+    use tulip_rs::indicators::wilders::{Wilders, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_wilders, ti_wilders_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -58,7 +58,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_wilders(&inputs_rust, &options, None).expect("Rust WILDERS indicator failed");
+                Wilders::indicator(&inputs_rust, &options, None).expect("Rust WILDERS indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -147,7 +147,7 @@ mod tests {
                 assert_eq!(ret, 0, "ti_wilders returned error code {}", ret);
 
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) = rust_wilders(&inputs_rust, &options, None)
+                let (outputs, _) = Wilders::indicator(&inputs_rust, &options, None)
                     .expect("Rust WILDERS indicator failed");
 
                 let output_len_rust = outputs[0].len();
@@ -213,19 +213,19 @@ mod tests {
                 let inputs_rust = [close.as_slice()];
 
                 // Get full output from processing all data at once
-                let (full_outputs, _) = rust_wilders(&inputs_rust, &options, None)
+                let (full_outputs, _) = Wilders::indicator(&inputs_rust, &options, None)
                     .expect("Rust WILDERS indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Wilders::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let close_vec = close[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice()];
 
-                let (first_outputs, mut state) = rust_wilders(&chunk_inputs, &options, None)
+                let (first_outputs, mut state) = Wilders::indicator(&chunk_inputs, &options, None)
                     .expect("Rust WILDERS indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -307,7 +307,7 @@ mod tests {
             for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_close.as_slice()];
-                let (regular_results, _) = rust_wilders(&stock_inputs, &options, None)
+                let (regular_results, _) = Wilders::indicator(&stock_inputs, &options, None)
                     .expect("Regular WILDERS indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
@@ -406,7 +406,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_wilders(&inputs, options, None).expect("Regular WILDERS indicator failed");
+                    Wilders::indicator(&inputs, options, None).expect("Regular WILDERS indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];

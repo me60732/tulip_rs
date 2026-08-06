@@ -1,22 +1,24 @@
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::by_asset::vortex::indicator_by_assets;
 
+pub use crate::indicator_types::{TSimdState, TState};
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::vortex::indicator_by_options;
-
 pub mod import {
     //! Internal imports shared by the [`assets`] and [`options`] SIMD sub-modules for the
     //! Vortex indicator.
     pub(crate) use crate::indicators::vortex::IndicatorState as State;
-    pub(crate) use crate::ring_buffer::multi_buffer::multi_buffer::{MultiBuffer, RingBuffer};
+    pub(crate) use crate::ring_buffer::multi_buffer::multi_buffer::MultiBuffer;
     pub(crate) use crate::ring_buffer::multi_type_buffer::MultiTypeBuffer;
+    pub(crate) use crate::types::Warm;
     pub(crate) use std::simd::{num::SimdFloat, Simd};
 }
 
 pub mod assets {
     //! Per-asset SIMD state and compute for the Vortex indicator.
     use super::import::*;
-    use crate::indicators::simd_indicators::tr_simd::calc_simd as tr_calc_simd;
+    pub use super::*;
+    use crate::indicators::simd_indicators::tr_simd::SimdState as TrSimdState;
     /// SIMD-parallel state for the Vortex indicator, holding `N` lanes of per-asset state.
     ///
     /// The internal buffer uses 3 channels — `[tr, vm_up, vm_down]` — stored as `Simd<f64, N>`
@@ -30,7 +32,7 @@ pub mod assets {
     /// completely amortised over the hot loop.
     pub struct SimdState<const N: usize> {
         /// Ring buffer: 3 channels `[tr, vm_up, vm_down]`, each a `Simd<f64, N>` per slot.
-        buffer: MultiBuffer<3, Simd<f64, N>>,
+        buffer: MultiBuffer<3, Simd<f64, N>, Warm>,
         vm_up_sums: Simd<f64, N>,
         vm_down_sums: Simd<f64, N>,
         tr_sums: Simd<f64, N>,
@@ -38,16 +40,17 @@ pub mod assets {
         prev_lows: Simd<f64, N>,
         /// Previous bar's high for each asset — used by `vm_down = |low − prev_high|`.
         prev_highs: Simd<f64, N>,
-        prev_closes: Simd<f64, N>,
+        tr_state: TrSimdState<N>,
     }
 
-    impl<const N: usize> SimdState<N> {
+    impl<const N: usize> TSimdState for SimdState<N> {
+        type ScalarState = State;
         /// Constructs a [`SimdState`] by merging `N` scalar [`State`] instances into SIMD lanes.
         ///
         /// Each single-asset buffer is drained in chronological order via `to_ordered_vecs`, then
         /// transposed from `N × period` into `3 × period` (channels × slots) and loaded into a
         /// `MultiBuffer<3, Simd<f64, N>>` via `RingBuffer::from_slice`.
-        pub fn new(states: &mut [&mut State]) -> Self {
+        fn from_states(states: &mut [&mut State]) -> Self {
             debug_assert_eq!(states.len(), N, "Number of states must match SIMD width");
 
             let period = states[0].buffer.get_capacity();
@@ -74,30 +77,29 @@ pub mod assets {
                 })));
             }
 
-            let buffer = <MultiBuffer<3, Simd<f64, N>> as RingBuffer<3, Simd<f64, N>>>::from_slice(
-                [&tr_ch, &vm_up_ch, &vm_dn_ch],
-                period,
-            );
+            let buffer =
+                MultiBuffer::<3, Simd<f64, N>>::from_slice([&tr_ch, &vm_up_ch, &vm_dn_ch], period)
+                    .into_full();
 
-            let mut prev_closes = [0.0f64; N];
+            let mut tr_refs = Vec::with_capacity(N);
             let mut tr_sums = [0.0f64; N];
             let mut vm_up_sums = [0.0f64; N];
             let mut vm_down_sums = [0.0f64; N];
             let mut prev_lows = [0.0f64; N];
             let mut prev_highs = [0.0f64; N];
 
-            for (i, s) in states.iter().enumerate() {
-                prev_closes[i] = s.prev_close;
+            for (i, s) in states.iter_mut().enumerate() {
+                tr_refs.push(&mut s.tr_state);
                 tr_sums[i] = s.tr_sum;
                 vm_up_sums[i] = s.vm_sums[0];
                 vm_down_sums[i] = s.vm_sums[1];
                 prev_lows[i] = s.prev_low_high[0];
                 prev_highs[i] = s.prev_low_high[1];
             }
-
+            let tr_state = TrSimdState::from_states(&mut tr_refs);
             Self {
                 buffer,
-                prev_closes: Simd::from_array(prev_closes),
+                tr_state,
                 tr_sums: Simd::from_array(tr_sums),
                 vm_up_sums: Simd::from_array(vm_up_sums),
                 vm_down_sums: Simd::from_array(vm_down_sums),
@@ -111,20 +113,27 @@ pub mod assets {
         /// Splits the `MultiBuffer<3, Simd<f64, N>>` lanes back into individual
         /// `MultiTypeBuffer<(f64, Simd<f64, 2>)>` buffers by extracting each asset's lane from
         /// the ordered SIMD slots.
-        pub fn write_states(&self, states: &mut [&mut State]) {
+        fn write_states(&self, states: &mut [&mut State]) {
             // to_ordered_vec() → [Vec<Simd<f64,N>>; 3]: channels [tr, vm_up, vm_down],
             // each vec is in chronological order (oldest → newest).
             let ordered = self.buffer.to_ordered_vec();
             let count = self.buffer.get_count();
             let period = self.buffer.get_capacity();
 
-            let prev_closes = self.prev_closes.to_array();
             let tr_sums = self.tr_sums.to_array();
             let vm_up_sums = self.vm_up_sums.to_array();
             let vm_down_sums = self.vm_down_sums.to_array();
             let prev_lows = self.prev_lows.to_array();
             let prev_highs = self.prev_highs.to_array();
 
+            // Pass 1: scatter tr_state back into all N scalar states.
+            // Scoped so the mutable borrows of `states[i].tr_state` are released before pass 2.
+            {
+                let mut tr_refs: Vec<&mut _> = states.iter_mut().map(|s| &mut s.tr_state).collect();
+                self.tr_state.write_states(&mut tr_refs);
+            }
+
+            // Pass 2: scatter buffer and scalar fields (no tr_state borrows alive here).
             for asset in 0..N {
                 let mut buf = MultiTypeBuffer::<(f64, Simd<f64, 2>)>::new(period);
                 for slot in 0..count {
@@ -133,16 +142,17 @@ pub mod assets {
                         Simd::from_array([ordered[1][slot][asset], ordered[2][slot][asset]]),
                     ));
                 }
-
-                states[asset].buffer = buf;
-                states[asset].prev_close = prev_closes[asset];
+                states[asset].buffer = buf.into_full();
                 states[asset].tr_sum = tr_sums[asset];
                 states[asset].vm_sums = Simd::from_array([vm_up_sums[asset], vm_down_sums[asset]]);
                 states[asset].prev_low_high =
                     Simd::from_array([prev_lows[asset], prev_highs[asset]]);
             }
         }
-
+    }
+    impl<const N: usize> TState for SimdState<N> {
+        type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
+        type Outputs = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
         /// Computes one Vortex bar for `N` assets simultaneously.
         ///
         /// Returns `(vi_up, vi_down)` for all `N` asset lanes.
@@ -152,27 +162,23 @@ pub mod assets {
         /// The internal ring buffer must be fully initialised (at least `period` bars processed)
         /// before calling this function. Calling it on a partial buffer produces incorrect results.
         #[inline(always)]
-        pub unsafe fn calc_unchecked(
+        fn calc<'a>(
             &mut self,
-            high: Simd<f64, N>,
-            low: Simd<f64, N>,
-            close: Simd<f64, N>,
+            (high, low, close): Self::Inputs<'a>,
         ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
-            let tr = tr_calc_simd(high, low, self.prev_closes);
+            let tr = self.tr_state.calc((high, low, close));
 
             // Vortex movements: vm_up = |high − prev_low|, vm_down = |low − prev_high|
             let vm_up = (high - self.prev_lows).abs();
             let vm_dn = (low - self.prev_highs).abs();
 
-            let [old_tr, old_vm_up, old_vm_dn] =
-                self.buffer.push_with_info_unchecked([tr, vm_up, vm_dn]);
+            let [old_tr, old_vm_up, old_vm_dn] = self.buffer.push_with_info([tr, vm_up, vm_dn]);
 
             self.tr_sums += tr - old_tr;
             self.vm_up_sums += vm_up - old_vm_up;
             self.vm_down_sums += vm_dn - old_vm_dn;
 
             // Update prev values after computing vm (order matters).
-            self.prev_closes = close;
             self.prev_lows = low;
             self.prev_highs = high;
 
@@ -193,7 +199,8 @@ pub mod options {
     //! history; `push_with_info_periods_unchecked` retrieves each lane's rolling window boundary
     //! in one pass — the same shared-buffer pattern used by multi-period indicators such as ULTOSC.
     use super::import::*;
-    use crate::indicators::tr::calc as calc_tr;
+    pub use super::*;
+    use crate::indicators::tr::State as TrState;
     /// SIMD-parallel state for the Vortex indicator, holding `N` lanes of per-option state.
     ///
     /// Because all lanes process the same asset, `prev_low`, `prev_high`, and `prev_close`
@@ -201,14 +208,14 @@ pub mod options {
     /// `Simd<f64, N>`.
     pub struct SimdState<const N: usize> {
         /// Shared ring buffer sized to `max(periods)`, channels `[tr, vm_up, vm_down]`.
-        buffer: MultiBuffer<3>,
+        buffer: MultiBuffer<3, f64, Warm>,
         periods: [usize; N],
         vm_up_sums: Simd<f64, N>,
         vm_down_sums: Simd<f64, N>,
         tr_sums: Simd<f64, N>,
         /// Scalar — shared across lanes because all lanes process the same asset.
         pub prev_low_high: Simd<f64, 2>,
-        prev_close: f64,
+        tr_state: TrState,
     }
 
     impl<const N: usize> SimdState<N> {
@@ -218,7 +225,7 @@ pub mod options {
         /// `MultiTypeBuffer<(f64, Simd<f64, 2>)>` to a `MultiBuffer<3, f64>` via
         /// `to_ordered_vecs` + `RingBuffer::from_slice`, then gathers each lane's rolling sums
         /// into SIMD vectors.
-        pub fn new(states: &mut [&mut State], periods: [usize; N]) -> Self {
+        pub fn from_states(states: &mut [&mut State], periods: [usize; N]) -> Self {
             debug_assert_eq!(states.len(), N, "Number of states must match SIMD width");
 
             // Find the state with the largest period (longest buffer).
@@ -237,12 +244,11 @@ pub mod options {
             let vm_dn_vec: Vec<f64> = ordered.1.iter().map(|v| v[1]).collect();
             let period = states[main].buffer.get_capacity();
 
-            let buffer = <MultiBuffer<3, f64> as RingBuffer<3, f64>>::from_slice(
-                [&tr_vec, &vm_up_vec, &vm_dn_vec],
-                period,
-            );
+            let buffer =
+                MultiBuffer::<3, f64>::from_slice([&tr_vec, &vm_up_vec, &vm_dn_vec], period)
+                    .into_full();
 
-            let prev_close = states[main].prev_close;
+            let tr_state = states[main].tr_state.clone();
             let prev_low_high = states[main].prev_low_high;
 
             let mut tr_sums = [0.0f64; N];
@@ -258,7 +264,7 @@ pub mod options {
             Self {
                 buffer,
                 periods,
-                prev_close,
+                tr_state,
                 prev_low_high,
                 tr_sums: Simd::from_array(tr_sums),
                 vm_up_sums: Simd::from_array(vm_up_sums),
@@ -287,14 +293,17 @@ pub mod options {
                     buf.push((ord[0][slot], Simd::from_array([ord[1][slot], ord[2][slot]])));
                 }
 
-                states[i].buffer = buf;
+                states[i].buffer = buf.into_full();
                 states[i].tr_sum = tr_sums[i];
                 states[i].vm_sums = Simd::from_array([vm_up_sums[i], vm_down_sums[i]]);
-                states[i].prev_close = self.prev_close;
+                states[i].tr_state = self.tr_state.clone();
                 states[i].prev_low_high = self.prev_low_high;
             }
         }
-
+    }
+    impl<const N: usize> TState for SimdState<N> {
+        type Inputs<'a> = (f64, f64, f64);
+        type Outputs = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
         /// Computes one Vortex bar for `N` option-set lanes simultaneously.
         ///
         /// Accepts scalar `high`, `low`, `close` (shared across all lanes — same asset) and
@@ -309,31 +318,23 @@ pub mod options {
         /// The internal ring buffer must be fully initialised (at least `max(periods)` bars
         /// processed) before calling this function.
         #[inline(always)]
-        pub unsafe fn calc_unchecked(
-            &mut self,
-            high: f64,
-            low: f64,
-            close: f64,
-        ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
-            let tr = calc_tr(high, low, self.prev_close);
+        fn calc<'a>(&mut self, (high, low, close): Self::Inputs<'a>) -> Self::Outputs {
+            let tr = self.tr_state.calc((high, low, close));
 
             let high_low_simd = Simd::from_array([high, low]);
             let [vm_up, vm_dn] = ((high_low_simd - self.prev_low_high).abs()).to_array();
 
-            self.prev_close = close;
             self.prev_low_high = high_low_simd.reverse();
 
             // Push new bar and pop each lane's oldest value (at that lane's period) in one pass.
             let [tr_old, vm_up_old, vm_dn_old] = self
                 .buffer
-                .push_with_info_periods_unchecked([tr, vm_up, vm_dn], self.periods);
+                .push_with_info_periods([tr, vm_up, vm_dn], self.periods);
 
             let tr_simd = Simd::splat(tr);
             self.tr_sums += tr_simd - Simd::from_array(tr_old);
             self.vm_up_sums += Simd::splat(vm_up) - Simd::from_array(vm_up_old);
             self.vm_down_sums += Simd::splat(vm_dn) - Simd::from_array(vm_dn_old);
-
-            self.prev_close = close;
 
             (
                 self.vm_up_sums / self.tr_sums,

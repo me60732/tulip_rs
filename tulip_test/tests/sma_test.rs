@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::sma::{indicator as rust_sma, min_data, TIndicatorState};
+    use tulip_rs::indicators::sma::{Sma, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_sma, ti_sma_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -55,7 +55,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_sma(&inputs_rust, &options, None).expect("Rust SMA indicator failed");
+                Sma::indicator(&inputs_rust, &options, None).expect("Rust SMA indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -141,7 +141,7 @@ mod tests {
 
                 let inputs_rust = [close.as_slice()];
                 let (outputs, _) =
-                    rust_sma(&inputs_rust, &options, None).expect("Rust SMA indicator failed");
+                    Sma::indicator(&inputs_rust, &options, None).expect("Rust SMA indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -206,16 +206,16 @@ mod tests {
 
                 // Get full output
                 let (full_outputs, _) =
-                    rust_sma(&inputs_rust, &options, None).expect("Rust SMA indicator failed");
+                    Sma::indicator(&inputs_rust, &options, None).expect("Rust SMA indicator failed");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Sma::min_data(&options).max(CHUNK_SIZE);
 
                 if close.len() <= min_data_val {
                     // If data is too small, just run full calculation
-                    let (outputs, _) = rust_sma(&inputs_rust, &options, None)
+                    let (outputs, _) = Sma::indicator(&inputs_rust, &options, None)
                         .expect("Failed to run SMA indicator");
                     batch_full_output.extend_from_slice(&outputs[0]);
                 } else {
@@ -223,7 +223,7 @@ mod tests {
                     let close_vec = close[..min_data_val].to_vec();
                     let chunk_inputs = [close_vec.as_slice()];
 
-                    let (first_outputs, mut state) = rust_sma(&chunk_inputs, &options, None)
+                    let (first_outputs, mut state) = Sma::indicator(&chunk_inputs, &options, None)
                         .expect("Failed to run SMA indicator on first chunk");
                     batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -311,7 +311,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_sma(&inputs, options, None).expect("Regular SMA indicator failed");
+                    Sma::indicator(&inputs, options, None).expect("Regular SMA indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -395,7 +395,7 @@ mod tests {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_close.as_slice()];
                 let (regular_results, _) =
-                    rust_sma(&stock_inputs, &options, None).expect("Regular SMA indicator failed");
+                    Sma::indicator(&stock_inputs, &options, None).expect("Regular SMA indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];

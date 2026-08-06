@@ -1,7 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::supertrend::{
-    indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState,
-};
+use tulip_rs::indicators::supertrend::{SuperTrend, Indicator, TIndicatorState, IndicatorState, indicator_by_assets, indicator_by_options};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::criterion_logger::TimingMeasurements;
@@ -62,7 +60,7 @@ fn bench_rust_supertrend(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, None)
+                        let result = SuperTrend::indicator(&inputs, &options, None)
                             .expect("Rust Supertrend indicator failed");
                         black_box(&result);
                     },
@@ -94,7 +92,7 @@ fn bench_rust_supertrend(c: &mut Criterion) {
                 format!("Rust Supertrend {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator(&inputs, &options, None)
+                        let result = SuperTrend::indicator(&inputs, &options, None)
                             .expect("Rust Supertrend indicator failed");
                         black_box(&result);
                     });
@@ -120,13 +118,13 @@ fn bench_rust_supertrend_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                        let min_data_val = SuperTrend::min_data(&options).max(CHUNK_SIZE);
                         let chunk_inputs = [
                             &high[..min_data_val],
                             &low[..min_data_val],
                             &close[..min_data_val],
                         ];
-                        let (_, mut state) = indicator(&chunk_inputs, &options, None)
+                        let (_, mut state) = SuperTrend::indicator(&chunk_inputs, &options, None)
                             .expect("Rust Supertrend indicator failed");
 
                         let mut high_chunks = high[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -174,7 +172,7 @@ fn bench_rust_supertrend_from_state(c: &mut Criterion) {
                         &low[low.len() - 1..],
                         &close[close.len() - 1..],
                     ];
-                    let (_, mut state) = indicator(&new_inputs, &options, None)
+                    let (_, mut state) = SuperTrend::indicator(&new_inputs, &options, None)
                         .expect("Rust Supertrend indicator failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -198,7 +196,7 @@ fn bench_rust_supertrend_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json ---
-                    let (_, state) = indicator(&new_inputs, &options, None)
+                    let (_, state) = SuperTrend::indicator(&new_inputs, &options, None)
                         .expect("Rust Supertrend indicator failed");
                     let json = serde_json::to_string(&state).expect("json serialization failed");
 
@@ -238,13 +236,13 @@ fn bench_rust_supertrend_from_state(c: &mut Criterion) {
 
             group.bench_function("benchmark", |b| {
                 b.iter(|| {
-                    let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                    let min_data_val = SuperTrend::min_data(&options).max(CHUNK_SIZE);
                     let chunk_inputs = [
                         &high_vec[..min_data_val],
                         &low_vec[..min_data_val],
                         &close_vec[..min_data_val],
                     ];
-                    let (_, mut state) = indicator(&chunk_inputs, &options, None)
+                    let (_, mut state) = SuperTrend::indicator(&chunk_inputs, &options, None)
                         .expect("Rust Supertrend indicator failed");
 
                     let mut high_chunks = high_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -291,7 +289,7 @@ fn bench_rust_supertrend_optional(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, Some(&[true, true, true]))
+                        let result = SuperTrend::indicator(&inputs, &options, Some(&[true, true, true]))
                             .expect("Rust Supertrend optional indicator failed");
                         black_box(&result);
                     },
@@ -326,7 +324,7 @@ fn bench_rust_supertrend_optional(c: &mut Criterion) {
                 ),
                 |b| {
                     b.iter(|| {
-                        let result = indicator(&inputs, &options, Some(&[true, true, true]))
+                        let result = SuperTrend::indicator(&inputs, &options, Some(&[true, true, true]))
                             .expect("Rust Supertrend optional indicator failed");
                         black_box(&result);
                     });

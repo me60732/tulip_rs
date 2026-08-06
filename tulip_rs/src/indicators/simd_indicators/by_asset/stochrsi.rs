@@ -1,11 +1,11 @@
 //use crate::common::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::stochrsi_simd::{assets::SimdState, CHUNK_1};
+use crate::indicators::simd_indicators::stochrsi_simd::{TSimdState, TState, assets::SimdState};
 use crate::indicators::{
-    rsi::{multiplier, output_length as rsi_output_length},
-    stochrsi::{min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH},
+    rsi::Rsi,
+    stochrsi::{StochRsi, Indicator, IndicatorState, State, INPUTS, OPTIONS},
 };
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
 
@@ -13,24 +13,20 @@ use std::simd::Simd;
 struct StochrsiDriver {
     want_optional_outputs: bool,
     period: usize,
-    multipliers: (f64, f64),
 }
 
-impl Driver<State> for StochrsiDriver {
+impl Driver<State<Warm>> for StochrsiDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
-        let mut state = SimdState::<N>::new(&mut states);
+        let mut state = SimdState::<N>::from_states(&mut states);
         let len = inputs[0][0].len();
-        let multipliers_simd = (
-            Simd::splat(self.multipliers.0),
-            Simd::splat(self.multipliers.1),
-        );
+
         let want_rsi = self.want_optional_outputs;
         // Optimization 1: Direct array construction instead of collect+try_into
 
@@ -41,44 +37,23 @@ impl Driver<State> for StochrsiDriver {
         // Optimization 2: Pre-compute all input and output pointers
         let real_ptrs = crate::extract_input_ptrs!(inputs, N, real_ptrs);
 
-        if CHUNK_1.contains(&self.period) {
-            for i in 0..len {
-                // Get inputs arrays for stocks
-                let real = crate::extract_simd_inputs_at_index!(
-                    i,
-                    N,
-                    real @ real_ptrs
-                );
+        for i in 0..len {
+            // Get inputs arrays for stocks
+            let real = crate::extract_simd_inputs_at_index!(
+                i,
+                N,
+                real @ real_ptrs
+            );
 
-                let (stochrsi, rsi) = state.calc_simd::<1>(real, multipliers_simd, self.period);
+            let (stochrsi, rsi) = state.calc((real, self.period));
 
-                // Store results using pre-computed pointers
-                crate::write_simd_at_indices!(N, i,
-                    stochrsi_line_ptr => stochrsi
-                );
-                crate::store_simd_optional_outputs!(i, N,
-                    want_rsi, rsi_line_ptr => rsi
-                );
-            }
-        } else {
-            for i in 0..len {
-                // Get inputs arrays for stocks
-                let real = crate::extract_simd_inputs_at_index!(
-                    i,
-                    N,
-                    real @ real_ptrs
-                );
-
-                let (stochrsi, rsi) = state.calc_simd::<4>(real, multipliers_simd, self.period);
-
-                // Store results using pre-computed pointers
-                crate::write_simd_at_indices!(N, i,
-                    stochrsi_line_ptr => stochrsi
-                );
-                crate::store_simd_optional_outputs!(i, N,
-                    want_rsi, rsi_line_ptr => rsi
-                );
-            }
+            // Store results using pre-computed pointers
+            crate::write_simd_at_indices!(N, i,
+                stochrsi_line_ptr => stochrsi
+            );
+            crate::store_simd_optional_outputs!(i, N,
+                want_rsi, rsi_line_ptr => rsi
+            );
         }
         // Update states efficiently
         state.write_states(&mut states);
@@ -93,7 +68,7 @@ impl Driver<State> for StochrsiDriver {
 /// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[real]` for asset `i`.
 /// * `options` - `[period]` — the look-back period for both the inner RSI and
 ///   the Stochastic normalisation.
@@ -106,18 +81,15 @@ impl Driver<State> for StochrsiDriver {
 /// `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, StochRsi::min_data(options))?;
     validate_options(options)?;
-    let (period, multipliers) = {
-        let period = options[0] as usize;
-        (period, multiplier(period))
-    };
+    let period = options[0] as usize;
 
-    let mut road_train = PrimeMover::<N, State>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut want_optional_outputs = false;
     let mut output_buffers = Vec::with_capacity(N);
     for i in 0..N {
@@ -128,9 +100,9 @@ pub fn indicator_by_assets<const N: usize>(
         let (stochrsi_line, mut rsi_line);
         {
             let len = inputs[i][0].len();
-            let capacity = output_length(len, options);
+            let capacity = StochRsi::output_length(len, options);
             stochrsi_line = crate::uninit_vec!(f64, capacity);
-            let rsi_capacity = rsi_output_length(len, options);
+            let rsi_capacity = Rsi::output_length(len, options);
             rsi_line = crate::init_optional_outputs_eff!(
                 optional_outputs, &[false],
                 rsi_line: rsi_capacity
@@ -176,8 +148,7 @@ pub fn indicator_by_assets<const N: usize>(
 
     let mut driver = StochrsiDriver {
         period,
-        want_optional_outputs,
-        multipliers,
+        want_optional_outputs
     };
     let states_vec = road_train.drive(&mut driver);
 

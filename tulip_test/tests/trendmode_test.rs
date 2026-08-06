@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod tests {
     use tulip_rs::indicator_types::TIndicatorState;
-    use tulip_rs::indicators::cybercycle::{indicator as cc_indicator, min_data as cc_min_data};
+    use tulip_rs::indicators::cybercycle::Cybercycle;
     use tulip_rs::indicators::trendmode::{
-        indicator, indicator_by_assets, indicator_by_options, min_data, output_length,
+        indicator_by_assets, indicator_by_options, Indicator, TrendMode,
     };
     use tulip_rs::types::IndicatorError;
     use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -22,12 +22,16 @@ mod tests {
 
     #[test]
     fn test_trendmode_min_data() {
-        assert_eq!(min_data(&[0.07]), 56, "min_data must be 56");
-        assert_eq!(min_data(&[0.05]), 56, "min_data must be 56");
+        assert_eq!(TrendMode::min_data(&[0.07]), 56, "min_data must be 56");
+        assert_eq!(TrendMode::min_data(&[0.05]), 56, "min_data must be 56");
 
-        assert_eq!(output_length(56, &[0.07]), 1, "output_length(56) must be 1");
         assert_eq!(
-            output_length(100, &[0.07]),
+            TrendMode::output_length(56, &[0.07]),
+            1,
+            "output_length(56) must be 1"
+        );
+        assert_eq!(
+            TrendMode::output_length(100, &[0.07]),
             45,
             "output_length(100) must be 45"
         );
@@ -40,7 +44,7 @@ mod tests {
     #[test]
     fn test_trendmode_not_enough_data() {
         let close: Vec<f64> = (0..55).map(|i| 100.0 + i as f64).collect();
-        let result = indicator(&[close.as_slice()], &[0.07], None);
+        let result = TrendMode::indicator(&[close.as_slice()], &[0.07], None);
         assert!(
             matches!(result, Err(IndicatorError::NotEnoughData)),
             "Expected NotEnoughData for {} bars (need 56), got {:?}",
@@ -62,7 +66,7 @@ mod tests {
         for bad_alpha in [-0.1_f64, 1.0, 1.5] {
             assert!(
                 matches!(
-                    indicator(&inputs, &[bad_alpha], None),
+                    TrendMode::indicator(&inputs, &[bad_alpha], None),
                     Err(IndicatorError::InvalidOptions)
                 ),
                 "alpha={bad_alpha} should be InvalidOptions"
@@ -82,8 +86,8 @@ mod tests {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
-            let (out, _) =
-                indicator(&inputs, &[0.0], Some(&[true, true])).expect("TrendMode adaptive failed");
+            let (out, _) = TrendMode::indicator(&inputs, &[0.0], Some(&[true, true]))
+                .expect("TrendMode adaptive failed");
 
             // Primary output: must be exactly 0.0 or 1.0
             for (i, &v) in out[0].iter().enumerate() {
@@ -107,7 +111,8 @@ mod tests {
             }
 
             // Adaptive and fixed outputs must differ (they use different alpha each bar).
-            let (fixed_out, _) = indicator(&inputs, &[0.07], None).expect("TrendMode fixed failed");
+            let (fixed_out, _) =
+                TrendMode::indicator(&inputs, &[0.07], None).expect("TrendMode fixed failed");
             let adaptive_tm = &out[0];
             let fixed_tm = &fixed_out[0];
             let differ = adaptive_tm
@@ -134,7 +139,8 @@ mod tests {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
             for options in OPTIONS_LIST {
-                let (out, _) = indicator(&inputs, &options, None).expect("indicator failed");
+                let (out, _) =
+                    TrendMode::indicator(&inputs, &options, None).expect("indicator failed");
                 //println!("Result Cycle: {:?} \n\nPeak: {:?}", out[0], out[1]);
                 for (i, &v) in out[0].iter().enumerate() {
                     assert!(
@@ -160,8 +166,8 @@ mod tests {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
             for options in OPTIONS_LIST {
-                let (out, _) =
-                    indicator(&inputs, &options, Some(&[true, true])).expect("TrendMode failed");
+                let (out, _) = TrendMode::indicator(&inputs, &options, Some(&[true, true]))
+                    .expect("TrendMode failed");
                 let labels = ["trendmode", "cycle", "peak"];
                 for k in 0..3 {
                     for (i, &v) in out[k].iter().enumerate() {
@@ -194,14 +200,15 @@ mod tests {
                 if options[0] == 0.0 {
                     continue;
                 }
-                let (tm_out, _) =
-                    indicator(&inputs, &options, Some(&[true, false])).expect("TrendMode failed");
-                let (cc_out, _) = cc_indicator(&inputs, &options, None).expect("CyberCycle failed");
+                let (tm_out, _) = TrendMode::indicator(&inputs, &options, Some(&[true, false]))
+                    .expect("TrendMode failed");
+                let (cc_out, _) =
+                    Cybercycle::indicator(&inputs, &options, None).expect("CyberCycle failed");
 
                 // TrendMode outputs start at bar 55 (min_data=56, output_length=n-55).
                 // CyberCycle outputs start at bar 6 (min_data=7, output_length=n-6).
                 // So TrendMode output[i] corresponds to CyberCycle output[i + 49].
-                let cc_offset = min_data(&options) - cc_min_data(&options);
+                let cc_offset = TrendMode::min_data(&options) - Cybercycle::min_data(&options);
                 let cycle_from_tm = &tm_out[1];
                 let cycle_from_cc = &cc_out[0][cc_offset..];
 
@@ -236,8 +243,8 @@ mod tests {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
             for options in OPTIONS_LIST {
-                let (out, _) =
-                    indicator(&inputs, &options, Some(&[false, true])).expect("TrendMode failed");
+                let (out, _) = TrendMode::indicator(&inputs, &options, Some(&[false, true]))
+                    .expect("TrendMode failed");
                 let peak = &out[2];
                 for (i, &v) in peak.iter().enumerate() {
                     assert!(
@@ -256,7 +263,7 @@ mod tests {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // State continuity: indicator() first chunk + batch_indicator() remainder
+    // State continuity: TrendMode::indicator() first chunk + batch_indicator() remainder
     // must be bit-exact to a full single-call run (all three outputs).
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -270,10 +277,11 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 let (ref_out, _) =
-                    indicator(&[close.as_slice()], &options, Some(&[true, true])).expect("ref run");
+                    TrendMode::indicator(&[close.as_slice()], &options, Some(&[true, true]))
+                        .expect("ref run");
 
                 let (first_out, mut state) =
-                    indicator(&[&close[..FIRST_CHUNK]], &options, Some(&[true, true]))
+                    TrendMode::indicator(&[&close[..FIRST_CHUNK]], &options, Some(&[true, true]))
                         .expect("seed run");
 
                 let mut batch = [
@@ -339,7 +347,6 @@ mod tests {
     // ─────────────────────────────────────────────────────────────────────────
 
     #[test]
-    #[cfg(feature = "simd_options")]
     fn test_trendmode_simd_by_options_mixed_adaptive() {
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -358,8 +365,8 @@ mod tests {
 
             let labels = ["trendmode", "cycle", "peak"];
             for (lane, alpha) in scalar_alphas.iter().enumerate() {
-                let (scalar_out, _) =
-                    indicator(&inputs, alpha, Some(&[true, true])).expect("scalar failed");
+                let (scalar_out, _) = TrendMode::indicator(&inputs, alpha, Some(&[true, true]))
+                    .expect("scalar failed");
 
                 for k in 0..3 {
                     let simd_line = &simd_results[lane][k];
@@ -389,7 +396,7 @@ mod tests {
         }
     }
 
-    /*#[test]
+    #[test]
     fn test_trendmode_simd_by_assets_vs_scalar() {
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -415,7 +422,8 @@ mod tests {
             let labels = ["trendmode", "cycle", "peak"];
             for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
                 let (scalar_out, _) =
-                    indicator(&[close.as_slice()], &options, Some(&[true, true])).expect("scalar");
+                    TrendMode::indicator(&[close.as_slice()], &options, Some(&[true, true]))
+                        .expect("scalar");
 
                 for k in 0..3 {
                     let simd_line = &simd_results[asset_idx][k];
@@ -434,8 +442,13 @@ mod tests {
                             labels[k]
                         );
                         let diff = (sv - rv).abs();
+                        // Adaptive mode (alpha=0.0): HdSimdState uses simd_atan (polynomial)
+                        // while scalar HD uses f64::atan (hardware). Accumulated IIR divergence
+                        // over 6705 bars reaches up to ~7.4e-6 (MSFT cycle). Use 1e-5.
+                        // Fixed-alpha modes do not use atan: 1e-10.
+                        let tol = if options[0] == 0.0 { 1e-5 } else { 1e-10 };
                         assert!(
-                            diff < 1e-10,
+                            diff < tol,
                             "{} mismatch at {i}: simd={sv}, scalar={rv}, diff={diff:.2e}, \
                              stock={stock_symbol}, alpha={:?}",
                             labels[k],
@@ -504,7 +517,8 @@ mod tests {
                 }
 
                 let (scalar_out, _) =
-                    indicator(&[close.as_slice()], &options, Some(&[true, true])).expect("scalar");
+                    TrendMode::indicator(&[close.as_slice()], &options, Some(&[true, true]))
+                        .expect("scalar");
 
                 for k in 0..3 {
                     assert_eq!(
@@ -522,8 +536,13 @@ mod tests {
                             options
                         );
                         let diff = (bv - rv).abs();
+                        // Adaptive mode (alpha=0.0): HdSimdState uses simd_atan (polynomial)
+                        // while scalar HD uses f64::atan (hardware). Accumulated IIR divergence
+                        // over 6705 bars reaches up to ~4.3e-7 (state_continuity path). Use 1e-5.
+                        // Fixed-alpha modes do not use atan: 1e-10.
+                        let tol = if options[0] == 0.0 { 1e-5 } else { 1e-10 };
                         assert!(
-                            diff < 1e-10,
+                            diff < tol,
                             "{} mismatch at {i}: simd+batch={bv}, scalar={rv}, diff={diff:.2e}, \
                              stock={stock_symbol}, alpha={:?}",
                             labels[k],
@@ -567,8 +586,8 @@ mod tests {
 
             let labels = ["trendmode", "cycle", "peak"];
             for (lane, options) in OPTIONS_LIST.iter().enumerate() {
-                let (scalar_out, _) =
-                    indicator(&inputs, options, Some(&[true, true])).expect("scalar failed");
+                let (scalar_out, _) = TrendMode::indicator(&inputs, options, Some(&[true, true]))
+                    .expect("scalar failed");
 
                 for k in 0..3 {
                     let simd_line = &simd_results[lane][k];
@@ -654,7 +673,8 @@ mod tests {
 
                 let inputs_full = [close.as_slice()];
                 let (scalar_out, _) =
-                    indicator(&inputs_full, options, Some(&[true, true])).expect("scalar failed");
+                    TrendMode::indicator(&inputs_full, options, Some(&[true, true]))
+                        .expect("scalar failed");
 
                 for k in 0..3 {
                     assert_eq!(
@@ -684,6 +704,5 @@ mod tests {
             }
             println!("\u{2713} SIMD by_options state continuity passed for {stock_symbol}");
         }
-    }*/
-
     }
+}

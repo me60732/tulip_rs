@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::bbands::{
-    indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState,
+    BBands, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -159,7 +159,7 @@ fn bench_rust_bbands(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let _result = indicator(&inputs, &options, None)
+                        let _result = BBands::indicator(&inputs, &options, None)
                             .expect("Rust BBANDS indicator failed");
                     },
                     SAMPLE_SIZE,
@@ -180,7 +180,7 @@ fn bench_rust_bbands(c: &mut Criterion) {
                 format!("Rust BBANDS {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator(&inputs, &options, None)
+                        let result = BBands::indicator(&inputs, &options, None)
                             .expect("Rust BBANDS indicator failed");
                         black_box(&result);
                     });
@@ -209,11 +209,11 @@ fn bench_rust_bbands_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data = min_data(&options);
+                        let min_data = BBands::min_data(&options);
                         // First chunk
                         let chunk_inputs = [&close[..min_data]];
 
-                        let (_, mut state) = indicator(&chunk_inputs, &options, None)
+                        let (_, mut state) = BBands::indicator(&chunk_inputs, &options, None)
                             .expect("BBANDS indicator failed");
 
                         // Chunks
@@ -249,7 +249,7 @@ fn bench_rust_bbands_from_state(c: &mut Criterion) {
                 if inputs[0].len() > 1 {
                     let new_inputs = [&close[..close.len() - 1]];
                     let final_inputs = [&close[close.len() - 1..]];
-                    let (_, mut state) = indicator(&new_inputs, &options, None)
+                    let (_, mut state) = BBands::indicator(&new_inputs, &options, None)
                         .expect("Rust BBANDS indicator failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -273,7 +273,7 @@ fn bench_rust_bbands_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) = indicator(&new_inputs, &options, None)
+                    let (_, state) = BBands::indicator(&new_inputs, &options, None)
                         .expect("Rust BBANDS indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
@@ -307,12 +307,12 @@ fn bench_rust_bbands_from_state(c: &mut Criterion) {
         let _inputs = [&close_vec];
 
         for options in OPTIONS_LIST {
-            let min_data = min_data(&options);
+            let min_data = BBands::min_data(&options);
             // First chunk
             let chunk_inputs = [&close_vec[..min_data]];
 
             let (_, mut state) =
-                indicator(&chunk_inputs, &options, None).expect("BBANDS indicator failed");
+                BBands::indicator(&chunk_inputs, &options, None).expect("BBANDS indicator failed");
 
             let mut group = c.benchmark_group("bbands_rust_from_state");
             group.sample_size(SAMPLE_SIZE);
@@ -343,7 +343,7 @@ fn bench_rust_bbands_from_state(c: &mut Criterion) {
                 let new_inputs = [&close_vec[..close_vec.len() - 1]];
                 let final_inputs = [&close_vec[close_vec.len() - 1..]];
                 let (_, mut state) =
-                    indicator(&new_inputs, &options, None).expect("Rust BBANDS indicator failed");
+                    BBands::indicator(&new_inputs, &options, None).expect("Rust BBANDS indicator failed");
 
                 let mut group = c.benchmark_group("bbands_rust_from_state_1_bar");
                 group.sample_size(SAMPLE_SIZE);

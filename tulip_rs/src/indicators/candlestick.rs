@@ -2,14 +2,14 @@ use crate::candle_indicators::candle_patterns::*;
 use crate::candle_indicators::pattern_test::{State, MAX_PATTERN_LENGTH};
 pub use crate::candle_indicators::types::ForecastType;
 use crate::common::{validate_inputs, validate_options};
-use crate::indicators::ema::{min_data as ema_min_data, multiplier as ema_multiplier};
+use crate::indicators::ema::{Ema, Indicator, multiplier as ema_multiplier};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 4;
+pub const INPUTS: usize = 4;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 3;
+pub const OPTIONS: usize = 3;
 
 /// Returns information about the Candlestick Pattern indicator.
 ///
@@ -44,9 +44,9 @@ pub const INFO: Info = Info {
 /// The minimum amount of data required.
 pub fn min_data(options: &[f64]) -> usize {
     if options[0] > options[1] + options[2] {
-        return ema_min_data(&[options[0]]) + MAX_PATTERN_LENGTH;
+        return Ema::min_data(&[options[0]]) + MAX_PATTERN_LENGTH;
     }
-    ema_min_data(&[options[1]]) + options[2] as usize + MAX_PATTERN_LENGTH + 1
+    Ema::min_data(&[options[1]]) + options[2] as usize + MAX_PATTERN_LENGTH + 1
 }
 /// Calculates the output length based on the data length and options.
 ///
@@ -102,7 +102,7 @@ impl IndicatorState {
     /// Returns `Err(IndicatorError)` if the input slices are empty.
     pub fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         forecast_type: Option<ForecastType>,
     ) -> Result<Vec<Option<Vec<CandlePattern>>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -161,8 +161,8 @@ impl IndicatorState {
 /// can be passed to `IndicatorState::batch_indicator` for streaming.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[f64]; INPUTS],
+    options: &[f64; OPTIONS],
     forecast_type: Option<ForecastType>,
 ) -> Result<(Vec<Option<Vec<CandlePattern>>>, IndicatorState), IndicatorError> {
     validate_options(options)?;

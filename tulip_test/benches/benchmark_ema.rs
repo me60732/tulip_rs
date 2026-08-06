@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 use tulip_rs::indicators::ema::{
-    indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState,
+    Ema, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -130,7 +130,7 @@ fn bench_rust_ema(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        indicator(&inputs, &options, None).expect("Rust EMA indicator failed");
+                        Ema::indicator(&inputs, &options, None).expect("Rust EMA indicator failed");
                     },
                     SAMPLE_SIZE,
                 );
@@ -155,7 +155,7 @@ fn bench_rust_ema(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust EMA {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    indicator(&inputs, &options, None).expect("Rust EMA indicator failed");
+                    Ema::indicator(&inputs, &options, None).expect("Rust EMA indicator failed");
                 });
             });
             group.finish();
@@ -181,12 +181,12 @@ fn bench_rust_ema_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data = min_data(&options);
+                        let min_data = Ema::min_data(&options);
                         // First chunk
                         let chunk_inputs = [&close[..min_data]];
 
                         let (_, mut state) =
-                            indicator(&chunk_inputs, &options, None).expect("EMA indicator failed");
+                            Ema::indicator(&chunk_inputs, &options, None).expect("EMA indicator failed");
 
                         // Chunks
                         let mut close_chunks = close[min_data..].chunks_exact(CHUNK_SIZE);
@@ -222,7 +222,7 @@ fn bench_rust_ema_from_state(c: &mut Criterion) {
                     let new_inputs = [&close[..close.len() - 1]];
                     let final_inputs = [&close[close.len() - 1..]];
                     let (_, mut state) =
-                        indicator(&new_inputs, &options, None).expect("Rust EMA indicator failed");
+                        Ema::indicator(&new_inputs, &options, None).expect("Rust EMA indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -246,7 +246,7 @@ fn bench_rust_ema_from_state(c: &mut Criterion) {
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
                     let (_, state) =
-                        indicator(&new_inputs, &options, None).expect("Rust EMA indicator failed");
+                        Ema::indicator(&new_inputs, &options, None).expect("Rust EMA indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -279,12 +279,12 @@ fn bench_rust_ema_from_state(c: &mut Criterion) {
         let _inputs = [&close_vec];
 
         for options in OPTIONS_LIST {
-            let min_data = min_data(&options);
+            let min_data = Ema::min_data(&options);
             // First chunk
             let chunk_inputs = [&close_vec[..min_data]];
 
             let (_, mut state) =
-                indicator(&chunk_inputs, &options, None).expect("EMA indicator failed");
+                Ema::indicator(&chunk_inputs, &options, None).expect("EMA indicator failed");
 
             let mut group = c.benchmark_group("ema_rust_from_state");
             group.sample_size(SAMPLE_SIZE);
@@ -315,7 +315,7 @@ fn bench_rust_ema_from_state(c: &mut Criterion) {
                 let new_inputs = [&close_vec[..close_vec.len() - 1]];
                 let final_inputs = [&close_vec[close_vec.len() - 1..]];
                 let (_, mut state) =
-                    indicator(&new_inputs, &options, None).expect("Rust EMA indicator failed");
+                    Ema::indicator(&new_inputs, &options, None).expect("Rust EMA indicator failed");
 
                 let mut group = c.benchmark_group("ema_rust_from_state_1_bar");
                 group.sample_size(SAMPLE_SIZE);

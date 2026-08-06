@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::vosc::{indicator as rust_vosc, min_data, TIndicatorState};
+    use tulip_rs::indicators::vosc::{Vosc, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_sma, ti_sma_start, ti_vosc, ti_vosc_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -55,7 +55,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [volume.as_slice()];
             let (outputs, _) =
-                rust_vosc(&inputs_rust, &options, None).expect("Rust VOSC indicator failed");
+                Vosc::indicator(&inputs_rust, &options, None).expect("Rust VOSC indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -148,7 +148,7 @@ mod tests {
                 // Rust implementation
                 let inputs_rust = [volume.as_slice()];
                 let (outputs, _) =
-                    rust_vosc(&inputs_rust, &options, None).expect("Rust VOSC indicator failed");
+                    Vosc::indicator(&inputs_rust, &options, None).expect("Rust VOSC indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -215,19 +215,19 @@ mod tests {
 
                 // Get full output from processing all data at once
                 let (full_outputs, _) =
-                    rust_vosc(&inputs_rust, &options, None).expect("Rust VOSC indicator failed");
+                    Vosc::indicator(&inputs_rust, &options, None).expect("Rust VOSC indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Vosc::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let volume_vec = volume[..min_data_val].to_vec();
                 let chunk_inputs = [volume_vec.as_slice()];
 
                 let (first_outputs, mut state) =
-                    rust_vosc(&chunk_inputs, &options, None).expect("Rust VOSC indicator failed");
+                    Vosc::indicator(&chunk_inputs, &options, None).expect("Rust VOSC indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
                 // Process remaining data in chunks
@@ -315,7 +315,7 @@ mod tests {
             for (stock_idx, (stock_symbol, stock_volume)) in stock_data.iter().enumerate() {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_volume.as_slice()];
-                let (regular_results, _) = rust_vosc(&stock_inputs, &options, None)
+                let (regular_results, _) = Vosc::indicator(&stock_inputs, &options, None)
                     .expect("Regular VOSC indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
@@ -408,7 +408,7 @@ mod tests {
                 // Get regular indicator result for this stock with optional outputs
                 let stock_inputs = [stock_volume.as_slice()];
                 let (regular_results, _) =
-                    rust_vosc(&stock_inputs, &options, Some(&optional_flags))
+                    Vosc::indicator(&stock_inputs, &options, Some(&optional_flags))
                         .expect("Regular VOSC indicator with optional outputs failed");
 
                 // Compare all outputs (main + optional)
@@ -489,7 +489,7 @@ mod tests {
         let optional_outputs = Some([true, false].as_slice()); // Request only short_sma output
 
         // Get Rust VOSC output with short_sma optional output
-        let result = rust_vosc(&inputs, &options, optional_outputs).unwrap();
+        let result = Vosc::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_short_sma = &result.0[1]; // short_sma is at index 1
 
         // Fail fast if Rust output is empty
@@ -570,7 +570,7 @@ mod tests {
         let optional_outputs = Some([false, true].as_slice()); // Request only long_sma output
 
         // Get Rust VOSC output with long_sma optional output
-        let result = rust_vosc(&inputs, &options, optional_outputs).unwrap();
+        let result = Vosc::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_long_sma = &result.0[2]; // long_sma is at index 2
 
         // Fail fast if Rust output is empty
@@ -656,7 +656,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get VOSC with short_sma optional output
                 let optional_outputs = Some(&[true, false][..]);
-                let (vosc_result, _) = tulip_rs::indicators::vosc::indicator(
+                let (vosc_result, _) = Vosc::indicator(
                     &[&volume],
                     &[options[0], options[1]],
                     optional_outputs,
@@ -736,7 +736,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get VOSC with long_sma optional output
                 let optional_outputs = Some(&[false, true][..]);
-                let (vosc_result, _) = tulip_rs::indicators::vosc::indicator(
+                let (vosc_result, _) = Vosc::indicator(
                     &[&volume],
                     &[options[0], options[1]],
                     optional_outputs,
@@ -825,7 +825,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_vosc(&inputs, options, None).expect("Regular VOSC indicator failed");
+                    Vosc::indicator(&inputs, options, None).expect("Regular VOSC indicator failed");
 
                 // main VOSC output
                 let simd_result = &simd_results_4[idx][0];
@@ -908,7 +908,7 @@ mod tests {
             // Compare each SIMD result with regular indicator (with optional outputs)
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result with optional outputs
-                let (regular_results, _) = rust_vosc(&inputs, options, optional_outputs)
+                let (regular_results, _) = Vosc::indicator(&inputs, options, optional_outputs)
                     .expect("Regular VOSC indicator with optional outputs failed");
 
                 // For VOSC the outputs are: [VOSC, short_sma, long_sma]

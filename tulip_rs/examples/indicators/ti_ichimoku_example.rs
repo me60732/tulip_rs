@@ -1,5 +1,5 @@
 use tulip_rs::indicators::ichimoku::{
-    indicator, indicator_by_assets, indicator_by_options, TIndicatorState,
+    indicator_by_assets, indicator_by_options, Ichimoku, Indicator, TIndicatorState,
 };
 
 // 40 bars of OHLC prices
@@ -47,7 +47,7 @@ fn main() {
     // outputs[2] = leading_span_a (Senkou Span A, shifted +long_period bars forward)
     // outputs[3] = leading_span_b (Senkou Span B, shifted +long_period bars forward)
     // outputs[4] = lagging_span   (Chikou Span = close, shifted -long_period bars back, optional)
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true])) {
+    let (outputs, _) = match Ichimoku::indicator(&inputs, &options, Some(&[true])) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -88,7 +88,7 @@ fn main() {
     let split = 35; // first 35 bars (>= min_data of 31)
     let inputs_partial = [&HIGH[..split], &LOW[..split], &CLOSE[..split]];
 
-    let (outputs_partial, mut state) = match indicator(&inputs_partial, &options, None) {
+    let (outputs_partial, mut state) = match Ichimoku::indicator(&inputs_partial, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

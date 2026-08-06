@@ -1,8 +1,9 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
+    use tulip_rs::indicator_types::Indicator;
     use tulip_rs::indicators::msw::{
-        indicator as new_msw, indicator_by_assets, indicator_by_options, min_data, TIndicatorState,
+        indicator_by_assets, indicator_by_options, Msw, TIndicatorState,
     };
     use tulip_test::c_bindings::{ti_msw, ti_msw_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -65,7 +66,7 @@ mod tests {
 
         // new_msw
         let inputs = [close];
-        let (rust_out, _) = new_msw(&inputs, options, None).expect("new_msw failed");
+        let (rust_out, _) = Msw::indicator(&inputs, options, None).expect("new_msw failed");
         let n = rust_out[0].len();
 
         for (name, c_vals, rust_vals) in [
@@ -100,12 +101,13 @@ mod tests {
 
     fn compare_streaming_vs_full(close: &[f64], options: &[f64; 1], label: &str) {
         let inputs = [close];
-        let (full_out, _) = new_msw(&inputs, options, None).expect("new_msw full run failed");
+        let (full_out, _) =
+            Msw::indicator(&inputs, options, None).expect("new_msw full run failed");
 
         // First chunk — capped at close.len() so short test data doesn't panic.
-        let first_len = min_data(options).max(CHUNK_SIZE).min(close.len());
-        let (first_out, mut state) =
-            new_msw(&[&close[..first_len]], options, None).expect("new_msw first chunk failed");
+        let first_len = Msw::min_data(options).max(CHUNK_SIZE).min(close.len());
+        let (first_out, mut state) = Msw::indicator(&[&close[..first_len]], options, None)
+            .expect("new_msw first chunk failed");
 
         let mut batch_out = vec![first_out[0].clone(), first_out[1].clone()];
 
@@ -235,12 +237,12 @@ mod tests {
             let inputs = [close.as_slice()];
 
             // Reference: single full run (SDFT from bar 0).
-            let (full_out, _) = new_msw(&inputs, &options, None).expect("full run failed");
+            let (full_out, _) = Msw::indicator(&inputs, &options, None).expect("full run failed");
 
             // Streaming: first min_data bars, then CHUNK_SIZE at a time.
-            let first_len = min_data(&options).max(CHUNK_SIZE);
+            let first_len = Msw::min_data(&options).max(CHUNK_SIZE);
             let (first_out, mut state) =
-                new_msw(&[&close[..first_len]], &options, None).expect("first chunk failed");
+                Msw::indicator(&[&close[..first_len]], &options, None).expect("first chunk failed");
 
             let mut batch_sine = first_out[0].clone();
             let mut batch_lead = first_out[1].clone();
@@ -309,7 +311,7 @@ mod tests {
 
             for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
                 let (scalar_out, _) =
-                    new_msw(&[close.as_slice()], &options, None).expect("scalar failed");
+                    Msw::indicator(&[close.as_slice()], &options, None).expect("scalar failed");
 
                 for (name, simd_line, scalar_line) in [
                     ("sine", &simd_results[asset_idx][0], &scalar_out[0]),
@@ -386,7 +388,7 @@ mod tests {
                 }
 
                 let (scalar_out, _) =
-                    new_msw(&[close.as_slice()], &options, None).expect("scalar failed");
+                    Msw::indicator(&[close.as_slice()], &options, None).expect("scalar failed");
 
                 for (name, batch_vals, scalar_vals) in [
                     ("sine", &batch_sine, &scalar_out[0]),
@@ -436,7 +438,8 @@ mod tests {
                 .expect("SIMD by_options failed");
 
             for (lane, &options) in options_4.iter().enumerate() {
-                let (scalar_out, _) = new_msw(&inputs, options, None).expect("scalar failed");
+                let (scalar_out, _) =
+                    Msw::indicator(&inputs, options, None).expect("scalar failed");
 
                 for (name, simd_line, scalar_line) in [
                     ("sine", &simd_results[lane][0], &scalar_out[0]),
@@ -510,7 +513,7 @@ mod tests {
                 }
 
                 let (scalar_out, _) =
-                    new_msw(&[close.as_slice()], options, None).expect("scalar failed");
+                    Msw::indicator(&[close.as_slice()], options, None).expect("scalar failed");
 
                 for (name, batch_vals, scalar_vals) in [
                     ("sine", &batch_sine, &scalar_out[0]),
@@ -535,5 +538,4 @@ mod tests {
         }
         println!("✓ All SIMD by_options state continuity MSW tests passed!");
     }
-
-    }
+}

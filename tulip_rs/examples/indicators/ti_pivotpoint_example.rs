@@ -1,5 +1,4 @@
-//use tulip_rs::common::IndicatorState;
-use tulip_rs::indicators::pivotpoint::indicator;
+use tulip_rs::indicators::pivotpoint::{indicator, IndicatorState};
 fn main() {
     let high = [
         82.15, 81.89, 83.03, 83.3, 83.85, 83.9, 83.33, 84.3, 84.84, 85.0, 85.9, 86.58, 86.98, 88.0,

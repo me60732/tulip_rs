@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::fisher::{
-    indicator, indicator_by_assets, indicator_by_options, min_data, TIndicatorState,
+    Fisher, Indicator, indicator_by_assets, indicator_by_options, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -150,7 +150,7 @@ fn bench_rust_fisher(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&[high.as_slice(), low.as_slice()], &options, None);
+                        let result = Fisher::indicator(&[high.as_slice(), low.as_slice()], &options, None);
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -175,7 +175,7 @@ fn bench_rust_fisher(c: &mut Criterion) {
 
             group.bench_function("benchmark", |b| {
                 b.iter(|| {
-                    let result = indicator(&[high.as_slice(), low.as_slice()], &options, None);
+                    let result = Fisher::indicator(&[high.as_slice(), low.as_slice()], &options, None);
                     black_box(&result);
                 });
             });
@@ -197,13 +197,13 @@ fn bench_rust_fisher_from_state(c: &mut Criterion) {
 
             for options in OPTIONS_LIST {
                 let mut timing = TimingMeasurements::new();
-                let min_data = min_data(&options);
+                let min_data = Fisher::min_data(&options);
                 timing.measure(
                     || {
                         // First chunk
                         let chunk_inputs = [&high[..min_data], &low[..min_data]];
 
-                        let (_, mut state) = indicator(&chunk_inputs, &options, None)
+                        let (_, mut state) = Fisher::indicator(&chunk_inputs, &options, None)
                             .expect("Fisher indicator failed");
 
                         // Chunks
@@ -239,7 +239,7 @@ fn bench_rust_fisher_from_state(c: &mut Criterion) {
                 // --- Rust_FromState_1_Bar benchmark ---
                 if high.len() > 1 {
                     let new_inputs = [&high[..high.len() - 1], &low[..low.len() - 1]];
-                    let (_, mut state) = indicator(&new_inputs, &options, None)
+                    let (_, mut state) = Fisher::indicator(&new_inputs, &options, None)
                         .expect("Rust Fisher indicator failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -266,7 +266,7 @@ fn bench_rust_fisher_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    /*let (_, state) = indicator(&new_inputs, &options, None)
+                    /*let (_, state) = Fisher::indicator(&new_inputs, &options, None)
                         .expect("Rust Fisher indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
@@ -302,9 +302,9 @@ fn bench_rust_fisher_from_state(c: &mut Criterion) {
         let (high, low) = expand_inputs();
 
         for options in OPTIONS_LIST {
-            let min_data = min_data(&options);
+            let min_data = Fisher::min_data(&options);
             // First chunk
-            let (_, mut state) = indicator(&[&high[..min_data], &low[..min_data]], &options, None)
+            let (_, mut state) = Fisher::indicator(&[&high[..min_data], &low[..min_data]], &options, None)
                 .expect("Fisher indicator failed");
 
             let mut group =
@@ -334,7 +334,7 @@ fn bench_rust_fisher_from_state(c: &mut Criterion) {
 
             // Benchmark with 1 bar from state
             if high.len() > 1 {
-                let (_, mut state) = indicator(
+                let (_, mut state) = Fisher::indicator(
                     &[&high[..high.len() - 1], &low[..low.len() - 1]],
                     &options,
                     None,

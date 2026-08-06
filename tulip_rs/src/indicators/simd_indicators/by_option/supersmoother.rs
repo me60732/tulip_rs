@@ -1,8 +1,8 @@
 use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::supersmoother_simd::SimdState;
+use crate::indicators::simd_indicators::supersmoother_simd::{SimdState, TSimdState, TState};
 use crate::indicators::supersmoother::{
-    min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    Indicator, IndicatorState, State, SuperSmoother, INPUTS, OPTIONS,
 };
 use crate::types::IndicatorError;
 use std::simd::Simd;
@@ -11,7 +11,7 @@ use std::simd::Simd;
 /// per scheduling epoch using a shared input series.
 struct SuperSmootherDriver;
 
-impl Driver<State, (f64, f64, f64)> for SuperSmootherDriver {
+impl Driver<State> for SuperSmootherDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
     ///
     /// Reads the shared real input, assembles per-lane coefficient vectors from `options`,
@@ -21,37 +21,21 @@ impl Driver<State, (f64, f64, f64)> for SuperSmootherDriver {
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
         mut states: Vec<&mut State>,
-        options: Vec<Option<&(f64, f64, f64)>>,
+        _options: Vec<Option<&()>>,
     ) {
         let len = outputs[0][0].len();
 
         let real_ptrs = crate::extract_input_ptrs!(inputs, N, input_ptrs);
         let super_line = crate::extract_output_ptrs!(outputs, N, super_line);
 
-        let multipliers_simd = {
-            let mut multipliers = ([0.0; N], [0.0; N], [0.0; N]);
-            for (lane, option) in options.iter().enumerate() {
-                if let Some(&multiplier) = option {
-                    multipliers.0[lane] = multiplier.0;
-                    multipliers.1[lane] = multiplier.1;
-                    multipliers.2[lane] = multiplier.2;
-                }
-            }
-            (
-                Simd::from_array(multipliers.0),
-                Simd::from_array(multipliers.1),
-                Simd::from_array(multipliers.2),
-            )
-        };
-
-        let mut state = SimdState::new(&states);
+        let mut state = SimdState::<N>::from_states(&mut states);
 
         for i in 0..len {
             let real = crate::extract_simd_inputs_at_index_splat!(i, N,
                 new @ real_ptrs
             );
 
-            let super_smoother = state.calc_simd(real, multipliers_simd);
+            let super_smoother = state.calc(real);
 
             crate::write_simd_at_indices!(N, i,
                 super_line => super_smoother
@@ -66,7 +50,7 @@ impl Driver<State, (f64, f64, f64)> for SuperSmootherDriver {
 /// sets simultaneously using SIMD parallelism.
 ///
 /// # Arguments
-/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS]`), containing
 ///   `[real]`.
 /// * `options` - An array of `N` option sets, one per SIMD lane: `[period]`.
 /// * `_optional_outputs` - Unused; SuperSmoother has no optional outputs.
@@ -76,27 +60,23 @@ impl Driver<State, (f64, f64, f64)> for SuperSmootherDriver {
 /// for option set `i`, and `states[i]` is the final [`IndicatorState`] for that lane.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS],
+    options: &[&[f64; OPTIONS]; N],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, SuperSmoother::min_data)?;
     validate_options(options, None)?;
-    let params: [(f64, f64, f64); N] = std::array::from_fn(|i| {
-        let period = options[i][0] as usize;
-        multiplier(period)
-    });
 
     let mut output_buffers = Vec::with_capacity(N);
-    let mut road_train = PrimeMover::<N, State, (f64, f64, f64)>::new();
+    let mut road_train = PrimeMover::<N, State>::new();
 
     for i in 0..N {
         let super_line = {
-            let capacity = output_length(inputs[0].len(), options[i]);
+            let capacity = SuperSmoother::output_length(inputs[0].len(), options[i]);
             crate::uninit_vec!(f64, capacity)
         };
         let period = options[i][0] as usize;
-        let state = State::init_state(inputs[0], period, params[i]);
+        let state = State::init_state(inputs[0], period);
         let asset_inputs = vec![inputs[0]];
 
         let mut output_buffer = vec![super_line];
@@ -118,17 +98,13 @@ pub fn indicator_by_options<const N: usize>(
             period,
             0,
             state,
-            Some(&params[i]),
+            None,
         ));
         output_buffers.push(output_buffer);
     }
 
     let mut driver = SuperSmootherDriver;
-    let final_states = road_train.drive(&mut driver);
+    let states = road_train.drive(&mut driver);
 
-    let mut states = Vec::with_capacity(N);
-    for (i, state) in final_states.into_iter().enumerate() {
-        states.push(IndicatorState::new(state, params[i]));
-    }
     Ok((output_buffers, states))
 }

@@ -1,4 +1,4 @@
-use tulip_rs::indicators::kvo::{indicator, TIndicatorState};
+use tulip_rs::indicators::kvo::{Indicator, Kvo, TIndicatorState};
 
 fn main() {
     // Test Input Data
@@ -27,7 +27,7 @@ fn main() {
         volume.as_slice(),
     ];
 
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match Kvo::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -42,7 +42,7 @@ fn main() {
     ];
 
     // Calculate the KVO using the full dataset
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match Kvo::indicator(&inputs2, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

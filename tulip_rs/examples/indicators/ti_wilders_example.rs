@@ -1,4 +1,4 @@
-use tulip_rs::indicators::wilders::{indicator, TIndicatorState};
+use tulip_rs::indicators::wilders::{Wilders, TIndicatorState, Indicator};
 
 fn main() {
     let close = [
@@ -9,7 +9,7 @@ fn main() {
     let inputs = [&close[..close.len() - 5]];
     let options = [5.0]; // Period
 
-    let (result, mut state) = match indicator(&inputs, &options, None) {
+    let (result, mut state) = match Wilders::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

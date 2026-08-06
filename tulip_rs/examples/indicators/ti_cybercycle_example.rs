@@ -1,5 +1,5 @@
 use tulip_rs::indicators::cybercycle::{
-    indicator, indicator_by_assets, indicator_by_options, TIndicatorState,
+    indicator_by_assets, indicator_by_options, Cybercycle, Indicator, TIndicatorState,
 };
 
 // 80 bars of close prices (cybercycle only needs min_data = 7)
@@ -28,7 +28,7 @@ fn main() {
     // --- Full run with optional trigger output ---
     // outputs[0] = cybercycle
     // outputs[1] = trigger (= Cycle[1], optional)
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true])) {
+    let (outputs, _) = match Cybercycle::indicator(&inputs, &options, Some(&[true])) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -48,7 +48,8 @@ fn main() {
     let split = CLOSE.len() - 5;
     let inputs_partial = [&CLOSE[..split]];
 
-    let (outputs_partial, mut state) = match indicator(&inputs_partial, &options, None) {
+    let (outputs_partial, mut state) = match Cybercycle::indicator(&inputs_partial, &options, None)
+    {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

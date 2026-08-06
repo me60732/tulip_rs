@@ -1,9 +1,10 @@
-use crate::indicators::adosc::IndicatorState as State;
+pub use crate::indicator_types::{TState, TSimdState};
+use crate::indicators::adosc::State as State;
 use crate::indicators::simd_indicators::{
-    ad_simd::calc_simd as calc_ad_simd, ema_simd::calc_simd as calc_ema_simd,
+    ad_simd::SimdState as AdSimdState, ema_simd::SimdState as EmaSimdState,
 };
 use std::simd::Simd;
-
+use crate::types::Warm;
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::by_asset::adosc::indicator_by_assets;
 
@@ -13,78 +14,88 @@ pub use crate::indicators::simd_indicators::by_option::adosc::indicator_by_optio
 /// SIMD-parallel state for computing the Chaikin AD Oscillator (ADOSC) across `N` assets
 /// simultaneously. Each field is a SIMD vector where lane `i` corresponds to asset `i`.
 pub struct SimdState<const N: usize> {
-    /// Running Accumulation/Distribution line value for each asset.
-    pub ad: Simd<f64, N>,
-    /// Short-period EMA of the AD line for each asset.
-    pub short_ema: Simd<f64, N>,
-    /// Long-period EMA of the AD line for each asset.
-    pub long_ema: Simd<f64, N>,
+    pub short_ema: EmaSimdState<N>,
+    pub long_ema: EmaSimdState<N>,
+    pub ad: AdSimdState<N>,
 }
-impl<const N: usize> SimdState<N> {
+impl<const N: usize> TSimdState for SimdState<N> {
+    type ScalarState = State<Warm>;
     /// Gathers `N` scalar [`State`] references into a single `SimdState`,
     /// packing each field into a SIMD lane.
-    pub fn new(states: &[&mut State]) -> Self {
-        let mut ad = [0.0; N];
+    fn from_states(states: &mut [&mut Self::ScalarState]) -> Self {
+        let mut ad_refs = Vec::with_capacity(N);
         let mut short_ema = [0.0; N];
         let mut long_ema = [0.0; N];
+        let mut short_multiplier = [0.0; N];
+        let mut long_multiplier = [0.0; N];
+        let mut short_inv_multiplier = [0.0; N];
+        let mut long_inv_multiplier = [0.0; N];
 
-        for i in 0..N {
-            let [short, long] = states[i].ema_state.ema.to_array();
-            ad[i] = states[i].ad;
+        for (i, state) in states.iter_mut().enumerate() {
+            let [short, long] = state.ema_state.ema.to_array();
+            let [short_m, long_m] = state.ema_state.multiplier.to_array();
+            let [short_im, long_im] = state.ema_state.inv_multiplier.to_array();
+            ad_refs.push(&mut state.ad_state);
             short_ema[i] = short;
             long_ema[i] = long;
+
+            short_multiplier[i] = short_m;
+            long_multiplier[i] = long_m;
+            short_inv_multiplier[i] = short_im;
+            long_inv_multiplier[i] = long_im;
+            long_ema[i] = long;
         }
+        let ad =  AdSimdState::from_states(&mut ad_refs);
         Self {
-            ad: Simd::from_array(ad),
-            short_ema: Simd::from_array(short_ema),
-            long_ema: Simd::from_array(long_ema),
+            ad,
+            short_ema: EmaSimdState::new(
+                Simd::from_array(short_ema),
+                (
+                    Simd::from_array(short_multiplier),
+                    Simd::from_array(short_inv_multiplier),
+                ),
+            ),
+            long_ema: EmaSimdState::new(
+                Simd::from_array(long_ema),
+                (
+                    Simd::from_array(long_multiplier),
+                    Simd::from_array(long_inv_multiplier),
+                ),
+            ),
         }
     }
     /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place,
     /// avoiding allocation compared to [`to_states`].
-    pub fn write_states(&self, states: &mut [&mut State]) {
-        let ad = self.ad.to_array();
-        let short_ema = self.short_ema.to_array();
-        let long_ema = self.long_ema.to_array();
-
-        for i in 0..N {
-            let [short, long] = states[i].ema_state.ema.as_mut_array();
-            states[i].ad = ad[i];
+    fn write_states(&self, states: &mut [&mut Self::ScalarState]) {
+        let short_ema = self.short_ema.ema.to_array();
+        let long_ema = self.long_ema.ema.to_array();
+        let mut ad_refs = Vec::with_capacity(N);
+        
+        for (i, state) in states.iter_mut().enumerate() {
+            let [short, long] = state.ema_state.ema.as_mut_array();
             *short = short_ema[i];
             *long = long_ema[i];
-            
+            ad_refs.push(&mut state.ad_state);
         }
+        self.ad.write_states(&mut ad_refs);
     }
-    /// Advances the Chaikin AD Oscillator (ADOSC) by one bar for `N` assets simultaneously.
-    ///
-    /// Updates the AD line, then applies short- and long-period EMA smoothing. The oscillator value
-    /// is the difference between the two EMAs (`short_ema - long_ema`).
-    ///
-    /// # Arguments
-    ///
-    /// * `state` - Mutable SIMD state holding per-asset AD, short EMA, and long EMA.
-    /// * `inputs` - Tuple of `(high, low, close, volume)` SIMD vectors for the current bar.
-    /// * `multipliers` - Tuple of `(short_multiplier, long_multiplier)` EMA smoothing factors,
-    ///   each itself a `(per, inv_per)` pair.
-    ///
-    /// # Returns
-    ///
-    /// ADOSC values (`short_ema - long_ema`) for all `N` lanes.
-    #[inline(always)]
-    pub fn calc_simd(
-       &mut self,
-        inputs: (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-        multipliers: ((Simd<f64, N>, Simd<f64, N>), (Simd<f64, N>, Simd<f64, N>)),
-    ) -> Simd<f64, N> {
-        let (high, low, close, volume) = inputs;
-        let (short_multiplier, long_multiplier) = multipliers;
     
-        self.ad = calc_ad_simd(self.ad, high, low, close, volume);
-        self.short_ema = calc_ema_simd(self.ad, self.short_ema, short_multiplier);
-        self.long_ema = calc_ema_simd(self.ad, self.long_ema, long_multiplier);
-    
-        self.short_ema - self.long_ema
-    }
 }
 
+impl<const N: usize> TState for SimdState<N> {
+    type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
+    type Outputs = Simd<f64, N>;
 
+    #[inline(always)]
+    fn calc<'a>(
+        &mut self,
+        inputs: Self::Inputs<'a>,
+    ) -> Self::Outputs {
+
+        let ad = self.ad.calc(inputs);
+        let short_ema = self.short_ema.calc(ad);
+        let long_ema = self.long_ema.calc(ad);
+
+        short_ema - long_ema
+    }
+}

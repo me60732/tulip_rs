@@ -1,11 +1,11 @@
 //use crate::common::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::willr_simd::{assets::Calc, SimdState, CHUNK_1};
+use crate::indicators::simd_indicators::willr_simd::{assets::SimdState, TSimdState, TState};
 use crate::indicators::{
-    max::output_length as max_output_length,
-    willr::{min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH},
+    max::Max,
+    willr::{Indicator, IndicatorState, State, Willr, INPUTS, OPTIONS},
 };
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
 /// SIMD driver that advances Williams %R (WILLR) across `N` asset lanes per scheduling epoch.
@@ -14,13 +14,13 @@ struct WillrDriver {
     want_optional_outputs: (bool, bool, bool),
 }
 
-impl Driver<State> for WillrDriver {
+impl Driver<State<Warm>> for WillrDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
         let len = inputs[0][0].len();
@@ -28,20 +28,16 @@ impl Driver<State> for WillrDriver {
         //collect outputs
         let output_ptrs = crate::extract_output_ptrs!(outputs, N, willr, min, max);
         let inputs = crate::extract_input_ptrs!(inputs, N, high_ptrs, low_ptrs, close_ptrs);
-        let mut state = SimdState::new(&mut states);
+        let mut state = SimdState::from_states(&mut states);
         //let look_back = self.period - 1;
+        self.cycle::<N>(inputs, &mut state, output_ptrs, len);
 
-        if CHUNK_1.contains(&self.period) {
-            self.cycle::<N, 1>(inputs, &mut state, output_ptrs, len);
-        } else {
-            self.cycle::<N, 4>(inputs, &mut state, output_ptrs, len);
-        }
         // Update states efficiently
         state.write_states(&mut states);
     }
 }
 impl WillrDriver {
-    fn cycle<const N: usize, const CHUNK_SIZE: usize>(
+    fn cycle<const N: usize>(
         &self,
         inputs: ([*const f64; N], [*const f64; N], [*const f64; N]),
         state: &mut SimdState<N>,
@@ -55,9 +51,7 @@ impl WillrDriver {
         for (j, i) in (self.period..len).enumerate() {
             let close = crate::extract_simd_inputs_at_index!(i, N, close @ close_ptrs);
 
-            let (willr, min, max) = unsafe {
-                state.calc_unchecked_simd::<CHUNK_SIZE>(high_ptrs, low_ptrs, close, i, look_back)
-            };
+            let (willr, min, max) = state.calc((high_ptrs, low_ptrs, close, i, look_back));
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, j,
@@ -79,7 +73,7 @@ impl WillrDriver {
 /// SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[high, low, close]` for asset `i`.
 /// * `options` - `options[0]` is the `period`.
 /// * `_optional_outputs` - Unused; WILLR has no optional outputs.
@@ -89,14 +83,14 @@ impl WillrDriver {
 /// `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, Willr::min_data(options))?;
     validate_options(options)?;
     let period = options[0] as usize;
-    let mut road_train = PrimeMover::<N, State>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut output_buffers = Vec::with_capacity(N);
     let mut want_optional_outputs = (false, false, false);
     for i in 0..N {
@@ -105,8 +99,8 @@ pub fn indicator_by_assets<const N: usize>(
 
         let (willr_line, (mut min_line, mut max_line)) = {
             let len = high.len();
-            let capacity = output_length(len, options);
-            let min_max_capacity = max_output_length(len, options);
+            let capacity = Willr::output_length(len, options);
+            let min_max_capacity = Max::output_length(len, options);
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::init_optional_outputs_eff!(

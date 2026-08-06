@@ -1,4 +1,4 @@
-use tulip_rs::indicators::vwap::{indicator, indicator_by_assets, TIndicatorState};
+use tulip_rs::indicators::vwap::{Vwap, indicator_by_assets, TIndicatorState, Indicator};
 
 fn main() {
     let high = [
@@ -41,7 +41,7 @@ fn main() {
 
     /////////////////////// Full run with optional TypPrice output ///////////////////////
     // optional_outputs: [want_typprice]
-    let (outputs, _) = match indicator(&inputs, &[], Some(&[true])) {
+    let (outputs, _) = match Vwap::indicator(&inputs, &[], Some(&[true])) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -49,7 +49,7 @@ fn main() {
     println!("Full TypPrice Line:      {:?}", outputs[1]);
 
     /////////////////////// Full run with no optional outputs ///////////////////////
-    let (outputs_plain, _) = match indicator(&inputs, &[], None) {
+    let (outputs_plain, _) = match Vwap::indicator(&inputs, &[], None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -61,7 +61,7 @@ fn main() {
     let n = high.len() - 5;
     let inputs2 = [&high[..n], &low[..n], &close[..n], &volume[..n]];
 
-    let (outputs2, mut state) = match indicator(&inputs2, &[], None) {
+    let (outputs2, mut state) = match Vwap::indicator(&inputs2, &[], None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

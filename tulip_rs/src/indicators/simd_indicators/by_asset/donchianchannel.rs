@@ -2,18 +2,20 @@
 use crate::common::validate_options;
 use crate::common_simd::assets::validate_inputs;
 use crate::indicators::donchianchannel::{
-    min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    DonchianChannel, Indicator, IndicatorState, State, INPUTS, OPTIONS,
 };
-use crate::indicators::simd_indicators::donchianchannel_simd::{assets::Calc, SimdState, CHUNK_1};
+use crate::indicators::simd_indicators::donchianchannel_simd::{
+    assets::SimdState, TSimdState, TState,
+};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 /// SIMD driver that advances the Donchian Channel indicator across `N` asset lanes per scheduling
 /// epoch.
 struct DonchianChannelDriver {
     look_back: usize,
 }
 
-impl Driver<State> for DonchianChannelDriver {
+impl Driver<State<Warm>> for DonchianChannelDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     ///
     /// Reads from `inputs[asset][field]` (high, low), writes to `outputs[asset][output]`,
@@ -22,7 +24,7 @@ impl Driver<State> for DonchianChannelDriver {
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
         let data_len = inputs[0][0].len();
@@ -30,13 +32,10 @@ impl Driver<State> for DonchianChannelDriver {
         //collect outputs
         let outputs = crate::extract_output_ptrs!(outputs, N, lower_ptr, middle_ptr, upper_ptr);
         let inputs = crate::extract_input_ptrs!(inputs, N, high_ptrs, low_ptrs);
-        let mut state = SimdState::new(&mut states);
+        let mut state = SimdState::from_states(&mut states);
 
-        if CHUNK_1.contains(&self.look_back) {
-            self.cycle::<N, 1>(inputs, outputs, data_len, &mut state);
-        } else {
-            self.cycle::<N, 4>(inputs, outputs, data_len, &mut state);
-        }
+        self.cycle::<N>(inputs, outputs, data_len, &mut state);
+
         // Update states efficiently
         state.write_states(&mut states);
     }
@@ -49,7 +48,7 @@ impl DonchianChannelDriver {
     /// to the pre-computed output pointers.
     ///
     /// `CHUNK_SIZE` is the const-generic SIMD prefetch hint passed down to the min/max helpers.
-    fn cycle<const N: usize, const CHUNK_SIZE: usize>(
+    fn cycle<const N: usize>(
         &self,
         inputs: ([*const f64; N], [*const f64; N]),
         outputs: ([*mut f64; N], [*mut f64; N], [*mut f64; N]),
@@ -60,9 +59,7 @@ impl DonchianChannelDriver {
         let (lower_line_ptr, middle_line_ptr, upper_line_ptr) = outputs;
 
         for (j, i) in (self.look_back..data_len).enumerate() {
-            let (lower, middle, upper) = unsafe {
-                state.calc_unchecked_simd::<CHUNK_SIZE>(high_ptrs, low_ptrs, i, self.look_back)
-            };
+            let (lower, middle, upper) = state.calc((high_ptrs, low_ptrs, i, self.look_back));
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, j,
@@ -80,7 +77,7 @@ impl DonchianChannelDriver {
 /// into SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[high, low]` for asset `i`.
 /// * `options` - Shared options applied to all `N` assets: `[period]`.
 /// * `_optional_outputs` - Unused; pass `None`.
@@ -90,15 +87,15 @@ impl DonchianChannelDriver {
 /// for asset `i` and `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    options: &[f64; OPTIONS],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, DonchianChannel::min_data(options))?;
     validate_options(options)?;
     let periods = (options[0] as usize, options[0] as usize - 1);
 
-    let mut road_train = PrimeMover::<N, State>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut output_buffers = Vec::with_capacity(N);
 
     for i in 0..N {
@@ -107,7 +104,7 @@ pub fn indicator_by_assets<const N: usize>(
 
         let (lower_line, middle_line, upper_line) = {
             let len = inputs[i][0].len();
-            let capacity = output_length(len, options);
+            let capacity = DonchianChannel::output_length(len, options);
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::uninit_vec!(f64, capacity),
@@ -115,7 +112,7 @@ pub fn indicator_by_assets<const N: usize>(
             )
         };
 
-        let state = State::new(high, low, periods);
+        let state = State::init_state(high, low, periods.1);
 
         let mut output_buffer = vec![lower_line, middle_line, upper_line];
 

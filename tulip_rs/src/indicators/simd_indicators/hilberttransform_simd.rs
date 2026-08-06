@@ -1,4 +1,4 @@
-use crate::indicators::hilberttransform::{State, C0, C1, C2, C3};
+use crate::indicators::hilberttransform::{IndicatorState as State, C0, C1, C2, C3};
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::by_asset::hilberttransform::indicator_by_assets;
 
@@ -8,7 +8,8 @@ pub use crate::indicators::simd_indicators::by_option::hilberttransform::indicat
 use crate::indicators::simd_indicators::roofingfilter_simd::SimdState as RfSimdState;
 use crate::ring_buffer::fixed_single_buffer::{FixedRingBuffer, FixedSimdRingBuffer};
 use std::simd::{Simd, StdFloat};
-
+pub use crate::indicator_types::{TSimdState, TState};
+use crate::types::Warm;
 /// Pre-broadcast SIMD constants for the seven-tap Hilbert kernel.
 ///
 /// Stores [`C0`]–[`C3`] as `Simd::splat` values so that per-bar coefficient
@@ -33,16 +34,16 @@ impl<const N: usize> COEFS<N> {
 ///
 /// The buffer must be full (`buf.is_full() == true`) before calling.
 #[inline(always)]
-pub fn ht_kernel<const N: usize>(
-    buf: &FixedRingBuffer<Simd<f64, N>, 7>,
+pub fn ht_kernel<S, const N: usize>(
+    buf: &FixedRingBuffer<Simd<f64, N>, 7, S>,
     gain: Simd<f64, N>,
 ) -> (Simd<f64, N>, Simd<f64, N>) {
     let q = ht_kernel_base(buf, gain);
     (buf[3], q)
 }
 #[inline(always)]
-pub fn ht_kernel_base<const N: usize>(
-    buf: &FixedRingBuffer<Simd<f64, N>, 7>,
+pub fn ht_kernel_base<S, const N: usize>(
+    buf: &FixedRingBuffer<Simd<f64, N>, 7, S>,
     gain: Simd<f64, N>,
 ) -> Simd<f64, N> {
     let q = (COEFS::<N>::C0.mul_add(buf[0], COEFS::<N>::C1 * buf[2])
@@ -60,9 +61,9 @@ pub fn ht_kernel_base<const N: usize>(
 /// Returns `(I_a, Q_a, I_b, Q_b)` where `I = buf[3]` and `Q = hilbert_sum × gain`.
 /// Both buffers must be full before calling.
 #[inline(always)]
-pub fn ht_kernel_pair<const N: usize>(
-    buf_a: &FixedRingBuffer<Simd<f64, N>, 7>,
-    buf_b: &FixedRingBuffer<Simd<f64, N>, 7>,
+pub fn ht_kernel_pair<S, const N: usize>(
+    buf_a: &FixedRingBuffer<Simd<f64, N>, 7, S>,
+    buf_b: &FixedRingBuffer<Simd<f64, N>, 7, S>,
     gain: Simd<f64, N>,
 ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
     let qa_hi = COEFS::<N>::C0.mul_add(buf_a[0], COEFS::<N>::C1 * buf_a[2]);
@@ -84,15 +85,17 @@ pub fn ht_kernel_pair<const N: usize>(
 /// * `rf_state` — cascaded roofing filter (HighPass → SuperSmoother) that band-limits
 ///   the input before the Hilbert kernel.
 pub struct SimdState<const N: usize> {
-    buffer: FixedRingBuffer<Simd<f64, N>, 7>,
     rf_state: RfSimdState<N>,
+    buffer: FixedRingBuffer<Simd<f64, N>, 7, Warm>,
 }
 
-impl<const N: usize> SimdState<N> {
+impl<const N: usize> TSimdState for SimdState<N> {
+    type ScalarState = State;
+    
     /// Gathers `N` scalar [`State`] references into a single [`SimdState`],
     /// packing each asset's ring buffer and roofing-filter state into their
     /// respective SIMD lanes.
-    pub fn new(states: &mut [&mut State]) -> Self {
+    fn from_states(states: &mut [&mut State]) -> Self {
         let mut buffer_refs = Vec::with_capacity(N);
         let mut rf_state = Vec::with_capacity(N);
 
@@ -100,14 +103,14 @@ impl<const N: usize> SimdState<N> {
             buffer_refs.push(&state.buffer);
             rf_state.push(&mut state.rf_state);
         }
-        let rf_state = RfSimdState::new(&mut rf_state);
+        let rf_state = RfSimdState::from_states(&mut rf_state);
         let buffer = FixedSimdRingBuffer::from_f64_buffers(&buffer_refs);
 
         Self { rf_state, buffer }
     }
     /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place,
     /// scattering each lane's ring buffer and roofing-filter state back to its corresponding asset.
-    pub fn write_states(&self, states: &mut [&mut State]) {
+    fn write_states(&self, states: &mut [&mut State]) {
         let mut rf_refs = Vec::with_capacity(N);
         let buffers = self.buffer.to_f64_buffers();
 
@@ -118,6 +121,9 @@ impl<const N: usize> SimdState<N> {
         }
         self.rf_state.write_states(&mut rf_refs);
     }
+
+}
+impl<const N: usize> SimdState<N> {
     /// Applies the seven-tap Hilbert kernel across all `N` assets simultaneously.
     ///
     /// Pushes `real` (the roofing-filter output) into the ring buffer, then computes:
@@ -144,35 +150,10 @@ impl<const N: usize> SimdState<N> {
         &mut self,
         real: Simd<f64, N>,
     ) -> (Simd<f64, N>, Simd<f64, N>) {
-        self.buffer.push_unchecked(real);
+        self.buffer.push(real);
         ht_kernel(&self.buffer, COEFS::<N>::GAIN)
     }
-    /// Advances the full Hilbert Transform pipeline by one bar across all `N` assets simultaneously.
-    ///
-    /// Applies the roofing filter (HighPass → SuperSmoother) to `real`, then passes
-    /// the band-limited result through the Hilbert kernel, matching the scalar `State::calc` logic.
-    ///
-    /// # Arguments
-    ///
-    /// * `real` - SIMD vector of current input prices, one per asset lane.
-    /// * `multipliers` - Pre-broadcast roofing-filter coefficients `((ss_a1, ss_a2, ss_b0), (hp_a1, hp_a2))`.
-    ///
-    /// # Returns
-    ///
-    /// `(in_phase, quadrature, roofing, highpass)` — four `Simd<f64, N>` vectors, one value per asset lane.
-    #[inline(always)]
-    pub fn calc_simd(
-        &mut self,
-        real: Simd<f64, N>,
-        multipliers: (
-            (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-            (Simd<f64, N>, Simd<f64, N>),
-        ),
-    ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
-        let (rf, hp) = self.rf_state.calc_simd(real, multipliers);
-        let (i, q) = self.calc_transform_simd(rf);
-        (i, q, rf, hp)
-    }
+
     /// Unsafe variant of [`calc`](Self::calc) that skips the ring-buffer fullness check.
     ///
     /// # Safety
@@ -182,13 +163,18 @@ impl<const N: usize> SimdState<N> {
     pub unsafe fn calc_simd_unchecked(
         &mut self,
         real: Simd<f64, N>,
-        multipliers: (
-            (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-            (Simd<f64, N>, Simd<f64, N>),
-        ),
     ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
-        let (rf, hp) = self.rf_state.calc_simd(real, multipliers);
+        let (rf, hp) = self.rf_state.calc(real);
         let (i, q) = self.calc_transform_simd_unchecked(rf);
         (i, q, rf, hp)
+    }
+}
+
+impl<const N: usize> TState for SimdState<N> {
+    type Inputs<'a> = Simd<f64, N>;
+    type Outputs = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
+    #[inline(always)]
+    fn calc<'a>(&mut self, real: Self::Inputs<'a>) -> Self::Outputs {
+        unsafe { self.calc_simd_unchecked(real) }
     }
 }

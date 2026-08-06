@@ -1,7 +1,8 @@
 use crate::common_simd::options::{validate_inputs, validate_options};
+use crate::indicator_types::Indicator;
+use crate::indicator_types::TSimdState;
 use crate::indicators::msw::{
-    dot_product_simd, min_data, multiplier, output_length, precompute_twiddles, IndicatorState,
-    State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    dot_product_simd, multiplier, precompute_twiddles, IndicatorState, Msw, State, INPUTS, OPTIONS,
 };
 use crate::indicators::simd_indicators::msw_simd::options::calc_sdft;
 use crate::indicators::simd_indicators::msw_simd::SimdState;
@@ -24,7 +25,7 @@ impl Driver<State, (usize, f64)> for MswDriver {
         let len = outputs[0][0].len();
 
         // Gather per-lane SDFT accumulators and rotation phasors into a single SimdState.
-        let mut simd_state = SimdState::new(&mut states);
+        let mut simd_state = SimdState::from_states(&mut states);
 
         // i[lane] = period[lane]; increments by 1 each bar (mirrors SMA driver).
         let mut i = {
@@ -85,11 +86,11 @@ impl Driver<State, (usize, f64)> for MswDriver {
 /// the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS],
+    options: &[&[f64; OPTIONS]; N],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, Msw::min_data)?;
     validate_options(options, None)?;
     let real = inputs[0];
 
@@ -111,7 +112,7 @@ pub fn indicator_by_options<const N: usize>(
             ..State::new(mult)
         };
 
-        let capacity = output_length(real.len(), options[i]);
+        let capacity = Msw::output_length(real.len(), options[i]);
         let sine_line = crate::uninit_vec!(f64, capacity);
         let lead_line = crate::uninit_vec!(f64, capacity);
         let mut output_buffer = vec![sine_line, lead_line];

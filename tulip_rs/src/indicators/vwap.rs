@@ -1,14 +1,14 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{TIndicatorState, Indicator, IndicatorResult, TState};
 use crate::indicators::typprice::calc as calc_typprice;
-pub use crate::indicators::typprice::{min_data, output_length};
+pub use crate::indicators::typprice::Typprice;
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 4;
+pub const INPUTS: usize = 4;
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 0;
+pub const OPTIONS: usize = 0;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -25,34 +25,18 @@ pub mod by_assets {
     /// Processes `N` assets in parallel with shared options.
     pub use crate::indicators::simd_indicators::vwap_simd::indicator_by_assets as indicator;
 }
-
-/// Metadata describing the VWAP indicator's name, inputs, options, and outputs.
-pub const INFO: Info = Info {
-    name: "vwap",
-    full_name: "Volume Weighted Average Price",
-    indicator_type: IndicatorType::Trend,
-    inputs: &["high", "low", "close", "volume"],
-    options: &[],
-    outputs: &["vwap"],
-    optional_outputs: &["typprice"],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "vwap",
-        label: "Price",
-        display_type: DisplayType::Overlay,
-        outputs: &["vwap", "typprice"],
-    }],
-};
+ 
 /// Running state for the Volume Weighted Average Price (VWAP) indicator.
 ///
 /// Holds the cumulative price-volume sum (`pv_sum`) and cumulative volume sum
 /// (`vol_sum`) needed to compute the running VWAP at each new bar.
+pub type IndicatorState = State;
 #[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
+pub struct State {
     pub pv_sum: f64,
     pub vol_sum: f64,
 }
-impl IndicatorState {
+impl State {
     /// Creates a new zeroed `IndicatorState` ready for the first bar of a session.
     pub fn new() -> Self {
         Self {
@@ -60,22 +44,23 @@ impl IndicatorState {
             vol_sum: 0.0,
         }
     }
-    /// Advances the state by one bar and returns `(vwap, typprice)`.
-    ///
-    /// `typprice = (high + low + close) / 3`. Accumulates `typprice × volume`
-    /// and `volume` into the running sums, then divides to produce the cumulative VWAP.
+}
+impl TState for State {
+    type Inputs<'a> = (f64, f64, f64, f64);
+    type Outputs = (f64, f64);
+    
     #[inline(always)]
-    pub fn calc(&mut self, high: f64, low: f64, close: f64, volume: f64) -> (f64, f64) {
-        let tp = calc_typprice(&high, &low, &close);
+    fn calc<'a>(&mut self, (high, low, close, volume): Self::Inputs<'a>) -> Self::Outputs {
+        let tp = calc_typprice(high, low, close);
         self.pv_sum += tp * volume;
         self.vol_sum += volume;
         (self.pv_sum / self.vol_sum, tp)
     }
 }
-impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
+impl TIndicatorState<INPUTS> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -106,65 +91,6 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
     }
 }
 
-/// Calculates the Volume Weighted Average Price (VWAP) over the full input dataset.
-///
-/// VWAP is the cumulative ratio of `(typical_price × volume)` to `volume` from
-/// the first bar to each bar, making it a session-level running average.
-/// `typical_price = (high + low + close) / 3`.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — `high`
-/// * `inputs[1]` — `low`
-/// * `inputs[2]` — `close`
-/// * `inputs[3]` — `volume`
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input slices (see Inputs above).
-/// * `_options` - Unused; VWAP takes no options.
-/// * `optional_outputs` - Pass `Some(&[true])` to include `typprice` as `outputs[1]`.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is `vwap` and `state`
-/// can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    _options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    // Expecting four inputs: High, Low, Close, Volume.
-    validate_inputs(inputs, min_data(_options))?;
-
-    let [high, low, close, volume] = *inputs;
-    let (mut vwap_line, mut typprice_line) = {
-        let capacity = output_length(high.len(), &[]);
-        (
-            crate::uninit_vec!(f64, capacity),
-            crate::init_optional_outputs_eff!(
-                optional_outputs, &[false],
-                tp: capacity
-            ),
-        )
-    };
-
-    let mut state = IndicatorState::new();
-
-    cycle(
-        high,
-        low,
-        close,
-        volume,
-        &mut state,
-        &mut vwap_line,
-        &mut typprice_line,
-    );
-
-    // State holds running pv_sum and vol_sum for incremental updates.
-    Ok((vec![vwap_line, typprice_line], state))
-}
 
 /// Iterates over the high, low, close, and volume slices and computes VWAP values for each bar.
 ///
@@ -190,38 +116,80 @@ fn cycle(
     for i in 0..close.len() {
         let tp;
         unsafe {
-            (*vwap_line.get_unchecked_mut(i), tp) = state.calc(
+            (*vwap_line.get_unchecked_mut(i), tp) = state.calc((
                 *high.get_unchecked(i),
                 *low.get_unchecked(i),
                 *close.get_unchecked(i),
                 *volume.get_unchecked(i),
-            );
+            ));
         }
         crate::store_optional_outputs!(i,
             want_tp, typprice_line => tp
         );
     }
 }
-/// Calculates a single VWAP value for one bar, updating the running state in place.
-///
-/// # Arguments
-///
-/// * `high` - The current bar's high price.
-/// * `low` - The current bar's low price.
-/// * `close` - The current bar's close price.
-/// * `volume` - The current bar's volume.
-/// * `state` - Mutable reference to the `IndicatorState` (running `pv_sum` and `vol_sum`).
-///
-/// # Returns
-///
-/// `(vwap, typprice)` — the cumulative VWAP and the typical price for this bar.
-#[inline(always)]
-pub fn calc(
-    high: f64,
-    low: f64,
-    close: f64,
-    volume: f64,
-    state: &mut IndicatorState,
-) -> (f64, f64) {
-    state.calc(high, low, close, volume)
+
+
+pub struct Vwap;
+impl Indicator<INPUTS, OPTIONS> for Vwap {
+    type IndicatorState = IndicatorState;
+
+    const INFO: Info = Info {
+        name: "vwap",
+        full_name: "Volume Weighted Average Price",
+        indicator_type: IndicatorType::Trend,
+        inputs: &["high", "low", "close", "volume"],
+        options: &[],
+        outputs: &["vwap"],
+        optional_outputs: &["typprice"],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "vwap",
+            label: "Price",
+            display_type: DisplayType::Overlay,
+            outputs: &["vwap", "typprice"],
+        }],
+    };
+    fn min_data(_options: &[f64; OPTIONS]) -> usize {
+        Typprice::min_data(_options)
+    }
+    fn output_length(data_len: usize, _options: &[f64; OPTIONS]) -> usize {
+        Typprice::output_length(data_len, _options)
+    }
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        _options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
+        // Expecting four inputs: High, Low, Close, Volume.
+        validate_inputs(inputs, Typprice::min_data(_options))?;
+    
+        let [high, low, close, volume] = *inputs;
+        let (mut vwap_line, mut typprice_line) = {
+            let capacity = Typprice::output_length(high.len(), &[]);
+            (
+                crate::uninit_vec!(f64, capacity),
+                crate::init_optional_outputs_eff!(
+                    optional_outputs, &[false],
+                    tp: capacity
+                ),
+            )
+        };
+    
+        let mut state = IndicatorState::new();
+    
+        cycle(
+            high,
+            low,
+            close,
+            volume,
+            &mut state,
+            &mut vwap_line,
+            &mut typprice_line,
+        );
+    
+        // State holds running pv_sum and vol_sum for incremental updates.
+        Ok((vec![vwap_line, typprice_line], state))
+    }
 }

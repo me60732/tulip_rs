@@ -1,4 +1,4 @@
-use tulip_rs::indicators::typprice::indicator;
+use tulip_rs::indicators::typprice::{Indicator, Typprice};
 
 fn main() {
     // Example input data: high, low, and close prices
@@ -21,7 +21,7 @@ fn main() {
     let options = [];
 
     // Calculate the TYPPRICE using the indicator function
-    let (result, _state) = match indicator(&inputs, &options, None) {
+    let (result, _state) = match Typprice::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

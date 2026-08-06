@@ -1,16 +1,13 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
-use core::ops::Range;
-pub(crate) const CHUNK_1: Range<usize> = 1..5;
-pub(crate) const CHUNK_4: Range<usize> = 5..50;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 1;
+pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -51,46 +48,61 @@ use std::simd::{
 };
 
 #[derive(Serialize, Deserialize)]
-pub struct State {
+pub struct State<S = Cold> {
     pub max: f64,
     pub trail: usize,
+    pub(crate) state: std::marker::PhantomData<S>,
 }
 
-impl State {
+impl State<Cold> {
     pub fn new(max: f64, trail: usize) -> Self {
-        State { max, trail }
-    }
-    pub fn init_state(real: &[f64], period: usize, trail: usize, max_line: &mut [f64]) -> Self {
-        let mut state = Self::new(real[0], trail);
-        let max = state.calc(real, trail, (period, trail)).0;
-        if max_line.len() > 0 {
-            max_line[0] = max;
+        Self {
+            max,
+            trail,
+            state: std::marker::PhantomData,
         }
-        state
     }
+    pub(crate) fn into_warm(self) -> State<Warm> {
+        State {
+            max: self.max,
+            trail: self.trail,
+            state: std::marker::PhantomData,
+        }
+    }
+    pub fn init_state(real: &[f64], look_back: usize) -> State<Warm> {
+        let mut max = real[0];
+        let mut trail = 0;
+
+        for &bar in real.iter().take(look_back).skip(1) {
+            if bar >= max {
+                max = bar;
+                trail = 0;
+                continue;
+            }
+            trail += 1;
+        }
+        
+        State {
+            max,
+            trail,
+            state: std::marker::PhantomData,
+        }
+    }
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = (&'a [f64], usize, (usize, usize));
+    type Outputs = (f64, usize);
+
     #[inline(always)]
-    pub fn calc(&mut self, real: &[f64], i: usize, periods: (usize, usize)) -> (f64, usize) {
-        let (period, look_back) = periods;
+    fn calc<'a>(&mut self, (real, i, (period, look_back)): Self::Inputs<'a>) -> (f64, usize) {
         let (mut max, mut trail) = (self.max, self.trail);
         trail += 1;
 
         if period <= trail {
             let search_start = i - look_back;
-            let search_end = i + 1;
-            let window = &real[search_start..search_end];
+            let window = &real[search_start..=i];
 
-            /*let (max_val, max_idx) = if period > 13 {
-                find_max_simd::<4>(window)
-            } else {
-                find_max_scalar(window)
-            };*/
-            let (max_val, max_idx) = if CHUNK_1.contains(&period) {
-                find_max_scalar(window)
-            } else if CHUNK_4.contains(&period) {
-                find_max_simd::<4>(window)
-            } else {
-                find_max_simd::<8>(window)
-            };
+            let (max_val, max_idx) = find_max_simd::<4>(window);
             max = max_val;
             trail = i - (search_start + max_idx);
         } else {
@@ -106,22 +118,26 @@ impl State {
         self.trail = trail;
         (max, trail)
     }
-
     #[inline(always)]
-    pub unsafe fn calc_unchecked<const N: usize>(
+    unsafe fn calc_unchecked(
         &mut self,
-        real: &[f64],
-        i: usize,
-        periods: (usize, usize),
+        inputs: Self::Inputs<'_>,
+    ) -> Self::Outputs {
+        self.calc_chuncked_unchecked::<4>(inputs)
+    }
+}
+impl State<Warm> {
+    #[inline(always)]
+    pub unsafe fn calc_chuncked_unchecked<const N: usize>(
+        &mut self,
+        (real, i, (period, look_back)): (&[f64], usize, (usize, usize)),
     ) -> (f64, usize) {
-        let (period, look_back) = periods;
         let (mut max, mut trail) = (self.max, self.trail);
         trail += 1;
 
         if period <= trail {
             let search_start = i - look_back;
-            let search_end = i + 1;
-            let window = real.get_unchecked(search_start..search_end);
+            let window = real.get_unchecked(search_start..=i);
 
             let (max_val, max_idx) = match N {
                 1 => find_max_scalar(window),
@@ -146,11 +162,11 @@ impl State {
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     pub real: Vec<f64>,
-    pub state: State,
+    pub state: State<Warm>,
     pub periods: (usize, usize),
 }
 impl IndicatorState {
-    pub fn new(real: &[f64], state: State, periods: (usize, usize)) -> Self {
+    pub fn new(real: &[f64], state: State<Warm>, periods: (usize, usize)) -> Self {
         Self {
             real: real[real.len() - periods.1..].to_vec(),
             state,
@@ -161,7 +177,7 @@ impl IndicatorState {
 impl TIndicatorState<1> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         _optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -169,117 +185,12 @@ impl TIndicatorState<1> for IndicatorState {
 
         let mut max_line = crate::uninit_vec!(f64, inputs[0].len());
 
-        if CHUNK_1.contains(&self.periods.0) {
-            cycle_max::<1>(&self.real, self.periods, &mut max_line, &mut self.state);
-        } else if CHUNK_4.contains(&self.periods.0) {
-            cycle_max::<4>(&self.real, self.periods, &mut max_line, &mut self.state);
-        } else {
-            cycle_max::<8>(&self.real, self.periods, &mut max_line, &mut self.state);
-        }
+        cycle_max(&self.real, self.periods, &mut max_line, &mut self.state);
 
         self.real.drain(..self.real.len() - self.periods.1);
 
         Ok(vec![max_line])
     }
-}
-/// Returns information about the max indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the max indicator.
-pub const INFO: Info = Info {
-    name: "max",
-    full_name: "maximum",
-    indicator_type: IndicatorType::Price,
-    inputs: &["real"],
-    options: &["period"],
-    outputs: &["max"],
-    optional_outputs: &[],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "max",
-        label: "MAX",
-        display_type: DisplayType::Overlay,
-        outputs: &["max"],
-    }],
-};
-/// Returns the minimum amount of data required for the max indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the max calculation.
-///
-/// # Returns
-///
-/// The maximum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    options[0] as usize
-}
-
-/// Calculates the output length for the max indicator.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the max calculation.
-///
-/// # Returns
-///
-/// The output length for the max calculation.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-
-/// Calculates the Maximum Value (max) indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — real prices
-///
-/// # Options
-///
-/// * `options[0]` — period
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `optional_outputs` - Unused; this indicator has no optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where:
-/// - `outputs[0]` — `max`
-///
-/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    _optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let periods = (options[0] as usize, options[0] as usize - 1);
-
-    validate_inputs(inputs, min_data(options))?;
-    let real = inputs[0];
-
-    let mut max_line = {
-        let capacity = output_length(inputs[0].len(), options);
-        crate::uninit_vec!(f64, capacity)
-    };
-
-    let mut state = State::new(real[0], periods.0);
-    //let mut state = init_state(real, period);
-    if CHUNK_1.contains(&periods.0) {
-        cycle_max::<1>(real, periods, &mut max_line, &mut state);
-    } else if CHUNK_4.contains(&periods.0) {
-        cycle_max::<4>(real, periods, &mut max_line, &mut state);
-    } else {
-        cycle_max::<8>(real, periods, &mut max_line, &mut state);
-    }
-
-    Ok((vec![max_line], IndicatorState::new(real, state, periods)))
 }
 
 /// Performs the main calculation loop for the max indicator.
@@ -290,15 +201,15 @@ pub fn indicator(
 /// * `periods` - A tuple of `(period, look_back)` for the max calculation.
 /// * `max_line` - A mutable slice for storing the max output values.
 /// * `state` - A mutable reference to the current `State`.
-fn cycle_max<const N: usize>(
+fn cycle_max(
     real: &[f64],
     periods: (usize, usize),
     max_line: &mut [f64],
-    state: &mut State,
+    state: &mut State<Warm>,
 ) {
     for (j, i) in (periods.1..real.len()).enumerate() {
         unsafe {
-            *max_line.get_unchecked_mut(j) = state.calc_unchecked::<N>(real, i, periods).0;
+            *max_line.get_unchecked_mut(j) = state.calc_unchecked((real, i, periods)).0;
         }
     }
 }
@@ -368,4 +279,52 @@ pub(crate) fn find_max_simd<const N: usize>(window: &[f64]) -> (f64, usize) {
     }
 
     (global_max, max_idx)
+}
+
+pub struct Max;
+
+impl Indicator<INPUTS, OPTIONS> for Max {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "max",
+        full_name: "maximum",
+        indicator_type: IndicatorType::Price,
+        inputs: &["real"],
+        options: &["period"],
+        outputs: &["max"],
+        optional_outputs: &[],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "max",
+            label: "MAX",
+            display_type: DisplayType::Overlay,
+            outputs: &["max"],
+        }],
+    };
+    fn min_data(options: &[f64; OPTIONS]) -> usize {
+        options[0] as usize
+    }
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        _optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        let periods = (options[0] as usize, options[0] as usize - 1);
+
+        validate_inputs(inputs, Self::min_data(options))?;
+        let real = inputs[0];
+
+        let mut max_line = {
+            let capacity = Self::output_length(inputs[0].len(), options);
+            crate::uninit_vec!(f64, capacity)
+        };
+
+        let mut state = State::init_state(real, periods.1);
+
+        cycle_max(real, periods, &mut max_line, &mut state);
+
+        Ok((vec![max_line], IndicatorState::new(real, state, periods)))
+    }
 }

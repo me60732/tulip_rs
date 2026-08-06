@@ -1,4 +1,4 @@
-use tulip_rs::indicators::msw::{indicator, TIndicatorState};
+use tulip_rs::indicators::msw::{Indicator, Msw, TIndicatorState};
 use tulip_rs::types::IndicatorError;
 
 fn main() -> Result<(), IndicatorError> {
@@ -12,13 +12,13 @@ fn main() -> Result<(), IndicatorError> {
 
     let inputs = [close.as_slice()];
 
-    let (outputs, _) = indicator(&inputs, &options, None)?;
+    let (outputs, _) = Msw::indicator(&inputs, &options, None)?;
     println!("FULL MSW Sine: {:?}", outputs[0]);
     println!("FULL MSW Lead: {:?}", outputs[1]);
 
     let inputs2 = [&close[..close.len() - 5]];
     // Calculate the MSW indicator for the partial dataset
-    let (outputs2, mut state) = indicator(&inputs2, &options, None)?;
+    let (outputs2, mut state) = Msw::indicator(&inputs2, &options, None)?;
     println!("\nMSW Sine: {:?}", outputs2[0]);
     println!("MSW Lead: {:?}", outputs2[1]);
 

@@ -1,4 +1,4 @@
-use tulip_rs::indicators::aroon::{indicator, TIndicatorState};
+use tulip_rs::indicators::aroon::{Aroon, Indicator, TIndicatorState};
 use tulip_rs::indicators::simd_indicators::by_asset::aroon::indicator_by_assets;
 
 const HIGH: [f64; 15] = [
@@ -48,7 +48,7 @@ fn regular_example() {
     let options = [5.0];
 
     // Calculate the Aroon using the indicator function
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match Aroon::indicator(&inputs, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -58,7 +58,7 @@ fn regular_example() {
 
     let inputs2 = [&high[..high.len() - 5], &low[..low.len() - 5]];
 
-    let (outputs2, mut state2) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state2) = match Aroon::indicator(&inputs2, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

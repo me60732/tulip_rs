@@ -4,21 +4,22 @@ pub use crate::indicators::simd_indicators::by_asset::volatility::indicator_by_a
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::volatility::indicator_by_options;
 
+pub use crate::indicator_types::{TSimdState, TState};
 pub mod imports {
     //! Internal imports shared by the [`assets`] and [`options`] SIMD sub-modules
     //! for the Volatility indicator.
     pub(crate) use crate::indicators::simd_indicators::{
-        simd_types::F64Constants,
-        stddev_simd::{SimdState as StddevSimdState, Calc},
+        simd_types::F64Constants, stddev_simd::SimdState as StddevSimdState,
     };
     pub(crate) use crate::indicators::volatility::State;
-    pub(crate) use crate::ring_buffer::single_buffer::generic_buffer::RingBuffer;
+    pub(crate) use crate::types::Warm;
     pub(crate) use std::simd::Simd;
 }
 
 pub mod assets {
     //! Per-asset SIMD state and compute for the Volatility indicator.
     use super::imports::*;
+    use super::*;
     pub(crate) use crate::ring_buffer::single_buffer::generic_buffer::{
         SimdBuffer, SimdRingBuffer,
     };
@@ -29,129 +30,37 @@ pub mod assets {
         pub prev_real: Simd<f64, N>,
     }
 
-    impl<const N: usize> SimdState<N> {
-        /// Constructs a [`SimdState`] by interleaving the fields of `N` scalar [`State`] references
-        /// into SIMD lanes.
-        pub fn new(states: &mut [&mut State]) -> Self {
-            debug_assert_eq!(states.len(), N, "Number of states must match SIMD width");
+    impl<const N: usize> TSimdState for SimdState<N> {
+        type ScalarState = State<Warm>;
+        crate::simd_state_impl!(
+             sub: [(stddev_state: StddevSimdState<N>)],
+             scalar: [prev_real],
+             buf: [(buffer: SimdBuffer<N>, from_f64_buffers)]
+        );
+    }
+    impl<const N: usize> TState for SimdState<N> {
+        type Inputs<'a> = Simd<f64, N>;
+        type Outputs = Simd<f64, N>;
 
-            let mut stddev_refs = Vec::with_capacity(N);
-            let mut buffer_refs = Vec::with_capacity(N);
-            let mut prev_real = [0.0; N];
-            for (i, state) in states.iter_mut().enumerate() {
-                stddev_refs.push(&mut state.stddev_state);
-                buffer_refs.push(&state.buffer);
-                prev_real[i] = state.prev_real;
-            }
-
-            let stddev_state = StddevSimdState::new(&mut stddev_refs);
-            let buffer = SimdBuffer::from_f64_buffers(buffer_refs);
-
-            Self {
-                buffer,
-                stddev_state,
-                prev_real: Simd::from_array(prev_real),
-            }
-        }
-
-        /// Converts this SIMD state into an owned array of `N` scalar [`State`] values.
-        pub fn to_states(&self) -> [State; N] {
-            let stddev_states = self.stddev_state.to_states();
-            let prev_real = self.prev_real.to_array();
-            let buffers = self.buffer.to_f64_buffers();
-            // Use into_iter() to consume the arrays and avoid move issues
-            let states_vec: Vec<State> = buffers
-                .into_iter()
-                .zip(stddev_states.into_iter())
-                .zip(prev_real.iter())
-                .map(|((buffer, stddev_state), &prev_real)| State {
-                    buffer,
-                    stddev_state,
-                    prev_real,
-                })
-                .collect();
-
-            // Convert Vec to array
-            states_vec
-                .try_into()
-                .unwrap_or_else(|_| panic!("Failed to convert states_vec to array"))
-        }
-        /// Writes SIMD state back into `N` scalar [`State`] references.
-        pub fn write_states(&self, states: &mut [&mut State]) {
-            // First, handle the buffer updates
-            let buffers = self.buffer.to_f64_buffers();
-            let prev_real = self.prev_real.to_array();
-            let mut stddev_refs = Vec::with_capacity(N);
-
-            for (i, (state, buffer)) in states.iter_mut().zip(buffers.into_iter()).enumerate() {
-                stddev_refs.push(&mut state.stddev_state);
-                state.buffer = buffer;
-                state.prev_real = prev_real[i];
-            }
-
-            // Finally, update the ADX states
-            self.stddev_state.write_states(&mut stddev_refs);
-        }
-        /// Computes one bar of the Volatility indicator for `N` assets simultaneously.
-        ///
-        /// Calculates the log return `(real - prev_real) / prev_real`, advances the rolling
-        /// standard deviation state, and returns the annualised volatility for each lane.
-        ///
-        /// # Arguments
-        ///
-        /// * `real` - Current price for each asset lane.
-        /// * `multiplier` - Per-lane stddev multiplier derived from the period.
-        ///
-        /// # Returns
-        ///
-        /// Annualised volatility values for all `N` lanes.
         #[inline(always)]
-        pub fn calc_simd(&mut self, real: Simd<f64, N>) -> Simd<f64, N> {
+        fn calc<'a>(&mut self, real: Self::Inputs<'a>) -> Simd<f64, N> {
             // Rearranged for better numerical stability when prices are large and close
             let value = (real - self.prev_real) / self.prev_real;
             self.prev_real = real;
-            let prev_value = self.buffer.push_with_info(value).unwrap();
-            let (sd, _) = self.stddev_state.calc_simd(value, prev_value);
-            sd * F64Constants::ANNUAL
-        }
-        /// Unchecked variant of [`calc_simd`](SimdState::calc_simd) that skips buffer-full checks.
-        ///
-        /// # Arguments
-        ///
-        /// * `real` - Current price for each asset lane.
-        /// * `multiplier` - Per-lane stddev multiplier derived from the period.
-        ///
-        /// # Returns
-        ///
-        /// Annualised volatility values for all `N` lanes.
-        ///
-        /// # Safety
-        ///
-        /// The internal ring buffer must be fully initialised (i.e., at least `period` bars have
-        /// been processed) before calling this function. Calling it on an uninitialised buffer
-        /// will produce incorrect results or undefined behaviour.
-        #[inline(always)]
-        pub unsafe fn calc_unchecked_simd(
-            &mut self,
-            real: Simd<f64, N>,
-        ) -> Simd<f64, N> {
-            // Rearranged for better numerical stability when prices are large and close
-            let value = (real - self.prev_real) / self.prev_real;
-            self.prev_real = real;
-            let prev_value = self.buffer.push_with_info_unchecked(value);
-            let (sd, _) = self.stddev_state.calc_simd(value, prev_value);
+            let prev_value = self.buffer.push_with_info(value);
+            let (sd, _) = self.stddev_state.calc((value, prev_value));
             sd * F64Constants::ANNUAL
         }
     }
 }
 
 pub mod options {
-    //! Per-option SIMD state and compute for the Volatility indicator.
     use super::imports::*;
+    use super::*;
     pub(crate) use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
     /// SIMD-parallel state for the Volatility indicator, holding `N` lanes of per-option state.
     pub struct SimdState<const N: usize> {
-        pub buffer: Buffer,
+        pub buffer: Buffer<Warm>,
         pub stddev_state: StddevSimdState<N>,
         pub prev_real: f64,
         periods: [usize; N],
@@ -167,7 +76,7 @@ pub mod options {
         ///
         /// * `states` - Mutable references to `N` scalar states (one per option set).
         /// * `periods` - Per-lane period values.
-        pub fn new(states: &mut [&mut State], periods: [usize; N]) -> Self {
+        pub fn from_states(states: &mut [&mut State<Warm>], periods: [usize; N]) -> Self {
             debug_assert_eq!(states.len(), N, "Number of states must match SIMD width");
 
             let mut main_buffer = 0;
@@ -183,7 +92,7 @@ pub mod options {
                 stddev_refs.push(&mut state.stddev_state);
             }
 
-            let stddev_state = StddevSimdState::new(&mut stddev_refs);
+            let stddev_state = StddevSimdState::from_states(&mut stddev_refs);
 
             Self {
                 buffer,
@@ -194,7 +103,7 @@ pub mod options {
         }
 
         /// Writes SIMD state back into `N` scalar [`State`] references, one per option-set lane.
-        pub fn write_states(&self, states: &mut [&mut State]) {
+        pub fn write_states(&self, states: &mut [&mut State<Warm>]) {
             // First, handle the buffer updates
             let vals: [Vec<f64>; N] =
                 std::array::from_fn(|i| self.buffer.to_ordered_by_period(self.periods[i]));
@@ -212,6 +121,7 @@ pub mod options {
                         prev_idx: len - 1,
                         capacity: len,
                         count: len,
+                        state: std::marker::PhantomData::<Warm>,
                     }
                 };
                 state.prev_real = prev_real;
@@ -220,42 +130,18 @@ pub mod options {
             // Finally, update the ADX states
             self.stddev_state.write_states(&mut stddev_refs);
         }
-
-        /// Unchecked SIMD variant that computes one Volatility bar for `N` option-set lanes simultaneously.
-        ///
-        /// Accepts a scalar `real` input (shared across all option lanes) and a per-lane
-        /// `multiplier`, and returns annualised volatility for each lane.
-        ///
-        /// # Arguments
-        ///
-        /// * `real` - Current price (scalar, shared across lanes).
-        /// * `multiplier` - Per-lane stddev multiplier derived from each lane's period.
-        ///
-        /// # Returns
-        ///
-        /// Annualised volatility values for all `N` option-set lanes.
-        ///
-        /// # Safety
-        ///
-        /// The internal ring buffer must be fully initialised (i.e., at least `max(period)` bars
-        /// have been processed) before calling this function. Calling it on an uninitialised buffer
-        /// will produce incorrect results or undefined behaviour.
+    }
+    impl<const N: usize> TState for SimdState<N> {
+        type Inputs<'a> = f64;
+        type Outputs = Simd<f64, N>;
         #[inline(always)]
-        pub unsafe fn calc_unchecked_simd(
-            &mut self,
-            real: f64,
-        ) -> Simd<f64, N> {
+        fn calc<'a>(&mut self, real: Self::Inputs<'a>) -> Self::Outputs {
             // Rearranged for better numerical stability when prices are large and close
             let value = (real - self.prev_real) / self.prev_real;
             self.prev_real = real;
-            let prev_value = Simd::from_array(
-                self.buffer
-                    .push_with_info_periods_unchecked(value, self.periods),
-            );
-            let (sd, _) = self.stddev_state.calc_simd(
-                Simd::splat(value),
-                prev_value,
-            );
+            let prev_value =
+                Simd::from_array(self.buffer.push_with_info_periods(value, self.periods));
+            let (sd, _) = self.stddev_state.calc((Simd::splat(value), prev_value));
             sd * F64Constants::ANNUAL
         }
     }

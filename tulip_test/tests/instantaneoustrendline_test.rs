@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod tests {
     use tulip_rs::indicator_types::TIndicatorState;
-    use tulip_rs::indicators::homodynediscriminator::indicator as hd_indicator;
+    use tulip_rs::indicators::homodynediscriminator::HomodyneDiscriminator;
     use tulip_rs::indicators::instantaneoustrendline::{
-        indicator as it_indicator, indicator_by_assets, min_data, output_length,
+        indicator_by_assets, Indicator, InstantaneousTrendline,
     };
     use tulip_rs::types::IndicatorError;
     use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -24,11 +24,23 @@ mod tests {
 
     #[test]
     fn test_it_min_data_and_output_length() {
-        assert_eq!(min_data(&[]), 23, "min_data must be 23");
-        assert_eq!(output_length(23, &[]), 1, "output_length(23) must be 1");
-        assert_eq!(output_length(100, &[]), 78, "output_length(100) must be 78");
         assert_eq!(
-            output_length(1000, &[]),
+            InstantaneousTrendline::min_data(&[]),
+            23,
+            "min_data must be 23"
+        );
+        assert_eq!(
+            InstantaneousTrendline::output_length(23, &[]),
+            1,
+            "output_length(23) must be 1"
+        );
+        assert_eq!(
+            InstantaneousTrendline::output_length(100, &[]),
+            78,
+            "output_length(100) must be 78"
+        );
+        assert_eq!(
+            InstantaneousTrendline::output_length(1000, &[]),
             978,
             "output_length(1000) must be 978"
         );
@@ -37,7 +49,7 @@ mod tests {
     #[test]
     fn test_it_not_enough_data() {
         let close: Vec<f64> = (0..22).map(|i| 100.0 + i as f64).collect();
-        let result = it_indicator(&[close.as_slice()], &[], None);
+        let result = InstantaneousTrendline::indicator(&[close.as_slice()], &[], None);
         assert!(
             matches!(result, Err(IndicatorError::NotEnoughData)),
             "Expected NotEnoughData for {} bars (need 23)",
@@ -56,8 +68,9 @@ mod tests {
         for (stock_symbol, stock_data) in data {
             let close = get_close_array(stock_data);
             let n = close.len();
-            let (out, _) = it_indicator(&[close.as_slice()], &[], None).expect("indicator failed");
-            let expected = output_length(n, &[]);
+            let (out, _) = InstantaneousTrendline::indicator(&[close.as_slice()], &[], None)
+                .expect("indicator failed");
+            let expected = InstantaneousTrendline::output_length(n, &[]);
             assert_eq!(
                 out[0].len(),
                 expected,
@@ -76,8 +89,12 @@ mod tests {
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
             let close = get_close_array(stock_data);
-            let (out, _) = it_indicator(&[close.as_slice()], &[], Some(&[true, false, false]))
-                .expect("indicator failed");
+            let (out, _) = InstantaneousTrendline::indicator(
+                &[close.as_slice()],
+                &[],
+                Some(&[true, false, false]),
+            )
+            .expect("indicator failed");
             let trendline = &out[0];
             let trigger = &out[1];
             for (i, &v) in trendline.iter().enumerate() {
@@ -109,8 +126,12 @@ mod tests {
 
         for (stock_symbol, stock_data) in data {
             let close = get_close_array(stock_data);
-            let (out, _) = it_indicator(&[close.as_slice()], &[], Some(&[false, false, true]))
-                .expect("indicator failed");
+            let (out, _) = InstantaneousTrendline::indicator(
+                &[close.as_slice()],
+                &[],
+                Some(&[false, false, true]),
+            )
+            .expect("indicator failed");
             let alpha = &out[3];
             for (i, &a) in alpha.iter().enumerate() {
                 assert!(a.is_finite(), "alpha NaN/Inf at {i}: stock={stock_symbol}");
@@ -135,9 +156,14 @@ mod tests {
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
             let close = get_close_array(stock_data);
-            let (hd_out, _) = hd_indicator(&[close.as_slice()], &[], None).expect("HD failed");
-            let (it_out, _) = it_indicator(&[close.as_slice()], &[], Some(&[false, true, false]))
-                .expect("IT failed");
+            let (hd_out, _) = HomodyneDiscriminator::indicator(&[close.as_slice()], &[], None)
+                .expect("HD failed");
+            let (it_out, _) = InstantaneousTrendline::indicator(
+                &[close.as_slice()],
+                &[],
+                Some(&[false, true, false]),
+            )
+            .expect("IT failed");
             let hd_dc = &hd_out[0];
             let it_dc = &it_out[2];
             assert_eq!(
@@ -164,8 +190,12 @@ mod tests {
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
             let close = get_close_array(stock_data);
-            let (out, _) = it_indicator(&[close.as_slice()], &[], Some(&[true, false, false]))
-                .expect("indicator failed");
+            let (out, _) = InstantaneousTrendline::indicator(
+                &[close.as_slice()],
+                &[],
+                Some(&[true, false, false]),
+            )
+            .expect("indicator failed");
             let trendline = &out[0];
             let trigger = &out[1];
             // Check trigger[i] = 2*trendline[i] - trendline[i-1] for i > 0.
@@ -191,35 +221,39 @@ mod tests {
     fn test_it_optional_outputs() {
         let close: Vec<f64> = (0..200).map(|i| 100.0 + (i as f64).sin() * 5.0).collect();
         let inputs = [close.as_slice()];
-        let expected_len = output_length(close.len(), &[]);
+        let expected_len = InstantaneousTrendline::output_length(close.len(), &[]);
 
         // None requested.
-        let (none, _) = it_indicator(&inputs, &[], None).unwrap();
+        let (none, _) = InstantaneousTrendline::indicator(&inputs, &[], None).unwrap();
         assert_eq!(none[0].len(), expected_len, "trendline len (none)");
         assert!(none[1].is_empty(), "trigger should be empty (none)");
         assert!(none[2].is_empty(), "dc_period should be empty (none)");
         assert!(none[3].is_empty(), "alpha should be empty (none)");
 
         // Only trigger.
-        let (trigger_only, _) = it_indicator(&inputs, &[], Some(&[true, false, false])).unwrap();
+        let (trigger_only, _) =
+            InstantaneousTrendline::indicator(&inputs, &[], Some(&[true, false, false])).unwrap();
         assert_eq!(trigger_only[1].len(), expected_len, "trigger len");
         assert!(trigger_only[2].is_empty(), "dc_period should be empty");
         assert!(trigger_only[3].is_empty(), "alpha should be empty");
 
         // Only dc_period.
-        let (dc_only, _) = it_indicator(&inputs, &[], Some(&[false, true, false])).unwrap();
+        let (dc_only, _) =
+            InstantaneousTrendline::indicator(&inputs, &[], Some(&[false, true, false])).unwrap();
         assert!(dc_only[1].is_empty(), "trigger should be empty");
         assert_eq!(dc_only[2].len(), expected_len, "dc_period len");
         assert!(dc_only[3].is_empty(), "alpha should be empty");
 
         // Only alpha.
-        let (alpha_only, _) = it_indicator(&inputs, &[], Some(&[false, false, true])).unwrap();
+        let (alpha_only, _) =
+            InstantaneousTrendline::indicator(&inputs, &[], Some(&[false, false, true])).unwrap();
         assert!(alpha_only[1].is_empty(), "trigger should be empty");
         assert!(alpha_only[2].is_empty(), "dc_period should be empty");
         assert_eq!(alpha_only[3].len(), expected_len, "alpha len");
 
         // All three.
-        let (both, _) = it_indicator(&inputs, &[], Some(&[true, true, true])).unwrap();
+        let (both, _) =
+            InstantaneousTrendline::indicator(&inputs, &[], Some(&[true, true, true])).unwrap();
         assert_eq!(both[1].len(), expected_len, "trigger len (all)");
         assert_eq!(both[2].len(), expected_len, "dc_period len (all)");
         assert_eq!(both[3].len(), expected_len, "alpha len (all)");
@@ -249,12 +283,19 @@ mod tests {
         for (stock_symbol, stock_data) in data {
             let close = get_close_array(stock_data);
 
-            let (ref_out, _) = it_indicator(&[close.as_slice()], &[], Some(&[true, true, true]))
-                .expect("reference run failed");
+            let (ref_out, _) = InstantaneousTrendline::indicator(
+                &[close.as_slice()],
+                &[],
+                Some(&[true, true, true]),
+            )
+            .expect("reference run failed");
 
-            let (first_out, mut state) =
-                it_indicator(&[&close[..FIRST_CHUNK]], &[], Some(&[true, true, true]))
-                    .expect("seed run failed");
+            let (first_out, mut state) = InstantaneousTrendline::indicator(
+                &[&close[..FIRST_CHUNK]],
+                &[],
+                Some(&[true, true, true]),
+            )
+            .expect("seed run failed");
 
             let mut batch = [
                 first_out[0].clone(),
@@ -331,8 +372,12 @@ mod tests {
             .expect("SIMD by_assets failed");
 
         for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
-            let (scalar_out, _) = it_indicator(&[close.as_slice()], &[], Some(&[true, true, true]))
-                .expect("scalar failed");
+            let (scalar_out, _) = InstantaneousTrendline::indicator(
+                &[close.as_slice()],
+                &[],
+                Some(&[true, true, true]),
+            )
+            .expect("scalar failed");
 
             for k in 0..4 {
                 let label = OUTPUT_LABELS[k];
@@ -422,8 +467,12 @@ mod tests {
                 }
             }
 
-            let (scalar_out, _) = it_indicator(&[close.as_slice()], &[], Some(&[true, true, true]))
-                .expect("scalar indicator failed");
+            let (scalar_out, _) = InstantaneousTrendline::indicator(
+                &[close.as_slice()],
+                &[],
+                Some(&[true, true, true]),
+            )
+            .expect("scalar indicator failed");
 
             for k in 0..4 {
                 let label = OUTPUT_LABELS[k];
@@ -453,5 +502,4 @@ mod tests {
         }
         println!("✓ All SIMD by_assets state continuity IT tests passed!");
     }
-
-    }
+}

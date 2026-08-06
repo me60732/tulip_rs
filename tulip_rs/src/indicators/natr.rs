@@ -1,19 +1,18 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{TIndicatorState, TState, Indicator, IndicatorResult};
 //use crate::indicators::atr::calc as calc_atr;
-pub use crate::indicators::atr::multiplier;
-pub use crate::indicators::atr::State;
-use crate::indicators::tr::output_length as tr_output_length;
+pub use crate::indicators::atr::{multiplier, State as AtrState};
+use crate::indicators::tr::Tr;
 use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
+    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold
 };
 use serde::{Deserialize, Serialize};
-
+use std::ops::{Deref, DerefMut};
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 3;
+pub const INPUTS: usize = 3;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -47,55 +46,53 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::natr_simd::indicator_by_options as indicator;
 }
 
-/// Returns information about the Normalized Average True Range (NATR) indicator.
-pub const INFO: Info = Info {
-    name: "natr",
-    full_name: "Normalized Average True Range",
-    indicator_type: IndicatorType::Volatility,
-    inputs: &["high", "low", "close"],
-    options: &["period"],
-    outputs: &["natr"],
-    optional_outputs: &["atr", "tr"],
-    display_groups: &[
-        DisplayGroup {
-            offset: None,
-            id: "natr",
-            label: "NATR",
-            display_type: DisplayType::Indicator,
-            outputs: &["natr"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "atr_tr",
-            label: "True Range",
-            display_type: DisplayType::Indicator,
-            outputs: &["atr", "tr"],
-        },
-    ],
-};
-/// Returns the minimum amount of data required for the NATR indicator.
-pub fn min_data(options: &[f64]) -> usize {
-    options[0] as usize + 1
-}
-
-/// Returns the output length for the NATR indicator.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
 #[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    state: State,
-    multipliers: (f64, f64),
+#[serde(bound="")]
+#[repr(transparent)]
+pub struct State<S = Cold>(pub AtrState<S>);
+impl<S> Deref for State<S> {
+    type Target = AtrState<S>;
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
-impl IndicatorState {
-    pub fn new(state: State, multipliers: (f64, f64)) -> Self {
-        Self { state, multipliers }
+impl<S> DerefMut for State<S> {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+pub type IndicatorState = State<Warm>;
+
+impl State<Cold> {
+    pub fn init_state(
+        high: &[f64],
+        low: &[f64],
+        close: &[f64],
+        period: usize,
+        tr_line: &mut [f64],
+    ) -> State<Warm> {
+        State(AtrState::init_state(high, low, close, period, tr_line, false))
+    }
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64, f64);
+    type Outputs = (f64, f64, f64);
+    
+    #[inline(always)]
+    fn calc<'a>(
+        &mut self,
+        (high, low, close): Self::Inputs<'a>
+    ) -> Self::Outputs {
+        let (atr, tr) = self.0.calc((high, low, close));
+        ((atr / close) * 100.0, atr, tr)
     }
 }
 impl TIndicatorState<3> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -115,103 +112,33 @@ impl TIndicatorState<3> for IndicatorState {
             (inputs[0], inputs[1], inputs[2]),
             &mut natr_line,
             (&mut atr_line, &mut tr_line),
-            &mut self.state,
-            self.multipliers,
+            self,
         );
 
         Ok(vec![natr_line, atr_line, tr_line])
     }
 }
 
-/// Calculates the Normalized Average True Range (NATR) indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — high prices
-/// * `inputs[1]` — low prices
-/// * `inputs[2]` — close prices
-///
-/// # Options
-///
-/// * `options[0]` — period
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `optional_outputs` - Optional slice of booleans enabling extra outputs:
-///   `[0]` → `atr`, `[1]` → `tr`.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is the `natr` line,
-/// `outputs[1]` is the `atr` line (empty if not requested), and
-/// `outputs[2]` is the `tr` line (empty if not requested). `state` can be
-/// passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let period = options[0] as usize;
-    let multipliers = multiplier(period);
-    validate_inputs(inputs, min_data(options))?;
-    let (mut natr_line, mut atr_line, mut tr_line);
-    {
-        let capacity = output_length(inputs[0].len(), options);
-        natr_line = crate::uninit_vec!(f64, capacity);
-
-        (atr_line, tr_line) = crate::init_optional_outputs_eff!(
-            optional_outputs, &[false, false],
-            atr_line: capacity,
-            tr_line: tr_output_length(inputs[0].len(), options)
-        );
-    }
-    let mut state = State::init_state(inputs[0], inputs[1], inputs[2], period, &mut tr_line, false);
-    let offset = crate::slice_outputs_start!(natr_line.len(), tr_line);
-
-    cycle_natr(
-        (
-            &inputs[0][period..],
-            &inputs[1][period..],
-            &inputs[2][period..],
-        ),
-        &mut natr_line,
-        (&mut atr_line, &mut tr_line[offset..]),
-        &mut state,
-        multipliers,
-    );
-
-    Ok((
-        vec![natr_line, atr_line, tr_line],
-        IndicatorState::new(state, multipliers),
-    ))
-}
 
 /// Iterates over the input data and applies the calc function.
 //#[inline(always)]
 fn cycle_natr(
-    inputs: (&[f64], &[f64], &[f64]),
+    (high, low, close): (&[f64], &[f64], &[f64]),
     natr_line: &mut [f64],
-    out_vecs: (&mut [f64], &mut [f64]),
-    state: &mut State,
-    multipliers: (f64, f64),
+    (atr_line, tr_line): (&mut [f64], &mut [f64]),
+    state: &mut State<Warm>,
 ) {
-    let (high, low, close) = inputs;
-    let (atr_line, tr_line) = out_vecs;
     let (has_optional, want_atr, want_tr) = crate::calc_want_flags!(atr_line, tr_line);
 
     for i in 0..high.len() {
-        let (h, l, c) = unsafe {
+        let inputs = unsafe {
             (
                 *high.get_unchecked(i),
                 *low.get_unchecked(i),
                 *close.get_unchecked(i),
             )
         };
-        let (natr, atr, tr) = Calc::calc(state, h, l, c, multipliers);
+        let (natr, atr, tr) = state.calc(inputs);
         unsafe { *natr_line.get_unchecked_mut(i) = natr };
 
         if has_optional {
@@ -222,26 +149,75 @@ fn cycle_natr(
         }
     }
 }
-pub trait Calc {
-    fn calc(
-        &mut self,
-        high: f64,
-        low: f64,
-        close: f64,
-        multipliers: (f64, f64),
-    ) -> (f64, f64, f64);
-}
-impl Calc for State {
-    /// Performs the core calculation for the Normalized Average True Range (NATR) indicator.
-    #[inline(always)]
-    fn calc(
-        &mut self,
-        high: f64,
-        low: f64,
-        close: f64,
-        multipliers: (f64, f64),
-    ) -> (f64, f64, f64) {
-        let (atr, tr) = State::calc(self, high, low, close, multipliers);
-        ((atr / close) * 100.0, atr, tr)
+
+
+pub struct Natr;
+
+impl Indicator<INPUTS, OPTIONS> for Natr {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "natr",
+        full_name: "Normalized Average True Range",
+        indicator_type: IndicatorType::Volatility,
+        inputs: &["high", "low", "close"],
+        options: &["period"],
+        outputs: &["natr"],
+        optional_outputs: &["atr", "tr"],
+        display_groups: &[
+            DisplayGroup {
+                offset: None,
+                id: "natr",
+                label: "NATR",
+                display_type: DisplayType::Indicator,
+                outputs: &["natr"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "atr_tr",
+                label: "True Range",
+                display_type: DisplayType::Indicator,
+                outputs: &["atr", "tr"],
+            },
+        ],
+    };
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        let period = options[0] as usize;
+
+        validate_inputs(inputs, Self::min_data(options))?;
+        let (mut natr_line, mut atr_line, mut tr_line);
+        {
+            let capacity = Self::output_length(inputs[0].len(), options);
+            natr_line = crate::uninit_vec!(f64, capacity);
+    
+            (atr_line, tr_line) = crate::init_optional_outputs_eff!(
+                optional_outputs, &[false, false],
+                atr_line: capacity,
+                tr_line: Tr::output_length(inputs[0].len(), &[])
+            );
+        }
+        let mut state = State::init_state(inputs[0], inputs[1], inputs[2], period, &mut tr_line);
+        let offset = crate::slice_outputs_start!(natr_line.len(), tr_line);
+    
+        cycle_natr(
+            (
+                &inputs[0][period..],
+                &inputs[1][period..],
+                &inputs[2][period..],
+            ),
+            &mut natr_line,
+            (&mut atr_line, &mut tr_line[offset..]),
+            &mut state,
+        );
+    
+        Ok((
+            vec![natr_line, atr_line, tr_line],
+            state,
+        ))
     }
 }

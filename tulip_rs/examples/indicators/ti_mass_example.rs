@@ -1,4 +1,4 @@
-use tulip_rs::indicators::mass::{indicator, TIndicatorState};
+use tulip_rs::indicators::mass::{Indicator, Mass, TIndicatorState};
 
 fn main() {
     // Test Input Data
@@ -19,7 +19,7 @@ fn main() {
     let inputs = [new_high.as_slice(), new_low.as_slice()];
 
     // Calculate the Mass Index using the full dataset
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match Mass::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -31,7 +31,7 @@ fn main() {
     ];
 
     // Calculate the Mass Index using a partial dataset
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match Mass::indicator(&inputs2, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

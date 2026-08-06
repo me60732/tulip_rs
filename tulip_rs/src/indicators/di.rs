@@ -1,19 +1,19 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
 use crate::indicators::atr::State as AtrState;
 use crate::indicators::dm::State as DMState;
-use crate::indicators::tr::output_length as tr_output_length;
+use crate::indicators::tr::Tr;
 pub use crate::indicators::wilders::multiplier;
 use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
+    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold
 };
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 3;
+pub const INPUTS: usize = 3;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -47,85 +47,21 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::di_simd::indicator_by_options as indicator;
 }
 
-/// Returns information about the Directional Indicator (DI) indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the DI indicator.
-pub const INFO: Info = Info {
-    name: "di",
-    full_name: "Directional Indicator",
-    indicator_type: IndicatorType::Trend,
-    inputs: &["high", "low", "close"],
-    options: &["period"],
-    outputs: &["plus_di", "minus_di"],
-    optional_outputs: &["atr", "tr"],
-    display_groups: &[
-        DisplayGroup {
-            offset: None,
-            id: "di",
-            label: "DI",
-            display_type: DisplayType::Indicator,
-            outputs: &["plus_di", "minus_di"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "atr_tr",
-            label: "True Range",
-            display_type: DisplayType::Indicator,
-            outputs: &["atr", "tr"],
-        },
-    ],
-};
 #[derive(Serialize, Deserialize)]
-pub struct State {
-    pub di_state: DMState,
-    pub atr_state: AtrState,
+#[serde(bound="")]
+pub struct State<S = Cold> {
+    pub di_state: DMState<S>,
+    pub atr_state: AtrState<S>,
 }
-impl State {
-    pub fn new(dm_state: (f64, f64, f64, f64), atr_state: (f64, f64)) -> Self {
-        Self {
-            atr_state: AtrState::new(atr_state.0, atr_state.1),
-            di_state: DMState::new(dm_state.0, dm_state.1, dm_state.2, dm_state.3),
-        }
-    }
-    pub fn init_state(
-        high: &[f64],
-        low: &[f64],
-        close: &[f64],
-        period: usize,
-        tr_line: &mut [f64],
-    ) -> State {
-        let atr_state = AtrState::init_state(high, low, close, period, tr_line, true);
-        let di_state = DMState::init_state(high, low, period);
-
-        State {
-            atr_state,
-            di_state,
-        }
-    }
-    /// Calculates the current Directional Indicator (DI) values.
-    ///
-    /// # Arguments
-    ///
-    /// * `state` - Mutable reference to the DI state (DM and ATR sub-states).
-    /// * `high` - The current high price.
-    /// * `low` - The current low price.
-    /// * `close` - The current close price.
-    ///
-    /// # Returns
-    ///
-    /// A tuple `(plus_di, minus_di, atr, tr)` representing the current DI values,
-    /// the smoothed ATR, and the raw true range.
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64, f64);
+    type Outputs = (f64, f64, f64, f64);
     #[inline(always)]
-    pub fn calc(
+    fn calc<'a>(
         &mut self,
-        high: f64,
-        low: f64,
-        close: f64,
-        multipliers: (f64, f64),
-    ) -> (f64, f64, f64, f64) {
-        let (dmup, dmdown, atr, tr) = self.calc_diup_didown(high, low, close, multipliers);
+        inputs: Self::Inputs<'a>
+    ) -> Self::Outputs {
+        let (dmup, dmdown, atr, tr) = self.calc_diup_didown(inputs);
     
         let atr_inv = 100.0 / atr;
         let mut pdi = dmup * atr_inv; // multiplication
@@ -134,34 +70,47 @@ impl State {
         mdi = if mdi.is_nan() { 0.0 } else { mdi };
         (pdi, mdi, atr, tr)
     }
-    
+}
+impl State<Cold> {
+    /*pub fn new(dm_state: (f64, f64, f64, f64), atr_state: (f64, f64)) -> Self {
+        Self {
+            atr_state: AtrState::new(atr_state.0, atr_state.1),
+            di_state: DMState::new(dm_state.0, dm_state.1, dm_state.2, dm_state.3),
+        }
+    }*/
+    pub fn init_state(
+        high: &[f64],
+        low: &[f64],
+        close: &[f64],
+        period: usize,
+        tr_line: &mut [f64],
+    ) -> State<Warm> {
+        let atr_state = AtrState::init_state(high, low, close, period, tr_line, true);
+        let di_state = DMState::init_state(high, low, period);
+
+        State {
+            atr_state,
+            di_state,
+        }
+    }
+}
+impl State<Warm> {
     #[inline(always)]
     pub fn calc_diup_didown(
         &mut self,
-        high: f64,
-        low: f64,
-        close: f64,
-        multipliers: (f64, f64),
+        (high, low, close): (f64, f64, f64),
     ) -> (f64, f64, f64, f64) {
-        let (atr, tr) = self.atr_state.partial_calc(high, low, close, multipliers);
-        let (dmup, dmdown) = self.di_state.calc(high, low, multipliers.0);
+        let (dmup, dmdown) = self.di_state.calc((high, low));
+        let (atr, tr) = self.atr_state.partial_calc((high, low, close));
         (dmup, dmdown, atr, tr)
     }
 }
-#[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    state: State,
-    multipliers: (f64, f64),
-}
-impl IndicatorState {
-    pub fn new(state: State, multipliers: (f64, f64)) -> Self {
-        Self { state, multipliers }
-    }
-}
+pub type IndicatorState = State<Warm>;
+
 impl TIndicatorState<3> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -183,8 +132,7 @@ impl TIndicatorState<3> for IndicatorState {
             high,
             low,
             close,
-            &mut self.state,
-            self.multipliers,
+            self,
             (&mut plus_di_line, &mut minus_di_line),
             (&mut atr_line, &mut tr_line),
         );
@@ -192,106 +140,7 @@ impl TIndicatorState<3> for IndicatorState {
         Ok(vec![plus_di_line, minus_di_line, atr_line, tr_line])
     }
 }
-/// Returns the minimum amount of data required for the DI indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the DI calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    options[0] as usize + 1 // period
-}
-/// Returns the number of output values given an input data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the DI calculation.
-///
-/// # Returns
-///
-/// The number of output values (`data_len - min_data(options) + 1`).
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-/// Calculates the Directional Indicator (DI) over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — high prices
-/// * `inputs[1]` — low prices
-/// * `inputs[2]` — close prices
-///
-/// # Options
-///
-/// * `options[0]` — period (Wilder smoothing window for DM+ / DM- / ATR)
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `optional_outputs` - Pass `Some(&[true, false])` to enable `atr`,
-///   `Some(&[false, true])` to enable `tr`, or `Some(&[true, true])` for both;
-///   `None` disables all optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is `plus_di`, `outputs[1]` is `minus_di`,
-/// `outputs[2]` is `atr`, and `outputs[3]` is `tr` (empty unless requested).
-/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let period = options[0] as usize;
-    let multipliers = multiplier(period);
 
-    validate_inputs(inputs, min_data(options))?;
-    let high = inputs[0];
-    let low = inputs[1];
-    let close = inputs[2];
-
-    let (mut plus_di_line, mut minus_di_line, mut atr_line, mut tr_line);
-    {
-        let capacity = output_length(high.len(), options);
-        let tr_capacity = tr_output_length(high.len(), options);
-
-        plus_di_line = crate::uninit_vec!(f64, capacity);
-        minus_di_line = crate::uninit_vec!(f64, capacity);
-
-        (atr_line, tr_line) = crate::init_optional_outputs_eff!(
-            optional_outputs, &[false, false],
-            atr_line: capacity,
-            tr_line: tr_capacity
-        );
-    }
-    let mut state = State::init_state(high, low, close, period, &mut tr_line);
-    let tr = {
-        let offsets = crate::slice_outputs_start!(plus_di_line.len(), tr_line);
-        &mut tr_line[offsets..]
-    };
-    let (high, low, close) = { (&high[period..], &low[period..], &close[period..]) };
-    cycle_calc(
-        high,
-        low,
-        close,
-        &mut state,
-        multipliers,
-        (&mut plus_di_line, &mut minus_di_line),
-        (&mut atr_line, tr),
-    );
-
-    Ok((
-        vec![plus_di_line, minus_di_line, atr_line, tr_line],
-        IndicatorState::new(state, multipliers),
-    ))
-}
 
 /// Performs the main calculation loop for the DI indicator.
 ///
@@ -308,8 +157,7 @@ fn cycle_calc(
     high: &[f64],
     low: &[f64],
     close: &[f64],
-    state: &mut State,
-    multipliers: (f64, f64),
+    state: &mut State<Warm>,
     outputs: (&mut [f64], &mut [f64]),
     out_vecs: (&mut [f64], &mut [f64]),
 ) {
@@ -318,7 +166,7 @@ fn cycle_calc(
     let (has_optional, want_atr, want_tr) = crate::calc_want_flags!(atr_line, tr_line);
 
     for i in 0..high.len() {
-        let (h, l, c) = unsafe {
+        let inputs = unsafe {
             (
                 *high.get_unchecked(i),
                 *low.get_unchecked(i),
@@ -326,7 +174,7 @@ fn cycle_calc(
             )
         };
 
-        let (pdi, mdi, atr, tr) = state.calc(h, l, c, multipliers);
+        let (pdi, mdi, atr, tr) = state.calc(inputs);
 
         unsafe {
             *plus_di_line.get_unchecked_mut(i) = pdi;
@@ -337,10 +185,86 @@ fn cycle_calc(
                 want_tr, tr_line => tr
             );
             crate::store_optional_outputs_corrected!(i,
-                want_atr, atr_line => corrected(atr, multipliers.1)
+                want_atr, atr_line => corrected(atr, state.atr_state.wilders_state.inv_multiplier)
             );
         }
     }
 }
 
+pub struct Di;
+impl Indicator<INPUTS, OPTIONS> for Di {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "di",
+        full_name: "Directional Indicator",
+        indicator_type: IndicatorType::Trend,
+        inputs: &["high", "low", "close"],
+        options: &["period"],
+        outputs: &["plus_di", "minus_di"],
+        optional_outputs: &["atr", "tr"],
+        display_groups: &[
+            DisplayGroup {
+                offset: None,
+                id: "di",
+                label: "DI",
+                display_type: DisplayType::Indicator,
+                outputs: &["plus_di", "minus_di"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "atr_tr",
+                label: "True Range",
+                display_type: DisplayType::Indicator,
+                outputs: &["atr", "tr"],
+            },
+        ],
+    };
 
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        let period = options[0] as usize;
+    
+        validate_inputs(inputs, Self::min_data(options))?;
+        let high = inputs[0];
+        let low = inputs[1];
+        let close = inputs[2];
+    
+        let (mut plus_di_line, mut minus_di_line, mut atr_line, mut tr_line);
+        {
+            let capacity = Self::output_length(high.len(), options);
+            let tr_capacity = Tr::output_length(high.len(), &[]);
+    
+            plus_di_line = crate::uninit_vec!(f64, capacity);
+            minus_di_line = crate::uninit_vec!(f64, capacity);
+    
+            (atr_line, tr_line) = crate::init_optional_outputs_eff!(
+                optional_outputs, &[false, false],
+                atr_line: capacity,
+                tr_line: tr_capacity
+            );
+        }
+        let mut state = State::init_state(high, low, close, period, &mut tr_line);
+        let tr = {
+            let offsets = crate::slice_outputs_start!(plus_di_line.len(), tr_line);
+            &mut tr_line[offsets..]
+        };
+        let (high, low, close) = { (&high[period..], &low[period..], &close[period..]) };
+        cycle_calc(
+            high,
+            low,
+            close,
+            &mut state,
+            (&mut plus_di_line, &mut minus_di_line),
+            (&mut atr_line, tr),
+        );
+    
+        Ok((
+            vec![plus_di_line, minus_di_line, atr_line, tr_line],
+            state,
+        ))
+    }
+}

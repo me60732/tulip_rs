@@ -1,28 +1,28 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::ultosc_simd::options::SimdState;
+use crate::indicators::simd_indicators::ultosc_simd::options::{SimdState, TState};
 use crate::indicators::{
-    tr::output_length as tr_output_length,
+    tr::Tr,
     ultosc::{
-        min_data, output_length, validate_options as vo, IndicatorState, State, INPUTS_WIDTH,
-        OPTIONS_WIDTH,
+        Ultosc, Indicator, validate_options as vo, IndicatorState, State, INPUTS,
+        OPTIONS,
     },
 };
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 
 /// SIMD driver for the Ultimate Oscillator (ULTOSC) indicator, processing `N` option-set lanes per scheduling epoch.
 struct UltoscDriver {
     want_optional_outputs: (bool, bool, bool),
 }
 
-impl Driver<State, (usize, usize, usize)> for UltoscDriver {
+impl Driver<State<Warm>, (usize, usize, usize)> for UltoscDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         options: Vec<Option<&(usize, usize, usize)>>,
     ) {
         let len = outputs[0][0].len();
@@ -37,7 +37,7 @@ impl Driver<State, (usize, usize, usize)> for UltoscDriver {
                     long_periods[lane] = long_period;
                 }
             }
-            SimdState::<N>::new(&mut states, (short_periods, medium_periods, long_periods))
+            SimdState::<N>::from_states(&mut states, (short_periods, medium_periods, long_periods))
         };
         //collect outputs
         let (ultosc_line_ptr, tr_line_ptr, bp_line_ptr) =
@@ -50,7 +50,7 @@ impl Driver<State, (usize, usize, usize)> for UltoscDriver {
 
         for i in 0..len {
             // Get inputs arrays for stocks
-            let (high, low, close) = unsafe {
+            let inputs = unsafe {
                 (
                     *high_ptrs[0].add(i),
                     *low_ptrs[0].add(i),
@@ -58,7 +58,7 @@ impl Driver<State, (usize, usize, usize)> for UltoscDriver {
                 )
             };
 
-            let (ultosc, tr, bp) = unsafe { state.calc_unchecked(high, low, close) };
+            let (ultosc, tr, bp) = state.calc(inputs);
 
             crate::write_simd_at_indices!(N, i,
                 ultosc_line_ptr => ultosc
@@ -85,7 +85,7 @@ impl Driver<State, (usize, usize, usize)> for UltoscDriver {
 /// # Arguments
 /// * `inputs` - Shared input data: `inputs[0]` is `&[f64]` for `high`, `inputs[1]` for `low`,
 ///   `inputs[2]` for `close`.
-/// * `options` - An array of `N` option sets; `options[i]` is `&[f64; OPTIONS_WIDTH]` containing
+/// * `options` - An array of `N` option sets; `options[i]` is `&[f64; OPTIONS]` containing
 ///   `[short_period, medium_period, long_period]` for option set `i`.
 /// * `optional_outputs` - Unused; ULTOSC has no optional outputs.
 ///
@@ -94,11 +94,11 @@ impl Driver<State, (usize, usize, usize)> for UltoscDriver {
 /// and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or any option set is invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS],
+    options: &[&[f64; OPTIONS]; N],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, Ultosc::min_data)?;
     validate_options(options, Some(vo))?;
     let periods: [(usize, usize, usize); N] = std::array::from_fn(|i| {
         (
@@ -107,7 +107,7 @@ pub fn indicator_by_options<const N: usize>(
             options[i][2] as usize,
         )
     });
-    let mut road_train = PrimeMover::<N, State, (usize, usize, usize)>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>, (usize, usize, usize)>::new();
     let mut output_buffers = Vec::with_capacity(N);
     let mut want_optional_outputs = (false, false, false);
     let [high, low, close] = *inputs;
@@ -115,8 +115,8 @@ pub fn indicator_by_options<const N: usize>(
         let asset_inputs = vec![high, low, close];
 
         let (mut ultosc_line, (mut tr_line, mut bp_line)) = {
-            let capacity = output_length(high.len(), options[i]);
-            let tr_capacity = tr_output_length(high.len(), options[i]);
+            let capacity = Ultosc::output_length(high.len(), options[i]);
+            let tr_capacity = Tr::output_length(high.len(), &[]);
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::init_optional_outputs_eff!(

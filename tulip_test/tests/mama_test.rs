@@ -1,11 +1,8 @@
 #[cfg(test)]
 mod tests {
     use tulip_rs::indicator_types::TIndicatorState;
-    use tulip_rs::indicators::homodynediscriminator::indicator as hd_indicator;
-    use tulip_rs::indicators::mama::{
-        indicator as mama_indicator, indicator_by_assets, indicator_by_options, min_data,
-        output_length,
-    };
+    use tulip_rs::indicators::homodynediscriminator::HomodyneDiscriminator;
+    use tulip_rs::indicators::mama::{indicator_by_assets, indicator_by_options, Indicator, Mama};
     use tulip_rs::types::IndicatorError;
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -30,19 +27,23 @@ mod tests {
     fn test_mama_min_data_and_output_length() {
         // Warmup is fixed at 23 bars regardless of options.
         for opts in &OPTIONS_LIST {
-            assert_eq!(min_data(opts), 23, "min_data mismatch for options={opts:?}");
             assert_eq!(
-                output_length(23, opts),
+                Mama::min_data(opts),
+                23,
+                "min_data mismatch for options={opts:?}"
+            );
+            assert_eq!(
+                Mama::output_length(23, opts),
                 1,
                 "output_length(23) mismatch for options={opts:?}"
             );
             assert_eq!(
-                output_length(100, opts),
+                Mama::output_length(100, opts),
                 78,
                 "output_length(100) mismatch for options={opts:?}"
             );
             assert_eq!(
-                output_length(1000, opts),
+                Mama::output_length(1000, opts),
                 978,
                 "output_length(1000) mismatch for options={opts:?}"
             );
@@ -53,7 +54,7 @@ mod tests {
     fn test_mama_not_enough_data() {
         let close: Vec<f64> = (0..22).map(|i| 100.0 + i as f64).collect();
         for opts in &OPTIONS_LIST {
-            let result = mama_indicator(&[close.as_slice()], opts, None);
+            let result = Mama::indicator(&[close.as_slice()], opts, None);
             assert!(
                 matches!(result, Err(IndicatorError::NotEnoughData)),
                 "Expected NotEnoughData for {} bars (need 23), options={opts:?}",
@@ -67,29 +68,29 @@ mod tests {
         let close: Vec<f64> = (0..100).map(|i| 100.0 + i as f64).collect();
         let inputs = [close.as_slice()];
         assert!(matches!(
-            mama_indicator(&inputs, &[0.0, 0.05], None),
+            Mama::indicator(&inputs, &[0.0, 0.05], None),
             Err(IndicatorError::InvalidOptions)
         ));
         assert!(matches!(
-            mama_indicator(&inputs, &[1.1, 0.05], None),
+            Mama::indicator(&inputs, &[1.1, 0.05], None),
             Err(IndicatorError::InvalidOptions)
         ));
         assert!(matches!(
-            mama_indicator(&inputs, &[0.5, 0.0], None),
+            Mama::indicator(&inputs, &[0.5, 0.0], None),
             Err(IndicatorError::InvalidOptions)
         ));
         assert!(matches!(
-            mama_indicator(&inputs, &[0.5, 0.5], None),
+            Mama::indicator(&inputs, &[0.5, 0.5], None),
             Err(IndicatorError::InvalidOptions)
         ));
         assert!(matches!(
-            mama_indicator(&inputs, &[0.5, 0.6], None),
+            Mama::indicator(&inputs, &[0.5, 0.6], None),
             Err(IndicatorError::InvalidOptions)
         ));
         // All standard option sets must be accepted.
         for opts in &OPTIONS_LIST {
             assert!(
-                mama_indicator(&inputs, opts, None).is_ok(),
+                Mama::indicator(&inputs, opts, None).is_ok(),
                 "Expected Ok for options={opts:?}"
             );
         }
@@ -106,8 +107,8 @@ mod tests {
         let close: Vec<f64> = (0..100).map(|i| 50.0 + (i as f64) * 0.1).collect();
         for opts in &OPTIONS_LIST {
             let (outputs, _) =
-                mama_indicator(&[close.as_slice()], opts, None).expect("indicator failed");
-            let seed = close[min_data(opts) - 1];
+                Mama::indicator(&[close.as_slice()], opts, None).expect("indicator failed");
+            let seed = close[Mama::min_data(opts) - 1];
             assert_eq!(
                 outputs[0][0], seed,
                 "mama[0] should equal close[min_data-1], options={opts:?}"
@@ -131,8 +132,8 @@ mod tests {
             let close = get_close_array(stock_data);
             for options in OPTIONS_LIST {
                 let (out, _) =
-                    mama_indicator(&[close.as_slice()], &options, None).expect("indicator failed");
-                let expected = output_length(close.len(), &options);
+                    Mama::indicator(&[close.as_slice()], &options, None).expect("indicator failed");
+                let expected = Mama::output_length(close.len(), &options);
                 assert_eq!(out[0].len(), expected, "mama length: stock={stock_symbol}");
                 assert_eq!(out[1].len(), expected, "fama length: stock={stock_symbol}");
             }
@@ -150,7 +151,7 @@ mod tests {
         for (stock_symbol, stock_data) in data {
             let close = get_close_array(stock_data);
             for options in OPTIONS_LIST {
-                let (out, _) = mama_indicator(&[close.as_slice()], &options, Some(&[true, true]))
+                let (out, _) = Mama::indicator(&[close.as_slice()], &options, Some(&[true, true]))
                     .expect("indicator failed");
                 let (fast, slow) = (options[0], options[1]);
                 for (i, ((&m, &f), &a)) in out[0]
@@ -181,9 +182,9 @@ mod tests {
         let inputs = [close.as_slice()];
 
         for opts in &OPTIONS_LIST {
-            let expected_len = output_length(close.len(), opts);
+            let expected_len = Mama::output_length(close.len(), opts);
 
-            let (none, _) = mama_indicator(&inputs, opts, None).unwrap();
+            let (none, _) = Mama::indicator(&inputs, opts, None).unwrap();
             assert_eq!(none[0].len(), expected_len, "mama len, options={opts:?}");
             assert_eq!(none[1].len(), expected_len, "fama len, options={opts:?}");
             assert!(
@@ -195,7 +196,7 @@ mod tests {
                 "alpha should be empty, options={opts:?}"
             );
 
-            let (dc_only, _) = mama_indicator(&inputs, opts, Some(&[true, false])).unwrap();
+            let (dc_only, _) = Mama::indicator(&inputs, opts, Some(&[true, false])).unwrap();
             assert_eq!(
                 dc_only[2].len(),
                 expected_len,
@@ -206,7 +207,7 @@ mod tests {
                 "alpha should be empty, options={opts:?}"
             );
 
-            let (alpha_only, _) = mama_indicator(&inputs, opts, Some(&[false, true])).unwrap();
+            let (alpha_only, _) = Mama::indicator(&inputs, opts, Some(&[false, true])).unwrap();
             assert!(
                 alpha_only[2].is_empty(),
                 "dc_period should be empty, options={opts:?}"
@@ -217,7 +218,7 @@ mod tests {
                 "alpha len, options={opts:?}"
             );
 
-            let (both, _) = mama_indicator(&inputs, opts, Some(&[true, true])).unwrap();
+            let (both, _) = Mama::indicator(&inputs, opts, Some(&[true, true])).unwrap();
             assert_eq!(
                 both[2].len(),
                 expected_len,
@@ -253,11 +254,13 @@ mod tests {
         let data = get_all_stock_data().unwrap();
         for (stock_symbol, stock_data) in data {
             let close = get_close_array(stock_data);
-            let (hd_out, _) = hd_indicator(&[close.as_slice()], &[], None).expect("HD failed");
+            let (hd_out, _) = HomodyneDiscriminator::indicator(&[close.as_slice()], &[], None)
+                .expect("HD failed");
             // dc_period is driven purely by the HD pipeline — options do not affect it.
             for opts in &OPTIONS_LIST {
-                let (mama_out, _) = mama_indicator(&[close.as_slice()], opts, Some(&[true, false]))
-                    .expect("MAMA failed");
+                let (mama_out, _) =
+                    Mama::indicator(&[close.as_slice()], opts, Some(&[true, false]))
+                        .expect("MAMA failed");
                 assert_eq!(
                     mama_out[2].len(),
                     hd_out[0].len(),
@@ -290,11 +293,11 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 let (ref_out, _) =
-                    mama_indicator(&[close.as_slice()], &options, Some(&[true, true]))
+                    Mama::indicator(&[close.as_slice()], &options, Some(&[true, true]))
                         .expect("reference run failed");
 
                 let (first_out, mut state) =
-                    mama_indicator(&[&close[..FIRST_CHUNK]], &options, Some(&[true, true]))
+                    Mama::indicator(&[&close[..FIRST_CHUNK]], &options, Some(&[true, true]))
                         .expect("seed run failed");
 
                 let mut batch = [
@@ -385,7 +388,7 @@ mod tests {
 
             for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
                 let (scalar_out, _) =
-                    mama_indicator(&[close.as_slice()], &options, Some(&[true, true]))
+                    Mama::indicator(&[close.as_slice()], &options, Some(&[true, true]))
                         .expect("scalar failed");
 
                 for k in 0..4 {
@@ -449,7 +452,7 @@ mod tests {
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
                 let (scalar_out, _) =
-                    mama_indicator(&inputs, options, Some(&[true, true])).expect("scalar failed");
+                    Mama::indicator(&inputs, options, Some(&[true, true])).expect("scalar failed");
 
                 for k in 0..4 {
                     let label = OUTPUT_LABELS[k];
@@ -545,7 +548,7 @@ mod tests {
                 }
 
                 let (scalar_out, _) =
-                    mama_indicator(&[close.as_slice()], &options, Some(&[true, true]))
+                    Mama::indicator(&[close.as_slice()], &options, Some(&[true, true]))
                         .expect("scalar failed");
 
                 for k in 0..4 {
@@ -634,7 +637,7 @@ mod tests {
                 }
 
                 let (scalar_out, _) =
-                    mama_indicator(&[close.as_slice()], options, Some(&[true, true]))
+                    Mama::indicator(&[close.as_slice()], options, Some(&[true, true]))
                         .expect("scalar failed");
 
                 for k in 0..4 {
@@ -668,5 +671,4 @@ mod tests {
             }
         }
     }
-
-    }
+}

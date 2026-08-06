@@ -1,16 +1,15 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
-use crate::indicators::simd_indicators::keltnerchannel_simd::SimdState;
+use crate::indicators::simd_indicators::keltnerchannel_simd::{SimdState, TSimdState, TState};
 use crate::indicators::{
     keltnerchannel::{
-        min_data, multiplier, output_length, validate_options as vo, IndicatorState, State,
-        INPUTS_WIDTH, OPTIONS_WIDTH,
+        validate_options as vo, Indicator, IndicatorState, KeltnerChannel, State, INPUTS, OPTIONS,
     },
-    tr::output_length as tr_output_length,
+    tr::Tr,
 };
 
 /// SIMD driver that advances the Keltner Channel indicator across `N` option-set lanes
@@ -20,7 +19,7 @@ struct KeltnerChannelDriver {
     want_optional_outputs: (bool, bool, bool),
 }
 
-impl Driver<State, (f64, ((f64, f64), (f64, f64)))> for KeltnerChannelDriver {
+impl Driver<State<Warm>> for KeltnerChannelDriver {
     /// Processes one epoch of bars for `N` option lanes simultaneously using SIMD.
     ///
     /// Reads from `inputs[field]` (shared single asset's high, low, close), writes to
@@ -30,37 +29,11 @@ impl Driver<State, (f64, ((f64, f64), (f64, f64)))> for KeltnerChannelDriver {
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
-        options: Vec<Option<&(f64, ((f64, f64), (f64, f64)))>>,
+        mut states: Vec<&mut State<Warm>>,
+        _options: Vec<Option<&()>>,
     ) {
-        let mut state = SimdState::<N>::new(&mut states);
+        let mut state = SimdState::<N>::from_states(&mut states);
         let len = outputs[0][0].len();
-        let (step, multipliers) = {
-            let mut multipliers = (([0.0; N], [0.0; N]), ([0.0; N], [0.0; N]));
-            let mut step = [0.0; N];
-            for (lane, option) in options.iter().enumerate() {
-                if let Some(&(s, multi)) = option {
-                    step[lane] = s;
-                    multipliers.0 .0[lane] = multi.0 .0;
-                    multipliers.0 .1[lane] = multi.0 .1;
-                    multipliers.1 .0[lane] = multi.1 .0;
-                    multipliers.1 .1[lane] = multi.1 .1;
-                }
-            }
-            (
-                Simd::from_array(step),
-                (
-                    (
-                        Simd::from_array(multipliers.0 .0),
-                        Simd::from_array(multipliers.0 .1),
-                    ),
-                    (
-                        Simd::from_array(multipliers.1 .0),
-                        Simd::from_array(multipliers.1 .1),
-                    ),
-                ),
-            )
-        };
 
         let (has_optional, want_atr, want_tr) = self.want_optional_outputs;
         //collect outputs
@@ -79,7 +52,7 @@ impl Driver<State, (f64, ((f64, f64), (f64, f64)))> for KeltnerChannelDriver {
         // Optimization 3: Simplified main loop with pre-computed offsets
         for i in 0..len {
             // Get inputs arrays for stocks
-            let (high, low, close) = crate::extract_simd_inputs_at_index_splat!(
+            let inputs = crate::extract_simd_inputs_at_index_splat!(
                 i,
                 N,
                 high @ high_ptrs,
@@ -87,8 +60,7 @@ impl Driver<State, (f64, ((f64, f64), (f64, f64)))> for KeltnerChannelDriver {
                 close @ close_ptrs
             );
 
-            let (lower_band, middle_band, upper_band, atr, tr) =
-                state.calc_simd(high, low, close, step, multipliers);
+            let (lower_band, middle_band, upper_band, atr, tr) = state.calc(inputs);
 
             crate::write_simd_at_indices!(N, i,
                 lower_band_ptr => lower_band,
@@ -112,7 +84,7 @@ impl Driver<State, (f64, ((f64, f64), (f64, f64)))> for KeltnerChannelDriver {
 /// sets simultaneously using SIMD parallelism.
 ///
 /// # Arguments
-/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS]`), containing
 ///   `[high, low, close]`.
 /// * `options` - An array of `N` option sets, one per SIMD lane: `[period, step]`.
 /// * `optional_outputs` - Optional output flags: `[want_atr, want_tr]`.
@@ -122,17 +94,14 @@ impl Driver<State, (f64, ((f64, f64), (f64, f64)))> for KeltnerChannelDriver {
 /// and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS],
+    options: &[&[f64; OPTIONS]; N],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, KeltnerChannel::min_data)?;
     validate_options(options, Some(vo))?;
 
-    let params: [(f64, ((f64, f64), (f64, f64))); N] =
-        std::array::from_fn(|i| (options[i][1], multiplier(options[i][0] as usize)));
-
-    let mut road_train = PrimeMover::<N, State, (f64, ((f64, f64), (f64, f64)))>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut want_optional_outputs = (false, false, false);
     let mut output_buffers = Vec::with_capacity(N);
     for i in 0..N {
@@ -141,10 +110,10 @@ pub fn indicator_by_options<const N: usize>(
             inputs[1], // low
             inputs[2], // close
         ];
-
+        let (period, step) = (options[i][0] as usize, options[i][1]);
         let (middle_band, upper_band, lower_band, (atr_line, mut tr_line)) = {
             let len = inputs[0].len();
-            let capacity = output_length(len, options[i]);
+            let capacity = KeltnerChannel::output_length(len, options[i]);
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::uninit_vec!(f64, capacity),
@@ -152,19 +121,12 @@ pub fn indicator_by_options<const N: usize>(
                 crate::init_optional_outputs_eff!(
                     optional_outputs, &[false, false],
                     atr_line: capacity,
-                    tr_line: tr_output_length(len, options[i])
+                    tr_line: Tr::output_length(len, &[])
                 ),
             )
         };
-        let period = options[i][0] as usize;
-        let state = State::init_state(
-            inputs[0],
-            inputs[1],
-            inputs[2],
-            period,
-            params[i].1,
-            &mut tr_line,
-        );
+
+        let state = State::init_state(inputs[0], inputs[1], inputs[2], period, step, &mut tr_line);
 
         let mut starts = [0; 5];
         starts[4] = crate::slice_outputs_start!(upper_band.len(), tr_line);
@@ -196,7 +158,7 @@ pub fn indicator_by_options<const N: usize>(
             period,
             0,
             state,
-            Some(&params[i]),
+            None,
         ));
         output_buffers.push(output_buffer);
     }
@@ -204,11 +166,7 @@ pub fn indicator_by_options<const N: usize>(
     let mut driver = KeltnerChannelDriver {
         want_optional_outputs,
     };
-    let states_vec = road_train.drive(&mut driver);
+    let states = road_train.drive(&mut driver);
 
-    let mut states = Vec::with_capacity(N);
-    for (state, &param) in states_vec.into_iter().zip(params.iter()) {
-        states.push(IndicatorState::new(state, param.0, param.1));
-    }
     Ok((output_buffers, states))
 }

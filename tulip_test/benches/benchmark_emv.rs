@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::emv::{
-    indicator, indicator_by_assets, min_data, IndicatorState, TIndicatorState,
+    Emv, Indicator, indicator_by_assets, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -137,7 +137,7 @@ fn bench_rust_emv(c: &mut Criterion) {
             timing.measure(
                 || {
                     let result =
-                        indicator(&inputs, &OPTIONS_LIST, None).expect("EMV indicator failed");
+                        Emv::indicator(&inputs, &OPTIONS_LIST, None).expect("EMV Emv::indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -158,7 +158,7 @@ fn bench_rust_emv(c: &mut Criterion) {
         c.bench_function("benchmark", |b| {
             b.iter(|| {
                 let inputs = [high.as_slice(), low.as_slice(), volume.as_slice()];
-                let result = indicator(&inputs, &OPTIONS_LIST, None).expect("EMV indicator failed");
+                let result = Emv::indicator(&inputs, &OPTIONS_LIST, None).expect("EMV Emv::indicator failed");
                 black_box(&result);
             });
         });
@@ -182,12 +182,12 @@ fn bench_rust_emv_from_state(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let min_data = min_data(&OPTIONS_LIST);
+                    let min_data = Emv::min_data(&OPTIONS_LIST);
                     // First chunk
                     let chunk_inputs = [&high[..min_data], &low[..min_data], &volume[..min_data]];
 
-                    let (_, mut state) = indicator(&chunk_inputs, &OPTIONS_LIST, None)
-                        .expect("EMV indicator failed");
+                    let (_, mut state) = Emv::indicator(&chunk_inputs, &OPTIONS_LIST, None)
+                        .expect("EMV Emv::indicator failed");
 
                     // Chunks
                     let mut high_chunks = high[min_data..].chunks_exact(CHUNK_SIZE);
@@ -239,14 +239,14 @@ fn bench_rust_emv_from_state(c: &mut Criterion) {
                     &volume[volume.len() - 1..],
                 ];
                 let (_, mut state) =
-                    indicator(&new_inputs, &OPTIONS_LIST, None).expect("Rust EMV indicator failed");
+                    Emv::indicator(&new_inputs, &OPTIONS_LIST, None).expect("Rust EMV Emv::indicator failed");
 
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
                         let result = state
                             .batch_indicator(&final_inputs, None)
-                            .expect("Rust EMV from state indicator failed");
+                            .expect("Rust EMV from state Emv::indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -263,7 +263,7 @@ fn bench_rust_emv_from_state(c: &mut Criterion) {
 
                 // --- Rust_FromState_1_Bar_json benchmark ---
                 let (_, state) =
-                    indicator(&new_inputs, &OPTIONS_LIST, None).expect("Rust EMV indicator failed");
+                    Emv::indicator(&new_inputs, &OPTIONS_LIST, None).expect("Rust EMV Emv::indicator failed");
                 let json = serde_json::to_string(&state).expect("json failed");
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
@@ -272,7 +272,7 @@ fn bench_rust_emv_from_state(c: &mut Criterion) {
                             serde_json::from_str(&json).expect("JSON failed");
                         let result = state
                             .batch_indicator(&final_inputs, None)
-                            .expect("Rust EMV from state indicator failed");
+                            .expect("Rust EMV from state Emv::indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -292,12 +292,12 @@ fn bench_rust_emv_from_state(c: &mut Criterion) {
         // Criterion profiling mode - benchmark synthetic data
         let (high, low, volume) = expand_inputs();
 
-        let min_data = min_data(&OPTIONS_LIST);
+        let min_data = Emv::min_data(&OPTIONS_LIST);
         // First chunk
         let chunk_inputs = [&high[..min_data], &low[..min_data], &volume[..min_data]];
 
         let (_, mut state) =
-            indicator(&chunk_inputs, &OPTIONS_LIST, None).expect("EMV indicator failed");
+            Emv::indicator(&chunk_inputs, &OPTIONS_LIST, None).expect("EMV Emv::indicator failed");
 
         c.bench_function("benchmark", |b| {
             b.iter(|| {
@@ -383,7 +383,7 @@ fn bench_rust_emv_simd_by_assets(c: &mut Criterion) {
         timing.measure(
             || {
                 let result = indicator_by_assets::<4>(&inputs, &OPTIONS_LIST, None)
-                    .expect("Rust SIMD by assets EMV indicator failed");
+                    .expect("Rust SIMD by assets EMV Emv::indicator failed");
                 black_box(&result);
             },
             SAMPLE_SIZE,
@@ -412,7 +412,7 @@ fn bench_rust_emv_simd_by_assets(c: &mut Criterion) {
         c.bench_function("benchmark", |b| {
             b.iter(|| {
                 let result = indicator_by_assets::<4>(&inputs, &OPTIONS_LIST, None)
-                    .expect("Rust SIMD by assets EMV indicator failed");
+                    .expect("Rust SIMD by assets EMV Emv::indicator failed");
                 black_box(&result);
             });
         });
@@ -435,8 +435,8 @@ fn bench_rust_emv_optional(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator(&inputs, &OPTIONS_LIST, Some(&[true]))
-                        .expect("Rust EMV indicator failed");
+                    let result = Emv::indicator(&inputs, &OPTIONS_LIST, Some(&[true]))
+                        .expect("Rust EMV Emv::indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -457,8 +457,8 @@ fn bench_rust_emv_optional(c: &mut Criterion) {
         let inputs = [high.as_slice(), low.as_slice(), volume.as_slice()];
         c.bench_function("Rust EMV", |b| {
             b.iter(|| {
-                let result = indicator(&inputs, &OPTIONS_LIST, Some(&[true]))
-                    .expect("Rust EMV indicator failed");
+                let result = Emv::indicator(&inputs, &OPTIONS_LIST, Some(&[true]))
+                    .expect("Rust EMV Emv::indicator failed");
                 black_box(&result);
             });
         });

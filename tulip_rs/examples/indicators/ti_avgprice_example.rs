@@ -1,4 +1,4 @@
-use tulip_rs::indicators::avgprice::indicator;
+use tulip_rs::indicators::avgprice::{AvgPrice, Indicator};
 
 fn main() {
     // Example input data: open, high, low, and close prices
@@ -30,7 +30,7 @@ fn main() {
     let options = [];
 
     // Calculate the AvgPrice using the indicator function
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match AvgPrice::indicator(&inputs, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

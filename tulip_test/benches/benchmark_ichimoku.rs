@@ -1,7 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::ichimoku::{
-    indicator, indicator_by_assets, indicator_by_options, min_data, TIndicatorState,
-};
+use tulip_rs::indicators::ichimoku::{Ichimoku, Indicator, TIndicatorState, indicator_by_assets, indicator_by_options};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::criterion_logger::TimingMeasurements;
@@ -61,7 +59,7 @@ fn bench_rust_ichimoku(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, None)
+                        let result = Ichimoku::indicator(&inputs, &options, None)
                             .expect("Rust Ichimoku indicator failed");
                         black_box(&result);
                     },
@@ -88,7 +86,7 @@ fn bench_rust_ichimoku(c: &mut Criterion) {
                 ),
                 |b| {
                     b.iter(|| {
-                        let result = indicator(&inputs, &options, None)
+                        let result = Ichimoku::indicator(&inputs, &options, None)
                             .expect("Rust Ichimoku indicator failed");
                         black_box(&result);
                     });
@@ -118,7 +116,7 @@ fn bench_rust_ichimoku_optional(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, Some(&[true]))
+                        let result = Ichimoku::indicator(&inputs, &options, Some(&[true]))
                             .expect("Rust Ichimoku optional indicator failed");
                         black_box(&result);
                     },
@@ -152,7 +150,7 @@ fn bench_rust_ichimoku_optional(c: &mut Criterion) {
                 ),
                 |b| {
                     b.iter(|| {
-                        let result = indicator(&inputs, &options, Some(&[true]))
+                        let result = Ichimoku::indicator(&inputs, &options, Some(&[true]))
                             .expect("Rust Ichimoku optional indicator failed");
                         black_box(&result);
                     });
@@ -183,8 +181,8 @@ fn bench_rust_ichimoku_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let seed = min_data(&options).max(CHUNK_SIZE);
-                        let (_, mut state) = indicator(
+                        let seed = Ichimoku::min_data(&options).max(CHUNK_SIZE);
+                        let (_, mut state) = Ichimoku::indicator(
                             &[&high[..seed], &low[..seed], &close[..seed]],
                             &options,
                             None,
@@ -223,7 +221,7 @@ fn bench_rust_ichimoku_from_state(c: &mut Criterion) {
 
                 // --- single-bar update ---
                 if n > 1 {
-                    let (_, mut state) = indicator(
+                    let (_, mut state) = Ichimoku::indicator(
                         &[&high[..n - 1], &low[..n - 1], &close[..n - 1]],
                         &options,
                         None,
@@ -257,7 +255,7 @@ fn bench_rust_ichimoku_from_state(c: &mut Criterion) {
         let (high_vec, low_vec, close_vec) = expand_inputs();
 
         for options in OPTIONS_LIST {
-            let seed = min_data(&options).max(CHUNK_SIZE);
+            let seed = Ichimoku::min_data(&options).max(CHUNK_SIZE);
 
             let mut group = c.benchmark_group("ichimoku_rust_from_state");
             group.sample_size(SAMPLE_SIZE);
@@ -268,7 +266,7 @@ fn bench_rust_ichimoku_from_state(c: &mut Criterion) {
                 ),
                 |b| {
                     b.iter(|| {
-                        let (_, mut state) = indicator(
+                        let (_, mut state) = Ichimoku::indicator(
                             &[&high_vec[..seed], &low_vec[..seed], &close_vec[..seed]],
                             &options,
                             None,

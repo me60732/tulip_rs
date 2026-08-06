@@ -1,55 +1,55 @@
 /// Re-uses [`aroon_simd::SimdState`] as the state for the Aroon Oscillator since both
 /// indicators track the same rolling min/max windows.
-pub use crate::indicators::simd_indicators::aroon_simd::SimdState;
-pub(crate) use crate::indicators::simd_indicators::aroon_simd::CHUNK_1;
+
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::by_asset::aroonosc::indicator_by_assets;
 
+pub use crate::indicator_types::{TSimdState, TState};
+use crate::indicators::aroonosc::State;
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::aroonosc::indicator_by_options;
-
+pub use crate::types::Warm;
+use std::ops::{Deref, DerefMut};
 use std::simd::Simd;
 pub mod assets {
     use super::*;
-    use crate::indicators::simd_indicators::aroon_simd::assets::Calc as AroonCalc;
+    use crate::indicators::simd_indicators::aroon_simd::assets::SimdState as AroonSimdState;
 
-    /// SIMD computation trait for the Aroon Oscillator, operating on `N` asset lanes simultaneously.
-    pub trait Calc<const N: usize> {
-        /// Computes the Aroon Oscillator (plus Aroon Down and Up) for one bar across `N` asset lanes.
-        ///
-        /// Delegates to [`AroonCalc::calc_unchecked_simd`] to obtain `(aroon_down, aroon_up)`,
-        /// then returns the oscillator as `aroon_up - aroon_down` along with both components.
-        ///
-        /// # Safety
-        ///
-        /// Same constraints as [`aroon_simd::assets::Calc::calc_unchecked_simd`]: `high[lane]`
-        /// and `low[lane]` must point to valid memory at index `i`, with `i >= period`.
-        ///
-        /// # Returns
-        ///
-        /// A tuple `(aroonosc, aroon_down, aroon_up)` of SIMD vectors for all `N` lanes.
-        unsafe fn calc_unchecked_simd<const CHUNK_SIZE: usize>(
-            self: &mut Self,
-            high: [*const f64; N],
-            low: [*const f64; N],
-            i: usize,
-            period: usize,
-            multiplier: Simd<f64, N>,
-        ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
-    }
-    impl<const N: usize> Calc<N> for SimdState<N> {
+    #[repr(transparent)]
+    pub struct SimdState<const N: usize>(pub AroonSimdState<N>);
+    impl<const N: usize> Deref for SimdState<N> {
+        type Target = AroonSimdState<N>;
         #[inline(always)]
-        unsafe fn calc_unchecked_simd<const CHUNK_SIZE: usize>(
-            self: &mut Self,
-            high: [*const f64; N],
-            low: [*const f64; N],
-            i: usize,
-            period: usize,
-            multiplier: Simd<f64, N>,
-        ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
-            let (aroon_down, aroon_up) = AroonCalc::calc_unchecked_simd::<CHUNK_SIZE>(
-                self, high, low, i, period, multiplier,
-            );
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+    impl<const N: usize> DerefMut for SimdState<N> {
+        #[inline(always)]
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.0
+        }
+    }
+
+    impl<const N: usize> TSimdState for SimdState<N> {
+        type ScalarState = State<Warm>;
+        fn from_states(states: &mut [&mut Self::ScalarState]) -> Self {
+            let mut inner: Vec<&mut _> = states.iter_mut().map(|s| &mut s.0).collect();
+            Self(AroonSimdState::from_states(&mut inner))
+        }
+        fn write_states(&self, states: &mut [&mut Self::ScalarState]) {
+            let mut inner: Vec<&mut _> = states.iter_mut().map(|s| &mut s.0).collect();
+            self.0.write_states(&mut inner)
+        }
+    }
+
+    impl<const N: usize> TState for SimdState<N> {
+        type Inputs<'a> = ([*const f64; N], [*const f64; N], usize, usize);
+        type Outputs = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
+
+        #[inline(always)]
+        fn calc(self: &mut Self, inputs: Self::Inputs<'_>) -> Self::Outputs {
+            let (aroon_down, aroon_up) = self.0.calc(inputs);
 
             (aroon_up - aroon_down, aroon_down, aroon_up)
         }
@@ -57,47 +57,46 @@ pub mod assets {
 }
 pub mod options {
     use super::*;
-    pub use crate::indicators::simd_indicators::aroon_simd::options::Calc as AroonCalc;
+    pub use crate::indicators::simd_indicators::aroon_simd::options::SimdState as AroonSimdState;
 
-    /// SIMD computation trait for the Aroon Oscillator, operating on `N` option lanes simultaneously.
-    ///
-    /// `i` and `period` are SIMD vectors so each lane can be at a different bar position and
-    /// use a different lookback period.
-    pub trait Calc<const N: usize> {
-        /// Computes the Aroon Oscillator (plus Aroon Down and Up) for one bar across `N` option lanes.
-        ///
-        /// Delegates to [`AroonCalc::calc_unchecked_simd`] and returns
-        /// `(aroon_up - aroon_down, aroon_down, aroon_up)`.
-        ///
-        /// # Safety
-        ///
-        /// Callers must ensure that `high[lane]` and `low[lane]` point to valid memory at
-        /// `i[lane]`, and that `i[lane] >= period[lane]` for every lane.
-        ///
-        /// # Returns
-        ///
-        /// A tuple `(aroonosc, aroon_down, aroon_up)` of SIMD vectors for all `N` lanes.
-        unsafe fn calc_unchecked_simd(
-            self: &mut Self,
-            high: [*const f64; N],
-            low: [*const f64; N],
-            i: Simd<usize, N>,
-            period: Simd<usize, N>,
-            multiplier: Simd<f64, N>,
-        ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
-    }
-    impl<const N: usize> Calc<N> for SimdState<N> {
+    #[repr(transparent)]
+    pub struct SimdState<const N: usize>(pub AroonSimdState<N>);
+    impl<const N: usize> Deref for SimdState<N> {
+        type Target = AroonSimdState<N>;
         #[inline(always)]
-        unsafe fn calc_unchecked_simd(
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+    impl<const N: usize> DerefMut for SimdState<N> {
+        #[inline(always)]
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.0
+        }
+    }
+
+    impl<const N: usize> TSimdState for SimdState<N> {
+        type ScalarState = State<Warm>;
+        fn from_states(states: &mut [&mut Self::ScalarState]) -> Self {
+            let mut inner: Vec<&mut _> = states.iter_mut().map(|s| &mut s.0).collect();
+            Self(AroonSimdState::from_states(&mut inner))
+        }
+        fn write_states(&self, states: &mut [&mut Self::ScalarState]) {
+            let mut inner: Vec<&mut _> = states.iter_mut().map(|s| &mut s.0).collect();
+            self.0.write_states(&mut inner)
+        }
+    }
+    
+    impl<const N: usize> TState for SimdState<N> {
+        type Inputs<'a> = ([*const f64; N], [*const f64; N], Simd<usize, N>, Simd<usize, N>);
+        type Outputs = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
+        
+        #[inline(always)]
+        fn calc(
             self: &mut Self,
-            high: [*const f64; N],
-            low: [*const f64; N],
-            i: Simd<usize, N>,
-            period: Simd<usize, N>,
-            multiplier: Simd<f64, N>,
+            inputs: Self::Inputs<'_>
         ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
-            let (aroon_down, aroon_up) =
-                AroonCalc::calc_unchecked_simd(self, high, low, i, period, multiplier);
+            let (aroon_down, aroon_up) = self.0.calc(inputs);
 
             (aroon_up - aroon_down, aroon_down, aroon_up)
         }

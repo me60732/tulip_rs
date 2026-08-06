@@ -1,9 +1,8 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::atr::indicator_by_assets;
-    use tulip_rs::indicators::atr::indicator_by_options;
-    use tulip_rs::indicators::atr::{indicator, min_data, TIndicatorState};
+    use tulip_rs::indicators::atr::{indicator_by_assets, indicator_by_options};
+    use tulip_rs::indicators::atr::{Atr, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_atr, ti_atr_start, ti_tr, ti_tr_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -71,7 +70,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
             let (outputs, _) =
-                indicator(&inputs_rust, &options, None).expect("Rust ATR indicator failed");
+                Atr::indicator(&inputs_rust, &options, None).expect("Rust ATR indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -155,8 +154,8 @@ mod tests {
                 assert_eq!(ret, 0, "ti_atr returned error code {}", ret);
 
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (outputs, _) =
-                    indicator(&inputs_rust, &options, None).expect("Rust ATR indicator failed");
+                let (outputs, _) = Atr::indicator(&inputs_rust, &options, None)
+                    .expect("Rust ATR indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -220,17 +219,17 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Get full output
-                let (full_outputs, _) = indicator(&inputs_rust, &options, None)
+                let (full_outputs, _) = Atr::indicator(&inputs_rust, &options, None)
                     .expect("Failed to run ATR indicator on full data");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Atr::min_data(&options).max(CHUNK_SIZE);
 
                 if high.len() <= min_data_val {
                     // If data is too small, just run full calculation
-                    let (outputs, _) = indicator(&inputs_rust, &options, None)
+                    let (outputs, _) = Atr::indicator(&inputs_rust, &options, None)
                         .expect("Failed to run ATR indicator");
                     batch_full_output.extend_from_slice(&outputs[0]);
                 } else {
@@ -244,7 +243,7 @@ mod tests {
                         close_vec.as_slice(),
                     ];
 
-                    let (first_outputs, mut state) = indicator(&chunk_inputs, &options, None)
+                    let (first_outputs, mut state) = Atr::indicator(&chunk_inputs, &options, None)
                         .expect("Failed to run ATR indicator on first chunk");
                     batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -330,7 +329,7 @@ mod tests {
 
             // Run the Rust implementation with TR optional output enabled
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-            let (rust_outputs, _) = indicator(&inputs_rust, &options, Some(&[true]))
+            let (rust_outputs, _) = Atr::indicator(&inputs_rust, &options, Some(&[true]))
                 .expect("Rust ATR indicator failed");
 
             // Extract the TR optional output (second output)
@@ -434,8 +433,8 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get ATR with TR optional output
                 let optional_outputs = Some(&[true][..]);
-                let (atr_result, _) = tulip_rs::indicators::atr::indicator(
-                    &[&high, &low, &close],
+                let (atr_result, _) = Atr::indicator(
+                    &[high.as_slice(), low.as_slice(), close.as_slice()],
                     &[options[0]],
                     optional_outputs,
                 )
@@ -554,8 +553,8 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_outputs, _) =
-                    indicator(&stock_inputs, options, None).unwrap_or_else(|_| {
+                let (regular_outputs, _) = Atr::indicator(&stock_inputs, options, None)
+                    .unwrap_or_else(|_| {
                         panic!(
                             "Regular ATR failed for {} with period {}",
                             stock_symbol, options[0]
@@ -646,7 +645,7 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_outputs, _) = indicator(&stock_inputs, options, optional_outputs)
+                let (regular_outputs, _) = Atr::indicator(&stock_inputs, options, optional_outputs)
                     .unwrap_or_else(|_| {
                         panic!(
                             "Regular ATR with optional outputs failed for {} with period {}",
@@ -744,7 +743,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    indicator(&inputs, options, None).expect("Regular ATR indicator failed");
+                    Atr::indicator(&inputs, options, None).expect("Regular ATR indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -822,7 +821,7 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result with optional outputs
-                let (regular_results, _) = indicator(&inputs, options, optional_outputs)
+                let (regular_results, _) = Atr::indicator(&inputs, options, optional_outputs)
                     .expect("Regular ATR indicator with optional outputs failed");
 
                 let simd_atr_result = &all_simd_results[idx][0];
@@ -919,5 +918,4 @@ mod tests {
             "✓ All SIMD by options vs Regular ATR database tests with optional outputs passed!"
         );
     }
-
-    }
+}

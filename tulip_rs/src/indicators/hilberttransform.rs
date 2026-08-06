@@ -24,17 +24,16 @@
 //! ```
 
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
-pub use crate::indicators::roofingfilter::multiplier;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 use crate::indicators::{
-    highpass::output_length as hp_output_length,
-    roofingfilter::{min_data as rf_min_data, output_length as rf_output_length, State as RfSate},
+    highpass::HighPass,
+    roofingfilter::{RoofingFilter, State as RfSate},
 };
 use crate::ring_buffer::fixed_single_buffer::FixedRingBuffer;
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 1;
+pub const INPUTS: usize = 1;
 
 pub(crate) const C0: f64 = 0.0962;
 pub(crate) const C1: f64 = 0.5769;
@@ -53,13 +52,13 @@ pub(crate) const C3: f64 = -0.0962;
 ///
 /// The buffer must be full (`buf.is_full() == true`) before calling.
 #[inline(always)]
-pub(crate) fn ht_kernel(buf: &FixedRingBuffer<f64, 7>, gain: f64) -> (f64, f64) {
+pub(crate) fn ht_kernel<S>(buf: &FixedRingBuffer<f64, 7, S>, gain: f64) -> (f64, f64) {
     let q = (C0.mul_add(buf[0], C1 * buf[2]) + C2.mul_add(buf[4], C3 * buf[6])) * gain;
     (buf[3], q)
 }
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 2;
+pub const OPTIONS: usize = 2;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -93,42 +92,24 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::hilberttransform_simd::indicator_by_options as indicator;
 }
 
-/// Metadata describing the Hilbert Transform indicator.
-pub const INFO: Info = Info {
-    name: "hilberttransform",
-    indicator_type: IndicatorType::Math,
-    full_name: "Hilbert Transform",
-    inputs: &["real"],
-    options: &["ss_period", "hp_period"],
-    outputs: &["in_phase", "quadrature"],
-    optional_outputs: &["roofing", "highpass"],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "hilberttransform",
-        label: "Hilbert Transform",
-        display_type: DisplayType::Indicator,
-        outputs: &["in_phase", "quadrature", "roofing", "highpass"],
-    }],
-};
 #[derive(Serialize, Deserialize)]
-pub struct State {
-    pub buffer: FixedRingBuffer<f64, 7>,
+#[serde(bound = "")]
+pub struct State<S = Cold> {
     pub rf_state: RfSate,
+    pub buffer: FixedRingBuffer<f64, 7, S>,
 }
-impl State {
+impl State<Cold> {
     pub fn init_state(
         real: &[f64],
-        periods: (usize, usize),
-        multipliers: ((f64, f64, f64), (f64, f64)),
-        optional_outputs: (&mut [f64], &mut [f64]),
-    ) -> State {
-        let (rf_line, hp_line) = optional_outputs;
+        (ss_period, hp_period): (usize, usize),
+        (rf_line, hp_line): (&mut [f64], &mut [f64]),
+    ) -> State<Warm> {
         let mut buffer = FixedRingBuffer::new();
-        let mut rf_state = RfSate::init_state(real, periods, multipliers, hp_line);
-        let mut i = periods.0.max(periods.1);
+        let mut rf_state = RfSate::init_state(real, (ss_period, hp_period), hp_line);
+        let mut i = ss_period.max(hp_period);
 
         while buffer.len() < buffer.capacity() {
-            let (rf, hp) = rf_state.calc(real[i], multipliers);
+            let (rf, hp) = rf_state.calc(real[i]);
             buffer.push(rf);
             crate::init_store_optional_outputs!(i, real.len(),
                 rf_line => rf,
@@ -136,54 +117,50 @@ impl State {
             );
             i += 1;
         }
-
-        Self { buffer, rf_state }
+        State {
+            rf_state,
+            buffer: buffer.into_full(),
+        }
     }
     #[inline(always)]
     pub fn calc_transform(&mut self, real: f64) -> (f64, f64) {
         self.buffer.push(real);
         ht_kernel(&self.buffer, 1.0)
     }
+}
+impl State<Warm> {
     #[inline(always)]
-    pub unsafe fn calc_transform_unchecked(&mut self, real: f64) -> (f64, f64) {
-        self.buffer.push_unchecked(real);
+    pub fn calc_transform(&mut self, real: f64) -> (f64, f64) {
+        self.buffer.push(real);
         ht_kernel(&self.buffer, 1.0)
     }
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = f64;
+    type Outputs = (f64, f64, f64, f64);
     #[inline(always)]
-    pub fn calc(
-        &mut self,
-        real: f64,
-        multipliers: ((f64, f64, f64), (f64, f64)),
-    ) -> (f64, f64, f64, f64) {
-        let (rf, hp) = self.rf_state.calc(real, multipliers);
+    fn calc<'a>(&mut self, real: Self::Inputs<'a>) -> Self::Outputs {
+        let (rf, hp) = self.rf_state.calc(real);
         let (i, q) = self.calc_transform(rf);
         (i, q, rf, hp)
     }
+}
+impl TState for State<Cold> {
+    type Inputs<'a> = f64;
+    type Outputs = (f64, f64, f64, f64);
     #[inline(always)]
-    pub unsafe fn calc_unchecked(
-        &mut self,
-        real: f64,
-        multipliers: ((f64, f64, f64), (f64, f64)),
-    ) -> (f64, f64, f64, f64) {
-        let (rf, hp) = self.rf_state.calc(real, multipliers);
-        let (i, q) = self.calc_transform_unchecked(rf);
+    fn calc<'a>(&mut self, real: Self::Inputs<'a>) -> Self::Outputs {
+        let (rf, hp) = self.rf_state.calc(real);
+        let (i, q) = self.calc_transform(rf);
         (i, q, rf, hp)
     }
 }
-#[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    state: State,
-    multipliers: ((f64, f64, f64), (f64, f64)),
-}
-impl IndicatorState {
-    pub fn new(state: State, multipliers: ((f64, f64, f64), (f64, f64))) -> Self {
-        Self { state, multipliers }
-    }
-}
-impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
+
+pub type IndicatorState = State<Warm>;
+impl TIndicatorState<INPUTS> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -203,8 +180,7 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
 
         cycle(
             inputs[0],
-            &mut self.state,
-            self.multipliers,
+            self,
             &mut p_line,
             &mut q_line,
             (&mut rf_line, &mut hp_line),
@@ -212,116 +188,6 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
 
         Ok(vec![p_line, q_line, rf_line, hp_line])
     }
-}
-
-/// Returns the minimum number of input bars required for the Hilbert Transform.
-///
-/// Equals `rf_min_data(options) + 7` — the roofing filter warm-up plus the
-/// seven-tap Hilbert kernel window.
-///
-/// # Arguments
-///
-/// * `options` - `[ss_period, hp_period]`.
-pub fn min_data(options: &[f64]) -> usize {
-    rf_min_data(options) + 7
-}
-
-/// Returns the number of output values given an input data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - `[ss_period, hp_period]`.
-///
-/// # Returns
-///
-/// `data_len - min_data(options) + 1`.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-
-/// Calculates the Hilbert Transform (in-phase and quadrature) over the full input dataset.
-///
-/// The input is first passed through a roofing filter (HighPass → SuperSmoother) to
-/// isolate the dominant cycle band, then the seven-tap Hilbert kernel is applied to
-/// produce the in-phase (`I`) and quadrature (`Q`) components.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — real (price) series
-///
-/// # Options
-///
-/// * `options[0]` — `ss_period`: SuperSmoother period (low-cut for the roofing filter)
-/// * `options[1]` — `hp_period`: HighPass period (high-cut for the roofing filter)
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - `[ss_period, hp_period]` (see Options above).
-/// * `optional_outputs` - Pass `Some(&[true, false])` to enable the roofing-filter
-///   output, `Some(&[false, true])` for the high-pass output, `Some(&[true, true])`
-///   for both, or `None` to disable all optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is `in_phase`, `outputs[1]` is
-/// `quadrature`, `outputs[2]` is `roofing` (empty unless requested), and
-/// `outputs[3]` is `highpass` (empty unless requested).
-/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let periods = (options[0] as usize, options[1] as usize);
-    let multipliers = multiplier(periods);
-
-    validate_inputs(inputs, min_data(options))?;
-    let (mut p_line, mut q_line, (mut rf_line, mut hp_line)) = {
-        let len = inputs[0].len();
-        let capacity = output_length(len, options);
-        (
-            crate::uninit_vec!(f64, capacity),
-            crate::uninit_vec!(f64, capacity),
-            crate::init_optional_outputs_eff!(
-                optional_outputs, &[false, false],
-                rf_line: rf_output_length(len, options),
-                hp_line: hp_output_length(len, &[periods.1 as f64])
-            ),
-        )
-    };
-
-    let mut state = State::init_state(
-        inputs[0],
-        periods,
-        multipliers,
-        (&mut rf_line, &mut hp_line),
-    );
-    let optional_outputs = {
-        let offset = crate::slice_outputs_start!(p_line.len(), rf_line, hp_line);
-        (&mut rf_line[offset.0..], &mut hp_line[offset.1..])
-    };
-    let real = {
-        let from = periods.0.max(periods.1) + 7;
-        &inputs[0][from..]
-    };
-
-    cycle(
-        real,
-        &mut state,
-        multipliers,
-        &mut p_line,
-        &mut q_line,
-        optional_outputs,
-    );
-
-    Ok((
-        vec![p_line, q_line, rf_line, hp_line],
-        IndicatorState::new(state, multipliers),
-    ))
 }
 
 /// Performs the main calculation loop for the Hilbert Transform.
@@ -336,18 +202,16 @@ pub fn indicator(
 /// * `optional_outputs` - `(rf_line, hp_line)` slices for optional roofing / highpass outputs.
 fn cycle(
     real: &[f64],
-    state: &mut State,
-    multipliers: ((f64, f64, f64), (f64, f64)),
+    state: &mut State<Warm>,
     p_line: &mut [f64],
     q_line: &mut [f64],
-    optional_outputs: (&mut [f64], &mut [f64]),
+    (rf_line, hp_line): (&mut [f64], &mut [f64]),
 ) {
-    let (rf_line, hp_line) = optional_outputs;
     let (has_optional, want_rf, want_hp) = crate::calc_want_flags!(rf_line, hp_line);
 
     //high.iter().zip(low.iter()).zip(close.iter()).skip(start).enumerate().for_each(|(i, ((h, l), c))| {
     for i in 0..real.len() {
-        let (p, q, rf, hp) = unsafe { state.calc_unchecked(*real.get_unchecked(i), multipliers) };
+        let (p, q, rf, hp) = state.calc(unsafe { *real.get_unchecked(i) });
 
         unsafe {
             *p_line.get_unchecked_mut(i) = p;
@@ -359,5 +223,70 @@ fn cycle(
                 want_hp, hp_line => hp
             );
         }
+    }
+}
+
+pub struct HilbertTransform;
+
+impl Indicator<INPUTS, OPTIONS> for HilbertTransform {
+    type IndicatorState = IndicatorState;
+
+    const INFO: Info = Info {
+        name: "hilberttransform",
+        indicator_type: IndicatorType::Math,
+        full_name: "Hilbert Transform",
+        inputs: &["real"],
+        options: &["ss_period", "hp_period"],
+        outputs: &["in_phase", "quadrature"],
+        optional_outputs: &["roofing", "highpass"],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "hilberttransform",
+            label: "Hilbert Transform",
+            display_type: DisplayType::Indicator,
+            outputs: &["in_phase", "quadrature", "roofing", "highpass"],
+        }],
+    };
+
+    fn min_data(options: &[f64; OPTIONS]) -> usize {
+        RoofingFilter::min_data(options) + 7
+    }
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        let periods = (options[0] as usize, options[1] as usize);
+
+        validate_inputs(inputs, Self::min_data(options))?;
+        let (mut p_line, mut q_line, (mut rf_line, mut hp_line)) = {
+            let len = inputs[0].len();
+            let capacity = Self::output_length(len, options);
+            (
+                crate::uninit_vec!(f64, capacity),
+                crate::uninit_vec!(f64, capacity),
+                crate::init_optional_outputs_eff!(
+                    optional_outputs, &[false, false],
+                    rf_line: RoofingFilter::output_length(len, options),
+                    hp_line: HighPass::output_length(len, &[periods.1 as f64])
+                ),
+            )
+        };
+
+        let mut state = State::init_state(inputs[0], periods, (&mut rf_line, &mut hp_line));
+        let optional_outputs = {
+            let offset = crate::slice_outputs_start!(p_line.len(), rf_line, hp_line);
+            (&mut rf_line[offset.0..], &mut hp_line[offset.1..])
+        };
+        let real = {
+            let from = periods.0.max(periods.1) + 7;
+            &inputs[0][from..]
+        };
+
+        cycle(real, &mut state, &mut p_line, &mut q_line, optional_outputs);
+
+        Ok((vec![p_line, q_line, rf_line, hp_line], state))
     }
 }

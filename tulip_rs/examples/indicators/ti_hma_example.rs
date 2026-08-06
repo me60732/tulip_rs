@@ -1,4 +1,4 @@
-use tulip_rs::indicators::hma::{indicator, TIndicatorState};
+use tulip_rs::indicators::hma::{Hma, Indicator, TIndicatorState};
 use tulip_rs::indicators::simd_indicators::hma_simd::indicator_by_assets;
 
 fn main() {
@@ -14,7 +14,7 @@ fn main() {
 
     let inputs = [close.as_slice()];
 
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match Hma::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -22,7 +22,7 @@ fn main() {
     println!("Full HMA Line: {:?}", outputs[0]);
 
     let inputs2 = [&close[0..close.len() - 1]];
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match Hma::indicator(&inputs2, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

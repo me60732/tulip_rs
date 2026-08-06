@@ -1,7 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::donchianchannel::{
-    indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState,
-};
+use tulip_rs::indicators::donchianchannel::{DonchianChannel, Indicator, TIndicatorState, IndicatorState, indicator_by_assets, indicator_by_options};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_max, ti_max_start, ti_min};
@@ -185,7 +183,7 @@ fn bench_rust_donchianchannel(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, None)
+                        let result = DonchianChannel::indicator(&inputs, &options, None)
                             .expect("Rust Donchian Channel indicator failed");
                         black_box(&result);
                     },
@@ -213,7 +211,7 @@ fn bench_rust_donchianchannel(c: &mut Criterion) {
                 format!("Rust Donchian Channel {{ period: {} }}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator(&inputs, &options, None)
+                        let result = DonchianChannel::indicator(&inputs, &options, None)
                             .expect("Rust Donchian Channel indicator failed");
                         black_box(&result);
                     });
@@ -241,10 +239,11 @@ fn bench_rust_donchianchannel_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                        let min_data_val = DonchianChannel::min_data(&options).max(CHUNK_SIZE);
                         let chunk_inputs = [&high[..min_data_val], &low[..min_data_val]];
-                        let (_, mut state) = indicator(&chunk_inputs, &options, None)
-                            .expect("Donchian Channel indicator failed");
+                        let (_, mut state) =
+                            DonchianChannel::indicator(&chunk_inputs, &options, None)
+                                .expect("Donchian Channel indicator failed");
 
                         let mut high_chunks = high[min_data_val..].chunks_exact(CHUNK_SIZE);
                         let mut low_chunks = low[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -277,7 +276,7 @@ fn bench_rust_donchianchannel_from_state(c: &mut Criterion) {
                     let final_inputs = [&high[high.len() - 1..], &low[low.len() - 1..]];
 
                     // --- Rust_FromState_1_Bar ---
-                    let (_, mut state) = indicator(&new_inputs, &options, None)
+                    let (_, mut state) = DonchianChannel::indicator(&new_inputs, &options, None)
                         .expect("Donchian Channel indicator failed");
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -299,7 +298,7 @@ fn bench_rust_donchianchannel_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json ---
-                    let (_, state) = indicator(&new_inputs, &options, None)
+                    let (_, state) = DonchianChannel::indicator(&new_inputs, &options, None)
                         .expect("Donchian Channel indicator failed");
                     let json = serde_json::to_string(&state).expect("JSON serialisation failed");
                     let mut timing = TimingMeasurements::new();
@@ -329,9 +328,9 @@ fn bench_rust_donchianchannel_from_state(c: &mut Criterion) {
         let (high_vec, low_vec) = expand_inputs();
 
         for options in OPTIONS_LIST {
-            let min_data_val = min_data(&options).max(CHUNK_SIZE);
+            let min_data_val = DonchianChannel::min_data(&options).max(CHUNK_SIZE);
             let chunk_inputs = [&high_vec[..min_data_val], &low_vec[..min_data_val]];
-            let (_, mut state) = indicator(&chunk_inputs, &options, None)
+            let (_, mut state) = DonchianChannel::indicator(&chunk_inputs, &options, None)
                 .expect("Donchian Channel indicator failed");
 
             let mut group = c.benchmark_group("donchianchannel_rust_from_state");
@@ -372,7 +371,7 @@ fn bench_rust_donchianchannel_from_state(c: &mut Criterion) {
                     &high_vec[high_vec.len() - 1..],
                     &low_vec[low_vec.len() - 1..],
                 ];
-                let (_, mut state) = indicator(&new_inputs, &options, None)
+                let (_, mut state) = DonchianChannel::indicator(&new_inputs, &options, None)
                     .expect("Donchian Channel indicator failed");
 
                 let mut group = c.benchmark_group("donchianchannel_rust_from_state_1_bar");

@@ -1,7 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::keltnerchannel::{
-    indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState,
-};
+use tulip_rs::indicators::keltnerchannel::{KeltnerChannel, Indicator, TIndicatorState, indicator_by_assets, indicator_by_options, IndicatorState};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::criterion_logger::TimingMeasurements;
@@ -69,7 +67,7 @@ fn bench_rust_keltnerchannel(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, None)
+                        let result = KeltnerChannel::indicator(&inputs, &options, None)
                             .expect("Rust KeltnerChannel indicator failed");
                         black_box(&result);
                     },
@@ -101,7 +99,7 @@ fn bench_rust_keltnerchannel(c: &mut Criterion) {
                 format!("Rust KeltnerChannel {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator(&inputs, &options, None)
+                        let result = KeltnerChannel::indicator(&inputs, &options, None)
                             .expect("Rust KeltnerChannel indicator failed");
                         black_box(&result);
                     });
@@ -129,14 +127,14 @@ fn bench_rust_keltnerchannel_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                        let min_data_val = KeltnerChannel::min_data(&options).max(CHUNK_SIZE);
 
                         let chunk_inputs = [
                             &high[..min_data_val],
                             &low[..min_data_val],
                             &close[..min_data_val],
                         ];
-                        let (_, mut state) = indicator(&chunk_inputs, &options, None)
+                        let (_, mut state) = KeltnerChannel::indicator(&chunk_inputs, &options, None)
                             .expect("Rust KeltnerChannel indicator failed");
 
                         let mut high_chunks = high[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -185,7 +183,7 @@ fn bench_rust_keltnerchannel_from_state(c: &mut Criterion) {
                     ];
 
                     // --- Rust_FromState_1_Bar ---
-                    let (_, mut state) = indicator(&new_inputs, &options, None)
+                    let (_, mut state) = KeltnerChannel::indicator(&new_inputs, &options, None)
                         .expect("Rust KeltnerChannel indicator failed");
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -207,7 +205,7 @@ fn bench_rust_keltnerchannel_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json ---
-                    let (_, state) = indicator(&new_inputs, &options, None)
+                    let (_, state) = KeltnerChannel::indicator(&new_inputs, &options, None)
                         .expect("Rust KeltnerChannel indicator failed");
                     let json = serde_json::to_string(&state).expect("json serialization failed");
                     let mut timing = TimingMeasurements::new();
@@ -237,7 +235,7 @@ fn bench_rust_keltnerchannel_from_state(c: &mut Criterion) {
         let (high_vec, low_vec, close_vec) = expand_inputs();
 
         for options in OPTIONS_LIST {
-            let min_data_val = min_data(&options).max(CHUNK_SIZE);
+            let min_data_val = KeltnerChannel::min_data(&options).max(CHUNK_SIZE);
 
             let chunk_inputs = [
                 &high_vec[..min_data_val],
@@ -245,7 +243,7 @@ fn bench_rust_keltnerchannel_from_state(c: &mut Criterion) {
                 &close_vec[..min_data_val],
             ];
             let (_, mut state) =
-                indicator(&chunk_inputs, &options, None).expect("KeltnerChannel indicator failed");
+                KeltnerChannel::indicator(&chunk_inputs, &options, None).expect("KeltnerChannel indicator failed");
 
             let mut group = c.benchmark_group(format!(
                 "Rust KeltnerChannel from state {{ {:.1}, {:.1} }}",
@@ -290,7 +288,7 @@ fn bench_rust_keltnerchannel_from_state(c: &mut Criterion) {
                     &low_vec[low_vec.len() - 1..],
                     &close_vec[close_vec.len() - 1..],
                 ];
-                let (_, mut state) = indicator(&new_inputs, &options, None)
+                let (_, mut state) = KeltnerChannel::indicator(&new_inputs, &options, None)
                     .expect("Rust KeltnerChannel indicator failed");
 
                 let mut group = c.benchmark_group(format!(
@@ -329,7 +327,7 @@ fn bench_rust_keltnerchannel_optional(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, Some(&[true, true]))
+                        let result = KeltnerChannel::indicator(&inputs, &options, Some(&[true, true]))
                             .expect("Rust KeltnerChannel indicator failed");
                         black_box(&result);
                     },
@@ -364,7 +362,7 @@ fn bench_rust_keltnerchannel_optional(c: &mut Criterion) {
                 ),
                 |b| {
                     b.iter(|| {
-                        let result = indicator(&inputs, &options, Some(&[true, true]))
+                        let result = KeltnerChannel::indicator(&inputs, &options, Some(&[true, true]))
                             .expect("Rust KeltnerChannel indicator failed");
                         black_box(&result);
                     });

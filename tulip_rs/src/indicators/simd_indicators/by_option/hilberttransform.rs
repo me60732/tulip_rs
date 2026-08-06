@@ -1,23 +1,20 @@
 use crate::common_simd::options::{validate_inputs, validate_options};
-use crate::indicators::simd_indicators::hilberttransform_simd::SimdState;
+use crate::indicators::simd_indicators::hilberttransform_simd::{SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::{
-    highpass::output_length as hp_output_length,
-    hilberttransform::{
-        min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
-    },
-    roofingfilter::output_length as rf_output_length,
+    highpass::HighPass,
+    hilberttransform::{HilbertTransform, Indicator, IndicatorState, State, INPUTS, OPTIONS},
+    roofingfilter::RoofingFilter,
 };
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
-
 /// SIMD driver for the Hilbert Transform indicator, processing `N` option-set lanes
 /// per scheduling epoch using a shared input series.
 struct HilbertDriver {
     want_optional_outputs: (bool, bool, bool),
 }
 
-impl Driver<State, ((f64, f64, f64), (f64, f64))> for HilbertDriver {
+impl Driver<State<Warm>> for HilbertDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
     ///
     /// Reads the shared real input, assembles per-lane coefficient vectors from `options`,
@@ -27,8 +24,8 @@ impl Driver<State, ((f64, f64, f64), (f64, f64))> for HilbertDriver {
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
-        options: Vec<Option<&((f64, f64, f64), (f64, f64))>>,
+        mut states: Vec<&mut State<Warm>>,
+        _options: Vec<Option<&()>>,
     ) {
         let len = outputs[0][0].len();
 
@@ -36,32 +33,7 @@ impl Driver<State, ((f64, f64, f64), (f64, f64))> for HilbertDriver {
         let (p_line, q_line, rf_line, hp_line) =
             crate::extract_output_ptrs!(outputs, N, p, q, rf, hp);
 
-        let multipliers_simd = {
-            let mut multipliers = (([0.0; N], [0.0; N], [0.0; N]), ([0.0; N], [0.0; N]));
-            for (lane, option) in options.iter().enumerate() {
-                if let Some(&multiplier) = option {
-                    multipliers.0 .0[lane] = multiplier.0 .0;
-                    multipliers.0 .1[lane] = multiplier.0 .1;
-                    multipliers.0 .2[lane] = multiplier.0 .2;
-
-                    multipliers.1 .0[lane] = multiplier.1 .0;
-                    multipliers.1 .1[lane] = multiplier.1 .1;
-                }
-            }
-            (
-                (
-                    Simd::from_array(multipliers.0 .0),
-                    Simd::from_array(multipliers.0 .1),
-                    Simd::from_array(multipliers.0 .2),
-                ),
-                (
-                    Simd::from_array(multipliers.1 .0),
-                    Simd::from_array(multipliers.1 .1),
-                ),
-            )
-        };
-
-        let mut state = SimdState::new(&mut states);
+        let mut state = SimdState::<N>::from_states(&mut states);
         let (has_optional, want_rf, want_hp) = self.want_optional_outputs;
 
         for i in 0..len {
@@ -69,7 +41,7 @@ impl Driver<State, ((f64, f64, f64), (f64, f64))> for HilbertDriver {
                 new @ real_ptrs
             );
 
-            let (p, q, rf, hp) = unsafe { state.calc_simd_unchecked(real, multipliers_simd) };
+            let (p, q, rf, hp) = state.calc(real);
 
             crate::write_simd_at_indices!(N, i,
                 p_line => p,
@@ -91,7 +63,7 @@ impl Driver<State, ((f64, f64, f64), (f64, f64))> for HilbertDriver {
 /// sets simultaneously using SIMD parallelism.
 ///
 /// # Arguments
-/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS]`), containing
 ///   `[real]`.
 /// * `options` - An array of `N` option sets, one per SIMD lane: `[ss_period, hp_period]`.
 /// * `optional_outputs` - Pass `Some(&[true, false])` for the roofing line, `Some(&[false, true])`
@@ -104,36 +76,32 @@ impl Driver<State, ((f64, f64, f64), (f64, f64))> for HilbertDriver {
 /// `states[i]` is the final [`IndicatorState`] for that lane.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS],
+    options: &[&[f64; OPTIONS]; N],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, HilbertTransform::min_data)?;
     validate_options(options, None)?;
-    let params: [((f64, f64, f64), (f64, f64)); N] = std::array::from_fn(|i| {
-        let periods = (options[i][0] as usize, options[i][1] as usize);
-        multiplier(periods)
-    });
 
     let mut output_buffers = Vec::with_capacity(N);
-    let mut road_train = PrimeMover::<N, State, ((f64, f64, f64), (f64, f64))>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut want_optional_outputs = (false, false, false);
     for i in 0..N {
         let (p_line, q_line, (mut rf_line, mut hp_line)) = {
             let len = inputs[0].len();
-            let capacity = output_length(len, options[i]);
+            let capacity = HilbertTransform::output_length(len, options[i]);
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::uninit_vec!(f64, capacity),
                 crate::init_optional_outputs_eff!(
                     optional_outputs, &[false, false],
-                    rf_line: rf_output_length(len, options[i]),
-                    hp_line: hp_output_length(len, &[options[i][1]])
+                    rf_line: RoofingFilter::output_length(len, options[i]),
+                    hp_line: HighPass::output_length(len, &[options[i][1]])
                 ),
             )
         };
         let periods = (options[i][0] as usize, options[i][1] as usize);
-        let state = State::init_state(inputs[0], periods, params[i], (&mut rf_line, &mut hp_line));
+        let state = State::init_state(inputs[0], periods, (&mut rf_line, &mut hp_line));
         let asset_inputs = vec![inputs[0]];
         if i == 0 {
             want_optional_outputs = crate::calc_want_flags!(rf_line, hp_line);
@@ -160,7 +128,7 @@ pub fn indicator_by_options<const N: usize>(
             periods.0.max(periods.1) + 7,
             0,
             state,
-            Some(&params[i]),
+            None,
         ));
         output_buffers.push(output_buffer);
     }
@@ -168,11 +136,7 @@ pub fn indicator_by_options<const N: usize>(
     let mut driver = HilbertDriver {
         want_optional_outputs,
     };
-    let final_states = road_train.drive(&mut driver);
+    let states = road_train.drive(&mut driver);
 
-    let mut states = Vec::with_capacity(N);
-    for (i, state) in final_states.into_iter().enumerate() {
-        states.push(IndicatorState::new(state, params[i]));
-    }
     Ok((output_buffers, states))
 }

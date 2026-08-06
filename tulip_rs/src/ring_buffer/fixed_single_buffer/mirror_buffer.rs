@@ -8,11 +8,10 @@
 //! `CandleBits`) targets the `view` array, updates are never lost across `push`
 //! boundaries and `sync_mirrors()` is a genuine no-op.
 
-use crate::indicators::{
-    max::{find_max_scalar, find_max_simd, State as MaxState},
-    min::{find_min_scalar, find_min_simd, State as MinState},
-};
+//use crate::indicators::{max::State as MaxState, min::State as MinState};
 use crate::ring_buffer::buffer::{period_to_idx, BufferElement, SerdeElement};
+use crate::ring_buffer::single_buffer::generic_buffer::{Cold, Warm};
+//use crate::ring_buffer::single_buffer::mirror_buffer::{mirror_max, mirror_min};
 use serde::{
     de::{self, MapAccess, Visitor},
     ser::SerializeStruct,
@@ -22,9 +21,9 @@ use std::{fmt, marker::PhantomData};
 
 /// A fixed-capacity, stack-allocated sliding-window buffer with an always-ordered view.
 ///
-/// Generic parameters:
-/// * `T` — element type; must implement [`BufferElement`].
-/// * `N` — compile-time capacity (number of slots).
+/// `S` encodes fill state at the type level:
+/// * [`Cold`] — warmup; `push_with_info` returns `Option<T>`.
+/// * [`Warm`]    — operational; `push_with_info` returns `T` (branchless), `max`/`min` available.
 ///
 /// # Layout (mirrors field names used by heap-based `Buffer<T>`)
 /// ```text
@@ -34,7 +33,7 @@ use std::{fmt, marker::PhantomData};
 /// count: usize    — valid elements (0 <= count <= N)
 /// ```
 #[derive(Clone)]
-pub struct FixedMirrorBuffer<T: BufferElement, const N: usize> {
+pub struct FixedMirrorBuffer<T: BufferElement, const N: usize, S = Cold> {
     /// Classic ring buffer — `ring[index]` is the next slot to be written.
     pub(crate) ring: [T; N],
     /// Always-ordered view: `view[0]` = oldest, `view[count-1]` = newest.
@@ -43,24 +42,12 @@ pub struct FixedMirrorBuffer<T: BufferElement, const N: usize> {
     pub(crate) index: usize,
     /// Number of valid elements currently stored (`0 <= count <= N`).
     pub(crate) count: usize,
+    pub(crate) state: PhantomData<S>,
 }
 
-impl<T: BufferElement, const N: usize> FixedMirrorBuffer<T, N> {
-    // ── Construction ──────────────────────────────────────────────────────────
+// ── Shared methods (any fill state) ──────────────────────────────────────────
 
-    /// Create a new, empty buffer. All slots are initialised to `T::default()`.
-    #[inline]
-    pub fn new() -> Self {
-        Self {
-            ring: [T::default(); N],
-            view: [T::default(); N],
-            index: 0,
-            count: 0,
-        }
-    }
-
-    // ── Queries ───────────────────────────────────────────────────────────────
-
+impl<T: BufferElement, const N: usize, S> FixedMirrorBuffer<T, N, S> {
     /// `true` when the buffer holds exactly `N` elements.
     #[inline(always)]
     pub fn is_full(&self) -> bool {
@@ -84,77 +71,6 @@ impl<T: BufferElement, const N: usize> FixedMirrorBuffer<T, N> {
     pub const fn capacity(&self) -> usize {
         N
     }
-
-    // ── Writes ────────────────────────────────────────────────────────────────
-
-    /// Push a new element, evicting the oldest when full.
-    ///
-    /// # Complexity
-    ///
-    /// * `ring` write — O(1).
-    /// * `view` update while still filling — O(1) append.
-    /// * `view` update once full — O(N) `copy_within` (memmove). For N = 5 and
-    ///   8-byte elements this is a single 32-byte cache-line operation.
-    #[inline(always)]
-    pub fn push(&mut self, value: T) {
-        self.ring[self.index] = value;
-        self.index += 1;
-        if self.index == N {
-            self.index = 0;
-        }
-
-        if self.count < N {
-            self.view[self.count] = value;
-            self.count += 1;
-        } else {
-            self.view.copy_within(1.., 0);
-            self.view[N - 1] = value;
-        }
-    }
-
-    /// Push and return the evicted element, if any.
-    ///
-    /// Returns `Some(evicted)` once the buffer is full, `None` while filling.
-    #[inline(always)]
-    pub fn push_with_info(&mut self, value: T) -> Option<T> {
-        if self.count == N {
-            Some(unsafe { self.push_with_info_unchecked(value) })
-        } else {
-            self.push(value);
-            None
-        }
-    }
-
-    /// Push without the fullness check.
-    ///
-    /// # Safety
-    ///
-    /// Caller must ensure `is_full() == true`.
-    #[inline(always)]
-    pub unsafe fn push_unchecked(&mut self, value: T) {
-        *self.ring.get_unchecked_mut(self.index) = value;
-        self.index += 1;
-        if self.index == N {
-            self.index = 0;
-        }
-
-        self.view.copy_within(1.., 0);
-        *self.view.get_unchecked_mut(N - 1) = value;
-    }
-
-    /// Push and return the evicted element, without the fullness check.
-    ///
-    /// # Safety
-    ///
-    /// Same precondition as [`push_unchecked`](Self::push_unchecked).
-    #[inline(always)]
-    pub unsafe fn push_with_info_unchecked(&mut self, value: T) -> T {
-        let evicted = *self.view.get_unchecked(0);
-        self.push_unchecked(value);
-        evicted
-    }
-
-    // ── Reads ─────────────────────────────────────────────────────────────────
 
     /// Ordered slice of all valid elements: `[oldest .. newest]`.
     #[inline(always)]
@@ -209,8 +125,6 @@ impl<T: BufferElement, const N: usize> FixedMirrorBuffer<T, N> {
         self.view[..self.count].to_vec()
     }
 
-    // ── Sync ──────────────────────────────────────────────────────────────────
-
     /// Propagate any in-place mutations made via [`get_slice_mut`](Self::get_slice_mut)
     /// back into the `ring` array so that [`get_by_period`](Self::get_by_period)
     /// lookbacks also see the updated values.
@@ -237,14 +151,158 @@ impl<T: BufferElement, const N: usize> FixedMirrorBuffer<T, N> {
     }
 }
 
-// ── MinMax on FixedMirrorBuffer<f64, N> ──────────────────────────────────────
-//
-// Mirrors the logic of `MinMaxBuffer` (single_buffer::mirror_buffer) but as
-// inherent methods, avoiding the `MirrorBuffer<f64>` super-trait requirement.
-// `view[..count]` is always ordered oldest→newest, so `get_slice()` is a
-// single pointer+length load and the max/min scans work identically.
+// ── Cold methods ───────────────────────────────────────────────────────────
 
-impl<const N: usize> FixedMirrorBuffer<f64, N> {
+impl<T: BufferElement, const N: usize> FixedMirrorBuffer<T, N, Cold> {
+    /// Create a new, empty buffer. All slots are initialised to `T::default()`.
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            ring: [T::default(); N],
+            view: [T::default(); N],
+            index: 0,
+            count: 0,
+            state: PhantomData,
+        }
+    }
+
+    /// Push a new element, evicting the oldest when full.
+    ///
+    /// # Complexity
+    ///
+    /// * `ring` write — O(1).
+    /// * `view` update while still filling — O(1) append.
+    /// * `view` update once full — O(N) `copy_within` (memmove).
+    #[inline(always)]
+    pub fn push(&mut self, value: T) {
+        self.ring[self.index] = value;
+        self.index += 1;
+        if self.index == N {
+            self.index = 0;
+        }
+
+        if self.count < N {
+            self.view[self.count] = value;
+            self.count += 1;
+        } else {
+            self.view.copy_within(1.., 0);
+            self.view[N - 1] = value;
+        }
+    }
+
+    /// Push and return the evicted element, if any.
+    ///
+    /// Returns `Some(evicted)` once the buffer is full, `None` while filling.
+    #[inline(always)]
+    pub fn push_with_info(&mut self, value: T) -> Option<T> {
+        if self.count == N {
+            let evicted = unsafe { *self.view.get_unchecked(0) };
+            self.push(value);
+            Some(evicted)
+        } else {
+            self.push(value);
+            None
+        }
+    }
+
+    /// Transition to [`Warm`] once `count == N`.
+    ///
+    /// # Panics (debug builds)
+    /// Panics if the buffer is not yet full.
+    #[inline(always)]
+    pub fn into_full(self) -> FixedMirrorBuffer<T, N, Warm> {
+        debug_assert!(
+            self.count == N,
+            "FixedMirrorBuffer::into_full called on non-full buffer (count={}, N={N})",
+            self.count
+        );
+        FixedMirrorBuffer {
+            ring: self.ring,
+            view: self.view,
+            index: self.index,
+            count: self.count,
+            state: PhantomData,
+        }
+    }
+}
+
+impl<T: BufferElement, const N: usize> Default for FixedMirrorBuffer<T, N, Cold> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ── Warm methods ──────────────────────────────────────────────────────────────
+
+impl<T: BufferElement, const N: usize> FixedMirrorBuffer<T, N, Warm> {
+    /// Push (branchless — buffer is guaranteed full, no count update needed).
+    ///
+    /// Writes to the ring, advances the ring head, and shifts `view` left by one
+    /// slot so the newest element lands at `view[N-1]`.
+    #[inline(always)]
+    pub fn push(&mut self, value: T) {
+        unsafe { *self.ring.get_unchecked_mut(self.index) = value };
+        self.index += 1;
+        if self.index == N {
+            self.index = 0;
+        }
+        self.view.copy_within(1.., 0);
+        unsafe { *self.view.get_unchecked_mut(N - 1) = value };
+    }
+
+    /// Push and return the evicted element (branchless, always evicts).
+    ///
+    /// The evicted value is `view[0]` before the shift.
+    #[inline(always)]
+    pub fn push_with_info(&mut self, value: T) -> T {
+        let evicted = unsafe { *self.view.get_unchecked(0) };
+        self.push(value);
+        evicted
+    }
+}
+
+// ── MinMax on FixedMirrorBuffer<f64, N, Cold> ─────────────────────────────────
+//
+// Available on `Cold` buffers too — `get_slice_by_period` already handles partial
+// fills, clamping `take` to `count`, so the implementation is identical to Warm.
+
+/*impl<const N: usize> FixedMirrorBuffer<f64, N, Cold> {
+    /// Rolling maximum over the current (possibly partial) window.
+    ///
+    /// Delegates to `mirror_max` via `get_slice_by_period`, which clamps the
+    /// slice length to however many elements have been pushed so far.
+    ///
+    /// `CHUNK_SIZE` controls the SIMD width used during rescans (1 = scalar).
+    #[inline(always)]
+    pub fn max<const CHUNK_SIZE: usize>(
+        &self,
+        state: &mut MaxState,
+        bar: f64,
+        period: usize,
+    ) -> (f64, usize) {
+        mirror_max::<CHUNK_SIZE>(self.get_slice_by_period(period), state, bar, period)
+    }
+
+    /// Rolling minimum over the current (possibly partial) window.
+    ///
+    /// Mirror of [`Self::max`] for minimum tracking.
+    #[inline(always)]
+    pub fn min<const CHUNK_SIZE: usize>(
+        &self,
+        state: &mut MinState,
+        bar: f64,
+        period: usize,
+    ) -> (f64, usize) {
+        mirror_min::<CHUNK_SIZE>(self.get_slice_by_period(period), state, bar, period)
+    }
+}*/
+
+// ── MinMax on FixedMirrorBuffer<f64, N, Warm> ─────────────────────────────────
+//
+// Only available on `Warm` buffers — guarantees `view[..N]` is fully populated
+// and `get_slice_by_period(period)` always returns exactly `period` elements.
+
+/*impl<const N: usize> FixedMirrorBuffer<f64, N, Warm> {
     /// Rolling maximum over the current window.
     ///
     /// Identical semantics to [`MinMaxBuffer::max`] on the heap-based `Buffer`:
@@ -260,26 +318,7 @@ impl<const N: usize> FixedMirrorBuffer<f64, N> {
         bar: f64,
         period: usize,
     ) -> (f64, usize) {
-        let (mut max, mut trail) = (state.max, state.trail);
-        trail += 1;
-        if period <= trail {
-            // Rescan only the last `period` elements — not the full buffer.
-            // get_slice_by_period returns oldest→newest so
-            // window_index_to_bars_ago = period − 1 − idx.
-            let window = self.get_slice_by_period(period);
-            let (max_val, max_idx) = if CHUNK_SIZE == 1 {
-                find_max_scalar(window)
-            } else {
-                find_max_simd::<CHUNK_SIZE>(window)
-            };
-            max = max_val;
-            trail = window.len().saturating_sub(1 + max_idx);
-        } else if bar >= max {
-            max = bar;
-            trail = 0;
-        }
-        (state.max, state.trail) = (max, trail);
-        (max, trail)
+        mirror_max::<CHUNK_SIZE>(self.get_slice_by_period(period), state, bar, period)
     }
 
     /// Rolling minimum over the current window.
@@ -292,31 +331,9 @@ impl<const N: usize> FixedMirrorBuffer<f64, N> {
         bar: f64,
         period: usize,
     ) -> (f64, usize) {
-        let (mut min, mut trail) = (state.min, state.trail);
-        trail += 1;
-        if period <= trail {
-            let window = self.get_slice_by_period(period);
-            let (min_val, min_idx) = if CHUNK_SIZE == 1 {
-                find_min_scalar(window)
-            } else {
-                find_min_simd::<CHUNK_SIZE>(window)
-            };
-            min = min_val;
-            trail = window.len().saturating_sub(1 + min_idx);
-        } else if bar <= min {
-            min = bar;
-            trail = 0;
-        }
-        (state.min, state.trail) = (min, trail);
-        (min, trail)
+        mirror_min::<CHUNK_SIZE>(self.get_slice_by_period(period), state, bar, period)
     }
-}
-
-impl<T: BufferElement, const N: usize> Default for FixedMirrorBuffer<T, N> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+}*/
 
 // ── Iterator ──────────────────────────────────────────────────────────────────
 
@@ -325,13 +342,13 @@ impl<T: BufferElement, const N: usize> Default for FixedMirrorBuffer<T, N> {
 /// Yields elements from **newest to oldest** (`buf[0]` first).
 /// Reads from the always-ordered `view` array, so in-place mutations via
 /// `get_slice_mut` are immediately visible without calling `sync_mirrors`.
-pub struct FixedMirrorIter<'a, T: BufferElement, const N: usize> {
-    buffer: &'a FixedMirrorBuffer<T, N>,
+pub struct FixedMirrorIter<'a, T: BufferElement, const N: usize, S> {
+    buffer: &'a FixedMirrorBuffer<T, N, S>,
     /// Current position expressed as bars-ago (0 = newest).
     pos: usize,
 }
 
-impl<'a, T: BufferElement, const N: usize> Iterator for FixedMirrorIter<'a, T, N> {
+impl<'a, T: BufferElement, const N: usize, S> Iterator for FixedMirrorIter<'a, T, N, S> {
     type Item = T;
 
     #[inline]
@@ -339,7 +356,7 @@ impl<'a, T: BufferElement, const N: usize> Iterator for FixedMirrorIter<'a, T, N
         if self.pos >= self.buffer.count {
             return None;
         }
-        // view[0]=oldest, view[count-1]=newest → bars_ago 0 maps to view[count-1]
+        // view[0]=oldest, view[count-1]=newest → bars_ago 0 maps to view[count-1]
         let val = self.buffer.view[self.buffer.count - 1 - self.pos];
         self.pos += 1;
         Some(val)
@@ -352,15 +369,15 @@ impl<'a, T: BufferElement, const N: usize> Iterator for FixedMirrorIter<'a, T, N
     }
 }
 
-impl<'a, T: BufferElement, const N: usize> ExactSizeIterator for FixedMirrorIter<'a, T, N> {}
+impl<'a, T: BufferElement, const N: usize, S> ExactSizeIterator for FixedMirrorIter<'a, T, N, S> {}
 
-impl<'a, T: BufferElement, const N: usize> IntoIterator for &'a FixedMirrorBuffer<T, N> {
+impl<'a, T: BufferElement, const N: usize, S> IntoIterator for &'a FixedMirrorBuffer<T, N, S> {
     type Item = T;
-    type IntoIter = FixedMirrorIter<'a, T, N>;
+    type IntoIter = FixedMirrorIter<'a, T, N, S>;
 
     /// Iterate from newest to oldest (`buf[0]` first).
     #[inline]
-    fn into_iter(self) -> FixedMirrorIter<'a, T, N> {
+    fn into_iter(self) -> FixedMirrorIter<'a, T, N, S> {
         FixedMirrorIter {
             buffer: self,
             pos: 0,
@@ -368,7 +385,7 @@ impl<'a, T: BufferElement, const N: usize> IntoIterator for &'a FixedMirrorBuffe
     }
 }
 
-impl<T: BufferElement, const N: usize> std::ops::Index<usize> for FixedMirrorBuffer<T, N> {
+impl<T: BufferElement, const N: usize, S> std::ops::Index<usize> for FixedMirrorBuffer<T, N, S> {
     type Output = T;
 
     /// Index by bars-ago: `buf[0]` is the newest element, `buf[count-1]` is the oldest.
@@ -393,11 +410,13 @@ impl<T: BufferElement, const N: usize> std::ops::Index<usize> for FixedMirrorBuf
 // `where [T; N]: Serialize` bounds the compiler cannot satisfy for generic N,
 // and to go through T::Repr so that non-serde types like Simd<f64, N> work.
 //
+// `S` carries no runtime data (PhantomData), so the wire format is unchanged.
+//
 // Serialize  — map each element through T::to_repr, emit as Vec<T::Repr>.
 // Deserialize — read Vec<T::Repr>, map through T::from_repr, convert via TryFrom.
 
-impl<T: BufferElement + SerdeElement, const N: usize> Serialize for FixedMirrorBuffer<T, N> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+impl<T: BufferElement + SerdeElement, const N: usize, S> Serialize for FixedMirrorBuffer<T, N, S> {
+    fn serialize<Ser: Serializer>(&self, serializer: Ser) -> Result<Ser::Ok, Ser::Error> {
         let mut state = serializer.serialize_struct("FixedMirrorBuffer", 4)?;
         let ring_repr: Vec<T::Repr> = self.ring.iter().map(|v| T::to_repr(*v)).collect();
         let view_repr: Vec<T::Repr> = self.view.iter().map(|v| T::to_repr(*v)).collect();
@@ -409,8 +428,8 @@ impl<T: BufferElement + SerdeElement, const N: usize> Serialize for FixedMirrorB
     }
 }
 
-impl<'de, T: BufferElement + SerdeElement, const N: usize> Deserialize<'de>
-    for FixedMirrorBuffer<T, N>
+impl<'de, T: BufferElement + SerdeElement, const N: usize, S> Deserialize<'de>
+    for FixedMirrorBuffer<T, N, S>
 where
     T::Repr: Deserialize<'de>,
 {
@@ -446,13 +465,13 @@ where
             }
         }
 
-        struct FMBVisitor<T, const N: usize>(PhantomData<fn() -> T>);
+        struct FMBVisitor<T, S, const N: usize>(PhantomData<fn() -> (T, S)>);
 
-        impl<'de, T: BufferElement + SerdeElement, const N: usize> Visitor<'de> for FMBVisitor<T, N>
+        impl<'de, T: BufferElement + SerdeElement, const N: usize, S> Visitor<'de> for FMBVisitor<T, S, N>
         where
             T::Repr: Deserialize<'de>,
         {
-            type Value = FixedMirrorBuffer<T, N>;
+            type Value = FixedMirrorBuffer<T, N, S>;
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str("struct FixedMirrorBuffer")
@@ -461,7 +480,7 @@ where
             fn visit_map<V: MapAccess<'de>>(
                 self,
                 mut map: V,
-            ) -> Result<FixedMirrorBuffer<T, N>, V::Error> {
+            ) -> Result<FixedMirrorBuffer<T, N, S>, V::Error> {
                 let mut ring: Option<Vec<T::Repr>> = None;
                 let mut view: Option<Vec<T::Repr>> = None;
                 let mut index: Option<usize> = None;
@@ -518,6 +537,7 @@ where
                     view: view_arr,
                     index,
                     count,
+                    state: PhantomData,
                 })
             }
         }
@@ -525,7 +545,7 @@ where
         deserializer.deserialize_struct(
             "FixedMirrorBuffer",
             FIELDS,
-            FMBVisitor::<T, N>(PhantomData),
+            FMBVisitor::<T, S, N>(PhantomData),
         )
     }
 }

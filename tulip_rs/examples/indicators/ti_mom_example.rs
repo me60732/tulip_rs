@@ -1,4 +1,4 @@
-use tulip_rs::indicators::mom::{indicator, TIndicatorState};
+use tulip_rs::indicators::mom::{Indicator, Mom, TIndicatorState};
 use tulip_rs::types::IndicatorError;
 
 fn main() -> Result<(), IndicatorError> {
@@ -14,7 +14,7 @@ fn main() -> Result<(), IndicatorError> {
     let options = [5.0];
 
     // Calculate the MOM indicator for the entire dataset
-    let (outputs, mut state) = indicator(&inputs, &options, None)?;
+    let (outputs, mut state) = Mom::indicator(&inputs, &options, None)?;
     println!("MOM Indicator Result: {:?}", outputs[0]);
 
     // New input data for updating the indicator

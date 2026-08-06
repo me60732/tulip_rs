@@ -1,4 +1,4 @@
-use tulip_rs::indicators::ema::{indicator, TIndicatorState};
+use tulip_rs::indicators::ema::{Ema, Indicator, TIndicatorState};
 
 fn main() {
     let close = [
@@ -9,7 +9,7 @@ fn main() {
 
     let inputs = [close.as_slice()];
 
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match Ema::indicator(&inputs, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -19,7 +19,7 @@ fn main() {
     let inputs2 = [&close[0..close.len() - 1]];
 
     // Example with recent_only parameter set to false
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match Ema::indicator(&inputs2, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

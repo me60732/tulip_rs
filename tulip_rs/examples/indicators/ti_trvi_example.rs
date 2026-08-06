@@ -1,4 +1,4 @@
-use tulip_rs::indicators::trvi::{indicator, TIndicatorState};
+use tulip_rs::indicators::trvi::{Indicator, TIndicatorState, Trvi};
 
 fn main() {
     // Test Input Data
@@ -20,14 +20,14 @@ fn main() {
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
     // Calculate the TRVI using the full dataset (no optional outputs)
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match Trvi::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
     println!("Full TRVI Line: {:?}", outputs[0]);
 
     // Calculate again with optional TR and EMA outputs enabled
-    let (outputs_with_tr_ema, _) = match indicator(&inputs, &options, Some(&[true, true])) {
+    let (outputs_with_tr_ema, _) = match Trvi::indicator(&inputs, &options, Some(&[true, true])) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -42,7 +42,7 @@ fn main() {
     let inputs2 = [&high[..n], &low[..n], &close[..n]];
 
     // Calculate the TRVI using a partial dataset
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match Trvi::indicator(&inputs2, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

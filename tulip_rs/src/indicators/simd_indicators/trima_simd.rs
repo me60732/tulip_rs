@@ -6,7 +6,8 @@ pub use crate::indicators::simd_indicators::by_option::trima::indicator_by_optio
 
 use crate::indicators::trima::State;
 use std::simd::Simd;
-
+use crate::types::Warm;
+pub use crate::indicator_types::{TSimdState, TState};
 /// SIMD-parallel state for computing the Triangular Moving Average (TRIMA) across `N` assets simultaneously.
 /// Each field is a SIMD vector where lane `i` corresponds to asset `i`.
 pub struct SimdState<const N: usize> {
@@ -16,72 +17,30 @@ pub struct SimdState<const N: usize> {
     pub lead_sum: Simd<f64, N>,
     /// Running sum of values in the trailing half of the triangular window for each lane.
     pub trail_sum: Simd<f64, N>,
+    pub multiplier: Simd<f64, N>
 }
 
-impl<const N: usize> SimdState<N> {
-    /// Gathers `N` scalar [`State`] references into a single `SimdState`, packing each field into a SIMD lane.
-    pub fn new(states: &[&mut State]) -> Self {
-        let mut weight_sum = [0.0; N];
-        let mut lead_sum = [0.0; N];
-        let mut trail_sum = [0.0; N];
-
-        for i in 0..N {
-            weight_sum[i] = states[i].weight_sum;
-            lead_sum[i] = states[i].lead_sum;
-            trail_sum[i] = states[i].trail_sum;
-        }
-        Self {
-            weight_sum: Simd::from_array(weight_sum),
-            lead_sum: Simd::from_array(lead_sum),
-            trail_sum: Simd::from_array(trail_sum),
-        }
-    }
-
-    /// Scatters the SIMD state back into an array of `N` scalar [`State`] values.
-    pub fn to_states(&self) -> [State; N] {
-        let weight_sum = self.weight_sum.to_array();
-        let lead_sum = self.lead_sum.to_array();
-        let trail_sum = self.trail_sum.to_array();
-
-        let states: [State; N] =
-            std::array::from_fn(|i| State::new(weight_sum[i], lead_sum[i], trail_sum[i]));
-
-        states
-    }
-
-    /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place.
-    pub fn write_states(&self, states: &mut [&mut State]) {
-        let weight_sum = self.weight_sum.to_array();
-        let lead_sum = self.lead_sum.to_array();
-        let trail_sum = self.trail_sum.to_array();
-
-        for i in 0..N {
-            states[i].weight_sum = weight_sum[i];
-            states[i].lead_sum = lead_sum[i];
-            states[i].trail_sum = trail_sum[i];
-        }
-    }
-
-    /// Advances one bar of the TRIMA computation for `N` lanes simultaneously.
-    ///
-    /// The TRIMA is a double-smoothed SMA. On each step the weighted sum is updated by adding
-    /// the incoming value and the lead sum, then removing the trail sum. The result is multiplied
-    /// by `1 / triangular_weight` to produce the average.
-    ///
-    /// # Returns
-    ///
-    /// The TRIMA value for the current bar across all `N` lanes.
-    pub fn calc_simd(
+impl<const N: usize> TSimdState for SimdState<N> {
+    type ScalarState = State<Warm>;
+    crate::simd_state_from_state!(
+         sub: [],
+         scalar: [weight_sum, lead_sum, trail_sum, multiplier]
+    );
+    crate::simd_state_write!(
+         sub: [],
+         scalar: [weight_sum, lead_sum, trail_sum]
+    );
+}
+impl<const N: usize> TState for SimdState<N> {
+    type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
+    type Outputs = Simd<f64, N>;
+    fn calc<'a>(
         &mut self,
-        real: Simd<f64, N>,
-        lsi: Simd<f64, N>,
-        tsi1: Simd<f64, N>,
-        tsi2: Simd<f64, N>,
-        multiplier: Simd<f64, N>,
-    ) -> Simd<f64, N> {
+        (real, lsi, tsi1, tsi2): Self::Inputs<'a>,
+    ) -> Self::Outputs {
         //calc_simd(self, real, lsi, tsi1, tsi2, multiplier)
         self.weight_sum += real;
-        let trima = self.weight_sum * multiplier;
+        let trima = self.weight_sum * self.multiplier;
         self.lead_sum += real;
         self.weight_sum += self.lead_sum - self.trail_sum;
         self.lead_sum -= lsi;
@@ -91,17 +50,3 @@ impl<const N: usize> SimdState<N> {
     }
 }
 
-/// Advances one bar of the TRIMA computation for `N` lanes simultaneously.
-///
-/// Delegates to [`SimdState::calc_simd`]. Returns the TRIMA value for the current bar.
-#[inline(always)]
-pub fn calc_simd<const N: usize>(
-    state: &mut SimdState<N>,
-    real: Simd<f64, N>,
-    lsi: Simd<f64, N>,
-    tsi1: Simd<f64, N>,
-    tsi2: Simd<f64, N>,
-    multiplier: Simd<f64, N>,
-) -> Simd<f64, N> {
-    state.calc_simd(real, lsi, tsi1, tsi2, multiplier)
-}

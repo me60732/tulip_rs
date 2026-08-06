@@ -1,3 +1,4 @@
+pub use crate::indicator_types::{TSimdState, TState};
 use crate::indicators::msw::State;
 use std::simd::Simd;
 
@@ -23,10 +24,10 @@ pub struct SimdState<const N: usize> {
     pub wi: Simd<f64, N>,
 }
 
-impl<const N: usize> SimdState<N> {
-    /// Gathers `N` scalar [`State`] references into a single [`SimdState`],
-    /// packing each field into the corresponding SIMD lane.
-    pub fn new(states: &[&mut State]) -> Self {
+impl<const N: usize> TSimdState for SimdState<N> {
+    type ScalarState = State;
+
+    fn from_states(states: &mut [&mut State]) -> Self {
         Self {
             rp: Simd::from_array(std::array::from_fn(|i| states[i].rp)),
             ip: Simd::from_array(std::array::from_fn(|i| states[i].ip)),
@@ -35,17 +36,23 @@ impl<const N: usize> SimdState<N> {
         }
     }
 
-    /// Scatters the updated SDFT accumulators back into the `N` scalar [`State`] references.
-    ///
-    /// Only `rp` and `ip` change bar-by-bar; `wr` and `wi` are constants derived from the
-    /// period and are not written back (they remain correct in the original `State`).
-    pub fn write_states(&self, states: &mut [&mut State]) {
+    fn write_states(&self, states: &mut [&mut State]) {
         let rp = self.rp.to_array();
         let ip = self.ip.to_array();
         for i in 0..N {
             states[i].rp = rp[i];
             states[i].ip = ip[i];
         }
+    }
+}
+
+impl<const N: usize> TState for SimdState<N> {
+    type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>); // (new_sample, old_sample)
+    type Outputs = (Simd<f64, N>, Simd<f64, N>); // (sine, lead_sine)
+
+    #[inline(always)]
+    fn calc<'a>(&mut self, (new_sample, old_sample): Self::Inputs<'a>) -> Self::Outputs {
+        options::calc_sdft(self, new_sample, old_sample)
     }
 }
 

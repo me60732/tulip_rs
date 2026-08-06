@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::ad::{indicator, min_data, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::ad::{IndicatorState, TIndicatorState, Ad, Indicator};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_ad, ti_ad_start};
@@ -162,7 +162,7 @@ fn bench_rust_ad(c: &mut Criterion) {
             timing.measure(
                 || {
                     let result =
-                        indicator(&inputs, &OPTIONS, None).expect("Rust AD indicator failed");
+                        Ad::indicator(&inputs, &OPTIONS, None).expect("Rust AD indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -191,7 +191,7 @@ fn bench_rust_ad(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust AD", |b| {
             b.iter(|| {
-                let result = indicator(&inputs, &OPTIONS, None).expect("Rust AD indicator failed");
+                let result = Ad::indicator(&inputs, &OPTIONS, None).expect("Rust AD indicator failed");
                 black_box(&result);
             });
         });
@@ -236,7 +236,7 @@ fn bench_rust_ad_from_state(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let min_data_val = min_data(&OPTIONS).max(CHUNK_SIZE);
+                    let min_data_val = Ad::min_data(&OPTIONS).max(CHUNK_SIZE);
                     // First chunk
                     let chunk_inputs = [
                         &high_vec[..min_data_val],
@@ -246,7 +246,7 @@ fn bench_rust_ad_from_state(c: &mut Criterion) {
                     ];
 
                     let (_, mut state) =
-                        indicator(&chunk_inputs, &OPTIONS, None).expect("Rust AD indicator failed");
+                        Ad::indicator(&chunk_inputs, &OPTIONS, None).expect("Rust AD indicator failed");
 
                     // Chunks
                     let mut high_chunks = high_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -293,7 +293,7 @@ fn bench_rust_ad_from_state(c: &mut Criterion) {
             // --- Rust_FromState_1_Bar benchmark ---
             if inputs[0].len() > 1 {
                 let (_, mut state) =
-                    indicator(&new_inputs, &OPTIONS, None).expect("Rust AD indicator failed");
+                    Ad::indicator(&new_inputs, &OPTIONS, None).expect("Rust AD indicator failed");
 
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
@@ -316,7 +316,7 @@ fn bench_rust_ad_from_state(c: &mut Criterion) {
                 );
 
                 let (_, state) =
-                    indicator(&new_inputs, &OPTIONS, None).expect("Rust AD indicator failed");
+                    Ad::indicator(&new_inputs, &OPTIONS, None).expect("Rust AD indicator failed");
                 let json = serde_json::to_string(&state).expect("json failed");
 
                 let mut timing = TimingMeasurements::new();
@@ -370,7 +370,7 @@ fn bench_rust_ad_from_state(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust AD from state", |b| {
             b.iter(|| {
-                let min_data_val = min_data(&OPTIONS).max(CHUNK_SIZE);
+                let min_data_val = Ad::min_data(&OPTIONS).max(CHUNK_SIZE);
                 // First chunk
                 let chunk_inputs = [
                     &high_vec[..min_data_val],
@@ -380,7 +380,7 @@ fn bench_rust_ad_from_state(c: &mut Criterion) {
                 ];
 
                 let (_, mut state) =
-                    indicator(&chunk_inputs, &OPTIONS, None).expect("Rust AD indicator failed");
+                    Ad::indicator(&chunk_inputs, &OPTIONS, None).expect("Rust AD indicator failed");
 
                 // Chunks
                 let mut high_chunks = high_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -416,7 +416,7 @@ fn bench_rust_ad_from_state(c: &mut Criterion) {
         // --- Rust_FromState_1_Bar benchmark ---
         if inputs[0].len() > 1 {
             let (_, mut state) =
-                indicator(&new_inputs, &OPTIONS, None).expect("Rust AD indicator failed");
+                Ad::indicator(&new_inputs, &OPTIONS, None).expect("Rust AD indicator failed");
 
             group.bench_function("Rust AD from state 1 bar", |b| {
                 b.iter(|| {

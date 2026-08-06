@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 use tulip_rs::indicators::rsi::{
-    indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState,
+    Rsi, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
 };
 
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
@@ -130,7 +130,7 @@ fn bench_rust_rsi(c: &mut Criterion) {
                 timing.measure(
                     || {
                         let result =
-                            indicator(&inputs, &options, None).expect("Rust RSI indicator failed");
+                            Rsi::indicator(&inputs, &options, None).expect("Rust RSI indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -150,7 +150,7 @@ fn bench_rust_rsi(c: &mut Criterion) {
             group.bench_function(format!("Rust RSI {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result =
-                        indicator(&inputs, &options, None).expect("Rust RSI indicator failed");
+                        Rsi::indicator(&inputs, &options, None).expect("Rust RSI indicator failed");
                     black_box(&result);
                 });
             });
@@ -175,12 +175,12 @@ fn bench_rust_rsi_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data = min_data(&options).max(CHUNK_SIZE);
+                        let min_data = Rsi::min_data(&options).max(CHUNK_SIZE);
                         // First chunk
                         let chunk_inputs = [&close[..min_data]];
 
                         let (_, mut state) =
-                            indicator(&chunk_inputs, &options, None).expect("RSI indicator failed");
+                            Rsi::indicator(&chunk_inputs, &options, None).expect("RSI indicator failed");
 
                         // Chunks
                         let mut close_chunks = close[min_data..].chunks_exact(CHUNK_SIZE);
@@ -216,7 +216,7 @@ fn bench_rust_rsi_from_state(c: &mut Criterion) {
                     let new_inputs = [&close[..close.len() - 1]];
                     let final_inputs = [&close[close.len() - 1..]];
                     let (_, mut state) =
-                        indicator(&new_inputs, &options, None).expect("Rust RSI indicator failed");
+                        Rsi::indicator(&new_inputs, &options, None).expect("Rust RSI indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -240,7 +240,7 @@ fn bench_rust_rsi_from_state(c: &mut Criterion) {
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
                     let (_, state) =
-                        indicator(&new_inputs, &options, None).expect("Rust RSI indicator failed");
+                        Rsi::indicator(&new_inputs, &options, None).expect("Rust RSI indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -278,12 +278,12 @@ fn bench_rust_rsi_from_state(c: &mut Criterion) {
 
             group.bench_function("benchmark", |b| {
                 b.iter(|| {
-                    let min_data = min_data(&options).max(CHUNK_SIZE);
+                    let min_data = Rsi::min_data(&options).max(CHUNK_SIZE);
                     // First chunk
                     let chunk_inputs = [&close_vec[..min_data]];
 
                     let (_, mut state) =
-                        indicator(&chunk_inputs, &options, None).expect("RSI indicator failed");
+                        Rsi::indicator(&chunk_inputs, &options, None).expect("RSI indicator failed");
 
                     // Chunks
                     let mut close_chunks = close_vec[min_data..].chunks_exact(CHUNK_SIZE);
@@ -311,7 +311,7 @@ fn bench_rust_rsi_from_state(c: &mut Criterion) {
                 let new_inputs = [&close_vec[..close_vec.len() - 1]];
                 let final_inputs = [&close_vec[close_vec.len() - 1..]];
                 let (_, mut state) =
-                    indicator(&new_inputs, &options, None).expect("Rust RSI indicator failed");
+                    Rsi::indicator(&new_inputs, &options, None).expect("Rust RSI indicator failed");
 
                 let mut group =
                     c.benchmark_group(format!("Rust RSI from state 1 bar {{ {} }}", options[0]));
@@ -359,7 +359,7 @@ fn bench_rust_rsi_simd_by_assets(c: &mut Criterion) {
 
             for options in OPTIONS_LIST {
                 let min_len = padded_close.iter().map(|c| c.len()).min().unwrap_or(0);
-                if min_len < min_data(&options) {
+                if min_len < Rsi::min_data(&options) {
                     continue;
                 }
 

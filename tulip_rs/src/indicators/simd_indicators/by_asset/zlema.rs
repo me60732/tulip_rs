@@ -1,10 +1,10 @@
 //use crate::common::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::zlema_simd::SimdState;
+use crate::indicators::simd_indicators::zlema_simd::{SimdState, TSimdState, TState};
 use crate::indicators::zlema::{
-    min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    Zlema, Indicator, IndicatorState, State, INPUTS, OPTIONS,
 };
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
 
@@ -13,17 +13,17 @@ struct ZlemaDriver {
     lag: usize,
 }
 
-impl Driver<State> for ZlemaDriver {
+impl Driver<State<Warm>> for ZlemaDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
         let len = inputs[0][0].len();
-        let mut state = SimdState::new(&states);
+        let mut state = SimdState::from_states(&mut states);
 
         // Pre-compute pointers for maximum efficiency
         let input_ptrs = crate::extract_input_ptrs!(inputs, N, input_ptrs);
@@ -31,12 +31,12 @@ impl Driver<State> for ZlemaDriver {
 
         // Optimized main loop with minimal overhead
         for (j, i) in (self.lag..len).enumerate() {
-            let (lagged, current) = crate::extract_simd_at_indices!(N, input_ptrs,
-                lagged @ j,
-                current @ i
+            let inputs = crate::extract_simd_at_indices!(N, input_ptrs,
+                current @ i,
+                lagged @ j
             );
 
-            let zlema = state.calc_simd(current, lagged);
+            let zlema = state.calc(inputs);
 
             crate::write_simd_at_indices!(N, j,
                 zlema_line_ptr => zlema
@@ -55,7 +55,7 @@ impl Driver<State> for ZlemaDriver {
 /// SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[real]` for asset `i`.
 /// * `options` - `options[0]` is the `period`.
 /// * `_optional_outputs` - Unused; ZLEMA has no optional outputs.
@@ -65,20 +65,20 @@ impl Driver<State> for ZlemaDriver {
 /// `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    options: &[f64; OPTIONS],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, Zlema::min_data(options))?;
     validate_options(options)?;
     let period = options[0] as usize;
     let lag = ((period.saturating_sub(1)) / 2).max(1);
 
-    let mut road_train = PrimeMover::<N, State>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut output_buffers: Vec<Vec<Vec<f64>>> = (0..N)
         .map(|i| {
             vec![{
-                let capacity = output_length(inputs[i][0].len(), options);
+                let capacity = Zlema::output_length(inputs[i][0].len(), options);
                 crate::uninit_vec!(f64, capacity)
             }]
         })

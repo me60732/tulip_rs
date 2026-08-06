@@ -1,4 +1,4 @@
-use tulip_rs::indicators::tsf::{indicator, TIndicatorState};
+use tulip_rs::indicators::tsf::{Tsf, TIndicatorState, Indicator};
 
 fn main() {
     let close = [
@@ -10,7 +10,7 @@ fn main() {
     let inputs = [close.as_slice()];
 
     // Example with recent_only parameter set to false
-    let (result, _) = match indicator(&inputs, &options, Some(&[true, true, true])) {
+    let (result, _) = match Tsf::indicator(&inputs, &options, Some(&[true, true, true])) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -21,7 +21,7 @@ fn main() {
     println!("Intercept Line: {:?}", result[3]);
 
     let inputs2 = [&close[0..close.len() - 5]];
-    let (result2, mut state2) = match indicator(&inputs2, &options, Some(&[true, true, true])) {
+    let (result2, mut state2) = match Tsf::indicator(&inputs2, &options, Some(&[true, true, true])) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

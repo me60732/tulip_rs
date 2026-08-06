@@ -2,7 +2,7 @@
 mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicators::obv::indicator_by_assets;
-    use tulip_rs::indicators::obv::{indicator as rust_obv, min_data, TIndicatorState};
+    use tulip_rs::indicators::obv::{Obv, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_obv, ti_obv_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -64,7 +64,7 @@ mod tests {
 
         // Run the Rust implementation
         let inputs_rust = [close.as_slice(), volume.as_slice()];
-        let (outputs, _) = rust_obv(&inputs_rust, &[], None).expect("Rust OBV indicator failed");
+        let (outputs, _) = Obv::indicator(&inputs_rust, &[], None).expect("Rust OBV indicator failed");
 
         let output_len_rust = outputs[0].len();
 
@@ -145,7 +145,7 @@ mod tests {
 
             let inputs_rust = [close.as_slice(), volume.as_slice()];
             let (outputs, _) =
-                rust_obv(&inputs_rust, &[], None).expect("Rust OBV indicator failed");
+                Obv::indicator(&inputs_rust, &[], None).expect("Rust OBV indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -208,12 +208,12 @@ mod tests {
 
             // Get full output
             let (full_outputs, _) =
-                rust_obv(&inputs_rust, &[], None).expect("OBV indicator should work on full data");
+                Obv::indicator(&inputs_rust, &[], None).expect("OBV indicator should work on full data");
 
             // Process in batches
             let mut batch_full_outputs = vec![Vec::new(); full_outputs.len()];
 
-            let min_data_val = min_data(&[]).max(CHUNK_SIZE);
+            let min_data_val = Obv::min_data(&[]).max(CHUNK_SIZE);
 
             // Process first chunk to get initial state
             let first_chunk_size = min_data_val.min(close.len());
@@ -221,7 +221,7 @@ mod tests {
             let first_volume = volume[..first_chunk_size].to_vec();
             let first_inputs = [first_close.as_slice(), first_volume.as_slice()];
 
-            let (outputs, mut state) = rust_obv(&first_inputs, &[], None)
+            let (outputs, mut state) = Obv::indicator(&first_inputs, &[], None)
                 .expect("OBV indicator should work on first chunk");
 
             for output_idx in 0..outputs.len() {
@@ -305,7 +305,7 @@ mod tests {
         // Compare with individual Rust implementations
         for i in 0..4 {
             let individual_inputs = [stock_data[i].1.as_slice(), stock_data[i].2.as_slice()];
-            let (individual_outputs, _) = rust_obv(&individual_inputs, &[], None)
+            let (individual_outputs, _) = Obv::indicator(&individual_inputs, &[], None)
                 .expect("Individual Rust OBV indicator failed");
 
             // Compare outputs

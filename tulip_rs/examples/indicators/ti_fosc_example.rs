@@ -1,4 +1,4 @@
-use tulip_rs::indicators::fosc::{indicator, TIndicatorState};
+use tulip_rs::indicators::fosc::{Fosc, Indicator, TIndicatorState};
 
 fn main() {
     let close = [
@@ -10,7 +10,7 @@ fn main() {
     let inputs = [close.as_slice()];
 
     // Example with recent_only parameter set to false
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true, true, true, true])) {
+    let (outputs, _) = match Fosc::indicator(&inputs, &options, Some(&[true, true, true, true])) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -24,7 +24,7 @@ fn main() {
     let new_inputs = [&close[..close.len() - 5]];
     let final_inputs = [&close[close.len() - 5..]];
 
-    let (outputs, mut state) = match indicator(&new_inputs, &options, None) {
+    let (outputs, mut state) = match Fosc::indicator(&new_inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

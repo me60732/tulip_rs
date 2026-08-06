@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::mom::{
-    indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState,
+    Mom, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -138,7 +138,7 @@ fn bench_rust_mom(c: &mut Criterion) {
                 timing.measure(
                     || {
                         let result =
-                            indicator(&inputs, &options, None).expect("MOM indicator failed");
+                            Mom::indicator(&inputs, &options, None).expect("MOM indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -158,7 +158,7 @@ fn bench_rust_mom(c: &mut Criterion) {
             group.bench_function(format!("Rust MOM {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result =
-                        indicator(&inputs, &options, None).expect("Rust MOM indicator failed");
+                        Mom::indicator(&inputs, &options, None).expect("Rust MOM indicator failed");
                     black_box(&result);
                 });
             });
@@ -183,12 +183,12 @@ fn bench_rust_mom_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data = min_data(&options).max(CHUNK_SIZE);
+                        let min_data = Mom::min_data(&options).max(CHUNK_SIZE);
                         // First chunk
                         let chunk_inputs = [&close[..min_data]];
 
                         let (_, mut state) =
-                            indicator(&chunk_inputs, &options, None).expect("MOM indicator failed");
+                            Mom::indicator(&chunk_inputs, &options, None).expect("MOM indicator failed");
 
                         // Chunks
                         let mut close_chunks = close[min_data..].chunks_exact(CHUNK_SIZE);
@@ -223,7 +223,7 @@ fn bench_rust_mom_from_state(c: &mut Criterion) {
                     let final_close = close[close.len() - 1..].to_vec();
                     let new_inputs = [new_close.as_slice()];
                     let (_, mut state) =
-                        indicator(&new_inputs, &options, None).expect("Rust MOM indicator failed");
+                        Mom::indicator(&new_inputs, &options, None).expect("Rust MOM indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -247,7 +247,7 @@ fn bench_rust_mom_from_state(c: &mut Criterion) {
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
                     let (_, state) =
-                        indicator(&new_inputs, &options, None).expect("Rust MOM indicator failed");
+                        Mom::indicator(&new_inputs, &options, None).expect("Rust MOM indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -286,12 +286,12 @@ fn bench_rust_mom_from_state(c: &mut Criterion) {
 
             group.bench_function("benchmark", |b| {
                 b.iter(|| {
-                    let min_data = min_data(&options).max(CHUNK_SIZE);
+                    let min_data = Mom::min_data(&options).max(CHUNK_SIZE);
                     // First chunk
                     let chunk_inputs = [&close_vec[..min_data]];
 
                     let (_, mut state) =
-                        indicator(&chunk_inputs, &options, None).expect("MOM indicator failed");
+                        Mom::indicator(&chunk_inputs, &options, None).expect("MOM indicator failed");
 
                     // Chunks
                     let mut close_chunks = close_vec[min_data..].chunks_exact(CHUNK_SIZE);
@@ -318,7 +318,7 @@ fn bench_rust_mom_from_state(c: &mut Criterion) {
                 let final_close = close_vec[close_vec.len() - 1..].to_vec();
                 let new_inputs = [new_close.as_slice()];
                 let (_, mut state) =
-                    indicator(&new_inputs, &options, None).expect("Rust MOM indicator failed");
+                    Mom::indicator(&new_inputs, &options, None).expect("Rust MOM indicator failed");
 
                 let mut group =
                     c.benchmark_group(format!("Rust MOM from state 1 bar {{ {:.1} }}", options[0]));

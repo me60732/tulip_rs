@@ -1,5 +1,5 @@
 use tulip_rs::indicators::donchianchannel::{
-    indicator, indicator_by_assets, indicator_by_options, TIndicatorState,
+    DonchianChannel, indicator_by_assets, indicator_by_options, TIndicatorState, Indicator,
 };
 
 fn main() {
@@ -16,7 +16,7 @@ fn main() {
     let inputs = [high.as_slice(), low.as_slice()];
 
     /////////////////////// Full run — lower, middle, upper bands ///////////////////////
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match DonchianChannel::indicator(&inputs, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -27,7 +27,7 @@ fn main() {
     /////////////////////// Partial run + batch_indicator continuation ///////////////////////
     let inputs2 = [&high[0..high.len() - 5], &low[0..low.len() - 5]];
 
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match DonchianChannel::indicator(&inputs2, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

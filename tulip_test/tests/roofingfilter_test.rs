@@ -1,10 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use tulip_rs::indicator_types::TIndicatorState;
-    use tulip_rs::indicators::highpass::indicator as highpass_indicator;
-    use tulip_rs::indicators::roofingfilter::indicator as roofingfilter;
-    use tulip_rs::indicators::roofingfilter::indicator_by_assets;
-    use tulip_rs::indicators::roofingfilter::indicator_by_options;
+    use tulip_rs::indicators::highpass::HighPass;
+    use tulip_rs::indicators::roofingfilter::{
+        indicator_by_assets, indicator_by_options, Indicator, RoofingFilter, TIndicatorState,
+    };
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
     const CHUNK_SIZE: usize = 100;
@@ -35,14 +34,15 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Full reference run (with optional highpass).
-                let (ref_out, _) = roofingfilter(&[close.as_slice()], &options, Some(&[true]))
-                    .expect("RoofingFilter reference run failed");
+                let (ref_out, _) =
+                    RoofingFilter::indicator(&[close.as_slice()], &options, Some(&[true]))
+                        .expect("RoofingFilter reference run failed");
                 let ref_rf = &ref_out[0];
                 let ref_hp = &ref_out[1];
 
                 // Seeded run.
                 let (first_out, mut state) =
-                    roofingfilter(&[&close[..FIRST_CHUNK]], &options, Some(&[true]))
+                    RoofingFilter::indicator(&[&close[..FIRST_CHUNK]], &options, Some(&[true]))
                         .expect("RoofingFilter seed failed");
 
                 let mut batch_rf = first_out[0].clone();
@@ -135,12 +135,12 @@ mod tests {
             for options in OPTIONS_LIST {
                 let hp_period = options[1];
 
-                let (rf_out, _) =
-                    roofingfilter(&inputs, &options, Some(&[true])).expect("RoofingFilter failed");
+                let (rf_out, _) = RoofingFilter::indicator(&inputs, &options, Some(&[true]))
+                    .expect("RoofingFilter failed");
                 let rf_hp = &rf_out[1];
 
                 let (hp_out, _) =
-                    highpass_indicator(&inputs, &[hp_period], None).expect("HighPass failed");
+                    HighPass::indicator(&inputs, &[hp_period], None).expect("HighPass failed");
                 let hp_standalone = &hp_out[0];
 
                 assert_eq!(
@@ -201,8 +201,9 @@ mod tests {
                 .expect("SIMD by-assets RoofingFilter failed");
 
             for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
-                let (scalar_out, _) = roofingfilter(&[close.as_slice()], &options, Some(&[true]))
-                    .expect("Scalar RoofingFilter failed");
+                let (scalar_out, _) =
+                    RoofingFilter::indicator(&[close.as_slice()], &options, Some(&[true]))
+                        .expect("Scalar RoofingFilter failed");
 
                 // RF line
                 let simd_rf = &simd_results[asset_idx][0];
@@ -287,7 +288,7 @@ mod tests {
                 .expect("SIMD by-options RoofingFilter failed");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
-                let (scalar_out, _) = roofingfilter(&inputs, options, Some(&[true]))
+                let (scalar_out, _) = RoofingFilter::indicator(&inputs, options, Some(&[true]))
                     .expect("Scalar RoofingFilter failed");
 
                 // RF line
@@ -400,8 +401,9 @@ mod tests {
                     batch_hp.extend_from_slice(&out[1]);
                 }
 
-                let (scalar_out, _) = roofingfilter(&[close.as_slice()], &options, Some(&[true]))
-                    .expect("Scalar RoofingFilter failed");
+                let (scalar_out, _) =
+                    RoofingFilter::indicator(&[close.as_slice()], &options, Some(&[true]))
+                        .expect("Scalar RoofingFilter failed");
 
                 assert_eq!(
                     batch_rf.len(),
@@ -504,8 +506,9 @@ mod tests {
                     batch_hp.extend_from_slice(&out[1]);
                 }
 
-                let (scalar_out, _) = roofingfilter(&[close.as_slice()], options, Some(&[true]))
-                    .expect("Scalar RoofingFilter failed");
+                let (scalar_out, _) =
+                    RoofingFilter::indicator(&[close.as_slice()], options, Some(&[true]))
+                        .expect("Scalar RoofingFilter failed");
 
                 assert_eq!(
                     batch_rf.len(),
@@ -559,5 +562,4 @@ mod tests {
             }
         }
     }
-
-    }
+}

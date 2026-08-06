@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use tulip_rs::indicators::donchianchannel::indicator as rust_donchianchannel;
-    use tulip_rs::indicators::ichimoku::{indicator as rust_ichimoku, min_data, TIndicatorState};
+    use tulip_rs::indicators::donchianchannel::DonchianChannel;
+    use tulip_rs::indicators::ichimoku::{Ichimoku, Indicator, TIndicatorState};
+    use tulip_rs::indicators::ichimoku::{indicator_by_assets, indicator_by_options};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
     const CHUNK_SIZE: usize = 100;
@@ -62,16 +63,16 @@ mod tests {
 
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
             let (outputs, _) =
-                rust_ichimoku(&inputs, &options, None).expect("Ichimoku indicator failed");
+                Ichimoku::indicator(&inputs, &options, None).expect("Ichimoku indicator failed");
 
             // Reference Donchian channels — middle band is outputs[1]
             let (don_short, _) =
-                rust_donchianchannel(&[high.as_slice(), low.as_slice()], &[options[0]], None)
+                DonchianChannel::indicator(&[high.as_slice(), low.as_slice()], &[options[0]], None)
                     .expect("Donchian short failed");
             let (don_long, _) =
-                rust_donchianchannel(&[high.as_slice(), low.as_slice()], &[options[1]], None)
+                DonchianChannel::indicator(&[high.as_slice(), low.as_slice()], &[options[1]], None)
                     .expect("Donchian long failed");
-            let (don_ultra, _) = rust_donchianchannel(
+            let (don_ultra, _) = DonchianChannel::indicator(
                 &[high.as_slice(), low.as_slice()],
                 &[ultra_period as f64],
                 None,
@@ -175,7 +176,7 @@ mod tests {
         for options in OPTIONS_LIST {
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
             let (outputs, _) =
-                rust_ichimoku(&inputs, &options, None).expect("Ichimoku indicator failed");
+                Ichimoku::indicator(&inputs, &options, None).expect("Ichimoku indicator failed");
 
             let conversion = &outputs[0];
             let base = &outputs[1];
@@ -213,7 +214,7 @@ mod tests {
         let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
         let options = OPTIONS_LIST[0];
 
-        let (outputs, _) = rust_ichimoku(&inputs, &options, Some(&[true]))
+        let (outputs, _) = Ichimoku::indicator(&inputs, &options, Some(&[true]))
             .expect("Ichimoku with lagging_span failed");
 
         let lagging_span = &outputs[4];
@@ -257,7 +258,7 @@ mod tests {
         let options = OPTIONS_LIST[0];
 
         let (outputs, _) =
-            rust_ichimoku(&inputs, &options, None).expect("Ichimoku without lagging_span failed");
+            Ichimoku::indicator(&inputs, &options, None).expect("Ichimoku without lagging_span failed");
         assert!(
             outputs[4].is_empty(),
             "lagging_span should be empty when optional output is not requested"
@@ -280,17 +281,17 @@ mod tests {
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
 
                 // Full run (reference)
-                let (full_outputs, _) = rust_ichimoku(&inputs_rust, &options, None)
+                let (full_outputs, _) = Ichimoku::indicator(&inputs_rust, &options, None)
                     .expect("Ichimoku full indicator failed");
 
                 // Streaming: seed with min_data bars, then chunk-by-chunk
                 let mut batch_outputs: Vec<Vec<f64>> = vec![Vec::new(); full_outputs.len()];
 
-                let seed_len = min_data(&options).max(CHUNK_SIZE);
+                let seed_len = Ichimoku::min_data(&options).max(CHUNK_SIZE);
                 let seed_inputs = [&high[..seed_len], &low[..seed_len], &close[..seed_len]];
 
                 let (seed_out, mut state) =
-                    rust_ichimoku(&seed_inputs, &options, None).expect("Ichimoku seed failed");
+                    Ichimoku::indicator(&seed_inputs, &options, None).expect("Ichimoku seed failed");
                 for j in 0..seed_out.len() {
                     batch_outputs[j].extend_from_slice(&seed_out[j]);
                 }
@@ -367,7 +368,6 @@ mod tests {
 
     #[test]
     fn test_ichimoku_simd_by_assets() {
-        use tulip_rs::indicators::ichimoku::indicator_by_assets;
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -396,7 +396,7 @@ mod tests {
             for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
                 let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (scalar_out, _) =
-                    rust_ichimoku(&inputs, &options, None).expect("scalar failed");
+                    Ichimoku::indicator(&inputs, &options, None).expect("scalar failed");
 
                 for k in 0..4 {
                     let simd_line = &simd_results[asset_idx][k];
@@ -436,7 +436,6 @@ mod tests {
 
     #[test]
     fn test_ichimoku_simd_by_options() {
-        use tulip_rs::indicators::ichimoku::indicator_by_options;
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -453,7 +452,7 @@ mod tests {
 
             let labels = ["conversion", "base", "span_a", "span_b"];
             for (lane, &options) in options_4.iter().enumerate() {
-                let (scalar_out, _) = rust_ichimoku(&inputs, options, None).expect("scalar failed");
+                let (scalar_out, _) = Ichimoku::indicator(&inputs, options, None).expect("scalar failed");
 
                 for k in 0..4 {
                     let simd_line = &simd_results[lane][k];
@@ -494,7 +493,6 @@ mod tests {
 
     #[test]
     fn test_ichimoku_simd_by_assets_state_continuity() {
-        use tulip_rs::indicators::ichimoku::indicator_by_assets;
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -542,7 +540,7 @@ mod tests {
                 // Full scalar reference
                 let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (full_out, _) =
-                    rust_ichimoku(&inputs, &options, None).expect("scalar full run failed");
+                    Ichimoku::indicator(&inputs, &options, None).expect("scalar full run failed");
 
                 // Stitch: SIMD first chunk + batch_indicator for the rest
                 let mut combined: Vec<Vec<f64>> =
@@ -600,7 +598,6 @@ mod tests {
 
     #[test]
     fn test_ichimoku_simd_by_options_state_continuity() {
-        use tulip_rs::indicators::ichimoku::indicator_by_options;
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -630,7 +627,7 @@ mod tests {
                 // Full scalar reference for this option set
                 let full_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (full_out, _) =
-                    rust_ichimoku(&full_inputs, options, None).expect("scalar full run failed");
+                    Ichimoku::indicator(&full_inputs, options, None).expect("scalar full run failed");
 
                 // Stitch: SIMD first chunk + batch_indicator for the rest
                 let mut combined: Vec<Vec<f64>> =

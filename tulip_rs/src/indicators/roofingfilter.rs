@@ -35,20 +35,20 @@
 //! kernel directly to a simple WMA-smoothed price.
 
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
 use crate::indicators::{
-    highpass::{multiplier as hp_multiplier, output_length as hp_outputlength, State as HpState},
-    supersmoother::{multiplier as ss_multiplier, State as SsState},
+    highpass::{HighPass, State as HpState},
+    supersmoother::State as SsState,
 };
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 1;
+pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 2;
+pub const OPTIONS: usize = 2;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -82,43 +82,12 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::roofingfilter_simd::indicator_by_options as indicator;
 }
 
-/// Returns metadata for the Ehlers Roofing Filter indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the RoofingFilter indicator, including
-/// its input (`real`), configurable `ss_period` and `hp_period`, primary output
-/// (`roofing`), and optional output (`highpass`).
-pub const INFO: Info = Info {
-    name: "roofingfilter",
-    indicator_type: IndicatorType::Math,
-    full_name: "Ehlers Roofing Filter",
-    inputs: &["real"],
-    options: &["ss_period", "hp_period"],
-    outputs: &["roofing"],
-    optional_outputs: &["highpass"],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "roofing",
-        label: "Ehlers Roofing Filter",
-        display_type: DisplayType::Indicator,
-        outputs: &["roofing", "highpass"],
-    }],
-};
-#[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    multipliers: ((f64, f64, f64), (f64, f64)),
-    state: State,
-}
-impl IndicatorState {
-    pub fn new(state: State, multipliers: ((f64, f64, f64), (f64, f64))) -> Self {
-        Self { multipliers, state }
-    }
-}
+
+pub type IndicatorState = State;
 impl TIndicatorState<1> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -136,8 +105,7 @@ impl TIndicatorState<1> for IndicatorState {
 
         cycle(
             inputs[0],
-            &mut self.state,
-            self.multipliers,
+            self,
             (&mut rf_line, &mut hp_line),
         );
 
@@ -147,133 +115,43 @@ impl TIndicatorState<1> for IndicatorState {
 
 #[derive(Serialize, Deserialize)]
 pub struct State {
-    pub ss_state: SsState, // SuperSmoother (low-pass) state
     pub hp_state: HpState,
+    pub ss_state: SsState, // SuperSmoother (low-pass) state
 }
 impl State {
-    pub fn new() -> Self {
+    pub fn new((ss_period, hp_period): (usize, usize)) -> Self {
         Self {
-            ss_state: SsState::new(),
-            hp_state: HpState::new(),
+            ss_state: SsState::new(ss_period),
+            hp_state: HpState::new(hp_period),
         }
     }
     pub fn init_state(
         real: &[f64],
-        periods: (usize, usize),
-        multipliers: ((f64, f64, f64), (f64, f64)),
+        (ss_period, hp_period): (usize, usize),
         hp_line: &mut [f64],
     ) -> Self {
-        let mut state = Self::new();
-        let l_period = periods.0.max(periods.1);
+        let mut state = Self::new((ss_period, hp_period));
+        let l_period = ss_period.max(hp_period);
         for (i, &value) in real.iter().take(l_period).enumerate() {
-            let (_, hp) = state.calc(value, multipliers);
+            let (_, hp) = state.calc(value);
             crate::init_store_optional_outputs!(i, real.len(),
                 hp_line => hp
             );
         }
         state
     }
+    
+}
+impl TState for State {
+    type Inputs<'a> = f64;
+    type Outputs = (f64, f64);
     #[inline(always)]
-    pub fn calc(&mut self, real: f64, multipliers: ((f64, f64, f64), (f64, f64))) -> (f64, f64) {
-        let hp = self.hp_state.calc(real, multipliers.1);
-        (self.ss_state.calc(hp, multipliers.0), hp)
+    fn calc<'a>(&mut self, real: Self::Inputs<'a>) -> Self::Outputs {
+        let hp = self.hp_state.calc(real);
+        (self.ss_state.calc(hp), hp)
     }
 }
 
-
-/// Returns the minimum amount of data required for the RoofingFilter indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options: `[ss_period, hp_period]`.
-///
-/// # Returns
-///
-/// The minimum number of input bars required (`max(ss_period, hp_period) + 1`).
-pub fn min_data(options: &[f64]) -> usize {
-    options[0].max(options[1]) as usize + 1
-}
-
-/// Returns the number of output values produced by the RoofingFilter indicator
-/// given input data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options: `[ss_period, hp_period]`.
-///
-/// # Returns
-///
-/// The number of output values.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-
-/// Calculates the Ehlers Roofing Filter over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — real (close) prices
-///
-/// # Options
-///
-/// * `options[0]` — `ss_period` (SuperSmoother period, low-pass cutoff)
-/// * `options[1]` — `hp_period` (HighPass period, high-pass cutoff)
-///
-/// # Outputs
-///
-/// * `outputs[0]` — `roofing` line
-///
-/// # Optional Outputs
-///
-/// * `outputs[1]` — `highpass` line (intermediate high-pass output; enabled via `optional_outputs`)
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `optional_outputs` - Pass `Some(&[true])` to also emit the `highpass` line.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is the `roofing` line,
-/// `outputs[1]` is the optional `highpass` line (empty if not requested), and
-/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let periods = (options[0] as usize, options[1] as usize);
-    let multipliers = multiplier(periods);
-    validate_inputs(inputs, min_data(options))?;
-
-    let (mut rf_line, mut hp_line) = {
-        let capacity = output_length(inputs[0].len(), options);
-        (
-            crate::uninit_vec!(f64, capacity),
-            crate::init_optional_outputs_eff!(
-                optional_outputs, &[false],
-                hp_line: hp_outputlength(inputs[0].len(), &[periods.1 as f64])
-            ),
-        )
-    };
-    let mut state = State::init_state(inputs[0], periods, multipliers, &mut hp_line);
-
-    let real = &inputs[0][periods.0.max(periods.1)..];
-    let outputs = {
-        let offset = crate::slice_outputs_start!(rf_line.len(), hp_line);
-        (rf_line.as_mut_slice(), &mut hp_line[offset..])
-    };
-    cycle(real, &mut state, multipliers, outputs);
-
-    Ok((
-        vec![rf_line, hp_line],
-        IndicatorState::new(state, multipliers),
-    ))
-}
 
 /// Performs the core filter loop for the RoofingFilter indicator.
 ///
@@ -286,15 +164,13 @@ pub fn indicator(
 fn cycle(
     real: &[f64],
     state: &mut State,
-    multipliers: ((f64, f64, f64), (f64, f64)),
-    outputs: (&mut [f64], &mut [f64]),
+    (rf_line, hp_line): (&mut [f64], &mut [f64]),
 ) {
-    let (rf_line, hp_line) = outputs;
     let (_, want_hp) = crate::calc_want_flags!(hp_line);
     for i in 0..real.len() {
         let (rf, hp);
         unsafe {
-            (rf, hp) = state.calc(*real.get_unchecked(i), multipliers);
+            (rf, hp) = state.calc(*real.get_unchecked(i));
             *rf_line.get_unchecked_mut(i) = rf;
         }
         crate::store_optional_outputs!(i,
@@ -303,37 +179,64 @@ fn cycle(
     }
 }
 
-/// Calculates the RoofingFilter values for a single bar.
-///
-/// # Arguments
-///
-/// * `state` - A mutable reference to the composite filter state (`ss_state`, `hp_state`).
-/// * `real` - The current input price value.
-/// * `multipliers` - The precomputed filter coefficients `((a1, a2, b0), (a1, a2))`.
-///
-/// # Returns
-///
-/// A tuple `(roofing, highpass)` for this bar.
-#[inline(always)]
-pub fn calc(
-    state: &mut State,
-    real: f64,
-    multipliers: ((f64, f64, f64), (f64, f64)),
-) -> (f64, f64) {
-    state.calc(real, multipliers)
-}
 
-/// Computes the RoofingFilter coefficients for both sub-filters.
-///
-/// # Arguments
-///
-/// * `periods` - Tuple of `(ss_period, hp_period)`.
-///
-/// # Returns
-///
-/// A tuple `((a1, a2, b0), (a1, a2))` where:
-/// - `(a1, a2, b0)` are the SuperSmoother (low-pass) coefficients
-/// - `(a1, a2)` are the HighPass coefficients
-pub fn multiplier(periods: (usize, usize)) -> ((f64, f64, f64), (f64, f64)) {
-    (ss_multiplier(periods.0), hp_multiplier(periods.1))
+pub struct RoofingFilter;
+impl Indicator<INPUTS, OPTIONS> for RoofingFilter {
+    type IndicatorState = IndicatorState;
+
+    const INFO: Info = Info {
+        name: "roofingfilter",
+        indicator_type: IndicatorType::Math,
+        full_name: "Ehlers Roofing Filter",
+        inputs: &["real"],
+        options: &["ss_period", "hp_period"],
+        outputs: &["roofing"],
+        optional_outputs: &["highpass"],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "roofing",
+            label: "Ehlers Roofing Filter",
+            display_type: DisplayType::Indicator,
+            outputs: &["roofing", "highpass"],
+        }],
+    };
+
+    fn min_data(options: &[f64; OPTIONS]) -> usize {
+        options[0].max(options[1]) as usize + 1
+    }
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        let periods = (options[0] as usize, options[1] as usize);
+
+        validate_inputs(inputs, Self::min_data(options))?;
+    
+        let (mut rf_line, mut hp_line) = {
+            let capacity = Self::output_length(inputs[0].len(), options);
+            (
+                crate::uninit_vec!(f64, capacity),
+                crate::init_optional_outputs_eff!(
+                    optional_outputs, &[false],
+                    hp_line: HighPass::output_length(inputs[0].len(), &[periods.1 as f64])
+                ),
+            )
+        };
+        let mut state = State::init_state(inputs[0], periods, &mut hp_line);
+    
+        let real = &inputs[0][periods.0.max(periods.1)..];
+        let outputs = {
+            let offset = crate::slice_outputs_start!(rf_line.len(), hp_line);
+            (rf_line.as_mut_slice(), &mut hp_line[offset..])
+        };
+        cycle(real, &mut state, outputs);
+    
+        Ok((
+            vec![rf_line, hp_line],
+            state,
+        ))
+    }
 }

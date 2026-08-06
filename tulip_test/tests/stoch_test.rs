@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::stoch::{indicator as rust_stoch, min_data, TIndicatorState};
+    use tulip_rs::indicators::stoch::{Stoch, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_stoch, ti_stoch_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -83,7 +83,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
             let (outputs, _) =
-                rust_stoch(&inputs_rust, &options, None).expect("Rust STOCH indicator failed");
+                Stoch::indicator(&inputs_rust, &options, None).expect("Rust STOCH indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -220,7 +220,7 @@ mod tests {
                 // Rust implementation
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
                 let (outputs, _) =
-                    rust_stoch(&inputs_rust, &options, None).expect("Rust STOCH indicator failed");
+                    Stoch::indicator(&inputs_rust, &options, None).expect("Rust STOCH indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -309,12 +309,12 @@ mod tests {
 
                 // Get full output from processing all data at once
                 let (full_outputs, _) =
-                    rust_stoch(&inputs_rust, &options, None).expect("Rust STOCH indicator failed");
+                    Stoch::indicator(&inputs_rust, &options, None).expect("Rust STOCH indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_outputs = vec![Vec::new(); full_outputs.len()];
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Stoch::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let high_vec = high[..min_data_val].to_vec();
@@ -327,7 +327,7 @@ mod tests {
                 ];
 
                 let (first_outputs, mut state) =
-                    rust_stoch(&chunk_inputs, &options, None).expect("Rust STOCH indicator failed");
+                    Stoch::indicator(&chunk_inputs, &options, None).expect("Rust STOCH indicator failed");
                 for output_idx in 0..first_outputs.len() {
                     batch_full_outputs[output_idx].extend_from_slice(&first_outputs[output_idx]);
                 }
@@ -419,7 +419,7 @@ mod tests {
             for (stock_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
                 // Get regular indicator result for this stock
                 let stock_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (regular_results, _) = rust_stoch(&stock_inputs, &options, None)
+                let (regular_results, _) = Stoch::indicator(&stock_inputs, &options, None)
                     .expect("Regular STOCH indicator failed");
 
                 let simd_k_result = &simd_results[stock_idx][0]; // %K
@@ -556,7 +556,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result for this option set
                 let (regular_results, _) =
-                    rust_stoch(&inputs, options, None).expect("Regular STOCH indicator failed");
+                    Stoch::indicator(&inputs, options, None).expect("Regular STOCH indicator failed");
 
                 let simd_k_result = &simd_results[idx][0]; // %K
                 let simd_d_result = &simd_results[idx][1]; // %D

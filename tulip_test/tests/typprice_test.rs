@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::typprice::{indicator as rust_typprice, min_data, TIndicatorState};
+    use tulip_rs::indicators::typprice::{Typprice, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_typprice, ti_typprice_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -67,7 +67,7 @@ mod tests {
         // Run the Rust implementation
         let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
         let (outputs, _) =
-            rust_typprice(&inputs_rust, &[], None).expect("Rust TYPPRICE indicator failed");
+            Typprice::indicator(&inputs_rust, &[], None).expect("Rust TYPPRICE indicator failed");
 
         let output_len_rust = outputs[0].len();
 
@@ -155,7 +155,7 @@ mod tests {
 
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
             let (outputs, _) =
-                rust_typprice(&inputs_rust, &[], None).expect("Rust TYPPRICE indicator failed");
+                Typprice::indicator(&inputs_rust, &[], None).expect("Rust TYPPRICE indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -218,13 +218,13 @@ mod tests {
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
 
             // Get full output from processing all data at once
-            let (full_outputs, _) = rust_typprice(&inputs_rust, &options, None)
+            let (full_outputs, _) = Typprice::indicator(&inputs_rust, &options, None)
                 .expect("Rust TYPPRICE indicator failed");
 
             // Process data in batches and accumulate outputs
             let mut batch_full_output = Vec::new();
 
-            let min_data_val = min_data(&options).max(CHUNK_SIZE);
+            let min_data_val = Typprice::min_data(&options).max(CHUNK_SIZE);
 
             // First chunk - convert to Vec<&Vec<f64>>
             let high_vec = high[..min_data_val].to_vec();
@@ -236,7 +236,7 @@ mod tests {
                 close_vec.as_slice(),
             ];
 
-            let (first_outputs, mut state) = rust_typprice(&chunk_inputs, &options, None)
+            let (first_outputs, mut state) = Typprice::indicator(&chunk_inputs, &options, None)
                 .expect("Rust TYPPRICE indicator failed");
             batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -353,7 +353,7 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_results, _) = rust_typprice(&stock_inputs, &options, None)
+                let (regular_results, _) = Typprice::indicator(&stock_inputs, &options, None)
                     .expect("Regular TYPPRICE indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];

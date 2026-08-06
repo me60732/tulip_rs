@@ -1,18 +1,16 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 use crate::indicators::{
     max::State as MaxState,
-    min::{
-        min_data as min_min_data, output_length as min_outpout_length, State as MinState, CHUNK_4,
-    },
+    min::{Min, State as MinState},
 };
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 3;
+pub const INPUTS: usize = 3;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 2;
+pub const OPTIONS: usize = 2;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -46,59 +44,19 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::ichimoku_simd::indicator_by_options as indicator;
 }
 
-/// Returns metadata for the Ichimoku Cloud (Ichimoku Kinkō Hyō) indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the Ichimoku indicator, including
-/// its inputs (`high`, `low`, `close`), configurable periods (`short_period`,
-/// `long_period`), and output lines (`conversion`, `base`, `leading_span_a`,
-/// `leading_span_b`, with optional `lagging_span`).
-pub const INFO: Info = Info {
-    name: "ichimoku",
-    full_name: "Ichimoku",
-    indicator_type: IndicatorType::Trend,
-    inputs: &["high", "low", "close"],
-    options: &["short_period", "long_period"],
-    outputs: &["conversion", "base", "leading_span_a", "leading_span_b"],
-    optional_outputs: &["lagging_span"],
-    display_groups: &[
-        DisplayGroup {
-            offset: None,
-            id: "Conversion_Base",
-            label: "Tenkan-sel & Kijun-sen",
-            display_type: DisplayType::Overlay,
-            outputs: &["conversion", "base"],
-        },
-        DisplayGroup {
-            offset: Some("+long_period"),
-            id: "leading",
-            label: "Senkou Span A & Senkou Span B",
-            display_type: DisplayType::Overlay,
-            outputs: &["leading_span_a", "leading_span_b"],
-        },
-        DisplayGroup {
-            offset: Some("-long_period"),
-            id: "close",
-            label: "Chikou Span",
-            display_type: DisplayType::Price,
-            outputs: &["lagging_span"],
-        },
-    ],
-};
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     periods: ((usize, usize), (usize, usize), (usize, usize)),
     high: Vec<f64>,
     low: Vec<f64>,
-    state: State,
+    state: State<Warm>,
 }
 impl IndicatorState {
     pub fn new(
         high: &[f64],
         low: &[f64],
         periods: ((usize, usize), (usize, usize), (usize, usize)),
-        state: State,
+        state: State<Warm>,
     ) -> Self {
         Self {
             high: high[high.len() - periods.2 .1..].to_vec(),
@@ -108,11 +66,11 @@ impl IndicatorState {
         }
     }
 }
-impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
+impl TIndicatorState<INPUTS> for IndicatorState {
     #[inline(always)]
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -131,32 +89,18 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
                 lagging_output(close, optional_outputs),
             )
         };
-        if CHUNK_4.contains(&self.periods.2 .1) {
-            cycle::<1, 4, 4>(
-                (&self.high, &self.low),
-                self.periods,
-                &mut self.state,
-                (
-                    &mut conversion_line,
-                    &mut base_line,
-                    &mut span_a_line,
-                    &mut span_b_line,
-                ),
-            );
-        } else {
-            cycle::<1, 4, 8>(
-                (&self.high, &self.low),
-                self.periods,
-                &mut self.state,
-                (
-                    &mut conversion_line,
-                    &mut base_line,
-                    &mut span_a_line,
-                    &mut span_b_line,
-                ),
-            );
-        }
-
+        cycle(
+            (&self.high, &self.low),
+            self.periods,
+            &mut self.state,
+            (
+                &mut conversion_line,
+                &mut base_line,
+                &mut span_a_line,
+                &mut span_b_line,
+            ),
+        );
+    
         self.high.drain(..self.high.len() - self.periods.2 .1);
         self.low.drain(..self.low.len() - self.periods.2 .1);
 
@@ -170,14 +114,16 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
     }
 }
 #[derive(Serialize, Deserialize)]
-pub struct State {
-    pub short_min_state: MinState,
-    pub short_max_state: MaxState,
-    pub medium_min_state: MinState,
-    pub medium_max_state: MaxState,
-    pub long_min_state: MinState,
-    pub long_max_state: MaxState,
+#[serde(bound="")]
+pub struct State<S = Cold> {
+    pub short_min_state: MinState<S>,
+    pub short_max_state: MaxState<S>,
+    pub medium_min_state: MinState<S>,
+    pub medium_max_state: MaxState<S>,
+    pub long_min_state: MinState<S>,
+    pub long_max_state: MaxState<S>,
 }
+
 impl State {
     pub fn new(
         high: &[f64],
@@ -194,25 +140,29 @@ impl State {
         }
     }
     pub fn init_state(
-        inputs: (&[f64], &[f64]),
-        periods: ((usize, usize), (usize, usize), (usize, usize)),
+        (high, low): (&[f64], &[f64]),
+        (short_periods, long_periods, ultra_periods): ((usize, usize), (usize, usize), (usize, usize)),
         out_vecs: (&mut [f64], &mut [f64], &mut [f64]),
-    ) -> Self {
-        let (high, low) = inputs;
-        let mut state = Self::new(high, low, periods);
-        let (short_periods, long_periods, ultra_periods) = periods;
+    ) -> State<Warm> {
+        let mut short_min_state = MinState::init_state(low, short_periods.1);
+        let mut short_max_state = MaxState::init_state(high, short_periods.1);
+        let mut medium_min_state = MinState::init_state(low, long_periods.1);
+        let mut medium_max_state = MaxState::init_state(high, long_periods.1);
+        let long_min_state = MinState::init_state(low, ultra_periods.1);
+        let long_max_state = MaxState::init_state(high, ultra_periods.1);
+
         let (conversion_line, base_line, span_a_line) = out_vecs;
 
         let (mut base, mut span_a) = (0.0, 0.0);
         let len = high.len();
         for i in short_periods.1..ultra_periods.1 {
-            let short_min = state.short_min_state.calc(low, i, short_periods).0;
-            let short_max = state.short_max_state.calc(high, i, short_periods).0;
+            let short_min = short_min_state.calc((low, i, short_periods)).0;
+            let short_max = short_max_state.calc((high, i, short_periods)).0;
             let conversion = 0.5 * (short_min + short_max);
 
             if i >= long_periods.1 {
-                let medium_min = state.medium_min_state.calc(low, i, long_periods).0;
-                let medium_max = state.medium_max_state.calc(high, i, long_periods).0;
+                let medium_min = medium_min_state.calc((low, i, long_periods)).0;
+                let medium_max = medium_max_state.calc((high, i, long_periods)).0;
                 base = 0.5 * (medium_min + medium_max);
                 span_a = 0.5 * (conversion + base);
             }
@@ -223,24 +173,33 @@ impl State {
 
             );
         }
-        state
+        State {
+            short_min_state,
+            short_max_state,
+            medium_min_state,
+            medium_max_state,
+            long_min_state,
+            long_max_state,
+        }
     }
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = (&'a[f64], &'a[f64], usize, ((usize, usize), (usize, usize), (usize, usize)));
+    type Outputs = (f64, f64, f64, f64);
+
     #[inline(always)]
-    pub fn calc(
+    fn calc<'a>(
         &mut self,
-        inputs: (&[f64], &[f64]),
-        periods: ((usize, usize), (usize, usize), (usize, usize)),
-        i: usize,
-    ) -> (f64, f64, f64, f64) {
-        let (high, low) = inputs;
+        (high, low, i, periods): Self::Inputs<'a>,
+    ) -> Self::Outputs {
 
-        let long_min = self.long_min_state.calc(low, i, periods.2).0;
-        let medium_min = self.medium_min_state.calc(low, i, periods.1).0;
-        let short_min = self.short_min_state.calc(low, i, periods.0).0;
+        let long_min = self.long_min_state.calc((low, i, periods.2)).0;
+        let medium_min = self.medium_min_state.calc((low, i, periods.1)).0;
+        let short_min = self.short_min_state.calc((low, i, periods.0)).0;
 
-        let long_max = self.long_max_state.calc(high, i, periods.2).0;
-        let medium_max = self.medium_max_state.calc(high, i, periods.1).0;
-        let short_max = self.short_max_state.calc(high, i, periods.0).0;
+        let long_max = self.long_max_state.calc((high, i, periods.2)).0;
+        let medium_max = self.medium_max_state.calc((high, i, periods.1)).0;
+        let short_max = self.short_max_state.calc((high, i, periods.0)).0;
 
         let conversion = 0.5 * (short_min + short_max);
         let base = 0.5 * (medium_min + medium_max);
@@ -250,39 +209,44 @@ impl State {
         (conversion, base, span_a, span_b)
     }
     #[inline(always)]
-    pub unsafe fn calc_unchecked<const CS: usize, const CM: usize, const CL: usize>(
+    unsafe fn calc_unchecked(
         &mut self,
-        inputs: (&[f64], &[f64]),
-        periods: ((usize, usize), (usize, usize), (usize, usize)),
-        i: usize,
+        inputs: Self::Inputs<'_>,
+    ) -> Self::Outputs {
+        self.calc_chuncked_unchecked::<1, 4, 4>(inputs)
+    }
+}
+impl State<Warm> {
+    #[inline(always)]
+    pub unsafe fn calc_chuncked_unchecked<const CS: usize, const CM: usize, const CL: usize>(
+        &mut self,
+        (high, low, i, periods): (&[f64], &[f64], usize, ((usize, usize), (usize, usize), (usize, usize))),
     ) -> (f64, f64, f64, f64) {
-        let (high, low) = inputs;
-
         let long_min = self
             .long_min_state
-            .calc_unchecked::<CL>(low, i, periods.2)
+            .calc_chuncked_unchecked::<CL>((low, i, periods.2))
             .0;
         let long_max = self
             .long_max_state
-            .calc_unchecked::<CL>(high, i, periods.2)
+            .calc_chuncked_unchecked::<CL>((high, i, periods.2))
             .0;
 
         let medium_min = self
             .medium_min_state
-            .calc_unchecked::<CM>(low, i, periods.1)
+            .calc_chuncked_unchecked::<CM>((low, i, periods.1))
             .0;
         let medium_max = self
             .medium_max_state
-            .calc_unchecked::<CM>(high, i, periods.1)
+            .calc_chuncked_unchecked::<CM>((high, i, periods.1))
             .0;
 
         let short_min = self
             .short_min_state
-            .calc_unchecked::<CS>(low, i, periods.0)
+            .calc_chuncked_unchecked::<CS>((low, i, periods.0))
             .0;
         let short_max = self
             .short_max_state
-            .calc_unchecked::<CS>(high, i, periods.0)
+            .calc_chuncked_unchecked::<CS>((high, i, periods.0))
             .0;
 
         let conversion = 0.5 * (short_min + short_max);
@@ -293,35 +257,7 @@ impl State {
         (conversion, base, span_a, span_b)
     }
 }
-/*pub fn output_length(data_len: usize, options: &[f64]) -> (usize, usize, usize, usize, usize) {
-    let long_period = options[1] as usize;
-
-    let conversion_capacity = don_outpout_length(data_len, &[options[0]]);
-    let base_capacity = don_outpout_length(data_len, &[options[1]]);
-    let leading_span_a_capacity = (data_len - base_capacity) + long_period + 1;
-    let leading_span_b_capacity = data_len - min_data(options) + 1;
-    (conversion_capacity, base_capacity, leading_span_a_capacity, leading_span_b_capacity, data_len)
-}*/
-pub fn output_length(data_len: usize, options: &[f64]) -> (usize, usize, usize, usize, usize) {
-    let ultra_long = options[1] as usize * 2;
-
-    let conversion_capacity = min_outpout_length(data_len, &[options[0]]);
-    let base_capacity = min_outpout_length(data_len, &[options[1]]);
-    let span_a_capacity = min_outpout_length(data_len, &[ultra_long as f64]);
-    let span_b_capacity = min_outpout_length(data_len, &[ultra_long as f64]);
-    (
-        conversion_capacity,
-        base_capacity,
-        span_a_capacity,
-        span_b_capacity,
-        data_len,
-    )
-}
-#[inline]
-pub fn min_data(options: &[f64]) -> usize {
-    min_min_data(&[options[1] * 2.0]) + options[1] as usize
-}
-pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), IndicatorError> {
+pub(crate) fn validate_options(options: &[f64; OPTIONS]) -> Result<(), IndicatorError> {
     if options[0] < 1.0 || options[1] <= options[0] {
         return Err(IndicatorError::InvalidOptions);
     }
@@ -338,118 +274,139 @@ fn lagging_output(close: &[f64], optional_outputs: Option<&[bool]>) -> Vec<f64> 
         Vec::<f64>::with_capacity(0)
     }
 }
-/// Calculates the Ichimoku Cloud (Ichimoku Kinkō Hyō) indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — high prices
-/// * `inputs[1]` — low prices
-/// * `inputs[2]` — close prices
-///
-/// # Options
-///
-/// * `options[0]` — short_period (Tenkan-sen / conversion line period)
-/// * `options[1]` — long_period (Kijun-sen / base line period)
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `optional_outputs` - Pass `Some(&[true])` to include `lagging_span`
-///   (Chikou Span — the close series shifted back by `long_period`);
-///   `None` or `Some(&[false])` disables it.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where:
-/// - `outputs[0]` — `conversion` (Tenkan-sen)
-/// - `outputs[1]` — `base` (Kijun-sen)
-/// - `outputs[2]` — `leading_span_a` (Senkou Span A, displayed +long_period bars ahead)
-/// - `outputs[3]` — `leading_span_b` (Senkou Span B, displayed +long_period bars ahead)
-/// - `outputs[4]` — `lagging_span` (Chikou Span — full close vec, empty if not requested)
-///
-/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
 
-    validate_inputs(inputs, min_data(options))?;
-
-    let [high, low, close] = *inputs;
-
-    let periods = {
-        let (short_period, long_period) = (options[0] as usize, options[1] as usize);
-        let ultra_long = long_period * 2;
-        (
-            (short_period, short_period - 1),
-            (long_period, long_period - 1),
-            (ultra_long, ultra_long - 1),
-        )
-    };
-    let (mut conversion_line, mut base_line, mut span_a_line, mut span_b_line, lagging_span) = {
-        let (conversion_cap, base_cap, span_a_cap, span_b_cap, _) =
-            output_length(high.len(), options);
-        (
-            crate::uninit_vec!(f64, conversion_cap),
-            crate::uninit_vec!(f64, base_cap),
-            crate::uninit_vec!(f64, span_a_cap),
-            crate::uninit_vec!(f64, span_b_cap),
-            lagging_output(close, optional_outputs),
-        )
-    };
-    let mut state = State::init_state(
-        (high, low),
-        periods,
-        (&mut conversion_line, &mut base_line, &mut span_a_line),
-    );
-    let outputs = {
-        let offset =
-            crate::slice_outputs_start!(span_b_line.len(), conversion_line, base_line, span_a_line);
-        (
-            &mut conversion_line[offset.0..],
-            &mut base_line[offset.1..],
-            &mut span_a_line[offset.2..],
-            span_b_line.as_mut_slice(),
-        )
-    };
-    if CHUNK_4.contains(&periods.2 .1) {
-        cycle::<1, 4, 4>((high, low), periods, &mut state, outputs);
-    } else {
-        cycle::<1, 4, 8>((high, low), periods, &mut state, outputs);
-    }
-
-    Ok((
-        vec![
-            conversion_line,
-            base_line,
-            span_a_line,
-            span_b_line,
-            lagging_span,
-        ],
-        IndicatorState::new(high, low, periods, state),
-    ))
-}
-
-fn cycle<const CS: usize, const CM: usize, const CL: usize>(
-    inputs: (&[f64], &[f64]),
+fn cycle(
+    (high, low): (&[f64], &[f64]),
     periods: ((usize, usize), (usize, usize), (usize, usize)),
-    state: &mut State,
-    outputs: (&mut [f64], &mut [f64], &mut [f64], &mut [f64]),
+    state: &mut State<Warm>,
+    (conversion_line, base_line, span_a_line, span_b_line): (&mut [f64], &mut [f64], &mut [f64], &mut [f64]),
 ) {
-    let (conversion_line, base_line, span_a_line, span_b_line) = outputs;
-    for (j, i) in (periods.2 .1..inputs.0.len()).enumerate() {
+
+    for (j, i) in (periods.2 .1..high.len()).enumerate() {
         unsafe {
             (
                 *conversion_line.get_unchecked_mut(j),
                 *base_line.get_unchecked_mut(j),
                 *span_a_line.get_unchecked_mut(j),
                 *span_b_line.get_unchecked_mut(j),
-            ) = state.calc_unchecked::<CS, CM, CL>(inputs, periods, i)
+            ) = state.calc_unchecked((high, low, i, periods))
         }
     }
 }
 
+pub struct Ichimoku;
+
+impl Indicator<INPUTS, OPTIONS> for Ichimoku {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "ichimoku",
+        full_name: "Ichimoku",
+        indicator_type: IndicatorType::Trend,
+        inputs: &["high", "low", "close"],
+        options: &["short_period", "long_period"],
+        outputs: &["conversion", "base", "leading_span_a", "leading_span_b"],
+        optional_outputs: &["lagging_span"],
+        display_groups: &[
+            DisplayGroup {
+                offset: None,
+                id: "Conversion_Base",
+                label: "Tenkan-sel & Kijun-sen",
+                display_type: DisplayType::Overlay,
+                outputs: &["conversion", "base"],
+            },
+            DisplayGroup {
+                offset: Some("+long_period"),
+                id: "leading",
+                label: "Senkou Span A & Senkou Span B",
+                display_type: DisplayType::Overlay,
+                outputs: &["leading_span_a", "leading_span_b"],
+            },
+            DisplayGroup {
+                offset: Some("-long_period"),
+                id: "close",
+                label: "Chikou Span",
+                display_type: DisplayType::Price,
+                outputs: &["lagging_span"],
+            },
+        ],
+    };
+
+    fn min_data(options: &[f64; OPTIONS]) -> usize {
+        Min::min_data(&[options[1] * 2.0]) + options[1] as usize
+    }
+
+    fn slot_lengths(data_len: usize, options: &[f64; OPTIONS]) -> Vec<usize> {
+        let ultra_long = options[1] as usize * 2;
+
+        vec![
+            Min::output_length(data_len, &[options[0]]),
+            Min::output_length(data_len, &[options[1]]),
+            Min::output_length(data_len, &[ultra_long as f64]),
+            Min::output_length(data_len, &[ultra_long as f64]),
+            data_len,
+        ]
+    }
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+
+        validate_inputs(inputs, Self::min_data(options))?;
+
+        let [high, low, close] = *inputs;
+
+        let periods = {
+            let (short_period, long_period) = (options[0] as usize, options[1] as usize);
+            let ultra_long = long_period * 2;
+            (
+                (short_period, short_period - 1),
+                (long_period, long_period - 1),
+                (ultra_long, ultra_long - 1),
+            )
+        };
+        let (mut conversion_line, mut base_line, mut span_a_line, mut span_b_line, lagging_span) = {
+            let caps = Self::slot_lengths(high.len(), options);
+            (
+                crate::uninit_vec!(f64, caps[0]),
+                crate::uninit_vec!(f64, caps[1]),
+                crate::uninit_vec!(f64, caps[2]),
+                crate::uninit_vec!(f64, caps[3]),
+                lagging_output(close, optional_outputs),
+            )
+        };
+        let mut state = State::init_state(
+            (high, low),
+            periods,
+            (&mut conversion_line, &mut base_line, &mut span_a_line),
+        );
+        let outputs = {
+            let offset = crate::slice_outputs_start!(
+                span_b_line.len(),
+                conversion_line,
+                base_line,
+                span_a_line
+            );
+            (
+                &mut conversion_line[offset.0..],
+                &mut base_line[offset.1..],
+                &mut span_a_line[offset.2..],
+                span_b_line.as_mut_slice(),
+            )
+        };
+        cycle((high, low), periods, &mut state, outputs);
+       
+        Ok((
+            vec![
+                conversion_line,
+                base_line,
+                span_a_line,
+                span_b_line,
+                lagging_span,
+            ],
+            IndicatorState::new(high, low, periods, state),
+        ))
+    }
+}

@@ -1,4 +1,4 @@
-use tulip_rs::indicators::cmo::{indicator, TIndicatorState};
+use tulip_rs::indicators::cmo::{Cmo, Indicator, TIndicatorState};
 
 fn main() {
     // Example input data: close prices
@@ -13,7 +13,8 @@ fn main() {
     let options = [5.0];
 
     // Calculate the CMO using the indicator function
-    let (outputs, mut state) = match indicator(&inputs, &options, Some(&[true, false, false])) {
+    let (outputs, mut state) = match Cmo::indicator(&inputs, &options, Some(&[true, false, false]))
+    {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

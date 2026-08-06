@@ -2,7 +2,7 @@
 mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicators::dpo::indicator_by_options;
-    use tulip_rs::indicators::dpo::{indicator as rust_dpo, min_data, TIndicatorState};
+    use tulip_rs::indicators::dpo::{Dpo, Indicator as rust_dpo, TIndicatorState};
     use tulip_test::c_bindings::{ti_dpo, ti_dpo_start, ti_sma, ti_sma_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -61,7 +61,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_dpo(&inputs_rust, &options, None).expect("Rust DPO indicator failed");
+                Dpo::indicator(&inputs_rust, &options, None).expect("Rust DPO indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -146,7 +146,7 @@ mod tests {
                 // Rust implementation
                 let inputs_rust = [close.as_slice()];
                 let (outputs, _) =
-                    rust_dpo(&inputs_rust, &options, None).expect("Rust DPO indicator failed");
+                    Dpo::indicator(&inputs_rust, &options, None).expect("Rust DPO indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -234,7 +234,7 @@ mod tests {
                 for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                     // Get regular indicator result for this stock
                     let stock_inputs = [stock_close.as_slice()];
-                    let (regular_results, _) = rust_dpo(&stock_inputs, &options, None)
+                    let (regular_results, _) = Dpo::indicator(&stock_inputs, &options, None)
                         .expect("Regular DPO indicator failed");
 
                     let simd_result = &simd_results[stock_idx][0];
@@ -324,7 +324,7 @@ mod tests {
                 for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                     // Get regular indicator result for this stock with optional outputs
                     let stock_inputs = [stock_close.as_slice()];
-                    let (regular_results_opt, _) = rust_dpo(&stock_inputs, &options, Some(&[true]))
+                    let (regular_results_opt, _) = Dpo::indicator(&stock_inputs, &options, Some(&[true]))
                         .expect("Regular DPO indicator with optional outputs failed");
 
                     // Compare both outputs: DPO and SMA
@@ -402,16 +402,16 @@ mod tests {
 
                 // Get full output
                 let (full_outputs, _) =
-                    rust_dpo(&inputs_rust, &options, None).expect("Rust DPO indicator failed");
+                    Dpo::indicator(&inputs_rust, &options, None).expect("Rust DPO indicator failed");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Dpo::min_data(&options).max(CHUNK_SIZE);
 
                 if close.len() <= min_data_val {
                     // If data is too small, just run full calculation
-                    let (outputs, _) = rust_dpo(&inputs_rust, &options, None)
+                    let (outputs, _) = Dpo::indicator(&inputs_rust, &options, None)
                         .expect("Failed to run DPO indicator");
                     batch_full_output.extend_from_slice(&outputs[0]);
                 } else {
@@ -419,7 +419,7 @@ mod tests {
                     let close_vec = close[..min_data_val].to_vec();
                     let chunk_inputs = [close_vec.as_slice()];
 
-                    let (first_outputs, mut state) = rust_dpo(&chunk_inputs, &options, None)
+                    let (first_outputs, mut state) = Dpo::indicator(&chunk_inputs, &options, None)
                         .expect("Failed to run DPO indicator on first chunk");
                     batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -478,7 +478,7 @@ mod tests {
             // Run the Rust implementation with SMA optional output enabled
             let inputs_rust = [close.as_slice()];
             let (rust_outputs, _) =
-                rust_dpo(&inputs_rust, &options, Some(&[true])).expect("Rust DPO indicator failed");
+                Dpo::indicator(&inputs_rust, &options, Some(&[true])).expect("Rust DPO indicator failed");
 
             // Extract the SMA optional output (second output)
             let rust_sma = &rust_outputs[1];
@@ -567,7 +567,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get DPO with SMA optional output
                 let optional_outputs = Some(&[true][..]);
-                let (dpo_result, _) = tulip_rs::indicators::dpo::indicator(
+                let (dpo_result, _) = Dpo::indicator(
                     &[&close],
                     &[options[0]],
                     optional_outputs,
@@ -656,7 +656,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_dpo(&inputs, options, None).expect("Regular DPO indicator failed");
+                    Dpo::indicator(&inputs, options, None).expect("Regular DPO indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -734,7 +734,7 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result with optional outputs
-                let (regular_results, _) = rust_dpo(&inputs, options, optional_outputs)
+                let (regular_results, _) = Dpo::indicator(&inputs, options, optional_outputs)
                     .expect("Regular DPO indicator with optional outputs failed");
 
                 let simd_dpo_result = &all_simd_results[idx][0];

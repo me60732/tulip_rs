@@ -1,6 +1,6 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::assets::validate_inputs;
-use crate::indicators::marketfi::{min_data, IndicatorState, INPUTS_WIDTH, OPTIONS_WIDTH};
+use crate::indicators::marketfi::{Marketfi, Indicator, IndicatorState, INPUTS, OPTIONS};
 use crate::indicators::simd_indicators::marketfi_simd::calc_simd;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
@@ -60,7 +60,7 @@ impl Driver<()> for MarketfiDriver {
 /// assets into SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[high, low, volume]` for asset `i`.
 /// * `options` - Unused; MarketFI has no configurable options.
 /// * `optional_outputs` - Unused; MarketFI produces only the single marketfi output.
@@ -70,11 +70,11 @@ impl Driver<()> for MarketfiDriver {
 /// and `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    _options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    _options: &[f64; OPTIONS],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(_options))?;
+    validate_inputs::<INPUTS>(inputs, Marketfi::min_data(_options))?;
     let mut road_train = PrimeMover::<N, ()>::new();
     let mut output_buffers: Vec<Vec<Vec<f64>>> = (0..N)
         .map(|i| {

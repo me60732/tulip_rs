@@ -1,5 +1,5 @@
 use tulip_rs::indicators::instantaneoustrendline::{
-    indicator, indicator_by_assets, TIndicatorState,
+    InstantaneousTrendline, indicator_by_assets, TIndicatorState, Indicator,
 };
 
 // 80 bars of close prices
@@ -26,7 +26,7 @@ fn main() {
 
     // --- Full run with optional trigger and dc_period enabled ---
     // optional_outputs = [trigger, dc_period, alpha]
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true, true, false])) {
+    let (outputs, _) = match InstantaneousTrendline::indicator(&inputs, &options, Some(&[true, true, false])) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -50,7 +50,7 @@ fn main() {
     let split = CLOSE.len() - 5;
     let inputs_partial = [&CLOSE[..split]];
 
-    let (outputs_partial, mut state) = match indicator(&inputs_partial, &options, None) {
+    let (outputs_partial, mut state) = match InstantaneousTrendline::indicator(&inputs_partial, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

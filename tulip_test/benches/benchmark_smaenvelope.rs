@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::smaenvelope::{
-    indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState,
+    SmaEnvelope, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -50,7 +50,7 @@ fn bench_rust_smaenvelope(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let _result = indicator(&inputs, &options, None)
+                        let _result = SmaEnvelope::indicator(&inputs, &options, None)
                             .expect("Rust SMA Envelope indicator failed");
                     },
                     SAMPLE_SIZE,
@@ -81,7 +81,7 @@ fn bench_rust_smaenvelope(c: &mut Criterion) {
                 ),
                 |b| {
                     b.iter(|| {
-                        let result = indicator(&inputs, &options, None)
+                        let result = SmaEnvelope::indicator(&inputs, &options, None)
                             .expect("Rust SMA Envelope indicator failed");
                         black_box(&result);
                     });
@@ -109,9 +109,9 @@ fn bench_rust_smaenvelope_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min = min_data(&options);
+                        let min = SmaEnvelope::min_data(&options);
                         let chunk_inputs = [&close[..min]];
-                        let (_, mut state) = indicator(&chunk_inputs, &options, None)
+                        let (_, mut state) = SmaEnvelope::indicator(&chunk_inputs, &options, None)
                             .expect("SMA Envelope indicator failed");
 
                         let mut close_chunks = close[min..].chunks_exact(CHUNK_SIZE);
@@ -143,7 +143,7 @@ fn bench_rust_smaenvelope_from_state(c: &mut Criterion) {
                 if close.len() > 1 {
                     let new_inputs = [&close[..close.len() - 1]];
                     let final_inputs = [&close[close.len() - 1..]];
-                    let (_, mut state) = indicator(&new_inputs, &options, None)
+                    let (_, mut state) = SmaEnvelope::indicator(&new_inputs, &options, None)
                         .expect("SMA Envelope indicator failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -167,7 +167,7 @@ fn bench_rust_smaenvelope_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json ---
-                    let (_, state) = indicator(&new_inputs, &options, None)
+                    let (_, state) = SmaEnvelope::indicator(&new_inputs, &options, None)
                         .expect("SMA Envelope indicator failed");
                     let json = serde_json::to_string(&state).expect("JSON serialisation failed");
 
@@ -200,10 +200,10 @@ fn bench_rust_smaenvelope_from_state(c: &mut Criterion) {
         let close_vec = expand_inputs();
 
         for options in OPTIONS_LIST {
-            let min = min_data(&options);
+            let min = SmaEnvelope::min_data(&options);
             let chunk_inputs = [&close_vec[..min]];
             let (_, mut state) =
-                indicator(&chunk_inputs, &options, None).expect("SMA Envelope indicator failed");
+                SmaEnvelope::indicator(&chunk_inputs, &options, None).expect("SMA Envelope indicator failed");
 
             let mut group = c.benchmark_group("smaenvelope_rust_from_state");
             group.sample_size(SAMPLE_SIZE);
@@ -236,7 +236,7 @@ fn bench_rust_smaenvelope_from_state(c: &mut Criterion) {
                 let new_inputs = [&close_vec[..close_vec.len() - 1]];
                 let final_inputs = [&close_vec[close_vec.len() - 1..]];
                 let (_, mut state) =
-                    indicator(&new_inputs, &options, None).expect("SMA Envelope indicator failed");
+                    SmaEnvelope::indicator(&new_inputs, &options, None).expect("SMA Envelope indicator failed");
 
                 let mut group = c.benchmark_group("smaenvelope_rust_from_state_1_bar");
                 group.sample_size(SAMPLE_SIZE);

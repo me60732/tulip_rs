@@ -1,10 +1,10 @@
 use crate::common_simd::assets::validate_inputs;
 use crate::indicators::ichimoku::{
-    min_data, output_length, validate_options, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    validate_options, Ichimoku, Indicator, IndicatorState, State, INPUTS, OPTIONS,
 };
-use crate::indicators::simd_indicators::ichimoku_simd::{assets::Calc, SimdState};
+use crate::indicators::simd_indicators::ichimoku_simd::{assets::SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 
 /// SIMD driver that advances the Ichimoku Cloud across `N` asset lanes per scheduling epoch.
 struct IchimokuDriver {
@@ -13,7 +13,7 @@ struct IchimokuDriver {
     ultra_look_back: usize,
 }
 
-impl Driver<State> for IchimokuDriver {
+impl Driver<State<Warm>> for IchimokuDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     ///
     /// Reads from `inputs[asset][0]` (high) and `inputs[asset][1]` (low), writes all four
@@ -25,7 +25,7 @@ impl Driver<State> for IchimokuDriver {
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
         let data_len = inputs[0][0].len();
@@ -34,16 +34,14 @@ impl Driver<State> for IchimokuDriver {
         let (conv_ptr, base_ptr, span_a_ptr, span_b_ptr) =
             crate::extract_output_ptrs!(outputs, N, conv_ptr, base_ptr, span_a_ptr, span_b_ptr);
 
-        let mut state = SimdState::new(&mut states);
+        let mut state = SimdState::from_states(&mut states);
         let (slb, llb, ulb) = (
             self.short_look_back,
             self.long_look_back,
             self.ultra_look_back,
         );
         for (j, i) in (ulb..data_len).enumerate() {
-            let (conv, base, span_a, span_b) = unsafe {
-                state.calc_unchecked_simd::<1, 4, 4>(high_ptrs, low_ptrs, i, slb, llb, ulb)
-            };
+            let (conv, base, span_a, span_b) = state.calc((high_ptrs, low_ptrs, i, slb, llb, ulb));
             crate::write_simd_at_indices!(N, j,
                 conv_ptr => conv,
                 base_ptr => base,
@@ -67,7 +65,7 @@ impl Driver<State> for IchimokuDriver {
 /// returned as a copy of each asset's close series when requested.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[high, low, close]` for asset `i`.
 /// * `options` - Shared options applied to all `N` assets: `[short_period, long_period]`.
 /// * `optional_outputs` - Pass `Some(&[true])` to include `lagging_span`; `None` or
@@ -79,11 +77,11 @@ impl Driver<State> for IchimokuDriver {
 /// the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N],
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N],
+    options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, Ichimoku::min_data(options))?;
     validate_options(options)?;
 
     let want_lagging_span = optional_outputs
@@ -102,19 +100,17 @@ pub fn indicator_by_assets<const N: usize>(
     let (short_look_back, long_look_back, ultra_look_back) =
         (periods.0 .1, periods.1 .1, periods.2 .1);
 
-    let mut road_train = PrimeMover::<N, State>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut output_buffers = Vec::with_capacity(N);
 
     for i in 0..N {
         let [high, low, close] = *inputs[i];
-        let len = high.len();
-        let (conversion_capacity, base_capacity, span_a_capacity, span_b_capacity, _) =
-            output_length(len, options);
+        let caps = Ichimoku::slot_lengths(high.len(), options);
 
-        let mut conversion_line = crate::uninit_vec!(f64, conversion_capacity);
-        let mut base_line = crate::uninit_vec!(f64, base_capacity);
-        let mut span_a_line = crate::uninit_vec!(f64, span_a_capacity);
-        let span_b_line = crate::uninit_vec!(f64, span_b_capacity);
+        let mut conversion_line = crate::uninit_vec!(f64, caps[0]);
+        let mut base_line = crate::uninit_vec!(f64, caps[1]);
+        let mut span_a_line = crate::uninit_vec!(f64, caps[2]);
+        let span_b_line = crate::uninit_vec!(f64, caps[3]);
 
         let lagging_span = if want_lagging_span {
             close.to_vec()
@@ -135,7 +131,7 @@ pub fn indicator_by_assets<const N: usize>(
         // span_a and span_b start at the ultra window boundary (starts = 0).
         let mut starts = [0usize; 4];
         (starts[0], starts[1]) =
-            crate::slice_outputs_start!(span_b_capacity, conversion_line, base_line);
+            crate::slice_outputs_start!(span_b_line.len(), conversion_line, base_line);
 
         let asset_inputs = vec![high, low];
 

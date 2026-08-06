@@ -1,14 +1,14 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
 pub use crate::indicators::stddev::multiplier;
 use crate::indicators::stddev::State as StddevState;
-use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 1;
+pub const INPUTS: usize = 1;
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -42,36 +42,11 @@ pub mod by_options {
 }
 const ANNUAL: f64 = 15.874507866387544; // 252_f64.sqrt()
 
-pub const INFO: Info = Info {
-    name: "volatility",
-    full_name: "Volatility Indicator",
-    indicator_type: IndicatorType::Volatility,
-    inputs: &["real"],
-    options: &["period"],
-    outputs: &["volatility"],
-    optional_outputs: &[],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "volatility",
-        label: "VOLATILITY",
-        display_type: DisplayType::Indicator,
-        outputs: &["volatility"],
-    }],
-};
-
-#[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    state: State,
-}
-impl IndicatorState {
-    pub fn new(state: State) -> Self {
-        Self { state }
-    }
-}
+pub type IndicatorState = State<Warm>;
 impl TIndicatorState<1> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         _optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -80,7 +55,7 @@ impl TIndicatorState<1> for IndicatorState {
 
         cycle(
             inputs[0],
-            &mut self.state,
+            self,
             &mut volatility_line,
         );
 
@@ -88,14 +63,15 @@ impl TIndicatorState<1> for IndicatorState {
     }
 }
 #[derive(Serialize, Deserialize)]
-pub struct State {
-    pub buffer: Buffer,
-    pub stddev_state: StddevState,
+#[serde(bound = "")]
+pub struct State<S = Cold> {
+    pub buffer: Buffer<S>,
+    pub stddev_state: StddevState<S>,
     pub prev_real: f64,
 }
-impl State {
+impl State<Cold> {
     pub fn new(prev_real: f64, period: usize) -> Self {
-        let stddev_state = StddevState::new(0.0, 0.0, multiplier(period));
+        let stddev_state = StddevState::new(0.0, 0.0, period);
         let buffer = Buffer::new(period);
         State {
             prev_real,
@@ -103,7 +79,7 @@ impl State {
             buffer,
         }
     }
-    pub fn init_state(real: &[f64], period: usize) -> Self {
+    pub fn init_state(real: &[f64], period: usize) -> State<Warm> {
         let (mut sum, mut sum_sq) = (0.0, 0.0);
         let mut buffer = Buffer::new(period);
         for i in 1..=period {
@@ -113,102 +89,29 @@ impl State {
             sum_sq += v * v;
         }
 
-        Self {
-            stddev_state: StddevState::new(sum, sum_sq, multiplier(period)),
-            buffer,
+        State {
+            stddev_state: StddevState::new(sum, sum_sq, period).into_warm(),
+            buffer: buffer.into_full(),
             prev_real: real[period],
         }
     }
+    
+    
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = f64;
+    type Outputs = f64;
     #[inline(always)]
-    pub fn calc(&mut self, real: f64) -> f64 {
+    fn calc<'a>(&mut self, real: Self::Inputs<'a>) -> Self::Outputs {
         // Rearranged for better numerical stability when prices are large and close
         let value = (real - self.prev_real) / self.prev_real;
         self.prev_real = real;
-        let prev_value = self.buffer.push_with_info(value).unwrap();
-        let (sd, _) = self.stddev_state.calc(&value, &prev_value);
-        sd * ANNUAL
-    }
-    #[inline(always)]
-    pub unsafe fn calc_unchecked(&mut self, real: f64) -> f64 {
-        // Rearranged for better numerical stability when prices are large and close
-        let value = (real - self.prev_real) / self.prev_real;
-        self.prev_real = real;
-        let prev_value = self.buffer.push_with_info_unchecked(value);
-        let (sd, _) = self.stddev_state.calc(&value, &prev_value);
+        let prev_value = self.buffer.push_with_info(value);
+        let (sd, _) = self.stddev_state.calc((value, prev_value));
         sd * ANNUAL
     }
 }
-/// Returns the minimum amount of data required for the Volatility indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options: `[period]`.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    options[0] as usize + 2
-}
 
-/// Calculates the output length based on the data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the Volatility calculation.
-///
-/// # Returns
-///
-/// The output length.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-
-/// Calculates the Volatility indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — `real` (price series)
-///
-/// # Options
-///
-/// * `options[0]` — `period`
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `_optional_outputs` - Unused; this indicator has no optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is `volatility` and `state`
-/// can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    _optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let period = options[0] as usize;
-
-    validate_inputs(inputs, min_data(options))?;
-    let mut vol_line = {
-        let capacity = output_length(inputs[0].len(), options);
-        crate::uninit_vec!(f64, capacity)
-    };
-    let mut state = State::init_state(inputs[0], period);
-
-    cycle(
-        &inputs[0][period + 1..],
-        &mut state,
-        &mut vol_line,
-    );
-
-    Ok((vec![vol_line], IndicatorState::new(state)))
-}
 /// Iterates over the real data slice and computes a Volatility value for each bar.
 ///
 /// # Arguments
@@ -217,46 +120,63 @@ pub fn indicator(
 /// * `multiplier` - The stddev multiplier computed from the period.
 /// * `state` - Mutable reference to the rolling calculation state.
 /// * `vol_line` - Mutable output slice for volatility values.
-fn cycle(real: &[f64], state: &mut State, vol_line: &mut [f64]) {
+fn cycle(real: &[f64], state: &mut State<Warm>, vol_line: &mut [f64]) {
     for i in 0..real.len() {
         unsafe {
             *vol_line.get_unchecked_mut(i) =
-                state.calc_unchecked(*real.get_unchecked(i));
+                state.calc(*real.get_unchecked(i));
         }
     }
 }
 
-/// Calculates a single Volatility value for one bar, updating the rolling state.
-///
-/// # Arguments
-///
-/// * `state` - Mutable reference to the rolling `State`.
-/// * `real` - The current input value.
-/// * `multiplier` - The stddev multiplier computed from the period.
-///
-/// # Returns
-///
-/// The annualised volatility value for this bar.
-#[inline(always)]
-pub fn calc(state: &mut State, real: f64) -> f64 {
-    state.calc(real)
-}
-/// Calculates a single Volatility value for one bar using unchecked buffer access.
-///
-/// # Arguments
-///
-/// * `state` - Mutable reference to the rolling `State`.
-/// * `real` - The current input value.
-/// * `multiplier` - The stddev multiplier computed from the period.
-///
-/// # Returns
-///
-/// The annualised volatility value for this bar.
-///
-/// # Safety
-///
-/// The internal ring buffer must have been fully initialised before calling this function.
-#[inline(always)]
-pub unsafe fn calc_unchecked(state: &mut State, real: f64) -> f64 {
-    state.calc_unchecked(real)
+
+pub struct Volatility;
+
+impl Indicator<INPUTS, OPTIONS> for Volatility {
+    type IndicatorState = IndicatorState;
+
+    const INFO: Info = Info {
+        name: "volatility",
+        full_name: "Volatility Indicator",
+        indicator_type: IndicatorType::Volatility,
+        inputs: &["real"],
+        options: &["period"],
+        outputs: &["volatility"],
+        optional_outputs: &[],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "volatility",
+            label: "VOLATILITY",
+            display_type: DisplayType::Indicator,
+            outputs: &["volatility"],
+        }],
+    };
+
+    fn min_data(options: &[f64; OPTIONS]) -> usize {
+        options[0] as usize + 2
+    }
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        _optional_outputs: Option<&[bool]>,
+    ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
+        validate_options(options)?;
+        let period = options[0] as usize;
+    
+        validate_inputs(inputs, Self::min_data(options))?;
+        let mut vol_line = {
+            let capacity = Self::output_length(inputs[0].len(), options);
+            crate::uninit_vec!(f64, capacity)
+        };
+        let mut state = State::init_state(inputs[0], period);
+    
+        cycle(
+            &inputs[0][period + 1..],
+            &mut state,
+            &mut vol_line,
+        );
+    
+        Ok((vec![vol_line], state))
+    }
 }

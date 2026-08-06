@@ -1,58 +1,14 @@
 use crate::indicators::max::{find_max_scalar as find_remainder, State};
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::by_asset::max::indicator_by_assets;
-use core::ops::Range;
-pub(crate) const CHUNK_1: Range<usize> = 1..15;
-//pub(crate) const CHUNK_4: Range<usize> = 1..50;
+
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::max::indicator_by_options;
+pub use crate::indicator_types::{TSimdState, TState};
+use crate::types::Warm;
 
-/// SIMD-parallel state for computing the Rolling Maximum across `N` assets/options simultaneously.
-/// Each field is a SIMD vector where lane `i` corresponds to asset/option `i`.
-pub struct SimdState<const N: usize> {
-    /// Current rolling maximum value per lane.
-    pub max: Simd<f64, N>,
-    /// Distance (in bars) from the current bar back to the bar that holds the maximum value.
-    /// When `trail == look_back`, a full window re-scan is triggered.
-    pub trail: Simd<usize, N>,
-}
-impl<const N: usize> SimdState<N> {
-    /// Gathers `N` scalar [`State`] references into a single `SimdState`, packing each field into a SIMD lane.
-    pub fn new(states: &[&mut State]) -> Self {
-        let mut max = [0.0; N];
-        let mut trail: [usize; N] = [0; N];
-
-        for i in 0..N {
-            max[i] = states[i].max;
-            trail[i] = states[i].trail;
-        }
-
-        Self {
-            max: Simd::from_array(max),
-            trail: Simd::from_array(trail),
-        }
-    }
-    /// Scatters the SIMD state back into an array of `N` scalar [`State`] values.
-    pub fn to_states(&self) -> [State; N] {
-        let max = self.max.to_array();
-        let trail = self.trail.to_array();
-
-        let states: [State; N] = std::array::from_fn(|i| State::new(max[i], trail[i]));
-
-        states
-    }
-    /// Writes the SIMD state back into `N` existing mutable scalar [`State`] references in place.
-    pub fn write_states(&self, states: &mut [&mut State]) {
-        let max = self.max.to_array();
-        let trail = self.trail.to_array();
-
-        for i in 0..N {
-            states[i].max = max[i];
-            states[i].trail = trail[i];
-        }
-    }
-}
-
+use core::ops::Range;
+pub(crate) const CHUNK_1: Range<usize> = 1..15;
 pub(crate) use std::{
     f64,
     simd::{
@@ -73,41 +29,47 @@ mod import {
 }
 pub mod assets {
     use super::import::*;
-    use super::{find_max_scalar, find_max_simd, SimdState};
-    pub trait Calc<const N: usize> {
-        unsafe fn calc_unchecked_simd<const WINDOW_LANES: usize>(
-            &mut self,
-            real: [*const f64; N],
-            i: usize,
-            look_back: usize,
-        ) -> (Simd<f64, N>, Simd<usize, N>);
-        unsafe fn calc_unchecked_simd_w_current<const WINDOW_LANES: usize>(
-            &mut self,
-            real: [*const f64; N],
-            i: usize,
-            look_back: usize,
-            current: Simd<f64, N>,
-        ) -> (Simd<f64, N>, Simd<usize, N>);
+    use super::{find_max_scalar, find_max_simd, TSimdState, TState, Warm, State};
+
+    pub struct SimdState<const N: usize> {
+        pub max: Simd<f64, N>,
+        pub trail: Simd<usize, N>,
     }
-    impl<const N: usize> Calc<N> for SimdState<N> {
+    impl<const N: usize> TSimdState for SimdState<N> {
+        type ScalarState = State<Warm>;
+        crate::simd_state_impl!(
+             sub: [],
+             scalar: [max, trail]
+        );
+    }
+    impl<const N: usize> TState for SimdState<N> {
+        type Inputs<'a> = ([*const f64; N], usize, usize);
+        type Outputs = (Simd<f64, N>, Simd<usize, N>);
+        
         #[inline(always)]
-        unsafe fn calc_unchecked_simd<const WINDOW_LANES: usize>(
+        fn calc(
             &mut self,
-            real: [*const f64; N],
-            i: usize,
-            look_back: usize,
+            (real, i, look_back): Self::Inputs<'_>
+        ) -> Self::Outputs {
+            let current = crate::extract_simd_inputs_at_index!(i, N, val @ real);
+
+            self.calc_w_current::<4>((real, i, look_back, current))
+        }
+    }
+    impl<const N: usize> SimdState<N> {
+        #[inline(always)]
+        pub fn calc_chuncked<const WINDOW_LANES: usize>(
+            &mut self,
+            (real, i, look_back): ([*const f64; N], usize, usize)
         ) -> (Simd<f64, N>, Simd<usize, N>) {
             let current = crate::extract_simd_inputs_at_index!(i, N, val @ real);
 
-            self.calc_unchecked_simd_w_current::<WINDOW_LANES>(real, i, look_back, current)
+            self.calc_w_current::<WINDOW_LANES>((real, i, look_back, current))
         }
         #[inline(always)]
-        unsafe fn calc_unchecked_simd_w_current<const WINDOW_LANES: usize>(
+        pub fn calc_w_current<const WINDOW_LANES: usize>(
             &mut self,
-            real: [*const f64; N],
-            i: usize,
-            look_back: usize,
-            current: Simd<f64, N>,
+            (real, i, look_back, current): ([*const f64; N], usize, usize, Simd<f64, N>)
         ) -> (Simd<f64, N>, Simd<usize, N>) {
             let mut trail = self.trail;
             let mut max = self.max;
@@ -132,7 +94,7 @@ pub mod assets {
                 let mut lane = 0;
                 while lane < N {
                     if search_mask & (1 << lane) != 0 {
-                        let window = std::slice::from_raw_parts(real[lane].add(start), take);
+                        let window = unsafe { std::slice::from_raw_parts(real[lane].add(start), take) };
                         let (max_val, max_idx) = if WINDOW_LANES == 1 {
                             find_max_scalar(window, current[lane])
                         } else {
@@ -152,43 +114,39 @@ pub mod assets {
     }
 }
 pub mod options {
-    use crate::indicators::simd_indicators::max_simd::CHUNK_1;
-
     use super::import::*;
-    use super::{find_max_scalar, find_max_simd, SimdState};
-    pub trait Calc<const N: usize> {
-        unsafe fn calc_unchecked_simd(
-            &mut self,
-            real: [*const f64; N],
-            i: Simd<usize, N>,
-            look_back: Simd<usize, N>,
-        ) -> (Simd<f64, N>, Simd<usize, N>);
-        unsafe fn calc_unchecked_simd_w_current(
-            &mut self,
-            real: [*const f64; N],
-            i: Simd<usize, N>,
-            look_back: Simd<usize, N>,
-            current: Simd<f64, N>,
-        ) -> (Simd<f64, N>, Simd<usize, N>);
+    use super::{find_max_scalar, find_max_simd, TSimdState, TState, State, Warm, CHUNK_1};
+
+    pub struct SimdState<const N: usize> {
+        pub max: Simd<f64, N>,
+        pub trail: Simd<usize, N>,
     }
-    impl<const N: usize> Calc<N> for SimdState<N> {
+    impl<const N: usize> TSimdState for SimdState<N> {
+        type ScalarState = State<Warm>;
+        crate::simd_state_impl!(
+             sub: [],
+             scalar: [max, trail]
+        );
+    }
+
+    impl<const N: usize> TState for SimdState<N> {
+        type Inputs<'a> = ([*const f64; N], Simd<usize, N>, Simd<usize, N>);
+        type Outputs = (Simd<f64, N>, Simd<usize, N>);
+        
         #[inline(always)]
-        unsafe fn calc_unchecked_simd(
+        fn calc(
             &mut self,
-            real: [*const f64; N],
-            i: Simd<usize, N>,
-            look_back: Simd<usize, N>,
-        ) -> (Simd<f64, N>, Simd<usize, N>) {
-            let current = Simd::splat(*real[0].add(i[0]));
-            self.calc_unchecked_simd_w_current(real, i, look_back, current)
+            (real, i, look_back): Self::Inputs<'_>
+        ) -> Self::Outputs {
+            let current = Simd::splat(unsafe { *real[0].add(i[0]) });
+            self.calc_w_current((real, i, look_back, current))
         }
+    }
+    impl<const N: usize> SimdState<N> {
         #[inline(always)]
-        unsafe fn calc_unchecked_simd_w_current(
+        pub fn calc_w_current(
             &mut self,
-            real: [*const f64; N],
-            i: Simd<usize, N>,
-            look_back: Simd<usize, N>,
-            current: Simd<f64, N>,
+            (real, i, look_back, current): ([*const f64; N], Simd<usize, N>, Simd<usize, N>, Simd<f64, N>)
         ) -> (Simd<f64, N>, Simd<usize, N>) {
             let mut trail = self.trail;
             let mut max = self.max;
@@ -213,7 +171,7 @@ pub mod options {
                     if search_mask & (1 << lane) != 0 {
                         let start = i_array[lane] - look_back_array[lane];
                         let take = look_back_array[lane];
-                        let window = std::slice::from_raw_parts(real[lane].add(start), take);
+                        let window = unsafe { std::slice::from_raw_parts(real[lane].add(start), take) };
                         let (max_val, max_idx) = if CHUNK_1.contains(&take) {
                             find_max_scalar(window, current[lane])
                         } else {

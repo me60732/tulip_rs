@@ -1,17 +1,17 @@
 use crate::common::{validate_inputs, validate_options};
-use crate::indicators::ema::calc as calc_ema;
-use crate::indicators::ema::multiplier as ema_multiplier;
+use crate::indicators::ema::{State as EmaState, calc as calc_ema};
 
-pub use crate::indicator_types::TIndicatorState;
-use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, RingBuffer};
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
+use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
 use serde::{Deserialize, Serialize};
+use std::ops::{Deref, DerefMut};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 2;
+pub const INPUTS: usize = 2;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -45,86 +45,56 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::mass_simd::indicator_by_options as indicator;
 }
 
-/// Returns information about the Mass Index (Mass) indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the Mass indicator.
-pub const INFO: Info = Info {
-    name: "mass",
-    indicator_type: IndicatorType::Trend,
-    full_name: "Mass Index",
-    inputs: &["high", "low"],
-    options: &["period"],
-    outputs: &["mass"],
-    optional_outputs: &[],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "mass",
-        label: "MASS",
-        display_type: DisplayType::Indicator,
-        outputs: &["mass"],
-    }],
-};
-#[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    state: State,
-    multipliers: (f64, f64),
-}
-impl IndicatorState {
-    pub fn new(state: State, multipliers: (f64, f64)) -> Self {
-        Self { state, multipliers }
-    }
-}
+pub type IndicatorState = State<Warm>;
+
 impl TIndicatorState<2> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         _optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
 
         let mut mass_line = crate::uninit_vec!(f64, inputs[0].len());
         let [high, low] = inputs;
-        cycle_mass(high, low, self.multipliers, &mut mass_line, &mut self.state);
+        cycle_mass(high, low, &mut mass_line, self);
 
         Ok(vec![mass_line])
     }
 }
 #[derive(Serialize, Deserialize)]
-pub struct State {
-    pub buffer: Buffer,
-    pub sum: f64,
-    pub ema: f64,
+#[serde(bound = "")]
+pub struct State<S = Cold> {
+    pub buffer: Buffer<S>,
+    pub ema_state: EmaState<S>,
     pub ema_signal: f64,
+    pub sum: f64,
 }
-impl State {
-    /*pub fn new(ema: f64, ema_signal: f64, period: usize) -> Self {
-        Self {
-            ema,
-            sum,
-            ema_signal,
-            buffer: Buffer::new(period),
-        }
-    }*/
+impl<S> Deref for State<S> {
+    type Target = EmaState<S>;
+    fn deref(&self) -> &Self::Target { &self.ema_state }
+}
+impl<S> DerefMut for State<S> {
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.ema_state }
+}
+impl State<Cold> {
     pub fn init_state(
         high: &[f64],
         low: &[f64],
         period: usize,
-        multiplier: (f64, f64),
         mass_line: &mut [f64],
-    ) -> (usize, State) {
-        let (mut ema, mut ema_signal, mut buffer, mut sum) =
-            (high[0] - low[0], 0.0, Buffer::new(period), 0.0);
+    ) -> (usize, State<Warm>) {
+        let (mut ema_state, mut ema_signal, mut buffer, mut sum) =
+            (EmaState::new(high[0] - low[0], 9).into_warm(), 0.0, Buffer::new(period), 0.0);
         let mut i = 1;
         while !buffer.is_full() {
             let hl_diff = high[i] - low[i];
-            ema = calc_ema(&hl_diff, ema, multiplier);
+            let ema = ema_state.calc(hl_diff);
             if i == 8 {
                 ema_signal = ema;
             }
             if i >= 8 {
-                ema_signal = calc_ema(&ema, ema_signal, multiplier);
+                ema_signal = calc_ema(ema, ema_signal, ema_state.multiplier, ema_state.inv_multiplier);
                 if i >= 16 {
                     let mass = (ema / ema_signal).max(0.0);
                     sum += mass;
@@ -140,141 +110,33 @@ impl State {
             i,
             State {
                 sum,
-                ema,
+                ema_state,
                 ema_signal,
-                buffer,
+                buffer: buffer.into_full(),
             },
         )
     }
-    /// Calculates the Mass Index value for the current data point.
-    ///
-    /// # Arguments
-    ///
-    /// * `state` - A mutable reference to the current `State`.
-    /// * `high` - The current high price.
-    /// * `low` - The current low price.
-    /// * `multiplier` - A tuple of EMA multipliers for the Mass calculation.
-    ///
-    /// # Returns
-    ///
-    /// The running sum representing the current Mass Index value.
-    #[inline(always)]
-    pub fn calc(&mut self, high: &f64, low: &f64, multiplier: (f64, f64)) -> f64 {
-        let hl_diff = (high - low).max(f64::EPSILON);
-        let mut ema = self.ema;
-        let mut ema_signal = self.ema_signal;
-        ema = calc_ema(&hl_diff, ema, multiplier);
-        ema_signal = calc_ema(&ema, ema_signal, multiplier);
-        let mass = (ema / ema_signal).max(0.0);
-        if let Some(old) = self.buffer.push_with_info(mass) {
-            self.sum -= old
-        }
-        self.sum += mass;
 
-        (self.ema, self.ema_signal) = (ema, ema_signal);
-        self.sum
-    }
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64);
+    type Outputs = f64;
+
     #[inline(always)]
-    pub(crate) unsafe fn calc_unchecked(
+    fn calc<'a>(
         &mut self,
-        high: &f64,
-        low: &f64,
-        multiplier: (f64, f64),
+        (high, low): Self::Inputs<'a>,
     ) -> f64 {
         let hl_diff = (high - low).max(f64::EPSILON);
-        let (mut ema, mut ema_signal) = (self.ema, self.ema_signal);
-        ema = calc_ema(&hl_diff, ema, multiplier);
-        ema_signal = calc_ema(&ema, ema_signal, multiplier);
-        let mass = (ema / ema_signal).max(0.0);
-        self.sum += mass - self.buffer.push_with_info_unchecked(mass);
 
-        (self.ema, self.ema_signal) = (ema, ema_signal);
+        let ema = self.ema_state.calc(hl_diff);
+        self.ema_signal = calc_ema(ema, self.ema_signal, self.multiplier, self.inv_multiplier);
+        let mass = (ema / self.ema_signal).max(0.0);
+        self.sum += mass - self.buffer.push_with_info(mass);
+
         self.sum
     }
 }
-/// Returns the minimum amount of data required for the Mass indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the Mass calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    options[0] as usize + 16
-}
-
-/// Calculates the output length for the Mass indicator.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the Mass calculation.
-///
-/// # Returns
-///
-/// The output length.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-
-/// Calculates the Mass Index indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — high prices
-/// * `inputs[1]` — low prices
-///
-/// # Options
-///
-/// * `options[0]` — period
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `optional_outputs` - Unused; this indicator has no optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where:
-/// - `outputs[0]` — `mass`
-///
-/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    _optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-
-    validate_inputs(inputs, min_data(options))?;
-
-    let mut mass_line = {
-        let capacity = output_length(inputs[0].len(), options);
-        crate::uninit_vec!(f64, capacity)
-    };
-
-    let multipliers = multiplier();
-    let (high, low, mut state) = {
-        let (start, state) = State::init_state(
-            inputs[0],
-            inputs[1],
-            options[0] as usize,
-            multipliers,
-            &mut mass_line,
-        );
-        (&inputs[0][start..], &inputs[1][start..], state)
-    };
-
-    cycle_mass(high, low, multipliers, &mut mass_line[1..], &mut state);
-
-    Ok((vec![mass_line], IndicatorState { multipliers, state }))
-}
-
 /// Performs the main calculation loop for the Mass indicator.
 ///
 /// # Arguments
@@ -287,18 +149,71 @@ pub fn indicator(
 fn cycle_mass(
     high: &[f64],
     low: &[f64],
-    multipliers: (f64, f64),
     mass_line: &mut [f64],
-    state: &mut State,
+    state: &mut State<Warm>,
 ) {
+    
     for i in 0..high.len() {
         unsafe {
             *mass_line.get_unchecked_mut(i) =
-                state.calc_unchecked(high.get_unchecked(i), low.get_unchecked(i), multipliers);
+                state.calc((*high.get_unchecked(i), *low.get_unchecked(i)));
         }
     }
 }
 
-pub fn multiplier() -> (f64, f64) {
-    ema_multiplier(9)
+
+pub struct Mass;
+
+impl Indicator<INPUTS, OPTIONS> for Mass {
+    type IndicatorState = IndicatorState;
+
+    const INFO: Info = Info {
+        name: "mass",
+        indicator_type: IndicatorType::Trend,
+        full_name: "Mass Index",
+        inputs: &["high", "low"],
+        options: &["period"],
+        outputs: &["mass"],
+        optional_outputs: &[],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "mass",
+            label: "MASS",
+            display_type: DisplayType::Indicator,
+            outputs: &["mass"],
+        }],
+    };
+
+    fn min_data(options: &[f64; OPTIONS]) -> usize {
+        options[0] as usize + 16
+    }
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        _optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+    
+        validate_inputs(inputs, Self::min_data(options))?;
+    
+        let mut mass_line = {
+            let capacity = Self::output_length(inputs[0].len(), options);
+            crate::uninit_vec!(f64, capacity)
+        };
+
+        let (high, low, mut state) = {
+            let (start, state) = State::init_state(
+                inputs[0],
+                inputs[1],
+                options[0] as usize,
+                &mut mass_line,
+            );
+            (&inputs[0][start..], &inputs[1][start..], state)
+        };
+    
+        cycle_mass(high, low, &mut mass_line[1..], &mut state);
+    
+        Ok((vec![mass_line], state))
+    }
 }

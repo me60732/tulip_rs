@@ -1,51 +1,12 @@
-use crate::indicators::min::{find_min_scalar as find_remainder,  State};
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::by_asset::min::indicator_by_assets;
-pub(crate) use crate::indicators::simd_indicators::max_simd::CHUNK_1;
+
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::min::indicator_by_options;
 
-/// SIMD-parallel state for the Rolling Minimum indicator, holding `N` lanes of per-asset state.
-pub struct SimdState<const N: usize> {
-    pub min: Simd<f64, N>,
-    pub trail: Simd<usize, N>,
-}
-impl<const N: usize> SimdState<N> {
-    /// Constructs a `SimdState` by gathering scalar per-asset states into SIMD vectors.
-    pub fn new(states: &[&mut State]) -> Self {
-        let mut min = [0.0; N];
-        let mut trail: [usize; N] = [0; N];
-
-        for i in 0..N {
-            min[i] = states[i].min;
-            trail[i] = states[i].trail;
-        }
-
-        Self {
-            min: Simd::from_array(min),
-            trail: Simd::from_array(trail),
-        }
-    }
-    /// Converts the SIMD state into an array of `N` scalar [`State`] values.
-    pub fn to_states(&self) -> [State; N] {
-        let min = self.min.to_array();
-        let trail = self.trail.to_array();
-
-        let states: [State; N] = std::array::from_fn(|i| State::new(min[i], trail[i]));
-
-        states
-    }
-    /// Writes the current SIMD lane values back into the provided scalar per-asset states.
-    pub fn write_states(&self, states: &mut [&mut State]) {
-        let min = self.min.to_array();
-        let trail = self.trail.to_array();
-
-        for i in 0..N {
-            states[i].min = min[i];
-            states[i].trail = trail[i];
-        }
-    }
-}
+use crate::indicators::min::{find_min_scalar as find_remainder,  State};
+pub use crate::indicator_types::{TSimdState, TState};
+use crate::types::Warm;
 
 pub(crate) use std::{
     f64,
@@ -57,61 +18,52 @@ pub(crate) use std::{
 };
 mod import {
     pub(crate) use crate::indicators::simd_indicators::simd_types::UsizeConstants;
-    pub(crate) use std::{
-        f64,
-        simd::{
-            cmp::{SimdPartialEq, SimdPartialOrd},
-            Select, Simd,
-        },
-    };
+    pub(crate) use std::simd::Select;
 }
 pub mod assets {
     //! Per-asset road SIMD helpers for the Rolling Minimum indicator.
     use super::import::*;
-    use super::{find_min_scalar, find_min_simd, SimdState};
-    /// Trait providing the unchecked per-asset SIMD minimum-window computation.
-    pub trait Calc<const N: usize> {
-        /// Computes the rolling minimum for `N` asset lanes simultaneously (unsafe, bounds-unchecked).
-        ///
-        /// Reads the current value at index `i`, updates the trailing minimum and trail counter,
-        /// and if the oldest entry has fallen off the window performs a linear rescan.
-        ///
-        /// # Safety
-        /// `real` pointers must each be valid for reads in `[i - look_back, i]`.
-        unsafe fn calc_unchecked_simd<const WINDOW_LANES: usize>(
-            &mut self,
-            real: [*const f64; N],
-            i: usize,
-            look_back: usize,
-        ) -> (Simd<f64, N>, Simd<usize, N>);
-        /// Same as [`calc_unchecked_simd`] but accepts the current value directly to avoid a redundant load.
-        unsafe fn calc_unchecked_simd_w_current<const WINDOW_LANES: usize>(
-            &mut self,
-            real: [*const f64; N],
-            i: usize,
-            look_back: usize,
-            current: Simd<f64, N>,
-        ) -> (Simd<f64, N>, Simd<usize, N>);
+    use super::*;
+
+    pub struct SimdState<const N: usize> {
+        pub min: Simd<f64, N>,
+        pub trail: Simd<usize, N>,
     }
-    impl<const N: usize> Calc<N> for SimdState<N> {
+    impl<const N: usize> TSimdState for SimdState<N> {
+        type ScalarState = State<Warm>;
+        crate::simd_state_impl!(
+            sub: [],
+            scalar: [min, trail]
+        );
+    }
+    impl<const N: usize> TState for SimdState<N> {
+        type Inputs<'a> = ([*const f64; N], usize, usize);
+        type Outputs = (Simd<f64, N>, Simd<usize, N>);
+        
         #[inline(always)]
-        unsafe fn calc_unchecked_simd<const WINDOW_LANES: usize>(
+        fn calc(
             &mut self,
-            real: [*const f64; N],
-            i: usize,
-            look_back: usize,
+            (real, i, look_back): Self::Inputs<'_>
+        ) -> Self::Outputs {
+            let current = crate::extract_simd_inputs_at_index!(i, N, val @ real);
+
+            self.calc_w_current::<4>((real, i, look_back, current))
+        }
+    }
+    impl<const N: usize> SimdState<N> {
+        #[inline(always)]
+        pub fn calc_chuncked<const WINDOW_LANES: usize>(
+            &mut self,
+            (real, i, look_back): ([*const f64; N], usize, usize)
         ) -> (Simd<f64, N>, Simd<usize, N>) {
             let current = crate::extract_simd_inputs_at_index!(i, N, val @ real);
 
-            self.calc_unchecked_simd_w_current::<WINDOW_LANES>(real, i, look_back, current)
+            self.calc_w_current::<WINDOW_LANES>((real, i, look_back, current))
         }
         #[inline(always)]
-        unsafe fn calc_unchecked_simd_w_current<const WINDOW_LANES: usize>(
+        pub fn calc_w_current<const WINDOW_LANES: usize>(
             &mut self,
-            real: [*const f64; N],
-            i: usize,
-            look_back: usize,
-            current: Simd<f64, N>,
+            (real, i, look_back, current): ([*const f64; N], usize, usize, Simd<f64, N>)
         ) -> (Simd<f64, N>, Simd<usize, N>) {
             let mut trail = self.trail;
             let mut min = self.min;
@@ -136,7 +88,7 @@ pub mod assets {
                 let mut lane = 0;
                 while lane < N {
                     if search_mask & (1 << lane) != 0 {
-                        let window = std::slice::from_raw_parts(real[lane].add(start), take);
+                        let window = unsafe { std::slice::from_raw_parts(real[lane].add(start), take) };
                         let (min_val, min_idx) = if WINDOW_LANES == 1 {
                             find_min_scalar(window, current[lane])
                         } else {
@@ -158,52 +110,42 @@ pub mod assets {
 }
 pub mod options {
     //! Per-option road SIMD helpers for the Rolling Minimum indicator.
-    use crate::indicators::simd_indicators::min_simd::CHUNK_1;
+    use crate::indicators::simd_indicators::max_simd::CHUNK_1;
 
 use super::import::*;
-    use super::{find_min_scalar, find_min_simd, SimdState};
-    /// Trait providing the unchecked per-option SIMD minimum-window computation.
-    pub trait Calc<const N: usize> {
-        /// Computes the rolling minimum for `N` option lanes simultaneously (unsafe, bounds-unchecked).
-        ///
-        /// Each lane may have a different look-back period supplied via `look_back: Simd<usize, N>`.
-        ///
-        /// # Safety
-        /// `real` pointers must each be valid for reads within their respective window.
-        unsafe fn calc_unchecked_simd(
-            &mut self,
-            real: [*const f64; N],
-            i: Simd<usize, N>,
-            look_back: Simd<usize, N>,
-        ) -> (Simd<f64, N>, Simd<usize, N>);
-        /// Same as [`calc_unchecked_simd`] but accepts the current values to avoid a redundant load.
-        unsafe fn calc_unchecked_simd_w_current(
-            &mut self,
-            real: [*const f64; N],
-            i: Simd<usize, N>,
-            look_back: Simd<usize, N>,
-            current: Simd<f64, N>,
-        ) -> (Simd<f64, N>, Simd<usize, N>);
+    use super::*;
+    
+    pub struct SimdState<const N: usize> {
+        pub min: Simd<f64, N>,
+        pub trail: Simd<usize, N>,
     }
-    impl<const N: usize> Calc<N> for SimdState<N> {
+    impl<const N: usize> TSimdState for SimdState<N> {
+        type ScalarState = State<Warm>;
+        crate::simd_state_impl!(
+            sub: [],
+            scalar: [min, trail]
+        );
+    }
+   
+    impl<const N: usize> TState for SimdState<N> {
+        type Inputs<'a> = ([*const f64; N], Simd<usize, N>, Simd<usize, N>);
+        type Outputs = (Simd<f64, N>, Simd<usize, N>);
+        
         #[inline(always)]
-        unsafe fn calc_unchecked_simd(
+        fn calc(
             &mut self,
-            real: [*const f64; N],
-            i: Simd<usize, N>,
-            look_back: Simd<usize, N>,
-        ) -> (Simd<f64, N>, Simd<usize, N>) {
-            let current = Simd::splat(*real[0].add(i[0]));
+            (real, i, look_back): Self::Inputs<'_>,
+        ) -> Self::Outputs {
+            let current = Simd::splat(unsafe { *real[0].add(i[0]) });
 
-            self.calc_unchecked_simd_w_current(real, i, look_back, current)
+            self.calc_w_current((real, i, look_back, current))
         }
+    }
+    impl<const N: usize> SimdState<N> {
         #[inline(always)]
-        unsafe fn calc_unchecked_simd_w_current(
+        pub fn calc_w_current(
             &mut self,
-            real: [*const f64; N],
-            i: Simd<usize, N>,
-            look_back: Simd<usize, N>,
-            current: Simd<f64, N>,
+            (real, i, look_back, current): ([*const f64; N], Simd<usize, N>, Simd<usize, N>, Simd<f64, N>)
         ) -> (Simd<f64, N>, Simd<usize, N>) {
             let mut trail = self.trail;
             let mut min = self.min;
@@ -228,7 +170,7 @@ use super::import::*;
                     if search_mask & (1 << lane) != 0 {
                         let start = i_array[lane] - look_back_array[lane];
                         let take = look_back_array[lane];
-                        let window = std::slice::from_raw_parts(real[lane].add(start), take);
+                        let window = unsafe { std::slice::from_raw_parts(real[lane].add(start), take) };
                         let (min_val, min_idx) = if CHUNK_1.contains(&take) {
                             find_min_scalar(window, current[lane])
                         } else {

@@ -34,11 +34,11 @@
 //! The DFT computation reuses [`msw::calc_full`] — only the window length changes each bar.
 
 use crate::common::validate_inputs;
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 use crate::indicators::homodynediscriminator;
 use crate::indicators::msw;
 use crate::ring_buffer::fixed_single_buffer::FixedMirrorBuffer;
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "simd_assets")]
@@ -50,38 +50,11 @@ pub mod by_assets {
 }
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 1;
+pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
 /// Zero — the period is fully adaptive via the embedded Homodyne Discriminator.
-pub const OPTIONS_WIDTH: usize = 0;
-
-/// Metadata describing the Adaptive MESA Sine Wave indicator.
-pub const INFO: Info = Info {
-    name: "adaptivemsw",
-    full_name: "Adaptive MESA Sine Wave",
-    indicator_type: IndicatorType::Cycle,
-    inputs: &["real"],
-    options: &[],
-    outputs: &["sine", "lead_sine"],
-    optional_outputs: &["dc_period"],
-    display_groups: &[
-        DisplayGroup {
-            offset: None,
-            id: "adaptivemsw",
-            label: "Adaptive MESA Sine Wave",
-            display_type: DisplayType::Indicator,
-            outputs: &["sine", "lead_sine"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "adaptivemsw_dc_period",
-            label: "Adaptive MSW Dominant Cycle Period",
-            display_type: DisplayType::Indicator,
-            outputs: &["dc_period"],
-        },
-    ],
-};
+pub const OPTIONS: usize = 0;
 
 /// Per-bar state for the Adaptive MESA Sine Wave.
 ///
@@ -97,9 +70,10 @@ pub const INFO: Info = Info {
 /// first ~50 output bars should be treated as transient while both the HD IIR and
 /// the DFT window converge.
 #[derive(Serialize, Deserialize)]
-pub struct State {
+#[serde(bound = "")]
+pub struct State<S = Cold> {
     /// Embedded Homodyne Discriminator — provides `SmoothPeriod` (DC) per bar.
-    pub hd: homodynediscriminator::State,
+    pub hd: homodynediscriminator::State<S>,
 
     /// Rolling price history for the DFT: `view[0]` = oldest, `view[count-1]` = newest.
     /// `get_slice_by_period(p)` returns the last `p` bars as a contiguous oldest-first
@@ -108,8 +82,8 @@ pub struct State {
     pub price_buf: FixedMirrorBuffer<f64, 50>,
 }
 
-impl State {
-    pub fn new() -> Self {
+impl State<Cold> {
+    pub fn new() -> State<Cold> {
         Self {
             hd: homodynediscriminator::State::new(),
             price_buf: FixedMirrorBuffer::new(),
@@ -125,54 +99,31 @@ impl State {
         sine_line: &mut [f64],
         lead_line: &mut [f64],
         dc_period_line: &mut [f64],
-    ) -> Self {
-        let mut state = Self::new();
-        let mut i = 0;
-
-        // Feed warmup bars through the HD and simultaneously prime the price history.
-        while !state.hd.all_buffers_full() {
-            state.hd.calc(real[i]);
-            state.price_buf.push(real[i]);
-            i += 1;
+    ) -> State<Warm> {
+        // HD warmup = min_data - 1 = 22 bars, returns State<Warm>
+        let hd = homodynediscriminator::State::init_state(real);
+    
+        // Push those same 22 bars into price_buf
+        let mut price_buf = FixedMirrorBuffer::new();
+        for price in &real[..22] {
+            price_buf.push(*price);
         }
-        // i = 22; all HD buffers full; price_buf.len() = 22.
-
-        // Process bar 22 — HD full, safe to use unchecked.
-        let (sine, lead) = unsafe { state.calc_unchecked(real[i]) };
+    
+        let mut state = State::<Warm> { hd, price_buf };
+    
+        // Bar 22 — first valid output
+        let (sine, lead) = state.calc(real[22]);
         sine_line[0] = sine;
         lead_line[0] = lead;
-
+    
         let (_, want_dc) = crate::calc_want_flags!(dc_period_line);
         crate::store_optional_outputs!(0, want_dc, dc_period_line => state.hd.smooth_period);
-
+    
         state
     }
 
-    /// One-bar update (safe). Returns `(sine, lead_sine)`.
-    ///
-    /// Returns `(0.0, 0.0)` while any HD ring buffer is still filling.
-    #[inline(always)]
-    pub fn calc(&mut self, price: f64) -> (f64, f64) {
-        let dc = self.hd.calc(price);
-        self.price_buf.push(price);
-        if !self.hd.all_buffers_full() {
-            return (0.0, 0.0);
-        }
-        self.apply_dft(dc)
-    }
-
-    /// Unsafe one-bar update — skips all HD ring-buffer fullness guards.
-    ///
-    /// # Safety
-    ///
-    /// All HD ring buffers must be full on entry. Guaranteed after [`init_state`].
-    #[inline(always)]
-    pub unsafe fn calc_unchecked(&mut self, price: f64) -> (f64, f64) {
-        let dc = self.hd.calc_unchecked(price);
-        self.price_buf.push(price);
-        self.apply_dft(dc)
-    }
-
+}
+impl<S> State<S> {
     /// Computes the windowed DFT and phase-to-sine conversion.
     ///
     /// Window length = `clamp(round(dc), 6, price_buf.len().min(50))`.
@@ -190,29 +141,46 @@ impl State {
         msw::phase_from_rp_ip(rp, ip)
     }
 }
+impl TState for State<Cold> {
+    type Inputs<'a> = f64;
+    type Outputs = (f64, f64);
+    /// One-bar update (safe). Returns `(sine, lead_sine)`.
+    ///
+    /// Returns `(0.0, 0.0)` while any HD ring buffer is still filling.
+    #[inline(always)]
+    fn calc<'a>(&mut self, price: Self::Inputs<'a>) -> Self::Outputs {
+        let dc = self.hd.calc(price);
+        self.price_buf.push(price);
+        if !self.hd.all_buffers_full() {
+            return (0.0, 0.0);
+        }
+        self.apply_dft(dc)
+    }
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = f64;
+    type Outputs = (f64, f64);
 
+    #[inline(always)]
+    fn calc<'a>(&mut self, price: Self::Inputs<'a>) -> Self::Outputs {
+        let dc = self.hd.calc(price);
+        self.price_buf.push(price);
+        self.apply_dft(dc)
+    }
+}
 impl Default for State {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// Streaming indicator state wrapping [`State`] for use with [`batch_indicator`].
-#[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    state: State,
-}
+/// Streaming indicator state — `State` directly, matching the cybercycle pattern.
+pub type IndicatorState = State<Warm>;
 
-impl IndicatorState {
-    pub fn new(state: State) -> Self {
-        Self { state }
-    }
-}
-
-impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
+impl TIndicatorState<INPUTS> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -227,7 +195,7 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
 
         cycle(
             inputs[0],
-            &mut self.state,
+            self,
             &mut sine_line,
             &mut lead_line,
             &mut dc_period_line,
@@ -237,83 +205,12 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
     }
 }
 
-/// Returns the minimum number of input bars required for the Adaptive MESA Sine Wave.
-///
-/// Fixed at 23 — the Homodyne Discriminator warmup. The DFT window may be shorter
-/// than the adaptive period for the first ~28 output bars while the price history
-/// fills; treat the first ~50 outputs as transient.
-pub fn min_data(_options: &[f64]) -> usize {
-    23
-}
-
-
-/// Returns the number of output values produced for a given input length.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len.saturating_sub(min_data(options) - 1)
-}
-
-/// Calculates the Adaptive MESA Sine Wave over the full input dataset.
-///
-/// # Inputs
-/// * `inputs[0]` — `real` price series (typically close, or `(H + L) / 2`)
-///
-/// # Options
-/// None — `options` must be `&[]`.
-///
-/// # Optional outputs
-/// * index 0 — `dc_period`: dominant cycle period from the embedded HD
-///
-/// # Returns
-/// `Ok((outputs, state))` where `outputs[0]` = `sine`, `outputs[1]` = `lead_sine`,
-/// `outputs[2]` = `dc_period` (empty unless requested).
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_inputs(inputs, min_data(options))?;
-    let real = inputs[0];
-    let capacity = output_length(real.len(), options);
-
-    let (mut sine_line, mut lead_line) = (
-        crate::uninit_vec!(f64, capacity),
-        crate::uninit_vec!(f64, capacity),
-    );
-    let mut dc_period_line = crate::init_optional_outputs!(
-        optional_outputs, &[false],
-        dc_period_line: capacity
-    );
-
-    let mut state = State::init_state(real, &mut sine_line, &mut lead_line, &mut dc_period_line);
-
-    let real_tail = &real[min_data(options)..];
-    let (_, want_dc) = crate::calc_want_flags!(dc_period_line);
-    let dc_tail = if want_dc {
-        &mut dc_period_line[1..]
-    } else {
-        &mut dc_period_line[..]
-    };
-
-    cycle(
-        real_tail,
-        &mut state,
-        &mut sine_line[1..],
-        &mut lead_line[1..],
-        dc_tail,
-    );
-
-    Ok((
-        vec![sine_line, lead_line, dc_period_line],
-        IndicatorState::new(state),
-    ))
-}
-
 /// Core calculation loop.
 ///
 /// All HD ring buffers must be full on entry (guaranteed after `init_state`).
 fn cycle(
     real: &[f64],
-    state: &mut State,
+    state: &mut State<Warm>,
     sine_line: &mut [f64],
     lead_line: &mut [f64],
     dc_period_line: &mut [f64],
@@ -321,7 +218,7 @@ fn cycle(
     let (has_optional, want_dc) = crate::calc_want_flags!(dc_period_line);
 
     for i in 0..real.len() {
-        let (sine, lead) = unsafe { state.calc_unchecked(*real.get_unchecked(i)) };
+        let (sine, lead) = state.calc( unsafe { *real.get_unchecked(i) });
         unsafe {
             *sine_line.get_unchecked_mut(i) = sine;
             *lead_line.get_unchecked_mut(i) = lead;
@@ -329,5 +226,105 @@ fn cycle(
         if has_optional {
             crate::store_optional_outputs!(i, want_dc, dc_period_line => state.hd.smooth_period);
         }
+    }
+}
+
+pub struct AdaptiveMSW;
+
+impl Indicator<INPUTS, OPTIONS> for AdaptiveMSW {
+    /// Metadata describing the Adaptive MESA Sine Wave indicator.
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "adaptivemsw",
+        full_name: "Adaptive MESA Sine Wave",
+        indicator_type: IndicatorType::Cycle,
+        inputs: &["real"],
+        options: &[],
+        outputs: &["sine", "lead_sine"],
+        optional_outputs: &["dc_period"],
+        display_groups: &[
+            DisplayGroup {
+                offset: None,
+                id: "adaptivemsw",
+                label: "Adaptive MESA Sine Wave",
+                display_type: DisplayType::Indicator,
+                outputs: &["sine", "lead_sine"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "adaptivemsw_dc_period",
+                label: "Adaptive MSW Dominant Cycle Period",
+                display_type: DisplayType::Indicator,
+                outputs: &["dc_period"],
+            },
+        ],
+    };
+
+    /// Returns the minimum number of input bars required for the Adaptive MESA Sine Wave.
+    ///
+    /// Fixed at 23 — the Homodyne Discriminator warmup. The DFT window may be shorter
+    /// than the adaptive period for the first ~28 output bars while the price history
+    /// fills; treat the first ~50 outputs as transient.
+    fn min_data(_options: &[f64; OPTIONS]) -> usize {
+        23
+    }
+
+    /// Returns the number of output values produced for a given input length.
+    fn output_length(data_len: usize, options: &[f64; OPTIONS]) -> usize {
+        data_len.saturating_sub(Self::min_data(options) - 1)
+    }
+
+    /// Calculates the Adaptive MESA Sine Wave over the full input dataset.
+    ///
+    /// # Inputs
+    /// * `inputs[0]` — `real` price series (typically close, or `(H + L) / 2`)
+    ///
+    /// # Options
+    /// None — `options` must be `&[]`.
+    ///
+    /// # Optional outputs
+    /// * index 0 — `dc_period`: dominant cycle period from the embedded HD
+    ///
+    /// # Returns
+    /// `Ok((outputs, state))` where `outputs[0]` = `sine`, `outputs[1]` = `lead_sine`,
+    /// `outputs[2]` = `dc_period` (empty unless requested).
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_inputs(inputs, Self::min_data(options))?;
+        let real = inputs[0];
+        let capacity = Self::output_length(real.len(), options);
+
+        let (mut sine_line, mut lead_line) = (
+            crate::uninit_vec!(f64, capacity),
+            crate::uninit_vec!(f64, capacity),
+        );
+        let mut dc_period_line = crate::init_optional_outputs!(
+            optional_outputs, &[false],
+            dc_period_line: capacity
+        );
+
+        let mut state =
+            State::init_state(real, &mut sine_line, &mut lead_line, &mut dc_period_line);
+
+        let real_tail = &real[Self::min_data(options)..];
+        let (_, want_dc) = crate::calc_want_flags!(dc_period_line);
+        let dc_tail = if want_dc {
+            &mut dc_period_line[1..]
+        } else {
+            &mut dc_period_line[..]
+        };
+
+        cycle(
+            real_tail,
+            &mut state,
+            &mut sine_line[1..],
+            &mut lead_line[1..],
+            dc_tail,
+        );
+
+        Ok((vec![sine_line, lead_line, dc_period_line], state))
     }
 }

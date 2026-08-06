@@ -41,16 +41,16 @@
 //! CyberCycle and compute `α = 2 / (SmoothPeriod.max(3) + 1)` every bar.
 
 use crate::common::validate_inputs;
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 use crate::ring_buffer::fixed_single_buffer::FixedRingBuffer;
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 1;
+pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1; // [alpha]
+pub const OPTIONS: usize = 1; // [alpha]
 
 #[cfg(feature = "simd_assets")]
 pub use crate::indicators::simd_indicators::cybercycle_simd::indicator_by_assets;
@@ -70,44 +70,14 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::cybercycle_simd::indicator_by_options as indicator;
 }
 
-/// Metadata for the Ehlers CyberCycle indicator.
-pub const INFO: Info = Info {
-    name: "cybercycle",
-    indicator_type: IndicatorType::Cycle,
-    full_name: "Ehlers CyberCycle",
-    inputs: &["real"],
-    options: &["alpha"],
-    outputs: &["cybercycle"],
-    optional_outputs: &["trigger"],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "cybercycle",
-        label: "Ehlers Cyber Cycle",
-        display_type: DisplayType::Indicator,
-        outputs: &["cybercycle", "trigger"],
-    }],
-};
+/// `IndicatorState` is the complete self-contained state — coefficients live inside
+/// `State` alongside the filter history, matching the `ema::IndicatorState` pattern.
+pub type IndicatorState = State<Warm>;
 
-/// Persistent state for streaming / multi-batch use.
-///
-/// Stores the precomputed filter coefficients alongside the filter state,
-/// exactly mirroring the `supersmoother::IndicatorState` pattern.
-#[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    pub(crate) multipliers: (f64, f64, f64),
-    pub(crate) state: State,
-}
-
-impl IndicatorState {
-    pub fn new(state: State, multipliers: (f64, f64, f64)) -> Self {
-        Self { multipliers, state }
-    }
-}
-
-impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
+impl TIndicatorState<INPUTS> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -119,13 +89,7 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
             trigger_line: n
         );
 
-        run_cycle(
-            real,
-            &mut self.state,
-            self.multipliers,
-            &mut cycle_line,
-            &mut trigger_line,
-        );
+        run_cycle(real, self, &mut cycle_line, &mut trigger_line);
 
         Ok(vec![cycle_line, trigger_line])
     }
@@ -133,42 +97,76 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
 
 /// Per-bar filter state for the Ehlers CyberCycle.
 ///
-/// **Warmup:** after [`init_state`](State::init_state) completes, all ring
-/// buffers are full and the IIR feedback is seeded. The hot path
-/// (`calc_unchecked`) operates unconditionally.
+/// Stores the precomputed IIR coefficients (`coef`, `d1`, `d2`) alongside the
+/// filter history, so `calc` / `calc_unchecked` need no external parameters.
+///
+/// **Warmup:** after [`State::init_state`] completes, all ring buffers are full and
+/// the IIR feedback is seeded. The hot path (`calc_unchecked`) operates unconditionally.
 #[derive(Serialize, Deserialize)]
-pub struct State {
+#[serde(bound = "")]
+pub struct State<S = Cold> {
     /// 4-bar price ring buffer: `[0]`=Price, `[1]`=Price[1], `[2]`=Price[2], `[3]`=Price[3].
-    pub price_buf: FixedRingBuffer<f64, 4>,
+    pub price_buf: FixedRingBuffer<f64, 4, S>,
 
     /// 3-bar smooth ring buffer: `[0]`=Smooth, `[1]`=Smooth[1], `[2]`=Smooth[2].
-    pub smooth_buf: FixedRingBuffer<f64, 3>,
+    pub smooth_buf: FixedRingBuffer<f64, 3, S>,
 
     /// Cycle[1] — one-bar-ago cycle value (IIR feedback state d₁).
     pub cycle_prev: f64,
 
     /// Cycle[2] — two-bar-ago cycle value (IIR feedback state d₂).
     pub cycle_prev2: f64,
+    pub coef: f64,
+    pub d1: f64,
+    pub d2: f64,
 }
 
-impl State {
-    /// Creates a zeroed state ready for the first bar.
-    pub fn new() -> Self {
+impl Default for State<Cold> {
+    fn default() -> Self {
         Self {
             price_buf: FixedRingBuffer::new(),
             smooth_buf: FixedRingBuffer::new(),
             cycle_prev: 0.0,
             cycle_prev2: 0.0,
+            coef: 0.0,
+            d1: 0.0,
+            d2: 0.0,
         }
     }
+}
 
+impl State<Cold> {
+    /// Creates a zeroed filter state and precomputes coefficients from `alpha`.
+    pub fn new(alpha: f64) -> State<Cold> {
+        let (coef, d1, d2) = multiplier(alpha);
+        Self {
+            price_buf: FixedRingBuffer::new(),
+            smooth_buf: FixedRingBuffer::new(),
+            cycle_prev: 0.0,
+            cycle_prev2: 0.0,
+            coef,
+            d1,
+            d2,
+        }
+    }
+    pub fn into_full(self) -> State<Warm>{
+        State {
+            price_buf: self.price_buf.into_full(),
+            smooth_buf: self.smooth_buf.into_full(),
+            cycle_prev: self.cycle_prev,
+            cycle_prev2: self.cycle_prev2,
+            coef: self.coef,
+            d1: self.d1,
+            d2: self.d2,
+        }
+    }
     /// Seeds the IIR through bars 0–5 **without** processing bar 6.
     ///
     /// Used by the `by_options` SIMD path where the driver writes bar 6's output
     /// directly. The returned state has both ring buffers full and
     /// `cycle_prev`/`cycle_prev2` seeded from the second-difference formula.
-    pub fn seed_warmup(real: &[f64]) -> Self {
-        let mut state = Self::new();
+    pub fn seed_warmup(real: &[f64], alpha: f64) -> State<Warm> {
+        let mut state = Self::new(alpha);
         for i in 0..6 {
             state.price_buf.push(real[i]);
             if state.price_buf.len() >= 4 {
@@ -183,7 +181,15 @@ impl State {
                 state.cycle_prev = seed;
             }
         }
-        state
+        State {
+            price_buf: state.price_buf.into_full(),
+            smooth_buf: state.smooth_buf.into_full(),
+            cycle_prev: state.cycle_prev,
+            cycle_prev2: state.cycle_prev2,
+            coef: state.coef,
+            d1: state.d1,
+            d2: state.d2,
+        }
     }
 
     /// Seeds the IIR for bars 0–5, then processes bar 6 (first valid output).
@@ -192,11 +198,11 @@ impl State {
     /// After the call, all ring buffers are full and `calc_unchecked` is safe.
     pub fn init_state(
         real: &[f64],
-        multipliers: (f64, f64, f64),
+        alpha: f64,
         cycle_line: &mut [f64],
         trigger_line: &mut [f64],
-    ) -> Self {
-        let mut state = Self::new();
+    ) -> State<Warm> {
+        let mut state = Self::new(alpha);
 
         // ── Seeding: bars 0–5 ────────────────────────────────────────────────
         // Bars 0–1: price_buf.len() < 3 → seeding formula cannot run; cycle stays 0.
@@ -224,7 +230,7 @@ impl State {
         //             cycle_prev2 = Cycle[4]
 
         // ── Bar 6: first valid output ─────────────────────────────────────────
-        let cycle = unsafe { state.calc_unchecked(real[6], multipliers) };
+        let cycle = state.calc(real[6]);
         cycle_line[0] = cycle;
         // After calc_unchecked: cycle_prev = Cycle[6], cycle_prev2 = Cycle[5].
         // Trigger[0] = Cycle[5] = the last seeded cycle before bar 6.
@@ -232,14 +238,54 @@ impl State {
             trigger_line[0] = state.cycle_prev2;
         }
 
-        state
+        State {
+            price_buf: state.price_buf.into_full(),
+            smooth_buf: state.smooth_buf.into_full(),
+            cycle_prev: state.cycle_prev,
+            cycle_prev2: state.cycle_prev2,
+            coef: state.coef,
+            d1: state.d1,
+            d2: state.d2,
+        }
     }
 
-    /// Safe one-bar update. Returns `0.0` while ring buffers are still filling.
-    ///
-    /// Prefer `calc_unchecked` in hot loops after [`init_state`](Self::init_state).
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = f64;
+    type Outputs = f64;
+
     #[inline(always)]
-    pub fn calc(&mut self, price: f64, multipliers: (f64, f64, f64)) -> f64 {
+    fn calc<'a>(&mut self, price: Self::Inputs<'a>) -> Self::Outputs {
+        // ── Stage 1: 6-tap weighted smooth ──────────────────────────────────
+        // Smooth = (P + 2·P[1] + 2·P[2] + P[3]) / 6
+        self.price_buf.push(price);
+        let ab = 2.0_f64.mul_add(self.price_buf[1], self.price_buf[0]);
+        let cd = 2.0_f64.mul_add(self.price_buf[2], self.price_buf[3]);
+        let smooth = (ab + cd) * (1.0 / 6.0);
+
+        // ── Stage 2: 2-pole high-pass IIR ───────────────────────────────────
+        // Cycle = coef·(S − 2·S[1] + S[2]) + d1·C[1] − d2·C[2]
+        self.smooth_buf.push(smooth);
+        let smooth_diff = (-2.0_f64).mul_add(self.smooth_buf[1], smooth) + self.smooth_buf[2];
+        let cycle = self.coef.mul_add(
+            smooth_diff,
+            self.d1
+                .mul_add(self.cycle_prev, -self.d2 * self.cycle_prev2),
+        );
+
+        self.cycle_prev2 = self.cycle_prev;
+        self.cycle_prev = cycle;
+        cycle
+    }
+}
+impl TState for State<Cold> {
+    type Inputs<'a> = f64;
+    type Outputs = f64;
+
+    /// Safe single-bar update — handles ring-buffer warmup guards internally.
+    /// Returns `0.0` during the first 5 bars while the buffers are filling.
+    #[inline(always)]
+    fn calc<'a>(&mut self, price: Self::Inputs<'a>) -> Self::Outputs {
         self.price_buf.push(price);
         if self.price_buf.len() < 4 {
             return 0.0;
@@ -251,81 +297,16 @@ impl State {
         if self.smooth_buf.len() < 3 {
             return 0.0;
         }
-        let (coeff, d1, d2) = multipliers;
         let smooth_diff = (-2.0_f64).mul_add(self.smooth_buf[1], smooth) + self.smooth_buf[2];
-        let cycle = coeff.mul_add(
+        let cycle = self.coef.mul_add(
             smooth_diff,
-            d1.mul_add(self.cycle_prev, -d2 * self.cycle_prev2),
+            self.d1
+                .mul_add(self.cycle_prev, -self.d2 * self.cycle_prev2),
         );
         self.cycle_prev2 = self.cycle_prev;
         self.cycle_prev = cycle;
         cycle
     }
-
-    /// Unsafe one-bar update — skips ring-buffer fullness guards.
-    ///
-    /// After the call:
-    /// - `state.cycle_prev`  = Cycle (current bar)
-    /// - `state.cycle_prev2` = Cycle[1] (previous bar)
-    /// - Trigger = `state.cycle_prev2`
-    ///
-    /// # Safety
-    ///
-    /// Both `price_buf` and `smooth_buf` must be full on entry.
-    /// Guaranteed after [`init_state`](Self::init_state).
-    #[inline(always)]
-    pub unsafe fn calc_unchecked(&mut self, price: f64, multipliers: (f64, f64, f64)) -> f64 {
-        // ── Stage 1: 6-tap weighted smooth ──────────────────────────────────
-        // Smooth = (P + 2·P[1] + 2·P[2] + P[3]) / 6
-        // Decomposed into 2 FMAs (serial depth 2):
-        //   ab = 2·P[1] + P   = P + 2·P[1]
-        //   cd = 2·P[2] + P[3]
-        self.price_buf.push_unchecked(price);
-        let ab = 2.0_f64.mul_add(self.price_buf[1], self.price_buf[0]);
-        let cd = 2.0_f64.mul_add(self.price_buf[2], self.price_buf[3]);
-        let smooth = (ab + cd) * (1.0 / 6.0);
-
-        // ── Stage 2: 2-pole high-pass IIR ───────────────────────────────────
-        // Cycle = coeff·(S − 2·S[1] + S[2]) + d1·C[1] − d2·C[2]
-        // Three FMAs (serial depth 2):
-        //   smooth_diff = −2·S[1] + S  (FMA) + S[2]
-        //   inner       = d1·C[1] − d2·C[2]
-        //   cycle       = coeff·smooth_diff + inner
-        self.smooth_buf.push_unchecked(smooth);
-        let (coeff, d1, d2) = multipliers;
-        let smooth_diff = (-2.0_f64).mul_add(self.smooth_buf[1], smooth) + self.smooth_buf[2];
-        let cycle = coeff.mul_add(
-            smooth_diff,
-            d1.mul_add(self.cycle_prev, -d2 * self.cycle_prev2),
-        );
-
-        self.cycle_prev2 = self.cycle_prev;
-        self.cycle_prev = cycle;
-        cycle
-    }
-}
-
-impl Default for State {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Public API
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Returns the minimum number of input bars required for any output.
-///
-/// Bars 0–5 are absorbed by seeding; bar 6 is the first valid output.
-pub fn min_data(_options: &[f64]) -> usize {
-    7
-}
-
-
-/// Number of output bars for a given input length.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
 }
 
 /// Validates that `alpha` is strictly in `(0.0, 1.0)`.
@@ -336,7 +317,7 @@ pub fn output_length(data_len: usize, options: &[f64]) -> usize {
 ///
 /// **Do not** use `crate::common::validate_options` here — it rejects any
 /// option `< 1.0` and would flag all valid α values.
-pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), IndicatorError> {
+pub(crate) fn validate_options(options: &[f64; OPTIONS]) -> Result<(), IndicatorError> {
     if options[0] <= 0.0 || options[0] >= 1.0 {
         return Err(IndicatorError::InvalidOptions);
     }
@@ -368,82 +349,72 @@ pub fn adaptive_alpha(smooth_period: f64) -> f64 {
     2.0 / (smooth_period.max(3.0) + 1.0)
 }
 
-/// Calculates the Ehlers CyberCycle over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — close (or HLC/3) price series
-///
-/// # Options
-///
-/// * `options[0]` — `alpha` ∈ (0, 1). Ehlers' default is `0.07`.
-///
-/// # Outputs
-///
-/// * `outputs[0]` — `cybercycle` oscillator
-/// * `outputs[1]` — `trigger` = Cycle[1] (optional; empty unless requested)
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `state` can be used for streaming via
-/// [`IndicatorState::batch_indicator`]. Returns `Err` if inputs are too short
-/// or `alpha` is outside `(0, 1)`.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    validate_inputs(inputs, min_data(options))?;
-
-    let alpha = options[0];
-    let mults = multiplier(alpha);
-    let real = inputs[0];
-    let n = real.len();
-    let capacity = output_length(n, options);
-    let mut cycle_line = crate::uninit_vec!(f64, capacity);
-    let mut trigger_line = crate::init_optional_outputs_eff!(
-        optional_outputs, &[false],
-        trigger_line: capacity
-    );
-
-    // init_state seeds bars 0–5 and processes bar 6 (output index 0).
-    let mut state = State::init_state(real, mults, &mut cycle_line, &mut trigger_line);
-
-    // Process bars 7..n (output indices 1..capacity).
-    let trigger_start = crate::slice_outputs_start!(capacity - 1, trigger_line);
-    run_cycle(
-        &real[min_data(options)..],
-        &mut state,
-        mults,
-        &mut cycle_line[1..],
-        &mut trigger_line[trigger_start..],
-    );
-
-    Ok((
-        vec![cycle_line, trigger_line],
-        IndicatorState::new(state, mults),
-    ))
-}
-
 /// Shared hot loop used by both `indicator` and `batch_indicator`.
 ///
 /// After each bar: `state.cycle_prev2` = Cycle[1] = trigger for that bar.
-fn run_cycle(
-    real: &[f64],
-    state: &mut State,
-    multipliers: (f64, f64, f64),
-    cycle_line: &mut [f64],
-    trigger_line: &mut [f64],
-) {
+fn run_cycle(real: &[f64], state: &mut State<Warm>, cycle_line: &mut [f64], trigger_line: &mut [f64]) {
     let want_trigger = !trigger_line.is_empty();
     for i in 0..real.len() {
         unsafe {
-            *cycle_line.get_unchecked_mut(i) =
-                state.calc_unchecked(*real.get_unchecked(i), multipliers);
+            *cycle_line.get_unchecked_mut(i) = state.calc(*real.get_unchecked(i));
         }
         crate::store_optional_outputs!(i,
             want_trigger, trigger_line => state.cycle_prev2
         );
+    }
+}
+
+pub struct Cybercycle;
+impl Indicator<INPUTS, OPTIONS> for Cybercycle {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "cybercycle",
+        indicator_type: IndicatorType::Cycle,
+        full_name: "Ehlers CyberCycle",
+        inputs: &["real"],
+        options: &["alpha"],
+        outputs: &["cybercycle"],
+        optional_outputs: &["trigger"],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "cybercycle",
+            label: "Ehlers Cyber Cycle",
+            display_type: DisplayType::Indicator,
+            outputs: &["cybercycle", "trigger"],
+        }],
+    };
+    fn min_data(_options: &[f64; OPTIONS]) -> usize {
+        7
+    }
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        validate_inputs(inputs, Self::min_data(options))?;
+
+        let real = inputs[0];
+        let n = real.len();
+        let capacity = Self::output_length(n, options);
+        let mut cycle_line = crate::uninit_vec!(f64, capacity);
+        let mut trigger_line = crate::init_optional_outputs_eff!(
+            optional_outputs, &[false],
+            trigger_line: capacity
+        );
+
+        // init_state seeds bars 0–5 and processes bar 6 (output index 0).
+        let mut state = State::init_state(real, options[0], &mut cycle_line, &mut trigger_line);
+
+        // Process bars 7..n (output indices 1..capacity).
+        let trigger_start = crate::slice_outputs_start!(capacity - 1, trigger_line);
+        run_cycle(
+            &real[Self::min_data(options)..],
+            &mut state,
+            &mut cycle_line[1..],
+            &mut trigger_line[trigger_start..],
+        );
+
+        Ok((vec![cycle_line, trigger_line], state))
     }
 }

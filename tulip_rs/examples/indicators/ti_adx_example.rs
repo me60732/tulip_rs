@@ -1,4 +1,4 @@
-use tulip_rs::indicators::adx::{indicator, TIndicatorState};
+use tulip_rs::indicators::adx::{Adx, Indicator, TIndicatorState};
 
 fn main() {
     let high = [
@@ -17,7 +17,7 @@ fn main() {
 
     let inputs = [&high[..], &low[..], &close[..]];
 
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true, true, true])) {
+    let (outputs, _) = match Adx::indicator(&inputs, &options, Some(&[true, true, true])) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -33,7 +33,7 @@ fn main() {
     ];
 
     // Calculate the ADX using the adx indicator function
-    let (outputs2, mut state2) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state2) = match Adx::indicator(&inputs2, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

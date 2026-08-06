@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::stddev::{
-    indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState,
+    StdDev,  Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -138,7 +138,7 @@ fn bench_rust_stddev(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, None)
+                        let result = StdDev::indicator(&inputs, &options, None)
                             .expect("Rust STDDEV indicator failed");
                         black_box(&result);
                     },
@@ -159,7 +159,7 @@ fn bench_rust_stddev(c: &mut Criterion) {
             group.bench_function(format!("Rust STDDEV {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result =
-                        indicator(&inputs, &options, None).expect("Rust STDDEV indicator failed");
+                        StdDev::indicator(&inputs, &options, None).expect("Rust STDDEV indicator failed");
                     black_box(&result);
                 });
             });
@@ -186,12 +186,12 @@ fn bench_rust_stddev_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data = min_data(&options);
+                        let min_data = StdDev::min_data(&options);
                         // First chunk
                         let close_vec = close[..min_data].to_vec();
                         let chunk_inputs = [close_vec.as_slice()];
 
-                        let (_, mut state) = indicator(&chunk_inputs, &options, None)
+                        let (_, mut state) = StdDev::indicator(&chunk_inputs, &options, None)
                             .expect("STDDEV indicator failed");
 
                         // Chunks
@@ -226,7 +226,7 @@ fn bench_rust_stddev_from_state(c: &mut Criterion) {
                     let new_close_vec = close[..close.len() - 1].to_vec();
                     let new_inputs = [new_close_vec.as_slice()];
                     let final_close_vec = close[close.len() - 1..].to_vec();
-                    let (_, mut state) = indicator(&new_inputs, &options, None)
+                    let (_, mut state) = StdDev::indicator(&new_inputs, &options, None)
                         .expect("Rust STDDEV indicator failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -250,7 +250,7 @@ fn bench_rust_stddev_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) = indicator(&new_inputs, &options, None)
+                    let (_, state) = StdDev::indicator(&new_inputs, &options, None)
                         .expect("Rust STDDEV indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
@@ -283,13 +283,13 @@ fn bench_rust_stddev_from_state(c: &mut Criterion) {
         let close_vec = expand_inputs();
 
         for options in OPTIONS_LIST {
-            let min_data = min_data(&options);
+            let min_data = StdDev::min_data(&options);
             // First chunk
             let close_chunk = close_vec[..min_data].to_vec();
             let chunk_inputs = [close_chunk.as_slice()];
 
             let (_, mut state) =
-                indicator(&chunk_inputs, &options, None).expect("STDDEV indicator failed");
+                StdDev::indicator(&chunk_inputs, &options, None).expect("STDDEV indicator failed");
 
             let mut group = c.benchmark_group("stddev_rust_from_state");
             group.sample_size(SAMPLE_SIZE);
@@ -322,7 +322,7 @@ fn bench_rust_stddev_from_state(c: &mut Criterion) {
                 let new_inputs = [new_close_vec.as_slice()];
                 let final_close_vec = close_vec[close_vec.len() - 1..].to_vec();
                 let (_, mut state) =
-                    indicator(&new_inputs, &options, None).expect("Rust STDDEV indicator failed");
+                    StdDev::indicator(&new_inputs, &options, None).expect("Rust STDDEV indicator failed");
 
                 let mut group = c.benchmark_group("stddev_rust_from_state_1_bar");
                 group.sample_size(SAMPLE_SIZE);
@@ -429,7 +429,7 @@ fn bench_rust_stddev_optional(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, Some(&[true]))
+                        let result = StdDev::indicator(&inputs, &options, Some(&[true]))
                             .expect("Rust STDDEV indicator failed");
                         black_box(&result);
                     },
@@ -456,7 +456,7 @@ fn bench_rust_stddev_optional(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust STDDEV {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result = indicator(&inputs, &options, Some(&[true]))
+                    let result = StdDev::indicator(&inputs, &options, Some(&[true]))
                         .expect("Rust STDDEV indicator failed");
                     black_box(&result);
                 });

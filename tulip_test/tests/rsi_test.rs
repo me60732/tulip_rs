@@ -2,7 +2,7 @@
 mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicators::rsi::indicator_by_assets;
-    use tulip_rs::indicators::rsi::{indicator, min_data, TIndicatorState};
+    use tulip_rs::indicators::rsi::{Rsi, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_rsi, ti_rsi_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
     const EPSILON: f64 = 1e-8;
@@ -55,7 +55,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                indicator(&inputs_rust, &options, None).expect("Rust RSI indicator failed");
+                Rsi::indicator(&inputs_rust, &options, None).expect("Rust RSI indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -141,7 +141,7 @@ mod tests {
 
                 let inputs_rust = [close.as_slice()];
                 let (outputs, _) =
-                    indicator(&inputs_rust, &options, None).expect("Rust RSI indicator failed");
+                    Rsi::indicator(&inputs_rust, &options, None).expect("Rust RSI indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -205,17 +205,17 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Get full output
-                let (full_outputs, _) = indicator(&inputs_rust, &options, None)
+                let (full_outputs, _) = Rsi::indicator(&inputs_rust, &options, None)
                     .expect("Failed to run RSI indicator on full data");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Rsi::min_data(&options).max(CHUNK_SIZE);
 
                 if close.len() <= min_data_val {
                     // If data is too small, just run full calculation
-                    let (outputs, _) = indicator(&inputs_rust, &options, None)
+                    let (outputs, _) = Rsi::indicator(&inputs_rust, &options, None)
                         .expect("Failed to run RSI indicator");
                     batch_full_output.extend_from_slice(&outputs[0]);
                 } else {
@@ -223,7 +223,7 @@ mod tests {
                     let close_vec = close[..min_data_val].to_vec();
                     let chunk_inputs = [close_vec.as_slice()];
 
-                    let (first_outputs, mut state) = indicator(&chunk_inputs, &options, None)
+                    let (first_outputs, mut state) = Rsi::indicator(&chunk_inputs, &options, None)
                         .expect("Failed to run RSI indicator on first chunk");
                     batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -298,7 +298,7 @@ mod tests {
             // Run regular implementation for comparison
             let inputs_rust = [close.as_slice()];
             let (regular_outputs, _) =
-                indicator(&inputs_rust, &options, None).expect("Regular RSI indicator failed");
+                Rsi::indicator(&inputs_rust, &options, None).expect("Regular RSI indicator failed");
 
             // Compare each SIMD asset output with regular output
             for (asset_idx, simd_output_data) in simd_outputs.iter().enumerate() {
@@ -367,7 +367,7 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 let min_len = padded_close.iter().map(|c| c.len()).min().unwrap_or(0);
-                if min_len < min_data(&options) {
+                if min_len < Rsi::min_data(&options) {
                     continue;
                 }
 
@@ -386,7 +386,7 @@ mod tests {
                 // Compare each asset's SIMD output with its regular output
                 for (asset_idx, close_data) in padded_close.iter().enumerate().take(chunk.len()) {
                     let inputs_rust = [close_data.as_slice()];
-                    let (regular_outputs, _) = indicator(&inputs_rust, &options, None)
+                    let (regular_outputs, _) = Rsi::indicator(&inputs_rust, &options, None)
                         .expect("Regular RSI indicator failed");
 
                     let simd_output = &simd_outputs[asset_idx][0];
@@ -474,7 +474,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    indicator(&inputs, options, None).expect("Regular RSI indicator failed");
+                    Rsi::indicator(&inputs, options, None).expect("Regular RSI indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];

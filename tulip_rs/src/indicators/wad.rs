@@ -1,12 +1,12 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{TIndicatorState, Indicator, IndicatorResult, TState};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 3;
+pub const INPUTS: usize = 3;
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 0;
+pub const OPTIONS: usize = 0;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -24,33 +24,24 @@ pub mod by_assets {
     pub use crate::indicators::simd_indicators::wad_simd::indicator_by_assets as indicator;
 }
 
-pub const INFO: Info = Info {
-    name: "wad",
-    full_name: "WAD Indicator",
-    indicator_type: IndicatorType::Trend,
-    inputs: &["high", "low", "close"],
-    options: &[],
-    outputs: &["wad"],
-    optional_outputs: &[],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "wad",
-        label: "WAD",
-        display_type: DisplayType::Indicator,
-        outputs: &["wad"],
-    }],
-};
+pub type IndicatorState = State;
 #[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
+pub struct State {
     pub prev_close: f64,
     pub wad: f64,
 }
-impl IndicatorState {
+impl State {
     pub fn new(prev_close: f64, wad: f64) -> Self {
         Self { prev_close, wad }
     }
+    
+}
+impl TState for State {
+    type Inputs<'a> = (f64, f64, f64);
+    type Outputs = f64;
+    
     #[inline(always)]
-    pub fn calc(&mut self, high: f64, low: f64, close: f64) -> f64 {
+    fn calc<'a>(&mut self, (high, low, close): Self::Inputs<'a>) -> Self::Outputs {
         self.wad += if close > self.prev_close {
             close - self.prev_close.min(low)
         } else if close < self.prev_close {
@@ -67,7 +58,7 @@ impl IndicatorState {
 impl TIndicatorState<3> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         _optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -79,79 +70,7 @@ impl TIndicatorState<3> for IndicatorState {
         Ok(vec![wad_line])
     }
 }
-/// Returns the minimum amount of data required for the WAD indicator.
-///
-/// # Arguments
-///
-/// * `_options` - Unused; WAD takes no options.
-///
-/// # Returns
-///
-/// The minimum amount of data required (2: one bar to seed the previous close,
-/// one bar to produce the first output).
-pub fn min_data(_options: &[f64]) -> usize {
-    2
-}
 
-/// Calculates the output length based on the data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the WAD calculation.
-///
-/// # Returns
-///
-/// The output length.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-
-/// Calculates the Williams Accumulation/Distribution (WAD) indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — `high`
-/// * `inputs[1]` — `low`
-/// * `inputs[2]` — `close`
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `_options` - Unused; WAD takes no options.
-/// * `_optional_outputs` - Unused; this indicator has no optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is `wad` and `state`
-/// can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    _options: &[f64; OPTIONS_WIDTH],
-    _optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    // Expecting three inputs: High, Low, Close.
-    validate_inputs(inputs, min_data(_options))?;
-
-    let mut wad_line: Vec<f64> = {
-        let capacity = output_length(inputs[0].len(), _options);
-        crate::uninit_vec!(f64, capacity)
-    };
-
-    let mut state = IndicatorState::new(inputs[2][0], 0.0);
-
-    cycle(
-        &inputs[0][1..],
-        &inputs[1][1..],
-        &inputs[2][1..],
-        &mut state,
-        &mut wad_line,
-    );
-
-    // Store last used close and sum for incremental updates.
-    Ok((vec![wad_line], state))
-}
 
 /// Iterates over the high, low, and close slices and computes WAD values for each bar.
 ///
@@ -166,17 +85,69 @@ fn cycle(
     high: &[f64],
     low: &[f64],
     close: &[f64],
-    state: &mut IndicatorState,
+    state: &mut State,
     wad_line: &mut [f64],
 ) {
     for i in 0..close.len() {
         unsafe {
-            *wad_line.get_unchecked_mut(i) = state.calc(
+            *wad_line.get_unchecked_mut(i) = state.calc((
                 *high.get_unchecked(i),
                 *low.get_unchecked(i),
                 *close.get_unchecked(i),
-            );
+            ));
         }
     }
 }
 
+pub struct Wad;
+
+impl Indicator<INPUTS, OPTIONS> for Wad {
+    type IndicatorState = State;
+
+    const INFO: Info = Info {
+        name: "wad",
+        full_name: "WAD Indicator",
+        indicator_type: IndicatorType::Trend,
+        inputs: &["high", "low", "close"],
+        options: &[],
+        outputs: &["wad"],
+        optional_outputs: &[],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "wad",
+            label: "WAD",
+            display_type: DisplayType::Indicator,
+            outputs: &["wad"],
+        }],
+    };
+    fn min_data(_options: &[f64; OPTIONS]) -> usize {
+        2
+    }
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        _options: &[f64; OPTIONS],
+        _optional_outputs: Option<&[bool]>,
+    ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
+        // Expecting three inputs: High, Low, Close.
+        validate_inputs(inputs, Self::min_data(_options))?;
+        let [high, low, close] = *inputs;
+        let mut wad_line: Vec<f64> = {
+            let capacity = Self::output_length(high.len(), _options);
+            crate::uninit_vec!(f64, capacity)
+        };
+    
+        let mut state = IndicatorState::new(inputs[2][0], 0.0);
+    
+        cycle(
+            &high[1..],
+            &low[1..],
+            &close[1..],
+            &mut state,
+            &mut wad_line,
+        );
+    
+        // Store last used close and sum for incremental updates.
+        Ok((vec![wad_line], state))
+    }
+}

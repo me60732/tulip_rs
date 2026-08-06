@@ -1,20 +1,18 @@
-use crate::common::{validate_inputs};
-pub use crate::indicator_types::TIndicatorState;
+use crate::common::validate_inputs;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 use crate::indicators::{
-    atr::{init_calc, multiplier as atr_multiplier, State as AtrState},
-    ema::{calc as ema_calc, multiplier as ema_multiplier},
-    tr::output_length as tr_output_length,
+    atr::{multiplier as atr_multiplier, State as AtrState},
+    ema::{multiplier as ema_multiplier, State as EmaState},
+    tr::Tr,
 };
-use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
-};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 3;
+pub const INPUTS: usize = 3;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 2;
+pub const OPTIONS: usize = 2;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -48,42 +46,29 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::keltnerchannel_simd::indicator_by_options as indicator;
 }
 
-/// Returns information about the Keltner Channel indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the Keltner Channel indicator.
-pub const INFO: Info = Info {
-    name: "keltnerchannel",
-    full_name: "Keltner Channel",
-    indicator_type: IndicatorType::Volatility,
-    inputs: &["high", "low", "close"],
-    options: &["period", "step"],
-    outputs: &["lower", "middle", "upper"],
-    optional_outputs: &["atr", "tr"],
-    display_groups: &[
-        DisplayGroup {
-            offset: None,
-            id: "keltnerchannel",
-            label: "Keltner Channel",
-            display_type: DisplayType::Overlay,
-            outputs: &["lower", "middle", "upper"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "atr_tr",
-            label: "True Range",
-            display_type: DisplayType::Indicator,
-            outputs: &["atr", "tr"],
-        },
-    ],
-};
 #[derive(Serialize, Deserialize)]
-pub struct State {
-    pub atr_state: AtrState,
-    pub ema: f64,
+#[serde(bound="")]
+pub struct State<S = Cold> {
+    pub atr_state: AtrState<S>,
+    pub ema_state: EmaState<S>,
+    pub step: f64,
 }
-impl State {
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64, f64);
+    type Outputs = (f64, f64, f64, f64, f64);
+    #[inline(always)]
+    fn calc<'a>(&mut self, (high, low, close): Self::Inputs<'a>) -> (f64, f64, f64, f64, f64) {
+        let (atr, tr) = self.atr_state.calc((high, low, close));
+        let ema = self.ema_state.calc(close);
+
+        let per = atr * self.step;
+        let upper = ema + per;
+        let lower = ema - per;
+
+        (lower, ema, upper, atr, tr)
+    }
+}
+impl State<Cold> {
     /// Initialises the Keltner Channel state from the first `period` bars.
     ///
     /// Seeds the ATR with the simple-average true range over `[0, period)` and
@@ -104,87 +89,25 @@ impl State {
         low: &[f64],
         close: &[f64],
         period: usize,
-        multipliers: ((f64, f64), (f64, f64)),
-        tr_line: &mut [f64],
-    ) -> Self {
-        let mut atr = high[0] - low[0];
-        let mut ema = close[0];
-        let mut tr;
-        for i in 1..period {
-            let prev_close = close[i - 1];
-            (atr, tr) = init_calc(high[i], low[i], prev_close, atr);
-            ema = ema_calc(&close[i], ema, multipliers.1);
-            if tr_line.len() > 0 {
-                tr_line[i - 1] = tr;
-            }
-        }
-        atr /= period as f64;
-        Self {
-            atr_state: AtrState::new(atr, close[period - 1]),
-            ema,
-        }
-    }
-    /// Advances the indicator by one bar and returns the channel values.
-    ///
-    /// Updates the ATR and EMA states, then computes the lower and upper channel
-    /// bands as `EMA ± step × ATR`.
-    ///
-    /// # Arguments
-    ///
-    /// * `high` - High price for the current bar.
-    /// * `low` - Low price for the current bar.
-    /// * `close` - Close price for the current bar.
-    /// * `step` - ATR multiplier controlling channel width.
-    /// * `multipliers` - Smoothing constants `((atr_alpha, atr_1m_alpha), (ema_alpha, ema_1m_alpha))`.
-    ///
-    /// # Returns
-    ///
-    /// A tuple `(lower, middle, upper, atr, tr)` where `middle` is the current EMA.
-    #[inline(always)]
-    pub fn calc(
-        &mut self,
-        high: f64,
-        low: f64,
-        close: f64,
         step: f64,
-        multipliers: ((f64, f64), (f64, f64)),
-    ) -> (f64, f64, f64, f64, f64) {
-        let (atr, tr) = self.atr_state.calc(high, low, close, multipliers.0);
-        self.ema = ema_calc(&close, self.ema, multipliers.1);
+        tr_line: &mut [f64],
+    ) -> State<Warm> {
+        let atr_state = AtrState::init_state(high, low, close, period, tr_line, false);
+        let ema_state = EmaState::init_state(close, period);
 
-        let per = atr * step;
-        let upper = self.ema + per;
-        let lower = self.ema - per;
-
-        (lower, self.ema, upper, atr, tr)
-    }
-}
-#[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    multipliers: ((f64, f64), (f64, f64)),
-    state: State,
-    step: f64,
-}
-impl IndicatorState {
-    /// Creates a new `IndicatorState` for streaming continuation.
-    ///
-    /// # Arguments
-    ///
-    /// * `state` - The internal ATR + EMA state after the last computed bar.
-    /// * `step` - ATR multiplier controlling channel width.
-    /// * `multipliers` - Smoothing constants `((atr_alpha, atr_1m_alpha), (ema_alpha, ema_1m_alpha))`.
-    pub fn new(state: State, step: f64, multipliers: ((f64, f64), (f64, f64))) -> Self {
-        Self {
-            state,
+        State {
+            atr_state,
+            ema_state,
             step,
-            multipliers,
         }
     }
 }
+pub type IndicatorState = State<Warm>;
+
 impl TIndicatorState<3> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -205,139 +128,25 @@ impl TIndicatorState<3> for IndicatorState {
 
         cycle(
             (high, low, close),
-            self.step,
-            self.multipliers,
             (&mut lower_band, &mut middle_band, &mut upper_band),
-            &mut self.state,
+            self,
             (&mut atr_line, &mut tr_line),
         );
 
         Ok(vec![lower_band, middle_band, upper_band, atr_line, tr_line])
     }
 }
-/// Returns the minimum amount of data required for the Keltner Channel indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the Keltner Channel calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required (`period + 1`).
-pub fn min_data(options: &[f64]) -> usize {
-    options[0] as usize + 1
-}
 
-/// Calculates the output length for the Keltner Channel indicator.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the Keltner Channel calculation.
-///
-/// # Returns
-///
-/// The number of output values produced by the Keltner Channel calculation (`data_len - period`).
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
 /// Validates Keltner Channel options.
 ///
 /// # Errors
 ///
 /// Returns `Err(IndicatorError::InvalidOptions)` if `period < 1` or `step ≤ 0`.
-pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), IndicatorError> {
+pub(crate) fn validate_options(options: &[f64; OPTIONS]) -> Result<(), IndicatorError> {
     if options[0] < 1.0 || options[1] <= 0.0 {
         return Err(IndicatorError::InvalidOptions);
     }
     Ok(())
-}
-/// Calculates the Keltner Channel indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — high prices
-/// * `inputs[1]` — low prices
-/// * `inputs[2]` — close prices
-///
-/// # Options
-///
-/// * `options[0]` — period (lookback for ATR and EMA)
-/// * `options[1]` — step (ATR multiplier controlling channel width)
-///
-/// # Outputs
-///
-/// * `outputs[0]` — `lower` band (`EMA - step × ATR`)
-/// * `outputs[1]` — `middle` band (EMA of close)
-/// * `outputs[2]` — `upper` band (`EMA + step × ATR`)
-///
-/// # Optional Outputs
-///
-/// * `atr` — the Wilder ATR series used in the calculation
-/// * `tr`  — the True Range series
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `optional_outputs` - Optional flags `[want_atr, want_tr]` to enable extra outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is `lower`, `outputs[1]` is `middle`,
-/// `outputs[2]` is `upper`, `outputs[3]` is `atr` (empty unless requested),
-/// `outputs[4]` is `tr` (empty unless requested), and `state` can be passed to
-/// `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let period = options[0] as usize;
-    let step = options[1];
-    let [high, low, close] = inputs;
-    let multipliers = multiplier(period);
-
-    validate_inputs(inputs, min_data(options))?;
-
-    let (mut middle_band, mut upper_band, mut lower_band, (mut atr_line, mut tr_line)) = {
-        let len = high.len();
-        let capacity = output_length(len, options);
-        (
-            crate::uninit_vec!(f64, capacity),
-            crate::uninit_vec!(f64, capacity),
-            crate::uninit_vec!(f64, capacity),
-            crate::init_optional_outputs_eff!(
-                optional_outputs, &[false, false],
-                atr_line: capacity,
-                tr_line: tr_output_length(len, options)
-            ),
-        )
-    };
-
-    let mut state = State::init_state(high, low, close, period, multipliers, &mut tr_line);
-    let (inputs, tr) = {
-        let tr_offset = crate::slice_outputs_start!(middle_band.len(), tr_line);
-        (
-            (&high[period..], &low[period..], &close[period..]),
-            &mut tr_line[tr_offset..],
-        )
-    };
-    cycle(
-        inputs,
-        step,
-        multipliers,
-        (&mut lower_band, &mut middle_band, &mut upper_band),
-        &mut state,
-        (&mut atr_line, tr),
-    );
-
-    Ok((
-        vec![lower_band, middle_band, upper_band, atr_line, tr_line],
-        IndicatorState::new(state, step, multipliers),
-    ))
 }
 
 /// Performs the main calculation loop for the Keltner Channel indicator.
@@ -351,26 +160,21 @@ pub fn indicator(
 /// * `state` - A mutable reference to the current indicator state.
 /// * `optional_outputs` - A tuple of mutable slices for optional `(atr, tr)` outputs.
 fn cycle(
-    inputs: (&[f64], &[f64], &[f64]),
-    step: f64,
-    multipliers: ((f64, f64), (f64, f64)),
-    outputs: (&mut [f64], &mut [f64], &mut [f64]),
-    state: &mut State,
-    optional_outputs: (&mut [f64], &mut [f64]),
+    (high, low, close): (&[f64], &[f64], &[f64]),
+    (lower_band, middle_band, upper_band): (&mut [f64], &mut [f64], &mut [f64]),
+    state: &mut State<Warm>,
+    (atr_line, tr_line): (&mut [f64], &mut [f64]),
 ) {
-    let (lower_band, middle_band, upper_band) = outputs;
-    let (high, low, close) = inputs;
-    let (atr_line, tr_line) = optional_outputs;
     let (has_optional, want_atr, want_tr) = crate::calc_want_flags!(atr_line, tr_line);
     for i in 0..high.len() {
-        let (high, low, close) = unsafe {
+        let inputs = unsafe {
             (
                 *high.get_unchecked(i),
                 *low.get_unchecked(i),
                 *close.get_unchecked(i),
             )
         };
-        let (lower, middle, upper, atr, tr) = state.calc(high, low, close, step, multipliers);
+        let (lower, middle, upper, atr, tr) = state.calc(inputs);
 
         unsafe {
             *middle_band.get_unchecked_mut(i) = middle;
@@ -394,4 +198,87 @@ fn cycle(
 /// contains Wilder ATR smoothing constants and the second pair contains EMA smoothing constants.
 pub fn multiplier(period: usize) -> ((f64, f64), (f64, f64)) {
     (atr_multiplier(period), ema_multiplier(period))
+}
+
+pub struct KeltnerChannel;
+
+impl Indicator<INPUTS, OPTIONS> for KeltnerChannel {
+    type IndicatorState = IndicatorState;
+
+    const INFO: Info = Info {
+        name: "keltnerchannel",
+        full_name: "Keltner Channel",
+        indicator_type: IndicatorType::Volatility,
+        inputs: &["high", "low", "close"],
+        options: &["period", "step"],
+        outputs: &["lower", "middle", "upper"],
+        optional_outputs: &["atr", "tr"],
+        display_groups: &[
+            DisplayGroup {
+                offset: None,
+                id: "keltnerchannel",
+                label: "Keltner Channel",
+                display_type: DisplayType::Overlay,
+                outputs: &["lower", "middle", "upper"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "atr_tr",
+                label: "True Range",
+                display_type: DisplayType::Indicator,
+                outputs: &["atr", "tr"],
+            },
+        ],
+    };
+    fn min_data(options: &[f64; OPTIONS]) -> usize {
+        options[0] as usize + 1
+    }
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        let period = options[0] as usize;
+        let step = options[1];
+        let [high, low, close] = inputs;
+
+        validate_inputs(inputs, Self::min_data(options))?;
+
+        let (mut middle_band, mut upper_band, mut lower_band, (mut atr_line, mut tr_line)) = {
+            let len = high.len();
+            let capacity = Self::output_length(len, options);
+            (
+                crate::uninit_vec!(f64, capacity),
+                crate::uninit_vec!(f64, capacity),
+                crate::uninit_vec!(f64, capacity),
+                crate::init_optional_outputs_eff!(
+                    optional_outputs, &[false, false],
+                    atr_line: capacity,
+                    tr_line: Tr::output_length(len, &[])
+                ),
+            )
+        };
+
+        let mut state = State::init_state(high, low, close, period, step, &mut tr_line);
+        let (inputs, tr) = {
+            let tr_offset = crate::slice_outputs_start!(middle_band.len(), tr_line);
+            (
+                (&high[period..], &low[period..], &close[period..]),
+                &mut tr_line[tr_offset..],
+            )
+        };
+        cycle(
+            inputs,
+            (&mut lower_band, &mut middle_band, &mut upper_band),
+            &mut state,
+            (&mut atr_line, tr),
+        );
+
+        Ok((
+            vec![lower_band, middle_band, upper_band, atr_line, tr_line],
+            state,
+        ))
+    }
 }

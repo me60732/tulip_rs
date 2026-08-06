@@ -1,17 +1,18 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
 pub use crate::indicators::ema::multiplier;
-use crate::indicators::ema::{calc as calc_ema, output_length as ema_output_length};
+use crate::indicators::ema::{calc as calc_ema, Ema, State as EmaState};
 use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
+    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold
 };
+use std::ops::{Deref, DerefMut};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 1;
+pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -45,93 +46,64 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::dema_simd::indicator_by_options as indicator;
 }
 
-/// Returns information about the Double Exponential Moving Average (DEMA) indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the DEMA indicator.
-pub const INFO: Info = Info {
-    name: "dema",
-    indicator_type: IndicatorType::Trend,
-    full_name: "Double Exponential Moving Average",
-    inputs: &["real"],
-    options: &["period"],
-    outputs: &["dema"],
-    optional_outputs: &["ema"],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "dema_ema",
-        label: "EMA",
-        display_type: DisplayType::Overlay,
-        outputs: &["dema", "ema"],
-    }],
-};
-
+pub type IndicatorState = State<Warm>;
 #[derive(Serialize, Deserialize)]
-pub struct State {
-    pub ema1: f64,
+#[serde(bound="")]
+pub struct State<S = Cold> {
+    pub ema_state: EmaState<S>,
     pub ema2: f64,
 }
-impl State {
-    pub fn new(ema1: f64, ema2: f64) -> Self {
-        Self { ema1, ema2 }
-    }
-    pub fn init_state(real: &[f64], capacity: usize, period: usize, ema_line: &mut [f64]) -> Self {
-        let multiplier = multiplier(period);
-        let init_bars = real.len() - capacity - 1; // = period * 2 - 3
-
-        // Phase 1: build ema1 over first `period` bars (seed + period-1 calcs)
-        let mut ema1 = real[0];
-        for i in 1..period {
-            ema1 = calc_ema(&real[i], ema1, multiplier);
-            crate::init_store_optional_outputs!(i, real.len(), ema_line => ema1);
+impl<S> Deref for State<S> {
+    type Target = EmaState<S>;
+    fn deref(&self) -> &Self::Target { &self.ema_state }
+}
+impl<S> DerefMut for State<S> {
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.ema_state }
+}
+impl State<Cold> {
+    #[allow(unused)]
+    pub(crate) fn into_warm(self) -> State<Warm> {
+        State {
+            ema_state: self.ema_state.into_warm(),
+            ema2: self.ema2,
         }
+    }
+    pub fn init_state(real: &[f64], period: usize, ema_line: &mut [f64]) -> State<Warm> {
+        let init_bars = period * 2 - 3;
+
+        let ema_state = EmaState::init_state(real, period);
 
         // Seed ema2 once, at the transition point
-        let mut state = Self::new(ema1, ema1);
+        let mut state = State::<Warm> {
+            ema2: ema_state.ema,
+            ema_state
+        };
 
         // Phase 2: run full DEMA calc for the remaining init bars
         for i in period..=init_bars {
-            _ = state.calc(&real[i], multiplier);
-            crate::init_store_optional_outputs!(i, real.len(), ema_line => state.ema1);
+            let (_, ema) = state.calc(real[i]);
+            crate::init_store_optional_outputs!(i, real.len(), ema_line => ema);
         }
 
         state
     }
-    /// Calculates the Double Exponential Moving Average (DEMA) for the current data point.
-    ///
-    /// # Arguments
-    ///
-    /// * `state` - Mutable reference to the DEMA state holding `ema1` and `ema2`.
-    /// * `value` - The current input value.
-    /// * `multiplier` - A tuple of EMA multipliers derived from the period.
-    ///
-    /// # Returns
-    ///
-    /// A tuple `(dema, ema1)` representing the DEMA value and the updated first EMA.
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = f64;
+    type Outputs = (f64, f64);
     #[inline(always)]
-    pub fn calc(&mut self, value: &f64, multiplier: (f64, f64)) -> (f64, f64) {
-        self.ema1 = calc_ema(value, self.ema1, multiplier);
-        self.ema2 = calc_ema(&self.ema1, self.ema2, multiplier);
+    fn calc<'a>(&mut self, value: Self::Inputs<'a>) -> Self::Outputs {
+        let ema1 = self.ema_state.calc(value);
+        self.ema2 = calc_ema(ema1, self.ema2, self.multiplier, self.inv_multiplier);
         //(2.0 * state.ema1 - state.ema2, state.ema1)
-        (self.ema1.mul_add(2.0, -self.ema2), self.ema1)
+        (ema1.mul_add(2.0, -self.ema2), ema1)
     }
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    state: State,
-    multipliers: (f64, f64),
-}
-impl IndicatorState {
-    pub fn new(state: State, multipliers: (f64, f64)) -> Self {
-        Self { state, multipliers }
-    }
-}
 impl TIndicatorState<1> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -149,8 +121,7 @@ impl TIndicatorState<1> for IndicatorState {
         };
         cycle_dema(
             inputs[0],
-            self.multipliers,
-            &mut self.state,
+            self,
             &mut dema_line,
             &mut ema_line,
         );
@@ -158,100 +129,7 @@ impl TIndicatorState<1> for IndicatorState {
         Ok(vec![dema_line, ema_line])
     }
 }
-/// Returns the minimum amount of data required for the DEMA indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the DEMA calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    options[0] as usize * 2 - 1
-}
 
-/// Returns the number of output values given an input data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the DEMA calculation.
-///
-/// # Returns
-///
-/// The number of output values (`data_len - min_data(options) + 1`).
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    //println!("Len: {:?}, Options: {:?}", data_len, options);
-    data_len - min_data(options) + 1
-}
-
-/// Calculates the Double Exponential Moving Average (DEMA) over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — real values (typically close prices)
-///
-/// # Options
-///
-/// * `options[0]` — period (EMA window length)
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `optional_outputs` - Pass `Some(&[true])` to enable the optional `ema`
-///   output; `None` disables all optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is `dema` and `outputs[1]` is `ema`
-/// (empty unless requested). `state` can be passed to `IndicatorState::batch_indicator`
-/// for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let period = options[0] as usize;
-    let multipliers = multiplier(period);
-    validate_inputs(inputs, min_data(options))?;
-
-    let (mut dema_line, mut ema_line, mut state);
-    {
-        let capacity = output_length(inputs[0].len(), options);
-        let ema_capacity = ema_output_length(inputs[0].len(), options);
-
-        dema_line = crate::uninit_vec!(f64, capacity);
-
-        // Initialize any optional outputs
-        ema_line = crate::init_optional_outputs_eff!(
-            optional_outputs, &[false],
-            ema_line: ema_capacity
-        );
-
-        state = State::init_state(inputs[0], capacity, period, &mut ema_line);
-    }
-    let ema = {
-        let offset = crate::slice_outputs_start!(dema_line.len(), ema_line);
-        &mut ema_line[offset..]
-    };
-
-    cycle_dema(
-        &inputs[0][period * 2 - 2..],
-        multipliers,
-        &mut state,
-        &mut dema_line,
-        ema,
-    );
-
-    Ok((
-        vec![dema_line, ema_line],
-        IndicatorState { state, multipliers },
-    ))
-}
 
 /// Performs the main calculation loop for the DEMA indicator.
 ///
@@ -264,17 +142,16 @@ pub fn indicator(
 /// * `ema_line` - Mutable slice to write the EMA output values into (optional output).
 fn cycle_dema(
     real: &[f64],
-    multipliers: (f64, f64),
-    state: &mut State,
+    state: &mut State<Warm>,
     dema_line: &mut [f64],
     ema_line: &mut [f64],
 ) {
     let (_, want_ema) = crate::calc_want_flags!(ema_line);
 
     for i in 0..real.len() {
-        let value = unsafe { real.get_unchecked(i) };
+        let value = unsafe { *real.get_unchecked(i) };
 
-        let (dema, ema) = state.calc(value, multipliers);
+        let (dema, ema) = state.calc(value);
 
         unsafe { *dema_line.get_unchecked_mut(i) = dema };
 
@@ -284,4 +161,68 @@ fn cycle_dema(
     }
 }
 
+pub struct Dema;
+impl Indicator<INPUTS, OPTIONS> for Dema {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "dema",
+        indicator_type: IndicatorType::Trend,
+        full_name: "Double Exponential Moving Average",
+        inputs: &["real"],
+        options: &["period"],
+        outputs: &["dema"],
+        optional_outputs: &["ema"],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "dema_ema",
+            label: "EMA",
+            display_type: DisplayType::Overlay,
+            outputs: &["dema", "ema"],
+        }],
+    };
 
+    fn min_data(options: &[f64; OPTIONS]) -> usize {
+        options[0] as usize * 2 - 1
+    }
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        let period = options[0] as usize;
+        validate_inputs(inputs, Self::min_data(options))?;
+    
+        let (mut dema_line, mut ema_line, mut state);
+        {
+            let capacity = Self::output_length(inputs[0].len(), options);
+            let ema_capacity = Ema::output_length(inputs[0].len(), options);
+    
+            dema_line = crate::uninit_vec!(f64, capacity);
+    
+            // Initialize any optional outputs
+            ema_line = crate::init_optional_outputs_eff!(
+                optional_outputs, &[false],
+                ema_line: ema_capacity
+            );
+    
+            state = State::init_state(inputs[0], /*capacity, */period, &mut ema_line);
+        }
+        let ema = {
+            let offset = crate::slice_outputs_start!(dema_line.len(), ema_line);
+            &mut ema_line[offset..]
+        };
+    
+        cycle_dema(
+            &inputs[0][period * 2 - 2..],
+            &mut state,
+            &mut dema_line,
+            ema,
+        );
+    
+        Ok((
+            vec![dema_line, ema_line],
+            state,
+        ))
+    }
+}

@@ -1,5 +1,5 @@
 use tulip_rs::indicators::chandelierexit::{
-    indicator, indicator_by_assets, indicator_by_options, TIndicatorState,
+    indicator_by_assets, indicator_by_options, ChandelierExit, Indicator, TIndicatorState,
 };
 
 fn main() {
@@ -20,7 +20,7 @@ fn main() {
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
     /////////////////////// Full run with optional ATR and TR outputs ///////////////////////
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true, true])) {
+    let (outputs, _) = match ChandelierExit::indicator(&inputs, &options, Some(&[true, true])) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -36,7 +36,7 @@ fn main() {
         &close[0..close.len() - 5],
     ];
 
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match ChandelierExit::indicator(&inputs2, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

@@ -1,4 +1,4 @@
-use tulip_rs::indicators::macd::{indicator, TIndicatorState};
+use tulip_rs::indicators::macd::{Indicator, Macd, TIndicatorState};
 
 fn main() {
     let close = [
@@ -10,7 +10,7 @@ fn main() {
     let inputs = [close.as_slice()];
 
     //////////////////////////////////////////// MACD ////////////////////////////////////////////
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true, true])) {
+    let (outputs, _) = match Macd::indicator(&inputs, &options, Some(&[true, true])) {
         Ok(result) => result,
         Err(e) => panic!("Error: {:?}", e),
     };
@@ -23,7 +23,7 @@ fn main() {
     ////////////////////////////// Partial MACD //////////////////////////////
     let inputs2 = [&close[0..close.len() - 1]];
 
-    let (outputs2, mut state) = match indicator(&inputs2, &options, Some(&[true, true])) {
+    let (outputs2, mut state) = match Macd::indicator(&inputs2, &options, Some(&[true, true])) {
         Ok(result) => result,
         Err(e) => panic!("Error: {:?}", e),
     };

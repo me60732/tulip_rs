@@ -1,4 +1,4 @@
-use tulip_rs::indicators::ultosc::{indicator, TIndicatorState};
+use tulip_rs::indicators::ultosc::{Ultosc, TIndicatorState, Indicator};
 
 fn main() {
     // Sample OHLC data (from your test file)
@@ -23,7 +23,7 @@ fn main() {
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
     // Call the ultosc indicator function.
-    let (result, _) = match indicator(&inputs, &options, None) {
+    let (result, _) = match Ultosc::indicator(&inputs, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {:?}", e),
     };
@@ -34,7 +34,7 @@ fn main() {
         &low[..low.len() - 5],
         &close[..close.len() - 5],
     ];
-    let (result2, mut state2) = match indicator(&inputs2, &options, None) {
+    let (result2, mut state2) = match Ultosc::indicator(&inputs2, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {:?}", e),
     };

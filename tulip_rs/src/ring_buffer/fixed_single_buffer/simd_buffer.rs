@@ -8,21 +8,25 @@
 //! * `LANES` — SIMD lane count (number of parallel assets).
 //! * `CAP`   — compile-time buffer capacity (number of historical slots).
 
-use crate::ring_buffer::fixed_single_buffer::{FixedMirrorBuffer, FixedRingBuffer};
+use crate::ring_buffer::fixed_single_buffer::mirror_buffer::FixedMirrorBuffer;
+use crate::ring_buffer::fixed_single_buffer::single_buffer::FixedRingBuffer;
+use crate::types::Warm;
+use std::marker::PhantomData;
 use std::simd::Simd;
 
 // ── FixedRingBuffer<Simd<f64, LANES>, CAP> ────────────────────────────────────
 
-impl<const LANES: usize, const CAP: usize> FixedRingBuffer<Simd<f64, LANES>, CAP> {
+impl<const LANES: usize, const CAP: usize, S> FixedRingBuffer<Simd<f64, LANES>, CAP, S> {
     /// Split this SIMD fixed ring buffer into `LANES` scalar fixed ring buffers.
     ///
     /// Each returned buffer carries the same ring state (`index`, `count`) and
     /// contains the values for one lane (one asset).
-    pub fn to_f64_buffers(&self) -> [FixedRingBuffer<f64, CAP>; LANES] {
+    pub fn to_f64_buffers(&self) -> [FixedRingBuffer<f64, CAP, S>; LANES] {
         std::array::from_fn(|lane| FixedRingBuffer {
             vals: std::array::from_fn(|i| self.vals[i].to_array()[lane]),
             index: self.index,
             count: self.count,
+            state: PhantomData,
         })
     }
 }
@@ -37,13 +41,13 @@ pub trait FixedSimdRingBuffer<const LANES: usize, const CAP: usize> {
     /// positions (ring heads advance independently per asset); each buffer is
     /// reordered oldest-to-newest before packing, and the resulting SIMD buffer
     /// is normalised to `index = 0`.
-    fn from_f64_buffers(buffers: &[&FixedRingBuffer<f64, CAP>]) -> Self;
+    fn from_f64_buffers(buffers: &[&FixedRingBuffer<f64, CAP, Warm>]) -> Self;
 }
 
 impl<const LANES: usize, const CAP: usize> FixedSimdRingBuffer<LANES, CAP>
-    for FixedRingBuffer<Simd<f64, LANES>, CAP>
+    for FixedRingBuffer<Simd<f64, LANES>, CAP, Warm>
 {
-    fn from_f64_buffers(buffers: &[&FixedRingBuffer<f64, CAP>]) -> Self {
+    fn from_f64_buffers(buffers: &[&FixedRingBuffer<f64, CAP, Warm>]) -> Self {
         debug_assert_eq!(
             buffers.len(),
             LANES,
@@ -67,23 +71,25 @@ impl<const LANES: usize, const CAP: usize> FixedSimdRingBuffer<LANES, CAP>
             }),
             index: 0,
             count,
+            state: PhantomData,
         }
     }
 }
 
 // ── FixedMirrorBuffer<Simd<f64, LANES>, CAP> ──────────────────────────────────
 
-impl<const LANES: usize, const CAP: usize> FixedMirrorBuffer<Simd<f64, LANES>, CAP> {
+impl<const LANES: usize, const CAP: usize, S> FixedMirrorBuffer<Simd<f64, LANES>, CAP, S> {
     /// Split this SIMD fixed mirror buffer into `LANES` scalar fixed mirror buffers.
     ///
     /// Each returned buffer carries the same state (`index`, `count`) and
     /// contains the values for one lane (one asset).
-    pub fn to_f64_buffers(&self) -> [FixedMirrorBuffer<f64, CAP>; LANES] {
+    pub fn to_f64_buffers(&self) -> [FixedMirrorBuffer<f64, CAP, S>; LANES] {
         std::array::from_fn(|lane| FixedMirrorBuffer {
             ring: std::array::from_fn(|i| self.ring[i].to_array()[lane]),
             view: std::array::from_fn(|i| self.view[i].to_array()[lane]),
             index: self.index,
             count: self.count,
+            state: PhantomData,
         })
     }
 }
@@ -98,13 +104,13 @@ pub trait FixedSimdMirrorBuffer<const LANES: usize, const CAP: usize> {
     /// positions; `ring` is reordered oldest-to-newest using each buffer's head
     /// pointer, while `view` (already ordered) is copied directly. The resulting
     /// SIMD buffer is normalised to `index = 0`.
-    fn from_f64_buffers(buffers: &[&FixedMirrorBuffer<f64, CAP>]) -> Self;
+    fn from_f64_buffers(buffers: &[&FixedMirrorBuffer<f64, CAP, Warm>]) -> Self;
 }
 
 impl<const LANES: usize, const CAP: usize> FixedSimdMirrorBuffer<LANES, CAP>
-    for FixedMirrorBuffer<Simd<f64, LANES>, CAP>
+    for FixedMirrorBuffer<Simd<f64, LANES>, CAP, Warm>
 {
-    fn from_f64_buffers(buffers: &[&FixedMirrorBuffer<f64, CAP>]) -> Self {
+    fn from_f64_buffers(buffers: &[&FixedMirrorBuffer<f64, CAP, Warm>]) -> Self {
         debug_assert_eq!(
             buffers.len(),
             LANES,
@@ -139,6 +145,7 @@ impl<const LANES: usize, const CAP: usize> FixedSimdMirrorBuffer<LANES, CAP>
             }),
             index: 0,
             count,
+            state: PhantomData,
         }
     }
 }
@@ -148,8 +155,8 @@ impl<const LANES: usize, const CAP: usize> FixedSimdMirrorBuffer<LANES, CAP>
 /// A [`FixedRingBuffer`] whose elements are `LANES`-wide SIMD `f64` vectors.
 /// Each slot packs one value per asset for `LANES` assets processed simultaneously.
 pub type FixedSimdRingBuf<const LANES: usize, const CAP: usize> =
-    FixedRingBuffer<Simd<f64, LANES>, CAP>;
+    FixedRingBuffer<Simd<f64, LANES>, CAP, Warm>;
 
 /// A [`FixedMirrorBuffer`] whose elements are `LANES`-wide SIMD `f64` vectors.
 pub type FixedSimdMirrorBuf<const LANES: usize, const CAP: usize> =
-    FixedMirrorBuffer<Simd<f64, LANES>, CAP>;
+    FixedMirrorBuffer<Simd<f64, LANES>, CAP, Warm>;

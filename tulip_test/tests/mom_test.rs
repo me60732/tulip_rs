@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::mom::{indicator as rust_mom, min_data, TIndicatorState};
+    use tulip_rs::indicators::mom::{Mom, Indicator, TIndicatorState};
     use tulip_rs::indicators::mom::{indicator_by_assets, indicator_by_options};
     use tulip_test::c_bindings::{ti_mom, ti_mom_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -65,7 +65,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_mom(&inputs_rust, &options, None).expect("Rust MOM indicator failed");
+                Mom::indicator(&inputs_rust, &options, None).expect("Rust MOM indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -152,7 +152,7 @@ mod tests {
 
                 let inputs_rust = [close.as_slice()];
                 let (outputs, _) =
-                    rust_mom(&inputs_rust, &options, None).expect("Rust MOM indicator failed");
+                    Mom::indicator(&inputs_rust, &options, None).expect("Rust MOM indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -216,19 +216,19 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Get full output
-                let (full_outputs, _) = rust_mom(&inputs_rust, &options, None)
+                let (full_outputs, _) = Mom::indicator(&inputs_rust, &options, None)
                     .expect("Failed to run MOM indicator on full data");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Mom::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let close_vec = close[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice()];
 
-                let (first_outputs, mut state) = rust_mom(&chunk_inputs, &options, None)
+                let (first_outputs, mut state) = Mom::indicator(&chunk_inputs, &options, None)
                     .expect("Failed to run MOM indicator on first chunk");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -309,7 +309,7 @@ mod tests {
             // Compare with individual Rust implementations
             for i in 0..4 {
                 let individual_inputs = [stock_data[i].1.as_slice()];
-                let (individual_outputs, _) = rust_mom(&individual_inputs, &options, None)
+                let (individual_outputs, _) = Mom::indicator(&individual_inputs, &options, None)
                     .expect("Individual Rust MOM indicator failed");
 
                 // Compare outputs
@@ -395,7 +395,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_mom(&inputs, options, None).expect("Regular MOM indicator failed");
+                    Mom::indicator(&inputs, options, None).expect("Regular MOM indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];

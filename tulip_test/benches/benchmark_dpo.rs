@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::dpo::{
-    indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState,
+    Dpo, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -123,7 +123,7 @@ fn bench_rust_dpo(c: &mut Criterion) {
                 timing.measure(
                     || {
                         let result =
-                            indicator(&inputs, &options, None).expect("DPO indicator failed");
+                            Dpo::indicator(&inputs, &options, None).expect("DPO indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -142,7 +142,7 @@ fn bench_rust_dpo(c: &mut Criterion) {
             group.bench_function("benchmark", |b| {
                 b.iter(|| {
                     let inputs = [close.as_slice()];
-                    let result = indicator(&inputs, &options, None).expect("DPO indicator failed");
+                    let result = Dpo::indicator(&inputs, &options, None).expect("DPO indicator failed");
                     black_box(&result);
                 });
             });
@@ -169,12 +169,12 @@ fn bench_rust_dpo_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data = min_data(&options);
+                        let min_data = Dpo::min_data(&options);
                         // First chunk
                         let chunk_inputs = [&close[..min_data]];
 
                         let (_, mut state) =
-                            indicator(&chunk_inputs, &options, None).expect("DPO indicator failed");
+                            Dpo::indicator(&chunk_inputs, &options, None).expect("DPO indicator failed");
 
                         // Chunks
                         let mut close_chunks = close[min_data..].chunks_exact(CHUNK_SIZE);
@@ -210,7 +210,7 @@ fn bench_rust_dpo_from_state(c: &mut Criterion) {
                     let new_inputs = [&close[..close.len() - 1]];
                     let final_inputs = [&close[close.len() - 1..]];
                     let (_, mut state) =
-                        indicator(&new_inputs, &options, None).expect("Rust DPO indicator failed");
+                        Dpo::indicator(&new_inputs, &options, None).expect("Rust DPO indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -234,7 +234,7 @@ fn bench_rust_dpo_from_state(c: &mut Criterion) {
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
                     let (_, state) =
-                        indicator(&new_inputs, &options, None).expect("Rust DPO indicator failed");
+                        Dpo::indicator(&new_inputs, &options, None).expect("Rust DPO indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -267,12 +267,12 @@ fn bench_rust_dpo_from_state(c: &mut Criterion) {
         let _inputs = [&close];
 
         for options in OPTIONS_LIST {
-            let min_data = min_data(&options);
+            let min_data = Dpo::min_data(&options);
             // First chunk
             let chunk_inputs = [&close[..min_data]];
 
             let (_, mut state) =
-                indicator(&chunk_inputs, &options, None).expect("DPO indicator failed");
+                Dpo::indicator(&chunk_inputs, &options, None).expect("DPO indicator failed");
 
             let mut group =
                 c.benchmark_group(format!("Rust DPO from state {{ {:.1} }}", options[0]));
@@ -304,7 +304,7 @@ fn bench_rust_dpo_from_state(c: &mut Criterion) {
                 let new_inputs = [&close[..close.len() - 1]];
                 let final_inputs = [&close[close.len() - 1..]];
                 let (_, mut state) =
-                    indicator(&new_inputs, &options, None).expect("Rust DPO indicator failed");
+                    Dpo::indicator(&new_inputs, &options, None).expect("Rust DPO indicator failed");
 
                 let mut group = c.benchmark_group(format!(
                     "Rust DPO from state 1 bar {{ {:.1} }}",
@@ -342,7 +342,7 @@ fn bench_rust_dpo_optional(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, Some(&[true]))
+                        let result = Dpo::indicator(&inputs, &options, Some(&[true]))
                             .expect("Rust DPO indicator failed");
                         black_box(&result);
                     },
@@ -370,7 +370,7 @@ fn bench_rust_dpo_optional(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function("benchmark", |b| {
                 b.iter(|| {
-                    let result = indicator(&inputs, &options, Some(&[true]))
+                    let result = Dpo::indicator(&inputs, &options, Some(&[true]))
                         .expect("Rust DPO indicator failed");
                     black_box(&result);
                 });

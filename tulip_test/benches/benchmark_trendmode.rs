@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicator_types::TIndicatorState;
 use tulip_rs::indicators::trendmode::{
-    indicator, indicator_by_assets, indicator_by_options, min_data,
+    TrendMode, Indicator, indicator_by_assets, indicator_by_options,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 //use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -44,7 +44,7 @@ fn bench_trendmode(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, None).expect("TrendMode failed");
+                        let result = TrendMode::indicator(&inputs, &options, None).expect("TrendMode failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -67,7 +67,7 @@ fn bench_trendmode(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             group.bench_function(format!("Rust TrendMode (alpha={})", options[0]), |b| {
                 b.iter(|| {
-                    let result = indicator(&inputs, &options, None).expect("TrendMode failed");
+                    let result = TrendMode::indicator(&inputs, &options, None).expect("TrendMode failed");
                     black_box(&result);
                 });
             });
@@ -91,8 +91,8 @@ fn bench_trendmode_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let seed = min_data(&options).max(CHUNK_SIZE);
-                        let (_, mut state) = indicator(&[&close[..seed]], &options, None)
+                        let seed = TrendMode::min_data(&options).max(CHUNK_SIZE);
+                        let (_, mut state) = TrendMode::indicator(&[&close[..seed]], &options, None)
                             .expect("TrendMode seed failed");
                         for chunk in close[seed..].chunks_exact(CHUNK_SIZE) {
                             black_box(
@@ -123,7 +123,7 @@ fn bench_trendmode_from_state(c: &mut Criterion) {
 
                 // Single-bar update
                 if n > 1 {
-                    let (_, mut state) = indicator(&[&close[..n - 1]], &options, None)
+                    let (_, mut state) = TrendMode::indicator(&[&close[..n - 1]], &options, None)
                         .expect("TrendMode seed (1-bar) failed");
                     let final_input = [&close[n - 1..]];
                     let mut timing = TimingMeasurements::new();
@@ -151,9 +151,9 @@ fn bench_trendmode_from_state(c: &mut Criterion) {
     } else {
         let close_vec = expand_inputs();
         for options in OPTIONS_LIST {
-            let seed = min_data(&options).max(CHUNK_SIZE);
+            let seed = TrendMode::min_data(&options).max(CHUNK_SIZE);
             let (_, mut state) =
-                indicator(&[&close_vec[..seed]], &options, None).expect("TrendMode seed failed");
+                TrendMode::indicator(&[&close_vec[..seed]], &options, None).expect("TrendMode seed failed");
 
             let mut group = c.benchmark_group("trendmode_rust_from_state");
             group.sample_size(SAMPLE_SIZE);
@@ -177,7 +177,7 @@ fn bench_trendmode_from_state(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             if close_vec.len() > 1 {
                 let (_, mut state) =
-                    indicator(&[&close_vec[..close_vec.len() - 1]], &options, None)
+                    TrendMode::indicator(&[&close_vec[..close_vec.len() - 1]], &options, None)
                         .expect("TrendMode seed (1-bar) failed");
                 let final_input = [&close_vec[close_vec.len() - 1..]];
                 let mut group = c.benchmark_group("trendmode_rust_from_state_1_bar");

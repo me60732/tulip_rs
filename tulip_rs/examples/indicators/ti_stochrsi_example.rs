@@ -1,4 +1,4 @@
-use tulip_rs::indicators::stochrsi::{indicator, TIndicatorState};
+use tulip_rs::indicators::stochrsi::{Indicator, StochRsi, TIndicatorState};
 
 fn main() {
     // Close column from Context-chat-gpt.txt file
@@ -11,7 +11,7 @@ fn main() {
     let inputs = [close.as_slice()];
 
     // Calculate Stoch RSI
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true])) {
+    let (outputs, _) = match StochRsi::indicator(&inputs, &options, Some(&[true])) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -20,7 +20,7 @@ fn main() {
 
     let inputs2 = [&close[..close.len() - 4]];
 
-    let (outputs2, mut state) = match indicator(&inputs2, &options, Some(&[true])) {
+    let (outputs2, mut state) = match StochRsi::indicator(&inputs2, &options, Some(&[true])) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

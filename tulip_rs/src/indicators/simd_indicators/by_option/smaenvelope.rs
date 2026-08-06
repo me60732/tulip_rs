@@ -2,18 +2,17 @@
 use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::smaenvelope::{
-    init_state, min_data, multiplier, output_length, validate_options as vo, IndicatorState,
-    INPUTS_WIDTH, OPTIONS_WIDTH,
+    validate_options as vo, Indicator, IndicatorState, SmaEnvelope, State, INPUTS, OPTIONS,
 };
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 //use crate::indicators::ad::output_length;
-use crate::indicators::simd_indicators::smaenvelope_simd::calc_simd;
+use crate::indicators::simd_indicators::smaenvelope_simd::{SimdState, TSimdState, TState};
 
 /// SIMD driver for the SMA Envelope indicator, processing `N` option-set lanes per scheduling epoch.
-struct SmaEnvelope {}
+struct SmaEnvelopeDriver;
 
-impl Driver<f64, (usize, (f64, f64))> for SmaEnvelope {
+impl Driver<State<Warm>, usize> for SmaEnvelopeDriver {
     /// Processes one scheduling epoch of output bars for `N` option-set lanes simultaneously
     /// using SIMD. Each lane may have a different period and percentage, so look-back offsets
     /// are tracked independently per lane.
@@ -21,36 +20,22 @@ impl Driver<f64, (usize, (f64, f64))> for SmaEnvelope {
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut f64>,
-        options: Vec<Option<&(usize, (f64, f64))>>,
+        mut states: Vec<&mut State<Warm>>,
+        options: Vec<Option<&usize>>,
     ) {
         let output_len = outputs[0][0].len();
 
         //let mut period_arr = [0usize; N];
 
-        let (multiplier_simd, mut i) = {
-            let mut i = [0usize; N];
-            let mut multipliers = ([0.0; N], [0.0; N]);
-            for (lane, option) in options.iter().enumerate() {
-                if let Some(&(period, multiplier)) = option {
-                    i[lane] = period;
-                    multipliers.0[lane] = multiplier.0;
-                    multipliers.1[lane] = multiplier.1;
-                }
+        let mut i = [0usize; N];
+        for (lane, option) in options.iter().enumerate() {
+            if let Some(&period) = option {
+                i[lane] = period;
             }
-            (
-                (
-                    Simd::from_array(multipliers.0),
-                    Simd::from_array(multipliers.1),
-                ),
-                i,
-            ) //Simd::from_array(i))
-        };
+        }
 
         // Optimization 1: Direct array construction instead of collect+try_into
-        let mut sums = Simd::<f64, N>::from_array(std::array::from_fn(|i| unsafe {
-            **states.get_unchecked(i)
-        }));
+        let mut state = SimdState::<N>::from_states(&mut states);
 
         // Optimization 2: Pre-compute all input and output pointers
         let real_ptrs = crate::extract_input_ptrs!(inputs, N, real_ptrs);
@@ -67,7 +52,7 @@ impl Driver<f64, (usize, (f64, f64))> for SmaEnvelope {
                 new @ real_ptrs
             );
 
-            let (lower, middle, upper) = calc_simd(&mut sums, new_vals, old_vals, multiplier_simd);
+            let (lower, middle, upper) = state.calc((new_vals, old_vals));
 
             crate::write_simd_at_indices!(N, j,
                 lower_line_ptr => lower,
@@ -80,11 +65,7 @@ impl Driver<f64, (usize, (f64, f64))> for SmaEnvelope {
             }
         }
 
-        // Update states efficiently
-        let final_sums = sums.to_array();
-        for (i, state) in states.iter_mut().enumerate().take(N) {
-            **state = final_sums[i];
-        }
+        state.write_states(&mut states);
     }
 }
 
@@ -112,30 +93,26 @@ impl Driver<f64, (usize, (f64, f64))> for SmaEnvelope {
 ///
 /// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH], //stock[ fields [ field [f64] ] ]
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+    options: &[&[f64; OPTIONS]; N],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, SmaEnvelope::min_data)?;
     validate_options(options, Some(vo))?;
-    let params: [(usize, (f64, f64)); N] = std::array::from_fn(|i| {
-        (
-            options[i][0] as usize,
-            multiplier(options[i][0] as usize, options[i][1]),
-        )
-    });
+    let params: [(usize, f64); N] =
+        std::array::from_fn(|i| (options[i][0] as usize, options[i][1]));
 
-    let mut road_train = PrimeMover::<N, f64, (usize, (f64, f64))>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>, usize>::new();
     let mut output_buffers = Vec::with_capacity(N);
 
-    for (i, &(period, _)) in params.iter().enumerate() {
+    for (i, &(period, percentage)) in params.iter().enumerate() {
         let asset_inputs = vec![
             inputs[0], // real
         ];
 
         let (lower_line, middle_line, upper_line) = {
             let len = inputs[0].len();
-            let capacity = output_length(len, options[i]);
+            let capacity = SmaEnvelope::output_length(len, options[i]);
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::uninit_vec!(f64, capacity),
@@ -143,7 +120,7 @@ pub fn indicator_by_options<const N: usize>(
             )
         };
 
-        let sum = init_state(inputs[0], period);
+        let state = State::init_state(inputs[0], period, percentage);
 
         let mut output_buffer = vec![lower_line, middle_line, upper_line];
 
@@ -168,23 +145,18 @@ pub fn indicator_by_options<const N: usize>(
             i,
             period,
             period,
-            sum,
-            Some(&params[i]),
+            state,
+            Some(&params[i].0),
         ));
         output_buffers.push(output_buffer);
     }
 
-    let mut driver = SmaEnvelope {};
+    let mut driver = SmaEnvelopeDriver {};
     let states_vec = road_train.drive(&mut driver);
 
     let mut states = Vec::with_capacity(N);
-    for (i, sum) in states_vec.into_iter().enumerate() {
-        states.push(IndicatorState::new(
-            inputs[0],
-            sum,
-            params[i].0,
-            params[i].1,
-        ));
+    for (i, state) in states_vec.into_iter().enumerate() {
+        states.push(IndicatorState::new(inputs[0], state, params[i].0));
     }
     Ok((output_buffers, states))
 }

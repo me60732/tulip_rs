@@ -1,52 +1,36 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::wma_simd::SimdState;
-use crate::indicators::wma::{
-    min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
-};
-use crate::types::IndicatorError;
+use crate::indicators::simd_indicators::wma_simd::{SimdState, TSimdState, TState};
+use crate::indicators::wma::{Indicator, IndicatorState, State, Wma, INPUTS, OPTIONS};
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
-struct Params {
-    multipliers: (f64, f64, f64),
-    period: usize,
-}
+
 /// SIMD driver for the Weighted Moving Average (WMA) indicator, processing `N` option-set lanes per scheduling epoch.
 struct WmaDriver {
     want_optional_outputs: bool,
 }
 
-impl Driver<State, Params> for WmaDriver {
+impl Driver<State<Warm>, usize> for WmaDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
-        options: Vec<Option<&Params>>,
+        mut states: Vec<&mut State<Warm>>,
+        options: Vec<Option<&usize>>,
     ) {
         let len = outputs[0][0].len();
 
         // Optimization 1: Direct array construction instead of collect+try_into
-        let mut state = SimdState::new(&states);
+        let mut state = SimdState::from_states(&mut states);
         let mut i = [0usize; N];
-        let multiplier_simd = {
-            let mut multipliers = ([0.0; N], [0.0; N], [0.0; N]);
 
-            for (lane, &option) in options.iter().enumerate() {
-                if let Some(param) = option {
-                    i[lane] = param.period;
-                    multipliers.0[lane] = param.multipliers.0;
-                    multipliers.1[lane] = param.multipliers.1;
-                    multipliers.2[lane] = param.multipliers.2;
-                }
+        for (lane, &option) in options.iter().enumerate() {
+            if let Some(&period) = option {
+                i[lane] = period;
             }
-            (
-                Simd::from_array(multipliers.0),
-                Simd::from_array(multipliers.1),
-                Simd::from_array(multipliers.2),
-            )
-        };
+        }
 
         // Optimization 2: Pre-compute all input and output pointers
         let input_ptrs = crate::extract_input_ptrs!(inputs, N, real_ptrs);
@@ -58,7 +42,7 @@ impl Driver<State, Params> for WmaDriver {
             let old_vals = crate::extract_simd_inputs_at_index!(j, N, old @ input_ptrs);
             let new_vals = crate::extract_simd_inputs_at_index_array!(i, N, new @ input_ptrs);
             // Get new and old values using pre-computed pointers
-            let (wma, sma) = state.calc_simd(old_vals, new_vals, multiplier_simd);
+            let (wma, sma) = state.calc((new_vals, old_vals));
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, j,
@@ -84,7 +68,7 @@ impl Driver<State, Params> for WmaDriver {
 ///
 /// # Arguments
 /// * `inputs` - Shared input data: `inputs[0]` is `&[f64]` containing `real` (price series).
-/// * `options` - An array of `N` option sets; `options[i]` is `&[f64; OPTIONS_WIDTH]` containing
+/// * `options` - An array of `N` option sets; `options[i]` is `&[f64; OPTIONS]` containing
 ///   `[period]` for option set `i`.
 /// * `optional_outputs` - Optional slice controlling extra output series;
 ///   index 0 enables `sma`.
@@ -95,25 +79,22 @@ impl Driver<State, Params> for WmaDriver {
 /// and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or any option set is invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS],
+    options: &[&[f64; OPTIONS]; N],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, Wma::min_data)?;
     validate_options(options, None)?;
-    let params: [Params; N] = std::array::from_fn(|i| Params {
-        multipliers: multiplier(options[i][0] as usize),
-        period: options[i][0] as usize,
-    });
+    let periods: [usize; N] = std::array::from_fn(|i| options[i][0] as usize);
 
-    let mut road_train = PrimeMover::<N, State, Params>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>, usize>::new();
     let mut output_buffers = Vec::with_capacity(N);
     let mut want_optional_outputs = false;
 
-    for (i, param) in params.iter().enumerate() {
+    for (i, &period) in periods.iter().enumerate() {
         let asset_inputs = vec![inputs[0]];
         let (wma_line, sma_line) = {
-            let capacity = output_length(inputs[0].len(), options[i]);
+            let capacity = Wma::output_length(inputs[0].len(), options[i]);
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::init_optional_outputs_eff!(
@@ -126,7 +107,7 @@ pub fn indicator_by_options<const N: usize>(
             (_, want_optional_outputs) = crate::calc_want_flags!(sma_line);
         }
         let mut output_buffer = vec![wma_line, sma_line];
-        let state = State::init_state(&inputs[0][0..param.period]);
+        let state = State::init_state(&inputs[0], period);
 
         //let adosc_len = output_buffer[0].len();
         let mut asset_outputs = Vec::with_capacity(output_buffer.len());
@@ -146,10 +127,10 @@ pub fn indicator_by_options<const N: usize>(
             asset_inputs,
             asset_outputs,
             i,
-            param.period,
-            param.period,
+            period,
+            period,
             state,
-            Some(param),
+            Some(&periods[i]),
         ));
         output_buffers.push(output_buffer);
     }
@@ -159,12 +140,11 @@ pub fn indicator_by_options<const N: usize>(
     let states_vec = road_train.drive(&mut driver);
 
     let mut indicator_states = Vec::with_capacity(N);
-    for (state, param) in states_vec.into_iter().zip(params.into_iter()) {
+    for (state, period) in states_vec.into_iter().zip(periods.into_iter()) {
         indicator_states.push(IndicatorState::new(
             unsafe { inputs.get_unchecked(0) },
-            param.multipliers,
             state,
-            param.period,
+            period,
         ));
     }
     Ok((output_buffers, indicator_states))

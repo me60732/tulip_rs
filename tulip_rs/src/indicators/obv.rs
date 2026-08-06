@@ -1,14 +1,14 @@
 //use std::vec;
 use crate::common::validate_inputs;
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{TIndicatorState, TState, Indicator, IndicatorResult};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 2;
+pub const INPUTS: usize = 2;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 0;
+pub const OPTIONS: usize = 0;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -25,36 +25,23 @@ pub mod by_assets {
     /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::obv_simd::indicator_by_assets as indicator;
 }
-
-/// Returns information about the On-Balance Volume (OBV) indicator.
-pub const INFO: Info = Info {
-    name: "obv",
-    full_name: "On-Balance Volume",
-    indicator_type: IndicatorType::Volume,
-    inputs: &["close", "volume"],
-    options: &[],
-    outputs: &["obv"],
-    optional_outputs: &[],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "obv",
-        label: "OBV",
-        display_type: DisplayType::Indicator,
-        outputs: &["obv"],
-    }],
-};
+pub type IndicatorState = State;
 #[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
+pub struct State {
     pub obv: f64,
     pub prev_close: f64,
 }
-impl IndicatorState {
+impl State {
     pub fn new(obv: f64, prev_close: f64) -> Self {
         Self { obv, prev_close }
     }
-    /// Performs the core calculation for the On-Balance Volume (OBV) indicator.
+    
+}
+impl TState for State {
+    type Inputs<'a> = (f64, f64);
+    type Outputs = f64;
     #[inline(always)]
-    pub fn calc(&mut self, close: f64, volume: f64) -> f64 {
+    fn calc<'a>(&mut self, (close, volume): Self::Inputs<'a>) -> Self::Outputs {
         if close > self.prev_close {
             self.obv += volume;
         } else if close < self.prev_close {
@@ -64,10 +51,11 @@ impl IndicatorState {
         self.obv
     }
 }
+
 impl TIndicatorState<2> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         _optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -79,51 +67,7 @@ impl TIndicatorState<2> for IndicatorState {
         Ok(vec![obv_line])
     }
 }
-/// Returns the minimum amount of data required for the OBV indicator.
-pub fn min_data(_options: &[f64]) -> usize {
-    2
-}
 
-/// Returns the output length for the OBV indicator.
-pub fn output_length(data_len: usize, _options: &[f64]) -> usize {
-    data_len - min_data(_options) + 1
-}
-
-/// Calculates the On-Balance Volume (OBV) indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — close prices
-/// * `inputs[1]` — volume
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `_options` - Unused; this indicator takes no options.
-/// * `_optional_outputs` - Unused; this indicator has no optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is the `obv` line and
-/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    _options: &[f64; OPTIONS_WIDTH],
-    _optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_inputs(inputs, min_data(_options))?;
-
-    let mut obv_line = {
-        let capacity = output_length(inputs[0].len(), _options);
-        crate::uninit_vec!(f64, capacity)
-    };
-
-    let mut state = IndicatorState::new(0.0, inputs[0][0]);
-    cycle_obv(&inputs[0][1..], &inputs[1][1..], &mut obv_line, &mut state);
-
-    Ok((vec![obv_line], state))
-}
 
 /// Iterates over the input data and applies the calc function.
 //#[inline(always)]
@@ -131,7 +75,51 @@ fn cycle_obv(close: &[f64], volume: &[f64], obv_line: &mut [f64], state: &mut In
     for i in 0..close.len() {
         unsafe {
             *obv_line.get_unchecked_mut(i) =
-                state.calc(*close.get_unchecked(i), *volume.get_unchecked(i));
+                state.calc((*close.get_unchecked(i), *volume.get_unchecked(i)));
         }
+    }
+}
+
+pub struct Obv;
+
+impl Indicator<INPUTS, OPTIONS> for Obv {
+    type IndicatorState = IndicatorState;
+
+    const INFO: Info = Info {
+        name: "obv",
+        full_name: "On-Balance Volume",
+        indicator_type: IndicatorType::Volume,
+        inputs: &["close", "volume"],
+        options: &[],
+        outputs: &["obv"],
+        optional_outputs: &[],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "obv",
+            label: "OBV",
+            display_type: DisplayType::Indicator,
+            outputs: &["obv"],
+        }],
+    };
+    fn min_data(_options: &[f64; OPTIONS]) -> usize {
+        2
+    }
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        _options: &[f64; OPTIONS],
+        _optional_outputs: Option<&[bool]>,
+    ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
+        validate_inputs(inputs, Self::min_data(_options))?;
+    
+        let mut obv_line = {
+            let capacity = Self::output_length(inputs[0].len(), _options);
+            crate::uninit_vec!(f64, capacity)
+        };
+    
+        let mut state = IndicatorState::new(0.0, inputs[0][0]);
+        cycle_obv(&inputs[0][1..], &inputs[1][1..], &mut obv_line, &mut state);
+    
+        Ok((vec![obv_line], state))
     }
 }

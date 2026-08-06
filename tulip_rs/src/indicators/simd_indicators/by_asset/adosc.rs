@@ -1,27 +1,25 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::assets::validate_inputs;
-use crate::indicators::ad::output_length as ad_output_length;
+use crate::indicator_types::TSimdState;
+use crate::indicators::ad::{Ad, Indicator};
 use crate::indicators::adosc::{
-    min_data, multiplier, output_length, validate_options, IndicatorState, State, INPUTS_WIDTH,
-    OPTIONS_WIDTH,
+    Adosc, IndicatorState, State, INPUTS,
+    OPTIONS, validate_options
 };
-use crate::indicators::ema::output_length as ema_output_length;
-use crate::indicators::simd_indicators::adosc_simd::SimdState;
+use crate::indicators::ema::Ema;
+use crate::indicators::simd_indicators::adosc_simd::{SimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
 /// SIMD driver that advances the Chaikin AD Oscillator (ADOSC) across `N` asset lanes per
 /// scheduling epoch.
 struct AdoscDriver {
-    /// Pre-computed EMA smoothing factors:
-    /// `((short_per, short_inv_per), (long_per, long_inv_per))`.
-    multipliers: ((f64, f64), (f64, f64)),
     /// Optional output flags: `(has_optional, want_short_ema, want_long_ema, want_ad)`.
     want_optional_outputs: (bool, bool, bool, bool),
 }
 
-impl Driver<State, ()> for AdoscDriver {
+impl Driver<State<Warm>, ()> for AdoscDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     ///
     /// Reads from `inputs[asset][field]` (high, low, close, volume), writes to
@@ -30,21 +28,12 @@ impl Driver<State, ()> for AdoscDriver {
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
-        let mut state = SimdState::<N>::new(&states);
+        let mut state = SimdState::<N>::from_states(&mut states);
         let len = inputs[0][0].len();
-        let multipliers = (
-            (
-                Simd::splat(self.multipliers.0 .0),
-                Simd::splat(self.multipliers.0 .1),
-            ),
-            (
-                Simd::splat(self.multipliers.1 .0),
-                Simd::splat(self.multipliers.1 .1),
-            ),
-        );
+
         let (has_optional, want_short_ema, want_long_ema, want_ad) = self.want_optional_outputs;
         // Optimization 1: Direct array construction instead of collect+try_into
 
@@ -65,7 +54,7 @@ impl Driver<State, ()> for AdoscDriver {
         // Optimization 3: Simplified main loop with pre-computed offsets
         for i in 0..len {
             // Get inputs arrays for stocks
-            let (high, low, close, volume) = crate::extract_simd_inputs_at_index!(
+            let inputs = crate::extract_simd_inputs_at_index!(
                 i,
                 N,
                 high @ high_ptrs,
@@ -74,7 +63,7 @@ impl Driver<State, ()> for AdoscDriver {
                 volume @ volume_ptrs
             );
 
-            let adosc = state.calc_simd((high, low, close, volume), multipliers);
+            let adosc = state.calc(inputs);
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, i,
@@ -83,9 +72,9 @@ impl Driver<State, ()> for AdoscDriver {
 
             if has_optional {
                 crate::store_simd_optional_outputs!(i, N,
-                    want_short_ema, short_ema_line_ptr => state.short_ema,
-                    want_long_ema, long_ema_line_ptr => state.long_ema,
-                    want_ad, ad_line_ptr => state.ad
+                    want_short_ema, short_ema_line_ptr => state.short_ema.ema,
+                    want_long_ema, long_ema_line_ptr => state.long_ema.ema,
+                    want_ad, ad_line_ptr => state.ad.ad
                 );
             }
         }
@@ -102,7 +91,7 @@ impl Driver<State, ()> for AdoscDriver {
 /// SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[high, low, close, volume]` for asset `i`.
 /// * `options` - Shared options applied to all `N` assets: `[short_period, long_period]`.
 /// * `optional_outputs` - Optional output flags: `[want_short_ema, want_long_ema, want_ad]`.
@@ -112,17 +101,16 @@ impl Driver<State, ()> for AdoscDriver {
 /// for asset `i` and `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, Adosc::min_data(options))?;
     validate_options(options)?;
     let short_period = options[0] as usize;
     let long_period = options[1] as usize;
-    let multipliers = multiplier(short_period, long_period);
 
-    let mut road_train = PrimeMover::<N, State>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut want_optional_outputs = (false, false, false, false);
     let mut output_buffers = Vec::with_capacity(N);
     for i in 0..N {
@@ -133,14 +121,14 @@ pub fn indicator_by_assets<const N: usize>(
             inputs[i][3], // volume
         ];
 
-        let adosc_capacity = output_length(inputs[i][0].len(), options);
+        let adosc_capacity = Adosc::output_length(inputs[i][0].len(), options);
         let adosc_line = crate::uninit_vec!(f64, adosc_capacity);
 
         let (mut short_ema_line, long_ema_line, mut ad_line) = crate::init_optional_outputs_eff!(
             optional_outputs, &[false, false, false],
-            short_ema_line: ema_output_length(inputs[i][0].len(), &[short_period as f64]),
+            short_ema_line: Ema::output_length(inputs[i][0].len(), &[short_period as f64]),
             long_ema_line: adosc_capacity,
-            ad_line: ad_output_length(inputs[i][0].len(), options)
+            ad_line: Ad::output_length(inputs[i][0].len(), &[])
         );
 
         let state = State::init_state(
@@ -186,7 +174,6 @@ pub fn indicator_by_assets<const N: usize>(
     }
 
     let mut driver = AdoscDriver {
-        multipliers,
         want_optional_outputs,
     };
     let states_vec = road_train.drive(&mut driver);

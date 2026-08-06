@@ -1,10 +1,10 @@
 //use crate::common::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-pub use crate::indicators::simd_indicators::tsf_simd::{Calc, SimdState};
+pub use crate::indicators::simd_indicators::tsf_simd::{TSimdState, TState, SimdState};
 use crate::indicators::tsf::{
-    min_data, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    Tsf, Indicator, IndicatorState, State, INPUTS, OPTIONS,
 };
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
 /// SIMD driver that advances the Time Series Forecast (TSF) across `N` asset lanes per scheduling epoch.
@@ -13,18 +13,18 @@ struct TsfDriver {
     period: usize,
 }
 
-impl Driver<State> for TsfDriver {
+impl Driver<State<Warm>> for TsfDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
-        let mut state = SimdState::<N>::new_mut_ref(&states);
+        let mut state = SimdState::<N>::from_states(&mut states);
         let len = inputs[0][0].len();
-        let simd_period = Simd::splat(self.period as f64);
+
         let (has_optional, want_linreg, want_slope, want_intercept) = self.want_optional_outputs;
         // Optimization 1: Direct array construction instead of collect+try_into
         //collect outputs
@@ -43,13 +43,13 @@ impl Driver<State> for TsfDriver {
         // Optimization 3: Simplified main loop with pre-computed offsets
         for (j, i) in (self.period..len).enumerate() {
             // Get inputs arrays for stocks
-            let (real, prev_real) = crate::extract_simd_at_indices!(N, real_ptrs,
-                real @ i,
-                prev_real @ i + 1 - self.period
+            let inputs = crate::extract_simd_at_indices!(N, real_ptrs,
+                prev_real @ i + 1 - self.period,
+                real @ i
             );
 
             let (tsf, linreg, slope, intercept) =
-                Calc::calc_simd(&mut state, prev_real, real, simd_period);
+                state.calc(inputs);
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, j,
@@ -76,7 +76,7 @@ impl Driver<State> for TsfDriver {
 /// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[real]` for asset `i`.
 /// * `options` - `options[0]` is the `period`.
 /// * `optional_outputs` - `optional_outputs[0] = true` enables `linreg`,
@@ -91,15 +91,15 @@ impl Driver<State> for TsfDriver {
 /// `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, Tsf::min_data(options))?;
     validate_options(options)?;
     let period = options[0] as usize;
 
-    let mut road_train = PrimeMover::<N, State>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut want_optional_outputs = (false, false, false, false);
     let mut output_buffers = Vec::with_capacity(N);
     for i in 0..N {
@@ -109,7 +109,7 @@ pub fn indicator_by_assets<const N: usize>(
 
         let (tsf_line, linreg_line, slope_line, intercept_line);
         {
-            let capacity = output_length(inputs[i][0].len(), options);
+            let capacity = Tsf::output_length(inputs[i][0].len(), options);
             (linreg_line, slope_line, intercept_line) = crate::init_optional_outputs_eff!(
                 optional_outputs, &[false, false, false],
                 linreg_line: capacity,

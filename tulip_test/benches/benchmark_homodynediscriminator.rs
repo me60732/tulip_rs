@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::homodynediscriminator::{indicator, indicator_by_assets, min_data};
+use tulip_rs::indicators::homodynediscriminator::{HomodyneDiscriminator, Indicator, indicator_by_assets};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 //use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::criterion_logger::TimingMeasurements;
@@ -43,7 +43,7 @@ fn bench_homodynediscriminator(c: &mut Criterion) {
             timing.measure(
                 || {
                     let result =
-                        indicator(&inputs, &[], None).expect("Homodyne Discriminator failed");
+                        HomodyneDiscriminator::indicator(&inputs, &[], None).expect("Homodyne Discriminator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -65,7 +65,7 @@ fn bench_homodynediscriminator(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust HoMoDyne Discriminator", |b| {
             b.iter(|| {
-                let result = indicator(&inputs, &[], None).expect("Homodyne Discriminator failed");
+                let result = HomodyneDiscriminator::indicator(&inputs, &[], None).expect("Homodyne Discriminator failed");
                 black_box(&result);
             });
         });
@@ -91,8 +91,8 @@ fn bench_homodynediscriminator_from_state(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let seed = min_data(&[]).max(CHUNK_SIZE);
-                    let (_, mut state) = indicator(&[&close[..seed]], &[], None)
+                    let seed = HomodyneDiscriminator::min_data(&[]).max(CHUNK_SIZE);
+                    let (_, mut state) = HomodyneDiscriminator::indicator(&[&close[..seed]], &[], None)
                         .expect("Homodyne Discriminator seed failed");
 
                     let mut chunks = close[seed..].chunks_exact(CHUNK_SIZE);
@@ -125,7 +125,7 @@ fn bench_homodynediscriminator_from_state(c: &mut Criterion) {
 
             // --- single-bar update ---
             if n > 1 {
-                let (_, mut state) = indicator(&[&close[..n - 1]], &[], None)
+                let (_, mut state) = HomodyneDiscriminator::indicator(&[&close[..n - 1]], &[], None)
                     .expect("Homodyne Discriminator seed (1-bar) failed");
                 let final_input = [&close[n - 1..]];
 
@@ -152,8 +152,8 @@ fn bench_homodynediscriminator_from_state(c: &mut Criterion) {
         }
     } else {
         let close_vec = expand_inputs();
-        let seed = min_data(&[]).max(CHUNK_SIZE);
-        let (_, mut state) = indicator(&[&close_vec[..seed]], &[], None)
+        let seed = HomodyneDiscriminator::min_data(&[]).max(CHUNK_SIZE);
+        let (_, mut state) = HomodyneDiscriminator::indicator(&[&close_vec[..seed]], &[], None)
             .expect("Homodyne Discriminator seed failed");
 
         let mut group = c.benchmark_group("homodynediscriminator_rust_from_state");
@@ -182,7 +182,7 @@ fn bench_homodynediscriminator_from_state(c: &mut Criterion) {
 
         // Single-bar update bench
         if close_vec.len() > 1 {
-            let (_, mut state) = indicator(&[&close_vec[..close_vec.len() - 1]], &[], None)
+            let (_, mut state) = HomodyneDiscriminator::indicator(&[&close_vec[..close_vec.len() - 1]], &[], None)
                 .expect("Homodyne Discriminator seed (1-bar) failed");
             let final_input = [&close_vec[close_vec.len() - 1..]];
 
@@ -341,7 +341,7 @@ criterion_group!(
     bench_talib_ht_dcperiod,
     bench_homodynediscriminator,
     bench_homodynediscriminator_from_state,
-    
+
 );
 
 #[cfg(not(feature = "talib"))]

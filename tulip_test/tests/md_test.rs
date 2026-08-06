@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::md::{indicator as rust_md, min_data, TIndicatorState};
+    use tulip_rs::indicators::md::{Md, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_md, ti_md_start, ti_sma, ti_sma_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -60,7 +60,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_md(&inputs_rust, &options, None).expect("Rust MD indicator failed");
+                Md::indicator(&inputs_rust, &options, None).expect("Rust MD indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -145,7 +145,7 @@ mod tests {
                 // Rust implementation
                 let inputs_rust = [close.as_slice()];
                 let (outputs, _) =
-                    rust_md(&inputs_rust, &options, None).expect("Rust MD indicator failed");
+                    Md::indicator(&inputs_rust, &options, None).expect("Rust MD indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -210,20 +210,20 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Get full output
-                let (full_outputs, _) = rust_md(&inputs_rust, &options, None)
+                let (full_outputs, _) = Md::indicator(&inputs_rust, &options, None)
                     .expect("MD indicator should work on full data");
 
                 // Process in batches
                 let mut batch_full_outputs = vec![Vec::new(); full_outputs.len()];
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Md::min_data(&options).max(CHUNK_SIZE);
 
                 // Process first chunk to get initial state
                 let first_chunk_size = min_data_val.min(close.len());
                 let first_close = close[..first_chunk_size].to_vec();
                 let first_inputs = [first_close.as_slice()];
 
-                let (outputs, mut state) = rust_md(&first_inputs, &options, None)
+                let (outputs, mut state) = Md::indicator(&first_inputs, &options, None)
                     .expect("MD indicator should work on first chunk");
 
                 for output_idx in 0..outputs.len() {
@@ -311,7 +311,7 @@ mod tests {
                 for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                     // Get regular indicator result for this stock
                     let stock_inputs = [stock_close.as_slice()];
-                    let (regular_results, _) = rust_md(&stock_inputs, &options, None)
+                    let (regular_results, _) = Md::indicator(&stock_inputs, &options, None)
                         .expect("Regular MD indicator failed");
 
                     let simd_result = &simd_results[stock_idx][0];
@@ -400,7 +400,7 @@ mod tests {
                 for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                     // Get regular indicator result for this stock with optional output
                     let stock_inputs = [stock_close.as_slice()];
-                    let (regular_results, _) = rust_md(&stock_inputs, &options, Some(&[true]))
+                    let (regular_results, _) = Md::indicator(&stock_inputs, &options, Some(&[true]))
                         .expect("Regular MD indicator with optional output failed");
 
                     // Compare MD output (index 0)
@@ -474,7 +474,7 @@ mod tests {
         let optional_outputs = Some([true].as_slice()); // Request sma output
 
         // Get Rust MD output with sma optional output
-        let result = rust_md(&inputs, &options, optional_outputs).unwrap();
+        let result = Md::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_sma = &result.0[1]; // sma is at index 1
 
         // Fail fast if Rust output is empty
@@ -556,7 +556,7 @@ mod tests {
                 // Get MD with SMA optional output
                 let optional_outputs = Some(&[true][..]);
                 let (md_result, _) =
-                    tulip_rs::indicators::md::indicator(&[&close], &[options[0]], optional_outputs)
+                    Md::indicator(&[&close], &[options[0]], optional_outputs)
                         .unwrap();
 
                 let rust_sma = &md_result[1];
@@ -640,7 +640,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_md(&inputs, options, None).expect("Regular MD indicator failed");
+                    Md::indicator(&inputs, options, None).expect("Regular MD indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -715,7 +715,7 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
-                let (regular_results, _) = rust_md(&inputs, options, optional_outputs)
+                let (regular_results, _) = Md::indicator(&inputs, options, optional_outputs)
                     .expect("Regular MD indicator failed");
 
                 let simd_result = &all_simd_results[idx];

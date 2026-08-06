@@ -1,12 +1,12 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{TIndicatorState, Indicator, IndicatorResult};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 3;
+pub const INPUTS: usize = 3;
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 0;
+pub const OPTIONS: usize = 0;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -30,87 +30,15 @@ pub struct IndicatorState;
 impl TIndicatorState<3> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         _optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         process(inputs)
     }
 }
-pub const INFO: Info = Info {
-    name: "wcprice",
-    full_name: "Weighted Close Price",
-    indicator_type: IndicatorType::Price,
-    // Use only the necessary inputs: high, low, close.
-    inputs: &["high", "low", "close"],
-    // No options.
-    options: &[],
-    outputs: &["wcprice"],
-    // No state required for this indicator.
-    optional_outputs: &[],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "wcprice",
-        label: "WCPRICE",
-        display_type: DisplayType::Overlay,
-        outputs: &["wcprice"],
-    }],
-};
-/// Returns the minimum amount of data required for the Weighted Close Price indicator.
-///
-/// # Arguments
-///
-/// * `_options` - Unused; wcprice takes no options.
-///
-/// # Returns
-///
-/// The minimum amount of data required (1; each bar is computed independently).
-pub fn min_data(_options: &[f64]) -> usize {
-    1
-}
 
-/// Calculates the output length based on the data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `_options` - Unused; wcprice takes no options.
-///
-/// # Returns
-///
-/// The output length (equal to `data_len`).
-pub fn output_length(data_len: usize, _options: &[f64]) -> usize {
-    data_len
-}
-
-/// Calculates the Weighted Close Price indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — `high`
-/// * `inputs[1]` — `low`
-/// * `inputs[2]` — `close`
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `_options` - Unused; wcprice takes no options.
-/// * `_optional_outputs` - Unused; this indicator has no optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is `wcprice`. The returned
-/// `IndicatorState` is stateless and may be passed to `batch_indicator`
-/// for subsequent calls. Returns `Err(IndicatorError)` if inputs are too short.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    _options: &[f64; OPTIONS_WIDTH],
-    _optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    let outputs = process(inputs)?;
-    Ok((outputs, IndicatorState))
-}
 //#[inline(always)]
-fn process(inputs: &[&[f64]; INPUTS_WIDTH]) -> Result<Vec<Vec<f64>>, IndicatorError> {
+fn process(inputs: &[&[f64]; INPUTS]) -> Result<Vec<Vec<f64>>, IndicatorError> {
     validate_inputs(inputs, 1)?;
     let high = inputs[0];
     let low = inputs[1];
@@ -147,4 +75,46 @@ fn process(inputs: &[&[f64]; INPUTS_WIDTH]) -> Result<Vec<Vec<f64>>, IndicatorEr
 #[inline(always)]
 pub fn calc(high: &f64, low: &f64, close: &f64) -> f64 {
     close.mul_add(2.0, high + low) * 0.25
+}
+
+pub struct WcPrice;
+impl Indicator<INPUTS, OPTIONS> for WcPrice {
+    type IndicatorState = IndicatorState;
+
+    const INFO: Info = Info {
+        name: "wcprice",
+        full_name: "Weighted Close Price",
+        indicator_type: IndicatorType::Price,
+        // Use only the necessary inputs: high, low, close.
+        inputs: &["high", "low", "close"],
+        // No options.
+        options: &[],
+        outputs: &["wcprice"],
+        // No state required for this indicator.
+        optional_outputs: &[],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "wcprice",
+            label: "WCPRICE",
+            display_type: DisplayType::Overlay,
+            outputs: &["wcprice"],
+        }],
+    };
+
+    fn min_data(_options: &[f64; OPTIONS]) -> usize {
+        1
+    }
+
+    fn output_length(data_len: usize, _options: &[f64; OPTIONS]) -> usize {
+        data_len
+    }
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        _options: &[f64; OPTIONS],
+        _optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        let outputs = process(inputs)?;
+        Ok((outputs, IndicatorState))
+    }
+    
 }

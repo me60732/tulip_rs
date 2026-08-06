@@ -1,4 +1,4 @@
-use tulip_rs::indicators::medprice::{indicator, TIndicatorState};
+use tulip_rs::indicators::medprice::{Indicator, Medprice, TIndicatorState};
 
 fn main() {
     // Example input data: high and low prices
@@ -14,7 +14,7 @@ fn main() {
     let inputs = [&high[..high.len() - 5], &low[..low.len() - 5]];
 
     // Calculate the MEDPRICE using the indicator function
-    let (outputs, mut state) = match indicator(&inputs, &[], None) {
+    let (outputs, mut state) = match Medprice::indicator(&inputs, &[], None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

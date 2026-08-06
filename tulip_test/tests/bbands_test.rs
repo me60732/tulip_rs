@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::bbands::{indicator as rust_bbands, min_data, TIndicatorState};
+    use tulip_rs::indicators::bbands::{BBands, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_bbands, ti_bbands_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
     const MARGIN: f64 = 1e-4;
@@ -65,7 +65,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_bbands(&inputs_rust, &options, None).expect("Rust BBANDS indicator failed");
+                BBands::indicator(&inputs_rust, &options, None).expect("Rust BBANDS indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -239,7 +239,7 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) = rust_bbands(&inputs_rust, &options, None)
+                let (outputs, _) = BBands::indicator(&inputs_rust, &options, None)
                     .expect("Rust BBANDS indicator failed");
 
                 let output_len_rust = outputs[0].len();
@@ -385,7 +385,7 @@ mod tests {
                 for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                     // Get regular indicator result for this stock
                     let stock_inputs = [stock_close.as_slice()];
-                    let (regular_results, _) = rust_bbands(&stock_inputs, &options, None)
+                    let (regular_results, _) = BBands::indicator(&stock_inputs, &options, None)
                         .expect("Regular BBANDS indicator failed");
 
                     // Compare all three outputs: lower, middle, upper
@@ -474,7 +474,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_bbands(&inputs, options, None).expect("Regular BBANDS indicator failed");
+                    BBands::indicator(&inputs, options, None).expect("Regular BBANDS indicator failed");
 
                 // BBANDS produces 3 outputs: [lower, middle, upper]
                 assert_eq!(
@@ -551,19 +551,19 @@ mod tests {
                 let inputs_rust = [close.as_slice()];
 
                 // Get full output from processing all data at once
-                let (full_outputs, _) = rust_bbands(&inputs_rust, &options, None)
+                let (full_outputs, _) = BBands::indicator(&inputs_rust, &options, None)
                     .expect("Rust BBANDS indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_outputs = vec![Vec::new(); full_outputs.len()];
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = BBands::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let close_vec = close[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice()];
 
-                let (first_outputs, mut state) = rust_bbands(&chunk_inputs, &options, None)
+                let (first_outputs, mut state) = BBands::indicator(&chunk_inputs, &options, None)
                     .expect("Rust BBANDS indicator failed");
                 for output_idx in 0..first_outputs.len() {
                     batch_full_outputs[output_idx].extend_from_slice(&first_outputs[output_idx]);

@@ -1,46 +1,27 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::wilders_simd::calc_simd;
-use crate::indicators::wilders::{
-    init_state, min_data, multiplier, output_length, IndicatorState, INPUTS_WIDTH, OPTIONS_WIDTH,
-};
-use crate::types::IndicatorError;
+use crate::indicators::simd_indicators::wilders_simd::{SimdState, TSimdState, TState};
+use crate::indicators::wilders::{Indicator, IndicatorState, State, Wilders, INPUTS, OPTIONS};
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
 /// SIMD driver for the Wilder's Smoothing (WILDERS) indicator, processing `N` option-set lanes per scheduling epoch.
 struct WildersDriver {}
 
-impl Driver<f64, (f64, f64)> for WildersDriver {
+impl Driver<State<Warm>> for WildersDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut f64>,
-        options: Vec<Option<&(f64, f64)>>,
+        mut states: Vec<&mut State<Warm>>,
+        _options: Vec<Option<&()>>,
     ) {
         let len = outputs[0][0].len();
 
         // Optimization 1: Direct array construction instead of collect+try_into
-        let mut wilders = Simd::<f64, N>::from_array(std::array::from_fn(|i| unsafe {
-            **states.get_unchecked(i)
-        }));
-
-        let multipliers = {
-            let mut multipliers = ([0.0; N], [0.0; N]);
-            for (lane, option) in options.iter().enumerate() {
-                if let Some(&multiplier) = option {
-                    //println!("{:?}", outputs[lane][0].len());
-                    multipliers.0[lane] = multiplier.0;
-                    multipliers.1[lane] = multiplier.1;
-                }
-            }
-            (
-                Simd::from_array(multipliers.0),
-                Simd::from_array(multipliers.1),
-            )
-        };
+        let mut state = SimdState::<N>::from_states(&mut states);
 
         // Optimization 2: Pre-compute all input and output pointers
         let input_ptrs = crate::extract_input_ptrs!(inputs, N, real_ptrs);
@@ -52,7 +33,7 @@ impl Driver<f64, (f64, f64)> for WildersDriver {
                 new @ input_ptrs
             );
 
-            wilders = calc_simd(wilders, real, multipliers);
+            let wilders = state.calc(real);
 
             crate::write_simd_at_indices!(N, i,
                 output_ptrs => wilders
@@ -60,10 +41,7 @@ impl Driver<f64, (f64, f64)> for WildersDriver {
         }
 
         // Update states efficiently
-        let final_wilders = wilders.to_array();
-        for (i, state) in states.iter_mut().enumerate().take(N) {
-            **state = final_wilders[i];
-        }
+        state.write_states(&mut states);
     }
 }
 
@@ -74,7 +52,7 @@ impl Driver<f64, (f64, f64)> for WildersDriver {
 ///
 /// # Arguments
 /// * `inputs` - Shared input data: `inputs[0]` is `&[f64]` containing `real` (price series).
-/// * `options` - An array of `N` option sets; `options[i]` is `&[f64; OPTIONS_WIDTH]` containing
+/// * `options` - An array of `N` option sets; `options[i]` is `&[f64; OPTIONS]` containing
 ///   `[period]` for option set `i`.
 /// * `optional_outputs` - Unused; WILDERS has no optional outputs.
 ///
@@ -83,54 +61,60 @@ impl Driver<f64, (f64, f64)> for WildersDriver {
 /// and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or any option set is invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+    options: &[&[f64; OPTIONS]; N],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, Wilders::min_data)?;
     validate_options(options, None)?;
-    let params: [(f64, f64); N] = std::array::from_fn(|i| multiplier(options[i][0] as usize));
 
-    let mut road_train = PrimeMover::<N, f64, (f64, f64)>::new();
-    let mut output_buffers: Vec<Vec<Vec<f64>>> = (0..N)
-        .map(|i| {
-            vec![{
-                let capacity = output_length(inputs[0].len(), options[i]);
-                crate::uninit_vec!(f64, capacity)
-            }]
-        })
-        .collect();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
+    let mut output_buffers = Vec::with_capacity(N);
 
-    for (i, option) in options.iter().enumerate() {
-        let period = option[0] as usize;
-        let asset_inputs = vec![inputs[0]];
+    for i in 0..N {
+        let asset_inputs = vec![
+            inputs[0], // real
+        ];
 
-        let (state, _) = init_state(inputs[0], period);
-        unsafe {
-            // Get a mutable reference to the output buffer for this asset
-            let output_buffer = &mut output_buffers[i][0];
-            let asset_outputs = vec![std::slice::from_raw_parts_mut(
-                output_buffer.as_mut_ptr(),
-                output_buffer.len(),
-            )];
+        let wilders_line = {
+            let len = inputs[0].len();
+            let capacity = Wilders::output_length(len, options[i]);
+            crate::uninit_vec!(f64, capacity)
+        };
+        let period = options[i][0] as usize;
+        let state = State::init_state(inputs[0], period);
 
-            road_train.add_asset(Asset::new(
-                asset_inputs,
-                asset_outputs,
-                i,
-                period,
-                0,
-                state,
-                Some(&params[i]),
-            ));
+        let mut output_buffer = vec![wilders_line];
+
+        //let adosc_len = output_buffer[0].len();
+        let mut asset_outputs = Vec::with_capacity(output_buffer.len());
+
+        for j in 0..output_buffer.len() {
+            unsafe {
+                //let slice_len = output_buffer.len() - starts[j];
+                // Get a mutable reference to the output buffer for this asset
+                let output_buffer = &mut output_buffer[j];
+                asset_outputs.push(std::slice::from_raw_parts_mut(
+                    output_buffer.as_mut_ptr(), //slice from
+                    output_buffer.len(),        // slice to
+                ));
+            }
         }
-    }
-    let mut driver = WildersDriver {};
-    let wilders = road_train.drive(&mut driver);
 
-    let mut states = Vec::with_capacity(N);
-    for (&wilder, multipliers) in wilders.iter().zip(params.into_iter()) {
-        states.push(IndicatorState::new(wilder, multipliers));
+        road_train.add_asset(Asset::new(
+            asset_inputs,
+            asset_outputs,
+            i,
+            period,
+            0,
+            state,
+            None,
+        ));
+        output_buffers.push(output_buffer);
     }
+
+    let mut driver = WildersDriver {};
+    let states = road_train.drive(&mut driver);
+
     Ok((output_buffers, states))
 }

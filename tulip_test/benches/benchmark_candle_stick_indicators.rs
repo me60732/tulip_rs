@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::candlestick::{indicator, min_data, ForecastType, OPTIONS_WIDTH};
+use tulip_rs::indicators::candlestick::{indicator, min_data, ForecastType, OPTIONS as OPTIONS_WIDTH};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 const SAMPLE_SIZE: usize = 10000;
 use tulip_test::criterion_logger::TimingMeasurements;

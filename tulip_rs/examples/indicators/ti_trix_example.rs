@@ -1,4 +1,4 @@
-use tulip_rs::indicators::trix::{indicator, TIndicatorState};
+use tulip_rs::indicators::trix::{Indicator, TIndicatorState, Trix};
 
 fn main() {
     let close = [
@@ -8,7 +8,7 @@ fn main() {
     let inputs = [close.as_slice()];
 
     let options = [5.0]; // Period
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true, true, true])) {
+    let (outputs, _) = match Trix::indicator(&inputs, &options, Some(&[true, true, true])) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -19,7 +19,7 @@ fn main() {
 
     let inputs2 = [&close[..close.len() - 1]];
     // Example with recent_only parameter set to false
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match Trix::indicator(&inputs2, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

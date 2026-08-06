@@ -3,22 +3,22 @@ use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::simd_indicators::vortex_simd::options::SimdState;
 use crate::indicators::{
-    tr::output_length as tr_output_length,
-    vortex::{min_data, output_length, IndicatorState as State, INPUTS_WIDTH, OPTIONS_WIDTH},
+    tr::Tr,
+    vortex::{Indicator, IndicatorState, State, TState, Vortex, INPUTS, OPTIONS},
 };
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 /// SIMD driver for the Vortex indicator, processing `N` option-set (period) lanes per scheduling epoch.
 struct VortexDriver {
     want_optional_outputs: bool,
 }
 
-impl Driver<State, usize> for VortexDriver {
+impl Driver<State<Warm>, usize> for VortexDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         options: Vec<Option<&usize>>,
     ) {
         let len = outputs[0][0].len();
@@ -29,7 +29,7 @@ impl Driver<State, usize> for VortexDriver {
                     periods[lane] = period;
                 }
             }
-            SimdState::<N>::new(&mut states, periods)
+            SimdState::<N>::from_states(&mut states, periods)
         };
         //collect outputs
         let (vi_up_line_ptr, vi_down_line_ptr, tr_line_ptr) =
@@ -41,7 +41,7 @@ impl Driver<State, usize> for VortexDriver {
         // Optimization 3: Simplified main loop with pre-computed offsets
         for i in 0..len {
             // Get inputs arrays for stocks
-            let (high, low, close) = unsafe {
+            let inputs = unsafe {
                 (
                     *high_ptrs[0].add(i),
                     *low_ptrs[0].add(i),
@@ -49,7 +49,7 @@ impl Driver<State, usize> for VortexDriver {
                 )
             };
 
-            let (vi_up, vi_down, tr) = unsafe { state.calc_unchecked(high, low, close) };
+            let (vi_up, vi_down, tr) = state.calc(inputs);
 
             crate::write_simd_at_indices!(N, i,
                 vi_up_line_ptr => vi_up,
@@ -74,7 +74,7 @@ impl Driver<State, usize> for VortexDriver {
 /// # Arguments
 /// * `inputs` - Shared input data: `inputs[0]` is `high`, `inputs[1]` is `low`,
 ///   `inputs[2]` is `close`.
-/// * `options` - An array of `N` option sets; `options[i]` is `&[f64; OPTIONS_WIDTH]`
+/// * `options` - An array of `N` option sets; `options[i]` is `&[f64; OPTIONS]`
 ///   containing `[period]` for lane `i`.
 /// * `optional_outputs` - `Some(&[true])` to enable the optional TR output for all lanes.
 ///
@@ -84,14 +84,14 @@ impl Driver<State, usize> for VortexDriver {
 /// [`IndicatorState`] for lane `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or any option set is invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS],
+    options: &[&[f64; OPTIONS]; N],
     optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<Vec<f64>>>, Vec<State>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
+    validate_inputs::<OPTIONS>(inputs, options, Vortex::min_data)?;
     validate_options(options, None)?;
     let period: [usize; N] = std::array::from_fn(|i| options[i][0] as usize);
-    let mut road_train = PrimeMover::<N, State, usize>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>, usize>::new();
     let mut output_buffers = Vec::with_capacity(N);
     let [high, low, close] = *inputs;
     let mut want_optional_outputs = false;
@@ -100,13 +100,13 @@ pub fn indicator_by_options<const N: usize>(
 
         let (vi_up_line, vi_down_line, mut tr_line) = {
             let len = high.len();
-            let capacity = output_length(len, options[i]);
+            let capacity = Vortex::output_length(len, options[i]);
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::uninit_vec!(f64, capacity),
                 crate::init_optional_outputs_eff!(
                     optional_outputs, &[false],
-                    tr_line_line: tr_output_length(len, options[i])
+                    tr_line_line: Tr::output_length(len, &[])
                 ),
             )
         };

@@ -1,11 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use tulip_rs::indicators::donchianchannel::{
-        indicator as rust_donchianchannel, indicator_by_assets, indicator_by_options, min_data,
-        TIndicatorState,
-    };
-    use tulip_rs::indicators::max::indicator as rust_max;
-    use tulip_rs::indicators::min::indicator as rust_min;
+    use tulip_rs::indicators::donchianchannel::{DonchianChannel, Indicator, TIndicatorState, indicator_by_assets, indicator_by_options};
+    use tulip_rs::indicators::max::Max;
+    use tulip_rs::indicators::min::Min;
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
     const CHUNK_SIZE: usize = 100;
@@ -46,8 +43,8 @@ mod tests {
     // and we can use assert_eq! throughout.
     // -------------------------------------------------------------------------
 
-    /// Verify that the upper band equals `rust_max(high, period)`, the lower band
-    /// equals `rust_min(low, period)`, and the middle band equals `(upper+lower)/2`.
+    /// Verify that the upper band equals `Max::indicator(high, period)`, the lower band
+    /// equals `Min::indicator(low, period)`, and the middle band equals `(upper+lower)/2`.
     #[test]
     fn test_donchianchannel_indicator() {
         let (high, low) = expand_inputs();
@@ -55,15 +52,15 @@ mod tests {
         for options in OPTIONS_LIST {
             // Reference: standalone Rust max on high
             let (max_outputs, _) =
-                rust_max(&[high.as_slice()], &options, None).expect("Rust MAX indicator failed");
+                Max::indicator(&[high.as_slice()], &options, None).expect("Rust MAX indicator failed");
 
             // Reference: standalone Rust min on low
             let (min_outputs, _) =
-                rust_min(&[low.as_slice()], &options, None).expect("Rust MIN indicator failed");
+                Min::indicator(&[low.as_slice()], &options, None).expect("Rust MIN indicator failed");
 
             // Donchian Channel
             let (outputs, _) =
-                rust_donchianchannel(&[high.as_slice(), low.as_slice()], &options, None)
+                DonchianChannel::indicator(&[high.as_slice(), low.as_slice()], &options, None)
                     .expect("Rust Donchian Channel indicator failed");
 
             // Output lengths must match (all three use min_data = period + 1)
@@ -113,7 +110,7 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
-    // Database: upper vs rust_max, lower vs rust_min, middle identity
+    // Database: upper vs Max::indicator, lower vs Min::indicator, middle identity
     // -------------------------------------------------------------------------
 
     #[test]
@@ -126,16 +123,16 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Reference: standalone Rust max on high
-                let (max_outputs, _) = rust_max(&[high.as_slice()], &options, None)
+                let (max_outputs, _) = Max::indicator(&[high.as_slice()], &options, None)
                     .expect("Rust MAX indicator failed");
 
                 // Reference: standalone Rust min on low
                 let (min_outputs, _) =
-                    rust_min(&[low.as_slice()], &options, None).expect("Rust MIN indicator failed");
+                    Min::indicator(&[low.as_slice()], &options, None).expect("Rust MIN indicator failed");
 
                 // Donchian Channel
                 let (outputs, _) =
-                    rust_donchianchannel(&[high.as_slice(), low.as_slice()], &options, None)
+                    DonchianChannel::indicator(&[high.as_slice(), low.as_slice()], &options, None)
                         .expect("Rust Donchian Channel indicator failed");
 
                 let n = outputs[0].len();
@@ -202,17 +199,17 @@ mod tests {
                 let inputs_rust = [high.as_slice(), low.as_slice()];
 
                 // Full indicator on all data (reference)
-                let (full_outputs, _) = rust_donchianchannel(&inputs_rust, &options, None)
+                let (full_outputs, _) = DonchianChannel::indicator(&inputs_rust, &options, None)
                     .expect("Rust Donchian Channel indicator failed");
 
                 // Streaming: seed + chunked batch
                 let mut batch_full_outputs = vec![Vec::new(); full_outputs.len()];
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = DonchianChannel::min_data(&options).max(CHUNK_SIZE);
                 let chunk_inputs = [&high[..min_data_val], &low[..min_data_val]];
 
                 let (first_outputs, mut state) =
-                    rust_donchianchannel(&chunk_inputs, &options, None)
+                    DonchianChannel::indicator(&chunk_inputs, &options, None)
                         .expect("Donchian Channel indicator failed");
                 for output_idx in 0..first_outputs.len() {
                     batch_full_outputs[output_idx].extend_from_slice(&first_outputs[output_idx]);
@@ -272,7 +269,7 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
-    // SIMD by-assets: lower == rust_min, upper == rust_max (database)
+    // SIMD by-assets: lower == Min::indicator, upper == Max::indicator (database)
     // -------------------------------------------------------------------------
 
     #[test]
@@ -301,9 +298,9 @@ mod tests {
 
             for (asset_idx, (stock_symbol, high, low)) in stock_data.iter().enumerate() {
                 let (min_outputs, _) =
-                    rust_min(&[low.as_slice()], &options, None).expect("Rust MIN failed");
+                    Min::indicator(&[low.as_slice()], &options, None).expect("Rust MIN failed");
                 let (max_outputs, _) =
-                    rust_max(&[high.as_slice()], &options, None).expect("Rust MAX failed");
+                    Max::indicator(&[high.as_slice()], &options, None).expect("Rust MAX failed");
 
                 let simd_lower = &simd_results[asset_idx][0];
                 let simd_upper = &simd_results[asset_idx][2];
@@ -338,7 +335,7 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
-    // SIMD by-options: lower == rust_min, upper == rust_max (database)
+    // SIMD by-options: lower == Min::indicator, upper == Max::indicator (database)
     // -------------------------------------------------------------------------
 
     #[test]
@@ -362,9 +359,9 @@ mod tests {
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
                 let (min_outputs, _) =
-                    rust_min(&[low.as_slice()], options, None).expect("Rust MIN failed");
+                    Min::indicator(&[low.as_slice()], options, None).expect("Rust MIN failed");
                 let (max_outputs, _) =
-                    rust_max(&[high.as_slice()], options, None).expect("Rust MAX failed");
+                    Max::indicator(&[high.as_slice()], options, None).expect("Rust MAX failed");
 
                 let simd_lower = &simd_results[opt_idx][0];
                 let simd_upper = &simd_results[opt_idx][2];
@@ -466,9 +463,9 @@ mod tests {
                 }
 
                 let (min_outputs, _) =
-                    rust_min(&[low.as_slice()], &options, None).expect("Rust MIN failed");
+                    Min::indicator(&[low.as_slice()], &options, None).expect("Rust MIN failed");
                 let (max_outputs, _) =
-                    rust_max(&[high.as_slice()], &options, None).expect("Rust MAX failed");
+                    Max::indicator(&[high.as_slice()], &options, None).expect("Rust MAX failed");
                 let min_line = &min_outputs[0];
                 let max_line = &max_outputs[0];
 
@@ -551,9 +548,9 @@ mod tests {
                 }
 
                 let (min_outputs, _) =
-                    rust_min(&[low.as_slice()], options, None).expect("Rust MIN failed");
+                    Min::indicator(&[low.as_slice()], options, None).expect("Rust MIN failed");
                 let (max_outputs, _) =
-                    rust_max(&[high.as_slice()], options, None).expect("Rust MAX failed");
+                    Max::indicator(&[high.as_slice()], options, None).expect("Rust MAX failed");
                 let min_line = &min_outputs[0];
                 let max_line = &max_outputs[0];
 

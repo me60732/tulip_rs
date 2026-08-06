@@ -1,11 +1,12 @@
 use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::trendmode_simd::options::SimdState;
+use crate::indicators::simd_indicators::trendmode_simd::{options::SimdState, TSimdState, TState};
 use crate::indicators::trendmode::{
-    min_data, output_length, validate_options as tm_validate_options, IndicatorState, State,
-    INPUTS_WIDTH, OPTIONS_WIDTH,
+    validate_options as tm_validate_options, Indicator, IndicatorState, State, TrendMode, INPUTS,
+    OPTIONS,
 };
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
+use std::simd::Simd;
 
 /// SIMD driver that advances the TrendMode across `N` option-set lanes per epoch.
 ///
@@ -21,89 +22,31 @@ struct TrendModeOptionDriver {
     want_peak: bool,
 }
 
-impl Driver<State, f64> for TrendModeOptionDriver {
+impl Driver<State<Warm>, f64> for TrendModeOptionDriver {
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
-        options: Vec<Option<&f64>>,
+        mut states: Vec<&mut State<Warm>>,
+        _options: Vec<Option<&f64>>,
     ) {
-        use crate::indicators::cybercycle::{adaptive_alpha, multiplier};
-        use std::simd::{Mask, Select, Simd};
-
         let len = outputs[0][0].len();
-
-        // Extract per-lane alphas; build adaptive mask and fixed_alphas SIMD vector.
-        let mut alpha_arr = [0.0_f64; N];
-        let mut is_adaptive_arr = [false; N];
-        for (j, opt) in options.iter().enumerate() {
-            if let Some(&a) = opt {
-                alpha_arr[j] = a;
-                is_adaptive_arr[j] = a == 0.0;
-            }
-        }
-        let fixed_alphas: Simd<f64, N> = Simd::from_array(alpha_arr);
-        let adaptive_mask: Mask<i64, N> = Mask::from_array(is_adaptive_arr);
-        let has_adaptive = is_adaptive_arr.iter().any(|&b| b);
 
         let real_ptrs = crate::extract_input_ptrs!(inputs, N, real_ptrs);
         let (trendmode_ptrs, cycle_ptrs, peak_ptrs) =
             crate::extract_output_ptrs!(outputs, N, trendmode_ptrs, cycle_ptrs, peak_ptrs);
 
-        let mut simd_state = SimdState::new(&mut states);
+        let mut simd_state: SimdState<N> = SimdState::from_states(&mut states);
 
-        if has_adaptive {
-            // Mixed or all-adaptive: compute effective_alpha per bar via mask+select,
-            // recompute multipliers per bar, run via advance_hd / advance_cc.
-            for i in 0..len {
-                let real = crate::extract_simd_inputs_at_index_splat!(i, N, real @ real_ptrs);
-                // Safety: HD ring buffers are full — guaranteed by init_state for every lane.
-                let smooth_period = unsafe { simd_state.advance_hd(real[0]) };
-                let adap_a = Simd::splat(adaptive_alpha(smooth_period));
-                let effective_alpha = adaptive_mask.select(adap_a, fixed_alphas);
-                let one = Simd::splat(1.0_f64);
-                let c = one - Simd::splat(0.5_f64) * effective_alpha;
-                let b = one - effective_alpha;
-                let bar_mults = (c * c, Simd::splat(2.0_f64) * b, b * b);
-                let trendmode = unsafe { simd_state.advance_cc(real, bar_mults) };
-                crate::write_simd_at_indices!(N, i, trendmode_ptrs => trendmode);
-                if self.has_optional {
-                    crate::store_simd_optional_outputs!(i, N,
-                        self.want_cycle, cycle_ptrs => simd_state.cc.cycle_prev,
-                        self.want_peak,  peak_ptrs  => simd_state.pk
-                    );
-                }
-            }
-        } else {
-            // All fixed: precompute per-lane SIMD multipliers once outside the loop.
-            let mults = {
-                let mut m0 = [0.0_f64; N];
-                let mut m1 = [0.0_f64; N];
-                let mut m2 = [0.0_f64; N];
-                for (j, &a) in alpha_arr.iter().enumerate() {
-                    let (c, d, e) = multiplier(a);
-                    m0[j] = c;
-                    m1[j] = d;
-                    m2[j] = e;
-                }
-                (
-                    Simd::from_array(m0),
-                    Simd::from_array(m1),
-                    Simd::from_array(m2),
-                )
-            };
-            for i in 0..len {
-                let real = crate::extract_simd_inputs_at_index_splat!(i, N, real @ real_ptrs);
-                // Safety: all HD and CC ring buffers are full — guaranteed by init_state for every lane.
-                let trendmode = unsafe { simd_state.calc_simd_unchecked(real, mults) };
-                crate::write_simd_at_indices!(N, i, trendmode_ptrs => trendmode);
-                if self.has_optional {
-                    crate::store_simd_optional_outputs!(i, N,
-                        self.want_cycle, cycle_ptrs => simd_state.cc.cycle_prev,
-                        self.want_peak,  peak_ptrs  => simd_state.pk
-                    );
-                }
+        for i in 0..len {
+            let real = crate::extract_simd_inputs_at_index_splat!(i, N, real @ real_ptrs);
+            let trendmode = simd_state.calc(real);
+            crate::write_simd_at_indices!(N, i, trendmode_ptrs => trendmode);
+            if self.has_optional {
+                crate::store_simd_optional_outputs!(i, N,
+                    self.want_cycle, cycle_ptrs => simd_state.cc.cycle_prev,
+                    self.want_peak,  peak_ptrs  => simd_state.pk
+                );
             }
         }
 
@@ -133,13 +76,13 @@ impl Driver<State, f64> for TrendModeOptionDriver {
 /// Returns `Err(NotEnoughData)` if the input is shorter than 56 bars, or
 /// `Err(InvalidOptions)` if any α is not in `(0, 1)`.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS],
+    options: &[&[f64; OPTIONS]; N],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
     // Delegate alpha validation to trendmode's custom validator (rejects < 1.0 check).
     validate_options(options, Some(tm_validate_options))?;
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, TrendMode::min_data)?;
 
     let alphas: [f64; N] = std::array::from_fn(|i| options[i][0]);
     let want_cycle = optional_outputs
@@ -151,10 +94,10 @@ pub fn indicator_by_options<const N: usize>(
     let has_optional = want_cycle || want_peak;
 
     let mut output_buffers = Vec::with_capacity(N);
-    let mut road_train = PrimeMover::<N, State, f64>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>, f64>::new();
 
     for i in 0..N {
-        let capacity = output_length(inputs[0].len(), options[i]);
+        let capacity = TrendMode::output_length(inputs[0].len(), options[i]);
 
         let mut trendmode_line = crate::uninit_vec!(f64, capacity);
         let mut cycle_line: Vec<f64> = if want_cycle {
@@ -197,7 +140,7 @@ pub fn indicator_by_options<const N: usize>(
             asset_outputs,
             i,
             // init_state consumed bars 0..55 inclusive; driver starts at bar 56 = min_data.
-            min_data(options[i]),
+            TrendMode::min_data(options[i]),
             0,
             state,
             Some(&alphas[i]),
@@ -213,10 +156,5 @@ pub fn indicator_by_options<const N: usize>(
     };
     let final_states = road_train.drive(&mut driver);
 
-    let states = final_states
-        .into_iter()
-        .enumerate()
-        .map(|(i, s)| IndicatorState::new(s, alphas[i]))
-        .collect();
-    Ok((output_buffers, states))
+    Ok((output_buffers, final_states))
 }

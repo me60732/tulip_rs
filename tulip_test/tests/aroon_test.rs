@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::aroon::{indicator, min_data, TIndicatorState};
+    use tulip_rs::indicators::aroon::{Aroon, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_aroon, ti_aroon_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -79,7 +79,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [high.as_slice(), low.as_slice()];
             let (outputs, _) =
-                indicator(&inputs_rust, &options, None).expect("Rust AROON indicator failed");
+                Aroon::indicator(&inputs_rust, &options, None).expect("Rust AROON indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -216,7 +216,7 @@ mod tests {
                 // Rust implementation
                 let inputs_rust = [high.as_slice(), low.as_slice()];
                 let (outputs, _) =
-                    indicator(&inputs_rust, &options, None).expect("Rust AROON indicator failed");
+                    Aroon::indicator(&inputs_rust, &options, None).expect("Rust AROON indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -329,17 +329,17 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Get full output
-                let (full_outputs, _) = indicator(&inputs_rust, &options, None)
+                let (full_outputs, _) = Aroon::indicator(&inputs_rust, &options, None)
                     .expect("Failed to run AROON indicator on full data");
 
                 // Process in batches
                 let mut batch_full_outputs = vec![Vec::new(); full_outputs.len()];
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Aroon::min_data(&options).max(CHUNK_SIZE);
 
                 if high.len() <= min_data_val {
                     // If data is too small, just run full calculation
-                    let (outputs, _) = indicator(&inputs_rust, &options, None)
+                    let (outputs, _) = Aroon::indicator(&inputs_rust, &options, None)
                         .expect("Failed to run AROON indicator");
                     for output_idx in 0..outputs.len() {
                         batch_full_outputs[output_idx].extend_from_slice(&outputs[output_idx]);
@@ -350,7 +350,7 @@ mod tests {
                     let low_vec = low[..min_data_val].to_vec();
                     let chunk_inputs = [high_vec.as_slice(), low_vec.as_slice()];
 
-                    let (first_outputs, mut state) = indicator(&chunk_inputs, &options, None)
+                    let (first_outputs, mut state) = Aroon::indicator(&chunk_inputs, &options, None)
                         .expect("Failed to run AROON indicator on first chunk");
                     for output_idx in 0..first_outputs.len() {
                         batch_full_outputs[output_idx]
@@ -456,7 +456,7 @@ mod tests {
             {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_high.as_slice(), stock_low.as_slice()];
-                let (regular_results, _) = indicator(&stock_inputs, &options, None)
+                let (regular_results, _) = Aroon::indicator(&stock_inputs, &options, None)
                     .expect("Regular AROON indicator failed");
 
                 let simd_aroon_down = &simd_results[stock_idx][0];
@@ -608,7 +608,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    indicator(&inputs, options, None).expect("Regular AROON indicator failed");
+                    Aroon::indicator(&inputs, options, None).expect("Regular AROON indicator failed");
 
                 let simd_result = &all_simd_results[idx];
                 let regular_result = &regular_results;

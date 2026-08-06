@@ -1,4 +1,4 @@
-use tulip_rs::indicators::aroonosc::{indicator, TIndicatorState};
+use tulip_rs::indicators::aroonosc::{AroonOsc, TIndicatorState, Indicator};
 
 fn main() {
     // Example input data: high and low prices
@@ -17,7 +17,7 @@ fn main() {
     let options = [5.0];
 
     // Calculate the Aroon using the indicator function
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true, true])) {
+    let (outputs, _) = match AroonOsc::indicator(&inputs, &options, Some(&[true, true])) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -27,7 +27,7 @@ fn main() {
 
     let inputs2 = [&high[..high.len() - 5], &low[..low.len() - 5]];
 
-    let (outputs2, mut state2) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state2) = match AroonOsc::indicator(&inputs2, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::aroonosc::{indicator, min_data, TIndicatorState};
+    use tulip_rs::indicators::aroonosc::{AroonOsc, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_aroon, ti_aroon_start, ti_aroonosc, ti_aroonosc_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -81,7 +81,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [high.as_slice(), low.as_slice()];
             let (outputs, _) =
-                indicator(&inputs_rust, &options, None).expect("Rust AROONOSC indicator failed");
+                AroonOsc::indicator(&inputs_rust, &options, None).expect("Rust AROONOSC AroonOsc::indicator failed");
 
             let output_len_rust = outputs[0].len();
             // Compare the outputs in reverse for the length of the Rust outputs
@@ -167,8 +167,8 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [high.as_slice(), low.as_slice()];
-                let (outputs, _) = indicator(&inputs_rust, &options, None)
-                    .expect("Rust AROONOSC indicator failed");
+                let (outputs, _) = AroonOsc::indicator(&inputs_rust, &options, None)
+                    .expect("Rust AROONOSC AroonOsc::indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -233,18 +233,18 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Get full output
-                let (full_outputs, _) = indicator(&inputs_rust, &options, None)
-                    .expect("Failed to run AROONOSC indicator on full data");
+                let (full_outputs, _) = AroonOsc::indicator(&inputs_rust, &options, None)
+                    .expect("Failed to run AROONOSC AroonOsc::indicator on full data");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = AroonOsc::min_data(&options).max(CHUNK_SIZE);
 
                 if high.len() <= min_data_val {
                     // If data is too small, just run full calculation
-                    let (outputs, _) = indicator(&inputs_rust, &options, None)
-                        .expect("Failed to run AROONOSC indicator");
+                    let (outputs, _) = AroonOsc::indicator(&inputs_rust, &options, None)
+                        .expect("Failed to run AROONOSC AroonOsc::indicator");
                     batch_full_output.extend_from_slice(&outputs[0]);
                 } else {
                     // First chunk - convert to Vec<&Vec<f64>>
@@ -252,8 +252,8 @@ mod tests {
                     let low_vec = low[..min_data_val].to_vec();
                     let chunk_inputs = [high_vec.as_slice(), low_vec.as_slice()];
 
-                    let (first_outputs, mut state) = indicator(&chunk_inputs, &options, None)
-                        .expect("Failed to run AROONOSC indicator on first chunk");
+                    let (first_outputs, mut state) = AroonOsc::indicator(&chunk_inputs, &options, None)
+                        .expect("Failed to run AROONOSC AroonOsc::indicator on first chunk");
                     batch_full_output.extend_from_slice(&first_outputs[0]);
 
                     // Process remaining data in chunks using state
@@ -266,7 +266,7 @@ mod tests {
                         let chunk_inputs = [high_vec.as_slice(), low_vec.as_slice()];
                         let chunk_outputs = state
                             .batch_indicator(&chunk_inputs, None)
-                            .expect("AROONOSC batch indicator failed");
+                            .expect("AROONOSC batch AroonOsc::indicator failed");
                         batch_full_output.extend_from_slice(&chunk_outputs[0]);
                     }
 
@@ -280,7 +280,7 @@ mod tests {
                         let chunk_inputs = [high_vec.as_slice(), low_vec.as_slice()];
                         let chunk_outputs = state
                             .batch_indicator(&chunk_inputs, None)
-                            .expect("AROONOSC batch indicator failed");
+                            .expect("AROONOSC batch AroonOsc::indicator failed");
                         batch_full_output.extend_from_slice(&chunk_outputs[0]);
                     }
                 }
@@ -324,8 +324,8 @@ mod tests {
 
             // Get Rust AROONOSC with both optional outputs enabled
             let inputs_rust = [high.as_slice(), low.as_slice()];
-            let (rust_outputs, _) = indicator(&inputs_rust, &options, Some(&[true, true]))
-                .expect("Rust AROONOSC indicator with optional outputs failed");
+            let (rust_outputs, _) = AroonOsc::indicator(&inputs_rust, &options, Some(&[true, true]))
+                .expect("Rust AROONOSC AroonOsc::indicator with optional outputs failed");
 
             let rust_aroon_up = &rust_outputs[2]; // aroon_up is at index 1
             let rust_aroon_down = &rust_outputs[1]; // aroon_down is at index 2
@@ -451,8 +451,8 @@ mod tests {
 
                 // Get Rust AROONOSC with both optional outputs enabled
                 let inputs_rust = [high.as_slice(), low.as_slice()];
-                let (rust_outputs, _) = indicator(&inputs_rust, &options, Some(&[true, true]))
-                    .expect("Rust AROONOSC indicator with optional outputs failed");
+                let (rust_outputs, _) = AroonOsc::indicator(&inputs_rust, &options, Some(&[true, true]))
+                    .expect("Rust AROONOSC AroonOsc::indicator with optional outputs failed");
 
                 let rust_aroon_up = &rust_outputs[1]; // aroon_up is at index 1
                 let rust_aroon_down = &rust_outputs[2]; // aroon_down is at index 2
@@ -579,7 +579,7 @@ mod tests {
             })
             .collect();
 
-        // Prepare inputs in the format expected by indicator_by_assets
+        // Prepare inputs in the format expected by AroonOsc::indicator_by_assets
         let inputs: [&[&[f64]; 2]; 4] = [
             &[&stock_data[0].1, &stock_data[0].2], // high, low
             &[&stock_data[1].1, &stock_data[1].2], // high, low
@@ -592,14 +592,14 @@ mod tests {
             {
                 // Get SIMD by assets result
                 let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
-                    .expect("SIMD by assets AROONOSC indicator failed");
+                    .expect("SIMD by assets AROONOSC AroonOsc::indicator failed");
 
-                // Compare each SIMD result with regular indicator for each stock
+                // Compare each SIMD result with regular AroonOsc::indicator for each stock
                 for (stock_idx, (stock_symbol, high, low)) in stock_data.iter().enumerate() {
-                    // Get regular indicator result for this stock
+                    // Get regular AroonOsc::indicator result for this stock
                     let stock_inputs = [high.as_slice(), low.as_slice()];
-                    let (regular_results, _) = indicator(&stock_inputs, &options, None)
-                        .expect("Regular AROONOSC indicator failed");
+                    let (regular_results, _) = AroonOsc::indicator(&stock_inputs, &options, None)
+                        .expect("Regular AROONOSC AroonOsc::indicator failed");
 
                     let simd_result = &simd_results[stock_idx][0];
                     let regular_result = &regular_results[0];
@@ -676,7 +676,7 @@ mod tests {
             })
             .collect();
 
-        // Prepare inputs in the format expected by indicator_by_assets
+        // Prepare inputs in the format expected by AroonOsc::indicator_by_assets
         let inputs: [&[&[f64]; 2]; 4] = [
             &[&stock_data[0].1, &stock_data[0].2], // high, low
             &[&stock_data[1].1, &stock_data[1].2], // high, low
@@ -690,15 +690,15 @@ mod tests {
                 // Get SIMD by assets result with optional outputs
                 let (simd_results, _) =
                     indicator_by_assets::<4>(&inputs, &options, Some(&[true, true]))
-                        .expect("SIMD by assets AROONOSC indicator failed");
+                        .expect("SIMD by assets AROONOSC AroonOsc::indicator failed");
 
-                // Compare each SIMD result with regular indicator for each stock
+                // Compare each SIMD result with regular AroonOsc::indicator for each stock
                 for (stock_idx, (stock_symbol, high, low)) in stock_data.iter().enumerate() {
-                    // Get regular indicator result for this stock with optional outputs
+                    // Get regular AroonOsc::indicator result for this stock with optional outputs
                     let stock_inputs = [high.as_slice(), low.as_slice()];
                     let (regular_results, _) =
-                        indicator(&stock_inputs, &options, Some(&[true, true]))
-                            .expect("Regular AROONOSC indicator failed");
+                        AroonOsc::indicator(&stock_inputs, &options, Some(&[true, true]))
+                            .expect("Regular AROONOSC AroonOsc::indicator failed");
 
                     let simd_aroonosc_result = &simd_results[stock_idx][0];
                     let simd_aroon_down_result = &simd_results[stock_idx][1];
@@ -814,7 +814,7 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4_first, _) =
-                indicator_by_options::<4>(&inputs, &options_4_first, None)
+               indicator_by_options::<4>(&inputs, &options_4_first, None)
                     .expect("SIMD AROONOSC 4-wide first failed");
 
             // Process second 4 options with 4-wide SIMD
@@ -832,11 +832,11 @@ mod tests {
             let mut all_simd_results = simd_results_4_first;
             all_simd_results.extend(simd_results_4_second);
 
-            // Compare each SIMD result with regular indicator
+            // Compare each SIMD result with regular AroonOsc::indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
-                // Get regular indicator result
+                // Get regular AroonOsc::indicator result
                 let (regular_results, _) =
-                    indicator(&inputs, options, None).expect("Regular AROONOSC indicator failed");
+                    AroonOsc::indicator(&inputs, options, None).expect("Regular AROONOSC AroonOsc::indicator failed");
 
                 let simd_result = &all_simd_results[idx];
                 let regular_result = &regular_results;
@@ -924,11 +924,11 @@ mod tests {
             let mut all_simd_results = simd_results_4_first;
             all_simd_results.extend(simd_results_4_second);
 
-            // Compare each SIMD result with regular indicator
+            // Compare each SIMD result with regular AroonOsc::indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
-                // Get regular indicator result with optional outputs
-                let (regular_results, _) = indicator(&inputs, options, Some(&[true, true]))
-                    .expect("Regular AROONOSC indicator failed");
+                // Get regular AroonOsc::indicator result with optional outputs
+                let (regular_results, _) = AroonOsc::indicator(&inputs, options, Some(&[true, true]))
+                    .expect("Regular AROONOSC AroonOsc::indicator failed");
 
                 let simd_result = &all_simd_results[idx];
                 let regular_result = &regular_results;

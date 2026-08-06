@@ -1,27 +1,25 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::assets::validate_inputs;
-use crate::indicators::simd_indicators::ao_simd::SimdState;
+use crate::indicators::simd_indicators::ao_simd::{SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::{
     ao::{
-        min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, LONG_PERIOD,
-        OPTIONS_WIDTH, SHORT_PERIOD,
+        Ao, Indicator, IndicatorState, State, INPUTS, LONG_PERIOD, OPTIONS,
+        SHORT_PERIOD
     },
-    sma::output_length as sma_output_length,
+    sma::Sma,
 };
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
 /// SIMD driver that advances the Awesome Oscillator (AO) across `N` asset lanes per scheduling
 /// epoch.
 struct AoDriver {
-    /// SMA scaling factors `(short_multiplier, long_multiplier)` for the 5- and 34-bar windows.
-    multipliers: (f64, f64),
     /// Optional output flags: `(has_optional, want_short_sma, want_long_sma, want_medprice)`.
     want_optional_outputs: (bool, bool, bool, bool),
 }
 
-impl Driver<State, ()> for AoDriver {
+impl Driver<State<Warm>, ()> for AoDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     ///
     /// Reads from `inputs[asset][field]` (high, low), writes to `outputs[asset][output]`,
@@ -30,15 +28,12 @@ impl Driver<State, ()> for AoDriver {
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
-        let mut state = SimdState::<N>::new(&mut states);
+        let mut state = SimdState::<N>::from_states(&mut states);
         let len = inputs[0][0].len();
-        let multipliers = (
-            Simd::splat(self.multipliers.0),
-            Simd::splat(self.multipliers.1),
-        );
+
         let (has_optional, want_short_sma, want_long_sma, want_medprice) =
             self.want_optional_outputs;
         // Optimization 1: Direct array construction instead of collect+try_into
@@ -59,15 +54,14 @@ impl Driver<State, ()> for AoDriver {
         // Optimization 3: Simplified main loop with pre-computed offsets
         for i in 0..len {
             // Get inputs arrays for stocks
-            let (high, low) = crate::extract_simd_inputs_at_index!(
+            let inputs = crate::extract_simd_inputs_at_index!(
                 i,
                 N,
                 high @ high_ptrs,
                 low @ low_ptrs
             );
 
-            let (ao, short_sma, long_sma, medprice) =
-                unsafe { state.calc_unchecked_simd(high, low, multipliers) };
+            let (ao, short_sma, long_sma, medprice) = state.calc(inputs);
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, i,
@@ -94,7 +88,7 @@ impl Driver<State, ()> for AoDriver {
 /// options. Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[high, low]` for asset `i`.
 /// * `options` - Unused; AO uses fixed-length SMA windows.
 /// * `optional_outputs` - Optional output flags:
@@ -105,14 +99,13 @@ impl Driver<State, ()> for AoDriver {
 /// for asset `i` and `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    _options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    _options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(_options))?;
-    let multipliers = multiplier((SHORT_PERIOD, LONG_PERIOD));
+    validate_inputs::<INPUTS>(inputs, Ao::min_data(_options))?;
 
-    let mut road_train = PrimeMover::<N, State>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut want_optional_outputs = (false, false, false, false);
     let mut output_buffers = Vec::with_capacity(N);
     for i in 0..N {
@@ -121,12 +114,12 @@ pub fn indicator_by_assets<const N: usize>(
             inputs[i][1], // low
         ];
 
-        let ao_capacity = output_length(inputs[i][0].len(), _options);
+        let ao_capacity = Ao::output_length(inputs[i][0].len(), _options);
         let ao_line = crate::uninit_vec!(f64, ao_capacity);
 
         let (mut short_sma_line, long_sma_line, mut medprice_line) = crate::init_optional_outputs_eff!(
             optional_outputs, &[false, false, false],
-            short_sma_line: sma_output_length(inputs[i][0].len(), &[SHORT_PERIOD as f64]),
+            short_sma_line: Sma::output_length(inputs[i][0].len(), &[SHORT_PERIOD as f64]),
             long_ema_line: ao_capacity,
             medprice: inputs[i][0].len()
         );
@@ -175,10 +168,9 @@ pub fn indicator_by_assets<const N: usize>(
     }
 
     let mut driver = AoDriver {
-        multipliers,
         want_optional_outputs,
     };
-    let states_vec = road_train.drive(&mut driver);
+    let states = road_train.drive(&mut driver);
 
-    Ok((output_buffers, states_vec))
+    Ok((output_buffers, states))
 }

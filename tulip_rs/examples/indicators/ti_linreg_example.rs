@@ -1,4 +1,4 @@
-use tulip_rs::indicators::linreg::{indicator, TIndicatorState};
+use tulip_rs::indicators::linreg::{Linreg, TIndicatorState, Indicator};
 
 fn main() {
     let close = [
@@ -8,7 +8,7 @@ fn main() {
     let options = [5.0]; // Period
 
     let inputs = [close.as_slice()];
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true, true])) {
+    let (outputs, _) = match Linreg::indicator(&inputs, &options, Some(&[true, true])) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -19,7 +19,7 @@ fn main() {
     let inputs2 = [&close[0..close.len() - 5]];
 
     // Example with recent_only parameter set to false
-    let (outputs2, mut state) = match indicator(&inputs2, &options, Some(&[true, true])) {
+    let (outputs2, mut state) = match Linreg::indicator(&inputs2, &options, Some(&[true, true])) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

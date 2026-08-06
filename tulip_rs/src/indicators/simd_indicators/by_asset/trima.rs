@@ -1,57 +1,60 @@
 //use crate::common::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::IndicatorError;
+use crate::types::{Cold, IndicatorError, Warm};
 //use std::simd::cmp::SimdPartialOrd;
-use crate::indicators::simd_indicators::trima_simd::SimdState;
+use crate::indicators::simd_indicators::trima_simd::{SimdState, TSimdState, TState};
 use crate::indicators::trima::{
-    initialize_counters, min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH,
-    OPTIONS_WIDTH,
+    initialize_counters, Indicator, IndicatorState, State, Trima, INPUTS, OPTIONS,
 };
+use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
-
 /// SIMD driver that advances the Triangular Moving Average (TRIMA) across `N` asset lanes per scheduling epoch.
 struct TrimaDriver {
-    multiplier: f64,
-    period: usize,
     counters: (usize, usize),
+    period: usize,
 }
 
-impl Driver<State> for TrimaDriver {
+impl Driver<State<Warm>> for TrimaDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
         let len = inputs[0][0].len();
-        let mut state = SimdState::new(&states);
-
-        let multipliers_simd = Simd::splat(self.multiplier);
+        let mut state = SimdState::from_states(&mut states);
 
         // Pre-compute pointers for maximum efficiency
         let input_ptrs = crate::extract_input_ptrs!(inputs, N, input_ptrs);
         let trima_line_ptr = crate::extract_output_ptrs!(outputs, N, trima_line_ptr);
-        let (mut lsi, mut tsi1) = self.counters;
+        let p = self.period - 1;
+        let periods = [p - self.counters.0, p - self.counters.1, p];
+        let mut buffer = {
+            let mut buf = Buffer::<Cold, Simd<f64, N>>::new(p);
+            for i in 0..p {
+                let real = crate::extract_simd_at_indices!(N, input_ptrs,
+                    new_vals @ i
+                );
+                buf.push(real);
+            }
+            buf.into_full() // → SimdBuffer<N> = Buffer<Warm, Simd<f64,N>>
+        };
         // Optimized main loop with minimal overhead
-        for (j, i) in (self.period - 1..len).enumerate() {
-            let (real, lsi_value, tsi1_value, tsi2_value) = crate::extract_simd_at_indices!(N, input_ptrs,
-                real @ i,
-                lsi_value @ lsi,
-                tsi1_value @ tsi1,
-                tsi2_value @ j
+        for (j, i) in (p..len).enumerate() {
+            let real = crate::extract_simd_at_indices!(N, input_ptrs,
+                real @ i
             );
+            let [lsi_val, tsi1_val, tsi2_val] = buffer.push_with_info_periods(real, periods);
 
-            let trima = state.calc_simd(real, lsi_value, tsi1_value, tsi2_value, multipliers_simd);
+            let trima = state.calc((real, lsi_val, tsi1_val, tsi2_val));
 
             // Direct SIMD store if possible, otherwise individual stores
             crate::write_simd_at_indices!(N, j,
                 trima_line_ptr => trima
             );
-
-            (lsi, tsi1) = (lsi + 1, tsi1 + 1);
         }
 
         // Update states efficiently
@@ -66,7 +69,7 @@ impl Driver<State> for TrimaDriver {
 /// SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[real]` for asset `i`.
 /// * `options` - `options[0]` is the `period`.
 /// * `_optional_outputs` - Unused; TRIMA has no optional outputs.
@@ -76,24 +79,23 @@ impl Driver<State> for TrimaDriver {
 /// `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    options: &[f64; OPTIONS],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, Trima::min_data(options))?;
     validate_options(options)?;
     let period = options[0] as usize;
-    let multiplier = multiplier(period);
     let mut output_buffers: Vec<Vec<Vec<f64>>> = (0..N)
         .map(|i| {
             vec![{
-                let capacity = output_length(inputs[i][0].len(), options);
+                let capacity = Trima::output_length(inputs[i][0].len(), options);
                 crate::uninit_vec!(f64, capacity)
             }]
         })
         .collect();
 
-    let mut road_train = PrimeMover::<N, State>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     for i in 0..N {
         let state = State::init_state(inputs[i][0], period);
         let asset_inputs = vec![inputs[i][0]];
@@ -117,7 +119,6 @@ pub fn indicator_by_assets<const N: usize>(
         }
     }
     let mut driver = TrimaDriver {
-        multiplier,
         period,
         counters: initialize_counters(period),
     };
@@ -125,7 +126,7 @@ pub fn indicator_by_assets<const N: usize>(
 
     let mut states = Vec::with_capacity(N);
     for (i, state) in states_vec.into_iter().enumerate() {
-        states.push(IndicatorState::new(inputs[i][0], state, multiplier, period));
+        states.push(IndicatorState::new(inputs[i][0], state, period));
     }
     Ok((output_buffers, states))
 }

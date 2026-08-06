@@ -1,5 +1,5 @@
 use tulip_rs::indicators::supersmoother::{
-    indicator, indicator_by_assets, indicator_by_options, TIndicatorState,
+    indicator_by_assets, indicator_by_options, Indicator, SuperSmoother, TIndicatorState,
 };
 
 // 80 bars of price data (close prices)
@@ -22,7 +22,7 @@ fn main() {
     // --- Full run ---
     let inputs = [CLOSE.as_slice()];
 
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match SuperSmoother::indicator(&inputs, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -38,10 +38,11 @@ fn main() {
     let split = CLOSE.len() - 5;
     let inputs_partial = [&CLOSE[..split]];
 
-    let (outputs_partial, mut state) = match indicator(&inputs_partial, &options, None) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (outputs_partial, mut state) =
+        match SuperSmoother::indicator(&inputs_partial, &options, None) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
 
     println!(
         "\nPartial Super Smoother (last 5 of first {} bars): {:?}",

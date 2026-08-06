@@ -2,7 +2,7 @@
 mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicators::pvi::indicator_by_assets;
-    use tulip_rs::indicators::pvi::{indicator as rust_pvi, min_data, TIndicatorState};
+    use tulip_rs::indicators::pvi::{Pvi, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_pvi, ti_pvi_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
     const EPSILON: f64 = 1e-8;
@@ -64,7 +64,7 @@ mod tests {
 
         // Run the Rust implementation
         let inputs_rust = [close.as_slice(), volume.as_slice()];
-        let (outputs, _) = rust_pvi(&inputs_rust, &[], None).expect("Rust PVI indicator failed");
+        let (outputs, _) = Pvi::indicator(&inputs_rust, &[], None).expect("Rust PVI indicator failed");
 
         let output_len_rust = outputs[0].len();
 
@@ -144,7 +144,7 @@ mod tests {
             // Rust implementation
             let inputs_rust = [close.as_slice(), volume.as_slice()];
             let (outputs, _) =
-                rust_pvi(&inputs_rust, &[], None).expect("Rust PVI indicator failed");
+                Pvi::indicator(&inputs_rust, &[], None).expect("Rust PVI indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -208,12 +208,12 @@ mod tests {
 
             // Get full output
             let (full_outputs, _) =
-                rust_pvi(&inputs_rust, &[], None).expect("PVI indicator should work on full data");
+                Pvi::indicator(&inputs_rust, &[], None).expect("PVI indicator should work on full data");
 
             // Process in batches
             let mut batch_full_outputs = vec![Vec::new(); full_outputs.len()];
 
-            let min_data_val = min_data(&[]).max(CHUNK_SIZE);
+            let min_data_val = Pvi::min_data(&[]).max(CHUNK_SIZE);
 
             // Process first chunk to get initial state
             let first_chunk_size = min_data_val.min(close.len());
@@ -221,7 +221,7 @@ mod tests {
             let first_volume = volume[..first_chunk_size].to_vec();
             let first_inputs = [first_close.as_slice(), first_volume.as_slice()];
 
-            let (outputs, mut state) = rust_pvi(&first_inputs, &[], None)
+            let (outputs, mut state) = Pvi::indicator(&first_inputs, &[], None)
                 .expect("PVI indicator should work on first chunk");
 
             for output_idx in 0..outputs.len() {
@@ -305,7 +305,7 @@ mod tests {
         // Compare with individual Rust implementations
         for i in 0..4 {
             let individual_inputs = [stock_data[i].1.as_slice(), stock_data[i].2.as_slice()];
-            let (individual_outputs, _) = rust_pvi(&individual_inputs, &[], None)
+            let (individual_outputs, _) = Pvi::indicator(&individual_inputs, &[], None)
                 .expect("Individual Rust PVI indicator failed");
 
             // Compare outputs

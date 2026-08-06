@@ -1,18 +1,14 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::ema::{
-    calc as calc_ema, multiplier as ema_multiplier, output_length as ema_output_length,
-};
-use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
-};
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+use crate::indicators::ema::{Ema, State as EmaState};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 4;
+pub const INPUTS: usize = 4;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 2;
+pub const OPTIONS: usize = 2;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -46,51 +42,12 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::kvo_simd::indicator_by_options as indicator;
 }
 
-/// Returns information about the Klinger Volume Oscillator (KVO) indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the KVO indicator.
-pub const INFO: Info = Info {
-    name: "kvo",
-    indicator_type: IndicatorType::Volume,
-    full_name: "Klinger Volume Oscillator",
-    inputs: &["high", "low", "close", "volume"],
-    options: &["short_period", "long_period"],
-    outputs: &["kvo"],
-    optional_outputs: &["short_ema", "long_ema"],
-    display_groups: &[
-        DisplayGroup {
-            offset: None,
-            id: "kvo",
-            label: "KVO",
-            display_type: DisplayType::Indicator,
-            outputs: &["kvo"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "short_ema_long_ema",
-            label: "Volume Force EMAs",
-            display_type: DisplayType::Indicator,
-            outputs: &["short_ema", "long_ema"],
-        },
-    ],
-};
+pub type IndicatorState = State<Warm>;
 
-#[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    state: State,
-    multipliers: ((f64, f64), (f64, f64)),
-}
-impl IndicatorState {
-    pub fn new(multipliers: ((f64, f64), (f64, f64)), state: State) -> Self {
-        Self { multipliers, state }
-    }
-}
 impl TIndicatorState<4> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -108,9 +65,8 @@ impl TIndicatorState<4> for IndicatorState {
         }
         cycle_kvo(
             (inputs[0], inputs[1], inputs[2], inputs[3]),
-            self.multipliers,
             &mut kvo_line,
-            &mut self.state,
+            self,
             (&mut short_ema_line, &mut long_ema_line),
         );
 
@@ -118,24 +74,23 @@ impl TIndicatorState<4> for IndicatorState {
     }
 }
 #[derive(Serialize, Deserialize)]
-pub struct State {
-    pub short_ema: f64,
-    pub long_ema: f64,
+#[serde(bound = "")]
+pub struct State<S = Cold> {
+    pub short_ema: EmaState<S>,
+    pub long_ema: EmaState<S>,
     pub cm: f64,
-    pub trend: f64,
     pub prev_hlc: f64,
-    pub prev_high: f64,
-    pub prev_low: f64,
+    pub prev_hl: f64,
+    pub trend: bool,
 }
-impl State {
+impl State<Cold> {
     pub fn new(
-        short_ema: f64,
-        long_ema: f64,
-        trend: f64,
+        short_ema: EmaState,
+        long_ema: EmaState,
+        trend: bool,
         cm: f64,
         prev_hlc: f64,
-        prev_high: f64,
-        prev_low: f64,
+        prev_hl: f64,
     ) -> Self {
         Self {
             short_ema,
@@ -143,31 +98,46 @@ impl State {
             trend,
             cm,
             prev_hlc,
-            prev_high,
-            prev_low,
+            prev_hl,
         }
     }
+    pub(crate) fn into_warm(self) -> State<Warm> {
+        State {
+            short_ema: self.short_ema.into_warm(),
+            long_ema: self.long_ema.into_warm(),
+            trend: self.trend,
+            cm: self.cm,
+            prev_hlc: self.prev_hlc,
+            prev_hl: self.prev_hl,
+        }
+    }
+
     pub fn init_state(
-        inputs: (&[f64], &[f64], &[f64], &[f64]),
-        kvo_line: &Vec<f64>,
-        periods: (usize, usize),
+        (high, low, close, volume): (&[f64], &[f64], &[f64], &[f64]),
+        (short_period, long_period): (usize, usize),
         short_ema_line: &mut [f64],
-    ) -> Self {
-        let capacity = kvo_line.capacity();
-        let (high, low, close, volume) = inputs;
-        let output_start = high.len() - capacity;
+    ) -> State<Warm> {
+        // Pre-compute initial trend from bar 0 vs bar 1 — equivalent to -2.0 sentinel
+        let hlc0 = high[0] + low[0] + close[0];
+        let hlc1 = high[1] + low[1] + close[1];
+        let (initial_trend, initial_cm) = if hlc1 > hlc0 {
+            (true,  high[0] - low[0])
+        } else if hlc1 < hlc0 {
+            (false, high[0] - low[0]) 
+        } else {
+            (false, 0.0)
+        };
+    
         let mut state = Self::new(
-            0.0,
-            0.0,
-            -2.0,
-            0.0,
-            high[0] + low[0] + close[0],
-            high[0],
-            low[0],
-        );
-        let (short_period, long_period) = periods;
-        let (short_multiplier, long_multiplier) = multiplier(short_period, long_period);
-        for i in 1..output_start {
+            EmaState::new(0.0, short_period),
+            EmaState::new(0.0, long_period),
+            initial_trend,  
+            initial_cm,
+            hlc0,
+            high[0] - low[0]
+        ).into_warm();
+    
+        for i in 1..long_period {
             let inputs = unsafe {
                 (
                     *high.get_unchecked(i),
@@ -176,189 +146,66 @@ impl State {
                     *volume.get_unchecked(i),
                 )
             };
-
-            let vf = state.calc_vf(inputs);
             if i == 1 {
-                // Initialize EMAs only once, just like C
-                state.short_ema = vf;
-                state.long_ema = vf;
+                let vf = state.calc_vf(inputs);
+                state.short_ema.ema = vf;
+                state.long_ema.ema = vf;
             } else {
-                // Use normal EMA calculation for subsequent points
-                state.short_ema = calc_ema(&vf, state.short_ema, short_multiplier);
-                state.long_ema = calc_ema(&vf, state.long_ema, long_multiplier);
+                let (_, short_ema, _) = state.calc(inputs);
+                crate::init_store_optional_outputs!(i, high.len(),
+                    short_ema_line => short_ema
+                );
             }
-            crate::init_store_optional_outputs!(i, high.len(),
-                short_ema_line => state.short_ema
-            );
         }
-
         state
     }
-    /// Calculates the Klinger Volume Oscillator (KVO) value for a single bar.
-    ///
-    /// # Arguments
-    ///
-    /// * `state` - A mutable reference to the indicator state.
-    /// * `inputs` - A tuple `(high, low, close, volume)` for the current bar.
-    /// * `multipliers` - A tuple of EMA multiplier pairs for the short and long EMAs.
-    ///
-    /// # Returns
-    ///
-    /// The calculated KVO value (`short_ema - long_ema`).
+
+}
+impl State<Warm> {
     #[inline(always)]
-    pub fn calc(
-        &mut self,
-        inputs: (f64, f64, f64, f64),
-        multipliers: ((f64, f64), (f64, f64)),
-    ) -> f64 {
-        // Extract multipliers once (minor optimization)
-    
-        let vf = self.calc_vf(inputs);
-        let (short_multiplier, long_multiplier) = multipliers;
-        self.short_ema = calc_ema(&vf, self.short_ema, short_multiplier);
-        self.long_ema = calc_ema(&vf, self.long_ema, long_multiplier);
-        self.short_ema - self.long_ema
-    }
-    
-    #[inline(always)]
-    pub(crate) fn calc_vf(&mut self, inputs: (f64, f64, f64, f64)) -> f64 {
-        let (high, low, close, volume) = inputs;
-    
+    pub(crate) fn calc_vf(&mut self, (high, low, close, volume): (f64, f64, f64, f64)) -> f64 {
         let hlc = high + low + close;
         let dm = high - low;
-    
+
+        let sign;
         // Update trend and cm
-        if self.trend != 1.0 && hlc > self.prev_hlc {
-            self.trend = 1.0;
-            self.cm = self.prev_high - self.prev_low;
-        } else if self.trend != -1.0 && hlc < self.prev_hlc {
-            self.trend = -1.0;
-            self.cm = self.prev_high - self.prev_low;
+        if !self.trend && hlc > self.prev_hlc {
+            self.trend = true;
+            sign = 1.0;
+            self.cm = self.prev_hl;
+        } else if self.trend && hlc < self.prev_hlc {
+            self.trend = false;
+            self.cm = self.prev_hl;
+            sign = -1.0;
+        } else {
+            sign = if self.trend { 1.0 } else { -1.0 }
         }
         self.cm += dm.max(f64::EPSILON);
-    
+
         self.prev_hlc = hlc;
-        self.prev_high = high;
-        self.prev_low = low;
-    
-        (dm / self.cm).mul_add(2.0, -1.0).abs() * volume * 100.0 * self.trend
+        self.prev_hl = dm;
+
+        (dm / self.cm).mul_add(2.0, -1.0).abs() * volume * 100.0 * sign
     }
 }
-/// Returns the minimum amount of data required for the KVO indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the KVO calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    options[1] as usize + 1
-}
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64, f64, f64);
+    type Outputs = (f64, f64, f64);
+    #[inline(always)]
+    fn calc<'a>(&mut self, inputs: Self::Inputs<'a>) -> Self::Outputs {
+        // Extract multipliers once (minor optimization)
 
-/// Returns the number of output values produced by the KVO indicator given input data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the KVO calculation.
-///
-/// # Returns
-///
-/// The number of output values.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
+        let vf = self.calc_vf(inputs);
+        let short_ema = self.short_ema.calc(vf);
+        let long_ema = self.long_ema.calc(vf);
+        (short_ema - long_ema, short_ema, long_ema)
+    }
 }
-pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), IndicatorError> {
+pub(crate) fn validate_options(options: &[f64; OPTIONS]) -> Result<(), IndicatorError> {
     if options[0] < 1.0 || options[1] <= options[0] {
         return Err(IndicatorError::InvalidOptions);
     }
     Ok(())
-}
-/// Calculates the Klinger Volume Oscillator (KVO) indicator for an entire dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — high prices
-/// * `inputs[1]` — low prices
-/// * `inputs[2]` — close prices
-/// * `inputs[3]` — volume
-///
-/// # Options
-///
-/// * `options[0]` — short_period
-/// * `options[1]` — long_period
-///
-/// # Outputs
-///
-/// * `outputs[0]` — `kvo` line
-/// * `outputs[1]` — `short_ema` (optional, if requested)
-/// * `outputs[2]` — `long_ema` (optional, if requested)
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `optional_outputs` - Optional slice selecting which extra outputs to compute:
-///   index `0` = `short_ema`, index `1` = `long_ema`.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is the `kvo` line and
-/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-
-    validate_inputs(inputs, min_data(options))?;
-    let [high, low, close, volume] = inputs;
-
-    let (mut kvo_line, mut short_ema_line, mut long_ema_line, mut state, multipliers, inputs);
-    {
-        let capacity = output_length(high.len(), options);
-        let short_capacity = ema_output_length(high.len(), &[options[0]]);
-        kvo_line = crate::uninit_vec!(f64, capacity);
-
-        (short_ema_line, long_ema_line) = crate::init_optional_outputs_eff!(
-            optional_outputs, &[false, false],
-            short_ema_line: short_capacity,
-            long_ema_line: capacity
-        );
-        let short_period = options[0] as usize;
-        let long_period = options[1] as usize;
-        multipliers = multiplier(short_period, long_period);
-        // Perform the main KVO calculation
-        state = State::init_state(
-            (&high, &low, &close, &volume),
-            &kvo_line,
-            (short_period, long_period),
-            &mut short_ema_line,
-        );
-        let from = high.len() - capacity;
-        inputs = (&high[from..], &low[from..], &close[from..], &volume[from..])
-    }
-    let optional_outputs = {
-        let offset = crate::slice_outputs_start!(kvo_line.len(), short_ema_line);
-        (&mut short_ema_line[offset..], long_ema_line.as_mut_slice())
-    };
-
-    cycle_kvo(
-        inputs,
-        multipliers,
-        &mut kvo_line,
-        &mut state,
-        optional_outputs,
-    );
-
-    Ok((
-        vec![kvo_line, short_ema_line, long_ema_line],
-        IndicatorState { multipliers, state },
-    ))
 }
 
 /// Performs the main calculation loop for the KVO indicator.
@@ -371,14 +218,11 @@ pub fn indicator(
 /// * `state` - A mutable reference to the indicator state.
 /// * `out_vecs` - A tuple of mutable optional output slices: `(short_ema_line, long_ema_line)`.
 fn cycle_kvo(
-    inputs: (&[f64], &[f64], &[f64], &[f64]),
-    multipliers: ((f64, f64), (f64, f64)),
+    (high, low, close, volume): (&[f64], &[f64], &[f64], &[f64]),
     kvo_line: &mut [f64],
-    state: &mut State,
-    out_vecs: (&mut [f64], &mut [f64]),
+    state: &mut State<Warm>,
+    (short_ema_line, long_ema_line): (&mut [f64], &mut [f64]),
 ) {
-    let (high, low, close, volume) = inputs;
-    let (short_ema_line, long_ema_line) = out_vecs;
     let (has_optional, want_short, want_long) =
         crate::calc_want_flags!(short_ema_line, long_ema_line);
 
@@ -391,21 +235,86 @@ fn cycle_kvo(
                 *volume.get_unchecked(i),
             )
         };
-        let kvo = state.calc(inputs, multipliers);
+        let (kvo, short_ema, long_ema) = state.calc(inputs);
         unsafe { *kvo_line.get_unchecked_mut(i) = kvo };
 
         if has_optional {
             crate::store_optional_outputs!(i,
-                want_short, short_ema_line => state.short_ema,
-                want_long, long_ema_line => state.long_ema
+                want_short, short_ema_line => short_ema,
+                want_long, long_ema_line => long_ema
             );
         }
     }
 }
 
+pub struct Kvo;
+impl Indicator<INPUTS, OPTIONS> for Kvo {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "kvo",
+        indicator_type: IndicatorType::Volume,
+        full_name: "Klinger Volume Oscillator",
+        inputs: &["high", "low", "close", "volume"],
+        options: &["short_period", "long_period"],
+        outputs: &["kvo"],
+        optional_outputs: &["short_ema", "long_ema"],
+        display_groups: &[
+            DisplayGroup {
+                offset: None,
+                id: "kvo",
+                label: "KVO",
+                display_type: DisplayType::Indicator,
+                outputs: &["kvo"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "short_ema_long_ema",
+                label: "Volume Force EMAs",
+                display_type: DisplayType::Indicator,
+                outputs: &["short_ema", "long_ema"],
+            },
+        ],
+    };
 
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
 
-#[inline(always)]
-pub fn multiplier(short_period: usize, long_period: usize) -> ((f64, f64), (f64, f64)) {
-    (ema_multiplier(short_period), ema_multiplier(long_period))
+        validate_inputs(inputs, Self::min_data(options))?;
+        let [high, low, close, volume] = inputs;
+
+        let (mut kvo_line, mut short_ema_line, mut long_ema_line, mut state, inputs);
+        {
+            let capacity = Self::output_length(high.len(), options);
+            let short_capacity = Ema::output_length(high.len(), &[options[0]]);
+            kvo_line = crate::uninit_vec!(f64, capacity);
+
+            (short_ema_line, long_ema_line) = crate::init_optional_outputs_eff!(
+                optional_outputs, &[false, false],
+                short_ema_line: short_capacity,
+                long_ema_line: capacity
+            );
+            let short_period = options[0] as usize;
+            let long_period = options[1] as usize;
+            // Perform the main KVO calculation
+            state = State::init_state(
+                (&high, &low, &close, &volume),
+                (short_period, long_period),
+                &mut short_ema_line,
+            );
+            let from = high.len() - capacity;
+            inputs = (&high[from..], &low[from..], &close[from..], &volume[from..])
+        }
+        let optional_outputs = {
+            let offset = crate::slice_outputs_start!(kvo_line.len(), short_ema_line);
+            (&mut short_ema_line[offset..], long_ema_line.as_mut_slice())
+        };
+
+        cycle_kvo(inputs, &mut kvo_line, &mut state, optional_outputs);
+
+        Ok((vec![kvo_line, short_ema_line, long_ema_line], state))
+    }
 }

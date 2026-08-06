@@ -1,4 +1,4 @@
-use tulip_rs::indicators::rocr::{indicator, TIndicatorState};
+use tulip_rs::indicators::rocr::{Indicator, Rocr, TIndicatorState};
 use tulip_rs::types::IndicatorError;
 
 fn main() -> Result<(), IndicatorError> {
@@ -13,7 +13,7 @@ fn main() -> Result<(), IndicatorError> {
     let options = [5.0];
 
     // Calculate the MOM indicator for the entire dataset
-    let (outputs, mut state) = indicator(&inputs, &options, None)?;
+    let (outputs, mut state) = Rocr::indicator(&inputs, &options, None)?;
     println!("ROCR Indicator Result: {:?}", outputs[0]);
 
     let new_inputs = [&close[close.len() - 5..]];

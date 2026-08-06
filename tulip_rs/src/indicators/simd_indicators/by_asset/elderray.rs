@@ -2,22 +2,21 @@
 use crate::common::validate_options;
 use crate::common_simd::assets::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
 use crate::indicators::elderray::{
-    min_data, output_length, IndicatorState, INPUTS_WIDTH, OPTIONS_WIDTH,
+    Elderray, Indicator, IndicatorState, INPUTS, OPTIONS, State
 };
 //use crate::indicators::ad::output_length;
-use crate::indicators::simd_indicators::{by_asset::ema::init_state, elderray_simd::calc_simd};
+use crate::indicators::simd_indicators::elderray_simd::{TSimdState, TState, SimdState};
 
 /// SIMD driver that advances Elder-ray across `N` asset lanes per scheduling epoch.
 struct ElderRayDriver {
-    multipliers: (f64, f64),
     want_optional_outputs: bool,
 }
 
-impl Driver<f64> for ElderRayDriver {
+impl Driver<State<Warm>> for ElderRayDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     ///
     /// For each bar, computes `bull = high − EMA` and `bear = low − EMA` across all `N`
@@ -27,20 +26,13 @@ impl Driver<f64> for ElderRayDriver {
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut f64>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
         let len = inputs[0][0].len();
 
         // Direct array construction
-        let mut emas = Simd::<f64, N>::from_array(std::array::from_fn(|i| unsafe {
-            **states.get_unchecked(i)
-        }));
-
-        let multipliers = (
-            Simd::splat(self.multipliers.0),
-            Simd::splat(self.multipliers.1),
-        );
+        let mut state = SimdState::<N>::from_states(&mut states);
 
         // Pre-compute pointers for maximum efficiency
         let (high_ptrs, low_ptrs, close_ptrs) =
@@ -50,13 +42,13 @@ impl Driver<f64> for ElderRayDriver {
         let want_ema = self.want_optional_outputs;
         // Optimized main loop with minimal overhead
         for i in 0..len {
-            let (high, low, close) = crate::extract_simd_inputs_at_index!(i, N,
+            let inputs = crate::extract_simd_inputs_at_index!(i, N,
                 h @ high_ptrs,
                 l @ low_ptrs,
                 c @ close_ptrs
             );
-            let (bull, bear);
-            (bull, bear, emas) = calc_simd(high, low, close, emas, multipliers);
+
+            let (bull, bear, emas) = state.calc(inputs);
 
             crate::write_simd_at_indices!(N, i,
                 bull_line_ptr => bull,
@@ -68,10 +60,7 @@ impl Driver<f64> for ElderRayDriver {
         }
 
         // Update states efficiently
-        let final_emas = emas.to_array();
-        for (i, state) in states.iter_mut().enumerate() {
-            **state = final_emas[i];
-        }
+        state.write_states(&mut states);
     }
 }
 
@@ -80,7 +69,7 @@ impl Driver<f64> for ElderRayDriver {
 /// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[high, low, close]` for asset `i`.
 /// * `options` - Shared options slice; `options[0]` is the EMA period.
 /// * `optional_outputs` - Pass `Some(&[true])` to also populate the EMA line for every asset.
@@ -91,28 +80,22 @@ impl Driver<f64> for ElderRayDriver {
 /// is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, Elderray::min_data(options))?;
     validate_options(options)?;
     let period = options[0] as usize;
 
-    //init ema, sliced inputs and multipliers
-    let (emas, multipliers) = {
-        let close: [&[f64]; N] = std::array::from_fn(|i| inputs[i][2]);
-        init_state(&close, period)
-    };
-
-    let mut road_train = PrimeMover::<N, f64>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut want_optional_outputs = false;
     let mut output_buffers = Vec::with_capacity(N);
     for i in 0..N {
         let [high, low, close] = *inputs[i];
         let asset_inputs = vec![high, low, close];
         let (bull_line, bear_line, ema_line) = {
-            let capacity = output_length(inputs[i][0].len(), options);
+            let capacity = Elderray::output_length(inputs[i][0].len(), options);
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::uninit_vec!(f64, capacity),
@@ -122,7 +105,7 @@ pub fn indicator_by_assets<const N: usize>(
                 ),
             )
         };
-
+        let state = State::init_state(close, period);
         if i == 0 {
             (_, want_optional_outputs) = crate::calc_want_flags!(ema_line);
         }
@@ -146,20 +129,15 @@ pub fn indicator_by_assets<const N: usize>(
             i,
             period,
             0,
-            emas[i],
+            state,
             None,
         ));
         output_buffers.push(output_buffer);
     }
     let mut driver = ElderRayDriver {
-        multipliers,
         want_optional_outputs,
     };
-    let emas = road_train.drive(&mut driver);
+    let states = road_train.drive(&mut driver);
 
-    let mut states = Vec::with_capacity(N);
-    for ema in emas {
-        states.push(IndicatorState::new(ema, multipliers));
-    }
     Ok((output_buffers, states))
 }

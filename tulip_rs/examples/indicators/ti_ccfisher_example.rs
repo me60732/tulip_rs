@@ -1,5 +1,5 @@
 use tulip_rs::indicators::ccfisher::{
-    indicator, indicator_by_assets, indicator_by_options, TIndicatorState,
+    indicator_by_assets, indicator_by_options, CcFisher, Indicator, TIndicatorState,
 };
 
 // 80 bars of close prices (ccfisher needs min_data = 56)
@@ -31,7 +31,7 @@ fn main() {
     // outputs[2] = trendmode (1.0 = Trend, 0.0 = Cycle, optional)
     // outputs[3] = cycle     (raw CyberCycle oscillator, optional)
     // outputs[4] = peak      (decaying amplitude peak, optional)
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true, true, true])) {
+    let (outputs, _) = match CcFisher::indicator(&inputs, &options, Some(&[true, true, true])) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -45,7 +45,7 @@ fn main() {
 
     // --- Adaptive alpha example (alpha = 0.0) ---
     let options_adaptive = [0.0];
-    let (outputs_adaptive, _) = match indicator(&inputs, &options_adaptive, None) {
+    let (outputs_adaptive, _) = match CcFisher::indicator(&inputs, &options_adaptive, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -58,7 +58,7 @@ fn main() {
     let split = CLOSE.len() - 5;
     let inputs_partial = [&CLOSE[..split]];
 
-    let (outputs_partial, mut state) = match indicator(&inputs_partial, &options, None) {
+    let (outputs_partial, mut state) = match CcFisher::indicator(&inputs_partial, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

@@ -1,5 +1,5 @@
 use tulip_rs::indicators::supertrend::{
-    indicator, indicator_by_assets, indicator_by_options, TIndicatorState,
+    indicator_by_assets, indicator_by_options, Indicator, SuperTrend, TIndicatorState,
 };
 
 fn main() {
@@ -22,7 +22,7 @@ fn main() {
 
     /////////////////////// Full run with all optional outputs ///////////////////////
     // optional_outputs: [want_atr, want_tr, want_medprice]
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true, true, true])) {
+    let (outputs, _) = match SuperTrend::indicator(&inputs, &options, Some(&[true, true, true])) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -32,7 +32,7 @@ fn main() {
     println!("Full MedPrice Line:   {:?}", outputs[3]);
 
     /////////////////////// Full run with no optional outputs ///////////////////////
-    let (outputs_plain, _) = match indicator(&inputs, &options, None) {
+    let (outputs_plain, _) = match SuperTrend::indicator(&inputs, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -45,7 +45,7 @@ fn main() {
     let n = high.len() - 5;
     let inputs2 = [&high[..n], &low[..n], &close[..n]];
 
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match SuperTrend::indicator(&inputs2, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

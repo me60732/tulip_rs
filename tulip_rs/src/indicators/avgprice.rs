@@ -1,13 +1,13 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{TIndicatorState, Indicator, IndicatorResult};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 4;
+pub const INPUTS: usize = 4;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 0;
+pub const OPTIONS: usize = 0;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -31,89 +31,13 @@ pub struct IndicatorState;
 impl TIndicatorState<4> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         _optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         process(inputs)
     }
 }
-/// Returns information about the AvgPrice indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the AvgPrice indicator.
-pub const INFO: Info = Info {
-    name: "avgprice",
-    full_name: "Average Price",
-    indicator_type: IndicatorType::Price,
-    inputs: &["open", "high", "low", "close"],
-    options: &[],
-    outputs: &["avgprice"],
-    optional_outputs: &[],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "avgprice",
-        label: "AVGPRICE",
-        display_type: DisplayType::Overlay,
-        outputs: &["avgprice"],
-    }],
-};
-/// Returns the minimum amount of data required for the AvgPrice indicator.
-///
-/// # Arguments
-///
-/// * `_options` - A slice containing the options for the AvgPrice calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(_options: &[f64]) -> usize {
-    1
-}
 
-/// Calculates the output length for the AvgPrice indicator.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `_options` - A slice containing the options for the AvgPrice calculation.
-///
-/// # Returns
-///
-/// The number of output values produced by the AvgPrice calculation.
-pub fn output_length(data_len: usize, _options: &[f64]) -> usize {
-    data_len
-}
-
-/// Calculates the Average Price indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — open prices
-/// * `inputs[1]` — high prices
-/// * `inputs[2]` — low prices
-/// * `inputs[3]` — close prices
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `_options` - Unused; this indicator takes no options.
-/// * `_optional_outputs` - Unused; this indicator has no optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is `avgprice` ((open + high + low + close) / 4),
-/// and `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short.
-
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    _options: &[f64; OPTIONS_WIDTH],
-    _optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    let outputs = process(inputs)?;
-    Ok((outputs, IndicatorState))
-}
 #[inline(always)]
 fn process(inputs: &[&[f64]]) -> Result<Vec<Vec<f64>>, IndicatorError> {
     validate_inputs(inputs, 1)?;
@@ -141,4 +65,51 @@ fn process(inputs: &[&[f64]]) -> Result<Vec<Vec<f64>>, IndicatorError> {
 #[inline(always)]
 pub fn calc(open: f64, high: f64, low: f64, close: f64) -> f64 {
     (open + high + low + close) * 0.25
+}
+
+pub struct AvgPrice;
+impl Indicator<INPUTS, OPTIONS> for AvgPrice {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "avgprice",
+        full_name: "Average Price",
+        indicator_type: IndicatorType::Price,
+        inputs: &["open", "high", "low", "close"],
+        options: &[],
+        outputs: &["avgprice"],
+        optional_outputs: &[],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "avgprice",
+            label: "AVGPRICE",
+            display_type: DisplayType::Overlay,
+            outputs: &["avgprice"],
+        }],
+    };
+
+    fn min_data(_options: &[f64; OPTIONS]) -> usize {
+        1
+    }
+    
+    /// Calculates the output length for the AvgPrice indicator.
+    ///
+    /// # Arguments
+    ///
+    /// * `data_len` - The length of the input data.
+    /// * `_options` - A slice containing the options for the AvgPrice calculation.
+    ///
+    /// # Returns
+    ///
+    /// The number of output values produced by the AvgPrice calculation.
+    fn output_length(data_len: usize, _options: &[f64; OPTIONS]) -> usize {
+        data_len
+    }
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        _options: &[f64; OPTIONS],
+        _optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        let outputs = process(inputs)?;
+        Ok((outputs, IndicatorState))
+    }
 }

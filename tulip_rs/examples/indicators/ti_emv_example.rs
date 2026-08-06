@@ -1,4 +1,4 @@
-use tulip_rs::indicators::emv::{indicator, TIndicatorState};
+use tulip_rs::indicators::emv::{Emv, Indicator, TIndicatorState};
 
 fn main() {
     let high = [
@@ -22,7 +22,7 @@ fn main() {
     let options = [];
 
     // Example with recent_only parameter set to false
-    let (outputs, mut state) = match indicator(&inputs, &options, Some(&[true])) {
+    let (outputs, mut state) = match Emv::indicator(&inputs, &options, Some(&[true])) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

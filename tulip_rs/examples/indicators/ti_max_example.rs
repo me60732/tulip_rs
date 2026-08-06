@@ -1,4 +1,4 @@
-use tulip_rs::indicators::max::{indicator, TIndicatorState};
+use tulip_rs::indicators::max::{Indicator, Max, TIndicatorState};
 
 fn main() {
     // Example input data (close prices)
@@ -14,7 +14,7 @@ fn main() {
     let options = [period];
 
     // Calculate the max indicator values
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match Max::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -22,7 +22,7 @@ fn main() {
     println!("Full max Line: {:?}", outputs[0]);
 
     let inputs2 = [&close[..close.len() - 5]];
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match Max::indicator(&inputs2, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

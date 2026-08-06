@@ -2,24 +2,21 @@
 use crate::common::validate_options;
 use crate::common_simd::assets::validate_inputs;
 use crate::indicators::aroonosc::{
-    min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    AroonOsc, Indicator, IndicatorState, State, INPUTS, OPTIONS,
 };
-use crate::indicators::simd_indicators::aroonosc_simd::{assets::Calc, SimdState, CHUNK_1};
+use crate::indicators::simd_indicators::aroonosc_simd::{assets::SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::IndicatorError;
-use std::simd::Simd;
+use crate::types::{IndicatorError, Warm};
 /// SIMD driver that advances the Aroon Oscillator (AROONOSC) across `N` asset lanes per
 /// scheduling epoch.
 struct AroonoscDriver {
     /// The look-back period used to find the highest high and lowest low.
     period: usize,
-    /// Pre-computed `100.0 / period` scaling factor.
-    multiplier: f64,
     /// Optional output flags: `(has_optional, want_aroon_down, want_aroon_up)`.
     want_optional_outputs: (bool, bool, bool),
 }
 
-impl Driver<State> for AroonoscDriver {
+impl Driver<State<Warm>> for AroonoscDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     ///
     /// Reads from `inputs[asset][field]` (high, low), writes to `outputs[asset][output]`,
@@ -28,7 +25,7 @@ impl Driver<State> for AroonoscDriver {
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
         let len = inputs[0][0].len();
@@ -37,54 +34,21 @@ impl Driver<State> for AroonoscDriver {
         let (aroonosc_ptr, aroon_down_ptr, aroon_up_ptr) =
             crate::extract_output_ptrs!(outputs, N, aroonosc_ptr, aroon_down_ptr, aroon_up_ptr);
         let (high_ptrs, low_ptrs) = crate::extract_input_ptrs!(inputs, N, high_ptrs, low_ptrs);
-        let mut state = SimdState::new(&mut states);
-        let multiplier = Simd::splat(self.multiplier);
+        let mut state = SimdState::<N>::from_states(&mut states);
         //let current: Vec<Simd<f64, N>> = crate::create_simd_vec_from_inputs!(real_ptrs, N, len);
-        if CHUNK_1.contains(&self.period) {
-            for (j, i) in (self.period..len).enumerate() {
-                let (aroonosc, aroon_down, aroon_up) = unsafe {
-                    state.calc_unchecked_simd::<1>(
-                        high_ptrs,
-                        low_ptrs,
-                        i,
-                        self.period,
-                        multiplier,
-                    )
-                };
+        for (j, i) in (self.period..len).enumerate() {
+            let (aroonosc, aroon_down, aroon_up) =
+                state.calc((high_ptrs, low_ptrs, i, self.period));
 
-                // Store results using pre-computed pointers
-                crate::write_simd_at_indices!(N, j,
-                    aroonosc_ptr => aroonosc
+            // Store results using pre-computed pointers
+            crate::write_simd_at_indices!(N, j,
+                aroonosc_ptr => aroonosc
+            );
+            if want_optional {
+                crate::store_simd_optional_outputs!(j, N,
+                    want_aroon_down, aroon_down_ptr => aroon_down,
+                    want_aroon_up, aroon_up_ptr => aroon_up
                 );
-                if want_optional {
-                    crate::store_simd_optional_outputs!(j, N,
-                        want_aroon_down, aroon_down_ptr => aroon_down,
-                        want_aroon_up, aroon_up_ptr => aroon_up
-                    );
-                }
-            }
-        } else {
-            for (j, i) in (self.period..len).enumerate() {
-                let (aroonosc, aroon_down, aroon_up) = unsafe {
-                    state.calc_unchecked_simd::<4>(
-                        high_ptrs,
-                        low_ptrs,
-                        i,
-                        self.period,
-                        multiplier,
-                    )
-                };
-
-                // Store results using pre-computed pointers
-                crate::write_simd_at_indices!(N, j,
-                    aroonosc_ptr => aroonosc
-                );
-                if want_optional {
-                    crate::store_simd_optional_outputs!(j, N,
-                        want_aroon_down, aroon_down_ptr => aroon_down,
-                        want_aroon_up, aroon_up_ptr => aroon_up
-                    );
-                }
             }
         }
         // Update states efficiently
@@ -100,7 +64,7 @@ impl Driver<State> for AroonoscDriver {
 /// batch assets into SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[high, low]` for asset `i`.
 /// * `options` - Shared options applied to all `N` assets: `[period]`.
 /// * `optional_outputs` - Optional output flags: `[want_aroon_down, want_aroon_up]`.
@@ -110,25 +74,22 @@ impl Driver<State> for AroonoscDriver {
 /// for asset `i` and `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, AroonOsc::min_data(options))?;
     validate_options(options)?;
     let period = options[0] as usize;
-    let multiplier = multiplier(period);
-    let mut road_train = PrimeMover::<N, State>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut output_buffers = Vec::with_capacity(N);
     let mut want_optional_outputs = (false, false, false);
     for i in 0..N {
-        let asset_inputs = vec![
-            inputs[i][0], // high
-            inputs[i][1], // low
-        ];
+        let [high, low] = *inputs[i];
+        let asset_inputs = vec![high, low];
 
         let (aroonosc_line, (aroon_down_line, aroon_up_line)) = {
-            let capacity = output_length(inputs[i][0].len(), options);
+            let capacity = AroonOsc::output_length(inputs[i][0].len(), options);
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::init_optional_outputs_eff!(
@@ -138,7 +99,7 @@ pub fn indicator_by_assets<const N: usize>(
                 ),
             )
         };
-        let state = State::init_state(inputs[i][0], inputs[i][1], period);
+        let state = State::init_state(high, low, period);
         if i == 0 {
             want_optional_outputs = crate::calc_want_flags!(aroon_down_line, aroon_up_line);
         }
@@ -172,7 +133,6 @@ pub fn indicator_by_assets<const N: usize>(
 
     let mut driver = AroonoscDriver {
         period,
-        multiplier,
         want_optional_outputs,
     };
     let states_vec = road_train.drive(&mut driver);
@@ -183,7 +143,6 @@ pub fn indicator_by_assets<const N: usize>(
             inputs[i][1],
             state,
             period,
-            multiplier,
         ));
     }
     Ok((output_buffers, states))

@@ -1,4 +1,4 @@
-use tulip_rs::indicators::trima::{indicator, TIndicatorState};
+use tulip_rs::indicators::trima::{Indicator, TIndicatorState, Trima};
 
 fn main() {
     // Example close prices
@@ -11,14 +11,14 @@ fn main() {
     let options = [5.0];
 
     // Calculate TRIMA
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match Trima::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
     println!("Full TRIMA Line: {:?}", outputs[0]);
 
     let inputs2 = [&close[..close.len() - 5]];
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match Trima::indicator(&inputs2, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

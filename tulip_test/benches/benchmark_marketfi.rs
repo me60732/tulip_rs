@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::marketfi::{
-    indicator, indicator_by_assets, min_data, IndicatorState, TIndicatorState,
+    Marketfi, Indicator, indicator_by_assets, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -123,7 +123,7 @@ fn bench_rust_marketfi(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator(&inputs, &[], None).expect("MARKETFI indicator failed");
+                    let result = Marketfi::indicator(&inputs, &[], None).expect("MARKETFI indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -142,7 +142,7 @@ fn bench_rust_marketfi(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust MARKETFI", |b| {
             b.iter(|| {
-                let result = indicator(&inputs, &[], None).expect("MARKETFI indicator failed");
+                let result = Marketfi::indicator(&inputs, &[], None).expect("MARKETFI indicator failed");
                 black_box(&result);
             });
         });
@@ -163,7 +163,7 @@ fn bench_rust_marketfi_from_state(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let min_data_val = min_data(&[]).max(CHUNK_SIZE);
+                    let min_data_val = Marketfi::min_data(&[]).max(CHUNK_SIZE);
                     // First chunk
                     let chunk_inputs = [
                         &high[..min_data_val],
@@ -172,7 +172,7 @@ fn bench_rust_marketfi_from_state(c: &mut Criterion) {
                     ];
 
                     let (_, mut state) =
-                        indicator(&chunk_inputs, &[], None).expect("MARKETFI indicator failed");
+                        Marketfi::indicator(&chunk_inputs, &[], None).expect("MARKETFI indicator failed");
 
                     // Chunks
                     let mut high_chunks = high[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -225,7 +225,7 @@ fn bench_rust_marketfi_from_state(c: &mut Criterion) {
                     &volume[volume.len() - 1..],
                 ];
                 let (_, mut state) =
-                    indicator(&new_inputs, &[], None).expect("Rust MARKETFI indicator failed");
+                    Marketfi::indicator(&new_inputs, &[], None).expect("Rust MARKETFI indicator failed");
 
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
@@ -249,7 +249,7 @@ fn bench_rust_marketfi_from_state(c: &mut Criterion) {
 
                 // --- Rust_FromState_1_Bar_json benchmark ---
                 let (_, state) =
-                    indicator(&new_inputs, &[], None).expect("Rust MARKETFI indicator failed");
+                    Marketfi::indicator(&new_inputs, &[], None).expect("Rust MARKETFI indicator failed");
                 let json = serde_json::to_string(&state).expect("json failed");
 
                 let mut timing = TimingMeasurements::new();
@@ -285,7 +285,7 @@ fn bench_rust_marketfi_from_state(c: &mut Criterion) {
 
         group.bench_function("benchmark", |b| {
             b.iter(|| {
-                let min_data_val = min_data(&[]).max(CHUNK_SIZE);
+                let min_data_val = Marketfi::min_data(&[]).max(CHUNK_SIZE);
                 // First chunk
                 let chunk_inputs = [
                     &high_vec[..min_data_val],
@@ -294,7 +294,7 @@ fn bench_rust_marketfi_from_state(c: &mut Criterion) {
                 ];
 
                 let (_, mut state) =
-                    indicator(&chunk_inputs, &[], None).expect("MARKETFI indicator failed");
+                    Marketfi::indicator(&chunk_inputs, &[], None).expect("MARKETFI indicator failed");
 
                 // Chunks
                 let mut high_chunks = high_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -338,7 +338,7 @@ fn bench_rust_marketfi_from_state(c: &mut Criterion) {
                 &volume_vec[volume_vec.len() - 1..],
             ];
             let (_, mut state) =
-                indicator(&new_inputs, &[], None).expect("Rust MARKETFI indicator failed");
+                Marketfi::indicator(&new_inputs, &[], None).expect("Rust MARKETFI indicator failed");
 
             let mut group = c.benchmark_group("Rust MARKETFI from state 1 bar");
             group.sample_size(SAMPLE_SIZE);

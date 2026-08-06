@@ -1,6 +1,6 @@
 //use crate::common::validate_inputs;
 use crate::indicators::rocr::{
-    min_data, output_length, IndicatorState, INPUTS_WIDTH, OPTIONS_WIDTH,
+    Rocr, Indicator, IndicatorState, INPUTS, OPTIONS,
 };
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
@@ -56,7 +56,7 @@ impl Driver<bool> for RocrDriver {
 /// assets into SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[real]` for asset `i`.
 /// * `options` - `[period]` — the look-back period for the ratio calculation.
 /// * `_optional_outputs` - Unused; ROCR produces no optional outputs.
@@ -66,11 +66,11 @@ impl Driver<bool> for RocrDriver {
 /// and `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    options: &[f64; OPTIONS],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, Rocr::min_data(options))?;
     validate_options(options)?;
     let period = options[0] as usize;
 
@@ -78,7 +78,7 @@ pub fn indicator_by_assets<const N: usize>(
     let mut output_buffers: Vec<Vec<Vec<f64>>> = (0..N)
         .map(|i| {
             vec![{
-                let capacity = output_length(inputs[i][0].len(), options);
+                let capacity = Rocr::output_length(inputs[i][0].len(), options);
                 crate::uninit_vec!(f64, capacity)
             }]
         })
@@ -119,7 +119,7 @@ pub fn indicator_by_assets<const N: usize>(
 }
 
 /*pub fn indicator_by_assets_from_state<const N: usize>(
-    inputs: &[ &[ &[f64]; INPUTS_WIDTH]; N],
+    inputs: &[ &[ &[f64]; INPUTS]; N],
     states: &mut [IndicatorState; N],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<[Vec<Vec<f64>>; N], IndicatorError>

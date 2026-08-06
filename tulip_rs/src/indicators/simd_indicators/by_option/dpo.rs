@@ -1,11 +1,9 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
-use crate::indicators::dpo::{
-    init_state, min_data, multiplier, output_length, IndicatorState, INPUTS_WIDTH, OPTIONS_WIDTH,
-};
-use crate::indicators::simd_indicators::dpo_simd::calc_simd;
+use crate::indicators::dpo::{Dpo, Indicator, IndicatorState, State, INPUTS, OPTIONS};
+use crate::indicators::simd_indicators::dpo_simd::{SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
 /// SIMD driver for the Detrended Price Oscillator (DPO) indicator, processing `N` option-set lanes per scheduling epoch.
@@ -13,35 +11,29 @@ struct DpoDriver {
     want_sma: bool,
 }
 
-impl Driver<f64, (usize, usize, f64)> for DpoDriver {
+impl Driver<State<Warm>, (usize, usize)> for DpoDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD. Reads the shared input, applies each lane's options, writes outputs, and updates per-lane states.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut f64>,
-        options: Vec<Option<&(usize, usize, f64)>>,
+        mut states: Vec<&mut State<Warm>>,
+        options: Vec<Option<&(usize, usize)>>,
     ) {
         let len = outputs[0][0].len();
 
         let want_sma = self.want_sma;
         // Optimization 1: Direct array construction instead of collect+try_into
-        let mut sums = Simd::<f64, N>::from_array(std::array::from_fn(|i| unsafe {
-            **states.get_unchecked(i)
-        }));
+        let mut state = SimdState::<N>::from_states(&mut states);
         let mut i = [0usize; N];
         let mut dpo_idx = [0usize; N];
-        let multiplier_simd = {
-            let mut multipliers = [0.0; N];
-            for (lane, option) in options.iter().enumerate() {
-                if let Some(&(period, dpo_period, multiplier)) = option {
-                    dpo_idx[lane] = period - dpo_period;
-                    i[lane] = period;
-                    multipliers[lane] = multiplier;
-                }
+
+        for (lane, option) in options.iter().enumerate() {
+            if let Some(&(period, dpo_period)) = option {
+                dpo_idx[lane] = period - dpo_period;
+                i[lane] = period;
             }
-            Simd::from_array(multipliers)
-        };
+        }
 
         // Optimization 2: Pre-compute all input and output pointers
         let input_ptrs: [*const f64; N] =
@@ -59,7 +51,7 @@ impl Driver<f64, (usize, usize, f64)> for DpoDriver {
                 old @ input_ptrs
             );
 
-            let (dpo, sma) = calc_simd(new_vals, &mut sums, (old_vals, dpo_vals), multiplier_simd);
+            let (dpo, sma) = state.calc((new_vals, old_vals, dpo_vals));
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, j,
@@ -75,11 +67,7 @@ impl Driver<f64, (usize, usize, f64)> for DpoDriver {
             }
         }
 
-        // Update states efficiently
-        let final_sums = sums.to_array();
-        for (i, state) in states.iter_mut().enumerate().take(N) {
-            **state = final_sums[i];
-        }
+        state.write_states(&mut states);
     }
 }
 
@@ -87,7 +75,7 @@ impl Driver<f64, (usize, usize, f64)> for DpoDriver {
 /// simultaneously using SIMD parallelism.
 ///
 /// # Arguments
-/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS]`), containing
 ///   `[real]`.
 /// * `options` - An array of `N` option sets, one per SIMD lane: `[period]`.
 /// * `optional_outputs` - Optional output flags: `[want_sma]`.
@@ -97,21 +85,16 @@ impl Driver<f64, (usize, usize, f64)> for DpoDriver {
 /// and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS],
+    options: &[&[f64; OPTIONS]; N],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, Dpo::min_data)?;
     validate_options(options, None)?;
-    let params: [(usize, usize, f64); N] = std::array::from_fn(|i| {
-        (
-            options[i][0] as usize,
-            options[i][0] as usize / 2 + 1,
-            multiplier(options[i][0] as usize),
-        )
-    });
+    let params: [(usize, usize); N] =
+        std::array::from_fn(|i| (options[i][0] as usize, options[i][0] as usize / 2 + 1));
 
-    let mut road_train = PrimeMover::<N, f64, (usize, usize, f64)>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>, (usize, usize)>::new();
 
     let mut want_sma = false;
     let mut output_buffers = Vec::with_capacity(N);
@@ -119,7 +102,7 @@ pub fn indicator_by_options<const N: usize>(
         let asset_inputs = vec![inputs[0]];
         let (dpo_line, sma_line) = {
             let len = inputs[0].len();
-            let capacity = output_length(len, options[i]);
+            let capacity = Dpo::output_length(len, options[i]);
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::init_optional_outputs_eff!(
@@ -129,7 +112,7 @@ pub fn indicator_by_options<const N: usize>(
             )
         };
         let period = options[i][0] as usize;
-        let state = init_state(inputs[0], period);
+        let state = State::init_state(inputs[0], period);
 
         if i == 0 {
             (_, want_sma) = crate::calc_want_flags!(sma_line);
@@ -163,15 +146,14 @@ pub fn indicator_by_options<const N: usize>(
         output_buffers.push(output_buffer);
     }
     let mut driver = DpoDriver { want_sma };
-    let sums = road_train.drive(&mut driver);
+    let states_vec = road_train.drive(&mut driver);
 
     let mut states = Vec::with_capacity(N);
-    for (i, &sum) in sums.iter().enumerate() {
-        let (period, dpo_period, multiplier) = params[i];
+    for (i, state) in states_vec.into_iter().enumerate() {
+        let (period, dpo_period) = params[i];
         states.push(IndicatorState::new(
             unsafe { inputs.get_unchecked(0) },
-            sum,
-            multiplier,
+            state,
             period,
             dpo_period,
         ));

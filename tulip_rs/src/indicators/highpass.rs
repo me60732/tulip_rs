@@ -28,15 +28,15 @@
 //! which is not directly tradeable but is essential for cycle-period estimation.
 
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{TIndicatorState, TState, Indicator, IndicatorResult};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 1;
+pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -70,42 +70,12 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::highpass_simd::indicator_by_options as indicator;
 }
 
-/// Returns metadata for the Ehlers Super Smoother indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the SuperSmoother indicator, including
-/// its input (`real`), configurable `period`, and output line (`supersmoother`).
-pub const INFO: Info = Info {
-    name: "highpass",
-    indicator_type: IndicatorType::Math,
-    full_name: "Ehlers High Pass Filter",
-    inputs: &["real"],
-    options: &["period"],
-    outputs: &["highpass"],
-    optional_outputs: &[],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "highpass",
-        label: "Ehlers High Pass",
-        display_type: DisplayType::Indicator,
-        outputs: &["highpass"],
-    }],
-};
-#[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    multipliers: (f64, f64),
-    state: State,
-}
-impl IndicatorState {
-    pub fn new(state: State, multipliers: (f64, f64)) -> Self {
-        Self { multipliers, state }
-    }
-}
+
+pub type IndicatorState = State;
 impl TIndicatorState<1> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         _optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -114,8 +84,7 @@ impl TIndicatorState<1> for IndicatorState {
 
         cycle(
             inputs[0],
-            &mut self.state,
-            self.multipliers,
+            self,
             &mut highpass_line,
         );
 
@@ -127,106 +96,40 @@ impl TIndicatorState<1> for IndicatorState {
 pub struct State {
     pub y1: f64, // y[t-1]
     pub prev_real: f64,
+    pub a1: f64,
+    pub a2: f64
 }
-impl State {
-    pub fn new() -> Self {
-        Self {
-            y1: 0.0,
-            prev_real: 0.0,
-        }
-    }
-    pub fn init_state(real: &[f64], period: usize, multipliers: (f64, f64)) -> Self {
-        let mut state = Self::new();
-        for &value in real.iter().take(period) {
-            state.calc(value, multipliers);
-        }
-        state
-    }
+impl TState for State {
+    type Inputs<'a> = f64;
+    type Outputs = f64;
     #[inline(always)]
-    pub fn calc(&mut self, real: f64, multipliers: (f64, f64)) -> f64 {
-        let (a1, a2) = multipliers;
-        let y = a1.mul_add(self.y1, a2 * (real - self.prev_real));
+    fn calc<'a>(&mut self, real: Self::Inputs<'a>) -> Self::Outputs {
+        let y = self.a1.mul_add(self.y1, self.a2 * (real - self.prev_real));
         self.prev_real = real;
         self.y1 = y;
         y
     }
 }
-
-
-/// Returns the minimum amount of data required for the SuperSmoother indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the SuperSmoother calculation (`period`).
-///
-/// # Returns
-///
-/// The minimum number of input bars required (`period + 1`).
-pub fn min_data(options: &[f64]) -> usize {
-    options[0] as usize + 1
+impl State {
+    pub fn new(period: usize) -> Self {
+        let (a1, a2) = multiplier(period);
+        Self {
+            y1: 0.0,
+            prev_real: 0.0,
+            a1,
+            a2,
+        }
+    }
+    pub fn init_state(real: &[f64], period: usize) -> Self {
+        let mut state = Self::new(period);
+        for &value in real.iter().take(period) {
+            state.calc(value);
+        }
+        state
+    }
+    
 }
 
-/// Returns the number of output values produced by the SuperSmoother indicator
-/// given input data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the SuperSmoother calculation.
-///
-/// # Returns
-///
-/// The number of output values.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-
-/// Calculates the Ehlers Super Smoother indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — real (close) prices
-///
-/// # Options
-///
-/// * `options[0]` — period
-///
-/// # Outputs
-///
-/// * `outputs[0]` — `supersmoother` line
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `_optional_outputs` - Unused; SuperSmoother has no optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is the `supersmoother` line and
-/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    _optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let period = options[0] as usize;
-    let multipliers = multiplier(period);
-    validate_inputs(inputs, min_data(options))?;
-
-    let mut highpass_line = {
-        let capacity = output_length(inputs[0].len(), options);
-        crate::uninit_vec!(f64, capacity)
-    };
-    let mut state = State::init_state(inputs[0], period, multipliers);
-
-    let real = &inputs[0][period..];
-    cycle(real, &mut state, multipliers, &mut highpass_line);
-
-    Ok((vec![highpass_line], IndicatorState::new(state, multipliers)))
-}
 
 /// Performs the core filter loop for the SuperSmoother indicator.
 ///
@@ -236,28 +139,12 @@ pub fn indicator(
 /// * `state` - A mutable reference to the filter state (`y1`, `y2`).
 /// * `multipliers` - The precomputed filter coefficients `(a1, a2, b0)`.
 /// * `super_line` - Output slice for the filtered values (must be the same length as `real`).
-fn cycle(real: &[f64], state: &mut State, multipliers: (f64, f64), highpass_line: &mut [f64]) {
+fn cycle(real: &[f64], state: &mut State, highpass_line: &mut [f64]) {
     for i in 0..real.len() {
         unsafe {
-            *highpass_line.get_unchecked_mut(i) = state.calc(*real.get_unchecked(i), multipliers);
+            *highpass_line.get_unchecked_mut(i) = state.calc(*real.get_unchecked(i));
         }
     }
-}
-
-/// Calculates the SuperSmoother value for a single bar.
-///
-/// # Arguments
-///
-/// * `state` - A mutable reference to the current filter state (`y1`, `y2`).
-/// * `real` - The current input price value.
-/// * `multipliers` - The precomputed filter coefficients `(a1, a2, b0)`.
-///
-/// # Returns
-///
-/// The filtered output value for this bar.
-#[inline(always)]
-pub fn calc(state: &mut State, real: f64, multipliers: (f64, f64)) -> f64 {
-    state.calc(real, multipliers)
 }
 
 /// Computes the 2-pole SuperSmoother filter coefficients for a given period.
@@ -278,4 +165,48 @@ pub fn multiplier(period: usize) -> (f64, f64) {
     let a2 = 0.5 * (1.0 + a1);
 
     (a1, a2)
+}
+
+
+pub struct HighPass;
+impl Indicator<INPUTS, OPTIONS> for HighPass {
+    type IndicatorState = IndicatorState;
+
+    const INFO: Info = Info {
+        name: "highpass",
+        indicator_type: IndicatorType::Math,
+        full_name: "Ehlers High Pass Filter",
+        inputs: &["real"],
+        options: &["period"],
+        outputs: &["highpass"],
+        optional_outputs: &[],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "highpass",
+            label: "Ehlers High Pass",
+            display_type: DisplayType::Indicator,
+            outputs: &["highpass"],
+        }],
+    };
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        _optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        let period = options[0] as usize;
+        validate_inputs(inputs, Self::min_data(options))?;
+    
+        let mut highpass_line = {
+            let capacity = Self::output_length(inputs[0].len(), options);
+            crate::uninit_vec!(f64, capacity)
+        };
+        let mut state = State::init_state(inputs[0], period);
+    
+        let real = &inputs[0][period..];
+        cycle(real, &mut state, &mut highpass_line);
+    
+        Ok((vec![highpass_line], state))
+    }
 }

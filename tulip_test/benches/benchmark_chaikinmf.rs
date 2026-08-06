@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::chaikinmf::{
-    indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState,
+    ChaikinMf, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -56,7 +56,7 @@ fn get_hlcv_arrays(
     (high, low, close, volume)
 }
 
-/// Benchmark the Rust Chaikin Money Flow indicator (full one-shot).
+/// Benchmark the Rust Chaikin Money Flow ChaikinMf::indicator (full one-shot).
 fn bench_rust_chaikinmf(c: &mut Criterion) {
     if should_log_to_db() {
         init_database_data();
@@ -78,8 +78,8 @@ fn bench_rust_chaikinmf(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, None)
-                            .expect("Chaikin MF indicator failed");
+                        let result = ChaikinMf::indicator(&inputs, &options, None)
+                            .expect("Chaikin MF ChaikinMf::indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -110,7 +110,7 @@ fn bench_rust_chaikinmf(c: &mut Criterion) {
             group.bench_function(format!("Rust Chaikin MF {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result =
-                        indicator(&inputs, &options, None).expect("Chaikin MF indicator failed");
+                        ChaikinMf::indicator(&inputs, &options, None).expect("Chaikin MF ChaikinMf::indicator failed");
                     black_box(&result);
                 });
             });
@@ -119,7 +119,7 @@ fn bench_rust_chaikinmf(c: &mut Criterion) {
     }
 }
 
-/// Benchmark the Rust Chaikin Money Flow indicator using stateful chunked processing.
+/// Benchmark the Rust Chaikin Money Flow ChaikinMf::indicator using stateful chunked processing.
 fn bench_rust_chaikinmf_from_state(c: &mut Criterion) {
     if should_log_to_db() {
         init_database_data();
@@ -136,7 +136,7 @@ fn bench_rust_chaikinmf_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                        let min_data_val = ChaikinMf::min_data(&options).max(CHUNK_SIZE);
 
                         let chunk_inputs = [
                             &high[..min_data_val],
@@ -144,8 +144,8 @@ fn bench_rust_chaikinmf_from_state(c: &mut Criterion) {
                             &close[..min_data_val],
                             &volume[..min_data_val],
                         ];
-                        let (_, mut state) = indicator(&chunk_inputs, &options, None)
-                            .expect("Chaikin MF indicator failed");
+                        let (_, mut state) = ChaikinMf::indicator(&chunk_inputs, &options, None)
+                            .expect("Chaikin MF ChaikinMf::indicator failed");
 
                         let mut high_chunks = high[min_data_val..].chunks_exact(CHUNK_SIZE);
                         let mut low_chunks = low[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -200,8 +200,8 @@ fn bench_rust_chaikinmf_from_state(c: &mut Criterion) {
                         &close[n - 1..],
                         &volume[n - 1..],
                     ];
-                    let (_, mut state) = indicator(&new_inputs, &options, None)
-                        .expect("Chaikin MF indicator failed");
+                    let (_, mut state) = ChaikinMf::indicator(&new_inputs, &options, None)
+                        .expect("Chaikin MF ChaikinMf::indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -224,8 +224,8 @@ fn bench_rust_chaikinmf_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json ---
-                    let (_, state) = indicator(&new_inputs, &options, None)
-                        .expect("Chaikin MF indicator failed");
+                    let (_, state) = ChaikinMf::indicator(&new_inputs, &options, None)
+                        .expect("Chaikin MF ChaikinMf::indicator failed");
                     let json = serde_json::to_string(&state).expect("JSON serialization failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -264,7 +264,7 @@ fn bench_rust_chaikinmf_from_state(c: &mut Criterion) {
 
             group.bench_function("benchmark", |b| {
                 b.iter(|| {
-                    let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                    let min_data_val = ChaikinMf::min_data(&options).max(CHUNK_SIZE);
 
                     let chunk_inputs = [
                         &high_vec[..min_data_val],
@@ -272,8 +272,8 @@ fn bench_rust_chaikinmf_from_state(c: &mut Criterion) {
                         &close_vec[..min_data_val],
                         &volume_vec[..min_data_val],
                     ];
-                    let (_, mut state) = indicator(&chunk_inputs, &options, None)
-                        .expect("Chaikin MF indicator failed");
+                    let (_, mut state) = ChaikinMf::indicator(&chunk_inputs, &options, None)
+                        .expect("Chaikin MF ChaikinMf::indicator failed");
 
                     let mut high_chunks = high_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
                     let mut low_chunks = low_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -321,7 +321,7 @@ fn bench_rust_chaikinmf_from_state(c: &mut Criterion) {
                     &volume_vec[n - 1..],
                 ];
                 let (_, mut state) =
-                    indicator(&new_inputs, &options, None).expect("Chaikin MF indicator failed");
+                    ChaikinMf::indicator(&new_inputs, &options, None).expect("Chaikin MF ChaikinMf::indicator failed");
 
                 let mut group = c.benchmark_group(format!(
                     "Rust Chaikin MF from state 1 bar {{ {:.1} }}",

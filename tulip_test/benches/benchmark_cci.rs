@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::cci::{
-    indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState,
+    Cci, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 //use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -149,7 +149,7 @@ fn bench_rust_cci(c: &mut Criterion) {
                 timing.measure(
                     || {
                         let _result =
-                            indicator(&inputs, &options, None).expect("Rust CCI indicator failed");
+                            Cci::indicator(&inputs, &options, None).expect("Rust CCI indicator failed");
                     },
                     SAMPLE_SIZE,
                 );
@@ -179,7 +179,7 @@ fn bench_rust_cci(c: &mut Criterion) {
             group.bench_function(format!("Rust CCI {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result =
-                        indicator(&inputs, &options, None).expect("Rust CCI indicator failed");
+                        Cci::indicator(&inputs, &options, None).expect("Rust CCI indicator failed");
                     black_box(&result);
                 })
             });
@@ -208,12 +208,12 @@ fn bench_rust_cci_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data = min_data(&options);
+                        let min_data = Cci::min_data(&options);
                         // First chunk
                         let chunk_inputs = [&high[..min_data], &low[..min_data], &low[..min_data]];
 
                         let (_, mut state) =
-                            indicator(&chunk_inputs, &options, None).expect("CCI indicator failed");
+                            Cci::indicator(&chunk_inputs, &options, None).expect("CCI indicator failed");
 
                         // Chunks
                         let mut high_chunks = high[min_data..].chunks_exact(CHUNK_SIZE);
@@ -265,7 +265,7 @@ fn bench_rust_cci_from_state(c: &mut Criterion) {
                         &close[close.len() - 1..],
                     ];
                     let (_, mut state) =
-                        indicator(&new_inputs, &options, None).expect("Rust CCI indicator failed");
+                        Cci::indicator(&new_inputs, &options, None).expect("Rust CCI indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -289,7 +289,7 @@ fn bench_rust_cci_from_state(c: &mut Criterion) {
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
                     let (_, state) =
-                        indicator(&new_inputs, &options, None).expect("Rust CCI indicator failed");
+                        Cci::indicator(&new_inputs, &options, None).expect("Rust CCI indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -322,7 +322,7 @@ fn bench_rust_cci_from_state(c: &mut Criterion) {
         let _inputs = [&high_vec, &low_vec, &close_vec];
 
         for options in OPTIONS_LIST {
-            let min_data = min_data(&options);
+            let min_data = Cci::min_data(&options);
             // First chunk
             let chunk_inputs = [
                 &high_vec[..min_data],
@@ -331,7 +331,7 @@ fn bench_rust_cci_from_state(c: &mut Criterion) {
             ];
 
             let (_, mut state) =
-                indicator(&chunk_inputs, &options, None).expect("CCI indicator failed");
+                Cci::indicator(&chunk_inputs, &options, None).expect("CCI indicator failed");
 
             let mut group = c.benchmark_group("cci_rust_from_state");
             group.sample_size(SAMPLE_SIZE);
@@ -378,7 +378,7 @@ fn bench_rust_cci_from_state(c: &mut Criterion) {
                     &close_vec[close_vec.len() - 1..],
                 ];
                 let (_, mut state) =
-                    indicator(&new_inputs, &options, None).expect("Rust CCI indicator failed");
+                    Cci::indicator(&new_inputs, &options, None).expect("Rust CCI indicator failed");
 
                 let mut group = c.benchmark_group("cci_rust_from_state_1_bar");
                 group.sample_size(SAMPLE_SIZE);
@@ -421,7 +421,7 @@ fn bench_rust_cci_optional(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, Some(&[true, true, true]))
+                        let result = Cci::indicator(&inputs, &options, Some(&[true, true, true]))
                             .expect("Rust CCI indicator failed");
                         black_box(&result);
                     },
@@ -452,7 +452,7 @@ fn bench_rust_cci_optional(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust CCI {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result = indicator(&inputs, &options, Some(&[true, true, true]))
+                    let result = Cci::indicator(&inputs, &options, Some(&[true, true, true]))
                         .expect("Rust CCI indicator failed");
                     black_box(&result);
                 });

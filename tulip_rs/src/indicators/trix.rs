@@ -1,19 +1,17 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::dema::output_length as dema_output_length;
-use crate::indicators::ema::output_length as ema_output_length;
-use crate::indicators::tema::output_length as tema_output_length;
-pub use crate::indicators::tema::{multiplier, State};
-use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
-};
+pub use crate::indicator_types::{Indicator, IndicatorResult, TState};
+use crate::indicators::dema::Dema;
+use crate::indicators::ema::Ema;
+use crate::indicators::tema::{State as TemaState, Tema};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
 use serde::{Deserialize, Serialize};
-
+use std::ops::{Deref, DerefMut};
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 1;
+pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -46,19 +44,67 @@ pub mod by_options {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    state: State,
-    multipliers: (f64, f64),
-}
-impl IndicatorState {
-    pub fn new(state: State, multipliers: (f64, f64)) -> Self {
-        Self { state, multipliers }
+#[serde(bound="")]
+#[repr(transparent)]
+pub struct State<S = Cold>(pub TemaState<S>);
+impl<S> Deref for State<S> {
+    type Target = TemaState<S>;
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
+impl<S> DerefMut for State<S> {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+impl State<Cold> {
+    pub fn init_state(
+        real: &[f64],
+        period: usize,
+        trix_capacity: usize,
+        (tema_line, dema_line, ema_line): (&mut [f64], &mut [f64], &mut [f64]),
+    ) -> State<Warm> {
+        let remaining = real.len() - trix_capacity;
+        let tema_capacity = Tema::output_length(real.len(), &[period as f64]);
+        let mut state = State(TemaState::init_state(real, period, (dema_line, ema_line)));
+        let mut i = real.len() - tema_capacity;
+    
+        while i < remaining {
+            let (tema, dema, ema) = state.0.calc(real[i]);
+    
+            crate::init_store_optional_outputs!(i, real.len(),
+                tema_line => tema,
+                dema_line => dema,
+                ema_line => ema
+            );
+            i += 1;
+        }
+        state
+    }
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = f64;
+    type Outputs = (f64, f64, f64, f64);
+    #[inline(always)]
+    fn calc<'a>(&mut self, value: Self::Inputs<'a>) -> Self::Outputs {
+        let prev_ema3 = self.ema3;
+        let (tema, dema, ema) = self.0.calc(value);
+        // Compute TRIX as percentage change if previous TEMA is non-zero.
+        let trix = 100.0 * (self.ema3 - prev_ema3) / self.ema3;
+
+        (trix, tema, dema, ema)
+    }
+}
+
+pub type IndicatorState = State<Warm>;
+
 impl TIndicatorState<1> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -76,159 +122,13 @@ impl TIndicatorState<1> for IndicatorState {
         }
         cycle_trix(
             inputs[0],
-            self.multipliers,
-            &mut self.state,
+            self,
             &mut trix_line,
             (&mut tema_line, &mut dema_line, &mut ema_line),
         );
 
         Ok(vec![trix_line, tema_line, dema_line, ema_line])
     }
-}
-
-/// Returns information about the TRIX indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about TRIX.
-pub const INFO: Info = Info {
-    name: "trix",
-    full_name: "Triple Exponential Oscillator (TRIX)",
-    indicator_type: IndicatorType::Trend,
-    inputs: &["real"],
-    options: &["period"],
-    outputs: &["trix"],
-    optional_outputs: &["tema", "dema", "ema"],
-    display_groups: &[
-        DisplayGroup {
-            offset: None,
-            id: "trix",
-            label: "TRIX",
-            display_type: DisplayType::Indicator,
-            outputs: &["trix"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "tema_dema_ema",
-            label: "EMAs",
-            display_type: DisplayType::Overlay,
-            outputs: &["tema", "dema", "ema"],
-        },
-    ],
-};
-/// Returns the minimum amount of data required for the TRIX indicator.
-///
-/// TRIX is built on TEMA so uses the same warm-up requirement.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the TRIX calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    let period = options[0] as usize;
-    (period - 1) * 3 + 2
-}
-
-/// Calculates the output length based on the data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the TRIX calculation.
-///
-/// # Returns
-///
-/// The output length.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-
-/// Calculates the Triple Exponential Oscillator (TRIX) indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — real (price series)
-///
-/// # Options
-///
-/// * `options[0]` — period
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `optional_outputs` - Optional slice controlling extra output series;
-///   `optional_outputs[0] = true` enables `tema`, `optional_outputs[1] = true` enables `dema`,
-///   `optional_outputs[2] = true` enables `ema`.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is `trix`,
-/// `outputs[1]` is `tema` (empty unless requested),
-/// `outputs[2]` is `dema` (empty unless requested),
-/// `outputs[3]` is `ema` (empty unless requested), and
-/// `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-
-    validate_inputs(inputs, min_data(options))?;
-
-    let (mut trix_line, mut tema_line, mut dema_line, mut ema_line, mut state, real, multipliers);
-    {
-        let len = inputs[0].len();
-        let capacity = output_length(len, options);
-        let tema_cap = tema_output_length(len, options);
-        let dema_cap = dema_output_length(len, options);
-        let ema_cap = ema_output_length(len, options);
-
-        // Initialize output storage: main TRIX line plus optional outputs (TEMA, DEMA, EMA)
-        trix_line = crate::uninit_vec!(f64, capacity);
-        (tema_line, dema_line, ema_line) = crate::init_optional_outputs_eff!(
-            optional_outputs, &[false, false, false],
-            tema_line: tema_cap,
-            dema_line: dema_cap,
-            ema_line: ema_cap
-        );
-        let period = options[0] as usize;
-        state = init_state(
-            inputs[0],
-            period,
-            capacity,
-            (&mut tema_line, &mut dema_line, &mut ema_line),
-        );
-        let start = len - capacity;
-        multipliers = multiplier(period);
-        real = &inputs[0][start..]
-    }
-    let optional_outputs = {
-        let offsets = crate::slice_outputs_start!(trix_line.len(), tema_line, dema_line, ema_line);
-        (
-            &mut tema_line[offsets.0..],
-            &mut dema_line[offsets.1..],
-            &mut ema_line[offsets.2..],
-        )
-    };
-
-    cycle_trix(
-        real,
-        multipliers,
-        &mut state,
-        &mut trix_line,
-        optional_outputs,
-    );
-
-    Ok((
-        vec![trix_line, tema_line, dema_line, ema_line],
-        IndicatorState::new(state, multipliers),
-    ))
 }
 
 /// Performs the main calculation loop for the TRIX indicator.
@@ -242,12 +142,10 @@ pub fn indicator(
 /// * `out_vecs` - A tuple of mutable slices for optional outputs `(tema_line, dema_line, ema_line)`.
 fn cycle_trix(
     real: &[f64],
-    multipliers: (f64, f64),
-    state: &mut State,
+    state: &mut State<Warm>,
     trix_line: &mut [f64],
-    out_vecs: (&mut [f64], &mut [f64], &mut [f64]),
+    (tema_line, dema_line, ema_line): (&mut [f64], &mut [f64], &mut [f64]),
 ) {
-    let (tema_line, dema_line, ema_line) = out_vecs;
     let (has_optional, want_tema, want_dema, want_ema) =
         crate::calc_want_flags!(tema_line, dema_line, ema_line);
 
@@ -255,7 +153,7 @@ fn cycle_trix(
         let (tema, dema, ema);
         unsafe {
             (*trix_line.get_unchecked_mut(i), tema, dema, ema) =
-                Calc::calc(state, real.get_unchecked(i), multipliers)
+                state.calc(*real.get_unchecked(i))
         };
 
         if has_optional {
@@ -268,59 +166,100 @@ fn cycle_trix(
     }
 }
 
-pub trait Calc {
-    fn calc(&mut self, value: &f64, multiplier: (f64, f64)) -> (f64, f64, f64, f64);
-}
-impl Calc for State {
-    /// Calculates TRIX for a single data point.
-    ///
-    /// Updates the triple-smoothed EMA state and computes TRIX as the percentage rate of
-    /// change between the current and previous EMA3 value.
-    ///
-    /// # Arguments
-    ///
-    /// * `state` - A mutable reference to the current TEMA indicator state.
-    /// * `value` - The current input data point.
-    /// * `multiplier` - A tuple of EMA smoothing factors `(multiplier, inv_multiplier)`.
-    ///
-    /// # Returns
-    ///
-    /// A tuple `(trix, tema, dema, ema)` containing the current TRIX, TEMA, DEMA, and EMA values.
-    #[inline(always)]
-    fn calc(&mut self, value: &f64, multiplier: (f64, f64)) -> (f64, f64, f64, f64) {
-        let prev_ema3 = self.ema3;
-        let (tema, dema, ema) = State::calc(self, value, multiplier);
-        // Compute TRIX as percentage change if previous TEMA is non-zero.
-        let trix = 100.0 * (self.ema3 - prev_ema3) / self.ema3;
-    
-        (trix, tema, dema, ema)
-    } 
-}
 
 
-pub fn init_state(
-    real: &[f64],
-    period: usize,
-    trix_capacity: usize,
-    out_vecs: (&mut [f64], &mut [f64], &mut [f64]),
-) -> State {
-    let remaining = real.len() - trix_capacity;
-    let (tema_line, dema_line, ema_line) = out_vecs;
-    let tema_capacity = tema_output_length(real.len(), &[period as f64]);
-    let mut state = State::init_state(real, period, tema_capacity, (dema_line, ema_line));
-    let mut i = real.len() - tema_capacity;
-    let multiplier = multiplier(period);
+pub struct Trix;
 
-    while i < remaining {
-        let value = &real[i];
-        let (tema, dema, ema) = State::calc(&mut state, value, multiplier);
+impl Indicator<INPUTS, OPTIONS> for Trix {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "trix",
+        full_name: "Triple Exponential Oscillator (TRIX)",
+        indicator_type: IndicatorType::Trend,
+        inputs: &["real"],
+        options: &["period"],
+        outputs: &["trix"],
+        optional_outputs: &["tema", "dema", "ema"],
+        display_groups: &[
+            DisplayGroup {
+                offset: None,
+                id: "trix",
+                label: "TRIX",
+                display_type: DisplayType::Indicator,
+                outputs: &["trix"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "tema_dema_ema",
+                label: "EMAs",
+                display_type: DisplayType::Overlay,
+                outputs: &["tema", "dema", "ema"],
+            },
+        ],
+    };
 
-        crate::init_store_optional_outputs!(i, real.len(),
-            tema_line => tema,
-            dema_line => dema,
-            ema_line => ema
-        );
-        i += 1;
+    fn min_data(options: &[f64; OPTIONS]) -> usize {
+        let period = options[0] as usize;
+        (period - 1) * 3 + 2
     }
-    state
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+
+        validate_inputs(inputs, Self::min_data(options))?;
+
+        let (
+            mut trix_line,
+            mut tema_line,
+            mut dema_line,
+            mut ema_line,
+            mut state,
+            real,
+        );
+        {
+            let len = inputs[0].len();
+            let capacity = Self::output_length(len, options);
+            let tema_cap = Tema::output_length(len, options);
+            let dema_cap = Dema::output_length(len, options);
+            let ema_cap = Ema::output_length(len, options);
+
+            // Initialize output storage: main TRIX line plus optional outputs (TEMA, DEMA, EMA)
+            trix_line = crate::uninit_vec!(f64, capacity);
+            (tema_line, dema_line, ema_line) = crate::init_optional_outputs_eff!(
+                optional_outputs, &[false, false, false],
+                tema_line: tema_cap,
+                dema_line: dema_cap,
+                ema_line: ema_cap
+            );
+            let period = options[0] as usize;
+            state = State::init_state(
+                inputs[0],
+                period,
+                capacity,
+                (&mut tema_line, &mut dema_line, &mut ema_line),
+            );
+            let start = len - capacity;
+            real = &inputs[0][start..]
+        }
+        let optional_outputs = {
+            let offsets =
+                crate::slice_outputs_start!(trix_line.len(), tema_line, dema_line, ema_line);
+            (
+                &mut tema_line[offsets.0..],
+                &mut dema_line[offsets.1..],
+                &mut ema_line[offsets.2..],
+            )
+        };
+
+        cycle_trix(real, &mut state, &mut trix_line, optional_outputs);
+
+        Ok((
+            vec![trix_line, tema_line, dema_line, ema_line],
+            state,
+        ))
+    }
 }

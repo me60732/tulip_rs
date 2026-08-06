@@ -37,16 +37,17 @@
 //!   Small extra cost vs fixed α: one `max` + one division per bar.
 
 use crate::common::validate_inputs;
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 use crate::indicators::{cybercycle, homodynediscriminator};
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
+use std::ops::{Deref, DerefMut};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 1;
+pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1; // [alpha]
+pub const OPTIONS: usize = 1; // [alpha]
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 #[cfg(feature = "simd_assets")]
@@ -70,108 +71,92 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::ccfisher_simd::indicator_by_options as indicator;
 }
 
-/// Metadata for the Ehlers CyberCycle Fisher indicator.
-pub const INFO: Info = Info {
-    name: "ccfisher",
-    indicator_type: IndicatorType::Momentum,
-    full_name: "Cyber Cycle Fisher",
-    inputs: &["real"],
-    options: &["alpha"],
-    outputs: &["fisher", "signal"],
-    optional_outputs: &["trendmode", "cycle", "peak"],
-    display_groups: &[
-        DisplayGroup {
-            offset: None,
-            id: "ccfisher",
-            label: "Ehlers CyberCycle Fisher",
-            display_type: DisplayType::Indicator,
-            outputs: &["fisher", "signal"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "ccfisher_trendmode",
-            label: "CCFisher TrendMode",
-            display_type: DisplayType::Indicator,
-            outputs: &["trendmode"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "ccfisher_cycle",
-            label: "CCFisher CyberCycle",
-            display_type: DisplayType::Indicator,
-            outputs: &["cycle"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "ccfisher_peak",
-            label: "CCFisher Peak",
-            display_type: DisplayType::Indicator,
-            outputs: &["peak"],
-        },
-    ],
-};
-
 /// Per-bar filter state for the Ehlers CyberCycle Fisher.
 ///
-/// Composes the full [`homodynediscriminator::State`] pipeline (adaptive DC period)
-/// and [`cybercycle::State`] (2-pole high-pass oscillator), then extends them with
-/// a decaying peak-amplitude latch, a smoothed normalised value (`val1`), and the
-/// previous Fisher value (`fish`) used as the signal line.
+/// Composes a [`homodynediscriminator::State`] and a [`cybercycle::State`],
+/// then extends them with a decaying peak-amplitude latch, a smoothed normalised
+/// value (`val1`), and the previous Fisher value (`fish`).
 ///
-/// **Warmup:** after [`init_state`](State::init_state) completes, all ring buffers
-/// are full and the IIR feedback is seeded.  The hot path (`calc_unchecked`)
-/// operates unconditionally.
+/// Implements [`Deref`]/[`DerefMut`] targeting [`cybercycle::State`] so CC fields
+/// (`coef`, `d1`, `d2`, `cycle_prev`, …) are accessible without `.cc.` indirection.
+///
+/// The `alpha` field drives the fixed/adaptive dispatch on every bar:
+/// - `alpha = 0.0` — adaptive: CC coefficients are re-derived each bar from
+///   the HD's `smooth_period` via [`cybercycle::adaptive_alpha`].
+/// - `alpha ∈ (0, 1)` — fixed: coefficients are set once in [`State::new`].
 #[derive(Serialize, Deserialize)]
-pub struct State {
+#[serde(bound = "")]
+pub struct State<S = Cold> {
     /// Embedded Homodyne Discriminator — provides `SmoothPeriod` (DC) per bar.
-    pub hd: homodynediscriminator::State,
-    /// Embedded CyberCycle oscillator — produces `Cycle` per bar.
-    pub cc: cybercycle::State,
+    pub hd: homodynediscriminator::State<S>,
+    /// Embedded CyberCycle oscillator — `coef/d1/d2` live here; no duplication.
+    pub cc: cybercycle::State<S>,
     /// Running peak amplitude: `max(pk[1] × 0.991, |Cycle|)`.
     pub pk: f64,
     /// Smoothed normalised value: `clamp(0.65×val1[1] + 0.35×(Cycle/Peak), ±0.999)`.
     pub val1: f64,
-    /// Fisher value from the previous bar — emitted as the signal (trigger) line.
+    /// Fisher value from the previous bar — emitted as the signal line.
     pub fish: f64,
+    /// `0.0` = adaptive; `(0, 1)` = fixed. Stored for `TState` dispatch and serde.
+    pub alpha: f64,
+    pub is_adaptive: bool,
 }
 
-impl State {
-    /// Creates a zeroed state ready for the first bar.
-    pub fn new() -> Self {
+impl<S> Deref for State<S> {
+    type Target = cybercycle::State<S>;
+    fn deref(&self) -> &Self::Target {
+        &self.cc
+    }
+}
+
+impl<S> DerefMut for State<S> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.cc
+    }
+}
+
+impl State<Cold> {
+    /// Creates a zeroed filter state with `alpha` embedded.
+    ///
+    /// For fixed alpha: CC coefficients (`coef/d1/d2`) are precomputed from `alpha`.
+    /// For adaptive (`alpha = 0.0`): CC coefficients are zeroed — they are updated
+    /// every bar from the HD's `smooth_period` before `cc.calc_unchecked` is called.
+    pub fn new(alpha: f64) -> Self {
         Self {
             hd: homodynediscriminator::State::new(),
-            cc: cybercycle::State::new(),
+            cc: if alpha > 0.0 {
+                cybercycle::State::new(alpha)
+            } else {
+                // Derived Default gives coef = d1 = d2 = 0.0 — overwritten each bar.
+                cybercycle::State::default()
+            },
             pk: 0.0,
             val1: 0.0,
             fish: 0.0,
+            alpha,
+            is_adaptive: alpha == 0.0,
         }
     }
 
-    /// Builds a warmed-up state by seeding the HD and CC pipelines over 55
-    /// bars, then processes bar 55 (the first valid output).
+    /// Builds a warmed-up state by seeding the HD and CC pipelines over 55 bars,
+    /// then processes bar 55 (the first valid output).
     ///
     /// **Three phases:**
-    /// 1. Bars 0–5:  CC seeding (second-difference formula) + `hd.calc()` (safe).
-    /// 2. Bars 6–21: `hd.calc()` (safe) + `cc.calc_unchecked()` + Fisher tracking.
+    /// 1. Bars 0–5:  CC seeding (second-difference) + `hd.calc()`.
+    /// 2. Bars 6–21: `hd.calc()` + `cc.calc_unchecked()` + Fisher tracking.
     /// 3. Bars 22–54: `hd.calc_unchecked()` + `cc.calc_unchecked()` + Fisher tracking.
     ///
-    /// Writes the first output values to the respective slices at index 0.
     /// Pass empty slices (`&mut []`) for any optional output that is not needed.
     pub fn init_state(
         real: &[f64],
-        alpha: f64, // 0.0 = adaptive; (0,1) = fixed
+        alpha: f64,
         fisher_line: &mut [f64],
         signal_line: &mut [f64],
         trendmode_line: &mut [f64],
         cycle_line: &mut [f64],
         peak_line: &mut [f64],
-    ) -> Self {
-        let mut state = Self::new();
-        let fixed_mults = if alpha > 0.0 {
-            Some(cybercycle::multiplier(alpha))
-        } else {
-            None
-        };
+    ) -> State<Warm> {
+        let mut state = Self::new(alpha);
 
         // ── Phase 1: bars 0–5 — CC seeding + HD warmup ───────────────────────
         for i in 0..6 {
@@ -194,11 +179,14 @@ impl State {
         // ── Phase 2: bars 6–21 — HD safe + CC unchecked + Fisher tracking ────
         for i in 6..22 {
             state.hd.calc(real[i]);
-            let mults = match fixed_mults {
-                Some(m) => m,
-                None => cybercycle::multiplier(cybercycle::adaptive_alpha(state.hd.smooth_period)),
-            };
-            let cycle = unsafe { state.cc.calc_unchecked(real[i], mults) };
+            if alpha == 0.0 {
+                let a = cybercycle::adaptive_alpha(state.hd.smooth_period);
+                let (coef, d1, d2) = cybercycle::multiplier(a);
+                state.cc.coef = coef;
+                state.cc.d1 = d1;
+                state.cc.d2 = d2;
+            }
+            let cycle = state.cc.calc(real[i]);
             state.pk = (state.pk * 0.991).max(cycle.abs());
             let value = if state.pk > 0.0 {
                 cycle / state.pk
@@ -212,12 +200,15 @@ impl State {
 
         // ── Phase 3: bars 22–54 — both unchecked + Fisher tracking ───────────
         for i in 22..55 {
-            unsafe { state.hd.calc_unchecked(real[i]) };
-            let mults = match fixed_mults {
-                Some(m) => m,
-                None => cybercycle::multiplier(cybercycle::adaptive_alpha(state.hd.smooth_period)),
-            };
-            let cycle = unsafe { state.cc.calc_unchecked(real[i], mults) };
+            state.hd.calc(real[i]);
+            if alpha == 0.0 {
+                let a = cybercycle::adaptive_alpha(state.hd.smooth_period);
+                let (coef, d1, d2) = cybercycle::multiplier(a);
+                state.cc.coef = coef;
+                state.cc.d1 = d1;
+                state.cc.d2 = d2;
+            }
+            let cycle = state.cc.calc(real[i]);
             state.pk = (state.pk * 0.991).max(cycle.abs());
             let value = if state.pk > 0.0 {
                 cycle / state.pk
@@ -231,9 +222,9 @@ impl State {
 
         // ── Bar 55: first valid output ────────────────────────────────────────
         let (fisher, signal) = if alpha == 0.0 {
-            unsafe { state.calc_unchecked_adaptive(real[55]) }
+            state.calc_adaptive(real[55])
         } else {
-            unsafe { state.calc_unchecked(real[55], fixed_mults.unwrap()) }
+            state.calc(real[55])
         };
         fisher_line[0] = fisher;
         signal_line[0] = signal;
@@ -251,104 +242,102 @@ impl State {
         if !peak_line.is_empty() {
             peak_line[0] = state.pk;
         }
-
-        state
-    }
-
-    /// Unsafe one-bar update — skips all ring-buffer fullness guards.
-    ///
-    /// After the call:
-    /// - `state.hd.smooth_period` = DC period (current bar)
-    /// - `state.cc.cycle_prev`    = Cycle (current bar)
-    /// - `state.pk`               = peak amplitude (current bar)
-    /// - `state.val1`             = smoothed normalised value (current bar)
-    /// - `state.fish`             = Fisher value (current bar)
-    ///
-    /// Returns `(fisher, signal)` where `signal` is the Fisher value from the
-    /// previous bar.
-    ///
-    /// # Safety
-    ///
-    /// All HD and CC ring buffers must be full on entry.
-    /// Guaranteed after [`init_state`](Self::init_state).
-    #[inline(always)]
-    pub unsafe fn calc_unchecked(
-        &mut self,
-        price: f64,
-        multipliers: (f64, f64, f64),
-    ) -> (f64, f64) {
-        self.hd.calc_unchecked(price);
-        let cycle = self.cc.calc_unchecked(price, multipliers);
-        self.pk = (self.pk * 0.991).max(cycle.abs());
-        let value = if self.pk > 0.0 { cycle / self.pk } else { 0.0 };
-        self.val1 = (0.65 * self.val1 + 0.35 * value).clamp(-0.999, 0.999);
-        let ln_arg = (1.0 + self.val1) / (1.0 - self.val1);
-        let fish = 0.5 * ln_arg.ln();
-        let signal = self.fish;
-        self.fish = fish;
-        (fish, signal)
-    }
-
-    /// Unsafe one-bar update using **adaptive alpha** derived from the HD's `smooth_period`.
-    ///
-    /// Returns `(fisher, signal)` where signal is Fisher[1] (previous bar).
-    ///
-    /// # Safety
-    /// All HD and CC ring buffers must be full on entry.
-    /// Guaranteed after [`init_state`](Self::init_state).
-    #[inline(always)]
-    pub unsafe fn calc_unchecked_adaptive(&mut self, price: f64) -> (f64, f64) {
-        self.hd.calc_unchecked(price);
-        let alpha = cybercycle::adaptive_alpha(self.hd.smooth_period);
-        let multipliers = cybercycle::multiplier(alpha);
-        let cycle = self.cc.calc_unchecked(price, multipliers);
-        self.pk = (self.pk * 0.991).max(cycle.abs());
-        let value = if self.pk > 0.0 { cycle / self.pk } else { 0.0 };
-        self.val1 = (0.65 * self.val1 + 0.35 * value).clamp(-0.999, 0.999);
-        let ln_arg = (1.0 + self.val1) / (1.0 - self.val1);
-        let fish = 0.5 * ln_arg.ln();
-        let signal = self.fish;
-        self.fish = fish;
-        (fish, signal)
-    }
-}
-
-impl Default for State {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Persistent state for streaming / multi-batch use.
-///
-/// Stores the precomputed filter coefficients alongside the filter state,
-/// mirroring the [`cybercycle::IndicatorState`] pattern.
-#[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    pub(crate) alpha: f64,
-    pub(crate) multipliers: (f64, f64, f64),
-    pub(crate) state: State,
-}
-
-impl IndicatorState {
-    pub fn new(state: State, alpha: f64) -> Self {
-        let multipliers = if alpha > 0.0 {
-            cybercycle::multiplier(alpha)
-        } else {
-            (0.0, 0.0, 0.0)
-        };
-        Self {
-            alpha,
-            multipliers,
-            state,
+        State {
+            hd: state.hd.into_full(),
+            cc: state.cc.into_full(),
+            pk: state.pk,
+            val1: state.val1,
+            fish: state.fish,
+            alpha: state.alpha,
+            is_adaptive: state.is_adaptive,
         }
     }
 }
+impl<S> State<S>
+where
+    for<'a> homodynediscriminator::State<S>: TState<Inputs<'a> = f64>,
+    for<'a> cybercycle::State<S>: TState<Inputs<'a> = f64, Outputs = f64>,
+{
+    #[inline(always)]
+    pub fn calc_adaptive(&mut self, price: f64) -> (f64, f64) {
+        self.hd.calc(price);
+        let alpha = cybercycle::adaptive_alpha(self.hd.smooth_period);
+        let (coef, d1, d2) = cybercycle::multiplier(alpha);
+        self.cc.coef = coef;
+        self.cc.d1 = d1;
+        self.cc.d2 = d2;
+        let cycle = self.cc.calc(price);
+        self.pk = (self.pk * 0.991).max(cycle.abs());
+        let value = if self.pk > 0.0 { cycle / self.pk } else { 0.0 };
+        self.val1 = (0.65 * self.val1 + 0.35 * value).clamp(-0.999, 0.999);
+        let ln_arg = (1.0 + self.val1) / (1.0 - self.val1);
+        let fish = 0.5 * ln_arg.ln();
+        let signal = self.fish;
+        self.fish = fish;
+        (fish, signal)
+    }
+    #[inline(always)]
+    pub fn calc_dispatch(&mut self, price: f64) -> (f64, f64) {
+        if self.is_adaptive {
+            self.calc_adaptive(price)
+        } else {
+            calc(self, price)
+        }
+    }
+}
+impl TState for State<Cold> {
+    type Inputs<'a> = f64;
+    type Outputs = (f64, f64);
+    #[inline(always)]
+    fn calc<'a>(&mut self, price: f64) -> Self::Outputs {
+        self.calc_dispatch(price)
+    }
+}
+impl TState for State<Warm>
+{
+    type Inputs<'a> = f64;
+    type Outputs = (f64, f64);
+    #[inline(always)]
+    fn calc<'a>(&mut self, price: f64) -> Self::Outputs {
+        self.calc_dispatch(price)
+    }
+}
 
-impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
+
+impl Default for State<Cold> {
+    fn default() -> Self {
+        Self::new(0.0)
+    }
+}
+#[inline(always)]
+fn calc<S>(state: &mut State<S>, price: f64) -> (f64, f64)
+where
+    for<'a> homodynediscriminator::State<S>: TState<Inputs<'a> = f64>,
+    for<'a> cybercycle::State<S>: TState<Inputs<'a> = f64, Outputs = f64>,
+{
+    state.hd.calc(price);
+    let cycle = state.cc.calc(price);
+    state.pk = (state.pk * 0.991).max(cycle.abs());
+    let value = if state.pk > 0.0 {
+        cycle / state.pk
+    } else {
+        0.0
+    };
+    state.val1 = (0.65 * state.val1 + 0.35 * value).clamp(-0.999, 0.999);
+    let ln_arg = (1.0 + state.val1) / (1.0 - state.val1);
+    let fish = 0.5 * ln_arg.ln();
+    let signal = state.fish;
+    state.fish = fish;
+    (fish, signal)
+}
+/// `IndicatorState` is `State` directly — `alpha` and `cc` coefficients live
+/// inside the state; no separate wrapper or duplicated multipliers field needed.
+pub type IndicatorState = State<Warm>;
+
+impl TIndicatorState<INPUTS> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -365,9 +354,7 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
 
         run_ccfisher(
             real,
-            &mut self.state,
-            self.alpha,
-            self.multipliers,
+            self,
             &mut fisher_line,
             &mut signal_line,
             &mut trendmode_line,
@@ -385,140 +372,25 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Public API
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Returns the minimum number of input bars required for any output.
-///
-/// Bars 0–54 are absorbed by the HD + CC + Fisher warmup; bar 55 is the first
-/// valid output.
-pub fn min_data(_options: &[f64]) -> usize {
-    56
-}
-
-
-/// Number of output bars for a given input length.
-pub fn output_length(data_len: usize, _options: &[f64]) -> usize {
-    data_len.saturating_sub(55)
-}
 
 /// Validates `alpha`.
 ///
 /// * `0.0` — adaptive (derived from `SmoothPeriod` each bar via the embedded HD).
 /// * `(0.0, 1.0)` — fixed user-supplied alpha. Ehlers' default is `0.07`.
-pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), IndicatorError> {
+pub(crate) fn validate_options(options: &[f64; OPTIONS]) -> Result<(), IndicatorError> {
     if options[0] < 0.0 || options[0] >= 1.0 {
         return Err(IndicatorError::InvalidOptions);
     }
     Ok(())
 }
 
-/// Calculates the Ehlers CyberCycle Fisher over the full input dataset.
+/// Shared hot loop used by both `CcFisher::indicator` and `batch_indicator`.
 ///
-/// # Inputs
-///
-/// * `inputs[0]` — close (or HLC/3) price series
-///
-/// # Options
-///
-/// * `options[0]` — `alpha` ∈ (0, 1).  Ehlers' default is `0.07`.
-///
-/// # Outputs
-///
-/// * `outputs[0]` — `fisher`:    Fisher Transform value
-/// * `outputs[1]` — `signal`:    trigger line = Fisher[1]
-/// * `outputs[2]` — `trendmode`: `1.0` = Trend, `0.0` = Cycle (optional)
-/// * `outputs[3]` — `cycle`:     raw CyberCycle oscillator (optional)
-/// * `outputs[4]` — `peak`:      decaying amplitude peak (optional)
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `state` can be used for streaming via
-/// [`IndicatorState::batch_indicator`].  Returns `Err` if inputs are too short
-/// or `alpha` is outside `(0, 1)`.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    validate_inputs(inputs, min_data(options))?;
-
-    let alpha = options[0];
-    let multipliers = if alpha > 0.0 {
-        cybercycle::multiplier(alpha)
-    } else {
-        (0.0, 0.0, 0.0)
-    };
-    let real = inputs[0];
-    let n = real.len();
-    let capacity = output_length(n, options);
-
-    let mut fisher_line = crate::uninit_vec!(f64, capacity);
-    let mut signal_line = crate::uninit_vec!(f64, capacity);
-    let (mut trendmode_line, mut cycle_line, mut peak_line) = crate::init_optional_outputs_eff!(
-        optional_outputs, &[false, false, false],
-        trendmode_line: capacity,
-        cycle_line: capacity,
-        peak_line: capacity
-    );
-
-    // init_state seeds bars 0–54 and processes bar 55 (output index 0).
-    let mut state = State::init_state(
-        real,
-        alpha,
-        &mut fisher_line,
-        &mut signal_line,
-        &mut trendmode_line,
-        &mut cycle_line,
-        &mut peak_line,
-    );
-
-    let (trendmode_tail, cycle_tail, peak_tail) = {
-        let o = crate::slice_outputs_start!(capacity - 1, trendmode_line, cycle_line, peak_line);
-        (
-            &mut trendmode_line[o.0..],
-            &mut cycle_line[o.1..],
-            &mut peak_line[o.2..],
-        )
-    };
-
-    // Process bars 56..n (output indices 1..capacity).
-    run_ccfisher(
-        &real[min_data(options)..],
-        &mut state,
-        alpha,
-        multipliers,
-        &mut fisher_line[1..],
-        &mut signal_line[1..],
-        trendmode_tail,
-        cycle_tail,
-        peak_tail,
-    );
-
-    Ok((
-        vec![
-            fisher_line,
-            signal_line,
-            trendmode_line,
-            cycle_line,
-            peak_line,
-        ],
-        IndicatorState::new(state, alpha),
-    ))
-}
-
-/// Shared hot loop used by both `indicator` and `batch_indicator`.
-///
-/// All HD and CC ring buffers must be full on entry (guaranteed after
-/// `init_state`).  Writes `fisher` and `signal` for every bar, and optionally
-/// `trendmode`, `cycle`, and `peak`.
+/// All HD and CC ring buffers must be full on entry (guaranteed after `init_state`).
+/// Dispatches to adaptive or fixed path via `state.alpha`.
 fn run_ccfisher(
     real: &[f64],
-    state: &mut State,
-    alpha: f64,
-    multipliers: (f64, f64, f64),
+    state: &mut State<Warm>,
     fisher_line: &mut [f64],
     signal_line: &mut [f64],
     trendmode_line: &mut [f64],
@@ -527,9 +399,10 @@ fn run_ccfisher(
 ) {
     let (has_optional, want_trendmode, want_cycle, want_peak) =
         crate::calc_want_flags!(trendmode_line, cycle_line, peak_line);
-    if alpha == 0.0 {
+
+    if state.alpha == 0.0 {
         for i in 0..real.len() {
-            let (fisher, signal) = unsafe { state.calc_unchecked_adaptive(*real.get_unchecked(i)) };
+            let (fisher, signal) = state.calc_adaptive(unsafe { *real.get_unchecked(i) });
             unsafe {
                 *fisher_line.get_unchecked_mut(i) = fisher;
                 *signal_line.get_unchecked_mut(i) = signal;
@@ -551,8 +424,7 @@ fn run_ccfisher(
         }
     } else {
         for i in 0..real.len() {
-            let (fisher, signal) =
-                unsafe { state.calc_unchecked(*real.get_unchecked(i), multipliers) };
+            let (fisher, signal) = state.calc(unsafe { *real.get_unchecked(i) });
             unsafe {
                 *fisher_line.get_unchecked_mut(i) = fisher;
                 *signal_line.get_unchecked_mut(i) = signal;
@@ -572,5 +444,126 @@ fn run_ccfisher(
                 );
             }
         }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Indicator trait
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Zero-sized marker type for the `Indicator` trait impl.
+pub struct CcFisher;
+
+impl Indicator<INPUTS, OPTIONS> for CcFisher {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "ccfisher",
+        indicator_type: IndicatorType::Momentum,
+        full_name: "Cyber Cycle Fisher",
+        inputs: &["real"],
+        options: &["alpha"],
+        outputs: &["fisher", "signal"],
+        optional_outputs: &["trendmode", "cycle", "peak"],
+        display_groups: &[
+            DisplayGroup {
+                offset: None,
+                id: "ccfisher",
+                label: "Ehlers CyberCycle Fisher",
+                display_type: DisplayType::Indicator,
+                outputs: &["fisher", "signal"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "ccfisher_trendmode",
+                label: "CCFisher TrendMode",
+                display_type: DisplayType::Indicator,
+                outputs: &["trendmode"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "ccfisher_cycle",
+                label: "CCFisher CyberCycle",
+                display_type: DisplayType::Indicator,
+                outputs: &["cycle"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "ccfisher_peak",
+                label: "CCFisher Peak",
+                display_type: DisplayType::Indicator,
+                outputs: &["peak"],
+            },
+        ],
+    };
+
+    /// Fixed at 56 bars — 55-bar warmup (HD + CC seeding + Fisher), first output at bar 55.
+    fn min_data(_options: &[f64; OPTIONS]) -> usize {
+        56
+    }
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        validate_inputs(inputs, Self::min_data(options))?;
+
+        let alpha = options[0];
+        let real = inputs[0];
+        let n = real.len();
+        let capacity = Self::output_length(n, options);
+
+        let mut fisher_line = crate::uninit_vec!(f64, capacity);
+        let mut signal_line = crate::uninit_vec!(f64, capacity);
+        let (mut trendmode_line, mut cycle_line, mut peak_line) = crate::init_optional_outputs_eff!(
+            optional_outputs, &[false, false, false],
+            trendmode_line: capacity,
+            cycle_line: capacity,
+            peak_line: capacity
+        );
+
+        // init_state seeds bars 0–54 and processes bar 55 (output index 0).
+        let mut state = State::init_state(
+            real,
+            alpha,
+            &mut fisher_line,
+            &mut signal_line,
+            &mut trendmode_line,
+            &mut cycle_line,
+            &mut peak_line,
+        );
+
+        let (trendmode_tail, cycle_tail, peak_tail) = {
+            let o =
+                crate::slice_outputs_start!(capacity - 1, trendmode_line, cycle_line, peak_line);
+            (
+                &mut trendmode_line[o.0..],
+                &mut cycle_line[o.1..],
+                &mut peak_line[o.2..],
+            )
+        };
+
+        // Process bars 56..n (output indices 1..capacity).
+        run_ccfisher(
+            &real[Self::min_data(options)..],
+            &mut state,
+            &mut fisher_line[1..],
+            &mut signal_line[1..],
+            trendmode_tail,
+            cycle_tail,
+            peak_tail,
+        );
+
+        Ok((
+            vec![
+                fisher_line,
+                signal_line,
+                trendmode_line,
+                cycle_line,
+                peak_line,
+            ],
+            state,
+        ))
     }
 }

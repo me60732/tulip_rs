@@ -1,7 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::dm::{
-    indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState,
-};
+use tulip_rs::indicators::dm::{indicator_by_assets, indicator_by_options};
+use tulip_rs::indicators::dm::{Dm, Indicator, TIndicatorState, IndicatorState};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_dm, ti_dm_start};
@@ -138,7 +137,8 @@ fn bench_rust_dm(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, None); //.expect("DM indicator failed");
+                        let result =
+                            Dm::indicator(&inputs, &options, None).expect("DM indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -157,7 +157,8 @@ fn bench_rust_dm(c: &mut Criterion) {
             group.bench_function("benchmark", |b| {
                 b.iter(|| {
                     let inputs = [high.as_slice(), low.as_slice()];
-                    let result = indicator(&inputs, &options, None).expect("DM indicator failed");
+                    let result =
+                        Dm::indicator(&inputs, &options, None).expect("DM indicator failed");
                     black_box(&result);
                 });
             });
@@ -184,12 +185,12 @@ fn bench_rust_dm_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                        let min_data_val = Dm::min_data(&options).max(CHUNK_SIZE);
                         // First chunk
                         let chunk_inputs = [&high[..min_data_val], &low[..min_data_val]];
 
                         let (_, mut state) =
-                            indicator(&chunk_inputs, &options, None).expect("DM indicator failed");
+                            Dm::indicator(&chunk_inputs, &options, None).expect("DM indicator failed");
 
                         // Chunks
                         let mut high_chunks = high[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -228,7 +229,7 @@ fn bench_rust_dm_from_state(c: &mut Criterion) {
                     let new_inputs = [&high[..high.len() - 1], &low[..low.len() - 1]];
                     let final_inputs = [&high[high.len() - 1..], &low[low.len() - 1..]];
                     let (_, mut state) =
-                        indicator(&new_inputs, &options, None).expect("Rust DM indicator failed");
+                        Dm::indicator(&new_inputs, &options, None).expect("Rust DM indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -251,7 +252,7 @@ fn bench_rust_dm_from_state(c: &mut Criterion) {
                     );
 
                     let (_, state) =
-                        indicator(&new_inputs, &options, None).expect("Rust DM indicator failed");
+                        Dm::indicator(&new_inputs, &options, None).expect("Rust DM indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -289,12 +290,12 @@ fn bench_rust_dm_from_state(c: &mut Criterion) {
 
             group.bench_function("benchmark", |b| {
                 b.iter(|| {
-                    let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                    let min_data_val = Dm::min_data(&options).max(CHUNK_SIZE);
                     // First chunk
                     let chunk_inputs = [&high[..min_data_val], &low[..min_data_val]];
 
                     let (_, mut state) =
-                        indicator(&chunk_inputs, &options, None).expect("DM indicator failed");
+                        Dm::indicator(&chunk_inputs, &options, None).expect("DM indicator failed");
 
                     // Chunks
                     let mut high_chunks = high[min_data_val..].chunks_exact(CHUNK_SIZE);

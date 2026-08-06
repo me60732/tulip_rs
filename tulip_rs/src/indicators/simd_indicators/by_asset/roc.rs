@@ -1,6 +1,6 @@
 //use crate::common::validate_inputs;
 use crate::indicators::roc::{
-    min_data, output_length, IndicatorState, INPUTS_WIDTH, OPTIONS_WIDTH,
+    Roc, Indicator, IndicatorState, INPUTS, OPTIONS,
 };
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
@@ -58,7 +58,7 @@ impl Driver<bool> for RocDriver {
 /// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[real]` for asset `i`.
 /// * `options` - `[period]` — the look-back period for the rate-of-change calculation.
 /// * `optional_outputs` - Optional slice of booleans enabling extra outputs:
@@ -70,11 +70,11 @@ impl Driver<bool> for RocDriver {
 /// `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, Roc::min_data(options))?;
     validate_options(options)?;
     let period = options[0] as usize;
 
@@ -85,7 +85,7 @@ pub fn indicator_by_assets<const N: usize>(
     for i in 0..inputs.len() {
         let asset_inputs = vec![inputs[i][0]];
         let (roc_line, mom_line) = {
-            let capacity = output_length(inputs[i][0].len(), options);
+            let capacity = Roc::output_length(inputs[i][0].len(), options);
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::init_optional_outputs_eff!(

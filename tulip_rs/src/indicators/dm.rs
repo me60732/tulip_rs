@@ -1,15 +1,15 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
 use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
+    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold
 };
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 2;
+pub const INPUTS: usize = 2;
 
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -42,108 +42,64 @@ pub mod by_options {
     /// See the parent module's [`super::indicator_by_options`] for full documentation.
     pub use crate::indicators::simd_indicators::dm_simd::indicator_by_options as indicator;
 }
-/// Returns information about the Directional Movement (DM) indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the DM indicator.
-pub const INFO: Info = Info {
-    name: "dm",
-    full_name: "Directional Movement",
-    indicator_type: IndicatorType::Trend,
-    inputs: &["high", "low"],
-    options: &["period"],
-    outputs: &["plus_dm", "minus_dm"],
-    optional_outputs: &[],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "dm",
-        label: "DM",
-        display_type: DisplayType::Indicator,
-        outputs: &["plus_dm", "minus_dm"],
-    }],
-};
+
 #[derive(Serialize, Deserialize)]
-pub struct State {
+#[serde(bound = "")]
+pub struct State<S = Cold> {
     pub dmup: f64,
     pub dmdown: f64,
+    pub multiplier: f64,
     pub prev_high: f64,
     pub prev_low: f64,
+    pub(crate) state: std::marker::PhantomData<S>,
 }
-#[derive(Serialize, Deserialize)]
-pub struct IndicatorState {
-    state: State,
-    multiplier: f64,
-}
-impl IndicatorState {
-    pub fn new(state: State, multiplier: f64) -> Self {
-        Self { state, multiplier }
+
+pub type IndicatorState = State<Warm>;
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64);
+    type Outputs = (f64, f64);
+    
+    #[inline(always)]
+    fn calc<'a>(&mut self, (high, low): Self::Inputs<'a>) -> Self::Outputs {
+        let (dp, dm) = self.calc_dp_dm(high, low);
+        self.calc_dmup_dmdown(dp, dm);
+        (self.dmup, self.dmdown)
     }
 }
-impl TIndicatorState<2> for IndicatorState {
-    fn batch_indicator(
-        &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
-        _optional_outputs: Option<&[bool]>,
-    ) -> Result<Vec<Vec<f64>>, IndicatorError> {
-        validate_inputs(inputs, 1)?;
-
-        let (mut plus_dm_line, mut minus_dm_line) = {
-            let capacity = inputs[0].len();
-            (
-                crate::uninit_vec!(f64, capacity),
-                crate::uninit_vec!(f64, capacity),
-            )
-        };
-        let [high, low] = inputs;
-        cycle_calc(
-            high,
-            low,
-            &mut self.state,
-            self.multiplier,
-            &mut plus_dm_line,
-            &mut minus_dm_line,
-        );
-
-        Ok(vec![plus_dm_line, minus_dm_line])
-    }
-}
-impl State {
-    pub fn new(dmup: f64, dmdown: f64, prev_high: f64, prev_low: f64) -> Self {
+impl State<Cold> {
+    pub fn new(dmup: f64, dmdown: f64, prev_high: f64, prev_low: f64, multiplier: f64) -> Self {
         Self {
             dmup,
             dmdown,
             prev_high,
             prev_low,
+            multiplier,
+            state: std::marker::PhantomData,
         }
     }
-    pub fn init_state(high: &[f64], low: &[f64], period: usize) -> State {
-        let mut state = State::new(0.0, 0.0, high[0], low[0]);
+    pub(crate) fn into_warm(self) -> State<Warm> {
+        State {
+            dmup: self.dmup,
+            dmdown: self.dmdown,
+            prev_high: self.prev_high,
+            prev_low: self.prev_low,
+            multiplier: self.multiplier,
+            state: std::marker::PhantomData,
+        }
+    }
+    pub fn init_state(high: &[f64], low: &[f64], period: usize) -> State<Warm> {
+        let multiplier = multiplier(period);
+        let mut state = State::new(0.0, 0.0, high[0], low[0], multiplier);
         for (&h, &l) in high.iter().zip(low.iter()).take(period).skip(1) {
             let (dp, dm) = state.calc_dp_dm(h, l);
             state.dmup += dp;
             state.dmdown += dm;
         }
-        state
+        state.into_warm()
     }
-    /// Calculates the smoothed DM+ and DM- values for the current bar.
-    ///
-    /// # Arguments
-    ///
-    /// * `state` - Mutable reference to the DM state.
-    /// * `high` - The current high price.
-    /// * `low` - The current low price.
-    ///
-    /// # Returns
-    ///
-    /// A tuple `(plus_dm, minus_dm)` of the smoothed directional movement values.
-    #[inline(always)]
-    pub fn calc(&mut self, high: f64, low: f64, multiplier: f64) -> (f64, f64) {
-        let (dp, dm) = self.calc_dp_dm(high, low);
-        self.calc_dmup_dmdown(dp, dm, multiplier);
-        (self.dmup, self.dmdown)
-    }
-    
+}
+impl<S> State<S> {
+
     /// Applies Wilder's smoothing to update DM+ and DM- in state.
     ///
     /// # Arguments
@@ -156,11 +112,11 @@ impl State {
     ///
     /// A tuple `(dmup, dmdown)` of the updated smoothed directional movement values.
     #[inline(always)]
-    fn calc_dmup_dmdown(&mut self, dp: f64, dm: f64, multiplier: f64) -> (f64, f64) {
+    fn calc_dmup_dmdown(&mut self, dp: f64, dm: f64) -> (f64, f64) {
         //state.dmup = state.multiplier * state.dmup + dp;
-        self.dmup = self.dmup.mul_add(multiplier, dp);
+        self.dmup = self.dmup.mul_add(self.multiplier, dp);
         //state.dmdown = state.multiplier * state.dmdown + dm;
-        self.dmdown = self.dmdown.mul_add(multiplier, dm);
+        self.dmdown = self.dmdown.mul_add(self.multiplier, dm);
         (self.dmup, self.dmdown)
     }
     /// Calculates the raw DM+ and DM- values for the current bar.
@@ -203,87 +159,35 @@ impl State {
         (dp, dm)
     }
 }
-/// Returns the minimum amount of data required for the DM indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the DM calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    options[0] as usize + 1
-}
-/// Returns the number of output values given an input data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the DM calculation.
-///
-/// # Returns
-///
-/// The number of output values (`data_len - min_data(options) + 1`).
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-/// Calculates the Directional Movement (DM) indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — high prices
-/// * `inputs[1]` — low prices
-///
-/// # Options
-///
-/// * `options[0]` — period (Wilder smoothing window for DM+ / DM-)
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `_optional_outputs` - Unused; DM has no optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is `plus_dm`, `outputs[1]` is `minus_dm`,
-/// and `state` can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    _optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let period = options[0] as usize;
+impl TIndicatorState<2> for IndicatorState {
+    fn batch_indicator(
+        &mut self,
+        inputs: &[&[f64]; INPUTS],
+        _optional_outputs: Option<&[bool]>,
+    ) -> Result<Vec<Vec<f64>>, IndicatorError> {
+        validate_inputs(inputs, 1)?;
 
-    validate_inputs(inputs, min_data(options))?;
-    let multiplier = multiplier(period);
-    let (mut plus_dm_line, mut minus_dm_line) = {
-        let capacity: usize = output_length(inputs[0].len(), options);
-        (
-            crate::uninit_vec!(f64, capacity),
-            crate::uninit_vec!(f64, capacity),
-        )
-    };
+        let (mut plus_dm_line, mut minus_dm_line) = {
+            let capacity = inputs[0].len();
+            (
+                crate::uninit_vec!(f64, capacity),
+                crate::uninit_vec!(f64, capacity),
+            )
+        };
+        let [high, low] = inputs;
+        cycle_calc(
+            high,
+            low,
+            self,
+            &mut plus_dm_line,
+            &mut minus_dm_line,
+        );
 
-    let mut state = State::init_state(inputs[0], inputs[1], period);
-    let (high, low) = (&inputs[0][period..], &inputs[1][period..]);
-    cycle_calc(
-        high,
-        low,
-        &mut state,
-        multiplier,
-        &mut plus_dm_line,
-        &mut minus_dm_line,
-    );
-
-    Ok((
-        vec![plus_dm_line, minus_dm_line],
-        IndicatorState::new(state, multiplier),
-    ))
+        Ok(vec![plus_dm_line, minus_dm_line])
+    }
 }
+
+
 /// Performs the main calculation loop for the DM indicator.
 ///
 /// # Arguments
@@ -296,15 +200,14 @@ pub fn indicator(
 fn cycle_calc(
     high: &[f64],
     low: &[f64],
-    state: &mut State,
-    multiplier: f64,
+    state: &mut State<Warm>,
     plus_dm_line: &mut [f64],
     minus_dm_line: &mut [f64],
 ) {
     for i in 0..high.len() {
         unsafe {
-            let (h, l) = (*high.get_unchecked(i), *low.get_unchecked(i));
-            let (dmup, dmdown) = state.calc(h, l, multiplier);
+            let inputs = (*high.get_unchecked(i), *low.get_unchecked(i));
+            let (dmup, dmdown) = state.calc(inputs);
             *plus_dm_line.get_unchecked_mut(i) = dmup;
             *minus_dm_line.get_unchecked_mut(i) = dmdown;
         }
@@ -316,4 +219,58 @@ fn cycle_calc(
 #[inline]
 pub fn multiplier(period: usize) -> f64 {
     ((period - 1) as f64) / period as f64
+}
+
+pub struct Dm;
+
+impl Indicator<INPUTS, OPTIONS> for Dm {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "dm",
+        full_name: "Directional Movement",
+        indicator_type: IndicatorType::Trend,
+        inputs: &["high", "low"],
+        options: &["period"],
+        outputs: &["plus_dm", "minus_dm"],
+        optional_outputs: &[],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "dm",
+            label: "DM",
+            display_type: DisplayType::Indicator,
+            outputs: &["plus_dm", "minus_dm"],
+        }],
+    };
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        _optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        let period = options[0] as usize;
+    
+        validate_inputs(inputs, Self::min_data(options))?;
+        let (mut plus_dm_line, mut minus_dm_line) = {
+            let capacity: usize = Self::output_length(inputs[0].len(), options);
+            (
+                crate::uninit_vec!(f64, capacity),
+                crate::uninit_vec!(f64, capacity),
+            )
+        };
+    
+        let mut state = State::init_state(inputs[0], inputs[1], period);
+        let (high, low) = (&inputs[0][period..], &inputs[1][period..]);
+        cycle_calc(
+            high,
+            low,
+            &mut state,
+            &mut plus_dm_line,
+            &mut minus_dm_line,
+        );
+    
+        Ok((
+            vec![plus_dm_line, minus_dm_line],
+            state,
+        ))
+    }
 }

@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use tulip_rs::indicators::chaikinmf::{
-        indicator as rust_chaikinmf, indicator_by_assets, indicator_by_options, min_data,
+        ChaikinMf, Indicator, indicator_by_assets, indicator_by_options,
         TIndicatorState,
     };
     use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -64,7 +64,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             let (outputs, _) =
-                rust_chaikinmf(&inputs, &options, None).expect("Chaikin MF indicator failed");
+                ChaikinMf::indicator(&inputs, &options, None).expect("Chaikin MF indicator failed");
 
             assert_eq!(
                 outputs.len(),
@@ -123,12 +123,12 @@ mod tests {
             ];
 
             for options in OPTIONS_LIST {
-                if high.len() < min_data(&options) {
+                if high.len() < ChaikinMf::min_data(&options) {
                     continue;
                 }
 
                 let (outputs, _) =
-                    rust_chaikinmf(&inputs, &options, None).expect("Chaikin MF indicator failed");
+                    ChaikinMf::indicator(&inputs, &options, None).expect("Chaikin MF indicator failed");
 
                 let cmf = &outputs[0];
 
@@ -168,15 +168,15 @@ mod tests {
             ];
 
             for options in OPTIONS_LIST {
-                if high.len() < min_data(&options) {
+                if high.len() < ChaikinMf::min_data(&options) {
                     continue;
                 }
 
                 // Full one-shot output.
-                let (full_outputs, _) = rust_chaikinmf(&inputs_rust, &options, None)
+                let (full_outputs, _) = ChaikinMf::indicator(&inputs_rust, &options, None)
                     .expect("Failed to run Chaikin MF indicator on full data");
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = ChaikinMf::min_data(&options).max(CHUNK_SIZE);
                 let mut batch_full_output: Vec<f64> = Vec::new();
 
                 if high.len() <= min_data_val {
@@ -190,7 +190,7 @@ mod tests {
                         &close[..min_data_val],
                         &volume[..min_data_val],
                     ];
-                    let (first_outputs, mut state) = rust_chaikinmf(&chunk_inputs, &options, None)
+                    let (first_outputs, mut state) = ChaikinMf::indicator(&chunk_inputs, &options, None)
                         .expect("Failed to run Chaikin MF on first chunk");
                     batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -320,7 +320,7 @@ mod tests {
                     volume.as_slice(),
                 ];
                 let (scalar_outputs, _) =
-                    rust_chaikinmf(&scalar_inputs, &options, None).expect("Rust ChaikinMF failed");
+                    ChaikinMf::indicator(&scalar_inputs, &options, None).expect("Rust ChaikinMF failed");
 
                 let simd_cmf = &simd_results[asset_idx][0];
                 let scalar_cmf = &scalar_outputs[0];
@@ -369,11 +369,11 @@ mod tests {
                 .expect("SIMD by-options ChaikinMF failed");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
-                if high.len() < min_data(options) {
+                if high.len() < ChaikinMf::min_data(options) {
                     continue;
                 }
                 let (scalar_outputs, _) =
-                    rust_chaikinmf(&inputs, options, None).expect("Rust ChaikinMF failed");
+                    ChaikinMf::indicator(&inputs, options, None).expect("Rust ChaikinMF failed");
 
                 let simd_cmf = &simd_results[opt_idx][0];
                 let scalar_cmf = &scalar_outputs[0];
@@ -483,7 +483,7 @@ mod tests {
                     volume.as_slice(),
                 ];
                 let (scalar_outputs, _) =
-                    rust_chaikinmf(&scalar_inputs, &options, None).expect("Rust ChaikinMF failed");
+                    ChaikinMf::indicator(&scalar_inputs, &options, None).expect("Rust ChaikinMF failed");
 
                 assert_eq!(
                     batch_cmf.len(),
@@ -569,7 +569,7 @@ mod tests {
                     volume.as_slice(),
                 ];
                 let (scalar_outputs, _) =
-                    rust_chaikinmf(&scalar_inputs, options, None).expect("Rust ChaikinMF failed");
+                    ChaikinMf::indicator(&scalar_inputs, options, None).expect("Rust ChaikinMF failed");
 
                 assert_eq!(
                     batch_cmf.len(),

@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::stochrsi::{indicator, min_data, TIndicatorState};
+    use tulip_rs::indicators::stochrsi::{StochRsi, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_rsi, ti_rsi_start, ti_stochrsi, ti_stochrsi_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
     const EPSILON: f64 = 1e-10;
@@ -69,7 +69,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                indicator(&inputs_rust, &options, None).expect("Rust STOCHRSI indicator failed");
+                StochRsi::indicator(&inputs_rust, &options, None).expect("Rust STOCHRSI indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -158,7 +158,7 @@ mod tests {
                 assert_eq!(ret, 0, "ti_min returned error code {}", ret);
 
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) = indicator(&inputs_rust, &options, None)
+                let (outputs, _) = StochRsi::indicator(&inputs_rust, &options, None)
                     .expect("Rust StochRSI indicator failed");
                 let rust_output = outputs[0].clone();
                 /* let inputs = [&close[200..].to_vec()];
@@ -231,19 +231,19 @@ mod tests {
                 let inputs_rust = [close.as_slice()];
 
                 // Get full output from processing all data at once
-                let (full_outputs, _) = indicator(&inputs_rust, &options, None)
+                let (full_outputs, _) = StochRsi::indicator(&inputs_rust, &options, None)
                     .expect("Rust StochRSI indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_outputs = vec![Vec::new(); full_outputs.len()];
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = StochRsi::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let close_vec = close[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice()];
 
-                let (first_outputs, mut state) = indicator(&chunk_inputs, &options, None)
+                let (first_outputs, mut state) = StochRsi::indicator(&chunk_inputs, &options, None)
                     .expect("Rust StochRSI indicator failed");
                 for output_idx in 0..first_outputs.len() {
                     batch_full_outputs[output_idx].extend_from_slice(&first_outputs[output_idx]);
@@ -313,7 +313,7 @@ mod tests {
         for options in OPTIONS_LIST {
             // Get Rust StochRSI with RSI optional output enabled
             let inputs_rust = [close.as_slice()];
-            let (outputs, _) = indicator(&inputs_rust, &options, Some(&[true]))
+            let (outputs, _) = StochRsi::indicator(&inputs_rust, &options, Some(&[true]))
                 .expect("Rust StochRSI indicator failed");
 
             assert!(!outputs.is_empty(), "StochRSI outputs should not be empty");
@@ -415,7 +415,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get STOCHRSI with RSI optional output
                 let optional_outputs = Some(&[true][..]);
-                let (stochrsi_result, _) = tulip_rs::indicators::stochrsi::indicator(
+                let (stochrsi_result, _) = tulip_rs::indicators::stochrsi::StochRsi::indicator(
                     &[&close],
                     &[options[0]],
                     optional_outputs,
@@ -510,7 +510,7 @@ mod tests {
                 for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                     // Get regular indicator result for this stock
                     let stock_inputs = [stock_close.as_slice()];
-                    let (regular_results, _) = indicator(&stock_inputs, &options, None)
+                    let (regular_results, _) = StochRsi::indicator(&stock_inputs, &options, None)
                         .expect("Regular STOCHRSI indicator failed");
 
                     let simd_result = &simd_results[stock_idx][0];
@@ -604,7 +604,7 @@ mod tests {
                 for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                     // Get regular indicator result for this stock with optional outputs
                     let stock_inputs = [stock_close.as_slice()];
-                    let (regular_results, _) = indicator(&stock_inputs, &options, Some(&[true]))
+                    let (regular_results, _) = StochRsi::indicator(&stock_inputs, &options, Some(&[true]))
                         .expect("Regular STOCHRSI indicator failed");
 
                     let simd_stochrsi_result = &simd_results[stock_idx][0];
@@ -722,7 +722,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    indicator(&inputs, options, None).expect("Regular STOCHRSI indicator failed");
+                    StochRsi::indicator(&inputs, options, None).expect("Regular STOCHRSI indicator failed");
 
                 let simd_result = &all_simd_results[idx];
                 let regular_result = &regular_results;
@@ -819,7 +819,7 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result with optional outputs
-                let (regular_results, _) = indicator(&inputs, options, Some(&[true]))
+                let (regular_results, _) = StochRsi::indicator(&inputs, options, Some(&[true]))
                     .expect("Regular STOCHRSI indicator failed");
 
                 let simd_result = &all_simd_results[idx];

@@ -1,19 +1,18 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::TIndicatorState;
-use crate::indicators::ad::calc as calc_ad;
-use crate::indicators::ad::output_length as ad_output_length;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 /// Number of input price series required by this indicator.
-pub use crate::indicators::ad::INPUTS_WIDTH;
+pub use crate::indicators::ad::INPUTS;
+use crate::indicators::ad::{Ad, State as AdState};
 use crate::indicators::{
-    ema::{multiplier as ema_multiplier, output_length as ema_output_length},
+    ema::{multiplier as ema_multiplier, Ema},
     simd_indicators::ema_simd::{multiplier_simd, SimdState as EmaSimdState},
 };
 
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
+use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
 use serde::{Deserialize, Serialize};
 use std::simd::Simd;
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 2;
+pub const OPTIONS: usize = 2;
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
 #[cfg(feature = "simd_assets")]
@@ -46,44 +45,61 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::adosc_simd::indicator_by_options as indicator;
 }
 
-/// Returns information about the Accumulation/Distribution Oscillator (ADOSC) indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the ADOSC indicator.
-pub const INFO: Info = Info {
-    name: "adosc",
-    full_name: "Accumulation/Distribution Oscillator (Chaikin Oscillator)",
-    indicator_type: IndicatorType::Volume,
-    inputs: &["high", "low", "close", "volume"],
-    options: &["short_period", "long_period"],
-    outputs: &["adosc"],
-    optional_outputs: &["short_ema", "long_ema", "ad"],
-    display_groups: &[
-        DisplayGroup {
-            offset: None,
-            id: "adosc",
-            label: "ADOSC",
-            display_type: DisplayType::Indicator,
-            outputs: &["adosc"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "Accumulation/Distribution",
-            label: "AD EMAs",
-            display_type: DisplayType::Indicator,
-            outputs: &["short_ema", "long_ema", "ad"],
-        },
-    ],
-};
-
-pub type IndicatorState = State;
+pub type IndicatorState = State<Warm>;
 #[derive(Serialize, Deserialize)]
-pub struct State {
-    pub ad: f64,
-    pub ema_state: EmaSimdState<2>
+#[serde(bound="")]
+pub struct State<S = Cold> {
+    pub ema_state: EmaSimdState<2>,
+    pub ad_state: AdState,
+    pub(crate) state: std::marker::PhantomData<S>
 }
-impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
+impl State<Cold> {
+    pub fn init_state(
+        inputs: &[&[f64]; INPUTS],
+        periods: (usize, usize),
+        out_vecs: (&mut [f64], &mut [f64]),
+    ) -> State<Warm> {
+        let (high, low, close, volume) = (inputs[0], inputs[1], inputs[2], inputs[3]);
+        let (short_period, long_period) = periods;
+        let (short_ema_line, ad_line) = out_vecs;
+
+        let multipliers = multiplier_simd([short_period, long_period]);
+        let (mut ad_state, mut ema_state) = (
+            AdState::new(0.0),
+            EmaSimdState::new(Simd::splat(0.0), multipliers),
+        );
+
+        for i in 0..long_period - 1 {
+            let ad = ad_state.calc((high[i], low[i], close[i], volume[i]));
+            if i > 0 {
+                ema_state.calc(Simd::splat(ad));
+            } else {
+                ema_state.ema = Simd::splat(ad);
+            }
+            crate::init_store_optional_outputs!(i, high.len(),
+                short_ema_line => ema_state.ema[0],
+                ad_line => ad
+            );
+        }
+        State {
+            ema_state,
+            ad_state,
+            state: std::marker::PhantomData,
+        }
+    }
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64, f64, f64);
+    type Outputs = f64;
+    #[inline(always)]
+    fn calc<'a>(&mut self, inputs: Self::Inputs<'a>) -> Self::Outputs {
+        let ad = self.ad_state.calc(inputs);
+        let [short_ema, long_ema] = self.ema_state.calc(Simd::splat(ad)).to_array();
+
+        short_ema - long_ema
+    }
+}
+impl TIndicatorState<INPUTS> for IndicatorState {
     /// Calculates the ADOSC indicator, picking up where the previous calculation left off.
     ///
     /// This function is useful for scenarios where indicator data is stored in a database and
@@ -100,7 +116,7 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
     //#[inline(always)]
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -128,217 +144,26 @@ impl TIndicatorState<INPUTS_WIDTH> for IndicatorState {
         Ok(vec![adosc_line, short_ema_line, long_ema_line, ad_line])
     }
 }
-impl IndicatorState {
-    
-    pub fn init_state(
-        inputs: &[&[f64]; INPUTS_WIDTH],
-        periods: (usize, usize),
-        out_vecs: (&mut [f64], &mut [f64]),
-    ) -> Self {
-        let (high, low, close, volume) = (inputs[0], inputs[1], inputs[2], inputs[3]);
-        let (short_period, long_period) = periods;
-        let (short_ema_line, ad_line) = out_vecs;
 
-        let multipliers = multiplier_simd([short_period, long_period]);
-        let (mut ad, mut ema_state) = (0.0, EmaSimdState::new(Simd::splat(0.0), multipliers));
-        
-
-        for i in 0..long_period - 1 {
-            ad = calc_ad(ad, high[i], low[i], close[i], volume[i]);
-            if i > 0 {
-                ema_state.calc_simd(Simd::splat(ad));
-            } else {
-                ema_state.ema = Simd::splat(ad);
-            }
-            crate::init_store_optional_outputs!(i, high.len(),
-                short_ema_line => ema_state.ema[0],
-                ad_line => ad
-            );
-        }
-        Self {
-            ema_state,
-            ad,
-        }
-    }
-    /// Calculates the current value of the Accumulation/Distribution Oscillator (ADOSC) indicator.
-    ///
-    /// Updates `state` in place (AD, short EMA, long EMA) and returns the new ADOSC value.
-    ///
-    /// # Arguments
-    ///
-    /// * `state` - A mutable reference to the current `State` holding AD, short EMA, and long EMA.
-    /// * `inputs` - A tuple of `(high, low, close, volume)` for the current bar.
-    /// * `multipliers` - The precomputed EMA multipliers for the short and long periods.
-    ///
-    /// # Returns
-    ///
-    /// The current ADOSC value (`short_ema - long_ema`).
-    #[inline(always)]
-    pub fn calc(
-        &mut self,
-        inputs: (f64, f64, f64, f64)
-    ) -> f64 {
-        let (high, low, close, volume) = inputs;
-        //let (short_multiplier, long_multiplier) = multipliers;
-
-        self.ad = calc_ad(self.ad, high, low, close, volume);
-        let [short_ema, long_ema] = self.ema_state.calc_simd(Simd::splat(self.ad)).to_array();
-
-        short_ema - long_ema
-    }
-}
-/// Returns the minimum amount of data required for the ADOSC indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the ADOSC calculation.
-///
-/// # Returns
-///
-/// The minimum amount of data required.
-pub fn min_data(options: &[f64]) -> usize {
-    options[1] as usize // long_period
-}
-/// Calculates the output length for the ADOSC indicator based on the data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the short and long periods for the ADOSC calculation.
-///
-/// # Returns
-///
-/// The output length.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), IndicatorError> {
+pub(crate) fn validate_options(options: &[f64; OPTIONS]) -> Result<(), IndicatorError> {
     if options[0] < 1.0 || options[1] <= options[0] {
         return Err(IndicatorError::InvalidOptions);
     }
     Ok(())
 }
-/// Calculates the Accumulation/Distribution Oscillator (ADOSC) indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — high prices
-/// * `inputs[1]` — low prices
-/// * `inputs[2]` — close prices
-/// * `inputs[3]` — volume
-///
-/// # Options
-///
-/// * `options[0]` — short period (must be >= 1)
-/// * `options[1]` — long period (must be > short period)
-///
-/// # Arguments
-///
-/// * `inputs` - Array of 4 input price/volume slices (see Inputs above).
-/// * `options` - Array of 2 indicator options (see Options above).
-/// * `optional_outputs` - Pass `Some(&[true, false, false])` to enable individual
-///   optional outputs (`short_ema`, `long_ema`, `ad`); `None` disables all.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is the `adosc` line,
-/// `outputs[1]` is the optional `short_ema` line, `outputs[2]` is the optional `long_ema` line,
-/// and `outputs[3]` is the optional `ad` line (each empty if not requested).
-/// `state` can be passed to `IndicatorState::batch_indicator` to continue streaming.
-///
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
 
-    let short_period = options[0] as usize;
-    let long_period = options[1] as usize;
-
-    validate_inputs(inputs, min_data(options))?;
-
-    let adosc_capacity = output_length(inputs[0].len(), options);
-    let mut adosc_line = crate::uninit_vec!(f64, adosc_capacity);
-
-    let (mut short_ema_line, mut long_ema_line, mut ad_line) = crate::init_optional_outputs_eff!(
-        optional_outputs, &[false, false, false],
-        short_ema_line: ema_output_length(inputs[0].len(), &[short_period as f64]),
-        long_ema_line: adosc_capacity,
-        ad_line: ad_output_length(inputs[0].len(), options)
-    );
-
-    let mut state = {
-        IndicatorState::init_state(
-            inputs,
-            (short_period, long_period),
-            (&mut short_ema_line, &mut ad_line),
-        )
-    };
-    let optional_outputs = {
-        let (short_start, ad_start) =
-            crate::slice_outputs_start!(adosc_capacity, short_ema_line, ad_line);
-        (
-            &mut short_ema_line[short_start..],
-            long_ema_line.as_mut_slice(),
-            &mut ad_line[ad_start..],
-        )
-    };
-    let (high, low, close, volume) = {
-        let from = long_period - 1;
-        (
-            &inputs[0][from..],
-            &inputs[1][from..],
-            &inputs[2][from..],
-            &inputs[3][from..],
-        )
-    };
-
-    cycle_adosc(
-        high,
-        low,
-        close,
-        volume,
-        &mut state,
-        &mut adosc_line,
-        optional_outputs,
-    );
-
-    Ok((
-        vec![adosc_line, short_ema_line, long_ema_line, ad_line],
-        state,
-    ))
-}
-
-/// Performs the main calculation loop for the ADOSC indicator.
-///
-/// # Arguments
-///
-/// * `high` - A slice of high prices.
-/// * `low` - A slice of low prices.
-/// * `close` - A slice of close prices.
-/// * `volume` - A slice of volume data.
-/// * `multipliers` - The precomputed EMA multipliers for the short and long periods.
-/// * `state` - A mutable reference to the current `State` (AD, short EMA, long EMA).
-/// * `adosc_line` - A mutable slice for storing the resulting ADOSC line values.
-/// * `out_vecs` - A tuple of mutable slices for optional outputs: short EMA, long EMA, and AD line.
 fn cycle_adosc(
     high: &[f64],
     low: &[f64],
     close: &[f64],
     volume: &[f64],
-    state: &mut State,
+    state: &mut State<Warm>,
     adosc_line: &mut [f64],
     out_vecs: (&mut [f64], &mut [f64], &mut [f64]),
 ) {
-
     let (short_ema_line, long_ema_line, ad_line) = out_vecs;
     let (has_optional, want_short, want_long, want_ad) =
         crate::calc_want_flags!(short_ema_line, long_ema_line, ad_line);
-
-    //calculate offsets
-    //let short_offset = crate::calc_output_offsets!(high.len(), short_ema_line);
 
     for i in 0..high.len() {
         let inputs = unsafe {
@@ -354,7 +179,7 @@ fn cycle_adosc(
         };
         if has_optional {
             crate::store_optional_outputs!(i,
-                want_ad, ad_line => state.ad,
+                want_ad, ad_line => state.ad_state.ad,
                 want_short, short_ema_line => state.ema_state.ema[0],
                 want_long, long_ema_line => state.ema_state.ema[1]
             );
@@ -365,4 +190,102 @@ fn cycle_adosc(
 #[inline(always)]
 pub fn multiplier(short_period: usize, long_period: usize) -> ((f64, f64), (f64, f64)) {
     (ema_multiplier(short_period), ema_multiplier(long_period))
+}
+
+pub struct Adosc;
+
+impl Indicator<INPUTS, OPTIONS> for Adosc {
+    const INFO: Info = Info {
+        name: "adosc",
+        full_name: "Accumulation/Distribution Oscillator (Chaikin Oscillator)",
+        indicator_type: IndicatorType::Volume,
+        inputs: &["high", "low", "close", "volume"],
+        options: &["short_period", "long_period"],
+        outputs: &["adosc"],
+        optional_outputs: &["short_ema", "long_ema", "ad"],
+        display_groups: &[
+            DisplayGroup {
+                offset: None,
+                id: "adosc",
+                label: "ADOSC",
+                display_type: DisplayType::Indicator,
+                outputs: &["adosc"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "Accumulation/Distribution",
+                label: "AD EMAs",
+                display_type: DisplayType::Indicator,
+                outputs: &["short_ema", "long_ema", "ad"],
+            },
+        ],
+    };
+
+    type IndicatorState = IndicatorState;
+
+    fn min_data(options: &[f64; OPTIONS]) -> usize {
+        options[1] as usize
+    }
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+
+        let short_period = options[0] as usize;
+        let long_period = options[1] as usize;
+
+        validate_inputs(inputs, Self::min_data(options))?;
+
+        let adosc_capacity = Self::output_length(inputs[0].len(), options);
+        let mut adosc_line = crate::uninit_vec!(f64, adosc_capacity);
+
+        let (mut short_ema_line, mut long_ema_line, mut ad_line) = crate::init_optional_outputs_eff!(
+            optional_outputs, &[false, false, false],
+            short_ema_line: Ema::output_length(inputs[0].len(), &[short_period as f64]),
+            long_ema_line: adosc_capacity,
+            ad_line: Ad::output_length(inputs[0].len(), &[])
+        );
+
+        let mut state = State::init_state(
+            inputs,
+            (short_period, long_period),
+            (&mut short_ema_line, &mut ad_line),
+        );
+        let optional_outputs = {
+            let (short_start, ad_start) =
+                crate::slice_outputs_start!(adosc_capacity, short_ema_line, ad_line);
+            (
+                &mut short_ema_line[short_start..],
+                long_ema_line.as_mut_slice(),
+                &mut ad_line[ad_start..],
+            )
+        };
+        let (high, low, close, volume) = {
+            let from = long_period - 1;
+            (
+                &inputs[0][from..],
+                &inputs[1][from..],
+                &inputs[2][from..],
+                &inputs[3][from..],
+            )
+        };
+
+        cycle_adosc(
+            high,
+            low,
+            close,
+            volume,
+            &mut state,
+            &mut adosc_line,
+            optional_outputs,
+        );
+
+        Ok((
+            vec![adosc_line, short_ema_line, long_ema_line, ad_line],
+            state,
+        ))
+    }
 }

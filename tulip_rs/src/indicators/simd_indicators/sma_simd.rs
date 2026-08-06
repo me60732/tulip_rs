@@ -1,5 +1,5 @@
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::sma::{indicator_by_assets, init_state};
+pub use crate::indicators::simd_indicators::by_asset::sma::indicator_by_assets;
 
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::sma::indicator_by_options;
@@ -8,22 +8,46 @@ use serde::{
     ser::SerializeStruct,
     Deserialize, Deserializer, Serialize, Serializer,
 };
+use crate::types::Warm;
+pub use crate::indicator_types::{TSimdState, TState};
+use crate::indicators::sma::State;
 use std::fmt;
 use std::marker::PhantomData;
 use std::simd::Simd;
+
 pub struct SimdState<const N: usize> {
     pub sum: Simd<f64, N>,
     pub multiplier: Simd<f64, N>,
 }
 impl<const N: usize> SimdState<N> {
     pub fn new(sum: Simd<f64, N>, multiplier: Simd<f64, N>) -> Self {
-        Self { sum, multiplier }
-    }
-    #[inline(always)]
-    pub fn calc_simd(&mut self, value: Simd<f64, N>, prev_value: Simd<f64, N>) -> Simd<f64, N> {
-        calc_simd(&mut self.sum, value, prev_value, self.multiplier)
+        Self {
+            sum,
+            multiplier,
+        }
     }
 }
+impl<const N: usize> TSimdState for SimdState<N> {
+    type ScalarState = State<Warm>;
+    crate::simd_state_from_state!(
+         sub: [],
+         scalar: [sum, multiplier]
+    );
+    crate::simd_state_write!(
+         sub: [],
+         scalar: [sum]
+    );
+}
+impl<const N: usize> TState for SimdState<N> {
+    type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>);
+    type Outputs = Simd<f64, N>;
+    #[inline(always)]
+    fn calc<'a>(&mut self, (value, prev_value): Self::Inputs<'a>) -> Simd<f64, N> {
+        self.sum += value - prev_value;
+        self.sum * self.multiplier
+    }
+}
+    
 impl<const N: usize> Serialize for SimdState<N>
 where
     [f64; N]: Serialize,

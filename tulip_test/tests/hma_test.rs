@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::hma::{indicator as rust_hma, min_data, TIndicatorState};
+    use tulip_rs::indicators::hma::{Hma, Indicator, TIndicatorState};
     use tulip_rs::indicators::hma::{indicator_by_assets, indicator_by_options};
     use tulip_test::c_bindings::{ti_hma, ti_hma_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -56,7 +56,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_hma(&inputs_rust, &options, None).expect("Rust HMA indicator failed");
+                Hma::indicator(&inputs_rust, &options, None).expect("Rust HMA indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -98,10 +98,10 @@ mod tests {
 
                 if !approx_eq!(f64, c_val, rust_val, epsilon = 1e-8) {
                     // Adjust epsilon if needed
-                    println!(
+                    /*println!(
                         "Test failed at index {}: \nC = {:?}, \nRust = {:?}, Options = {:?}",
                         index, hma_output_vec_c, outputs[0], options
-                    );
+                    );*/
                     panic!(
                         "Mismatch at index {}: C = {}, Rust = {}, Options = {:?}",
                         index, c_val, rust_val, options
@@ -143,7 +143,7 @@ mod tests {
 
                 let inputs_rust = [close.as_slice()];
                 let (outputs, _) =
-                    rust_hma(&inputs_rust, &options, None).expect("Rust HMA indicator failed");
+                    Hma::indicator(&inputs_rust, &options, None).expect("Rust HMA indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -183,10 +183,10 @@ mod tests {
                     }
 
                     if !approx_eq!(f64, c_val, rust_val, epsilon = 1e-8) {
-                        println!(
+                        /*println!(
                             "Test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}",
                             index, hma_output_vec_c, outputs[0], options, stock_symbol
-                        );
+                        );*/
                         panic!(
                             "Mismatch at index {}: C = {}, Rust = {}, Options = {:?}",
                             index, c_val, rust_val, options
@@ -236,7 +236,7 @@ mod tests {
             for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_close.as_slice()];
-                let (regular_results, _) = match rust_hma(&stock_inputs, &options, None) {
+                let (regular_results, _) = match Hma::indicator(&stock_inputs, &options, None) {
                     Ok(r) => r,
                     Err(e) => {
                         all_failures.push(format!(
@@ -334,19 +334,19 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Get full output
-                let (full_outputs, _) = rust_hma(&inputs_rust, &options, None)
+                let (full_outputs, _) = Hma::indicator(&inputs_rust, &options, None)
                     .expect("Failed to run HMA indicator on full data");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Hma::min_data(&options).max(CHUNK_SIZE);
 
                 // First chunk - convert to Vec<&Vec<f64>>
                 let close_vec = close[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice()];
 
-                let (first_outputs, mut state) = rust_hma(&chunk_inputs, &options, None)
+                let (first_outputs, mut state) = Hma::indicator(&chunk_inputs, &options, None)
                     .expect("Failed to run HMA indicator on first chunk");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -444,7 +444,7 @@ mod tests {
                 // Get regular indicator result for this stock
                 let stock_inputs = [*stock_close];
                 let (regular_results, _) =
-                    rust_hma(&stock_inputs, &options, None).expect("Regular HMA indicator failed");
+                    Hma::indicator(&stock_inputs, &options, None).expect("Regular HMA indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];
@@ -519,7 +519,7 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 let (regular_results, _) =
-                    rust_hma(&inputs, options, None).expect("Regular HMA indicator failed");
+                    Hma::indicator(&inputs, options, None).expect("Regular HMA indicator failed");
                 let regular = &regular_results[0];
                 let simd = &simd_results_4[idx][0];
 
@@ -603,7 +603,7 @@ mod tests {
 
             // Compare each SIMD result with regular indicator over the full data
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
-                let (regular_results, _) = rust_hma(&[close.as_slice()], options, None)
+                let (regular_results, _) = Hma::indicator(&[close.as_slice()], options, None)
                     .expect("Regular HMA indicator failed");
                 let regular = &regular_results[0];
                 let simd_res = &all_simd_results[idx];

@@ -1,4 +1,4 @@
-use tulip_rs::indicators::wcprice::indicator;
+use tulip_rs::indicators::wcprice::{Indicator, WcPrice};
 
 fn main() {
     // Example input data: high, low, and close prices
@@ -21,7 +21,7 @@ fn main() {
     let options = [];
 
     // Calculate the WCPRICE using the indicator function
-    let (result, _state) = match indicator(&inputs, &options, None) {
+    let (result, _state) = match WcPrice::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

@@ -1,20 +1,18 @@
 //use crate::common::validate_inputs;
 use crate::indicators::mass::{
-    min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
+    Mass, Indicator, IndicatorState, State, INPUTS, OPTIONS,
 };
-use crate::indicators::simd_indicators::mass_simd::asset::SimdState;
+use crate::indicators::simd_indicators::mass_simd::{asset::SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
 
 /// SIMD driver that advances the Mass Index (Mass) across `N` asset lanes per scheduling
 /// epoch.
-struct MassDriver {
-    multipliers: (f64, f64),
-}
+struct MassDriver;
 
-impl Driver<State> for MassDriver {
+impl Driver<State<Warm>> for MassDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     ///
     /// Reads from `inputs[asset][field]` (high, low), writes the Mass Index to
@@ -23,16 +21,12 @@ impl Driver<State> for MassDriver {
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
+        mut states: Vec<&mut State<Warm>>,
         _options: Vec<Option<&()>>,
     ) {
-        let mut state = SimdState::<N>::new(&mut states);
+        let mut state = SimdState::<N>::from_states(&mut states);
         let len = inputs[0][0].len();
 
-        let multiplier = (
-            Simd::splat(self.multipliers.0),
-            Simd::splat(self.multipliers.1),
-        );
 
         //collect outputs
         let mass_line_ptr = crate::extract_output_ptrs!(outputs, N, mass_line_ptr);
@@ -42,14 +36,14 @@ impl Driver<State> for MassDriver {
         // Optimization 3: Simplified main loop with pre-computed offsets
         for i in 0..len {
             // Get inputs arrays for stocks
-            let (high, low) = crate::extract_simd_inputs_at_index!(
+            let inputs = crate::extract_simd_inputs_at_index!(
                 i,
                 N,
                 high @ high_ptrs,
                 low @ low_ptrs
             );
 
-            let mass = unsafe { state.calc_unchecked_simd(high, low, multiplier) };
+            let mass = state.calc(inputs);
 
             crate::write_simd_at_indices!(N, i,
                 mass_line_ptr => mass
@@ -66,7 +60,7 @@ impl Driver<State> for MassDriver {
 /// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[high, low]` for asset `i`.
 /// * `options` - Shared options slice; `options[0]` is the period.
 /// * `_optional_outputs` - Unused; Mass Index has no optional outputs.
@@ -76,16 +70,15 @@ impl Driver<State> for MassDriver {
 /// and `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N], //stock[ fields [ field [f64] ] ]
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+    options: &[f64; OPTIONS],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, Mass::min_data(options))?;
     validate_options(options)?;
     let period = options[0] as usize;
-    let multipliers = multiplier();
 
-    let mut road_train = PrimeMover::<N, State>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut output_buffers = Vec::with_capacity(N);
 
     for i in 0..N {
@@ -95,7 +88,7 @@ pub fn indicator_by_assets<const N: usize>(
         ];
 
         let mut mass_line = {
-            let capacity = output_length(inputs[i][0].len(), options);
+            let capacity = Mass::output_length(inputs[i][0].len(), options);
             crate::uninit_vec!(f64, capacity)
         };
 
@@ -103,7 +96,6 @@ pub fn indicator_by_assets<const N: usize>(
             inputs[i][0],
             inputs[i][1],
             period,
-            multipliers,
             &mut mass_line,
         );
 
@@ -136,12 +128,8 @@ pub fn indicator_by_assets<const N: usize>(
         output_buffers.push(output_buffer);
     }
 
-    let mut driver = MassDriver { multipliers };
-    let states_vec = road_train.drive(&mut driver);
+    let mut driver = MassDriver;
+    let states = road_train.drive(&mut driver);
 
-    let mut states = Vec::with_capacity(N);
-    for state in states_vec.into_iter() {
-        states.push(IndicatorState::new(state, multipliers));
-    }
     Ok((output_buffers, states))
 }

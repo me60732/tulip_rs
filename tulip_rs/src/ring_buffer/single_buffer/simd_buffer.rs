@@ -1,10 +1,12 @@
-use crate::ring_buffer::single_buffer::generic_buffer::{
-    Buffer, F64Buffer, MirrorBuffer, RingBuffer,
-};
+use crate::ring_buffer::single_buffer::generic_buffer::{Buffer, Cold, F64Buffer, Warm};
 use std::simd::Simd;
 
-impl<const N: usize> Buffer<Simd<f64, N>> {
-    fn to_simd_buffer(f64_buffers: &[&[f64]], capacity: usize, mirror: bool) -> Self {
+impl<const N: usize> Buffer<Warm, Simd<f64, N>> {
+    fn to_simd_buffer(
+        f64_buffers: &[&[f64]],
+        capacity: usize,
+        mirror: bool,
+    ) -> Buffer<Warm, Simd<f64, N>> {
         let count = f64_buffers[0].len().min(capacity);
         //let capacity = f64_buffers[0].len();
 
@@ -22,15 +24,16 @@ impl<const N: usize> Buffer<Simd<f64, N>> {
             simd_vals.extend_from_within(..);
         }
         //let index = count % capacity;
-        Self {
+        Buffer::<Warm, Simd<f64, N>> {
             vals: simd_vals,
             index: 0,
             prev_idx: capacity - 1, //index.wrapping_sub(1) % capacity, //capacity - 1,
             capacity,
             count: count,
+            state: std::marker::PhantomData::<Warm>,
         }
     }
-    pub fn to_f64_buffers(&self) -> Vec<F64Buffer> {
+    pub fn to_f64_buffers(&self) -> Vec<Buffer<Warm, f64>> {
         let mut vals = Vec::with_capacity(N);
 
         for _ in 0..N {
@@ -45,33 +48,31 @@ impl<const N: usize> Buffer<Simd<f64, N>> {
         }
         let mut buffers = Vec::with_capacity(N);
         for val in vals.into_iter() {
-            buffers.push(F64Buffer {
+            buffers.push(Buffer::<Warm, f64> {
                 vals: val,
                 prev_idx: self.prev_idx,
                 capacity: self.capacity,
                 count: self.count,
                 index: self.index,
+                state: std::marker::PhantomData::<Warm>,
             });
         }
         buffers
     }
 }
 
-pub trait SimdRingBuffer<const N: usize>: RingBuffer<Simd<f64, N>> {
-    fn from_f64_buffers(f64_buffers: Vec<&Buffer<f64>>) -> Self;
+pub trait SimdRingBuffer<const N: usize> {
+    fn from_f64_buffers(f64_buffers: Vec<&Buffer<Warm, f64>>) -> Buffer<Warm, Simd<f64, N>>;
 }
 
-impl<const N: usize> SimdRingBuffer<N> for Buffer<Simd<f64, N>> {
-    fn from_f64_buffers(buffers: Vec<&Buffer<f64>>) -> Self {
+impl<const N: usize> SimdRingBuffer<N> for Buffer<Warm, Simd<f64, N>> {
+    fn from_f64_buffers(buffers: Vec<&Buffer<Warm, f64>>) -> Buffer<Warm, Simd<f64, N>> {
         debug_assert_eq!(buffers.len(), N, "Number of buffers must match SIMD width");
 
         let capacity = buffers[0].get_capacity();
 
         // Get ordered vectors from each buffer (owned data)
         let ordered_vecs: Vec<Vec<f64>> = buffers.iter().map(|buf| buf.to_ordered_vec()).collect();
-        /*for buffer in buffers {
-            println!("\nCount: {:?}, Capacity: {:?}", buffer.count, buffer.capacity);
-        }*/
         // Now we can safely create slices from the owned vectors
         let slices: Vec<&[f64]> = ordered_vecs.iter().map(|vec| vec.as_slice()).collect();
 
@@ -79,31 +80,28 @@ impl<const N: usize> SimdRingBuffer<N> for Buffer<Simd<f64, N>> {
     }
 }
 
-pub trait SimdMirrorBuffer<const N: usize>: MirrorBuffer<Simd<f64, N>> {
-    fn from_f64_buffers(f64_slices: Vec<&Buffer<f64>>) -> Self;
+pub trait SimdMirrorBuffer<const N: usize> {
+    fn from_f64_buffers(f64_slices: Vec<&Buffer<Warm, f64>>) -> Buffer<Warm, Simd<f64, N>>;
 }
 #[cfg(feature = "portable_simd")]
-impl<const N: usize> SimdMirrorBuffer<N> for Buffer<Simd<f64, N>> {
-    fn from_f64_buffers(buffers: Vec<&Buffer<f64>>) -> Self {
+impl<const N: usize> SimdMirrorBuffer<N> for Buffer<Warm, Simd<f64, N>> {
+    fn from_f64_buffers(buffers: Vec<&Buffer<Warm, f64>>) -> Buffer<Warm, Simd<f64, N>> {
         debug_assert_eq!(buffers.len(), N, "Number of buffers must match SIMD width");
 
         let capacity = buffers[0].get_capacity();
 
-        // Get slices from each mirror buffer
-        let slices: Vec<&[f64]> = buffers
-            .iter()
-            .map(|buf| <Buffer<f64> as MirrorBuffer<f64>>::get_slice(buf))
-            .collect();
+        // Get contiguous mirror-window slices from each full mirror buffer
+        let slices: Vec<&[f64]> = buffers.iter().map(|buf| buf.get_mirror_slice()).collect();
 
         Self::to_simd_buffer(&slices, capacity, true) // true = MirrorBuffer
     }
 }
 pub trait FlatSimdBuffer<const N: usize> {
-    fn from_f64_buffers(buffers: Vec<&Buffer<f64>>) -> &Self;
+    fn from_f64_buffers(buffers: Vec<&Buffer<Cold, f64>>) -> &Self;
     fn to_f64_buffers(&self, periods: [usize; N]) -> Vec<F64Buffer>;
 }
 impl<const N: usize> FlatSimdBuffer<N> for Buffer {
-    fn from_f64_buffers(buffers: Vec<&Buffer<f64>>) -> &Self {
+    fn from_f64_buffers(buffers: Vec<&Buffer<Cold, f64>>) -> &Self {
         let mut i = 0;
         for (j, buffer) in buffers.iter().skip(1).enumerate() {
             if buffer.capacity > buffers[i].capacity {
@@ -124,10 +122,11 @@ impl<const N: usize> FlatSimdBuffer<N> for Buffer {
                     count: vals.len() - 1,
                     capacity: vals.len(),
                     vals,
+                    state: std::marker::PhantomData,
                 });
             }
         }
         buffers
     }
 }
-pub type SimdBuffer<const N: usize> = Buffer<Simd<f64, N>>;
+pub type SimdBuffer<const N: usize> = Buffer<Warm, Simd<f64, N>>;

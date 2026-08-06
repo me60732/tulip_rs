@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::bop::{indicator, min_data, TIndicatorState};
+    use tulip_rs::indicators::bop::{Bop, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_bop, ti_bop_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -78,7 +78,7 @@ mod tests {
             close.as_slice(),
         ];
         let (outputs, _) =
-            indicator(&inputs_rust, &OPTIONS, None).expect("Rust BOP indicator failed");
+            Bop::indicator(&inputs_rust, &OPTIONS, None).expect("Rust BOP indicator failed");
 
         let output_len_rust = outputs[0].len();
 
@@ -168,7 +168,7 @@ mod tests {
                 close.as_slice(),
             ];
             let (outputs, _) =
-                indicator(&inputs_rust, &OPTIONS, None).expect("Rust BOP indicator failed");
+                Bop::indicator(&inputs_rust, &OPTIONS, None).expect("Rust BOP indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -236,18 +236,18 @@ mod tests {
             let options: [f64; 0] = [];
 
             // Get full output
-            let (full_outputs, _) = indicator(&inputs_rust, &options, None)
+            let (full_outputs, _) = Bop::indicator(&inputs_rust, &options, None)
                 .expect("Failed to run BOP indicator on full data");
 
             // Process in batches
             let mut batch_full_output = Vec::new();
 
-            let min_data_val = min_data(&options).max(CHUNK_SIZE);
+            let min_data_val = Bop::min_data(&options).max(CHUNK_SIZE);
 
             if open.len() <= min_data_val {
                 // If data is too small, just run full calculation
                 let (outputs, _) =
-                    indicator(&inputs_rust, &options, None).expect("Failed to run BOP indicator");
+                    Bop::indicator(&inputs_rust, &options, None).expect("Failed to run BOP indicator");
                 batch_full_output.extend_from_slice(&outputs[0]);
             } else {
                 // First chunk - convert to Vec<&Vec<f64>>
@@ -262,7 +262,7 @@ mod tests {
                     close_vec.as_slice(),
                 ];
 
-                let (first_outputs, mut state) = indicator(&chunk_inputs, &options, None)
+                let (first_outputs, mut state) = Bop::indicator(&chunk_inputs, &options, None)
                     .expect("Failed to run BOP indicator on first chunk");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -415,7 +415,7 @@ mod tests {
                     stock_close.as_slice(),
                 ];
                 let (regular_results, _) =
-                    indicator(&stock_inputs, &OPTIONS, None).expect("Regular BOP indicator failed");
+                    Bop::indicator(&stock_inputs, &OPTIONS, None).expect("Regular BOP indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];

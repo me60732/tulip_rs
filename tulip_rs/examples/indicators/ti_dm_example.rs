@@ -1,4 +1,4 @@
-use tulip_rs::indicators::dm::{indicator, TIndicatorState};
+use tulip_rs::indicators::dm::{Dm, TIndicatorState, Indicator};
 
 fn main() {
     let high = [
@@ -14,7 +14,7 @@ fn main() {
     let options = [5.0]; // Period
 
     // Calculate the Directional Movement (DM) lines using the indicator function
-    let (outputs, mut state) = match indicator(&inputs, &options, None) {
+    let (outputs, mut state) = match Dm::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

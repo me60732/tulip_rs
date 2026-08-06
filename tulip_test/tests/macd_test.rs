@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::macd::{indicator as rust_macd, min_data, TIndicatorState};
+    use tulip_rs::indicators::macd::{Macd, Indicator, TIndicatorState, indicator_by_assets, indicator_by_options};
     use tulip_test::c_bindings::{ti_ema, ti_ema_start, ti_macd, ti_macd_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -69,7 +69,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_macd(&inputs_rust, &options, None).expect("Rust MACD indicator failed");
+                Macd::indicator(&inputs_rust, &options, None).expect("Rust MACD indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -228,7 +228,7 @@ mod tests {
                 // Rust implementation
                 let inputs_rust = [close.as_slice()];
                 let (outputs, _) =
-                    rust_macd(&inputs_rust, &options, None).expect("Rust MACD indicator failed");
+                    Macd::indicator(&inputs_rust, &options, None).expect("Rust MACD indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -369,20 +369,20 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Get full output
-                let (full_outputs, _) = rust_macd(&inputs_rust, &options, None)
+                let (full_outputs, _) = Macd::indicator(&inputs_rust, &options, None)
                     .expect("MACD indicator should work on full data");
 
                 // Process in batches
                 let mut batch_full_outputs = vec![Vec::new(); full_outputs.len()];
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Macd::min_data(&options).max(CHUNK_SIZE);
 
                 // Process first chunk to get initial state
                 let first_chunk_size = min_data_val.min(close.len());
                 let first_close = close[..first_chunk_size].to_vec();
                 let first_inputs = [first_close.as_slice()];
 
-                let (outputs, mut state) = rust_macd(&first_inputs, &options, None)
+                let (outputs, mut state) = Macd::indicator(&first_inputs, &options, None)
                     .expect("MACD indicator should work on first chunk");
 
                 for output_idx in 0..outputs.len() {
@@ -439,7 +439,6 @@ mod tests {
 
     #[test]
     fn test_macd_simd_vs_regular_database() {
-        use tulip_rs::indicators::macd::indicator_by_assets;
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -470,7 +469,7 @@ mod tests {
                 for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                     // Get regular indicator result for this stock
                     let stock_inputs = [stock_close.as_slice()];
-                    let (regular_results, _) = rust_macd(&stock_inputs, &options, None)
+                    let (regular_results, _) = Macd::indicator(&stock_inputs, &options, None)
                         .expect("Regular MACD indicator failed");
 
                     let simd_result = &simd_results[stock_idx][0];
@@ -533,7 +532,7 @@ mod tests {
 
     #[test]
     fn test_macd_simd_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::macd::indicator_by_assets;
+        
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -566,7 +565,7 @@ mod tests {
                     // Get regular indicator result for this stock with optional outputs
                     let stock_inputs = [stock_close.as_slice()];
                     let (regular_results_opt, _) =
-                        rust_macd(&stock_inputs, &options, Some(&[true, true]))
+                        Macd::indicator(&stock_inputs, &options, Some(&[true, true]))
                             .expect("Regular MACD indicator with optional outputs failed");
 
                     // Compare all outputs: MACD, Signal, Histogram
@@ -642,7 +641,7 @@ mod tests {
         let optional_outputs = Some([true, false].as_slice()); // Request short_ema output
 
         // Get Rust MACD output with short_ema optional output
-        let result = rust_macd(&inputs, &options, optional_outputs).unwrap();
+        let result = Macd::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_short_ema = &result.0[3]; // short_ema is at index 3
 
         // Fail fast if Rust output is empty
@@ -728,7 +727,7 @@ mod tests {
         let optional_outputs = Some([false, true].as_slice()); // Request long_ema output
 
         // Get Rust MACD output with long_ema optional output
-        let result = rust_macd(&inputs, &options, optional_outputs).unwrap();
+        let result = Macd::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_long_ema = &result.0[4]; // long_ema is at index 4
 
         // Fail fast if Rust output is empty
@@ -815,7 +814,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get MACD with short_ema optional output
                 let optional_outputs = Some(&[true, false][..]);
-                let (macd_result, _) = tulip_rs::indicators::macd::indicator(
+                let (macd_result, _) = Macd::indicator(
                     &[&close],
                     &[options[0], options[1], options[2]],
                     optional_outputs,
@@ -895,7 +894,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get MACD with long_ema optional output
                 let optional_outputs = Some(&[false, true][..]);
-                let (macd_result, _) = tulip_rs::indicators::macd::indicator(
+                let (macd_result, _) = Macd::indicator(
                     &[&close],
                     &[options[0], options[1], options[2]],
                     optional_outputs,
@@ -960,8 +959,7 @@ mod tests {
 
     #[test]
     fn test_macd_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::macd::indicator as rust_macd;
-        use tulip_rs::indicators::macd::indicator_by_options;
+        
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -1002,7 +1000,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_macd(&inputs, options, None).expect("Regular MACD indicator failed");
+                    Macd::indicator(&inputs, options, None).expect("Regular MACD indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -1063,8 +1061,6 @@ mod tests {
 
     #[test]
     fn test_macd_simd_by_options_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::macd::indicator as rust_macd;
-        use tulip_rs::indicators::macd::indicator_by_options;
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -1109,7 +1105,7 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result with optional outputs
-                let (regular_results, _) = rust_macd(&inputs, options, optional_outputs)
+                let (regular_results, _) = Macd::indicator(&inputs, options, optional_outputs)
                     .expect("Regular MACD indicator with optional outputs failed");
 
                 let simd_macd_result = &all_simd_results[idx][0];

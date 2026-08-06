@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::apo::{indicator, min_data, TIndicatorState};
+    use tulip_rs::indicators::apo::{Apo, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_apo, ti_apo_start, ti_ema, ti_ema_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -61,7 +61,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                indicator(&inputs_rust, &options, None).expect("Rust APO indicator failed");
+                Apo::indicator(&inputs_rust, &options, None).expect("Rust APO indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -144,7 +144,7 @@ mod tests {
                 // Rust implementation
                 let inputs_rust = [close.as_slice()];
                 let (outputs, _) =
-                    indicator(&inputs_rust, &options, None).expect("Rust APO indicator failed");
+                    Apo::indicator(&inputs_rust, &options, None).expect("Rust APO indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -185,10 +185,12 @@ mod tests {
                     }
 
                     if !approx_eq!(f64, c_val, rust_val, epsilon = EPSILON) {
+                        /*let start = if index > 10 { index - 10 } else { 0 };
+                        let end = if index < outputs.len() - 10 { index + 10 } else { outputs.len() };
                         println!(
                             "Test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}",
-                            index, output_vec_c, outputs[0], options, stock_symbol
-                        );
+                            index, &output_vec_c[start..end], &outputs[start..end], options, stock_symbol
+                        );*/
                         panic!(
                             "Mismatch at index {}: C = {}, Rust = {}, Options = {:?}",
                             index, c_val, rust_val, options
@@ -209,17 +211,17 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Get full output
-                let (full_outputs, _) = indicator(&inputs_rust, &options, None)
+                let (full_outputs, _) = Apo::indicator(&inputs_rust, &options, None)
                     .expect("Failed to run APO indicator on full data");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Apo::min_data(&options).max(CHUNK_SIZE);
 
                 if close.len() <= min_data_val {
                     // If data is too small, just run full calculation
-                    let (outputs, _) = indicator(&inputs_rust, &options, None)
+                    let (outputs, _) = Apo::indicator(&inputs_rust, &options, None)
                         .expect("Failed to run APO indicator");
                     batch_full_output.extend_from_slice(&outputs[0]);
                 } else {
@@ -227,7 +229,7 @@ mod tests {
                     let close_vec = close[..min_data_val].to_vec();
                     let chunk_inputs = [close_vec.as_slice()];
 
-                    let (first_outputs, mut state) = indicator(&chunk_inputs, &options, None)
+                    let (first_outputs, mut state) = Apo::indicator(&chunk_inputs, &options, None)
                         .expect("Failed to run APO indicator on first chunk");
                     batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -315,7 +317,7 @@ mod tests {
                 for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                     // Get regular indicator result for this stock
                     let stock_inputs = [stock_close.as_slice()];
-                    let (regular_results, _) = indicator(&stock_inputs, &options, None)
+                    let (regular_results, _) = Apo::indicator(&stock_inputs, &options, None)
                         .expect("Regular APO indicator failed");
 
                     let simd_result = &simd_results[stock_idx][0];
@@ -406,7 +408,7 @@ mod tests {
                     // Get regular indicator result for this stock with optional outputs
                     let stock_inputs = [stock_close.as_slice()];
                     let (regular_results_opt, _) =
-                        indicator(&stock_inputs, &options, Some(&[true, true]))
+                        Apo::indicator(&stock_inputs, &options, Some(&[true, true]))
                             .expect("Regular APO indicator with optional outputs failed");
 
                     // Compare all outputs: APO, short_ema, long_ema
@@ -453,12 +455,12 @@ mod tests {
 
                             // Compare values with appropriate epsilon
                             if !approx_eq!(f64, simd_val, regular_val, epsilon = EPSILON) {
+                                let start = if i > 10 { i - 10 } else { 0 };
+                                let end = if i < simd_result.len() - 10 { i + 10 } else { simd_result.len() };
                                 println!(
-                                    "SIMD {}: {:?}\n\nRegular {} {:?}",
-                                    output_name,
-                                    &simd_result[..],
-                                    output_name,
-                                    &regular_result[..]
+                                    "SIMD {:?}\n\nRegular {:?}",
+                                    &simd_result[start..end],
+                                    &regular_result[start..end]
                                 );
                                 panic!(
                                     "Mismatch in {} output at index {} for stock {} with options {:?}: SIMD by assets = {}, Regular = {}",
@@ -492,7 +494,7 @@ mod tests {
 
             // Get Rust APO with short EMA optional output enabled
             let inputs_rust = [close.as_slice()];
-            let (rust_outputs, _) = indicator(&inputs_rust, &options, Some(&[true, false]))
+            let (rust_outputs, _) = Apo::indicator(&inputs_rust, &options, Some(&[true, false]))
                 .expect("Rust APO indicator with short EMA optional output failed");
 
             let rust_short_ema = &rust_outputs[1]; // short_ema is at index 1
@@ -578,7 +580,7 @@ mod tests {
 
             // Get Rust APO with long EMA optional output enabled
             let inputs_rust = [close.as_slice()];
-            let (rust_outputs, _) = indicator(&inputs_rust, &options, Some(&[false, true]))
+            let (rust_outputs, _) = Apo::indicator(&inputs_rust, &options, Some(&[false, true]))
                 .expect("Rust APO indicator with long EMA optional output failed");
 
             let rust_long_ema = &rust_outputs[2]; // long_ema is at index 2
@@ -663,7 +665,7 @@ mod tests {
 
                 // Get Rust APO with short EMA optional output enabled
                 let inputs_rust = [close.as_slice()];
-                let (rust_outputs, _) = indicator(&inputs_rust, &options, Some(&[true, false]))
+                let (rust_outputs, _) = Apo::indicator(&inputs_rust, &options, Some(&[true, false]))
                     .expect("Rust APO indicator with short EMA optional output failed");
 
                 let rust_short_ema = &rust_outputs[1]; // short_ema is at index 1
@@ -753,7 +755,7 @@ mod tests {
 
                 // Get Rust APO with long EMA optional output enabled
                 let inputs_rust = [close.as_slice()];
-                let (rust_outputs, _) = indicator(&inputs_rust, &options, Some(&[false, true]))
+                let (rust_outputs, _) = Apo::indicator(&inputs_rust, &options, Some(&[false, true]))
                     .expect("Rust APO indicator with long EMA optional output failed");
 
                 let rust_long_ema = &rust_outputs[2]; // long_ema is at index 2
@@ -854,7 +856,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    indicator(&inputs, options, None).expect("Regular APO indicator failed");
+                    Apo::indicator(&inputs, options, None).expect("Regular APO indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -891,7 +893,7 @@ mod tests {
 
                     // Compare values with tolerance
                     if !approx_eq!(f64, simd_val, regular_val, epsilon = EPSILON) {
-                        println!("SIMD: {:?}", simd_result);
+                        //println!("SIMD: {:?}", simd_result);
                         panic!(
                             "Mismatch at index {} for stock {} options {:?}: SIMD = {}, Regular = {}",
                             i, stock_symbol, options, simd_val, regular_val
@@ -931,7 +933,7 @@ mod tests {
                     .expect("SIMD by-options APO with optional outputs failed");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
-                let (scalar_results, _) = indicator(&inputs, options, Some(&[true, true]))
+                let (scalar_results, _) = Apo::indicator(&inputs, options, Some(&[true, true]))
                     .expect("Scalar APO with optional outputs failed");
 
                 // Compare all 3 outputs (apo, short_ema, long_ema)
@@ -963,4 +965,4 @@ mod tests {
         println!("✓ All SIMD by-options APO optional output tests passed!");
     }
 
-    }
+}

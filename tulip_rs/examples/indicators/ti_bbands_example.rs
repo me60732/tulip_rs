@@ -1,4 +1,4 @@
-use tulip_rs::indicators::bbands::{indicator, TIndicatorState};
+use tulip_rs::indicators::bbands::{BBands, Indicator, TIndicatorState};
 
 fn main() {
     // Example input data: real prices
@@ -12,7 +12,7 @@ fn main() {
     let options = [5.0, 2.0];
 
     // Calculate the BBANDS using the indicator function
-    let (outputs, mut state) = match indicator(&inputs, &options, None) {
+    let (outputs, mut state) = match BBands::indicator(&inputs, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

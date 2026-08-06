@@ -1,4 +1,4 @@
-use tulip_rs::indicators::mfi::{indicator, TIndicatorState};
+use tulip_rs::indicators::mfi::{Indicator, Mfi, TIndicatorState};
 
 fn main() {
     // Test Input Data
@@ -28,7 +28,7 @@ fn main() {
         volume.as_slice(),
     ];
     // Calculate the MFI using the full dataset
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true])) {
+    let (outputs, _) = match Mfi::indicator(&inputs, &options, Some(&[true])) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -43,7 +43,7 @@ fn main() {
     ];
 
     // Calculate the MFI using the full dataset
-    let (outputs2, mut state) = match indicator(&inputs2, &options, Some(&[true])) {
+    let (outputs2, mut state) = match Mfi::indicator(&inputs2, &options, Some(&[true])) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

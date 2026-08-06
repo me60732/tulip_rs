@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::cvi::{indicator as rust_cvi, min_data, TIndicatorState};
+    use tulip_rs::indicators::cvi::{Cvi, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_cvi, ti_cvi_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -67,7 +67,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [high.as_slice(), low.as_slice()];
             let (outputs, _) =
-                rust_cvi(&inputs_rust, &options, None).expect("Rust CVI indicator failed");
+                Cvi::indicator(&inputs_rust, &options, None).expect("Rust CVI indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -144,7 +144,7 @@ mod tests {
                 // Rust implementation
                 let inputs_rust = [high.as_slice(), low.as_slice()];
                 let (outputs, _) =
-                    rust_cvi(&inputs_rust, &options, None).expect("Rust CVI indicator failed");
+                    Cvi::indicator(&inputs_rust, &options, None).expect("Rust CVI indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -203,16 +203,16 @@ mod tests {
 
                 // Get full output
                 let (full_outputs, _) =
-                    rust_cvi(&inputs_rust, &options, None).expect("Rust CVI indicator failed");
+                    Cvi::indicator(&inputs_rust, &options, None).expect("Rust CVI indicator failed");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Cvi::min_data(&options).max(CHUNK_SIZE);
 
                 if high.len() <= min_data_val {
                     // If data is too small, just run full calculation
-                    let (outputs, _) = rust_cvi(&inputs_rust, &options, None)
+                    let (outputs, _) = Cvi::indicator(&inputs_rust, &options, None)
                         .expect("Failed to run CVI indicator");
                     batch_full_output.extend_from_slice(&outputs[0]);
                 } else {
@@ -221,7 +221,7 @@ mod tests {
                     let low_vec = low[..min_data_val].to_vec();
                     let chunk_inputs = [high_vec.as_slice(), low_vec.as_slice()];
 
-                    let (first_outputs, mut state) = rust_cvi(&chunk_inputs, &options, None)
+                    let (first_outputs, mut state) = Cvi::indicator(&chunk_inputs, &options, None)
                         .expect("Failed to run CVI indicator on first chunk");
                     batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -305,7 +305,7 @@ mod tests {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_high.as_slice(), stock_low.as_slice()];
                 let (regular_results, _) =
-                    rust_cvi(&stock_inputs, &options, None).expect("Regular CVI indicator failed");
+                    Cvi::indicator(&stock_inputs, &options, None).expect("Regular CVI indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];
@@ -387,7 +387,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_cvi(&inputs, options, None).expect("Regular CVI indicator failed");
+                    Cvi::indicator(&inputs, options, None).expect("Regular CVI indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -492,7 +492,7 @@ mod tests {
             // Compare each SIMD result with regular indicator over the full data
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 let (regular_results, _) =
-                    rust_cvi(&[high.as_slice(), low.as_slice()], options, None)
+                    Cvi::indicator(&[high.as_slice(), low.as_slice()], options, None)
                         .expect("Regular CVI indicator failed");
                 let regular = &regular_results[0];
                 let simd_res = &all_simd_results[idx];

@@ -1,5 +1,5 @@
 use tulip_rs::indicators::highpass::{
-    indicator, indicator_by_assets, indicator_by_options, TIndicatorState,
+    indicator_by_assets, indicator_by_options, HighPass, Indicator, TIndicatorState,
 };
 
 // 80 bars of close prices
@@ -22,7 +22,7 @@ fn main() {
     // --- Full run ---
     let inputs = [CLOSE.as_slice()];
 
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match HighPass::indicator(&inputs, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -39,7 +39,7 @@ fn main() {
     let split = CLOSE.len() - 5;
     let inputs_partial = [&CLOSE[..split]];
 
-    let (outputs_partial, mut state) = match indicator(&inputs_partial, &options2, None) {
+    let (outputs_partial, mut state) = match HighPass::indicator(&inputs_partial, &options2, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

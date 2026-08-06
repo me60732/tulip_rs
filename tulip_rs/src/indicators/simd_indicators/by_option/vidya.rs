@@ -1,49 +1,40 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::vidya_simd::SimdState;
-use crate::indicators::stddev::output_length as stddev_output_length;
+use crate::indicators::simd_indicators::vidya_simd::{SimdState, TSimdState, TState};
+use crate::indicators::stddev::StdDev;
 use crate::indicators::vidya::{
-    min_data, output_length, validate_options as vo, IndicatorState, State,
-    INPUTS_WIDTH, OPTIONS_WIDTH,
+    validate_options as vo, Indicator, IndicatorState, State, Vidya, INPUTS, OPTIONS,
 };
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
-struct Params {
-    periods: (usize, usize),
-    alpha: f64,
-}
+
 /// SIMD driver for the Variable Index Dynamic Average (VIDYA) indicator, processing `N` option-set lanes per scheduling epoch.
 struct VidyaDriver {
     want_optional_outputs: (bool, bool, bool, bool, bool),
 }
 
-impl Driver<State, Params> for VidyaDriver {
+impl Driver<State<Warm>, (usize, usize)> for VidyaDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
-        options: Vec<Option<&Params>>,
+        mut states: Vec<&mut State<Warm>>,
+        options: Vec<Option<&(usize, usize)>>,
     ) {
         let len = outputs[0][0].len();
 
-        let mut state = SimdState::new(&mut states);
+        let mut state = SimdState::from_states(&mut states);
 
         let mut i = [0usize; N];
         let mut short = [0usize; N];
-        let alpha_simd = {
-            let mut alpha = [0.0; N];
-            for (lane, option) in options.iter().enumerate() {
-                if let Some(param) = option {
-                    short[lane] = param.periods.1 - param.periods.0;
-                    i[lane] = param.periods.1;
-                    alpha[lane] = param.alpha;
-                }
+        for (lane, option) in options.iter().enumerate() {
+            if let Some(&(short_period, long_period)) = option {
+                short[lane] = long_period - short_period;
+                i[lane] = long_period;
             }
-            Simd::from_array(alpha)
-        };
+        }
 
         let (has_optional, want_short_sma, want_long_sma, want_short_sd, want_long_sd) =
             self.want_optional_outputs;
@@ -75,7 +66,7 @@ impl Driver<State, Params> for VidyaDriver {
             );
 
             let (vidya, short_sma, long_sma, short_sd, long_sd) =
-                state.calc_simd(value, short_value, long_value, alpha_simd);
+                state.calc((value, short_value, long_value));
 
             // Direct SIMD store if possible, otherwise individual stores
             crate::write_simd_at_indices!(N, j,
@@ -109,7 +100,7 @@ impl Driver<State, Params> for VidyaDriver {
 ///
 /// # Arguments
 /// * `inputs` - Shared input data: `inputs[0]` is `&[f64]` containing `real` (price series).
-/// * `options` - An array of `N` option sets; `options[i]` is `&[f64; OPTIONS_WIDTH]` containing
+/// * `options` - An array of `N` option sets; `options[i]` is `&[f64; OPTIONS]` containing
 ///   `[short_period, long_period, alpha]` for option set `i`.
 /// * `optional_outputs` - Optional slice controlling extra output series;
 ///   index 0 enables `short_sma`, index 1 enables `long_sma`, index 2 enables `short_sdtdev`,
@@ -123,25 +114,23 @@ impl Driver<State, Params> for VidyaDriver {
 /// and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or any option set is invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS],
+    options: &[&[f64; OPTIONS]; N],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, Vidya::min_data)?;
     validate_options(options, Some(vo))?;
-    let params: [Params; N] = std::array::from_fn(|i| Params {
-        periods: (options[i][0] as usize, options[i][1] as usize),
-        alpha: options[i][2],
-    });
+    let params: [(usize, usize); N] =
+        std::array::from_fn(|i| (options[i][0] as usize, options[i][1] as usize));
 
     let mut output_buffers = Vec::with_capacity(N);
 
-    let mut road_train = PrimeMover::<N, State, Params>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>, (usize, usize)>::new();
     let mut want_optional_outputs = (false, false, false, false, false);
 
     for (i, &option) in options.iter().enumerate() {
         let len = inputs[0].len();
-        let capacity = output_length(len, option);
+        let capacity = Vidya::output_length(len, option);
         let short_period = option[0] as usize;
         let long_period = option[1] as usize;
         let alpha = option[2];
@@ -154,8 +143,8 @@ pub fn indicator_by_options<const N: usize>(
             mut long_sd_line,
         );
         {
-            let short_capacity = stddev_output_length(len, &[option[0]]);
-            let long_capacity = stddev_output_length(len, &[option[1]]);
+            let short_capacity = StdDev::output_length(len, &[option[0]]);
+            let long_capacity = StdDev::output_length(len, &[option[1]]);
             vidya_line = crate::uninit_vec!(f64, capacity);
             (short_sma_line, long_sma_line, short_sd_line, long_sd_line) = crate::init_optional_outputs_eff!(
                 optional_outputs, &[false, false, false, false],
@@ -233,12 +222,7 @@ pub fn indicator_by_options<const N: usize>(
 
     let mut states = Vec::with_capacity(N);
     for (state, param) in states_vec.into_iter().zip(params.into_iter()) {
-        states.push(IndicatorState::new(
-            inputs[0],
-            state,
-            param.periods,
-            param.alpha,
-        ));
+        states.push(IndicatorState::new(inputs[0], state, (param.0, param.1)));
     }
     Ok((output_buffers, states))
 }

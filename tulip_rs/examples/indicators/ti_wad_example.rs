@@ -1,4 +1,4 @@
-use tulip_rs::indicators::wad::{indicator, TIndicatorState};
+use tulip_rs::indicators::wad::{Indicator, TIndicatorState, Wad};
 
 fn main() {
     let high = [
@@ -16,7 +16,7 @@ fn main() {
 
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
-    let (outputs, _) = match indicator(&inputs, &[], None) {
+    let (outputs, _) = match Wad::indicator(&inputs, &[], None) {
         Ok(result) => result,
         Err(e) => {
             println!("Error calculating WAD: {:?}", e);
@@ -32,7 +32,7 @@ fn main() {
     ];
 
     // Calculate the WAD using partial dataset
-    let (outputs2, mut state) = match indicator(&inputs2, &[], None) {
+    let (outputs2, mut state) = match Wad::indicator(&inputs2, &[], None) {
         Ok(result) => result,
         Err(e) => {
             println!("Error calculating WAD: {:?}", e);

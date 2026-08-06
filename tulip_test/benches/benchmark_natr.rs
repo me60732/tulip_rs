@@ -1,7 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::natr::{
-    indicator, indicator_by_assets, indicator_by_options, min_data, IndicatorState, TIndicatorState,
-};
+use tulip_rs::indicators::natr::{Natr, Indicator, TIndicatorState, IndicatorState, indicator_by_assets, indicator_by_options};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_natr, ti_natr_start};
@@ -149,7 +147,7 @@ fn bench_rust_natr(c: &mut Criterion) {
                 timing.measure(
                     || {
                         let result =
-                            indicator(&inputs, &options, None).expect("Rust NATR indicator failed");
+                            Natr::indicator(&inputs, &options, None).expect("Rust NATR indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -180,7 +178,7 @@ fn bench_rust_natr(c: &mut Criterion) {
             group.bench_function(format!("Rust NATR {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result =
-                        indicator(&inputs, &options, None).expect("Rust NATR indicator failed");
+                        Natr::indicator(&inputs, &options, None).expect("Rust NATR indicator failed");
                     black_box(&result);
                 });
             });
@@ -218,7 +216,7 @@ fn bench_rust_natr_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                        let min_data_val = Natr::min_data(&options).max(CHUNK_SIZE);
                         // First chunk
                         let chunk_inputs = [
                             &high[..min_data_val],
@@ -226,7 +224,7 @@ fn bench_rust_natr_from_state(c: &mut Criterion) {
                             &close[..min_data_val],
                         ];
 
-                        let (_, mut state) = indicator(&chunk_inputs, &options, None)
+                        let (_, mut state) = Natr::indicator(&chunk_inputs, &options, None)
                             .expect("Rust NATR indicator failed");
 
                         // Chunks
@@ -268,7 +266,7 @@ fn bench_rust_natr_from_state(c: &mut Criterion) {
                 );
 
                 let (_, mut state) =
-                    indicator(&new_inputs, &options, None).expect("Rust NATR indicator failed");
+                    Natr::indicator(&new_inputs, &options, None).expect("Rust NATR indicator failed");
 
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
@@ -291,7 +289,7 @@ fn bench_rust_natr_from_state(c: &mut Criterion) {
                 );
 
                 let (_, state) =
-                    indicator(&new_inputs, &options, None).expect("Rust NATR indicator failed");
+                    Natr::indicator(&new_inputs, &options, None).expect("Rust NATR indicator failed");
                 let json = serde_json::to_string(&state).expect("json failed");
 
                 let mut timing = TimingMeasurements::new();
@@ -327,7 +325,7 @@ fn bench_rust_natr_from_state(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust NATR from state {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                    let min_data_val = Natr::min_data(&options).max(CHUNK_SIZE);
                     // First chunk
                     let chunk_inputs = [
                         &high_vec[..min_data_val],
@@ -335,7 +333,7 @@ fn bench_rust_natr_from_state(c: &mut Criterion) {
                         &close_vec[..min_data_val],
                     ];
 
-                    let (_, mut state) = indicator(&chunk_inputs, &options, None)
+                    let (_, mut state) = Natr::indicator(&chunk_inputs, &options, None)
                         .expect("Rust NATR indicator failed");
 
                     // Chunks
@@ -392,7 +390,7 @@ fn bench_rust_natr_optional(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, Some(&[true, true]))
+                        let result = Natr::indicator(&inputs, &options, Some(&[true, true]))
                             .expect("Rust NATR indicator failed");
                         black_box(&result);
                     },
@@ -423,7 +421,7 @@ fn bench_rust_natr_optional(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust NATR {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result = indicator(&inputs, &options, Some(&[true, true]))
+                    let result = Natr::indicator(&inputs, &options, Some(&[true, true]))
                         .expect("Rust NATR indicator failed");
                     black_box(&result);
                 });

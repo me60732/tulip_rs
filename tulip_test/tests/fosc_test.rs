@@ -2,7 +2,7 @@
 mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicators::fosc::indicator_by_options;
-    use tulip_rs::indicators::fosc::{indicator as rust_fosc, min_data, TIndicatorState};
+    use tulip_rs::indicators::fosc::{Fosc, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{
         ti_fosc, ti_fosc_start, ti_linreg, ti_linreg_start, ti_linregintercept,
         ti_linregintercept_start, ti_linregslope, ti_linregslope_start, ti_tsf, ti_tsf_start,
@@ -63,7 +63,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
             let (outputs, _) =
-                rust_fosc(&inputs_rust, &options, None).expect("Rust FOSC indicator failed");
+                Fosc::indicator(&inputs_rust, &options, None).expect("Rust FOSC indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -104,10 +104,10 @@ mod tests {
                 }
 
                 if !approx_eq!(f64, c_val, rust_val, epsilon = 1e-9) {
-                    println!(
+                    /*println!(
                         "Test failed at index {}: \nC = {:?}, \nRust = {:?}, Options = {:?}",
                         index, fosc_output_vec_c, outputs[0], options
-                    );
+                    );*/
                     panic!(
                         "Mismatch at index {}: C = {}, Rust = {}, Options = {:?}",
                         index, c_val, rust_val, options
@@ -148,7 +148,7 @@ mod tests {
                 // Rust implementation
                 let inputs_rust = [close.as_slice()];
                 let (outputs, _) =
-                    rust_fosc(&inputs_rust, &options, None).expect("Rust FOSC indicator failed");
+                    Fosc::indicator(&inputs_rust, &options, None).expect("Rust FOSC indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -189,10 +189,10 @@ mod tests {
                     }
 
                     if !approx_eq!(f64, c_val, rust_val, epsilon = 1e-9) {
-                        println!(
+                        /*println!(
                             "Test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}",
                             index, fosc_output_vec_c, outputs[0], options, stock_symbol
-                        );
+                        );*/
                         panic!(
                             "Mismatch at index {}: C = {}, Rust = {}, Options = {:?}",
                             index, c_val, rust_val, options
@@ -215,16 +215,16 @@ mod tests {
 
                 // Get full output from processing all data at once
                 let (full_outputs, _) =
-                    rust_fosc(&inputs_rust, &options, None).expect("Rust FOSC indicator failed");
+                    Fosc::indicator(&inputs_rust, &options, None).expect("Rust FOSC indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = min_data(&options).max(CHUNK_SIZE);
+                let min_data_val = Fosc::min_data(&options).max(CHUNK_SIZE);
 
                 if close.len() <= min_data_val {
                     // If data is too small, just run full calculation
-                    let (outputs, _) = rust_fosc(&inputs_rust, &options, None)
+                    let (outputs, _) = Fosc::indicator(&inputs_rust, &options, None)
                         .expect("Failed to run FOSC indicator");
                     batch_full_output.extend_from_slice(&outputs[0]);
                 } else {
@@ -232,7 +232,7 @@ mod tests {
                     let close_vec = close[..min_data_val].to_vec();
                     let chunk_inputs = [close_vec.as_slice()];
 
-                    let (first_outputs, mut state) = rust_fosc(&chunk_inputs, &options, None)
+                    let (first_outputs, mut state) = Fosc::indicator(&chunk_inputs, &options, None)
                         .expect("Failed to run FOSC indicator on first chunk");
                     batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -295,7 +295,7 @@ mod tests {
         let optional_outputs = Some([true, false, false, false].as_slice()); // Request TSF output
 
         // Get Rust FOSC output with TSF optional output
-        let result = rust_fosc(&inputs, &options, optional_outputs).unwrap();
+        let result = Fosc::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_tsf = &result.0[1]; // TSF is at index 1
 
         // Fail fast if Rust output is empty
@@ -368,7 +368,7 @@ mod tests {
         let optional_outputs = Some([false, true, false, false].as_slice()); // Request linreg output
 
         // Get Rust FOSC output with linreg optional output
-        let result = rust_fosc(&inputs, &options, optional_outputs).unwrap();
+        let result = Fosc::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_linreg = &result.0[2]; // linreg is at index 2
 
         // Fail fast if Rust output is empty
@@ -446,7 +446,7 @@ mod tests {
         let optional_outputs = Some([false, false, true, false].as_slice()); // Request slope output
 
         // Get Rust FOSC output with slope optional output
-        let result = rust_fosc(&inputs, &options, optional_outputs).unwrap();
+        let result = Fosc::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_slope = &result.0[3]; // slope is at index 3
 
         // Fail fast if Rust output is empty
@@ -524,7 +524,7 @@ mod tests {
         let optional_outputs = Some([false, false, true, true].as_slice()); // Request both slope and intercept outputs
 
         // Get Rust FOSC output with slope and intercept optional outputs
-        let result = rust_fosc(&inputs, &options, optional_outputs).unwrap();
+        let result = Fosc::indicator(&inputs, &options, optional_outputs).unwrap();
         let rust_slope = &result.0[3]; // slope is at index 3
         let rust_intercept = &result.0[4]; // intercept is at index 4
 
@@ -636,7 +636,7 @@ mod tests {
                 for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                     // Get regular indicator result for this stock
                     let stock_inputs = [stock_close.as_slice()];
-                    let (regular_results, _) = rust_fosc(&stock_inputs, &options, None)
+                    let (regular_results, _) = Fosc::indicator(&stock_inputs, &options, None)
                         .expect("Regular FOSC indicator failed");
 
                     let simd_result = &simd_results[stock_idx][0];
@@ -732,7 +732,7 @@ mod tests {
                     // Get regular indicator result for this stock with optional outputs
                     let stock_inputs = [stock_close.as_slice()];
                     let (regular_results_opt, _) =
-                        rust_fosc(&stock_inputs, &options, Some(&[true, true, true, true]))
+                        Fosc::indicator(&stock_inputs, &options, Some(&[true, true, true, true]))
                             .expect("Regular FOSC indicator with optional outputs failed");
 
                     // Compare all outputs: FOSC, tsf, linreg, slope, intercept
@@ -860,7 +860,7 @@ mod tests {
             // Compare with full regular calculation
             let full_inputs = [stock_data_vec[stock_idx].as_slice()];
             let (regular_results, _) =
-                tulip_rs::indicators::fosc::indicator(&full_inputs, &options, None)
+                Fosc::indicator(&full_inputs, &options, None)
                     .expect("Regular FOSC failed on full data");
 
             // Verify lengths match
@@ -908,7 +908,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get FOSC with tsf optional output
                 let optional_outputs = Some(&[true, false, false, false][..]);
-                let (fosc_result, _) = tulip_rs::indicators::fosc::indicator(
+                let (fosc_result, _) = Fosc::indicator(
                     &[&close],
                     &[options[0]],
                     optional_outputs,
@@ -988,7 +988,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get FOSC with linreg optional output
                 let optional_outputs = Some(&[false, true, false, false][..]);
-                let (fosc_result, _) = tulip_rs::indicators::fosc::indicator(
+                let (fosc_result, _) = Fosc::indicator(
                     &[&close],
                     &[options[0]],
                     optional_outputs,
@@ -1071,7 +1071,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get FOSC with slope optional output
                 let optional_outputs = Some(&[false, false, true, false][..]);
-                let (fosc_result, _) = tulip_rs::indicators::fosc::indicator(
+                let (fosc_result, _) = Fosc::indicator(
                     &[&close],
                     &[options[0]],
                     optional_outputs,
@@ -1154,7 +1154,7 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get FOSC with both slope and intercept optional outputs
                 let optional_outputs = Some(&[false, false, true, true][..]);
-                let (fosc_result, _) = tulip_rs::indicators::fosc::indicator(
+                let (fosc_result, _) = Fosc::indicator(
                     &[&close],
                     &[options[0]],
                     optional_outputs,
@@ -1254,7 +1254,7 @@ mod tests {
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    rust_fosc(&inputs, options, None).expect("Regular FOSC indicator failed");
+                    Fosc::indicator(&inputs, options, None).expect("Regular FOSC indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -1332,7 +1332,7 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result with optional outputs
-                let (regular_results, _) = rust_fosc(&inputs, options, optional_outputs)
+                let (regular_results, _) = Fosc::indicator(&inputs, options, optional_outputs)
                     .expect("Regular FOSC indicator with optional outputs failed");
 
                 let simd_fosc_result = &all_simd_results[idx][0];

@@ -1,11 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use tulip_rs::indicator_types::TIndicatorState;
-    use tulip_rs::indicators::highpass::indicator as highpass_indicator;
-    use tulip_rs::indicators::hilberttransform::indicator as hilberttransform;
-    use tulip_rs::indicators::hilberttransform::indicator_by_assets;
-    use tulip_rs::indicators::hilberttransform::indicator_by_options;
-    use tulip_rs::indicators::roofingfilter::indicator as roofingfilter;
+    use tulip_rs::indicators::highpass::HighPass;
+    use tulip_rs::indicators::hilberttransform::{
+        indicator_by_assets, indicator_by_options, HilbertTransform, Indicator, TIndicatorState,
+    };
+    use tulip_rs::indicators::roofingfilter::RoofingFilter;
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
     const CHUNK_SIZE: usize = 100;
@@ -37,7 +36,7 @@ mod tests {
             for options in OPTIONS_LIST {
                 // Full reference run with both optional outputs enabled.
                 let (ref_out, _) =
-                    hilberttransform(&[close.as_slice()], &options, Some(&[true, true]))
+                    HilbertTransform::indicator(&[close.as_slice()], &options, Some(&[true, true]))
                         .expect("HilbertTransform reference run failed");
                 let ref_p = &ref_out[0];
                 let ref_q = &ref_out[1];
@@ -45,9 +44,12 @@ mod tests {
                 let ref_hp = &ref_out[3];
 
                 // Seeded run on the first chunk.
-                let (first_out, mut state) =
-                    hilberttransform(&[&close[..FIRST_CHUNK]], &options, Some(&[true, true]))
-                        .expect("HilbertTransform seed failed");
+                let (first_out, mut state) = HilbertTransform::indicator(
+                    &[&close[..FIRST_CHUNK]],
+                    &options,
+                    Some(&[true, true]),
+                )
+                .expect("HilbertTransform seed failed");
 
                 let mut batch_p = first_out[0].clone();
                 let mut batch_q = first_out[1].clone();
@@ -200,12 +202,13 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 // Enable only the roofing optional output (index 0 = true, index 1 = false).
-                let (ht_out, _) = hilberttransform(&inputs, &options, Some(&[true, false]))
-                    .expect("HilbertTransform failed");
+                let (ht_out, _) =
+                    HilbertTransform::indicator(&inputs, &options, Some(&[true, false]))
+                        .expect("HilbertTransform failed");
                 let ht_rf = &ht_out[2];
 
-                let (rf_out, _) =
-                    roofingfilter(&inputs, &options, None).expect("RoofingFilter failed");
+                let (rf_out, _) = RoofingFilter::indicator(&inputs, &options, None)
+                    .expect("RoofingFilter failed");
                 let rf_standalone = &rf_out[0];
 
                 assert_eq!(
@@ -258,12 +261,13 @@ mod tests {
                 let hp_period = options[1];
 
                 // Enable only the highpass optional output (index 0 = false, index 1 = true).
-                let (ht_out, _) = hilberttransform(&inputs, &options, Some(&[false, true]))
-                    .expect("HilbertTransform failed");
+                let (ht_out, _) =
+                    HilbertTransform::indicator(&inputs, &options, Some(&[false, true]))
+                        .expect("HilbertTransform failed");
                 let ht_hp = &ht_out[3];
 
                 let (hp_out, _) =
-                    highpass_indicator(&inputs, &[hp_period], None).expect("HighPass failed");
+                    HighPass::indicator(&inputs, &[hp_period], None).expect("HighPass failed");
                 let hp_standalone = &hp_out[0];
 
                 assert_eq!(
@@ -326,7 +330,7 @@ mod tests {
 
             for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
                 let (scalar_out, _) =
-                    hilberttransform(&[close.as_slice()], &options, Some(&[true, true]))
+                    HilbertTransform::indicator(&[close.as_slice()], &options, Some(&[true, true]))
                         .expect("Scalar HilbertTransform failed");
 
                 let labels = ["in_phase", "quadrature", "roofing", "highpass"];
@@ -388,8 +392,9 @@ mod tests {
                     .expect("SIMD by-options HilbertTransform failed");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
-                let (scalar_out, _) = hilberttransform(&inputs, options, Some(&[true, true]))
-                    .expect("Scalar HilbertTransform failed");
+                let (scalar_out, _) =
+                    HilbertTransform::indicator(&inputs, options, Some(&[true, true]))
+                        .expect("Scalar HilbertTransform failed");
 
                 let labels = ["in_phase", "quadrature", "roofing", "highpass"];
                 for out_idx in 0..4 {
@@ -483,7 +488,7 @@ mod tests {
                 }
 
                 let (scalar_out, _) =
-                    hilberttransform(&[close.as_slice()], &options, Some(&[true, true]))
+                    HilbertTransform::indicator(&[close.as_slice()], &options, Some(&[true, true]))
                         .expect("Scalar HilbertTransform failed");
 
                 let labels = ["in_phase", "quadrature", "roofing", "highpass"];
@@ -573,7 +578,7 @@ mod tests {
                 }
 
                 let (scalar_out, _) =
-                    hilberttransform(&[close.as_slice()], options, Some(&[true, true]))
+                    HilbertTransform::indicator(&[close.as_slice()], options, Some(&[true, true]))
                         .expect("Scalar HilbertTransform failed");
 
                 let labels = ["in_phase", "quadrature", "roofing", "highpass"];
@@ -607,5 +612,4 @@ mod tests {
             }
         }
     }
-
-    }
+}

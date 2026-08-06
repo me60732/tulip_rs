@@ -1,5 +1,5 @@
 use tulip_rs::indicators::ef::{
-    indicator, indicator_by_assets, indicator_by_options, TIndicatorState,
+    indicator_by_assets, indicator_by_options, Ef, Indicator, TIndicatorState,
 };
 
 fn main() {
@@ -12,7 +12,7 @@ fn main() {
     let inputs = [real.as_slice()];
 
     /////////////////////// Full run ///////////////////////
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match Ef::indicator(&inputs, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -21,7 +21,7 @@ fn main() {
     /////////////////////// Partial run + batch_indicator continuation ///////////////////////
     let inputs2 = [&real[0..real.len() - 5]];
 
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match Ef::indicator(&inputs2, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

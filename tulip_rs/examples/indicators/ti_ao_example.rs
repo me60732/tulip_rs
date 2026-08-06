@@ -1,4 +1,7 @@
-use tulip_rs::{indicator_types::TIndicatorState, indicators::ao::indicator};
+use tulip_rs::{
+    indicator_types::TIndicatorState,
+    indicators::ao::{Ao, Indicator},
+};
 
 fn main() {
     // Example input data: high and low prices
@@ -23,7 +26,7 @@ fn main() {
     let inputs = [new_high.as_slice(), new_low.as_slice()];
 
     // Calculate the AO using the indicator function
-    let (outputs, _) = match indicator(&inputs, &[], Some(&[true, true])) {
+    let (outputs, _) = match Ao::indicator(&inputs, &[], Some(&[true, true])) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -36,7 +39,7 @@ fn main() {
         &new_high[..new_high.len() - 5],
         &new_low[..new_low.len() - 5],
     ];
-    let (outputs, mut state) = match indicator(&inputs, &[], None) {
+    let (outputs, mut state) = match Ao::indicator(&inputs, &[], None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

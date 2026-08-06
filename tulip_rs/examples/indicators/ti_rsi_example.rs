@@ -1,4 +1,4 @@
-use tulip_rs::indicators::rsi::{indicator, TIndicatorState};
+use tulip_rs::indicators::rsi::{Indicator, Rsi, TIndicatorState};
 
 fn main() {
     // Example input data: close prices
@@ -13,7 +13,7 @@ fn main() {
     let options = [5.0];
 
     // Calculate the RSI using the indicator function
-    let (outputs, mut state) = match indicator(&inputs, &options, Some(&[true, true])) {
+    let (outputs, mut state) = match Rsi::indicator(&inputs, &options, Some(&[true, true])) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

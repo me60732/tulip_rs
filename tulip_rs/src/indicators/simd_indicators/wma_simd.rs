@@ -4,80 +4,168 @@ pub use crate::indicators::simd_indicators::by_asset::wma::indicator_by_assets;
 #[cfg(feature = "simd_options")]
 pub use crate::indicators::simd_indicators::by_option::wma::indicator_by_options;
 
-use crate::indicators::{
-    simd_indicators::{simd_types::F64Constants, sma_simd::calc_simd as calc_sma_simd},
-    wma::State,
+pub use crate::indicator_types::{TSimdState, TState};
+use crate::indicators::{simd_indicators::sma_simd::SimdState as SmaSimdState, wma::State};
+use serde::{
+    de::{self, MapAccess, Visitor},
+    ser::SerializeStruct,
+    Deserialize, Deserializer, Serialize, Serializer,
 };
+use crate::types::Warm;
+
+use std::fmt;
+use std::marker::PhantomData;
 use std::simd::Simd;
 
 /// SIMD-parallel state for the Weighted Moving Average (WMA) indicator, holding `N` lanes of per-asset state.
 pub struct SimdState<const N: usize> {
-    sum: Simd<f64, N>,
-    weighted_sum: Simd<f64, N>,
+    pub(crate) sma_state: SmaSimdState<N>,
+    pub(crate) weighted_sum: Simd<f64, N>,
+    pub(crate) period: Simd<f64, N>,
+    pub(crate) weights: Simd<f64, N>,
 }
 
-impl<const N: usize> SimdState<N> {
-    /// Constructs a `SimdState` by gathering scalar per-asset states into SIMD vectors.
-    pub fn new(states: &[&mut State]) -> Self {
-        let mut sum = [0.0; N];
-        let mut weighted_sum = [0.0; N];
+// ── Serde ─────────────────────────────────────────────────────────────────────
+//
+// Hand-rolled because `#[derive(Serialize, Deserialize)]` generates a
+// `where Simd<f64, N>: Serialize` bound that cannot be satisfied (orphan rules).
+// Instead we round-trip through `[f64; N]`, which serde handles natively.
 
-        for i in 0..N {
-            sum[i] = states[i].sum;
-            weighted_sum[i] = states[i].weighted_sum;
-        }
-        Self {
-            sum: Simd::from_array(sum),
-            weighted_sum: Simd::from_array(weighted_sum),
-        }
+impl<const N: usize> Serialize for SimdState<N>
+where
+    [f64; N]: Serialize,
+{
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut s = serializer.serialize_struct("SimdState", 4)?;
+        s.serialize_field("sma_state", &self.sma_state)?;
+        s.serialize_field("weighted_sum", &self.weighted_sum.to_array())?;
+        s.serialize_field("period", &self.period.to_array())?;
+        s.serialize_field("weights", &self.weights.to_array())?;
+        s.end()
     }
-    /// Converts the SIMD state into an array of `N` scalar [`State`] values.
-    pub fn to_states(&self) -> [State; N] {
-        let sum = self.sum.to_array();
-        let weighted_sum = self.weighted_sum.to_array();
+}
 
-        let states: [State; N] = std::array::from_fn(|i| State::new(sum[i], weighted_sum[i]));
+impl<'de, const N: usize> Deserialize<'de> for SimdState<N>
+where
+    [f64; N]: Deserialize<'de>,
+{
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        const FIELDS: &[&str] = &["sma_state", "weighted_sum", "period", "weights"];
 
-        states
-    }
-    /// Writes the current SIMD lane values back into the provided scalar per-asset states.
-    pub fn write_states(&self, states: &mut [&mut State]) {
-        let sum = self.sum.to_array();
-        let sum_sq = self.weighted_sum.to_array();
-
-        for i in 0..N {
-            states[i].sum = sum[i];
-            states[i].weighted_sum = sum_sq[i];
+        enum Field {
+            SmaState,
+            WeightedSum,
+            Period,
+            Weights,
         }
-    }
-    /// Initialises the WMA SIMD state from raw input slices by accumulating the
-    /// weighted and unweighted sums over the first `period` bars.
-    ///
-    /// # Arguments
-    ///
-    /// * `inputs` - Per-lane input price slices; must each contain at least `period` values.
-    /// * `period` - WMA look-back period.
-    ///
-    /// # Returns
-    ///
-    /// A fully-initialised [`SimdState`] ready to be updated bar-by-bar.
-    pub fn init_state<'a>(inputs: &[&'a [f64]; N], period: usize) -> SimdState<N> {
-        let mut sums = Simd::splat(0.0);
-        let mut weighted_sum = Simd::splat(0.0);
-        // Optimization: Pre-compute input pointers for the initialization loop
-        let input_ptrs: [*const f64; N] = std::array::from_fn(|i| inputs[i].as_ptr());
 
-        for i in 0..period {
-            let values =
-                Simd::from_array(std::array::from_fn(|j| unsafe { *input_ptrs[j].add(i) }));
-            sums += values;
-            weighted_sum += values * (Simd::splat(i as f64) + F64Constants::ONE);
+        impl<'de> Deserialize<'de> for Field {
+            fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                struct FieldVisitor;
+
+                impl<'de> Visitor<'de> for FieldVisitor {
+                    type Value = Field;
+
+                    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                        f.write_str("`sma_state`, `weighted_sum`, `period`, or `weights`")
+                    }
+
+                    fn visit_str<E: de::Error>(self, v: &str) -> Result<Field, E> {
+                        match v {
+                            "sma_state" => Ok(Field::SmaState),
+                            "weighted_sum" => Ok(Field::WeightedSum),
+                            "period" => Ok(Field::Period),
+                            "weights" => Ok(Field::Weights),
+                            _ => Err(de::Error::unknown_field(v, FIELDS)),
+                        }
+                    }
+                }
+
+                deserializer.deserialize_identifier(FieldVisitor)
+            }
         }
-        SimdState::<N> {
-            sum: sums,
-            weighted_sum,
+
+        struct WmaSimdVisitor<const N: usize>(PhantomData<fn() -> Simd<f64, N>>);
+
+        impl<'de, const N: usize> Visitor<'de> for WmaSimdVisitor<N>
+        where
+            [f64; N]: Deserialize<'de>,
+        {
+            type Value = SimdState<N>;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("struct SimdState")
+            }
+
+            fn visit_map<V: MapAccess<'de>>(self, mut map: V) -> Result<SimdState<N>, V::Error> {
+                let mut sma_state: Option<SmaSimdState<N>> = None;
+                let mut weighted_sum: Option<[f64; N]> = None;
+                let mut period: Option<[f64; N]> = None;
+                let mut weights: Option<[f64; N]> = None;
+
+                while let Some(key) = map.next_key::<Field>()? {
+                    match key {
+                        Field::SmaState => {
+                            if sma_state.is_some() {
+                                return Err(de::Error::duplicate_field("sma_state"));
+                            }
+                            sma_state = Some(map.next_value()?);
+                        }
+                        Field::WeightedSum => {
+                            if weighted_sum.is_some() {
+                                return Err(de::Error::duplicate_field("weighted_sum"));
+                            }
+                            weighted_sum = Some(map.next_value()?);
+                        }
+                        Field::Period => {
+                            if period.is_some() {
+                                return Err(de::Error::duplicate_field("period"));
+                            }
+                            period = Some(map.next_value()?);
+                        }
+                        Field::Weights => {
+                            if weights.is_some() {
+                                return Err(de::Error::duplicate_field("weights"));
+                            }
+                            weights = Some(map.next_value()?);
+                        }
+                    }
+                }
+
+                Ok(SimdState {
+                    sma_state: sma_state.ok_or_else(|| de::Error::missing_field("sma_state"))?,
+                    weighted_sum: Simd::from_array(
+                        weighted_sum.ok_or_else(|| de::Error::missing_field("weighted_sum"))?,
+                    ),
+                    period: Simd::from_array(
+                        period.ok_or_else(|| de::Error::missing_field("period"))?,
+                    ),
+                    weights: Simd::from_array(
+                        weights.ok_or_else(|| de::Error::missing_field("weights"))?,
+                    ),
+                })
+            }
         }
+
+        deserializer.deserialize_struct("SimdState", FIELDS, WmaSimdVisitor::<N>(PhantomData))
     }
+}
+
+impl<const N: usize> TSimdState for SimdState<N> {
+    type ScalarState = State<Warm>;
+    crate::simd_state_from_state!(
+         sub: [(sma_state: SmaSimdState<N>)],
+         scalar: [weighted_sum, period, weights]
+    );
+    crate::simd_state_write!(
+         sub: [(sma_state: SmaSimdState<N>)],
+         scalar: [weighted_sum]
+    );
+}
+impl<const N: usize> TState for SimdState<N> {
+    type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>);
+    type Outputs = (Simd<f64, N>, Simd<f64, N>);
+
     /// Computes one bar of the Weighted Moving Average (WMA) for `N` assets simultaneously
     /// using SIMD parallelism.
     ///
@@ -94,23 +182,15 @@ impl<const N: usize> SimdState<N> {
     ///
     /// A tuple `(wma, sma)` for all `N` lanes.
     #[inline(always)]
-    pub fn calc_simd(
-        &mut self,
-        prev_value: Simd<f64, N>,
-        value: Simd<f64, N>,
-        multipliers: (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
-    ) -> (Simd<f64, N>, Simd<f64, N>) {
-        let (multiplier, weights, n) = multipliers;
+    fn calc<'a>(&mut self, (value, prev_value): Self::Inputs<'a>) -> (Simd<f64, N>, Simd<f64, N>) {
+        self.weighted_sum -= self.sma_state.sum;
 
-        self.weighted_sum -= self.sum;
+        let sma = self.sma_state.calc((value, prev_value));
 
-        let sma = calc_sma_simd(&mut self.sum, value, prev_value, multiplier);
+        self.weighted_sum += value * self.period;
 
-        self.weighted_sum += value * n;
-
-        let wma = self.weighted_sum / weights;
+        let wma = self.weighted_sum * self.weights;
 
         (wma, sma)
     }
 }
-

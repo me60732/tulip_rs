@@ -1,4 +1,4 @@
-use tulip_rs::indicators::vwma::{indicator, TIndicatorState};
+use tulip_rs::indicators::vwma::{Indicator, TIndicatorState, Vwma};
 fn main() {
     let close = [
         81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89,
@@ -12,7 +12,7 @@ fn main() {
 
     let inputs = [close.as_slice(), volume.as_slice()];
 
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match Vwma::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -20,7 +20,7 @@ fn main() {
 
     let inputs2 = [&close[..close.len() - 5], &volume[..volume.len() - 5]];
 
-    let (outputs2, mut state) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state) = match Vwma::indicator(&inputs2, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

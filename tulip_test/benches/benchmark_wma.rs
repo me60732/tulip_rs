@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::wma::{indicator, min_data, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::wma::{Wma, Indicator, IndicatorState, TIndicatorState};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_wma, ti_wma_start};
@@ -138,7 +138,7 @@ fn bench_rust_wma(c: &mut Criterion) {
                 timing.measure(
                     || {
                         let result =
-                            indicator(&inputs, &options, None).expect("Rust WMA indicator failed");
+                            Wma::indicator(&inputs, &options, None).expect("Rust WMA indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -158,7 +158,7 @@ fn bench_rust_wma(c: &mut Criterion) {
             group.bench_function(format!("Rust WMA {{ {} }}", options[0]), |b| {
                 b.iter(|| {
                     let result =
-                        indicator(&inputs, &options, None).expect("Rust WMA indicator failed");
+                        Wma::indicator(&inputs, &options, None).expect("Rust WMA indicator failed");
                     black_box(&result);
                 });
             });
@@ -183,13 +183,13 @@ fn bench_rust_wma_from_state(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let min_data = min_data(&options);
+                        let min_data = Wma::min_data(&options);
                         // First chunk
                         let close_chunk = close[..min_data].to_vec();
                         let chunk_inputs = [close_chunk.as_slice()];
 
                         let (_, mut state) =
-                            indicator(&chunk_inputs, &options, None).expect("WMA indicator failed");
+                            Wma::indicator(&chunk_inputs, &options, None).expect("WMA indicator failed");
 
                         // Chunks
                         let mut close_chunks = close[min_data..].chunks_exact(CHUNK_SIZE);
@@ -225,7 +225,7 @@ fn bench_rust_wma_from_state(c: &mut Criterion) {
                     let new_inputs = [&close[..close.len() - 1]];
                     let final_inputs = [&close[close.len() - 1..]];
                     let (_, mut state) =
-                        indicator(&new_inputs, &options, None).expect("Rust WMA indicator failed");
+                        Wma::indicator(&new_inputs, &options, None).expect("Rust WMA indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -249,7 +249,7 @@ fn bench_rust_wma_from_state(c: &mut Criterion) {
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
                     let (_, state) =
-                        indicator(&new_inputs, &options, None).expect("Rust WMA indicator failed");
+                        Wma::indicator(&new_inputs, &options, None).expect("Rust WMA indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -282,13 +282,13 @@ fn bench_rust_wma_from_state(c: &mut Criterion) {
         let _inputs = [&close_vec];
 
         for options in OPTIONS_LIST {
-            let min_data = min_data(&options);
+            let min_data = Wma::min_data(&options);
             // First chunk
             let close_chunk = close_vec[..min_data].to_vec();
             let chunk_inputs = [close_chunk.as_slice()];
 
             let (_, mut state) =
-                indicator(&chunk_inputs, &options, None).expect("WMA indicator failed");
+                Wma::indicator(&chunk_inputs, &options, None).expect("WMA indicator failed");
 
             let mut group =
                 c.benchmark_group(format!("Rust WMA from state {{ {:.1} }}", options[0]));
@@ -320,7 +320,7 @@ fn bench_rust_wma_from_state(c: &mut Criterion) {
                 let new_inputs = [&close_vec[..close_vec.len() - 1]];
                 let final_inputs = [&close_vec[close_vec.len() - 1..]];
                 let (_, mut state) =
-                    indicator(&new_inputs, &options, None).expect("Rust WMA indicator failed");
+                    Wma::indicator(&new_inputs, &options, None).expect("Rust WMA indicator failed");
 
                 let mut group =
                     c.benchmark_group(format!("Rust WMA from state 1 bar {{ {:.1} }}", options[0]));
@@ -356,7 +356,7 @@ fn bench_rust_wma_optional(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &options, Some(&[true]))
+                        let result = Wma::indicator(&inputs, &options, Some(&[true]))
                             .expect("Rust WMA indicator failed");
                         black_box(&result);
                     },
@@ -383,7 +383,7 @@ fn bench_rust_wma_optional(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust WMA {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result = indicator(&inputs, &options, Some(&[true]))
+                    let result = Wma::indicator(&inputs, &options, Some(&[true]))
                         .expect("Rust WMA indicator failed");
                     black_box(&result);
                 });

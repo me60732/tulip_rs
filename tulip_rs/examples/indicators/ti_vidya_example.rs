@@ -1,4 +1,4 @@
-use tulip_rs::indicators::vidya::{indicator, TIndicatorState};
+use tulip_rs::indicators::vidya::{Vidya, TIndicatorState, Indicator};
 
 fn main() {
     let close = [
@@ -9,7 +9,7 @@ fn main() {
 
     let inputs = [close.as_slice()];
 
-    let (result, _) = match indicator(&inputs, &options, Some(&[true, true, true, true])) {
+    let (result, _) = match Vidya::indicator(&inputs, &options, Some(&[true, true, true, true])) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -22,7 +22,7 @@ fn main() {
 
     let inputs2 = [&close[..close.len() - 5]];
 
-    let (result2, mut state2) = match indicator(&inputs2, &options, None) {
+    let (result2, mut state2) = match Vidya::indicator(&inputs2, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

@@ -2,7 +2,7 @@
 mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicators::nvi::indicator_by_assets;
-    use tulip_rs::indicators::nvi::{indicator as rust_nvi, min_data, TIndicatorState};
+    use tulip_rs::indicators::nvi::{Nvi, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_nvi, ti_nvi_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -64,7 +64,7 @@ mod tests {
 
         // Run the Rust implementation
         let inputs_rust = [close.as_slice(), volume.as_slice()];
-        let (outputs, _) = rust_nvi(&inputs_rust, &[], None).expect("Rust NVI indicator failed");
+        let (outputs, _) = Nvi::indicator(&inputs_rust, &[], None).expect("Rust NVI indicator failed");
 
         let output_len_rust = outputs[0].len();
 
@@ -144,7 +144,7 @@ mod tests {
             // Rust implementation
             let inputs_rust = [close.as_slice(), volume.as_slice()];
             let (outputs, _) =
-                rust_nvi(&inputs_rust, &[], None).expect("Rust NVI indicator failed");
+                Nvi::indicator(&inputs_rust, &[], None).expect("Rust NVI indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -207,20 +207,20 @@ mod tests {
             let inputs_rust = [close.as_slice(), volume.as_slice()];
 
             // Get full output
-            let (full_outputs, _) = rust_nvi(&inputs_rust, &[], None)
+            let (full_outputs, _) = Nvi::indicator(&inputs_rust, &[], None)
                 .expect("Failed to run NVI indicator on full data");
 
             // Process in batches
             let mut batch_full_output = Vec::new();
 
-            let min_data_val = min_data(&[]).max(CHUNK_SIZE);
+            let min_data_val = Nvi::min_data(&[]).max(CHUNK_SIZE);
 
             // First chunk - convert to Vec<&Vec<f64>>
             let close_vec = close[..min_data_val].to_vec();
             let volume_vec = volume[..min_data_val].to_vec();
             let chunk_inputs = [close_vec.as_slice(), volume_vec.as_slice()];
 
-            let (first_outputs, mut state) = rust_nvi(&chunk_inputs, &[], None)
+            let (first_outputs, mut state) = Nvi::indicator(&chunk_inputs, &[], None)
                 .expect("Failed to run NVI indicator on first chunk");
             batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -306,7 +306,7 @@ mod tests {
         // Compare with individual Rust implementations
         for i in 0..4 {
             let individual_inputs = [stock_data[i].1.as_slice(), stock_data[i].2.as_slice()];
-            let (individual_outputs, _) = rust_nvi(&individual_inputs, &[], None)
+            let (individual_outputs, _) = Nvi::indicator(&individual_inputs, &[], None)
                 .expect("Individual Rust NVI indicator failed");
 
             // Compare outputs

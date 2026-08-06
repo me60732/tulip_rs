@@ -1,8 +1,8 @@
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::roofingfilter_simd::SimdState;
+use crate::indicators::simd_indicators::roofingfilter_simd::{SimdState, TSimdState, TState};
 use crate::indicators::{
-    roofingfilter::{min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH},
-    highpass::output_length as hp_output_length
+    roofingfilter::{RoofingFilter, Indicator, IndicatorState, State, INPUTS, OPTIONS},
+    highpass::HighPass
 };
 use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
@@ -10,7 +10,6 @@ use std::simd::Simd;
 
 /// SIMD driver that advances the Ehlers Roofing Filter across `N` asset lanes per scheduling epoch.
 struct RoofingDriver {
-    multipliers: ((f64, f64, f64), (f64, f64)),
     want_optional_outputs: bool
 }
 
@@ -29,19 +28,7 @@ impl Driver<State> for RoofingDriver {
     ) {
         let len = inputs[0][0].len();
 
-        let mut state = SimdState::new(&mut states);
-
-        let multipliers_simd = (
-            (
-                Simd::splat(self.multipliers.0.0),
-                Simd::splat(self.multipliers.0.1),
-                Simd::splat(self.multipliers.0.2),
-            ),
-            (
-                Simd::splat(self.multipliers.1.0),
-                Simd::splat(self.multipliers.1.1),
-            )
-        );
+        let mut state = SimdState::<N>::from_states(&mut states);
 
         let real_ptrs = crate::extract_input_ptrs!(inputs, N, real);
         let (rf_line, hp_line) = crate::extract_output_ptrs!(outputs, N, rf, hp);
@@ -49,7 +36,7 @@ impl Driver<State> for RoofingDriver {
         for i in 0..len {
             let real = crate::extract_simd_inputs_at_index!(i, N, values @ real_ptrs);
 
-            let (rf, hp) = state.calc_simd(real, multipliers_simd);
+            let (rf, hp) = state.calc(real);
 
             crate::write_simd_at_indices!(N, i,
                 rf_line => rf
@@ -68,7 +55,7 @@ impl Driver<State> for RoofingDriver {
 /// Uses the [`PrimeMover`] scheduler to batch assets into SIMD-width groups.
 ///
 /// # Arguments
-/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS_WIDTH]`
+/// * `inputs` - An array of `N` asset input sets; `inputs[i]` is `[&[f64]; INPUTS]`
 ///   containing `[real]` for asset `i`.
 /// * `options` - Shared options slice; `options[0]` is `ss_period`, `options[1]` is `hp_period`.
 /// * `optional_outputs` - Pass `Some(&[true])` to also emit the `highpass` line per asset.
@@ -79,14 +66,13 @@ impl Driver<State> for RoofingDriver {
 /// `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
 pub fn indicator_by_assets<const N: usize>(
-    inputs: &[&[&[f64]; INPUTS_WIDTH]; N],
-    options: &[f64; OPTIONS_WIDTH],
+    inputs: &[&[&[f64]; INPUTS]; N],
+    options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<INPUTS_WIDTH>(inputs, min_data(options))?;
+    validate_inputs::<INPUTS>(inputs, RoofingFilter::min_data(options))?;
     validate_options(options)?;
     let periods = (options[0] as usize, options[1] as usize);
-    let multipliers = multiplier(periods);
 
     let mut output_buffers = Vec::with_capacity(N);
     let mut road_train = PrimeMover::<N, State>::new();
@@ -95,17 +81,17 @@ pub fn indicator_by_assets<const N: usize>(
         let asset_inputs = vec![inputs[i][0]];
         let (rf_line, mut hp_line) = {
             let len = inputs[i][0].len();
-            let capacity = output_length(len, options);
+            let capacity = RoofingFilter::output_length(len, options);
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::init_optional_outputs_eff!(
                     optional_outputs, &[false],
-                    hp_line: hp_output_length(len, &[options[1]])
+                    hp_line: HighPass::output_length(len, &[options[1]])
                 )
             )
         };
 
-        let state = State::init_state(inputs[i][0], periods, multipliers, &mut hp_line);
+        let state = State::init_state(inputs[i][0], periods, &mut hp_line);
         if i == 0 {
             (_, want_optional_outputs) = crate::calc_want_flags!(hp_line);
         }
@@ -135,12 +121,8 @@ pub fn indicator_by_assets<const N: usize>(
         output_buffers.push(output_buffer);
     }
 
-    let mut driver = RoofingDriver { multipliers, want_optional_outputs };
-    let final_states = road_train.drive(&mut driver);
+    let mut driver = RoofingDriver { want_optional_outputs };
+    let states = road_train.drive(&mut driver);
 
-    let mut states = Vec::with_capacity(N);
-    for state in final_states.into_iter() {
-        states.push(IndicatorState::new(state, driver.multipliers));
-    }
     Ok((output_buffers, states))
 }

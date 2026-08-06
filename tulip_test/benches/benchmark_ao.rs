@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::ao::{indicator, min_data, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::ao::{Ao, Indicator, IndicatorState, TIndicatorState};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_ao, ti_ao_start};
@@ -122,7 +122,7 @@ fn bench_rust_ao(c: &mut Criterion) {
             timing.measure(
                 || {
                     let result =
-                        indicator(&inputs, &OPTIONS, None).expect("Rust AO indicator failed");
+                        Ao::indicator(&inputs, &OPTIONS, None).expect("Rust AO indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -146,7 +146,7 @@ fn bench_rust_ao(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust AO", |b| {
             b.iter(|| {
-                let result = indicator(&inputs, &OPTIONS, None).expect("Rust AO indicator failed");
+                let result = Ao::indicator(&inputs, &OPTIONS, None).expect("Rust AO indicator failed");
                 black_box(&result);
             });
         });
@@ -170,7 +170,7 @@ fn bench_rust_ao_optional(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator(&inputs, &OPTIONS, Some(&[true, true, true]))
+                    let result = Ao::indicator(&inputs, &OPTIONS, Some(&[true, true, true]))
                         .expect("Rust AO indicator failed");
                     black_box(&result);
                 },
@@ -195,7 +195,7 @@ fn bench_rust_ao_optional(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust AO", |b| {
             b.iter(|| {
-                let result = indicator(&inputs, &OPTIONS, Some(&[true, true]))
+                let result = Ao::indicator(&inputs, &OPTIONS, Some(&[true, true]))
                     .expect("Rust AO indicator failed");
                 black_box(&result);
             });
@@ -222,12 +222,12 @@ fn bench_rust_ao_from_state(c: &mut Criterion) {
 
             timing.measure(
                 || {
-                    let min_data_val = min_data(&OPTIONS).max(CHUNK_SIZE);
+                    let min_data_val = Ao::min_data(&OPTIONS).max(CHUNK_SIZE);
                     // First chunk
                     let chunk_inputs = [&high[..min_data_val], &low[..min_data_val]];
 
                     let (_, mut state) =
-                        indicator(&chunk_inputs, &OPTIONS, None).expect("AO indicator failed");
+                        Ao::indicator(&chunk_inputs, &OPTIONS, None).expect("AO indicator failed");
 
                     // Chunks
                     let mut high_chunks = high[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -267,7 +267,7 @@ fn bench_rust_ao_from_state(c: &mut Criterion) {
             let final_inputs = [&high[high.len() - 1..], &low[low.len() - 1..]];
 
             let (_, mut state) =
-                indicator(&new_inputs, &OPTIONS, None).expect("Rust AO indicator failed");
+                Ao::indicator(&new_inputs, &OPTIONS, None).expect("Rust AO indicator failed");
 
             let mut timing = TimingMeasurements::new();
             timing.measure(
@@ -290,7 +290,7 @@ fn bench_rust_ao_from_state(c: &mut Criterion) {
             );
 
             let (_, state) =
-                indicator(&new_inputs, &OPTIONS, None).expect("Rust AO indicator failed");
+                Ao::indicator(&new_inputs, &OPTIONS, None).expect("Rust AO indicator failed");
             let json = serde_json::to_string(&state).expect("json failed");
 
             let mut timing = TimingMeasurements::new();
@@ -324,12 +324,12 @@ fn bench_rust_ao_from_state(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust AO from state", |b| {
             b.iter(|| {
-                let min_data_val = min_data(&OPTIONS).max(CHUNK_SIZE);
+                let min_data_val = Ao::min_data(&OPTIONS).max(CHUNK_SIZE);
                 // First chunk
                 let chunk_inputs = [&high_vec[..min_data_val], &low_vec[..min_data_val]];
 
                 let (_, mut state) =
-                    indicator(&chunk_inputs, &OPTIONS, None).expect("Rust AO indicator failed");
+                    Ao::indicator(&chunk_inputs, &OPTIONS, None).expect("Rust AO indicator failed");
 
                 // Chunks
                 let mut high_chunks = high_vec[min_data_val..].chunks_exact(CHUNK_SIZE);

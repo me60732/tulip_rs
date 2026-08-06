@@ -1,15 +1,12 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
-use crate::indicators::simd_indicators::kvo_simd::SimdState;
+use crate::indicators::simd_indicators::kvo_simd::{SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::{
-    ema::output_length as ema_output_length,
-    kvo::{
-        min_data, multiplier, output_length, validate_options as vo, IndicatorState, State,
-        INPUTS_WIDTH, OPTIONS_WIDTH,
-    },
+    ema::Ema,
+    kvo::{validate_options as vo, Indicator, IndicatorState, Kvo, State, INPUTS, OPTIONS},
 };
-use crate::types::IndicatorError;
+use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
 /// SIMD driver for the Klinger Volume Oscillator (KVO) indicator, processing `N` option-set lanes per scheduling epoch.
@@ -17,41 +14,20 @@ struct KvoDriver {
     want_optional_outputs: (bool, bool, bool),
 }
 
-impl Driver<State, ((f64, f64), (f64, f64))> for KvoDriver {
+impl Driver<State<Warm>> for KvoDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD. Reads the shared input, applies each lane's options, writes outputs, and updates per-lane states.
     fn next_run<const N: usize>(
         &mut self,
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
-        mut states: Vec<&mut State>,
-        options: Vec<Option<&((f64, f64), (f64, f64))>>,
+        mut states: Vec<&mut State<Warm>>,
+        _options: Vec<Option<&()>>,
     ) {
         let len = outputs[0][0].len();
 
         // Direct array construction
-        let mut state = SimdState::new(&states);
+        let mut state = SimdState::<N>::from_states(&mut states);
 
-        let multipliers_simd = {
-            let mut multipliers = (([0.0; N], [0.0; N]), ([0.0; N], [0.0; N]));
-            for (lane, option) in options.iter().enumerate() {
-                if let Some(&multiplier) = option {
-                    multipliers.0 .0[lane] = multiplier.0 .0;
-                    multipliers.0 .1[lane] = multiplier.0 .1;
-                    multipliers.1 .0[lane] = multiplier.1 .0;
-                    multipliers.1 .1[lane] = multiplier.1 .1;
-                }
-            }
-            (
-                (
-                    Simd::from_array(multipliers.0 .0),
-                    Simd::from_array(multipliers.0 .1),
-                ),
-                (
-                    Simd::from_array(multipliers.1 .0),
-                    Simd::from_array(multipliers.1 .1),
-                ),
-            )
-        };
         let (has_optional, want_short_ema, want_long_ema) = self.want_optional_outputs;
         // Pre-compute pointers for maximum efficiency
         let (high_ptrs, low_ptrs, close_ptrs, volume_ptrs) =
@@ -75,7 +51,7 @@ impl Driver<State, ((f64, f64), (f64, f64))> for KvoDriver {
                 volume @ volume_ptrs
             );
 
-            let kvo = state.calc_simd(inputs, multipliers_simd);
+            let (kvo, short_ema, long_ema) = state.calc(inputs);
 
             crate::write_simd_at_indices!(N, i,
                 kvo_line_ptr => kvo
@@ -83,8 +59,8 @@ impl Driver<State, ((f64, f64), (f64, f64))> for KvoDriver {
 
             if has_optional {
                 crate::store_simd_optional_outputs!(i, N,
-                    want_short_ema, short_ema_line_ptr => state.short_ema,
-                    want_long_ema, long_ema_line_ptr => state.long_ema
+                    want_short_ema, short_ema_line_ptr => short_ema,
+                    want_long_ema, long_ema_line_ptr => long_ema
                 );
             }
         }
@@ -97,7 +73,7 @@ impl Driver<State, ((f64, f64), (f64, f64))> for KvoDriver {
 /// simultaneously using SIMD parallelism.
 ///
 /// # Arguments
-/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS]`), containing
 ///   `[high, low, close, volume]`.
 /// * `options` - An array of `N` option sets, one per SIMD lane:
 ///   `[short_period, long_period]`.
@@ -108,28 +84,25 @@ impl Driver<State, ((f64, f64), (f64, f64))> for KvoDriver {
 /// and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS],
+    options: &[&[f64; OPTIONS]; N],
     optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, Kvo::min_data)?;
     validate_options(options, Some(vo))?;
-
-    let params: [((f64, f64), (f64, f64)); N] =
-        std::array::from_fn(|i| multiplier(options[i][0] as usize, options[i][1] as usize));
 
     let mut want_optional_outputs = (false, false, false);
     // Create output buffers OUTSIDE the assets - these will be owned by this function
     let mut output_buffers = Vec::with_capacity(N);
 
-    let mut road_train = PrimeMover::<N, State, ((f64, f64), (f64, f64))>::new();
+    let mut road_train = PrimeMover::<N, State<Warm>>::new();
 
     for i in 0..N {
         let short_period = options[i][0] as usize;
         let long_period = options[i][1] as usize;
         let len = inputs[0].len();
-        let capacity = output_length(len, options[i]);
-        let short_capacity = ema_output_length(len, &[short_period as f64]);
+        let capacity = Kvo::output_length(len, options[i]);
+        let short_capacity = Ema::output_length(len, &[short_period as f64]);
         let kvo_line = crate::uninit_vec!(f64, capacity);
 
         let (mut short_ema_line, long_ema_line) = crate::init_optional_outputs_eff!(
@@ -140,7 +113,6 @@ pub fn indicator_by_options<const N: usize>(
 
         let state = State::init_state(
             (inputs[0], inputs[1], inputs[2], inputs[3]),
-            &kvo_line,
             (short_period, long_period),
             &mut short_ema_line,
         );
@@ -173,7 +145,7 @@ pub fn indicator_by_options<const N: usize>(
             input_start,
             0,
             state,
-            Some(&params[i]),
+            None,
         ));
         output_buffers.push(output_buffer);
     }
@@ -181,11 +153,7 @@ pub fn indicator_by_options<const N: usize>(
     let mut driver = KvoDriver {
         want_optional_outputs,
     };
-    let final_states = road_train.drive(&mut driver);
+    let states = road_train.drive(&mut driver);
 
-    let mut states = Vec::with_capacity(N);
-    for (state, multipliers) in final_states.into_iter().zip(params) {
-        states.push(IndicatorState::new(multipliers, state));
-    }
     Ok((output_buffers, states))
 }

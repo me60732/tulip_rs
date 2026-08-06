@@ -1,15 +1,13 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 pub use crate::indicators::ema::multiplier;
-use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
-};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 1;
+pub const INPUTS: usize = 1;
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 1;
+pub const OPTIONS: usize = 1;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -44,12 +42,12 @@ pub mod by_options {
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
-    state: State,
+    state: State<Warm>,
     real: Vec<f64>,
     lag: usize,
 }
 impl IndicatorState {
-    pub fn new(real: &[f64], state: State, lag: usize) -> Self {
+    pub fn new(real: &[f64], state: State<Warm>, lag: usize) -> Self {
         Self {
             state,
             real: real[real.len() - lag..].to_vec(),
@@ -58,22 +56,29 @@ impl IndicatorState {
     }
 }
 #[derive(Serialize, Deserialize)]
-pub struct State {
+pub struct State<S = Cold> {
     pub zlema: f64,
     pub per: f64,
     pub multiplier: f64,
+    pub(crate) state: std::marker::PhantomData<S>,
 }
-impl State {
-    pub fn new(real: &[f64], lag: usize, period: usize) -> Self {
+impl State<Cold> {
+    pub fn new(real: &[f64], lag: usize, period: usize) -> State<Warm> {
         let (multiplier, per) = multiplier(period);
-        Self {
+        State {
             zlema: real[lag - 1],
             multiplier,
             per,
+            state: std::marker::PhantomData,
         }
     }
+}
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64);
+    type Outputs = f64;
+
     #[inline(always)]
-    pub fn calc(&mut self, current: f64, lagged: f64) -> f64 {
+    fn calc<'a>(&mut self, (current, lagged): Self::Inputs<'a>) -> Self::Outputs {
         let adjusted = current + (current - lagged);
 
         //self.zlema = self.zlema * self.per + adjusted * self.multiplier;
@@ -84,7 +89,7 @@ impl State {
 impl TIndicatorState<1> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         _optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -101,95 +106,6 @@ impl TIndicatorState<1> for IndicatorState {
         Ok(vec![zlema_line])
     }
 }
-pub const INFO: Info = Info {
-    name: "zlema",
-    full_name: "Zero Lag Exponential Moving Average",
-    indicator_type: IndicatorType::Trend,
-    // One input: real (can be any price series).
-    inputs: &["real"],
-    // One option: period.
-    options: &["period"],
-    outputs: &["zlema"],
-    optional_outputs: &[],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "zlema",
-        label: "ZLEMA",
-        display_type: DisplayType::Overlay,
-        outputs: &["zlema"],
-    }],
-};
-/// Returns the minimum amount of data required for the ZLEMA indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options: `[period]`.
-///
-/// # Returns
-///
-/// The minimum amount of data required (derived from the lag: `(period - 1) / 2 + 1`).
-pub fn min_data(options: &[f64]) -> usize {
-    ((options[0] as usize - 1) / 2) + 1
-}
-
-/// Calculates the output length based on the data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the ZLEMA calculation.
-///
-/// # Returns
-///
-/// The output length.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-
-/// Calculates the Zero Lag Exponential Moving Average (ZLEMA) indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — `real` (price series)
-///
-/// # Options
-///
-/// * `options[0]` — `period`
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `_optional_outputs` - Unused; this indicator has no optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is `zlema` and `state`
-/// can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    _optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let period = options[0] as usize;
-    let lag = ((period.saturating_sub(1)) / 2).max(1);
-
-    validate_inputs(inputs, min_data(options))?;
-    let real = inputs[0];
-
-    let mut zlema_line = {
-        let capacity = output_length(real.len(), options);
-        crate::uninit_vec!(f64, capacity)
-    };
-
-    let mut state = State::new(real, lag, period);
-
-    cycle_zlema(real, lag, &mut state, &mut zlema_line);
-
-    Ok((vec![zlema_line], IndicatorState::new(real, state, lag)))
-}
 
 /// Iterates over the real data slice and computes ZLEMA values for each bar.
 ///
@@ -199,12 +115,61 @@ pub fn indicator(
 /// * `lag` - The number of look-back bars used for zero-lag adjustment.
 /// * `state` - Mutable reference to the rolling `State` (previous ZLEMA, multipliers).
 /// * `zlema_line` - Mutable output slice for ZLEMA values.
-fn cycle_zlema(real: &[f64], lag: usize, state: &mut State, zlema_line: &mut [f64]) {
+fn cycle_zlema(real: &[f64], lag: usize, state: &mut State<Warm>, zlema_line: &mut [f64]) {
     for (j, i) in (lag..real.len()).enumerate() {
         unsafe {
             *zlema_line.get_unchecked_mut(j) =
-                state.calc(*real.get_unchecked(i), *real.get_unchecked(j))
+                state.calc((*real.get_unchecked(i), *real.get_unchecked(j)))
         };
     }
 }
 
+pub struct Zlema;
+impl Indicator<INPUTS, OPTIONS> for Zlema {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "zlema",
+        full_name: "Zero Lag Exponential Moving Average",
+        indicator_type: IndicatorType::Trend,
+        // One input: real (can be any price series).
+        inputs: &["real"],
+        // One option: period.
+        options: &["period"],
+        outputs: &["zlema"],
+        optional_outputs: &[],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "zlema",
+            label: "ZLEMA",
+            display_type: DisplayType::Overlay,
+            outputs: &["zlema"],
+        }],
+    };
+    fn min_data(options: &[f64; OPTIONS]) -> usize {
+        ((options[0] as usize - 1) / 2) + 1
+    }
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        _optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        let period = options[0] as usize;
+        let lag = ((period.saturating_sub(1)) / 2).max(1);
+
+        validate_inputs(inputs, Self::min_data(options))?;
+        let real = inputs[0];
+
+        let mut zlema_line = {
+            let capacity = Self::output_length(real.len(), options);
+            crate::uninit_vec!(f64, capacity)
+        };
+
+        let mut state = State::new(real, lag, period);
+
+        cycle_zlema(real, lag, &mut state, &mut zlema_line);
+
+        Ok((vec![zlema_line], IndicatorState::new(real, state, lag)))
+    }
+}

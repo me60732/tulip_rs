@@ -1,4 +1,4 @@
-use tulip_rs::indicators::atr::{indicator, TIndicatorState};
+use tulip_rs::indicators::atr::{Atr, TIndicatorState, Indicator};
 
 fn main() {
     let high = [
@@ -18,7 +18,7 @@ fn main() {
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
     // Calculate the Average True Range (ATR) line using the indicator function
-    let (outputs, _) = match indicator(&inputs, &options, Some(&[true])) {
+    let (outputs, _) = match Atr::indicator(&inputs, &options, Some(&[true])) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -32,7 +32,7 @@ fn main() {
     ];
 
     // Calculate the Average True Range (ATR) line using the indicator function
-    let (outputs2, mut state2) = match indicator(&inputs2, &options, None) {
+    let (outputs2, mut state2) = match Atr::indicator(&inputs2, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

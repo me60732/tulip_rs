@@ -1,4 +1,4 @@
-use tulip_rs::indicators::stddev::{indicator, TIndicatorState};
+use tulip_rs::indicators::stddev::{Indicator, StdDev, TIndicatorState};
 
 fn main() {
     // Example input data: real prices
@@ -11,7 +11,7 @@ fn main() {
 
     let inputs = [close.as_slice()];
 
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match StdDev::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };
@@ -19,7 +19,7 @@ fn main() {
 
     let inputs2 = [&close[0..close.len() - 5]];
     // Calculate the STDDEV using the indicator function
-    let (outputs2, mut state) = match indicator(&inputs2, &options, Some(&[true])) {
+    let (outputs2, mut state) = match StdDev::indicator(&inputs2, &options, Some(&[true])) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

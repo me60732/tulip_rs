@@ -1,4 +1,4 @@
-use tulip_rs::indicators::wma::{indicator, TIndicatorState};
+use tulip_rs::indicators::wma::{Wma, TIndicatorState, Indicator};
 
 fn main() {
     let close = [
@@ -9,7 +9,7 @@ fn main() {
     let inputs = [&close[..close.len() - 5]];
     let options = [5.0];
 
-    let (outputs, mut state) = match indicator(&inputs, &options, None) {
+    let (outputs, mut state) = match Wma::indicator(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

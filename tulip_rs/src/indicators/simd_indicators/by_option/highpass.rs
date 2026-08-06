@@ -1,8 +1,6 @@
 use crate::common_simd::options::{validate_inputs, validate_options};
-use crate::indicators::highpass::{
-    min_data, multiplier, output_length, IndicatorState, State, INPUTS_WIDTH, OPTIONS_WIDTH,
-};
-use crate::indicators::simd_indicators::highpass_simd::SimdState;
+use crate::indicators::highpass::{HighPass, Indicator, IndicatorState, State, INPUTS, OPTIONS};
+use crate::indicators::simd_indicators::highpass_simd::{SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;
@@ -11,7 +9,7 @@ use std::simd::Simd;
 /// per scheduling epoch using a shared input series.
 struct HighPassDriver;
 
-impl Driver<State, (f64, f64)> for HighPassDriver {
+impl Driver<State> for HighPassDriver {
     /// Processes one epoch of output bars for `N` option-set lanes simultaneously using SIMD.
     ///
     /// Reads the shared real input, assembles per-lane coefficient vectors from `options`,
@@ -21,35 +19,21 @@ impl Driver<State, (f64, f64)> for HighPassDriver {
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
         mut states: Vec<&mut State>,
-        options: Vec<Option<&(f64, f64)>>,
+        _options: Vec<Option<&()>>,
     ) {
         let len = outputs[0][0].len();
 
         let real_ptrs = crate::extract_input_ptrs!(inputs, N, input_ptrs);
         let highpass_line = crate::extract_output_ptrs!(outputs, N, super_line);
 
-        let multipliers_simd = {
-            let mut multipliers = ([0.0; N], [0.0; N]);
-            for (lane, option) in options.iter().enumerate() {
-                if let Some(&multiplier) = option {
-                    multipliers.0[lane] = multiplier.0;
-                    multipliers.1[lane] = multiplier.1;
-                }
-            }
-            (
-                Simd::from_array(multipliers.0),
-                Simd::from_array(multipliers.1),
-            )
-        };
-
-        let mut state = SimdState::new(&states);
+        let mut state = SimdState::<N>::from_states(&mut states);
 
         for i in 0..len {
             let real = crate::extract_simd_inputs_at_index_splat!(i, N,
                 new @ real_ptrs
             );
 
-            let highpass = state.calc_simd(real, multipliers_simd);
+            let highpass = state.calc(real);
 
             crate::write_simd_at_indices!(N, i,
                 highpass_line => highpass
@@ -64,7 +48,7 @@ impl Driver<State, (f64, f64)> for HighPassDriver {
 /// sets simultaneously using SIMD parallelism.
 ///
 /// # Arguments
-/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS_WIDTH]`), containing
+/// * `inputs` - The single asset's price series (`[&[f64]; INPUTS]`), containing
 ///   `[real]`.
 /// * `options` - An array of `N` option sets, one per SIMD lane: `[period]`.
 /// * `_optional_outputs` - Unused; HighPass has no optional outputs.
@@ -74,27 +58,23 @@ impl Driver<State, (f64, f64)> for HighPassDriver {
 /// for option set `i`, and `states[i]` is the final [`IndicatorState`] for that lane.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
 pub fn indicator_by_options<const N: usize>(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[&[f64; OPTIONS_WIDTH]; N],
+    inputs: &[&[f64]; INPUTS],
+    options: &[&[f64; OPTIONS]; N],
     _optional_outputs: Option<&[bool]>,
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
-    validate_inputs::<OPTIONS_WIDTH>(inputs, options, min_data)?;
+    validate_inputs::<OPTIONS>(inputs, options, HighPass::min_data)?;
     validate_options(options, None)?;
-    let params: [(f64, f64); N] = std::array::from_fn(|i| {
-        let period = options[i][0] as usize;
-        multiplier(period)
-    });
 
     let mut output_buffers = Vec::with_capacity(N);
-    let mut road_train = PrimeMover::<N, State, (f64, f64)>::new();
+    let mut road_train = PrimeMover::<N, State>::new();
 
     for i in 0..N {
         let highpass_line = {
-            let capacity = output_length(inputs[0].len(), options[i]);
+            let capacity = HighPass::output_length(inputs[0].len(), options[i]);
             crate::uninit_vec!(f64, capacity)
         };
         let period = options[i][0] as usize;
-        let state = State::init_state(inputs[0], period, params[i]);
+        let state = State::init_state(inputs[0], period);
         let asset_inputs = vec![inputs[0]];
 
         let mut output_buffer = vec![highpass_line];
@@ -116,17 +96,13 @@ pub fn indicator_by_options<const N: usize>(
             period,
             0,
             state,
-            Some(&params[i]),
+            None,
         ));
         output_buffers.push(output_buffer);
     }
 
     let mut driver = HighPassDriver;
-    let final_states = road_train.drive(&mut driver);
+    let states = road_train.drive(&mut driver);
 
-    let mut states = Vec::with_capacity(N);
-    for (i, state) in final_states.into_iter().enumerate() {
-        states.push(IndicatorState::new(state, params[i]));
-    }
     Ok((output_buffers, states))
 }

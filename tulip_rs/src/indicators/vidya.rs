@@ -1,21 +1,20 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::TIndicatorState;
+pub use crate::indicator_types::{TIndicatorState, TState, Indicator, IndicatorResult};
 use crate::indicators::{
     sma::calc as sma_calc,
     stddev::{
-        multiplier as stddev_multiplier,
-        output_length as stddev_output_length, State as StddevState
+        StdDev, State as StddevState, multiplier as stddev_multiplier
     },
 };
 use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info,
+    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold
 };
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
-pub const INPUTS_WIDTH: usize = 1;
+pub const INPUTS: usize = 1;
 /// Number of option parameters required by this indicator.
-pub const OPTIONS_WIDTH: usize = 3;
+pub const OPTIONS: usize = 3;
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
@@ -48,25 +47,25 @@ pub mod by_options {
     pub use crate::indicators::simd_indicators::vidya_simd::indicator_by_options as indicator;
 }
 
+pub fn multiplier(short_period: usize, long_period: usize) -> (f64, f64) {
+    (stddev_multiplier(short_period), stddev_multiplier(long_period))
+}
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
-    state: State,
+    state: State<Warm>,
     real: Vec<f64>,
     periods: (usize, usize),
-    alpha: f64,
 }
 impl IndicatorState {
     pub fn new(
         real: &[f64],
-        state: State,
+        state: State<Warm>,
         periods: (usize, usize),
-        alpha: f64,
     ) -> Self {
         Self {
             real: real[real.len() - periods.1..].to_vec(),
             state,
             periods,
-            alpha,
         }
     }
 }
@@ -74,7 +73,7 @@ impl IndicatorState {
 impl TIndicatorState<1> for IndicatorState {
     fn batch_indicator(
         &mut self,
-        inputs: &[&[f64]; INPUTS_WIDTH],
+        inputs: &[&[f64]; INPUTS],
         optional_outputs: Option<&[bool]>,
     ) -> Result<Vec<Vec<f64>>, IndicatorError> {
         validate_inputs(inputs, 1)?;
@@ -103,7 +102,6 @@ impl TIndicatorState<1> for IndicatorState {
         cycle(
             &self.real,
             self.periods,
-            self.alpha,
             &mut self.state,
             &mut vidya_line,
             (
@@ -126,33 +124,35 @@ impl TIndicatorState<1> for IndicatorState {
     }
 }
 #[derive(Serialize, Deserialize)]
-pub struct State {
-    pub short_state: StddevState,
-    pub long_state: StddevState,
+#[serde(bound="")]
+pub struct State<S = Cold> {
+    pub short_state: StddevState<S>,
+    pub long_state: StddevState<S>,
+    pub alpha: f64,
     pub prev_vidya: f64,
 }
 impl State {
-    pub fn new(short_state: (f64, f64), long_state: (f64, f64), prev_vidya: f64, multipliers: (f64, f64)) -> Self {
+    pub fn new(short_state: (f64, f64), long_state: (f64, f64), alpha: f64, prev_vidya: f64, (short_period, long_period): (usize, usize)) -> Self {
         Self {
-            short_state: StddevState::new(short_state.0, short_state.1, multipliers.0),
-            long_state: StddevState::new(long_state.0, long_state.1, multipliers.1),
+            short_state: StddevState::new(short_state.0, short_state.1, short_period),
+            long_state: StddevState::new(long_state.0, long_state.1, long_period),
             prev_vidya,
+            alpha
         }
     }
-
     pub fn init_state(
         short_period: usize,
         long_period: usize,
         real: &[f64],
         alpha: f64,
         vidya_line: &mut [f64],
-        out_vecs: (&mut [f64], &mut [f64], &mut [f64], &mut [f64]),
-    ) -> Self {
+        (short_sma_line, long_sma_line, short_sd_line, long_sd_line): (&mut [f64], &mut [f64], &mut [f64], &mut [f64]),
+    ) -> State<Warm> {
         let mut sum_short: f64 = 0.0;
         let mut sum_sq_short: f64 = 0.0;
         let mut sum_long: f64 = 0.0;
         let mut sum_sq_long: f64 = 0.0;
-        let (short_sma_line, long_sma_line, short_sd_line, long_sd_line) = out_vecs;
+        
         let (short_multiplier, long_multiplier) = multiplier(short_period, long_period);
         for (i, &value) in real.iter().enumerate().take(long_period) {
             sum_long += value;
@@ -197,217 +197,44 @@ impl State {
             long_sma_line => long_sma,
             long_sd_line => long_stddev
         );
-        Self::new((sum_short, sum_sq_short), (sum_long, sum_sq_long), vidya, (short_multiplier, long_multiplier))
+        State {
+            short_state: StddevState::new(sum_short, sum_sq_short, short_period).into_warm(),
+            long_state: StddevState::new(sum_long, sum_sq_long, long_period).into_warm(),
+            alpha,
+            prev_vidya: vidya
+        }
     }
     
 }
-pub trait Calc {
-    fn calc(
-        &mut self,
-        value: &f64,
-        prev_values: (&f64, &f64),
-        alpha: f64,
-    ) -> (f64, f64, f64, f64, f64);
-}
-impl Calc for State {
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64, f64);
+    type Outputs = (f64, f64, f64, f64, f64);
     #[inline(always)]
-    fn calc(
+    fn calc<'a>(
         &mut self,
-        value: &f64,
-        prev_values: (&f64, &f64),
-        alpha: f64,
-    ) -> (f64, f64, f64, f64, f64) {
-        // Compute short-term STDDEV.
-        let (prev_short, prev_long) = prev_values;
+        (value, prev_short, prev_long): Self::Inputs<'a>
+    ) -> Self::Outputs {
 
-        let (sd_short, sma_short) = self.short_state.calc(value, &prev_short);
+        let (sd_short, sma_short) = self.short_state.calc((value, prev_short));
 
         // Compute long-term STDDEV.
-        let (sd_long, sma_long) = self.long_state.calc(value, &prev_long);
+        let (sd_long, sma_long) = self.long_state.calc((value, prev_long));
 
         let mut k = sd_short / sd_long;
-        k *= alpha;
-
-        self.prev_vidya = (value - self.prev_vidya) * k + self.prev_vidya;
+        k *= self.alpha;
+        self.prev_vidya = (value - self.prev_vidya).mul_add(k, self.prev_vidya);
+        //self.prev_vidya = (value - self.prev_vidya) * k + self.prev_vidya;
         (self.prev_vidya, sma_short, sma_long, sd_short, sd_long)
     }
 }
-pub const INFO: Info = Info {
-    name: "vidya",
-    full_name: "Variable Index Dynamic Average",
-    indicator_type: IndicatorType::Trend,
-    inputs: &["real"],
-    // Three options: short_period, long_period, alpha.
-    options: &["short_period", "long_period", "alpha"],
-    outputs: &["vidya"],
-    // Optional outputs: sma_fast and sma_slow are taken from the STDDEV calc.
-    optional_outputs: &["short_sma", "long_sma", "short_stddev", "long_stddev"],
-    display_groups: &[
-        DisplayGroup {
-            offset: None,
-            id: "vidya",
-            label: "VIDYA",
-            display_type: DisplayType::Overlay,
-            outputs: &["vidya"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "short_sma_long_sma",
-            label: "SMAs",
-            display_type: DisplayType::Overlay,
-            outputs: &["short_sma", "long_sma"],
-        },
-        DisplayGroup {
-            offset: None,
-            id: "short_stddev_long_stddev",
-            label: "Standard Deviation",
-            display_type: DisplayType::Indicator,
-            outputs: &["short_stddev", "long_stddev"],
-        },
-    ],
-};
-/// Returns the minimum amount of data required for the VIDYA indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options: `[short_period, long_period, alpha]`.
-///
-/// # Returns
-///
-/// The minimum amount of data required (equal to the long period).
-pub fn min_data(options: &[f64]) -> usize {
-    options[1] as usize
-}
 
-/// Calculates the output length based on the data length and options.
-///
-/// # Arguments
-///
-/// * `data_len` - The length of the input data.
-/// * `options` - A slice containing the options for the VIDYA calculation.
-///
-/// # Returns
-///
-/// The output length.
-pub fn output_length(data_len: usize, options: &[f64]) -> usize {
-    data_len - min_data(options) + 1
-}
-pub(crate) fn validate_options(options: &[f64; OPTIONS_WIDTH]) -> Result<(), IndicatorError> {
+pub(crate) fn validate_options(options: &[f64; OPTIONS]) -> Result<(), IndicatorError> {
     if options[2] <= 0.0 || options[2] >= 1.0 || options[0] < 1.0 || options[1] <= options[0] {
         return Err(IndicatorError::InvalidOptions);
     }
     Ok(())
 }
-/// Calculates the Variable Index Dynamic Average (VIDYA) indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — `real` (price series)
-///
-/// # Options
-///
-/// * `options[0]` — `short_period`
-/// * `options[1]` — `long_period`
-/// * `options[2]` — `alpha` (smoothing constant; must be in `(0.0, 1.0)`)
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `optional_outputs` - Pass `Some(&[true, …])` to enable optional outputs
-///   `[short_sma, long_sma, short_stddev, long_stddev]`; `None` disables all.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is `vidya` and `state`
-/// can be passed to `IndicatorState::batch_indicator` for streaming.
-/// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS_WIDTH],
-    options: &[f64; OPTIONS_WIDTH],
-    optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    let short_period = options[0] as usize;
-    let long_period = options[1] as usize;
-    let alpha = options[2];
 
-    validate_inputs(inputs, min_data(options))?;
-
-    let real = inputs[0];
-
-    let (
-        mut vidya_line,
-        mut short_sma_line,
-        mut long_sma_line,
-        mut short_sd_line,
-        mut long_sd_line,
-        mut state,
-        outputs,
-    );
-    {
-        let capacity = output_length(real.len(), options);
-        let long_capacity = stddev_output_length(real.len(), &[long_period as f64]);
-        let short_capacity = stddev_output_length(real.len(), &[short_period as f64]);
-
-        vidya_line = crate::uninit_vec!(f64, capacity);
-        (short_sma_line, long_sma_line, short_sd_line, long_sd_line) = crate::init_optional_outputs_eff!(
-            optional_outputs, &[false, false, false, false],
-            short_sma_line: short_capacity,
-            long_sma_line: long_capacity,
-            short_sd_line: short_capacity,
-            long_sd_line: long_capacity
-        );
-
-        // Start processing at the max period for a full window.
-        state = State::init_state(
-            short_period,
-            long_period,
-            real,
-            alpha,
-            &mut vidya_line,
-            (
-                &mut short_sma_line,
-                &mut long_sma_line,
-                &mut short_sd_line,
-                &mut long_sd_line,
-            ),
-        );
-        let start = crate::slice_outputs_start!(
-            capacity - 1,
-            short_sma_line,
-            long_sma_line,
-            short_sd_line,
-            long_sd_line
-        ); //capacity - 1 because vidya_line recieve 1 output bar in init_state
-        outputs = (
-            &mut short_sma_line[start.0..],
-            &mut long_sma_line[start.1..],
-            &mut short_sd_line[start.2..],
-            &mut long_sd_line[start.3..],
-        )
-    }
-
-    cycle(
-        real,
-        (short_period, long_period),
-        alpha,
-        &mut state,
-        &mut vidya_line[1..],
-        outputs,
-    );
-
-    Ok((
-        vec![
-            vidya_line,
-            short_sma_line,
-            long_sma_line,
-            short_sd_line,
-            long_sd_line,
-        ],
-        IndicatorState::new(real, state, (short_period, long_period), alpha),
-    ))
-}
 
 /// Iterates over the real data slice and computes VIDYA values for each bar.
 ///
@@ -423,26 +250,24 @@ pub fn indicator(
 ///   `(short_sma, long_sma, short_sd, long_sd)`.
 fn cycle(
     real: &[f64],
-    periods: (usize, usize),
-    alpha: f64,
-    state: &mut State,
+    (short_period, long_period): (usize, usize),
+    state: &mut State<Warm>,
     vidya_line: &mut [f64],
-    out_vecs: (&mut [f64], &mut [f64], &mut [f64], &mut [f64]),
+    (short_sma_line, long_sma_line, short_sd_line, long_sd_line): (&mut [f64], &mut [f64], &mut [f64], &mut [f64]),
 ) {
-    let (short_period, long_period) = periods;
-    let (short_sma_line, long_sma_line, short_sd_line, long_sd_line) = out_vecs;
     let (has_optional, want_short_sma, want_long_sma, want_short_sd, want_long_sd) =
         crate::calc_want_flags!(short_sma_line, long_sma_line, short_sd_line, long_sd_line);
 
     for (j, i) in (long_period..real.len()).enumerate() {
-        let (value, prev_values) = unsafe {
+        let inputs = unsafe {
             (
-                real.get_unchecked(i),
-                (real.get_unchecked(i - short_period), real.get_unchecked(j)),
+                *real.get_unchecked(i),
+                *real.get_unchecked(i - short_period), 
+                *real.get_unchecked(j),
             )
         };
         let (vidya, sma_short, sma_long, sd_short, sd_long) =
-            state.calc(value, prev_values, alpha);
+            state.calc(inputs);
         unsafe { *vidya_line.get_unchecked_mut(j) = vidya };
 
         if has_optional {
@@ -456,10 +281,132 @@ fn cycle(
     }
 }
 
-#[inline(always)]
-pub fn multiplier(short_period: usize, long_period: usize) -> (f64, f64) {
-    (
-        stddev_multiplier(short_period),
-        stddev_multiplier(long_period),
-    )
+pub struct Vidya;
+
+impl Indicator<INPUTS, OPTIONS> for Vidya {
+    type IndicatorState = IndicatorState;
+    const INFO: Info = Info {
+        name: "vidya",
+        full_name: "Variable Index Dynamic Average",
+        indicator_type: IndicatorType::Trend,
+        inputs: &["real"],
+        // Three options: short_period, long_period, alpha.
+        options: &["short_period", "long_period", "alpha"],
+        outputs: &["vidya"],
+        // Optional outputs: sma_fast and sma_slow are taken from the STDDEV calc.
+        optional_outputs: &["short_sma", "long_sma", "short_stddev", "long_stddev"],
+        display_groups: &[
+            DisplayGroup {
+                offset: None,
+                id: "vidya",
+                label: "VIDYA",
+                display_type: DisplayType::Overlay,
+                outputs: &["vidya"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "short_sma_long_sma",
+                label: "SMAs",
+                display_type: DisplayType::Overlay,
+                outputs: &["short_sma", "long_sma"],
+            },
+            DisplayGroup {
+                offset: None,
+                id: "short_stddev_long_stddev",
+                label: "Standard Deviation",
+                display_type: DisplayType::Indicator,
+                outputs: &["short_stddev", "long_stddev"],
+            },
+        ],
+    };
+
+    fn min_data(options: &[f64; OPTIONS]) -> usize {
+        options[1] as usize
+    }
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        let short_period = options[0] as usize;
+        let long_period = options[1] as usize;
+        let alpha = options[2];
+    
+        validate_inputs(inputs, Self::min_data(options))?;
+    
+        let real = inputs[0];
+    
+        let (
+            mut vidya_line,
+            mut short_sma_line,
+            mut long_sma_line,
+            mut short_sd_line,
+            mut long_sd_line,
+            mut state,
+            outputs,
+        );
+        {
+            let capacity = Self::output_length(real.len(), options);
+            let long_capacity = StdDev::output_length(real.len(), &[long_period as f64]);
+            let short_capacity = StdDev::output_length(real.len(), &[short_period as f64]);
+    
+            vidya_line = crate::uninit_vec!(f64, capacity);
+            (short_sma_line, long_sma_line, short_sd_line, long_sd_line) = crate::init_optional_outputs_eff!(
+                optional_outputs, &[false, false, false, false],
+                short_sma_line: short_capacity,
+                long_sma_line: long_capacity,
+                short_sd_line: short_capacity,
+                long_sd_line: long_capacity
+            );
+    
+            // Start processing at the max period for a full window.
+            state = State::init_state(
+                short_period,
+                long_period,
+                real,
+                alpha,
+                &mut vidya_line,
+                (
+                    &mut short_sma_line,
+                    &mut long_sma_line,
+                    &mut short_sd_line,
+                    &mut long_sd_line,
+                ),
+            );
+            let start = crate::slice_outputs_start!(
+                capacity - 1,
+                short_sma_line,
+                long_sma_line,
+                short_sd_line,
+                long_sd_line
+            ); //capacity - 1 because vidya_line recieve 1 output bar in init_state
+            outputs = (
+                &mut short_sma_line[start.0..],
+                &mut long_sma_line[start.1..],
+                &mut short_sd_line[start.2..],
+                &mut long_sd_line[start.3..],
+            )
+        }
+    
+        cycle(
+            real,
+            (short_period, long_period),
+            &mut state,
+            &mut vidya_line[1..],
+            outputs,
+        );
+    
+        Ok((
+            vec![
+                vidya_line,
+                short_sma_line,
+                long_sma_line,
+                short_sd_line,
+                long_sd_line,
+            ],
+            IndicatorState::new(real, state, (short_period, long_period)),
+        ))
+    }
 }

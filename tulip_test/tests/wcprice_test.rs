@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::wcprice::{indicator as rust_wcprice, min_data, TIndicatorState};
+    use tulip_rs::indicators::wcprice::{WcPrice, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_wcprice, ti_wcprice_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -67,7 +67,7 @@ mod tests {
         // Run the Rust implementation
         let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
         let (outputs, _) =
-            rust_wcprice(&inputs_rust, &[], None).expect("Rust WCPRICE indicator failed");
+            WcPrice::indicator(&inputs_rust, &[], None).expect("Rust WCPRICE indicator failed");
 
         let output_len_rust = outputs[0].len();
 
@@ -155,7 +155,7 @@ mod tests {
 
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
             let (outputs, _) =
-                rust_wcprice(&inputs_rust, &[], None).expect("Rust WCPRICE indicator failed");
+                WcPrice::indicator(&inputs_rust, &[], None).expect("Rust WCPRICE indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -219,12 +219,12 @@ mod tests {
 
             // Get full output from processing all data at once
             let (full_outputs, _) =
-                rust_wcprice(&inputs_rust, &options, None).expect("Rust WCPRICE indicator failed");
+                WcPrice::indicator(&inputs_rust, &options, None).expect("Rust WCPRICE indicator failed");
 
             // Process data in batches and accumulate outputs
             let mut batch_full_output = Vec::new();
 
-            let min_data_val = min_data(&options).max(CHUNK_SIZE);
+            let min_data_val = WcPrice::min_data(&options).max(CHUNK_SIZE);
 
             // First chunk - convert to Vec<&Vec<f64>>
             let high_vec = high[..min_data_val].to_vec();
@@ -237,7 +237,7 @@ mod tests {
             ];
 
             let (first_outputs, mut state) =
-                rust_wcprice(&chunk_inputs, &options, None).expect("Rust WCPRICE indicator failed");
+                WcPrice::indicator(&chunk_inputs, &options, None).expect("Rust WCPRICE indicator failed");
             batch_full_output.extend_from_slice(&first_outputs[0]);
 
             // Process remaining data in chunks
@@ -351,7 +351,7 @@ mod tests {
                 stock_low.as_slice(),
                 stock_close.as_slice(),
             ];
-            let (regular_results, _) = rust_wcprice(&stock_inputs, &options, None)
+            let (regular_results, _) = WcPrice::indicator(&stock_inputs, &options, None)
                 .expect("Regular WCPRICE indicator failed");
 
             let simd_result = &simd_results[stock_idx][0];
