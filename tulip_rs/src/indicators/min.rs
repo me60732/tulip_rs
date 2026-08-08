@@ -74,7 +74,6 @@ impl State<Cold> {
     pub fn init_state(real: &[f64], look_back: usize) -> State<Warm> {
         let mut min = real[0];
         let mut trail = 0;
-
         for &bar in real.iter().take(look_back).skip(1) {
             if bar <= min {
                 min = bar;

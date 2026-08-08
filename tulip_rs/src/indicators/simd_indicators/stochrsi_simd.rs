@@ -8,7 +8,7 @@ pub use crate::indicator_types::{TSimdState, TState};
 use crate::indicators::simd_indicators::rsi_simd::SimdState as RsiSimdState;
 use crate::indicators::stochrsi::State;
 use crate::types::Warm;
-use std::f64;
+
 use std::simd::{cmp::SimdPartialOrd, Select, Simd};
 pub mod assets {
     use super::*;

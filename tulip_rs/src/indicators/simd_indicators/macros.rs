@@ -338,7 +338,7 @@ macro_rules! extract_simd_from_ptrs {
 ///
 /// # Usage — sub + f64 only
 /// ```
-/// simd_state_from_state!(
+/// tulip_rs::simd_state_from_state!(
 ///     sub: [(dx_state: DxSimdState<N>)],
 ///     f64: [adx, prev_close]
 /// );
@@ -346,7 +346,7 @@ macro_rules! extract_simd_from_ptrs {
 ///
 /// # Usage — with ring buffers
 /// ```
-/// simd_state_from_state!(
+/// tulip_rs::simd_state_from_state!(
 ///     sub: [(adx_state: AdxSimdState<N>)],
 ///     scalar: [],
 ///     buf: [(buffer: SimdBuffer<N>, from_f64_buffers)]
@@ -426,7 +426,7 @@ macro_rules! simd_state_from_state {
 ///
 /// # Usage — sub + f64 only
 /// ```
-/// simd_state_write!(
+/// tulip_rs::simd_state_write!(
 ///     sub: [(dx_state: DxSimdState<N>)],
 ///     f64: [adx]
 /// );
@@ -434,7 +434,7 @@ macro_rules! simd_state_from_state {
 ///
 /// # Usage — with ring buffers
 /// ```
-/// simd_state_write!(
+/// tulip_rs::simd_state_write!(
 ///     sub: [(adx_state: AdxSimdState<N>)],
 ///     scalar: [],
 ///     buf: [(buffer: SimdBuffer<N>, from_f64_buffers)]
@@ -512,7 +512,7 @@ macro_rules! simd_state_write {
 /// ```
 /// impl<const N: usize> TSimdState for SimdState<N> {
 ///     type ScalarState = State;
-///     simd_state_impl!(
+///     tulip_rs::simd_state_impl!(
 ///         sub: [(dx_state: DxSimdState<N>)],
 ///         scalar: [adx, prev_close]
 ///     );
@@ -521,7 +521,7 @@ macro_rules! simd_state_write {
 ///
 /// # Usage — with ring buffers
 /// ```
-/// simd_state_impl!(
+///  tulip_rs::simd_state_impl!(
 ///     sub: [(adx_state: AdxSimdState<N>)],
 ///     scalar: [],
 ///     buf: [(buffer: SimdBuffer<N>, from_f64_buffers)]

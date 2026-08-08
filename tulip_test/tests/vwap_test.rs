@@ -340,7 +340,6 @@ mod tests {
     // =========================================================================
 
     #[test]
-    #[cfg(feature = "simd_assets")]
     fn test_vwap_simd_by_assets_vs_regular_database() {
         use tulip_rs::indicators::vwap::indicator_by_assets;
 
@@ -421,7 +420,6 @@ mod tests {
     // =========================================================================
 
     #[test]
-    #[cfg(feature = "simd_assets")]
     fn test_vwap_simd_by_assets_state_continuity() {
         use tulip_rs::indicators::vwap::indicator_by_assets;
 

@@ -389,7 +389,6 @@ mod tests {
     // ─────────────────────────────────────────────────────────────────────────
 
     #[test]
-    #[cfg(feature = "simd_assets")]
     fn test_ccfisher_simd_by_assets() {
         use tulip_rs::indicators::ccfisher::indicator_by_assets;
 
@@ -454,7 +453,6 @@ mod tests {
     // ─────────────────────────────────────────────────────────────────────────
 
     #[test]
-    #[cfg(feature = "simd_options")]
     fn test_ccfisher_simd_by_options_mixed_adaptive() {
         use tulip_rs::indicators::ccfisher::indicator_by_options;
 
@@ -510,7 +508,6 @@ mod tests {
     // ─────────────────────────────────────────────────────────────────────────
 
     #[test]
-    #[cfg(feature = "simd_options")]
     fn test_ccfisher_simd_by_options() {
         use tulip_rs::indicators::ccfisher::indicator_by_options;
 

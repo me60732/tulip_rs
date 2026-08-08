@@ -313,9 +313,9 @@ pub fn cdl_real_in_body_position(body: (f64, f64), real: f64) -> f64 {
     let lower = open.min(close);
     let upper = open.max(close);
     let range = upper - lower;
-    if range.abs() < std::f64::EPSILON {
+    if range.abs() < f64::EPSILON {
         // Candle has no visible body.
-        if (real - open).abs() < std::f64::EPSILON {
+        if (real - open).abs() < f64::EPSILON {
             50.0
         } else if real < open {
             // Compute a negative percentage difference relative to the open.
