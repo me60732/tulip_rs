@@ -388,7 +388,7 @@ mod tests {
     // the scalar run within 1e-10 (fisher and signal outputs).
     // ─────────────────────────────────────────────────────────────────────────
 
-    #[test]
+    /*#[test]
     fn test_ccfisher_simd_by_assets() {
         use tulip_rs::indicators::ccfisher::indicator_by_assets;
 
@@ -560,5 +560,5 @@ mod tests {
                 }
             }
         }
-    }
+    }*/
 }

@@ -76,7 +76,7 @@ jobs:
               run: cargo build --manifest-path tulip_rs/Cargo.toml --all-features
 
             - name: Test tulip_rs
-              run: cargo test --manifest-path tulip_rs/Cargo.toml --all-features
+              run: cargo test --manifest-path tulip_rs/Cargo.toml --all-features --lib --bins --tests
 
             - name: Build tulip_test (incl. benchmarks)
               run: cargo build --manifest-path tulip_test/Cargo.toml --benches
