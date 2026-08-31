@@ -77,6 +77,7 @@ impl Driver<State<Warm>, ()> for AdoscDriver {
                     want_ad, ad_line_ptr => state.ad.ad
                 );
             }
+            
         }
 
         // Update states efficiently

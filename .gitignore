@@ -1,7 +1,7 @@
 /Cargo.lock
 /.zed
 /target/
-/.cargo/
+#/.cargo/
 .~*
 *.md
 !docs/*.md
@@ -12,3 +12,4 @@
 test_candle_examples.py
 /site/
 * copy.rs
+.aider*

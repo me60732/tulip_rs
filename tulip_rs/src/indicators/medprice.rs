@@ -1,5 +1,5 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{TIndicatorState, Indicator, IndicatorResult};
+pub use crate::indicator_types::{TIndicatorState, Indicator, IndicatorResult, TState};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
@@ -24,7 +24,16 @@ pub mod by_assets {
     /// See the parent module's [`super::indicator_by_assets`] for full documentation.
     pub use crate::indicators::simd_indicators::medprice_simd::indicator_by_assets as indicator;
 }
+pub struct State;
 
+impl TState for State {
+    type Inputs<'a> = (f64, f64);
+    type Outputs = f64;
+    #[inline(always)]
+    fn calc(&mut self, (high, low): Self::Inputs<'_>) -> Self::Outputs {
+        0.5 * (high + low)
+    }
+}
 #[derive(Serialize, Deserialize, Clone)]
 pub struct IndicatorState;
 
@@ -45,9 +54,9 @@ fn process(inputs: &[&[f64]; INPUTS]) -> Result<Vec<Vec<f64>>, IndicatorError> {
     let low = inputs[1];
 
     let mut medprice_line = crate::uninit_vec!(f64, high.len());
-
+    let mut state = State;
     for (i, (&high_value, &low_value)) in high.iter().zip(low.iter()).enumerate() {
-        unsafe { *medprice_line.get_unchecked_mut(i) = calc(high_value, low_value) };
+        unsafe { *medprice_line.get_unchecked_mut(i) = state.calc((high_value, low_value)) };
     }
 
     Ok(vec![medprice_line])

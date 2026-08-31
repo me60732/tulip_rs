@@ -4,7 +4,6 @@ use crate::types::{
     DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold
 };
 use serde::{Deserialize, Serialize};
-//use wide::*;
 
 /// Number of input price series required by this indicator.
 pub const INPUTS: usize = 1;
