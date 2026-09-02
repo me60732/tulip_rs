@@ -9,7 +9,7 @@ A cumulative indicator that uses price and volume to assess whether a security i
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::ad::indicator;
+    use tulip_rs::indicators::ad::{Ad, Indicator, TIndicatorState};
 
     let high   = vec![82.15, 81.89, 83.03, 83.30, 83.85,
                       83.90, 83.33, 84.30, 84.84, 85.00_f64];
@@ -21,7 +21,7 @@ A cumulative indicator that uses price and volume to assess whether a security i
                       900.0, 1500.0, 1800.0, 1000.0, 1700.0_f64];
 
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice(), volume.as_slice()];
-    let (outputs, mut state) = indicator(&inputs, &[], None).unwrap();
+    let (outputs, mut state) = Ad::indicator(&inputs, &[], None).unwrap();
     println!("{:?}", outputs[0]); // A/D line values
 
     // State continuation — feed new bars without reprocessing history
