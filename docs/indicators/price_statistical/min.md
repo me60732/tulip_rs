@@ -9,10 +9,21 @@ The lowest value in the input series over a rolling `period` window.
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::min::indicator;
+    use tulip_rs::indicators::min::{Min, Indicator, TIndicatorState};
 
-    let (outputs, _) = indicator(&[close.as_slice()], &[14.0], None).unwrap();
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
+                     83.15, 82.84, 83.99, 84.55, 84.36_f64];
+    let (outputs, mut state) = Min::indicator(&[close.as_slice()], &[14.0], None).unwrap();
     println!("{:?}", outputs[0]);
+
+    // State continuation — feed new bars without reprocessing history
+    let partial = close[..8].to_vec();
+    let (outputs2, mut state) = Min::indicator(&[partial.as_slice()], &[14.0], None).unwrap();
+    println!("{:?}", outputs2[0]);
+
+    let new_close = vec![85.53_f64];
+    let continued = state.batch_indicator(&[new_close.as_slice()], None).unwrap();
+    println!("{:?}", continued[0]);
     ```
 
 === "Python"
@@ -72,6 +83,9 @@ The lowest value in the input series over a rolling `period` window.
 
     let inputs: [&[&[f64]; 1]; 4] = [&[a1.as_slice()], &[a2.as_slice()], &[a3.as_slice()], &[a4.as_slice()]];
     let results = indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
+    for (i, asset_outputs) in results.iter().enumerate() {
+        println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
+    }
     ```
 
     **By options** — same asset, N option sets in parallel:
@@ -81,6 +95,9 @@ The lowest value in the input series over a rolling `period` window.
 
     let opts: [&[f64; 1]; 4] = [&[5.0], &[10.0], &[20.0], &[50.0]];
     let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
+    for (i, asset_outputs) in results.iter().enumerate() {
+        println!("Option {}: {:?}", i + 1, asset_outputs[0]);
+    }
     ```
 
 === "Python"

@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
+    use tulip_rs::indicator_types::IndicatorByOptions;
     use tulip_rs::indicators::adxr::{Adxr, Indicator, TIndicatorState};
-    use tulip_rs::indicators::adxr::{indicator_by_assets, indicator_by_options};
     use tulip_test::c_bindings::{
         ti_adx, ti_adx_start, ti_adxr, ti_adxr_start, ti_atr, ti_atr_start, ti_dx, ti_dx_start,
         ti_tr, ti_tr_start,
@@ -85,7 +85,7 @@ mod tests {
             // Run the Rust implementation
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
             let (outputs, _) =
-            Adxr::indicator(&inputs_rust, &options, None).expect("Rust ADXR indicator failed");
+                Adxr::indicator(&inputs_rust, &options, None).expect("Rust ADXR indicator failed");
 
             // Compare the outputs
             for (i, (&c_val, &rust_val)) in output_vec_c.iter().zip(outputs[0].iter()).enumerate() {
@@ -155,8 +155,8 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (outputs, _) =
-                    Adxr::indicator(&inputs_rust, &options, None).expect("Rust ADXR indicator failed");
+                let (outputs, _) = Adxr::indicator(&inputs_rust, &options, None)
+                    .expect("Rust ADXR indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -579,8 +579,8 @@ mod tests {
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
 
                 // Get full output from processing all data at once
-                let (full_outputs, _) =
-                    Adxr::indicator(&inputs_rust, &options, None).expect("Rust ADXR indicator failed");
+                let (full_outputs, _) = Adxr::indicator(&inputs_rust, &options, None)
+                    .expect("Rust ADXR indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
@@ -597,8 +597,8 @@ mod tests {
                     close_vec.as_slice(),
                 ];
 
-                let (first_outputs, mut state) =
-                    Adxr::indicator(&chunk_inputs, &options, None).expect("Rust ADXR indicator failed");
+                let (first_outputs, mut state) = Adxr::indicator(&chunk_inputs, &options, None)
+                    .expect("Rust ADXR indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
                 // Process remaining data in chunks
@@ -1055,8 +1055,9 @@ mod tests {
             ];
 
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, options, None)
-                .expect("SIMD by assets ADXR indicator failed");
+            let (simd_results, _) =
+                <Adxr as Indicator<3, 1>>::indicator_by_assets::<4>(&inputs, options, None)
+                    .expect("SIMD by assets ADXR indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
             for (stock_idx, (stock_symbol, stock_high, stock_low, stock_close)) in
@@ -1068,8 +1069,8 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_outputs, _) =
-                    Adxr::indicator(&stock_inputs, options, None).unwrap_or_else(|_| {
+                let (regular_outputs, _) = Adxr::indicator(&stock_inputs, options, None)
+                    .unwrap_or_else(|_| {
                         panic!(
                             "Regular ADXR failed for {} with period {}",
                             stock_symbol, options[0]
@@ -1147,8 +1148,12 @@ mod tests {
             ];
 
             // Get SIMD by assets result with optional ADX output
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, options, optional_outputs)
-                .expect("SIMD by assets ADXR indicator with optional ADX failed");
+            let (simd_results, _) = <Adxr as Indicator<3, 1>>::indicator_by_assets::<4>(
+                &inputs,
+                options,
+                optional_outputs,
+            )
+            .expect("SIMD by assets ADXR indicator with optional ADX failed");
 
             // Compare each SIMD result with regular indicator for each stock
             for (stock_idx, (stock_symbol, stock_high, stock_low, stock_close)) in
@@ -1160,13 +1165,15 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_outputs, _) = Adxr::indicator(&stock_inputs, options, optional_outputs)
-                    .unwrap_or_else(|_| {
-                        panic!(
-                            "Regular ADXR with optional ADX failed for {} with period {}",
-                            stock_symbol, options[0]
-                        )
-                    });
+                let (regular_outputs, _) =
+                    Adxr::indicator(&stock_inputs, options, optional_outputs).unwrap_or_else(
+                        |_| {
+                            panic!(
+                                "Regular ADXR with optional ADX failed for {} with period {}",
+                                stock_symbol, options[0]
+                            )
+                        },
+                    );
 
                 // Compare number of outputs (should be 2: adxr, adx)
                 assert_eq!(
@@ -1259,8 +1266,12 @@ mod tests {
             ];
 
             // Get SIMD by assets result with optional DX output
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, options, optional_outputs)
-                .expect("SIMD by assets ADXR indicator with optional DX failed");
+            let (simd_results, _) = <Adxr as Indicator<3, 1>>::indicator_by_assets::<4>(
+                &inputs,
+                options,
+                optional_outputs,
+            )
+            .expect("SIMD by assets ADXR indicator with optional DX failed");
 
             // Compare each SIMD result with regular indicator for each stock
             for (stock_idx, (stock_symbol, stock_high, stock_low, stock_close)) in
@@ -1272,13 +1283,15 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_outputs, _) = Adxr::indicator(&stock_inputs, options, optional_outputs)
-                    .unwrap_or_else(|_| {
-                        panic!(
-                            "Regular ADXR with optional DX failed for {} with period {}",
-                            stock_symbol, options[0]
-                        )
-                    });
+                let (regular_outputs, _) =
+                    Adxr::indicator(&stock_inputs, options, optional_outputs).unwrap_or_else(
+                        |_| {
+                            panic!(
+                                "Regular ADXR with optional DX failed for {} with period {}",
+                                stock_symbol, options[0]
+                            )
+                        },
+                    );
 
                 // Compare number of outputs (should be 2: adxr, dx)
                 assert_eq!(
@@ -1366,8 +1379,12 @@ mod tests {
             ];
 
             // Get SIMD by assets result with optional ATR output
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, options, optional_outputs)
-                .expect("SIMD by assets ADXR indicator with optional ATR failed");
+            let (simd_results, _) = <Adxr as Indicator<3, 1>>::indicator_by_assets::<4>(
+                &inputs,
+                options,
+                optional_outputs,
+            )
+            .expect("SIMD by assets ADXR indicator with optional ATR failed");
 
             // Compare each SIMD result with regular indicator for each stock
             for (stock_idx, (stock_symbol, stock_high, stock_low, stock_close)) in
@@ -1379,13 +1396,15 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_outputs, _) = Adxr::indicator(&stock_inputs, options, optional_outputs)
-                    .unwrap_or_else(|_| {
-                        panic!(
-                            "Regular ADXR with optional ATR failed for {} with period {}",
-                            stock_symbol, options[0]
-                        )
-                    });
+                let (regular_outputs, _) =
+                    Adxr::indicator(&stock_inputs, options, optional_outputs).unwrap_or_else(
+                        |_| {
+                            panic!(
+                                "Regular ADXR with optional ATR failed for {} with period {}",
+                                stock_symbol, options[0]
+                            )
+                        },
+                    );
 
                 // Compare number of outputs (should be 2: adxr, atr)
                 assert_eq!(
@@ -1473,8 +1492,12 @@ mod tests {
             ];
 
             // Get SIMD by assets result with optional TR output
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, options, optional_outputs)
-                .expect("SIMD by assets ADXR indicator with optional TR failed");
+            let (simd_results, _) = <Adxr as Indicator<3, 1>>::indicator_by_assets::<4>(
+                &inputs,
+                options,
+                optional_outputs,
+            )
+            .expect("SIMD by assets ADXR indicator with optional TR failed");
 
             // Compare each SIMD result with regular indicator for each stock
             for (stock_idx, (stock_symbol, stock_high, stock_low, stock_close)) in
@@ -1486,13 +1509,15 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_outputs, _) = Adxr::indicator(&stock_inputs, options, optional_outputs)
-                    .unwrap_or_else(|_| {
-                        panic!(
-                            "Regular ADXR with optional TR failed for {} with period {}",
-                            stock_symbol, options[0]
-                        )
-                    });
+                let (regular_outputs, _) =
+                    Adxr::indicator(&stock_inputs, options, optional_outputs).unwrap_or_else(
+                        |_| {
+                            panic!(
+                                "Regular ADXR with optional TR failed for {} with period {}",
+                                stock_symbol, options[0]
+                            )
+                        },
+                    );
 
                 // Compare number of outputs (should be 2: adxr, tr)
                 assert_eq!(
@@ -1573,8 +1598,9 @@ mod tests {
             ];
 
             // Run full indicator for comparison
-            let (full_simd_results, _) = indicator_by_assets::<4>(&full_inputs, options, None)
-                .expect("SIMD by assets ADXR indicator failed");
+            let (full_simd_results, _) =
+                <Adxr as Indicator<3, 1>>::indicator_by_assets::<4>(&full_inputs, options, None)
+                    .expect("SIMD by assets ADXR indicator failed");
 
             // Prepare first 2000 bars for SIMD by asset
             let first_inputs: [&[&[f64]; 3]; 4] = [
@@ -1602,7 +1628,7 @@ mod tests {
 
             // Process first 2000 bars with SIMD by asset (no optional outputs)
             let (first_results, mut states) =
-                indicator_by_assets::<4>(&first_inputs, options, None)
+                <Adxr as Indicator<3, 1>>::indicator_by_assets::<4>(&first_inputs, options, None)
                     .expect("SIMD by assets ADXR first chunk failed");
 
             // Process each remaining stock individually using the returned states
@@ -1667,14 +1693,17 @@ mod tests {
             let (high, low, close) = get_hlc_arrays(stock_data);
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
-            // Process all 4 options with 4-wide SIMD
+            // Process first 4 options with 4-wide SIMD
             let options_4 = [
                 &OPTIONS_LIST[0],
                 &OPTIONS_LIST[1],
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) =
+                <Adxr as IndicatorByOptions<3, 1>>::indicator_by_options::<4>(
+                    &inputs, &options_4, None,
+                )
                 .expect("SIMD ADXR 4-wide failed");
 
             // Use SIMD results directly (all 4 options processed)
@@ -1753,8 +1782,12 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, _) =
-                indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
-                    .expect("SIMD ADXR 4-wide with optional outputs failed");
+                <Adxr as IndicatorByOptions<3, 1>>::indicator_by_options::<4>(
+                    &inputs,
+                    &options_4,
+                    optional_outputs,
+                )
+                .expect("SIMD ADXR 4-wide with optional outputs failed");
 
             // Use SIMD results directly
             let all_simd_results = simd_results_4;
@@ -1945,8 +1978,12 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, states_4) =
-                indicator_by_options::<4>(&first_inputs, &options_4, None)
-                    .expect("SIMD ADXR 4-wide failed on first chunk");
+                <Adxr as IndicatorByOptions<3, 1>>::indicator_by_options::<4>(
+                    &first_inputs,
+                    &options_4,
+                    None,
+                )
+                .expect("SIMD ADXR 4-wide failed on first chunk");
 
             // Combine SIMD results for first part and prepare to extend with batch_indicator outputs
             let mut all_simd_results: Vec<Vec<f64>> = Vec::new();
@@ -1998,5 +2035,4 @@ mod tests {
 
         println!("✓ All ADXR SIMD state handover by options tests passed!");
     }
-
-    }
+}

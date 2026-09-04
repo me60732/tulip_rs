@@ -37,7 +37,10 @@
 //!   Small extra cost vs fixed α: one `max` + one division per bar.
 
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
+
 use crate::indicators::{cybercycle, homodynediscriminator};
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
@@ -48,28 +51,6 @@ pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1; // [alpha]
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::ccfisher_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes one asset with `N` different alpha values.
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::ccfisher_simd::indicator_by_options;
-
-/// Module alias exposing `indicator_by_assets` as `indicator`.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    pub use crate::indicators::simd_indicators::ccfisher_simd::indicator_by_assets as indicator;
-}
-
-/// Module alias exposing `indicator_by_options` as `indicator`.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes one asset with `N` different alpha values in parallel.
-    pub use crate::indicators::simd_indicators::ccfisher_simd::indicator_by_options as indicator;
-}
 
 /// Per-bar filter state for the Ehlers CyberCycle Fisher.
 ///
@@ -293,8 +274,7 @@ impl TState for State<Cold> {
         self.calc_dispatch(price)
     }
 }
-impl TState for State<Warm>
-{
+impl TState for State<Warm> {
     type Inputs<'a> = f64;
     type Outputs = (f64, f64);
     #[inline(always)]
@@ -302,7 +282,6 @@ impl TState for State<Warm>
         self.calc_dispatch(price)
     }
 }
-
 
 impl Default for State<Cold> {
     fn default() -> Self {
@@ -371,7 +350,6 @@ impl TIndicatorState<INPUTS> for IndicatorState {
         ])
     }
 }
-
 
 /// Validates `alpha`.
 ///
@@ -566,4 +544,31 @@ impl Indicator<INPUTS, OPTIONS> for CcFisher {
             state,
         ))
     }
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::ccfisher_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
 }
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for CcFisher {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::ccfisher_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+

@@ -1,5 +1,8 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
+
 pub use crate::indicators::atr::{multiplier, Atr};
 
 use crate::indicators::tr::Tr;
@@ -15,30 +18,6 @@ use serde::{Deserialize, Serialize};
 pub const INPUTS: usize = 3;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 2;
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::supertrend_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::supertrend_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    pub use crate::indicators::simd_indicators::supertrend_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    pub use crate::indicators::simd_indicators::supertrend_simd::indicator_by_options as indicator;
-}
 
 pub(crate) fn validate_options(options: &[f64; OPTIONS]) -> Result<(), IndicatorError> {
     if options[0] < 1.0 || options[1] <= 0.0 {
@@ -296,5 +275,33 @@ impl Indicator<INPUTS, OPTIONS> for SuperTrend {
         );
 
         Ok((vec![st_line, atr_line, tr_line, medprice_line], state))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::supertrend_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for SuperTrend {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::supertrend_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

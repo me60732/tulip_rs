@@ -9,23 +9,22 @@ Measures how efficiently price moves in one direction over `period` bars; values
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::ef::indicator;
+    use tulip_rs::indicators::ef::{Ef, Indicator, TIndicatorState};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36,
                      85.53, 86.54, 86.89, 87.77, 87.29_f64];
 
-    let (outputs, _state) = indicator(&[close.as_slice()], &[5.0], None).unwrap();
+    let (outputs, mut state) = Ef::indicator(&[close.as_slice()], &[5.0], None).unwrap();
     println!("EF(5): {:?}", outputs[0]);
 
-    // State continuation
-    let n = close.len() - 5;
-    let partial_close = close[..n].to_vec();
-    let (outputs2, mut state) = indicator(&[partial_close.as_slice()], &[5.0], None).unwrap();
+    // State continuation — feed new bars without reprocessing history
+    let partial_close = close[..8].to_vec();
+    let (outputs2, mut state) = Ef::indicator(&[partial_close.as_slice()], &[5.0], None).unwrap();
     println!("Partial EF: {:?}", outputs2[0]);
 
-    let rest_close = close[n..].to_vec();
-    let continued = state.batch_indicator(&[rest_close.as_slice()], None).unwrap();
+    let new_close = vec![86.54_f64];
+    let continued = state.batch_indicator(&[new_close.as_slice()], None).unwrap();
     println!("Continued EF: {:?}", continued[0]);
     ```
 
@@ -118,7 +117,7 @@ Measures how efficiently price moves in one direction over `period` bars; values
     ];
 
     let results = indicator_by_assets::<4>(&inputs, &[5.0], None).unwrap();
-    for (i, asset_outputs) in results.0.iter().enumerate() {
+    for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
     ```
@@ -135,7 +134,7 @@ Measures how efficiently price moves in one direction over `period` bars; values
     let opts: [&[f64; 1]; 4] = [&[3.0], &[5.0], &[7.0], &[10.0]];
 
     let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
-    for (i, opt_outputs) in results.0.iter().enumerate() {
+    for (i, opt_outputs) in results.iter().enumerate() {
         println!("Period set {}: {:?}", i + 1, opt_outputs[0]);
     }
     ```

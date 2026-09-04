@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::fosc::{
-    Fosc, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
+    Fosc, Indicator, IndicatorByOptions, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -205,8 +205,8 @@ fn bench_rust_fosc_from_state(c: &mut Criterion) {
                 if inputs[0].len() > 1 {
                     let new_inputs = [&close[..close.len() - 1]];
                     let _final_inputs = [&close[close.len() - 1..]];
-                    let (_, mut state) =
-                        Fosc::indicator(&new_inputs, &options, None).expect("Rust FOSC Fosc::indicator failed");
+                    let (_, mut state) = Fosc::indicator(&new_inputs, &options, None)
+                        .expect("Rust FOSC Fosc::indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -229,8 +229,8 @@ fn bench_rust_fosc_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) =
-                        Fosc::indicator(&new_inputs, &options, None).expect("Rust FOSC Fosc::indicator failed");
+                    let (_, state) = Fosc::indicator(&new_inputs, &options, None)
+                        .expect("Rust FOSC Fosc::indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -268,8 +268,8 @@ fn bench_rust_fosc_from_state(c: &mut Criterion) {
             //let close_chunk = close[..min_data];
             //let chunk_inputs = [&close[..min_data]];
 
-            let (_, mut state) =
-                Fosc::indicator(&[&close[..min_data]], &options, None).expect("FOSC Fosc::indicator failed");
+            let (_, mut state) = Fosc::indicator(&[&close[..min_data]], &options, None)
+                .expect("FOSC Fosc::indicator failed");
 
             let mut group =
                 c.benchmark_group(format!("Rust FOSC from state {{ {:.1} }}", options[0]));
@@ -346,7 +346,7 @@ fn bench_rust_fosc_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = Fosc::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("Rust SIMD by assets FOSC Fosc::indicator failed");
                     black_box(&result);
                 },
@@ -372,7 +372,7 @@ fn bench_rust_fosc_simd_by_assets(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             c.bench_function(&format!("SIMD by assets FOSC {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = Fosc::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("Rust SIMD by assets FOSC Fosc::indicator failed");
                     black_box(&result);
                 });
@@ -464,7 +464,7 @@ fn bench_rust_fosc_simd_by_options(c: &mut Criterion) {
                         &OPTIONS_LIST[2],
                         &OPTIONS_LIST[3],
                     ];
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result = Fosc::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD FOSC Fosc::indicator failed");
                     black_box(&result);
                 },
@@ -496,7 +496,7 @@ fn bench_rust_fosc_simd_by_options(c: &mut Criterion) {
                     &OPTIONS_LIST[2],
                     &OPTIONS_LIST[3],
                 ];
-                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result = Fosc::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD FOSC Fosc::indicator failed");
                 black_box(&result);
             });

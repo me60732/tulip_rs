@@ -1,6 +1,5 @@
-use tulip_rs::indicators::supertrend::{
-    indicator_by_assets, indicator_by_options, Indicator, SuperTrend, TIndicatorState,
-};
+use tulip_rs::indicator_types::TIndicatorState;
+use tulip_rs::indicators::supertrend::{Indicator, IndicatorByOptions, SuperTrend};
 
 fn main() {
     let high = [
@@ -67,10 +66,11 @@ fn main() {
     let asset3: [&[f64]; 3] = [&high, &low, &close];
     let inputs_4: [&[&[f64]; 3]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-    let (simd_asset_outputs, _) = match indicator_by_assets::<4>(&inputs_4, &options, None) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (simd_asset_outputs, _) =
+        match SuperTrend::indicator_by_assets::<4>(&inputs_4, &options, None) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
     println!(
         "\nSIMD by-assets SuperTrend (asset 0): {:?}",
         simd_asset_outputs[0][0]
@@ -89,10 +89,11 @@ fn main() {
         &[14.0_f64, 2.0],
     ];
 
-    let (simd_option_outputs, _) = match indicator_by_options::<4>(&inputs, &options_4, None) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (simd_option_outputs, _) =
+        match SuperTrend::indicator_by_options::<4>(&inputs, &options_4, None) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
     for (i, opts) in options_4.iter().enumerate() {
         println!(
             "\nSIMD by-options SuperTrend (period={}, step={}): {:?}",

@@ -1,12 +1,14 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
 use crate::indicators::medprice::calc as calc_medprice;
 use crate::indicators::{
     simd_indicators::sma_simd::SimdState as SmaSimdState,
     sma::{calc as sma_calc, multiplier as sma_multiplier, Sma},
 };
 use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 use std::simd::Simd;
 /// Number of input price series required by this indicator.
@@ -16,22 +18,6 @@ pub const INPUTS: usize = 2;
 pub const OPTIONS: usize = 0;
 pub const SHORT_PERIOD: usize = 5;
 pub const LONG_PERIOD: usize = 34;
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::ao_simd::indicator_by_assets;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::ao_simd::indicator_by_assets as indicator;
-}
 
 pub type IndicatorState = State<Warm>;
 #[derive(Serialize, Deserialize)]
@@ -101,12 +87,7 @@ impl State<Cold> {
             *long_sum += med_price;
             if i >= SHORT_PERIOD {
                 let prev_medprice = calc_medprice(high[i - SHORT_PERIOD], low[i - SHORT_PERIOD]);
-                sma = sma_calc(
-                    short_sum,
-                    &med_price,
-                    &prev_medprice,
-                    &multiplier,
-                );
+                sma = sma_calc(short_sum, &med_price, &prev_medprice, &multiplier);
             } else {
                 *short_sum += med_price;
             }
@@ -117,9 +98,9 @@ impl State<Cold> {
         }
         State {
             sma_state: state.sma_state,
-            buffer: state.buffer.into_full()
+            buffer: state.buffer.into_full(),
         }
-    }    
+    }
 }
 impl TState for State<Warm> {
     type Inputs<'a> = (f64, f64);
@@ -224,14 +205,14 @@ impl Indicator<INPUTS, OPTIONS> for Ao {
         optional_outputs: Option<&[bool]>,
     ) -> IndicatorResult<Self::IndicatorState> {
         validate_inputs(inputs, Self::min_data(_options))?;
-    
+
         let high = inputs[0];
         let low = inputs[1];
-    
+
         let (mut ao_line, (mut short_sma_line, mut long_sma_line, mut medprice_line)) = {
             let capacity = Self::output_length(high.len(), _options);
             let short_capacity = Sma::output_length(high.len(), &[SHORT_PERIOD as f64]);
-    
+
             (
                 crate::uninit_vec!(f64, capacity),
                 crate::init_optional_outputs_eff!(
@@ -242,7 +223,7 @@ impl Indicator<INPUTS, OPTIONS> for Ao {
                 ),
             )
         };
-    
+
         let mut state = State::init_state((high, low), &mut medprice_line, &mut short_sma_line);
         let optional_outputs = {
             let offsets = crate::slice_outputs_start!(ao_line.len(), medprice_line, short_sma_line);
@@ -254,10 +235,23 @@ impl Indicator<INPUTS, OPTIONS> for Ao {
         };
         let (high, low) = { (&high[LONG_PERIOD..], &low[LONG_PERIOD..]) };
         cycle_ao(high, low, &mut state, &mut ao_line, optional_outputs);
-    
+
         Ok((
             vec![ao_line, short_sma_line, long_sma_line, medprice_line],
             state,
         ))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::ao_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

@@ -9,7 +9,7 @@ Isolates the dominant market cycle from price data using a high-pass filter foll
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::cybercycle::indicator;
+    use tulip_rs::indicators::cybercycle::{Cybercycle, Indicator, TIndicatorState};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
@@ -17,7 +17,7 @@ Isolates the dominant market cycle from price data using a high-pass filter foll
                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20_f64];
 
     // Options: [alpha] — default 0.07
-    let (outputs, _state) = indicator(&[close.as_slice()], &[0.07], None).unwrap();
+    let (outputs, _state) = Cybercycle::indicator(&[close.as_slice()], &[0.07], None).unwrap();
     println!("CyberCycle: {:?}", outputs[0]);
 
     // State continuation
@@ -100,7 +100,7 @@ Isolates the dominant market cycle from price data using a high-pass filter foll
     `cybercycle` exposes 1 optional output: `trigger`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::cybercycle::indicator;
+    use tulip_rs::indicators::cybercycle::{Cybercycle, Indicator, TIndicatorState};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
@@ -108,7 +108,7 @@ Isolates the dominant market cycle from price data using a high-pass filter foll
                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20_f64];
 
     let mask = [true]; // one per optional output
-    let (outputs, _state) = indicator(&[close.as_slice()], &[0.07], Some(&mask)).unwrap();
+    let (outputs, _state) = Cybercycle::indicator(&[close.as_slice()], &[0.07], Some(&mask)).unwrap();
 
     let cybercycle = &outputs[0]; // cybercycle (primary)
     let trigger    = &outputs[1]; // trigger (optional — requested)
@@ -161,7 +161,7 @@ Isolates the dominant market cycle from price data using a high-pass filter foll
     **By assets** — same alpha applied to 4 assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::cybercycle::indicator_by_assets;
+    use tulip_rs::indicators::cybercycle::{Cybercycle, Indicator, TIndicatorState};
 
     let a1 = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
                   85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
@@ -187,8 +187,8 @@ Isolates the dominant market cycle from price data using a high-pass filter foll
         &[a4.as_slice()],
     ];
 
-    let results = indicator_by_assets::<4>(&inputs, &[0.07], None).unwrap();
-    for (i, asset_outputs) in results.0.iter().enumerate() {
+    let results = Cybercycle::indicator_by_assets::<4>(&inputs, &[0.07], None).unwrap();
+    for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
     ```
@@ -196,7 +196,7 @@ Isolates the dominant market cycle from price data using a high-pass filter foll
     **By options** — same asset, 4 different alpha values in parallel:
 
     ```rust
-    use tulip_rs::indicators::cybercycle::indicator_by_options;
+    use tulip_rs::indicators::cybercycle::{Cybercycle, Indicator, TIndicatorState};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
@@ -205,8 +205,8 @@ Isolates the dominant market cycle from price data using a high-pass filter foll
 
     let opts: [&[f64; 1]; 4] = [&[0.05], &[0.07], &[0.10], &[0.15]];
 
-    let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
-    for (i, opt_outputs) in results.0.iter().enumerate() {
+    let results = Cybercycle::indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
+    for (i, opt_outputs) in results.iter().enumerate() {
         println!("Alpha set {}: {:?}", i + 1, opt_outputs[0]);
     }
     ```

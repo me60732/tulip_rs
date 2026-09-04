@@ -1,44 +1,15 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
-use crate::indicators::sma::{State as SmaState, multiplier as sma_multiplier};
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
+use crate::indicators::sma::{multiplier as sma_multiplier, State as SmaState};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
 pub const INPUTS: usize = 1;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::wma_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::wma_simd::indicator_by_options;
-
-// Sub-module exports with common naming
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    pub use crate::indicators::simd_indicators::wma_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    pub use crate::indicators::simd_indicators::wma_simd::indicator_by_options as indicator;
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
@@ -89,21 +60,21 @@ impl TIndicatorState<1> for IndicatorState {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(bound="")]
+#[serde(bound = "")]
 pub struct State<S = Cold> {
     pub sma_state: SmaState<S>,
     pub weighted_sum: f64,
-    pub(crate) period: f64, 
-    pub(crate) weights: f64
+    pub(crate) period: f64,
+    pub(crate) weights: f64,
 }
 impl State<Cold> {
     pub fn new(sum: f64, weighted_sum: f64, period: usize) -> Self {
         let (_, weights, n) = multiplier(period);
-        Self { 
+        Self {
             sma_state: SmaState::new(sum, period),
-            weighted_sum, 
-            weights, 
-            period: n
+            weighted_sum,
+            weights,
+            period: n,
         }
     }
     pub fn init_state(prev_real: &[f64], period: usize) -> State<Warm> {
@@ -119,20 +90,16 @@ impl State<Cold> {
             sma_state: SmaState::new(sum, period).into_warm(),
             weighted_sum,
             weights,
-            period: n
+            period: n,
         }
     }
-    
 }
 impl TState for State<Warm> {
     type Inputs<'a> = (f64, f64);
     type Outputs = (f64, f64);
 
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        (value, prev_value): Self::Inputs<'a>
-    ) -> Self::Outputs {
+    fn calc<'a>(&mut self, (value, prev_value): Self::Inputs<'a>) -> Self::Outputs {
         self.weighted_sum -= self.sma_state.sum;
 
         let sma = self.sma_state.calc((value, prev_value));
@@ -183,7 +150,7 @@ pub fn multiplier(period: usize) -> (f64, f64, f64) {
 }*/
 pub fn multiplier(period: usize) -> (f64, f64, f64) {
     let n = period as f64;
-    let weights_recip = 2.0 / (n * (n + 1.0));  // reciprocal, computed once
+    let weights_recip = 2.0 / (n * (n + 1.0)); // reciprocal, computed once
     (sma_multiplier(period), weights_recip, n)
 }
 
@@ -215,10 +182,10 @@ impl Indicator<INPUTS, OPTIONS> for Wma {
     ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
         validate_options(options)?;
         let period = options[0] as usize;
-    
+
         validate_inputs(inputs, Self::min_data(options))?;
         let real = inputs[0];
-    
+
         let (mut wma_line, mut sma_line) = {
             let capacity = Self::output_length(real.len(), options);
             (
@@ -229,19 +196,42 @@ impl Indicator<INPUTS, OPTIONS> for Wma {
                 ),
             )
         };
-    
+
         let mut state = State::init_state(real, period);
-    
-        cycle_wma(
-            real,
-            &mut state,
-            period,
-            (&mut wma_line, &mut sma_line),
-        );
-    
+
+        cycle_wma(real, &mut state, period, (&mut wma_line, &mut sma_line));
+
         Ok((
             vec![wma_line, sma_line],
             IndicatorState::new(real, state, period),
         ))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::wma_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Wma {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::wma_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

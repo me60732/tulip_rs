@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::cmo::{
-    Cmo, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
+    Cmo, Indicator, IndicatorByOptions, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -125,8 +125,8 @@ fn bench_rust_cmo(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result =
-                            Cmo::indicator(&inputs, &options, None).expect("Rust CMO Cmo::indicator failed");
+                        let result = Cmo::indicator(&inputs, &options, None)
+                            .expect("Rust CMO Cmo::indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -145,8 +145,8 @@ fn bench_rust_cmo(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust CMO {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result =
-                        Cmo::indicator(&inputs, &options, None).expect("Rust CMO Cmo::indicator failed");
+                    let result = Cmo::indicator(&inputs, &options, None)
+                        .expect("Rust CMO Cmo::indicator failed");
                     black_box(&result);
                 });
             });
@@ -175,8 +175,8 @@ fn bench_rust_cmo_from_state(c: &mut Criterion) {
                         // First chunk
                         let chunk_inputs = [&close[..min_data_val]];
 
-                        let (_, mut state) =
-                            Cmo::indicator(&chunk_inputs, &options, None).expect("CMO Cmo::indicator failed");
+                        let (_, mut state) = Cmo::indicator(&chunk_inputs, &options, None)
+                            .expect("CMO Cmo::indicator failed");
 
                         // Chunks
                         let mut close_chunks = close[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -212,8 +212,8 @@ fn bench_rust_cmo_from_state(c: &mut Criterion) {
                 if close.len() > 1 {
                     let new_inputs = [&close[..close.len() - 1]];
                     let final_inputs = [&close[close.len() - 1..]];
-                    let (_, mut state) =
-                        Cmo::indicator(&new_inputs, &options, None).expect("Rust CMO Cmo::indicator failed");
+                    let (_, mut state) = Cmo::indicator(&new_inputs, &options, None)
+                        .expect("Rust CMO Cmo::indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -236,8 +236,8 @@ fn bench_rust_cmo_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) =
-                        Cmo::indicator(&new_inputs, &options, None).expect("Rust CMO Cmo::indicator failed");
+                    let (_, state) = Cmo::indicator(&new_inputs, &options, None)
+                        .expect("Rust CMO Cmo::indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -279,8 +279,8 @@ fn bench_rust_cmo_from_state(c: &mut Criterion) {
                     // First chunk
                     let chunk_inputs = [&close_vec[..min_data_val]];
 
-                    let (_, mut state) =
-                        Cmo::indicator(&chunk_inputs, &options, None).expect("CMO Cmo::indicator failed");
+                    let (_, mut state) = Cmo::indicator(&chunk_inputs, &options, None)
+                        .expect("CMO Cmo::indicator failed");
 
                     // Chunks
                     let mut close_chunks = close_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -307,8 +307,8 @@ fn bench_rust_cmo_from_state(c: &mut Criterion) {
             if close_vec.len() > 1 {
                 let new_inputs = [&close_vec[..close_vec.len() - 1]];
                 let final_inputs = [&close_vec[close_vec.len() - 1..]];
-                let (_, mut state) =
-                    Cmo::indicator(&new_inputs, &options, None).expect("Rust CMO Cmo::indicator failed");
+                let (_, mut state) = Cmo::indicator(&new_inputs, &options, None)
+                    .expect("Rust CMO Cmo::indicator failed");
 
                 let mut group =
                     c.benchmark_group(format!("Rust CMO from state 1 bar {{ {} }}", options[0]));
@@ -371,7 +371,7 @@ fn bench_rust_cmo_simd_by_assets(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = Cmo::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("SIMD CMO Cmo::indicator failed");
                         black_box(&result);
                     },
@@ -404,7 +404,7 @@ fn bench_rust_cmo_simd_by_assets(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("SIMD CMO by assets {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = Cmo::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("SIMD CMO Cmo::indicator failed");
                     black_box(&result);
                 });
@@ -436,7 +436,7 @@ fn bench_rust_cmo_simd_by_options(c: &mut Criterion) {
                         &OPTIONS_LIST[2],
                         &OPTIONS_LIST[3],
                     ];
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result = Cmo::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD CMO Cmo::indicator failed");
                     black_box(&result);
                 },
@@ -468,7 +468,7 @@ fn bench_rust_cmo_simd_by_options(c: &mut Criterion) {
                     &OPTIONS_LIST[2],
                     &OPTIONS_LIST[3],
                 ];
-                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result = Cmo::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD CMO Cmo::indicator failed");
                 black_box(&result);
             });

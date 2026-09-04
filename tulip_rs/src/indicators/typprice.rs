@@ -1,5 +1,7 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{TIndicatorState, Indicator, IndicatorResult};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState,
+};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
@@ -8,21 +10,6 @@ pub const INPUTS: usize = 3;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 0;
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::typprice_simd::indicator_by_assets;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    pub use crate::indicators::simd_indicators::typprice_simd::indicator_by_assets as indicator;
-}
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct IndicatorState;
@@ -122,5 +109,18 @@ impl Indicator<INPUTS, OPTIONS> for Typprice {
     ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
         let outputs = process(inputs)?;
         Ok((outputs, IndicatorState))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::typprice_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

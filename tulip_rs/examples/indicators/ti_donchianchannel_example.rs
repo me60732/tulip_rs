@@ -1,5 +1,5 @@
 use tulip_rs::indicators::donchianchannel::{
-    DonchianChannel, indicator_by_assets, indicator_by_options, TIndicatorState, Indicator,
+    DonchianChannel, Indicator, IndicatorByOptions, TIndicatorState,
 };
 
 fn main() {
@@ -75,10 +75,11 @@ fn main() {
     let asset3: [&[f64]; 2] = [high3.as_slice(), low3.as_slice()];
     let inputs_4: [&[&[f64]; 2]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-    let (simd_asset_outputs, _) = match indicator_by_assets::<4>(&inputs_4, &options, None) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (simd_asset_outputs, _) =
+        match DonchianChannel::indicator_by_assets::<4>(&inputs_4, &options, None) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
     println!(
         "\nSIMD by-assets Lower  (asset 0): {:?}",
         simd_asset_outputs[0][0]
@@ -101,10 +102,11 @@ fn main() {
     // (period=14 would give only 1 output with 15 bars — expand data for larger periods)
     let options_4 = [&[5.0], &[7.0], &[9.0], &[12.0]];
 
-    let (simd_option_outputs, _) = match indicator_by_options::<4>(&inputs, &options_4, None) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (simd_option_outputs, _) =
+        match DonchianChannel::indicator_by_options::<4>(&inputs, &options_4, None) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
     for (i, opts) in options_4.iter().enumerate() {
         println!(
             "\nSIMD by-options Lower  (period={}): {:?}",

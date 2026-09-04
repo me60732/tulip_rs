@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::cvi::{
-    Cvi, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
+    Cvi, Indicator, IndicatorByOptions, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -133,8 +133,8 @@ fn bench_rust_cvi(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result =
-                            Cvi::indicator(&inputs, &options, None).expect("Rust CVI indicator failed");
+                        let result = Cvi::indicator(&inputs, &options, None)
+                            .expect("Rust CVI indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -185,8 +185,8 @@ fn bench_rust_cvi_from_state(c: &mut Criterion) {
                         // First chunk
                         let chunk_inputs = [&high[..min_data], &low[..min_data]];
 
-                        let (_, mut state) =
-                            Cvi::indicator(&chunk_inputs, &options, None).expect("CVI indicator failed");
+                        let (_, mut state) = Cvi::indicator(&chunk_inputs, &options, None)
+                            .expect("CVI indicator failed");
 
                         // Chunks
                         let mut high_chunks = high[min_data..].chunks_exact(CHUNK_SIZE);
@@ -224,8 +224,8 @@ fn bench_rust_cvi_from_state(c: &mut Criterion) {
                 if inputs[0].len() > 1 {
                     let new_inputs = [&high[..high.len() - 1], &low[..low.len() - 1]];
                     let final_inputs = [&high[high.len() - 1..], &low[low.len() - 1..]];
-                    let (_, mut state) =
-                        Cvi::indicator(&new_inputs, &options, None).expect("Rust CVI indicator failed");
+                    let (_, mut state) = Cvi::indicator(&new_inputs, &options, None)
+                        .expect("Rust CVI indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -248,8 +248,8 @@ fn bench_rust_cvi_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) =
-                        Cvi::indicator(&new_inputs, &options, None).expect("Rust CVI indicator failed");
+                    let (_, state) = Cvi::indicator(&new_inputs, &options, None)
+                        .expect("Rust CVI indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -377,7 +377,7 @@ fn bench_rust_cvi_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = Cvi::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("Rust SIMD by assets CVI indicator failed");
                     black_box(&result);
                 },
@@ -412,7 +412,7 @@ fn bench_rust_cvi_simd_by_assets(c: &mut Criterion) {
                 format!("Rust SIMD by assets CVI {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = Cvi::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("Rust SIMD by assets CVI indicator failed");
                         black_box(&result);
                     });
@@ -454,7 +454,7 @@ fn bench_rust_cvi_simd_by_options(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result = Cvi::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD by options CVI indicator failed");
                     black_box(&result);
                 },
@@ -483,25 +483,24 @@ fn bench_rust_cvi_simd_by_options(c: &mut Criterion) {
         ];
 
         // Create 4 identical datasets for testing
-        let datasets = [[high_vec.as_slice(), low_vec.as_slice()],
+        let datasets = [
             [high_vec.as_slice(), low_vec.as_slice()],
             [high_vec.as_slice(), low_vec.as_slice()],
-            [high_vec.as_slice(), low_vec.as_slice()]];
+            [high_vec.as_slice(), low_vec.as_slice()],
+            [high_vec.as_slice(), low_vec.as_slice()],
+        ];
 
         let mut group = c.benchmark_group("cvi_rust_simd_by_options");
         group.sample_size(SAMPLE_SIZE);
 
         for (i, inputs) in datasets.iter().enumerate() {
-            group.bench_function(
-                format!("Rust SIMD by options CVI dataset {}", i + 1),
-                |b| {
-                    b.iter(|| {
-                        let result = indicator_by_options::<4>(inputs, &options_4, None)
-                            .expect("Rust SIMD by options CVI indicator failed");
-                        black_box(&result);
-                    });
-                },
-            );
+            group.bench_function(format!("Rust SIMD by options CVI dataset {}", i + 1), |b| {
+                b.iter(|| {
+                    let result = Cvi::indicator_by_options::<4>(inputs, &options_4, None)
+                        .expect("Rust SIMD by options CVI indicator failed");
+                    black_box(&result);
+                });
+            });
         }
         group.finish();
     }

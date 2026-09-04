@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::elderray::{Elderray, Indicator, TIndicatorState, IndicatorState};
-use tulip_rs::indicators::elderray::indicator_by_assets;
-use tulip_rs::indicators::elderray::indicator_by_options;
+use tulip_rs::indicators::elderray::{
+    Elderray, Indicator, IndicatorByOptions, IndicatorState, TIndicatorState,
+};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_ema, ti_ema_start};
@@ -312,8 +312,8 @@ fn bench_rust_elderray_from_state(c: &mut Criterion) {
                     let final_inputs = [&high[n - 1..], &low[n - 1..], &close[n - 1..]];
 
                     // --- Rust_FromState_1_Bar ---
-                    let (_, mut state) =
-                        Elderray::indicator(&new_inputs, &options, None).expect("Elder-ray indicator failed");
+                    let (_, mut state) = Elderray::indicator(&new_inputs, &options, None)
+                        .expect("Elder-ray indicator failed");
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
                         || {
@@ -334,8 +334,8 @@ fn bench_rust_elderray_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json ---
-                    let (_, state) =
-                        Elderray::indicator(&new_inputs, &options, None).expect("Elder-ray indicator failed");
+                    let (_, state) = Elderray::indicator(&new_inputs, &options, None)
+                        .expect("Elder-ray indicator failed");
                     let json = serde_json::to_string(&state).expect("JSON serialisation failed");
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -366,8 +366,8 @@ fn bench_rust_elderray_from_state(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let min = Elderray::min_data(&options);
             let chunk_inputs = [&high_vec[..min], &low_vec[..min], &close_vec[..min]];
-            let (_, mut state) =
-                Elderray::indicator(&chunk_inputs, &options, None).expect("Elder-ray indicator failed");
+            let (_, mut state) = Elderray::indicator(&chunk_inputs, &options, None)
+                .expect("Elder-ray indicator failed");
 
             let mut group = c.benchmark_group("elderray_rust_from_state");
             group.sample_size(SAMPLE_SIZE);
@@ -405,8 +405,8 @@ fn bench_rust_elderray_from_state(c: &mut Criterion) {
                 let n = high_vec.len();
                 let new_inputs = [&high_vec[..n - 1], &low_vec[..n - 1], &close_vec[..n - 1]];
                 let final_inputs = [&high_vec[n - 1..], &low_vec[n - 1..], &close_vec[n - 1..]];
-                let (_, mut state) =
-                    Elderray::indicator(&new_inputs, &options, None).expect("Elder-ray indicator failed");
+                let (_, mut state) = Elderray::indicator(&new_inputs, &options, None)
+                    .expect("Elder-ray indicator failed");
 
                 let mut group = c.benchmark_group("elderray_rust_from_state_1_bar");
                 group.sample_size(SAMPLE_SIZE);
@@ -459,7 +459,7 @@ fn bench_rust_elderray_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = Elderray::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("SIMD by-assets Elder-ray failed");
                     black_box(&result);
                 },
@@ -488,7 +488,7 @@ fn bench_rust_elderray_simd_by_assets(c: &mut Criterion) {
                 format!("Rust SIMD by assets Elder-ray {{ period: {} }}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = Elderray::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("SIMD by-assets Elder-ray failed");
                         black_box(&result);
                     });
@@ -523,7 +523,7 @@ fn bench_rust_elderray_simd_by_options(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result = Elderray::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("SIMD by-options Elder-ray failed");
                     black_box(&result);
                 },
@@ -557,7 +557,7 @@ fn bench_rust_elderray_simd_by_options(c: &mut Criterion) {
                     &OPTIONS_LIST[2],
                     &OPTIONS_LIST[3],
                 ];
-                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result = Elderray::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("SIMD by-options Elder-ray failed");
                 black_box(&result);
             });

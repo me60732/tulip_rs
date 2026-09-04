@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::stochrsi::{StochRsi, Indicator, TIndicatorState};
+    use tulip_rs::indicator_types::IndicatorByOptions;
+    use tulip_rs::indicators::stochrsi::{Indicator, StochRsi, TIndicatorState};
     use tulip_test::c_bindings::{ti_rsi, ti_rsi_start, ti_stochrsi, ti_stochrsi_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
     const EPSILON: f64 = 1e-10;
@@ -68,8 +69,8 @@ mod tests {
 
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
-            let (outputs, _) =
-                StochRsi::indicator(&inputs_rust, &options, None).expect("Rust STOCHRSI indicator failed");
+            let (outputs, _) = StochRsi::indicator(&inputs_rust, &options, None)
+                .expect("Rust STOCHRSI indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -479,8 +480,6 @@ mod tests {
     }
     #[test]
     fn test_stochrsi_simd_by_assets_vs_regular_database() {
-        use tulip_rs::indicators::stochrsi::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -503,7 +502,7 @@ mod tests {
             // Test without optional outputs
             {
                 // Get SIMD by assets result
-                let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+                let (simd_results, _) = StochRsi::indicator_by_assets::<4>(&inputs, &options, None)
                     .expect("SIMD by assets STOCHRSI indicator failed");
 
                 // Compare each SIMD result with regular indicator for each stock
@@ -573,8 +572,6 @@ mod tests {
 
     #[test]
     fn test_stochrsi_simd_by_assets_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::stochrsi::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -597,15 +594,17 @@ mod tests {
             // Test with optional outputs enabled (RSI)
             {
                 // Get SIMD by assets result with optional outputs
-                let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, Some(&[true]))
-                    .expect("SIMD by assets STOCHRSI indicator failed");
+                let (simd_results, _) =
+                    StochRsi::indicator_by_assets::<4>(&inputs, &options, Some(&[true]))
+                        .expect("SIMD by assets STOCHRSI indicator failed");
 
                 // Compare each SIMD result with regular indicator for each stock
                 for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                     // Get regular indicator result for this stock with optional outputs
                     let stock_inputs = [stock_close.as_slice()];
-                    let (regular_results, _) = StochRsi::indicator(&stock_inputs, &options, Some(&[true]))
-                        .expect("Regular STOCHRSI indicator failed");
+                    let (regular_results, _) =
+                        StochRsi::indicator(&stock_inputs, &options, Some(&[true]))
+                            .expect("Regular STOCHRSI indicator failed");
 
                     let simd_stochrsi_result = &simd_results[stock_idx][0];
                     let simd_rsi_result = &simd_results[stock_idx][1];
@@ -677,8 +676,6 @@ mod tests {
 
     #[test]
     fn test_stochrsi_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::stochrsi::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -694,7 +691,7 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4_first, _) =
-                indicator_by_options::<4>(&inputs, &options_4_first, None)
+                StochRsi::indicator_by_options::<4>(&inputs, &options_4_first, None)
                     .expect("SIMD STOCHRSI 4-wide first failed");
 
             // Process second 4 options with 4-wide SIMD
@@ -705,13 +702,14 @@ mod tests {
                 &OPTIONS_LIST[7],
             ];
             let (simd_results_4_second, _) =
-                indicator_by_options::<4>(&inputs, &options_4_second, None)
+                StochRsi::indicator_by_options::<4>(&inputs, &options_4_second, None)
                     .expect("SIMD STOCHRSI 4-wide second failed");
 
             // Process remaining 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[8], &OPTIONS_LIST[9]];
-            let (simd_results_2, _) = indicator_by_options::<2>(&inputs, &options_2, None)
-                .expect("SIMD STOCHRSI 2-wide failed");
+            let (simd_results_2, _) =
+                StochRsi::indicator_by_options::<2>(&inputs, &options_2, None)
+                    .expect("SIMD STOCHRSI 2-wide failed");
 
             // Combine all SIMD results
             let mut all_simd_results = simd_results_4_first;
@@ -721,8 +719,8 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
-                let (regular_results, _) =
-                    StochRsi::indicator(&inputs, options, None).expect("Regular STOCHRSI indicator failed");
+                let (regular_results, _) = StochRsi::indicator(&inputs, options, None)
+                    .expect("Regular STOCHRSI indicator failed");
 
                 let simd_result = &all_simd_results[idx];
                 let regular_result = &regular_results;
@@ -775,8 +773,6 @@ mod tests {
 
     #[test]
     fn test_stochrsi_simd_by_options_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::stochrsi::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -792,7 +788,7 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4_first, _) =
-                indicator_by_options::<4>(&inputs, &options_4_first, Some(&[true]))
+                StochRsi::indicator_by_options::<4>(&inputs, &options_4_first, Some(&[true]))
                     .expect("SIMD STOCHRSI 4-wide first failed");
 
             // Process second 4 options with 4-wide SIMD
@@ -803,13 +799,14 @@ mod tests {
                 &OPTIONS_LIST[7],
             ];
             let (simd_results_4_second, _) =
-                indicator_by_options::<4>(&inputs, &options_4_second, Some(&[true]))
+                StochRsi::indicator_by_options::<4>(&inputs, &options_4_second, Some(&[true]))
                     .expect("SIMD STOCHRSI 4-wide second failed");
 
             // Process remaining 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[8], &OPTIONS_LIST[9]];
-            let (simd_results_2, _) = indicator_by_options::<2>(&inputs, &options_2, Some(&[true]))
-                .expect("SIMD STOCHRSI 2-wide failed");
+            let (simd_results_2, _) =
+                StochRsi::indicator_by_options::<2>(&inputs, &options_2, Some(&[true]))
+                    .expect("SIMD STOCHRSI 2-wide failed");
 
             // Combine all SIMD results
             let mut all_simd_results = simd_results_4_first;
@@ -889,5 +886,4 @@ mod tests {
     }
 
     // add test code here
-
-    }
+}

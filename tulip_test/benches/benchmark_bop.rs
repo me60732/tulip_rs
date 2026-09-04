@@ -1,8 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-use tulip_rs::indicators::bop::{
-    Bop, Indicator, indicator_by_assets, IndicatorState, TIndicatorState,
-};
+use tulip_rs::indicators::bop::{Bop, Indicator, IndicatorState, TIndicatorState};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_bop, ti_bop_start};
@@ -180,7 +178,8 @@ fn bench_rust_bop(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust BOP", |b| {
             b.iter(|| {
-                let result = Bop::indicator(&inputs, &OPTIONS, None).expect("Rust BOP indicator failed");
+                let result =
+                    Bop::indicator(&inputs, &OPTIONS, None).expect("Rust BOP indicator failed");
                 black_box(&result);
             });
         });
@@ -288,8 +287,8 @@ fn bench_rust_bop_from_state(c: &mut Criterion) {
                         &close[..min_data_val],
                     ];
 
-                    let (_, mut state) =
-                        Bop::indicator(&chunk_inputs, &OPTIONS, None).expect("BOP indicator failed");
+                    let (_, mut state) = Bop::indicator(&chunk_inputs, &OPTIONS, None)
+                        .expect("BOP indicator failed");
 
                     // Chunks
                     let mut open_chunks = open[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -540,7 +539,7 @@ fn bench_rust_bop_simd_by_assets(c: &mut Criterion) {
         let mut timing = TimingMeasurements::new();
         timing.measure(
             || {
-                let result = indicator_by_assets::<4>(&inputs, &OPTIONS, None)
+                let result = Bop::indicator_by_assets::<4>(&inputs, &OPTIONS, None)
                     .expect("Rust SIMD by assets BOP indicator failed");
                 black_box(&result);
             },
@@ -571,7 +570,7 @@ fn bench_rust_bop_simd_by_assets(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust SIMD by assets BOP", |b| {
             b.iter(|| {
-                let result = indicator_by_assets::<4>(&inputs, &OPTIONS, None)
+                let result = Bop::indicator_by_assets::<4>(&inputs, &OPTIONS, None)
                     .expect("Rust SIMD by assets BOP indicator failed");
                 black_box(&result);
             });

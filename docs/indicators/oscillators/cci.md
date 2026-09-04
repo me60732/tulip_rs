@@ -9,7 +9,7 @@ Measures how far the typical price deviates from its simple moving average, norm
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::cci::indicator;
+    use tulip_rs::indicators::cci::{Cci, TIndicatorState, Indicator};
 
     let high  = vec![82.15, 81.89, 83.03, 83.30, 83.85,
                      83.90, 83.33, 84.30, 84.84, 85.00_f64];
@@ -19,12 +19,12 @@ Measures how far the typical price deviates from its simple moving average, norm
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-    let (outputs, _state) = indicator(&inputs, &[20.0], None).unwrap();
+    let (outputs, _state) = Cci::indicator(&inputs, &[20.0], None).unwrap();
     println!("CCI(20): {:?}", outputs[0]);
 
     // State continuation
     let inputs2 = [&high[..8], &low[..8], &close[..8]];
-    let (outputs2, mut state) = indicator(&inputs2, &[20.0], None).unwrap();
+    let (outputs2, mut state) = Cci::indicator(&inputs2, &[20.0], None).unwrap();
     println!("Partial CCI: {:?}", outputs2[0]);
 
     let new_inputs = [&high[8..], &low[8..], &close[8..]];
@@ -102,7 +102,7 @@ Measures how far the typical price deviates from its simple moving average, norm
     `cci` exposes 3 optional outputs: `sma`, `md`, `typprice`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::cci::indicator;
+    use tulip_rs::indicators::cci::{Cci, TIndicatorState, Indicator};
 
     let high  = vec![82.15, 81.89, 83.03, 83.30, 83.85,
                      83.90, 83.33, 84.30, 84.84, 85.00_f64];
@@ -113,7 +113,7 @@ Measures how far the typical price deviates from its simple moving average, norm
 
     let mask = [true, true, true]; // one per optional output
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-    let (outputs, _state) = indicator(&inputs, &[20.0], Some(&mask)).unwrap();
+    let (outputs, _state) = Cci::indicator(&inputs, &[20.0], Some(&mask)).unwrap();
 
     let cci      = &outputs[0]; // cci (primary)
     let sma      = &outputs[1]; // sma (optional — requested)
@@ -199,7 +199,7 @@ Measures how far the typical price deviates from its simple moving average, norm
     ];
 
     let results = indicator_by_assets::<4>(&inputs, &[20.0], None).unwrap();
-    for (i, asset_outputs) in results.0.iter().enumerate() {
+    for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
     ```
@@ -219,7 +219,7 @@ Measures how far the typical price deviates from its simple moving average, norm
     let opts: [&[f64; 1]; 4] = [&[10.0], &[14.0], &[20.0], &[30.0]];
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
     let results = indicator_by_options::<4>(&inputs, &opts, None).unwrap();
-    for (i, opt_outputs) in results.0.iter().enumerate() {
+    for (i, opt_outputs) in results.iter().enumerate() {
         println!("Period set {}: {:?}", i + 1, opt_outputs[0]);
     }
     ```

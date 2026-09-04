@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::wcprice::{WcPrice, Indicator, TIndicatorState};
+    use tulip_rs::indicators::wcprice::{Indicator, TIndicatorState, WcPrice};
     use tulip_test::c_bindings::{ti_wcprice, ti_wcprice_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -218,8 +218,8 @@ mod tests {
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
 
             // Get full output from processing all data at once
-            let (full_outputs, _) =
-                WcPrice::indicator(&inputs_rust, &options, None).expect("Rust WCPRICE indicator failed");
+            let (full_outputs, _) = WcPrice::indicator(&inputs_rust, &options, None)
+                .expect("Rust WCPRICE indicator failed");
 
             // Process data in batches and accumulate outputs
             let mut batch_full_output = Vec::new();
@@ -236,8 +236,8 @@ mod tests {
                 close_vec.as_slice(),
             ];
 
-            let (first_outputs, mut state) =
-                WcPrice::indicator(&chunk_inputs, &options, None).expect("Rust WCPRICE indicator failed");
+            let (first_outputs, mut state) = WcPrice::indicator(&chunk_inputs, &options, None)
+                .expect("Rust WCPRICE indicator failed");
             batch_full_output.extend_from_slice(&first_outputs[0]);
 
             // Process remaining data in chunks
@@ -297,8 +297,6 @@ mod tests {
 
     #[test]
     fn test_wcprice_simd_vs_regular_database() {
-        use tulip_rs::indicators::wcprice::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -338,7 +336,7 @@ mod tests {
 
         let options: [f64; 0] = [];
         // Get SIMD by assets result
-        let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+        let (simd_results, _) = WcPrice::indicator_by_assets::<4>(&inputs, &options, None)
             .expect("SIMD by assets WCPRICE indicator failed");
 
         // Compare each SIMD result with regular indicator for each stock
@@ -404,5 +402,4 @@ mod tests {
 
         println!("✓ All SIMD by assets vs Regular WCPRICE database tests passed!");
     }
-
-    }
+}

@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use tulip_rs::indicators::highpass::{
-        indicator_by_assets, indicator_by_options, HighPass, Indicator, TIndicatorState,
+        HighPass, Indicator, IndicatorByOptions, TIndicatorState,
     };
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -111,7 +111,7 @@ mod tests {
         ];
 
         for options in OPTIONS_LIST {
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs_4, &options, None)
+            let (simd_results, _) = HighPass::indicator_by_assets::<4>(&inputs_4, &options, None)
                 .expect("SIMD by-assets HighPass failed");
 
             for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
@@ -169,7 +169,7 @@ mod tests {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
-            let (simd_results, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results, _) = HighPass::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD by-options HighPass failed");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
@@ -233,8 +233,9 @@ mod tests {
                 &[&stock_data[3].1[..FIRST_CHUNK]],
             ];
 
-            let (simd_first, mut states) = indicator_by_assets::<4>(&inputs_4, &options, None)
-                .expect("SIMD by-assets HighPass failed on first chunk");
+            let (simd_first, mut states) =
+                HighPass::indicator_by_assets::<4>(&inputs_4, &options, None)
+                    .expect("SIMD by-assets HighPass failed on first chunk");
 
             for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
                 let mut batch_output = simd_first[asset_idx][0].clone();
@@ -313,7 +314,7 @@ mod tests {
             let first_inputs = [&close[..FIRST_CHUNK] as &[f64]];
 
             let (simd_first, mut states) =
-                indicator_by_options::<4>(&first_inputs, &options_4, None)
+                HighPass::indicator_by_options::<4>(&first_inputs, &options_4, None)
                     .expect("SIMD by-options HighPass failed on first chunk");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {

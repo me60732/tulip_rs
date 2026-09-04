@@ -9,17 +9,21 @@ Expresses the MACD as a percentage of the slow EMA, making it comparable across 
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::ppo::indicator;
+    use tulip_rs::indicators::ppo::{Ppo, Indicator, TIndicatorState};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
     // options: [short_period, long_period]
-    let (outputs, mut state) = indicator(&[close.as_slice()], &[12.0, 26.0], None).unwrap();
+    let (outputs, mut state) = Ppo::indicator(&[close.as_slice()], &[12.0, 26.0], None).unwrap();
     println!("{:?}", outputs[0]); // PPO values
 
     // State continuation — feed new bars without reprocessing history
-    let new_close = vec![85.10, 85.72_f64];
+    let partial = close[..8].to_vec();
+    let (outputs2, mut state) = Ppo::indicator(&[partial.as_slice()], &[12.0, 26.0], None).unwrap();
+    println!("{:?}", outputs2[0]);
+
+    let new_close = vec![85.53_f64];
     let continued = state.batch_indicator(&[new_close.as_slice()], None).unwrap();
     println!("{:?}", continued[0]);
     ```
@@ -89,12 +93,12 @@ Expresses the MACD as a percentage of the slow EMA, making it comparable across 
     `ppo` exposes 2 optional outputs: `short_ema`, `long_ema`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::ppo::indicator;
+    use tulip_rs::indicators::ppo::{Ppo, Indicator, TIndicatorState};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
     let mask = [true, true];
-    let (outputs, _state) = indicator(&[close.as_slice()], &[5.0, 20.0], Some(&mask)).unwrap();
+    let (outputs, _state) = Ppo::indicator(&[close.as_slice()], &[5.0, 20.0], Some(&mask)).unwrap();
 
     let ppo       = &outputs[0]; // PPO values (primary)
     let short_ema = &outputs[1]; // short_ema (optional — requested)

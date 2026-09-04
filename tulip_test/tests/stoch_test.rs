@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::stoch::{Stoch, Indicator, TIndicatorState};
+    use tulip_rs::indicator_types::IndicatorByOptions;
+    use tulip_rs::indicators::stoch::{Indicator, Stoch, TIndicatorState};
     use tulip_test::c_bindings::{ti_stoch, ti_stoch_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -82,8 +83,8 @@ mod tests {
 
             // Run the Rust implementation
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-            let (outputs, _) =
-                Stoch::indicator(&inputs_rust, &options, None).expect("Rust STOCH indicator failed");
+            let (outputs, _) = Stoch::indicator(&inputs_rust, &options, None)
+                .expect("Rust STOCH indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -219,8 +220,8 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (outputs, _) =
-                    Stoch::indicator(&inputs_rust, &options, None).expect("Rust STOCH indicator failed");
+                let (outputs, _) = Stoch::indicator(&inputs_rust, &options, None)
+                    .expect("Rust STOCH indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -308,8 +309,8 @@ mod tests {
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
 
                 // Get full output from processing all data at once
-                let (full_outputs, _) =
-                    Stoch::indicator(&inputs_rust, &options, None).expect("Rust STOCH indicator failed");
+                let (full_outputs, _) = Stoch::indicator(&inputs_rust, &options, None)
+                    .expect("Rust STOCH indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_outputs = vec![Vec::new(); full_outputs.len()];
@@ -326,8 +327,8 @@ mod tests {
                     close_vec.as_slice(),
                 ];
 
-                let (first_outputs, mut state) =
-                    Stoch::indicator(&chunk_inputs, &options, None).expect("Rust STOCH indicator failed");
+                let (first_outputs, mut state) = Stoch::indicator(&chunk_inputs, &options, None)
+                    .expect("Rust STOCH indicator failed");
                 for output_idx in 0..first_outputs.len() {
                     batch_full_outputs[output_idx].extend_from_slice(&first_outputs[output_idx]);
                 }
@@ -387,8 +388,6 @@ mod tests {
 
     #[test]
     fn test_stoch_simd_by_assets_vs_regular_database() {
-        use tulip_rs::indicators::stoch::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -412,7 +411,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = Stoch::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets STOCH indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -528,8 +527,6 @@ mod tests {
 
     #[test]
     fn test_stoch_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::stoch::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -549,14 +546,14 @@ mod tests {
                 &OPTIONS_LIST[7], // [100.0, 50.0, 30.0]
             ];
 
-            let (simd_results, _) = indicator_by_options::<8>(&inputs, &options_8, None)
+            let (simd_results, _) = Stoch::indicator_by_options::<8>(&inputs, &options_8, None)
                 .expect("SIMD by options STOCH indicator failed");
 
             // Test all 8 options
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result for this option set
-                let (regular_results, _) =
-                    Stoch::indicator(&inputs, options, None).expect("Regular STOCH indicator failed");
+                let (regular_results, _) = Stoch::indicator(&inputs, options, None)
+                    .expect("Regular STOCH indicator failed");
 
                 let simd_k_result = &simd_results[idx][0]; // %K
                 let simd_d_result = &simd_results[idx][1]; // %D
@@ -670,5 +667,4 @@ mod tests {
         let close: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
         (high, low, close)
     }
-
-    }
+}

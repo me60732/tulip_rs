@@ -9,7 +9,7 @@ Three-band channel based on the rolling highest high and lowest low over `period
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::donchianchannel::indicator;
+    use tulip_rs::indicators::donchianchannel::{DonchianChannel, Indicator, TIndicatorState};
 
     let high = vec![82.15, 81.89, 83.03, 83.30, 83.85,
                     83.90, 83.33, 84.30, 84.84, 85.00_f64];
@@ -17,20 +17,22 @@ Three-band channel based on the rolling highest high and lowest low over `period
                     83.11, 82.49, 82.30, 84.15, 84.11_f64];
 
     let inputs = [high.as_slice(), low.as_slice()];
-    let (outputs, _state) = indicator(&inputs, &[14.0], None).unwrap();
+    let (outputs, mut state) = DonchianChannel::indicator(&inputs, &[14.0], None).unwrap();
     println!("Lower:  {:?}", outputs[0]);
     println!("Middle: {:?}", outputs[1]);
     println!("Upper:  {:?}", outputs[2]);
 
-    // State continuation
-    let inputs2 = [&high[..8], &low[..8]];
-    let (outputs2, mut state) = indicator(&inputs2, &[14.0], None).unwrap();
-    println!("Partial Lower:  {:?}", outputs2[0]);
-    println!("Partial Middle: {:?}", outputs2[1]);
-    println!("Partial Upper:  {:?}", outputs2[2]);
+    // State continuation — feed new bars without reprocessing history
+    let partial_high = high[..8].to_vec();
+    let partial_low  = low[..8].to_vec();
+    let (outputs2, mut state) = DonchianChannel::indicator(&[partial_high.as_slice(), partial_low.as_slice()], &[14.0], None).unwrap();
+    println!("Lower:  {:?}", outputs2[0]);
+    println!("Middle: {:?}", outputs2[1]);
+    println!("Upper:  {:?}", outputs2[2]);
 
-    let new_inputs = [&high[8..], &low[8..]];
-    let continued = state.batch_indicator(&new_inputs, None).unwrap();
+    let new_high = vec![85.90_f64];
+    let new_low  = vec![84.03_f64];
+    let continued = state.batch_indicator(&[new_high.as_slice(), new_low.as_slice()], None).unwrap();
     println!("Continued Lower:  {:?}", continued[0]);
     println!("Continued Middle: {:?}", continued[1]);
     println!("Continued Upper:  {:?}", continued[2]);
@@ -134,7 +136,7 @@ Three-band channel based on the rolling highest high and lowest low over `period
     ];
 
     let results = indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
-    for (i, asset_outputs) in results.0.iter().enumerate() {
+    for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {} Lower:  {:?}", i + 1, asset_outputs[0]);
         println!("Asset {} Middle: {:?}", i + 1, asset_outputs[1]);
         println!("Asset {} Upper:  {:?}", i + 1, asset_outputs[2]);
@@ -154,7 +156,7 @@ Three-band channel based on the rolling highest high and lowest low over `period
     let opts: [&[f64; 1]; 4] = [&[7.0], &[14.0], &[21.0], &[28.0]];
     let inputs = [high.as_slice(), low.as_slice()];
     let results = indicator_by_options::<4>(&inputs, &opts, None).unwrap();
-    for (i, opt_outputs) in results.0.iter().enumerate() {
+    for (i, opt_outputs) in results.iter().enumerate() {
         println!("Period {} Lower:  {:?}", opts[i][0], opt_outputs[0]);
         println!("Period {} Middle: {:?}", opts[i][0], opt_outputs[1]);
         println!("Period {} Upper:  {:?}", opts[i][0], opt_outputs[2]);

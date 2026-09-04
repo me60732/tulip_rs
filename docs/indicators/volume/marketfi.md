@@ -9,10 +9,10 @@
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::marketfi::indicator;
+    use tulip_rs::indicators::marketfi::{Marketfi, Indicator, TIndicatorState};
 
     let inputs = [high.as_slice(), low.as_slice(), volume.as_slice()];
-    let (outputs, _) = indicator(&inputs, &[], None).unwrap();
+    let (outputs, _) = Marketfi::indicator(&inputs, &[], None).unwrap();
     println!("{:?}", outputs[0]);
     ```
 
@@ -78,7 +78,7 @@
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::marketfi::indicator_by_assets;
+    use tulip_rs::indicators::marketfi::{Marketfi, Indicator, TIndicatorState};
 
     let inputs: [&[&[f64]; 3]; 4] = [
         &[h1.as_slice(), l1.as_slice(), v1.as_slice()],
@@ -86,7 +86,7 @@
         &[h3.as_slice(), l3.as_slice(), v3.as_slice()],
         &[h4.as_slice(), l4.as_slice(), v4.as_slice()],
     ];
-    let results = indicator_by_assets::<4>(&inputs, &[], None).unwrap();
+    let results = marketfi::indicator_by_assets::<4>(&inputs, &[], None).unwrap();
     ```
 
     _This indicator has no options, so by-options SIMD does not apply._

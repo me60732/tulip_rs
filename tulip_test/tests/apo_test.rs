@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
+    use tulip_rs::indicator_types::IndicatorByOptions;
     use tulip_rs::indicators::apo::{Apo, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_apo, ti_apo_start, ti_ema, ti_ema_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -143,8 +144,8 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) =
-                    Apo::indicator(&inputs_rust, &options, None).expect("Rust APO indicator failed");
+                let (outputs, _) = Apo::indicator(&inputs_rust, &options, None)
+                    .expect("Rust APO indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -286,8 +287,6 @@ mod tests {
 
     #[test]
     fn test_apo_simd_vs_regular_database() {
-        use tulip_rs::indicators::apo::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -310,7 +309,7 @@ mod tests {
             // Test without optional outputs
             {
                 // Get SIMD by assets result
-                let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+                let (simd_results, _) = Apo::indicator_by_assets::<4>(&inputs, &options, None)
                     .expect("SIMD by assets APO indicator failed");
 
                 // Compare each SIMD result with regular indicator for each stock
@@ -375,8 +374,6 @@ mod tests {
 
     #[test]
     fn test_apo_simd_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::apo::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -400,7 +397,7 @@ mod tests {
             {
                 // Get SIMD by assets result with optional outputs
                 let (simd_results_opt, _) =
-                    indicator_by_assets::<4>(&inputs, &options, Some(&[true, true]))
+                    Apo::indicator_by_assets::<4>(&inputs, &options, Some(&[true, true]))
                         .expect("SIMD by assets APO indicator with optional outputs failed");
 
                 // Compare each SIMD result with regular indicator for each stock
@@ -456,7 +453,11 @@ mod tests {
                             // Compare values with appropriate epsilon
                             if !approx_eq!(f64, simd_val, regular_val, epsilon = EPSILON) {
                                 let start = if i > 10 { i - 10 } else { 0 };
-                                let end = if i < simd_result.len() - 10 { i + 10 } else { simd_result.len() };
+                                let end = if i < simd_result.len() - 10 {
+                                    i + 10
+                                } else {
+                                    simd_result.len()
+                                };
                                 println!(
                                     "SIMD {:?}\n\nRegular {:?}",
                                     &simd_result[start..end],
@@ -665,8 +666,9 @@ mod tests {
 
                 // Get Rust APO with short EMA optional output enabled
                 let inputs_rust = [close.as_slice()];
-                let (rust_outputs, _) = Apo::indicator(&inputs_rust, &options, Some(&[true, false]))
-                    .expect("Rust APO indicator with short EMA optional output failed");
+                let (rust_outputs, _) =
+                    Apo::indicator(&inputs_rust, &options, Some(&[true, false]))
+                        .expect("Rust APO indicator with short EMA optional output failed");
 
                 let rust_short_ema = &rust_outputs[1]; // short_ema is at index 1
 
@@ -755,8 +757,9 @@ mod tests {
 
                 // Get Rust APO with long EMA optional output enabled
                 let inputs_rust = [close.as_slice()];
-                let (rust_outputs, _) = Apo::indicator(&inputs_rust, &options, Some(&[false, true]))
-                    .expect("Rust APO indicator with long EMA optional output failed");
+                let (rust_outputs, _) =
+                    Apo::indicator(&inputs_rust, &options, Some(&[false, true]))
+                        .expect("Rust APO indicator with long EMA optional output failed");
 
                 let rust_long_ema = &rust_outputs[2]; // long_ema is at index 2
 
@@ -830,8 +833,6 @@ mod tests {
     }
     #[test]
     fn test_apo_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::apo::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -846,7 +847,7 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Apo::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD APO 4-wide failed");
 
             // Use SIMD results directly
@@ -912,8 +913,6 @@ mod tests {
 
     #[test]
     fn test_apo_simd_by_options_optional_outputs() {
-        use tulip_rs::indicators::apo::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -929,7 +928,7 @@ mod tests {
             let inputs = [close.as_slice()];
 
             let (simd_results, _) =
-                indicator_by_options::<4>(&inputs, &options_4, Some(&[true, true]))
+                Apo::indicator_by_options::<4>(&inputs, &options_4, Some(&[true, true]))
                     .expect("SIMD by-options APO with optional outputs failed");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
@@ -964,5 +963,4 @@ mod tests {
         }
         println!("✓ All SIMD by-options APO optional output tests passed!");
     }
-
 }

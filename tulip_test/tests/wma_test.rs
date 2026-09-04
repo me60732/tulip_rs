@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::wma::{Wma, Indicator, TIndicatorState};
+    use tulip_rs::indicator_types::IndicatorByOptions;
+    use tulip_rs::indicators::wma::{Indicator, TIndicatorState, Wma};
     use tulip_test::c_bindings::{ti_sma, ti_sma_start, ti_wma, ti_wma_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -141,8 +142,8 @@ mod tests {
                 assert_eq!(ret, 0, "ti_wma returned error code {}", ret);
 
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) =
-                    Wma::indicator(&inputs_rust, &options, None).expect("Rust WMA indicator failed");
+                let (outputs, _) = Wma::indicator(&inputs_rust, &options, None)
+                    .expect("Rust WMA indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -207,8 +208,8 @@ mod tests {
                 let inputs_rust = [close.as_slice()];
 
                 // Get full output
-                let (full_outputs, _) =
-                    Wma::indicator(&inputs_rust, &options, None).expect("Rust WMA indicator failed");
+                let (full_outputs, _) = Wma::indicator(&inputs_rust, &options, None)
+                    .expect("Rust WMA indicator failed");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
@@ -276,8 +277,6 @@ mod tests {
 
     #[test]
     fn test_wma_simd_by_assets_vs_regular_database() {
-        use tulip_rs::indicators::wma::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -308,7 +307,7 @@ mod tests {
             // Test without optional outputs
             {
                 // Get SIMD by assets result
-                let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+                let (simd_results, _) = Wma::indicator_by_assets::<4>(&inputs, &options, None)
                     .expect("SIMD by assets WMA indicator failed");
 
                 // Compare each SIMD result with regular indicator for each stock
@@ -373,8 +372,6 @@ mod tests {
 
     #[test]
     fn test_wma_simd_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::wma::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -406,15 +403,16 @@ mod tests {
             {
                 // Get SIMD by assets result with optional outputs
                 let (simd_results_opt, _) =
-                    indicator_by_assets::<4>(&inputs, &options, Some(&[true]))
+                    Wma::indicator_by_assets::<4>(&inputs, &options, Some(&[true]))
                         .expect("SIMD by assets WMA indicator with optional outputs failed");
 
                 // Compare each SIMD result with regular indicator for each stock
                 for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                     // Get regular indicator result for this stock with optional outputs
                     let stock_inputs = [stock_close.as_slice()];
-                    let (regular_results_opt, _) = Wma::indicator(&stock_inputs, &options, Some(&[true]))
-                        .expect("Regular WMA indicator with optional outputs failed");
+                    let (regular_results_opt, _) =
+                        Wma::indicator(&stock_inputs, &options, Some(&[true]))
+                            .expect("Regular WMA indicator with optional outputs failed");
 
                     // Compare all outputs: WMA, SMA
                     let output_names = ["WMA", "SMA"];
@@ -571,12 +569,8 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get WMA with SMA optional output
                 let optional_outputs = Some(&[true][..]);
-                let (wma_result, _) = Wma::indicator(
-                    &[&close],
-                    &[options[0]],
-                    optional_outputs,
-                )
-                .unwrap();
+                let (wma_result, _) =
+                    Wma::indicator(&[&close], &[options[0]], optional_outputs).unwrap();
 
                 let rust_sma = &wma_result[1];
 
@@ -637,8 +631,6 @@ mod tests {
     // SIMD-by-options test for WMA (compare SIMD to regular for all options)
     #[test]
     fn test_wma_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::wma::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -653,12 +645,12 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Wma::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD WMA 4-wide failed");
 
             // Process remaining 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
-            let (simd_results_2, _) = indicator_by_options::<2>(&inputs, &options_2, None)
+            let (simd_results_2, _) = Wma::indicator_by_options::<2>(&inputs, &options_2, None)
                 .expect("SIMD WMA 2-wide failed");
 
             // Combine SIMD results in the same order as OPTIONS_LIST
@@ -724,8 +716,6 @@ mod tests {
     // SIMD-by-options optional outputs test for WMA (compare SIMD to regular for all options)
     #[test]
     fn test_wma_simd_by_options_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::wma::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -744,13 +734,13 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, _) =
-                indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
+                Wma::indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
                     .expect("SIMD WMA 4-wide with optional outputs failed");
 
             // Process remaining 2 options with 2-wide SIMD (with optional outputs)
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
             let (simd_results_2, _) =
-                indicator_by_options::<2>(&inputs, &options_2, optional_outputs)
+                Wma::indicator_by_options::<2>(&inputs, &options_2, optional_outputs)
                     .expect("SIMD WMA 2-wide with optional outputs failed");
 
             // Combine SIMD results in the same order as OPTIONS_LIST
@@ -859,5 +849,4 @@ mod tests {
             }
         }
     }
-
-    }
+}

@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::vhf::{Vhf, Indicator, TIndicatorState};
+    use tulip_rs::indicator_types::IndicatorByOptions;
+    use tulip_rs::indicators::vhf::{Indicator, TIndicatorState, Vhf};
     use tulip_test::c_bindings::{ti_vhf, ti_vhf_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -142,8 +143,8 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) =
-                    Vhf::indicator(&inputs_rust, &options, None).expect("Rust VHF indicator failed");
+                let (outputs, _) = Vhf::indicator(&inputs_rust, &options, None)
+                    .expect("Rust VHF indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -208,8 +209,8 @@ mod tests {
                 let inputs_rust = [close.as_slice()];
 
                 // Get full output from processing all data at once
-                let (full_outputs, _) =
-                    Vhf::indicator(&inputs_rust, &options, None).expect("Rust VHF indicator failed");
+                let (full_outputs, _) = Vhf::indicator(&inputs_rust, &options, None)
+                    .expect("Rust VHF indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
@@ -220,8 +221,8 @@ mod tests {
                 let close_vec = close[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice()];
 
-                let (first_outputs, mut state) =
-                    Vhf::indicator(&chunk_inputs, &options, None).expect("Rust VHF indicator failed");
+                let (first_outputs, mut state) = Vhf::indicator(&chunk_inputs, &options, None)
+                    .expect("Rust VHF indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
                 // Process remaining data in chunks
@@ -277,8 +278,6 @@ mod tests {
 
     #[test]
     fn test_vhf_simd_by_assets_vs_regular_database() {
-        use tulip_rs::indicators::vhf::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -299,15 +298,15 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = Vhf::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets VHF indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
             for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_close.as_slice()];
-                let (regular_results, _) =
-                    Vhf::indicator(&stock_inputs, &options, None).expect("Regular VHF indicator failed");
+                let (regular_results, _) = Vhf::indicator(&stock_inputs, &options, None)
+                    .expect("Regular VHF indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];
@@ -362,8 +361,6 @@ mod tests {
 
     #[test]
     fn test_vhf_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::vhf::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -379,7 +376,7 @@ mod tests {
                 &OPTIONS_LIST[3], // [18.0]
             ];
 
-            let (simd_results_1, _) = indicator_by_options::<4>(&inputs, &options_4_1, None)
+            let (simd_results_1, _) = Vhf::indicator_by_options::<4>(&inputs, &options_4_1, None)
                 .expect("SIMD by options VHF indicator failed (batch 1)");
 
             // Process remaining 3 options with SIMD (pad with first option to make 4)
@@ -390,7 +387,7 @@ mod tests {
                 &OPTIONS_LIST[0], // [5.0] - padding
             ];
 
-            let (simd_results_2, _) = indicator_by_options::<4>(&inputs, &options_4_2, None)
+            let (simd_results_2, _) = Vhf::indicator_by_options::<4>(&inputs, &options_4_2, None)
                 .expect("SIMD by options VHF indicator failed (batch 2)");
 
             // Test all 7 options
@@ -456,5 +453,4 @@ mod tests {
 
         println!("✓ All 7 SIMD by options vs Regular VHF database tests passed!");
     }
-
-    }
+}

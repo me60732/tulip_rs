@@ -22,7 +22,11 @@ mod tests {
     fn test_ccfisher_min_data() {
         assert_eq!(CcFisher::min_data(&[0.07]), 56, "min_data must be 56");
 
-        assert_eq!(CcFisher::output_length(56, &[0.07]), 1, "CcFisher::output_length(56) must be 1");
+        assert_eq!(
+            CcFisher::output_length(56, &[0.07]),
+            1,
+            "CcFisher::output_length(56) must be 1"
+        );
         assert_eq!(
             CcFisher::output_length(100, &[0.07]),
             45,
@@ -211,9 +215,11 @@ mod tests {
                 if options[0] == 0.0 {
                     continue;
                 }
-                let (cf_out, _) = CcFisher::indicator(&inputs, &options, Some(&[false, true, false]))
-                    .expect("CCFisher failed");
-                let (cc_out, _) = Cybercycle::indicator(&inputs, &options, None).expect("CyberCycle failed");
+                let (cf_out, _) =
+                    CcFisher::indicator(&inputs, &options, Some(&[false, true, false]))
+                        .expect("CCFisher failed");
+                let (cc_out, _) =
+                    Cybercycle::indicator(&inputs, &options, None).expect("CyberCycle failed");
 
                 // CCFisher outputs start at bar 55 (min_data=56, output_length=n-55).
                 // CyberCycle outputs start at bar 6 (min_data=7, output_length=n-6).
@@ -285,7 +291,8 @@ mod tests {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
             for options in OPTIONS_LIST {
-                let (out, _) = CcFisher::indicator(&inputs, &options, None).expect("CCFisher failed");
+                let (out, _) =
+                    CcFisher::indicator(&inputs, &options, None).expect("CCFisher failed");
                 let fisher = &out[0];
                 let signal = &out[1];
                 for i in 1..fisher.len() {
@@ -454,7 +461,6 @@ mod tests {
 
     #[test]
     fn test_ccfisher_simd_by_options_mixed_adaptive() {
-        use tulip_rs::indicators::ccfisher::indicator_by_options;
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -467,7 +473,7 @@ mod tests {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
-            let (simd_results, _) = indicator_by_options::<4>(&inputs, &mixed_options, None)
+            let (simd_results, _) = CcFisher::indicator_by_options::<4>(&inputs, &mixed_options, None)
                 .expect("SIMD by_options mixed failed");
 
             let labels = ["fisher", "signal"];
@@ -509,7 +515,6 @@ mod tests {
 
     #[test]
     fn test_ccfisher_simd_by_options() {
-        use tulip_rs::indicators::ccfisher::indicator_by_options;
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -525,7 +530,7 @@ mod tests {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
-            let (simd_results, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results, _) = CcFisher::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD by_options failed");
 
             let labels = ["fisher", "signal"];

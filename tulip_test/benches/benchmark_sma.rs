@@ -1,8 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-use tulip_rs::indicators::sma::{
-    Sma, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
-};
+use tulip_rs::indicators::sma::{Indicator, IndicatorState, Sma, TIndicatorState};
 
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 //use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -221,8 +219,8 @@ fn bench_rust_sma_from_state(_c: &mut Criterion) {
 
                 // --- Rust_FromState_1_Bar benchmark ---
                 if inputs[0].len() > 1 {
-                    let (_, state) =
-                        Sma::indicator(&new_inputs, &options, None).expect("Rust SMA indicator failed");
+                    let (_, state) = Sma::indicator(&new_inputs, &options, None)
+                        .expect("Rust SMA indicator failed");
                     //let bin = bincode::serde::encode_to_vec(&state, bincode::config::standard()).expect("bincode encode failed");
                     let json = serde_json::to_string(&state).expect("json failed");
                     let mut timing = TimingMeasurements::new();
@@ -248,8 +246,8 @@ fn bench_rust_sma_from_state(_c: &mut Criterion) {
                         Some(stock_symbol),
                     );
 
-                    let (_, mut state) =
-                        Sma::indicator(&new_inputs, &options, None).expect("Rust SMA indicator failed");
+                    let (_, mut state) = Sma::indicator(&new_inputs, &options, None)
+                        .expect("Rust SMA indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -379,7 +377,7 @@ fn bench_rust_sma_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = Sma::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("Rust SIMD by assets SMA indicator failed");
                     black_box(&result);
                 },
@@ -414,7 +412,7 @@ fn bench_rust_sma_simd_by_assets(c: &mut Criterion) {
                 format!("Rust SIMD by assets SMA {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = Sma::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("Rust SIMD by assets SMA indicator failed");
                         black_box(&result);
                     });
@@ -427,58 +425,6 @@ fn bench_rust_sma_simd_by_assets(c: &mut Criterion) {
 
 /// Benchmark the Rust SIMD implementation of SMA.
 //#[cfg(feature = "portable_simd")]
-fn bench_rust_sma_simd(c: &mut Criterion) {
-    let options_4 = [
-        &OPTIONS_LIST[0],
-        &OPTIONS_LIST[1],
-        &OPTIONS_LIST[2],
-        &OPTIONS_LIST[3],
-    ];
-    if should_log_to_db() {
-        init_database_data();
-        init_logging("sma");
-
-        let data = get_all_stock_data().unwrap();
-        for (stock_symbol, stock_data) in data {
-            let close_vec: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
-            let inputs = [close_vec.as_slice()];
-
-            let mut timing = TimingMeasurements::new();
-            timing.measure(
-                || {
-                    let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
-                        .expect("Rust SIMD SMA indicator failed");
-                    black_box(&result_4);
-                },
-                SAMPLE_SIZE,
-            );
-
-            log_timing_result(
-                "sma",
-                "Rust_SIMD",
-                &[0.0],
-                close_vec.len(),
-                &timing,
-                Some(stock_symbol),
-            );
-        }
-    } else {
-        // Run Criterion benchmark with synthetic data
-        let close_vec = expand_inputs();
-        let inputs = [close_vec.as_slice()];
-
-        let mut group = c.benchmark_group("sma_rust_simd");
-        group.sample_size(SAMPLE_SIZE);
-        group.bench_function("Rust SIMD SMA (4 lanes)", |b| {
-            b.iter(|| {
-                let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
-                    .expect("Rust SIMD SMA indicator failed");
-                black_box(&result_4);
-            });
-        });
-        group.finish();
-    }
-}
 
 /// Benchmark the `ta` crate (RustTa) implementation of SMA.
 fn bench_rust_ta_sma(c: &mut Criterion) {
@@ -592,7 +538,6 @@ fn bench_kand_sma(c: &mut Criterion) {
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
-    bench_rust_sma_simd,
     bench_rust_sma_simd_by_assets,
     bench_rust_sma,
     bench_rust_ta_sma,
@@ -605,7 +550,6 @@ criterion_group!(
 #[cfg(not(feature = "talib"))]
 criterion_group!(
     benches,
-    bench_rust_sma_simd,
     bench_rust_sma_simd_by_assets,
     bench_rust_sma,
     bench_rust_ta_sma,

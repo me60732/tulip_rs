@@ -1,9 +1,10 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
+    use tulip_rs::indicator_types::IndicatorByOptions;
     use tulip_rs::indicators::max::Max;
     use tulip_rs::indicators::min::Min;
-    use tulip_rs::indicators::willr::{Willr, Indicator, TIndicatorState, indicator_by_assets, indicator_by_options};
+    use tulip_rs::indicators::willr::{Indicator, TIndicatorState, Willr};
     use tulip_test::c_bindings::{ti_willr, ti_willr_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -77,8 +78,8 @@ mod tests {
 
             // Run the Rust implementation
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-            let (outputs, _) =
-                Willr::indicator(&inputs_rust, &options, None).expect("Rust WILLR indicator failed");
+            let (outputs, _) = Willr::indicator(&inputs_rust, &options, None)
+                .expect("Rust WILLR indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -163,8 +164,8 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (outputs, _) =
-                    Willr::indicator(&inputs_rust, &options, None).expect("Rust WILLR indicator failed");
+                let (outputs, _) = Willr::indicator(&inputs_rust, &options, None)
+                    .expect("Rust WILLR indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -230,8 +231,8 @@ mod tests {
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
 
                 // Get full output from processing all data at once
-                let (full_outputs, _) =
-                    Willr::indicator(&inputs_rust, &options, None).expect("Rust WILLR indicator failed");
+                let (full_outputs, _) = Willr::indicator(&inputs_rust, &options, None)
+                    .expect("Rust WILLR indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
@@ -248,8 +249,8 @@ mod tests {
                     close_vec.as_slice(),
                 ];
 
-                let (first_outputs, mut state) =
-                    Willr::indicator(&chunk_inputs, &options, None).expect("Rust WILLR indicator failed");
+                let (first_outputs, mut state) = Willr::indicator(&chunk_inputs, &options, None)
+                    .expect("Rust WILLR indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
                 // Process remaining data in chunks
@@ -301,8 +302,6 @@ mod tests {
 
     #[test]
     fn test_willr_simd_by_assets_vs_regular_database() {
-        use tulip_rs::indicators::willr::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -326,7 +325,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = Willr::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets WILLR indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -391,8 +390,6 @@ mod tests {
 
     #[test]
     fn test_willr_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::willr::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -412,14 +409,14 @@ mod tests {
                 &OPTIONS_LIST[7], // [100.0]
             ];
 
-            let (simd_results, _) = indicator_by_options::<8>(&inputs, &options_8, None)
+            let (simd_results, _) = Willr::indicator_by_options::<8>(&inputs, &options_8, None)
                 .expect("SIMD by options WILLR indicator failed");
 
             // Test all 8 options
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result for this option set
-                let (regular_results, _) =
-                    Willr::indicator(&inputs, options, None).expect("Regular WILLR indicator failed");
+                let (regular_results, _) = Willr::indicator(&inputs, options, None)
+                    .expect("Regular WILLR indicator failed");
 
                 let simd_result = &simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -618,7 +615,6 @@ mod tests {
 
     #[test]
     fn test_willr_simd_by_assets_state_continuity() {
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -656,8 +652,9 @@ mod tests {
             ];
             let inputs_4: [&[&[f64]; 3]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-            let (simd_first, mut states) = indicator_by_assets::<4>(&inputs_4, &options, None)
-                .expect("SIMD by assets failed on first chunk");
+            let (simd_first, mut states) =
+                Willr::indicator_by_assets::<4>(&inputs_4, &options, None)
+                    .expect("SIMD by assets failed on first chunk");
 
             for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
                 let mut batch_output = simd_first[asset_idx][0].clone();
@@ -688,8 +685,8 @@ mod tests {
                 }
 
                 let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (full_outputs, _) =
-                    Willr::indicator(&inputs, &options, None).expect("scalar WILLR indicator failed");
+                let (full_outputs, _) = Willr::indicator(&inputs, &options, None)
+                    .expect("scalar WILLR indicator failed");
 
                 assert_eq!(
                     full_outputs[0].len(),
@@ -716,7 +713,6 @@ mod tests {
 
     #[test]
     fn test_willr_simd_by_options_state_continuity() {
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -738,7 +734,7 @@ mod tests {
                 &close[..FIRST_CHUNK],
             ];
             let (simd_first, mut states) =
-                indicator_by_options::<4>(&first_inputs, &options_4, None)
+                Willr::indicator_by_options::<4>(&first_inputs, &options_4, None)
                     .expect("SIMD by options failed on first chunk");
 
             for (opt_idx, options) in OPTIONS_LIST[..4].iter().enumerate() {
@@ -770,8 +766,8 @@ mod tests {
                 }
 
                 let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (full_outputs, _) =
-                    Willr::indicator(&inputs, options, None).expect("scalar WILLR indicator failed");
+                let (full_outputs, _) = Willr::indicator(&inputs, options, None)
+                    .expect("scalar WILLR indicator failed");
 
                 assert_eq!(
                     full_outputs[0].len(),
@@ -798,7 +794,6 @@ mod tests {
 
     #[test]
     fn test_willr_simd_by_assets_optional_outputs() {
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -819,13 +814,14 @@ mod tests {
             let inputs_4: [&[&[f64]; 3]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
             let (simd_results, _) =
-                indicator_by_assets::<4>(&inputs_4, &options, Some(&[true, true]))
+                Willr::indicator_by_assets::<4>(&inputs_4, &options, Some(&[true, true]))
                     .expect("SIMD by-assets WILLR with optional outputs failed");
 
             for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
                 let scalar_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (scalar_results, _) = Willr::indicator(&scalar_inputs, &options, Some(&[true, true]))
-                    .expect("Scalar WILLR with optional outputs failed");
+                let (scalar_results, _) =
+                    Willr::indicator(&scalar_inputs, &options, Some(&[true, true]))
+                        .expect("Scalar WILLR with optional outputs failed");
 
                 // Compare all 3 outputs: willr (0), min (1), max (2)
                 for out_idx in 0..3 {
@@ -864,5 +860,4 @@ mod tests {
         let close: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
         (high, low, close)
     }
-
-    }
+}

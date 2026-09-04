@@ -9,20 +9,20 @@ Moving average where each bar is weighted linearly, the most recent bar receivin
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::wma::indicator;
+    use tulip_rs::indicators::wma::{Wma, Indicator, TIndicatorState};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
-    let (outputs, _state) = indicator(&[close.as_slice()], &[14.0], None).unwrap();
+    let (outputs, mut state) = Wma::indicator(&[close.as_slice()], &[14.0], None).unwrap();
     println!("WMA(14): {:?}", outputs[0]);
 
-    // State continuation
+    // State continuation — feed new bars without reprocessing history
     let partial = close[..8].to_vec();
-    let (outputs2, mut state) = indicator(&[partial.as_slice()], &[14.0], None).unwrap();
+    let (outputs2, mut state) = Wma::indicator(&[partial.as_slice()], &[14.0], None).unwrap();
     println!("Partial WMA: {:?}", outputs2[0]);
 
-    let new_close = close[8..].to_vec();
+    let new_close = vec![85.53_f64];
     let continued = state.batch_indicator(&[new_close.as_slice()], None).unwrap();
     println!("Continued WMA: {:?}", continued[0]);
     ```
@@ -93,14 +93,14 @@ Moving average where each bar is weighted linearly, the most recent bar receivin
     `wma` exposes 1 optional output: `"sma"`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::wma::indicator;
+    use tulip_rs::indicators::wma::{Wma, Indicator, TIndicatorState};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
     // Request the SMA alongside the WMA
     let mask = [true]; // one per optional output
-    let (outputs, _state) = indicator(&[close.as_slice()], &[5.0], Some(&mask)).unwrap();
+    let (outputs, _state) = Wma::indicator(&[close.as_slice()], &[5.0], Some(&mask)).unwrap();
 
     let wma = &outputs[0]; // wma (primary)
     let sma = &outputs[1]; // "sma" (optional — requested)
@@ -169,7 +169,7 @@ Moving average where each bar is weighted linearly, the most recent bar receivin
     ];
 
     let results = indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
-    for (i, asset_outputs) in results.0.iter().enumerate() {
+    for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
     ```
@@ -185,7 +185,7 @@ Moving average where each bar is weighted linearly, the most recent bar receivin
     let opts: [&[f64; 1]; 4] = [&[5.0], &[10.0], &[14.0], &[20.0]];
 
     let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
-    for (i, opt_outputs) in results.0.iter().enumerate() {
+    for (i, opt_outputs) in results.iter().enumerate() {
         println!("Period set {}: {:?}", i + 1, opt_outputs[0]);
     }
     ```

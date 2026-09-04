@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 use tulip_rs::indicators::hma::{
-    Hma, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
+    Hma, Indicator, IndicatorByOptions, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -126,8 +126,8 @@ fn bench_rust_hma(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result =
-                            Hma::indicator(&inputs, &options, None).expect("Rust HMA indicator failed");
+                        let result = Hma::indicator(&inputs, &options, None)
+                            .expect("Rust HMA indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -176,8 +176,8 @@ fn bench_rust_hma_from_state(c: &mut Criterion) {
                         // First chunk
                         let chunk_inputs = [&close[..min_data]];
 
-                        let (_, mut state) =
-                            Hma::indicator(&chunk_inputs, &options, None).expect("HMA indicator failed");
+                        let (_, mut state) = Hma::indicator(&chunk_inputs, &options, None)
+                            .expect("HMA indicator failed");
 
                         // Chunks
                         let mut close_chunks = close[min_data..].chunks_exact(CHUNK_SIZE);
@@ -212,8 +212,8 @@ fn bench_rust_hma_from_state(c: &mut Criterion) {
                 if inputs[0].len() > 1 {
                     let new_inputs = [&close[..close.len() - 1]];
                     let final_inputs = [&close[close.len() - 1..]];
-                    let (_, mut state) =
-                        Hma::indicator(&new_inputs, &options, None).expect("Rust HMA indicator failed");
+                    let (_, mut state) = Hma::indicator(&new_inputs, &options, None)
+                        .expect("Rust HMA indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -236,8 +236,8 @@ fn bench_rust_hma_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) =
-                        Hma::indicator(&new_inputs, &options, None).expect("Rust HMA indicator failed");
+                    let (_, state) = Hma::indicator(&new_inputs, &options, None)
+                        .expect("Rust HMA indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -309,10 +309,8 @@ fn bench_rust_hma_from_state(c: &mut Criterion) {
                 let (_, mut state) =
                     Hma::indicator(&new_inputs, &options, None).expect("Rust HMA indicator failed");
 
-                let mut group = c.benchmark_group(format!(
-                    "Rust HMA from state 1 bar {{ {:.1} }}",
-                    options[0]
-                ));
+                let mut group =
+                    c.benchmark_group(format!("Rust HMA from state 1 bar {{ {:.1} }}", options[0]));
                 group.sample_size(SAMPLE_SIZE);
                 group.bench_function("benchmark", |b| {
                     b.iter(|| {
@@ -360,7 +358,7 @@ fn bench_rust_hma_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = Hma::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("Rust SIMD by assets HMA indicator failed");
                     black_box(&result);
                 },
@@ -395,7 +393,7 @@ fn bench_rust_hma_simd_by_assets(c: &mut Criterion) {
                 format!("Rust SIMD by assets HMA {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = Hma::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("Rust SIMD by assets HMA indicator failed");
                         black_box(&result);
                     });
@@ -435,7 +433,7 @@ fn bench_rust_hma_simd_by_options(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result = Hma::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD by options HMA indicator failed");
                     black_box(&result);
                 },
@@ -464,25 +462,24 @@ fn bench_rust_hma_simd_by_options(c: &mut Criterion) {
         ];
 
         // Create 4 identical datasets for testing
-        let datasets = [[close_vec.as_slice()],
+        let datasets = [
             [close_vec.as_slice()],
             [close_vec.as_slice()],
-            [close_vec.as_slice()]];
+            [close_vec.as_slice()],
+            [close_vec.as_slice()],
+        ];
 
         let mut group = c.benchmark_group("hma_rust_simd_by_options");
         group.sample_size(SAMPLE_SIZE);
 
         for (i, inputs) in datasets.iter().enumerate() {
-            group.bench_function(
-                format!("Rust SIMD by options HMA dataset {}", i + 1),
-                |b| {
-                    b.iter(|| {
-                        let result = indicator_by_options::<4>(inputs, &options_4, None)
-                            .expect("Rust SIMD by options HMA indicator failed");
-                        black_box(&result);
-                    });
-                },
-            );
+            group.bench_function(format!("Rust SIMD by options HMA dataset {}", i + 1), |b| {
+                b.iter(|| {
+                    let result = Hma::indicator_by_options::<4>(inputs, &options_4, None)
+                        .expect("Rust SIMD by options HMA indicator failed");
+                    black_box(&result);
+                });
+            });
         }
         group.finish();
     }

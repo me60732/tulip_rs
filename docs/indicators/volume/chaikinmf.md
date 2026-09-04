@@ -9,7 +9,7 @@ Measures buying and selling pressure. For each bar: MFV = ((close − low) − (
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::chaikinmf::indicator;
+    use tulip_rs::indicators::chaikinmf::{ChaikinMf, Indicator, TIndicatorState};
 
     let high   = vec![82.15, 81.89, 83.03, 83.30, 83.85,
                       83.90, 83.33, 84.30, 84.84, 85.00_f64];
@@ -21,7 +21,7 @@ Measures buying and selling pressure. For each bar: MFV = ((close − low) − (
                       1400.0, 1200.0, 1700.0, 1800.0, 1500.0_f64];
 
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice(), volume.as_slice()];
-    let (outputs, mut state) = indicator(&inputs, &[14.0], None).unwrap();
+    let (outputs, mut state) = ChaikinMf::indicator(&inputs, &[14.0], None).unwrap();
     println!("{:?}", outputs[0]); // CMF values
 
     // State continuation — feed new bars without reprocessing history
@@ -114,7 +114,7 @@ Measures buying and selling pressure. For each bar: MFV = ((close − low) − (
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::chaikinmf::indicator_by_assets;
+    use tulip_rs::indicators::chaikinmf::{ChaikinMf, Indicator, TIndicatorState};
 
     let inputs: [&[&[f64]; 4]; 4] = [
         &[h1.as_slice(), l1.as_slice(), c1.as_slice(), v1.as_slice()],
@@ -122,7 +122,7 @@ Measures buying and selling pressure. For each bar: MFV = ((close − low) − (
         &[h3.as_slice(), l3.as_slice(), c3.as_slice(), v3.as_slice()],
         &[h4.as_slice(), l4.as_slice(), c4.as_slice(), v4.as_slice()],
     ];
-    let results = indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
+    let results = chaikinmf::indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
@@ -131,10 +131,10 @@ Measures buying and selling pressure. For each bar: MFV = ((close − low) − (
     **By options** — same asset, N option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::chaikinmf::indicator_by_options;
+    use tulip_rs::indicators::chaikinmf::{ChaikinMf, Indicator, TIndicatorState};
 
     let opts: [&[f64; 1]; 4] = [&[7.0], &[14.0], &[21.0], &[28.0]];
-    let results = indicator_by_options::<4>(&inputs, &opts, None).unwrap();
+    let results = chaikinmf::indicator_by_options::<4>(&inputs, &opts, None).unwrap();
     for (i, out) in results.iter().enumerate() {
         println!("Period {}: {:?}", opts[i][0], out[0]);
     }

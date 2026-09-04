@@ -1,10 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicator_types::Indicator;
-    use tulip_rs::indicators::msw::{
-        indicator_by_assets, indicator_by_options, Msw, TIndicatorState,
-    };
+    use tulip_rs::indicators::msw::{Indicator, IndicatorByOptions, Msw, TIndicatorState};
     use tulip_test::c_bindings::{ti_msw, ti_msw_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -306,8 +303,8 @@ mod tests {
         ];
 
         for options in OPTIONS_LIST {
-            let (simd_results, _) =
-                indicator_by_assets::<4>(&inputs_4, &options, None).expect("SIMD by_assets failed");
+            let (simd_results, _) = Msw::indicator_by_assets::<4>(&inputs_4, &options, None)
+                .expect("SIMD by_assets failed");
 
             for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
                 let (scalar_out, _) =
@@ -363,8 +360,9 @@ mod tests {
                 &[&stock_data[3].1[..FIRST_CHUNK]],
             ];
 
-            let (simd_first, mut states) = indicator_by_assets::<4>(&inputs_first, &options, None)
-                .expect("SIMD by_assets first chunk failed");
+            let (simd_first, mut states) =
+                Msw::indicator_by_assets::<4>(&inputs_first, &options, None)
+                    .expect("SIMD by_assets first chunk failed");
 
             for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
                 let mut batch_sine = simd_first[asset_idx][0].clone();
@@ -434,7 +432,7 @@ mod tests {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
-            let (simd_results, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results, _) = Msw::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD by_options failed");
 
             for (lane, &options) in options_4.iter().enumerate() {
@@ -488,7 +486,7 @@ mod tests {
             let close = get_close_array(stock_data);
 
             let (simd_first, mut states) =
-                indicator_by_options::<4>(&[&close[..FIRST_CHUNK]], &options_4, None)
+                Msw::indicator_by_options::<4>(&[&close[..FIRST_CHUNK]], &options_4, None)
                     .expect("SIMD by_options first chunk failed");
 
             for (lane, &options) in options_4.iter().enumerate() {

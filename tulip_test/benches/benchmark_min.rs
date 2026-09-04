@@ -1,5 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::min::{Min, Indicator, TIndicatorState, indicator_by_assets, indicator_by_options, IndicatorState};
+use tulip_rs::indicators::min::{
+    Indicator, IndicatorByOptions, IndicatorState, Min, TIndicatorState,
+};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_min, ti_min_start};
@@ -189,8 +191,8 @@ fn bench_rust_min_from_state(c: &mut Criterion) {
                         // First chunk
                         let chunk_inputs = [&close[..min_data_val]];
 
-                        let (_, mut state) =
-                            Min::indicator(&chunk_inputs, &options, None).expect("MIN indicator failed");
+                        let (_, mut state) = Min::indicator(&chunk_inputs, &options, None)
+                            .expect("MIN indicator failed");
 
                         // Chunks
                         let mut close_chunks = close[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -224,8 +226,8 @@ fn bench_rust_min_from_state(c: &mut Criterion) {
                     let new_close = close[..close.len() - 1].to_vec();
                     let final_close = close[close.len() - 1..].to_vec();
                     let new_inputs = [new_close.as_slice()];
-                    let (_, mut state) =
-                        Min::indicator(&new_inputs, &options, None).expect("Rust min indicator failed");
+                    let (_, mut state) = Min::indicator(&new_inputs, &options, None)
+                        .expect("Rust min indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -248,8 +250,8 @@ fn bench_rust_min_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) =
-                        Min::indicator(&new_inputs, &options, None).expect("Rust MIN indicator failed");
+                    let (_, state) = Min::indicator(&new_inputs, &options, None)
+                        .expect("Rust MIN indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -292,8 +294,8 @@ fn bench_rust_min_from_state(c: &mut Criterion) {
                     let close_vec_chunk = close_vec[..min_data_val].to_vec();
                     let chunk_inputs = [close_vec_chunk.as_slice()];
 
-                    let (_, mut state) =
-                        Min::indicator(&chunk_inputs, &options, None).expect("MIN indicator failed");
+                    let (_, mut state) = Min::indicator(&chunk_inputs, &options, None)
+                        .expect("MIN indicator failed");
 
                     // Chunks
                     let mut close_chunks = close_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -423,7 +425,7 @@ fn bench_rust_min_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None);
+                    let result = Min::indicator_by_assets::<4>(&inputs, &options, None);
                     //.expect("Rust SIMD by assets MIN indicator failed");
                     black_box(&result);
                 },
@@ -458,7 +460,7 @@ fn bench_rust_min_simd_by_assets(c: &mut Criterion) {
                 format!("Rust SIMD by assets MIN {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = Min::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("Rust SIMD by assets min indicator failed");
                         black_box(&result);
                     });
@@ -490,7 +492,7 @@ fn bench_rust_min_simd_by_options(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result_4 = Min::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD min indicator failed");
                     black_box(&result_4);
                 },
@@ -515,7 +517,7 @@ fn bench_rust_min_simd_by_options(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust SIMD MIN (4 lanes)", |b| {
             b.iter(|| {
-                let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result_4 = Min::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD min indicator failed");
                 black_box(&result_4);
             });

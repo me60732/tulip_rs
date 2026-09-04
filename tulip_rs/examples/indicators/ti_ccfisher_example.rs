@@ -1,6 +1,4 @@
-use tulip_rs::indicators::ccfisher::{
-    indicator_by_assets, indicator_by_options, CcFisher, Indicator, TIndicatorState,
-};
+use tulip_rs::indicators::ccfisher::{CcFisher, Indicator, IndicatorByOptions, TIndicatorState};
 
 // 80 bars of close prices (ccfisher needs min_data = 56)
 const CLOSE: [f64; 80] = [
@@ -95,10 +93,11 @@ fn main() {
     let asset3: [&[f64]; 1] = [close3.as_slice()];
     let inputs_4: [&[&[f64]; 1]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-    let (simd_asset_outputs, _) = match indicator_by_assets::<4>(&inputs_4, &options, None) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (simd_asset_outputs, _) =
+        match CcFisher::indicator_by_assets::<4>(&inputs_4, &options, None) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
     for (i, outs) in simd_asset_outputs.iter().enumerate() {
         let len = outs[0].len();
         println!(
@@ -113,10 +112,11 @@ fn main() {
     // embedded Hilbert Discriminator each bar (no fixed period).
     let options_4 = [&[0.0f64], &[0.05], &[0.07], &[0.10]];
 
-    let (simd_option_outputs, _) = match indicator_by_options::<4>(&inputs, &options_4, None) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (simd_option_outputs, _) =
+        match CcFisher::indicator_by_options::<4>(&inputs, &options_4, None) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
     for (i, opts) in options_4.iter().enumerate() {
         let len_f = simd_option_outputs[i][0].len();
         let len_s = simd_option_outputs[i][1].len();

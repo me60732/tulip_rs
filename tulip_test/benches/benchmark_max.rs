@@ -1,5 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::max::{Max, Indicator, TIndicatorState, IndicatorState, indicator_by_assets, indicator_by_options};
+use tulip_rs::indicators::max::{
+    Indicator, IndicatorByOptions, IndicatorState, Max, TIndicatorState,
+};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_max, ti_max_start};
@@ -187,8 +189,8 @@ fn bench_rust_max_from_state(c: &mut Criterion) {
                         // First chunk
                         let chunk_inputs = [&close[..min_data_val]];
 
-                        let (_, mut state) =
-                            Max::indicator(&chunk_inputs, &options, None).expect("MAX indicator failed");
+                        let (_, mut state) = Max::indicator(&chunk_inputs, &options, None)
+                            .expect("MAX indicator failed");
 
                         // Chunks
                         let mut close_chunks = close[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -221,8 +223,8 @@ fn bench_rust_max_from_state(c: &mut Criterion) {
                 if inputs[0].len() > 1 {
                     let new_inputs = [&close[..close.len() - 1]];
                     let final_inputs = [&close[close.len() - 1..]];
-                    let (_, mut state) =
-                        Max::indicator(&new_inputs, &options, None).expect("Rust MAX indicator failed");
+                    let (_, mut state) = Max::indicator(&new_inputs, &options, None)
+                        .expect("Rust MAX indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -245,8 +247,8 @@ fn bench_rust_max_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) =
-                        Max::indicator(&new_inputs, &options, None).expect("Rust MAX indicator failed");
+                    let (_, state) = Max::indicator(&new_inputs, &options, None)
+                        .expect("Rust MAX indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -289,8 +291,8 @@ fn bench_rust_max_from_state(c: &mut Criterion) {
                     let close_vec_chunk = close_vec[..min_data_val].to_vec();
                     let chunk_inputs = [close_vec_chunk.as_slice()];
 
-                    let (_, mut state) =
-                        Max::indicator(&chunk_inputs, &options, None).expect("MAX indicator failed");
+                    let (_, mut state) = Max::indicator(&chunk_inputs, &options, None)
+                        .expect("MAX indicator failed");
 
                     // Chunks
                     let mut close_chunks = close_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -420,7 +422,7 @@ fn bench_rust_max_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None);
+                    let result = Max::indicator_by_assets::<4>(&inputs, &options, None);
                     //.expect("Rust SIMD by assets max indicator failed");
                     black_box(&result);
                 },
@@ -455,7 +457,7 @@ fn bench_rust_max_simd_by_assets(c: &mut Criterion) {
                 format!("Rust SIMD by assets max {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = Max::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("Rust SIMD by assets max indicator failed");
                         black_box(&result);
                     });
@@ -487,7 +489,7 @@ fn bench_rust_max_simd_by_options(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result_4 = Max::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD max indicator failed");
                     black_box(&result_4);
                 },
@@ -512,7 +514,7 @@ fn bench_rust_max_simd_by_options(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust SIMD MAX (4 lanes)", |b| {
             b.iter(|| {
-                let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result_4 = Max::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD max indicator failed");
                 black_box(&result_4);
             });

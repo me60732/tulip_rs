@@ -1,7 +1,9 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
 use crate::indicators::linreg::State as LinregState;
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
 /// Number of input price series required by this indicator.
@@ -10,35 +12,6 @@ pub const INPUTS: usize = 1;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
 
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::tsf_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::tsf_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    pub use crate::indicators::simd_indicators::tsf_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    pub use crate::indicators::simd_indicators::tsf_simd::indicator_by_options as indicator;
-}
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     state: State<Warm>,
@@ -47,7 +20,7 @@ pub struct IndicatorState {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(bound="")]
+#[serde(bound = "")]
 #[repr(transparent)]
 pub struct State<S = Cold>(pub LinregState<S>);
 impl<S> Deref for State<S> {
@@ -123,7 +96,6 @@ impl TIndicatorState<1> for IndicatorState {
     }
 }
 
-
 /// Performs the main calculation loop for the TSF indicator.
 ///
 /// # Arguments
@@ -196,9 +168,9 @@ impl Indicator<INPUTS, OPTIONS> for Tsf {
     ) -> IndicatorResult<Self::IndicatorState> {
         validate_options(options)?;
         let period = options[0] as usize;
-    
+
         validate_inputs(inputs, Self::min_data(options))?;
-    
+
         let real = inputs[0];
         let (mut tsf_line, mut linreg_line, mut slope_line, mut intercept_line);
         {
@@ -212,7 +184,7 @@ impl Indicator<INPUTS, OPTIONS> for Tsf {
             tsf_line = crate::uninit_vec!(f64, capacity); //Vec::with_capacity(capacity);
         }
         let mut state = State::init_state(&real[1..period], period);
-    
+
         // Perform the main TSF calculation
         cycle_tsf(
             &real[1..],
@@ -221,10 +193,38 @@ impl Indicator<INPUTS, OPTIONS> for Tsf {
             &mut tsf_line,
             (&mut linreg_line, &mut slope_line, &mut intercept_line),
         );
-    
+
         Ok((
             vec![tsf_line, linreg_line, slope_line, intercept_line],
             IndicatorState::new(state, real, period),
         ))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::tsf_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Tsf {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::tsf_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

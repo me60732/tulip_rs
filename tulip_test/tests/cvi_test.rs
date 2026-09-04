@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
+    use tulip_rs::indicator_types::IndicatorByOptions;
     use tulip_rs::indicators::cvi::{Cvi, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_cvi, ti_cvi_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -143,8 +144,8 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [high.as_slice(), low.as_slice()];
-                let (outputs, _) =
-                    Cvi::indicator(&inputs_rust, &options, None).expect("Rust CVI indicator failed");
+                let (outputs, _) = Cvi::indicator(&inputs_rust, &options, None)
+                    .expect("Rust CVI indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -202,8 +203,8 @@ mod tests {
                 let inputs_rust = [high.as_slice(), low.as_slice()];
 
                 // Get full output
-                let (full_outputs, _) =
-                    Cvi::indicator(&inputs_rust, &options, None).expect("Rust CVI indicator failed");
+                let (full_outputs, _) = Cvi::indicator(&inputs_rust, &options, None)
+                    .expect("Rust CVI indicator failed");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
@@ -271,8 +272,6 @@ mod tests {
     }
     #[test]
     fn test_cvi_simd_by_assets_vs_regular_database() {
-        use tulip_rs::indicators::cvi::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -296,7 +295,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = Cvi::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets CVI indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -304,8 +303,8 @@ mod tests {
             {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_high.as_slice(), stock_low.as_slice()];
-                let (regular_results, _) =
-                    Cvi::indicator(&stock_inputs, &options, None).expect("Regular CVI indicator failed");
+                let (regular_results, _) = Cvi::indicator(&stock_inputs, &options, None)
+                    .expect("Regular CVI indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];
@@ -361,8 +360,6 @@ mod tests {
 
     #[test]
     fn test_cvi_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::cvi::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -377,7 +374,7 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Cvi::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD CVI 4-wide failed");
 
             // Use SIMD results directly (all 4 options processed)
@@ -438,8 +435,6 @@ mod tests {
 
     #[test]
     fn test_cvi_simd_state_handover_by_options() {
-        use tulip_rs::indicators::cvi::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -471,7 +466,7 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, states_4) =
-                indicator_by_options::<4>(&first_inputs, &options_4, None)
+                Cvi::indicator_by_options::<4>(&first_inputs, &options_4, None)
                     .expect("SIMD CVI 4-wide failed on first chunk");
 
             // Combine SIMD results for first part and prepare to extend with batch_indicator outputs
@@ -521,5 +516,4 @@ mod tests {
 
         println!("✓ All CVI SIMD state handover by options tests passed!");
     }
-
-    }
+}

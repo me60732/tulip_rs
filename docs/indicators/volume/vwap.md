@@ -9,7 +9,7 @@ The average price weighted by trading volume over the entire input window; commo
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::vwap::indicator;
+    use tulip_rs::indicators::vwap::{Vwap, Indicator, TIndicatorState};
 
     let high   = vec![82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
                       85.90, 86.58, 86.98, 88.00, 87.87, 88.20, 88.70, 89.10, 88.50, 89.00,
@@ -29,7 +29,7 @@ The average price weighted by trading volume over the entire input window; commo
                       2300.0, 1800.0, 2100.0, 2500.0, 1700.0, 2000.0, 2200.0, 1900.0, 2400.0, 2100.0_f64];
 
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice(), volume.as_slice()];
-    let (outputs, _state) = indicator(&inputs, &[], None).unwrap();
+    let (outputs, _state) = Vwap::indicator(&inputs, &[], None).unwrap();
     println!("VWAP: {:?}", outputs[0]);
 
     // State continuation
@@ -154,11 +154,11 @@ The average price weighted by trading volume over the entire input window; commo
     `vwap` exposes 1 optional output: `typprice`. The typical price `(high + low + close) / 3` is the per-bar price used internally when computing the weighted average. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::vwap::indicator;
+    use tulip_rs::indicators::vwap::{Vwap, Indicator, TIndicatorState};
 
     // ... (same high, low, close, volume data as above)
     let mask = [true];
-    let (outputs, _state) = indicator(
+    let (outputs, _state) = Vwap::indicator(
         &[high.as_slice(), low.as_slice(), close.as_slice(), volume.as_slice()],
         &[],
         Some(&mask),
@@ -211,7 +211,7 @@ The average price weighted by trading volume over the entire input window; commo
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::vwap::indicator_by_assets;
+    use tulip_rs::indicators::vwap::{Vwap, Indicator, TIndicatorState};
 
     let h1 = high.clone();   let l1 = low.clone();
     let c1 = close.clone();  let v1 = volume.clone();
@@ -229,8 +229,8 @@ The average price weighted by trading volume over the entire input window; commo
         &[h4.as_slice(), l4.as_slice(), c4.as_slice(), v4.as_slice()],
     ];
 
-    let results = indicator_by_assets::<4>(&inputs, &[], None).unwrap();
-    for (i, asset_outputs) in results.0.iter().enumerate() {
+    let results = Vwap::indicator_by_assets::<4>(&inputs, &[], None).unwrap();
+    for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
     ```

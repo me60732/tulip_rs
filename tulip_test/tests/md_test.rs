@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::md::{Md, Indicator, TIndicatorState};
+    use tulip_rs::indicator_types::IndicatorByOptions;
+    use tulip_rs::indicators::md::{Indicator, Md, TIndicatorState};
     use tulip_test::c_bindings::{ti_md, ti_md_start, ti_sma, ti_sma_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -280,8 +281,6 @@ mod tests {
 
     #[test]
     fn test_md_simd_vs_regular_database() {
-        use tulip_rs::indicators::md::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -304,7 +303,7 @@ mod tests {
             // Test without optional outputs
             {
                 // Get SIMD by assets result
-                let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+                let (simd_results, _) = Md::indicator_by_assets::<4>(&inputs, &options, None)
                     .expect("SIMD by assets MD indicator failed");
 
                 // Compare each SIMD result with regular indicator for each stock
@@ -369,8 +368,6 @@ mod tests {
 
     #[test]
     fn test_md_simd_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::md::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -393,15 +390,17 @@ mod tests {
             // Test with optional outputs enabled
             {
                 // Get SIMD by assets result with optional SMA output
-                let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, Some(&[true]))
-                    .expect("SIMD by assets MD indicator with optional output failed");
+                let (simd_results, _) =
+                    Md::indicator_by_assets::<4>(&inputs, &options, Some(&[true]))
+                        .expect("SIMD by assets MD indicator with optional output failed");
 
                 // Compare each SIMD result with regular indicator for each stock
                 for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                     // Get regular indicator result for this stock with optional output
                     let stock_inputs = [stock_close.as_slice()];
-                    let (regular_results, _) = Md::indicator(&stock_inputs, &options, Some(&[true]))
-                        .expect("Regular MD indicator with optional output failed");
+                    let (regular_results, _) =
+                        Md::indicator(&stock_inputs, &options, Some(&[true]))
+                            .expect("Regular MD indicator with optional output failed");
 
                     // Compare MD output (index 0)
                     let simd_md_result = &simd_results[stock_idx][0];
@@ -556,8 +555,7 @@ mod tests {
                 // Get MD with SMA optional output
                 let optional_outputs = Some(&[true][..]);
                 let (md_result, _) =
-                    Md::indicator(&[&close], &[options[0]], optional_outputs)
-                        .unwrap();
+                    Md::indicator(&[&close], &[options[0]], optional_outputs).unwrap();
 
                 let rust_sma = &md_result[1];
 
@@ -617,8 +615,6 @@ mod tests {
 
     #[test]
     fn test_md_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::md::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -633,7 +629,7 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (all_simd_results, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (all_simd_results, _) = Md::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD MD 4-wide failed");
 
             // Compare each SIMD result with regular indicator
@@ -691,8 +687,6 @@ mod tests {
 
     #[test]
     fn test_md_simd_by_options_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::md::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -709,7 +703,7 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (all_simd_results, _) =
-                indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
+                Md::indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
                     .expect("SIMD MD 4-wide failed");
 
             // Compare each SIMD result with regular indicator
@@ -803,5 +797,4 @@ mod tests {
             "✓ All SIMD by options vs Regular MD database tests with optional outputs passed!"
         );
     }
-
-    }
+}

@@ -1,5 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::zlema::{Zlema, Indicator, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::zlema::{
+    Indicator, IndicatorByOptions, IndicatorState, TIndicatorState, Zlema,
+};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_zlema, ti_zlema_start};
@@ -69,14 +71,7 @@ fn bench_c_zlema(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result(
-                    "zlema",
-                    "C_tulip",
-                    &options,
-                    n,
-                    &timing,
-                    Some(stock_symbol),
-                );
+                log_timing_result("zlema", "C_tulip", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -150,8 +145,8 @@ fn bench_rust_zlema(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust ZLEMA {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result =
-                        Zlema::indicator(&inputs, &options, None).expect("Rust ZLEMA indicator failed");
+                    let result = Zlema::indicator(&inputs, &options, None)
+                        .expect("Rust ZLEMA indicator failed");
                     black_box(&result);
                 });
             });
@@ -284,8 +279,8 @@ fn bench_rust_zlema_from_state(c: &mut Criterion) {
                     // First chunk
                     let chunk_inputs = [&close_vec[..min_data_val]];
 
-                    let (_, mut state) =
-                        Zlema::indicator(&chunk_inputs, &options, None).expect("ZLEMA indicator failed");
+                    let (_, mut state) = Zlema::indicator(&chunk_inputs, &options, None)
+                        .expect("ZLEMA indicator failed");
 
                     // Chunks
                     let mut close_chunks = close_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -311,8 +306,8 @@ fn bench_rust_zlema_from_state(c: &mut Criterion) {
                 let new_close_vec = close_vec[..close_vec.len() - 1].to_vec();
                 let new_inputs = [new_close_vec.as_slice()];
                 let final_close_vec = close_vec[close_vec.len() - 1..].to_vec();
-                let (_, mut state) =
-                    Zlema::indicator(&new_inputs, &options, None).expect("Rust ZLEMA indicator failed");
+                let (_, mut state) = Zlema::indicator(&new_inputs, &options, None)
+                    .expect("Rust ZLEMA indicator failed");
 
                 let mut group =
                     c.benchmark_group(format!("Rust ZLEMA from state 1 bar {{ {} }}", options[0]));
@@ -357,10 +352,8 @@ fn bench_rust_zlema_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = tulip_rs::indicators::zlema::indicator_by_assets::<4>(
-                        &inputs, &options, None,
-                    )
-                    .expect("Rust SIMD by assets ZLEMA indicator failed");
+                    let result = Zlema::indicator_by_assets::<4>(&inputs, &options, None)
+                        .expect("Rust SIMD by assets ZLEMA indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -390,10 +383,8 @@ fn bench_rust_zlema_simd_by_assets(c: &mut Criterion) {
                 format!("Rust SIMD by assets ZLEMA {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = tulip_rs::indicators::zlema::indicator_by_assets::<4>(
-                            &inputs, &options, None,
-                        )
-                        .expect("Rust SIMD by assets ZLEMA indicator failed");
+                        let result = Zlema::indicator_by_assets::<4>(&inputs, &options, None)
+                            .expect("Rust SIMD by assets ZLEMA indicator failed");
                         black_box(&result);
                     });
                 },
@@ -404,8 +395,6 @@ fn bench_rust_zlema_simd_by_assets(c: &mut Criterion) {
 }
 
 fn bench_rust_zlema_simd_by_options(c: &mut Criterion) {
-    use tulip_rs::indicators::zlema::indicator_by_options;
-
     let options_4 = [
         &OPTIONS_LIST[0],
         &OPTIONS_LIST[1],
@@ -427,11 +416,11 @@ fn bench_rust_zlema_simd_by_options(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result_4 = Zlema::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD ZLEMA indicator failed");
                     black_box(&result_4);
 
-                    /*let result_2 = indicator_by_options::<2>(&inputs, &options_2, None)
+                    /*let result_2 = Zlema::indicator_by_options::<2>(&inputs, &options_2, None)
                         .expect("Rust SIMD ZLEMA indicator failed");
                     black_box(&result_2);*/
                 },
@@ -455,11 +444,11 @@ fn bench_rust_zlema_simd_by_options(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust SIMD ZLEMA (4+2 lanes)", |b| {
             b.iter(|| {
-                let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result_4 = Zlema::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD ZLEMA indicator failed");
                 black_box(&result_4);
 
-                /*let result_2 = indicator_by_options::<2>(&inputs, &options_2, None)
+                /*let result_2 = Zlema::indicator_by_options::<2>(&inputs, &options_2, None)
                     .expect("Rust SIMD ZLEMA indicator failed");
                 black_box(&result_2);*/
             });

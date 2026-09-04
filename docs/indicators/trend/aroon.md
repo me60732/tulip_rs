@@ -9,7 +9,7 @@ Measures how recently the highest high and lowest low occurred within the lookba
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::aroon::indicator;
+    use tulip_rs::indicators::aroon::{Aroon, Indicator, TIndicatorState};
 
     let high = vec![82.15, 81.89, 83.03, 83.30, 83.85,
                     83.90, 83.33, 84.30, 84.84, 85.00_f64];
@@ -17,13 +17,19 @@ Measures how recently the highest high and lowest low occurred within the lookba
                     83.11, 82.49, 82.30, 84.15, 84.11_f64];
 
     let inputs = [high.as_slice(), low.as_slice()];
-    let (outputs, mut state) = indicator(&inputs, &[25.0], None).unwrap();
+    let (outputs, mut state) = Aroon::indicator(&inputs, &[25.0], None).unwrap();
     println!("Aroon Down: {:?}", outputs[0]);
     println!("Aroon Up:   {:?}", outputs[1]);
 
     // State continuation — feed new bars without reprocessing history
-    let new_high = vec![85.30_f64];
-    let new_low  = vec![84.60_f64];
+    let partial_high = high[..8].to_vec();
+    let partial_low  = low[..8].to_vec();
+    let (outputs2, mut state) = Aroon::indicator(&[partial_high.as_slice(), partial_low.as_slice()], &[25.0], None).unwrap();
+    println!("Aroon Down: {:?}", outputs2[0]);
+    println!("Aroon Up:   {:?}", outputs2[1]);
+
+    let new_high = vec![85.90_f64];
+    let new_low  = vec![84.03_f64];
     let continued = state.batch_indicator(
         &[new_high.as_slice(), new_low.as_slice()],
         None,

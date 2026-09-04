@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 use tulip_rs::indicators::dema::{
-    Dema, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
+    Dema, Indicator, IndicatorByOptions, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -147,8 +147,8 @@ fn bench_rust_dema(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust DEMA {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result =
-                        Dema::indicator(&inputs, &options, None).expect("Rust DEMA indicator failed");
+                    let result = Dema::indicator(&inputs, &options, None)
+                        .expect("Rust DEMA indicator failed");
                     black_box(&result);
                 });
             });
@@ -215,8 +215,8 @@ fn bench_rust_dema_from_state(c: &mut Criterion) {
                 if inputs[0].len() > 1 {
                     let new_inputs = [&close[..close.len() - 1]];
                     let final_inputs = [&close[close.len() - 1..]];
-                    let (_, mut state) =
-                        Dema::indicator(&new_inputs, &options, None).expect("Rust DEMA indicator failed");
+                    let (_, mut state) = Dema::indicator(&new_inputs, &options, None)
+                        .expect("Rust DEMA indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -239,8 +239,8 @@ fn bench_rust_dema_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) =
-                        Dema::indicator(&new_inputs, &options, None).expect("Rust DEMA indicator failed");
+                    let (_, state) = Dema::indicator(&new_inputs, &options, None)
+                        .expect("Rust DEMA indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -308,8 +308,8 @@ fn bench_rust_dema_from_state(c: &mut Criterion) {
             if close_vec.len() > 1 {
                 let new_inputs = [&close_vec[..close_vec.len() - 1]];
                 let final_inputs = [&close_vec[close_vec.len() - 1..]];
-                let (_, mut state) =
-                    Dema::indicator(&new_inputs, &options, None).expect("Rust DEMA indicator failed");
+                let (_, mut state) = Dema::indicator(&new_inputs, &options, None)
+                    .expect("Rust DEMA indicator failed");
 
                 let mut group = c.benchmark_group("dema_rust_from_state_1_bar");
                 group.sample_size(SAMPLE_SIZE);
@@ -444,7 +444,7 @@ fn bench_rust_dema_simd_by_assets(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = Dema::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("SIMD DEMA indicator failed");
                         black_box(&result);
                     },
@@ -477,7 +477,7 @@ fn bench_rust_dema_simd_by_assets(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("SIMD DEMA by assets {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = Dema::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("SIMD DEMA indicator failed");
                     black_box(&result);
                 });
@@ -564,7 +564,7 @@ fn bench_rust_dema_simd_by_options(c: &mut Criterion) {
                         &OPTIONS_LIST[2],
                         &OPTIONS_LIST[3],
                     ];
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result = Dema::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD DEMA indicator failed");
                     black_box(&result);
                 },
@@ -596,7 +596,7 @@ fn bench_rust_dema_simd_by_options(c: &mut Criterion) {
                     &OPTIONS_LIST[2],
                     &OPTIONS_LIST[3],
                 ];
-                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result = Dema::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD DEMA indicator failed");
                 black_box(&result);
             });

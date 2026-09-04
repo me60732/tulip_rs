@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::adosc::{Adosc, Indicator, TIndicatorState};
+    use tulip_rs::indicators::adosc::{Adosc, Indicator, IndicatorByOptions, TIndicatorState};
     use tulip_test::c_bindings::{
         ti_ad, ti_ad_start, ti_adosc, ti_adosc_start, ti_ema, ti_ema_start,
     };
@@ -92,8 +92,8 @@ mod tests {
                 close.as_slice(),
                 volume.as_slice(),
             ];
-            let (outputs, _) =
-                Adosc::indicator(&inputs_rust, &options, None).expect("Rust ADOSC indicator failed");
+            let (outputs, _) = Adosc::indicator(&inputs_rust, &options, None)
+                .expect("Rust ADOSC indicator failed");
 
             // Compare the outputs
             for (i, (&c_val, &rust_val)) in output_vec_c.iter().zip(outputs[0].iter()).enumerate() {
@@ -171,8 +171,8 @@ mod tests {
                     close.as_slice(),
                     volume.as_slice(),
                 ];
-                let (outputs, _) =
-                    Adosc::indicator(&inputs_rust, &options, None).expect("Rust ADOSC indicator failed");
+                let (outputs, _) = Adosc::indicator(&inputs_rust, &options, None)
+                    .expect("Rust ADOSC indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -243,8 +243,8 @@ mod tests {
                 ];
 
                 // Get full output from processing all data at once
-                let (full_outputs, _) =
-                    Adosc::indicator(&inputs_rust, &options, None).expect("Rust ADOSC indicator failed");
+                let (full_outputs, _) = Adosc::indicator(&inputs_rust, &options, None)
+                    .expect("Rust ADOSC indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
@@ -263,8 +263,8 @@ mod tests {
                     volume_vec.as_slice(),
                 ];
 
-                let (first_outputs, mut state) =
-                    Adosc::indicator(&chunk_inputs, &options, None).expect("Rust ADOSC indicator failed");
+                let (first_outputs, mut state) = Adosc::indicator(&chunk_inputs, &options, None)
+                    .expect("Rust ADOSC indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
                 // Process remaining data in chunks
@@ -344,8 +344,6 @@ mod tests {
 
     #[test]
     fn test_adosc_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::adosc::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -365,7 +363,7 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Adosc::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD ADOSC 4-wide failed");
 
             // Use SIMD results directly
@@ -374,8 +372,8 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
-                let (regular_results, _) =
-                    Adosc::indicator(&inputs, options, None).expect("Regular ADOSC indicator failed");
+                let (regular_results, _) = Adosc::indicator(&inputs, options, None)
+                    .expect("Regular ADOSC indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -426,8 +424,6 @@ mod tests {
 
     #[test]
     fn test_adosc_simd_by_options_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::adosc::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -451,7 +447,7 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, _) =
-                indicator_by_options::<4>(&inputs, &options_4, Some(optional_outputs))
+                Adosc::indicator_by_options::<4>(&inputs, &options_4, Some(optional_outputs))
                     .expect("SIMD ADOSC 4-wide failed");
 
             // Use SIMD results directly
@@ -460,8 +456,9 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
-                let (regular_results, _) = Adosc::indicator(&inputs, options, Some(optional_outputs))
-                    .expect("Regular ADOSC indicator failed");
+                let (regular_results, _) =
+                    Adosc::indicator(&inputs, options, Some(optional_outputs))
+                        .expect("Regular ADOSC indicator failed");
 
                 let simd_result = &all_simd_results[idx];
                 let regular_result = &regular_results;
@@ -532,8 +529,6 @@ mod tests {
 
     #[test]
     fn test_adosc_simd_vs_regular_database() {
-        use tulip_rs::indicators::adosc::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -579,7 +574,7 @@ mod tests {
             // Test without optional outputs
             {
                 // Get SIMD by assets result
-                let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+                let (simd_results, _) = Adosc::indicator_by_assets::<4>(&inputs, &options, None)
                     .expect("SIMD by assets ADOSC indicator failed");
 
                 // Compare each SIMD result with regular indicator for each stock
@@ -651,8 +646,6 @@ mod tests {
 
     #[test]
     fn test_adosc_simd_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::adosc::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -699,7 +692,7 @@ mod tests {
             {
                 // Get SIMD by assets result with optional outputs
                 let (simd_results_opt, _) =
-                    indicator_by_assets::<4>(&inputs, &options, Some(&[true, true, true]))
+                    Adosc::indicator_by_assets::<4>(&inputs, &options, Some(&[true, true, true]))
                         .expect("SIMD by assets ADOSC indicator with optional outputs failed");
 
                 // Compare each SIMD result with regular indicator for each stock
@@ -803,8 +796,9 @@ mod tests {
                 close.as_slice(),
                 volume.as_slice(),
             ];
-            let (rust_outputs, _) = Adosc::indicator(&inputs_rust, &options, Some(&[false, false, true]))
-                .expect("Rust ADOSC indicator with AD optional output failed");
+            let (rust_outputs, _) =
+                Adosc::indicator(&inputs_rust, &options, Some(&[false, false, true]))
+                    .expect("Rust ADOSC indicator with AD optional output failed");
 
             let rust_ad = &rust_outputs[3]; // AD is at index 3
 
@@ -887,8 +881,9 @@ mod tests {
                 close.as_slice(),
                 volume.as_slice(),
             ];
-            let (rust_outputs, _) = Adosc::indicator(&inputs_rust, &options, Some(&[true, false, false]))
-                .expect("Rust ADOSC indicator with short EMA optional output failed");
+            let (rust_outputs, _) =
+                Adosc::indicator(&inputs_rust, &options, Some(&[true, false, false]))
+                    .expect("Rust ADOSC indicator with short EMA optional output failed");
 
             let rust_short_ema = &rust_outputs[1]; // short_ema is at index 1
 
@@ -996,8 +991,9 @@ mod tests {
                 close.as_slice(),
                 volume.as_slice(),
             ];
-            let (rust_outputs, _) = Adosc::indicator(&inputs_rust, &options, Some(&[false, true, false]))
-                .expect("Rust ADOSC indicator with long EMA optional output failed");
+            let (rust_outputs, _) =
+                Adosc::indicator(&inputs_rust, &options, Some(&[false, true, false]))
+                    .expect("Rust ADOSC indicator with long EMA optional output failed");
 
             let rust_long_ema = &rust_outputs[2]; // long_ema is at index 2
 
@@ -1417,5 +1413,4 @@ mod tests {
 
         println!("✓ All ADOSC long EMA optional output database tests passed!");
     }*/
-
-    }
+}

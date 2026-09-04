@@ -9,7 +9,7 @@ Splits market force into two components relative to an EMA of close. Bull power 
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::elderray::indicator;
+    use tulip_rs::indicators::elderray::{ElderRay, Indicator, TIndicatorState};
 
     let high  = vec![82.15, 81.89, 83.03, 83.30, 83.85,
                      83.90, 83.33, 84.30, 84.84, 85.00,
@@ -22,14 +22,21 @@ Splits market force into two components relative to an EMA of close. Bull power 
                      85.53, 86.54, 86.89, 87.77, 87.29_f64];
 
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-    let (outputs, mut state) = indicator(&inputs, &[14.0], None).unwrap();
+    let (outputs, mut state) = ElderRay::indicator(&inputs, &[14.0], None).unwrap();
     println!("{:?}", outputs[0]); // bull power
     println!("{:?}", outputs[1]); // bear power
 
     // State continuation — feed new bars without reprocessing history
-    let new_high  = vec![88.50_f64];
-    let new_low   = vec![87.30_f64];
-    let new_close = vec![88.10_f64];
+    let partial_high   = high[..8].to_vec();
+    let partial_low    = low[..8].to_vec();
+    let partial_close  = close[..8].to_vec();
+    let (outputs2, mut state) = ElderRay::indicator(&[partial_high.as_slice(), partial_low.as_slice(), partial_close.as_slice()], &[14.0], None).unwrap();
+    println!("{:?}", outputs2[0]); // bull power
+    println!("{:?}", outputs2[1]); // bear power
+
+    let new_high  = vec![86.54_f64];
+    let new_low   = vec![85.39_f64];
+    let new_close = vec![86.53_f64];
     let continued = state.batch_indicator(
         &[new_high.as_slice(), new_low.as_slice(), new_close.as_slice()],
         None,
@@ -117,7 +124,7 @@ Splits market force into two components relative to an EMA of close. Bull power 
     `elderray` exposes 1 optional output: `ema`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::elderray::indicator;
+    use tulip_rs::indicators::elderray::{ElderRay, Indicator, TIndicatorState};
 
     let high  = vec![82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
                      85.90, 86.58, 86.98, 88.00, 87.87_f64];
@@ -127,7 +134,7 @@ Splits market force into two components relative to an EMA of close. Bull power 
                      85.53, 86.54, 86.89, 87.77, 87.29_f64];
 
     let mask = [true];
-    let (outputs, _state) = indicator(
+    let (outputs, _state) = ElderRay::indicator(
         &[high.as_slice(), low.as_slice(), close.as_slice()],
         &[14.0],
         Some(&mask),

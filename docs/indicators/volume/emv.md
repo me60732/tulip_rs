@@ -9,7 +9,7 @@ Relates price change to volume, indicating how easily a price moves. High values
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::emv::indicator;
+    use tulip_rs::indicators::emv::{Emv, Indicator, TIndicatorState};
 
     let high   = vec![82.15, 81.89, 83.03, 83.30, 83.85,
                       83.90, 83.33, 84.30, 84.84, 85.00_f64];
@@ -19,7 +19,7 @@ Relates price change to volume, indicating how easily a price moves. High values
                       900.0, 1500.0, 1800.0, 1000.0, 1700.0_f64];
 
     let inputs = [high.as_slice(), low.as_slice(), volume.as_slice()];
-    let (outputs, mut state) = indicator(&inputs, &[], None).unwrap();
+    let (outputs, mut state) = Emv::indicator(&inputs, &[], None).unwrap();
     println!("{:?}", outputs[0]); // EMV values
 
     // State continuation — feed new bars without reprocessing history
@@ -105,7 +105,7 @@ Relates price change to volume, indicating how easily a price moves. High values
     `emv` exposes 1 optional output: `medprice`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::emv::indicator;
+    use tulip_rs::indicators::emv::{Emv, Indicator, TIndicatorState};
 
     let close  = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
     let high   = close.iter().map(|x| x + 1.0).collect::<Vec<_>>();
@@ -113,7 +113,7 @@ Relates price change to volume, indicating how easily a price moves. High values
     let volume = vec![10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0, 11800.0, 10200.0_f64];
 
     let mask = [true];
-    let (outputs, _state) = indicator(
+    let (outputs, _state) = Emv::indicator(
         &[high.as_slice(), low.as_slice(), volume.as_slice()],
         &[],
         Some(&mask),
@@ -170,7 +170,7 @@ Relates price change to volume, indicating how easily a price moves. High values
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::emv::indicator_by_assets;
+    use tulip_rs::indicators::emv::{Emv, Indicator, TIndicatorState};
 
     let inputs: [&[&[f64]; 3]; 4] = [
         &[h1.as_slice(), l1.as_slice(), v1.as_slice()],
@@ -178,7 +178,7 @@ Relates price change to volume, indicating how easily a price moves. High values
         &[h3.as_slice(), l3.as_slice(), v3.as_slice()],
         &[h4.as_slice(), l4.as_slice(), v4.as_slice()],
     ];
-    let results = indicator_by_assets::<4>(&inputs, &[], None).unwrap();
+    let results = emv::indicator_by_assets::<4>(&inputs, &[], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }

@@ -9,14 +9,27 @@ A moving average of `(Close - Open)` over `period` bars, summarising buying or s
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::qstick::indicator;
+    use tulip_rs::indicators::qstick::{QStick, Indicator, TIndicatorState};
 
-    let open_ = [81.85_f64, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25];
-    let close = [81.59_f64, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36];
+    let open_ = vec![81.85, 81.20, 81.55, 82.91, 83.10,
+                     83.41, 82.71, 82.70, 84.20, 84.25_f64];
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
+                     83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
     let inputs = [open_.as_slice(), close.as_slice()];
-    let (outputs, _) = indicator(&inputs, &[14.0], None).unwrap();
+    let (outputs, mut state) = QStick::indicator(&inputs, &[14.0], None).unwrap();
     println!("{:?}", outputs[0]);
+
+    // State continuation — feed new bars without reprocessing history
+    let partial_open  = open_[..8].to_vec();
+    let partial_close = close[..8].to_vec();
+    let (outputs2, mut state) = QStick::indicator(&[partial_open.as_slice(), partial_close.as_slice()], &[14.0], None).unwrap();
+    println!("{:?}", outputs2[0]);
+
+    let new_open  = vec![84.03_f64];
+    let new_close = vec![85.53_f64];
+    let continued = state.batch_indicator(&[new_open.as_slice(), new_close.as_slice()], &[14.0], None).unwrap();
+    println!("{:?}", continued[0]);
     ```
 
 === "Python"
@@ -87,6 +100,9 @@ A moving average of `(Close - Open)` over `period` bars, summarising buying or s
         &[o4.as_slice(), c4.as_slice()],
     ];
     let results = indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
+    for (i, asset_outputs) in results.iter().enumerate() {
+        println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
+    }
     ```
 
     **By options** — same asset, N option sets in parallel:
@@ -94,8 +110,12 @@ A moving average of `(Close - Open)` over `period` bars, summarising buying or s
     ```rust
     use tulip_rs::indicators::qstick::indicator_by_options;
 
+    let inputs_single = [open_.as_slice(), close.as_slice()];
     let opts: [&[f64; 1]; 4] = [&[5.0], &[10.0], &[14.0], &[20.0]];
     let results = indicator_by_options::<4>(&inputs_single, &opts, None).unwrap();
+    for (i, asset_outputs) in results.iter().enumerate() {
+        println!("Option {}: {:?}", i + 1, asset_outputs[0]);
+    }
     ```
 
 === "Python"

@@ -9,7 +9,7 @@ Decomposes the roofing-filtered price series into in-phase and quadrature compon
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::hilberttransform::indicator;
+    use tulip_rs::indicators::hilberttransform::{HilbertTransform, Indicator, TIndicatorState};
 
     let close = vec![
         81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
@@ -19,7 +19,7 @@ Decomposes the roofing-filtered price series into in-phase and quadrature compon
     ];
 
     // Options: [ss_period, hp_period]
-    let (outputs, _state) = indicator(&[close.as_slice()], &[10.0, 20.0], None).unwrap();
+    let (outputs, _state) = HilbertTransform::indicator(&[close.as_slice()], &[10.0, 20.0], None).unwrap();
     println!("In-Phase:    {:?}", outputs[0]);
     println!("Quadrature:  {:?}", outputs[1]);
 
@@ -118,7 +118,7 @@ Decomposes the roofing-filtered price series into in-phase and quadrature compon
     `hilberttransform` exposes 2 optional outputs: `roofing`, `highpass`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::hilberttransform::indicator;
+    use tulip_rs::indicators::hilberttransform::{HilbertTransform, Indicator, TIndicatorState};
 
     let close = vec![
         81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
@@ -128,7 +128,7 @@ Decomposes the roofing-filtered price series into in-phase and quadrature compon
     ];
 
     let mask = [true, true]; // one per optional output
-    let (outputs, _state) = indicator(&[close.as_slice()], &[10.0, 20.0], Some(&mask)).unwrap();
+    let (outputs, _state) = HilbertTransform::indicator(&[close.as_slice()], &[10.0, 20.0], Some(&mask)).unwrap();
 
     let in_phase    = &outputs[0]; // in_phase (primary)
     let quadrature  = &outputs[1]; // quadrature (primary)
@@ -191,7 +191,7 @@ Decomposes the roofing-filtered price series into in-phase and quadrature compon
     **By assets** — same options applied to 4 assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::hilberttransform::indicator_by_assets;
+    use tulip_rs::indicators::hilberttransform::{HilbertTransform, Indicator, TIndicatorState};
 
     let a1 = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
     let a2 = vec![86.59, 86.06, 87.87, 88.00, 88.61, 88.15, 87.84, 88.99, 89.55, 89.36_f64];
@@ -205,8 +205,8 @@ Decomposes the roofing-filtered price series into in-phase and quadrature compon
         &[a4.as_slice()],
     ];
 
-    let results = indicator_by_assets::<4>(&inputs, &[10.0, 20.0], None).unwrap();
-    for (i, asset_outputs) in results.0.iter().enumerate() {
+    let results = HilbertTransform::indicator_by_assets::<4>(&inputs, &[10.0, 20.0], None).unwrap();
+    for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {} In-Phase:   {:?}", i + 1, asset_outputs[0]);
         println!("Asset {} Quadrature: {:?}", i + 1, asset_outputs[1]);
     }
@@ -215,7 +215,7 @@ Decomposes the roofing-filtered price series into in-phase and quadrature compon
     **By options** — same asset, 4 different option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::hilberttransform::indicator_by_options;
+    use tulip_rs::indicators::hilberttransform::{HilbertTransform, Indicator, TIndicatorState};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
@@ -227,8 +227,8 @@ Decomposes the roofing-filtered price series into in-phase and quadrature compon
         &[20.0, 40.0],
     ];
 
-    let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
-    for (i, opt_outputs) in results.0.iter().enumerate() {
+    let results = HilbertTransform::indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
+    for (i, opt_outputs) in results.iter().enumerate() {
         println!("Option set {} In-Phase:   {:?}", i + 1, opt_outputs[0]);
         println!("Option set {} Quadrature: {:?}", i + 1, opt_outputs[1]);
     }

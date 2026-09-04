@@ -1,6 +1,4 @@
-use tulip_rs::indicators::mama::{
-    indicator_by_assets, indicator_by_options, Indicator, Mama, TIndicatorState,
-};
+use tulip_rs::indicators::mama::{Indicator, IndicatorByOptions, Mama, TIndicatorState};
 
 // 80 bars of close prices
 const CLOSE: [f64; 80] = [
@@ -99,7 +97,7 @@ fn main() {
     let asset3: [&[f64]; 1] = [close3.as_slice()];
     let inputs_4: [&[&[f64]; 1]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-    let (simd_asset_outputs, _) = match indicator_by_assets::<4>(&inputs_4, &options, None) {
+    let (simd_asset_outputs, _) = match Mama::indicator_by_assets::<4>(&inputs_4, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -115,7 +113,8 @@ fn main() {
     /////////////////////// SIMD by-options: 1 asset, 4 option sets ///////////////////////
     let options_4 = [&[0.5, 0.05], &[0.4, 0.04], &[0.3, 0.03], &[0.6, 0.06]];
 
-    let (simd_option_outputs, _) = match indicator_by_options::<4>(&inputs, &options_4, None) {
+    let (simd_option_outputs, _) = match Mama::indicator_by_options::<4>(&inputs, &options_4, None)
+    {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

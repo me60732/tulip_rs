@@ -9,10 +9,21 @@ The percentage change between the current price and the price `period` bars ago.
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::roc::indicator;
+    use tulip_rs::indicators::roc::{Roc, Indicator, TIndicatorState};
 
-    let (outputs, _) = indicator(&[close.as_slice()], &[10.0], None).unwrap();
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
+                     83.15, 82.84, 83.99, 84.55, 84.36_f64];
+    let (outputs, mut state) = Roc::indicator(&[close.as_slice()], &[10.0], None).unwrap();
     println!("{:?}", outputs[0]);
+
+    // State continuation — feed new bars without reprocessing history
+    let partial = close[..8].to_vec();
+    let (outputs2, mut state) = Roc::indicator(&[partial.as_slice()], &[10.0], None).unwrap();
+    println!("{:?}", outputs2[0]);
+
+    let new_close = vec![85.53_f64];
+    let continued = state.batch_indicator(&[new_close.as_slice()], &[10.0], None).unwrap();
+    println!("{:?}", continued[0]);
     ```
 
 === "Python"
@@ -68,13 +79,13 @@ The percentage change between the current price and the price `period` bars ago.
     `roc` exposes 1 optional output: `mom`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::roc::indicator;
+    use tulip_rs::indicators::roc::{Roc, Indicator, TIndicatorState};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
     let mask = [true]; // one per optional output
-    let (outputs, _state) = indicator(&[close.as_slice()], &[10.0], Some(&mask)).unwrap();
+    let (outputs, _state) = Roc::indicator(&[close.as_slice()], &[10.0], Some(&mask)).unwrap();
 
     let roc = &outputs[0]; // roc (primary)
     let mom = &outputs[1]; // mom (optional — requested)
@@ -129,6 +140,9 @@ The percentage change between the current price and the price `period` bars ago.
 
     let inputs: [&[&[f64]; 1]; 4] = [&[a1.as_slice()], &[a2.as_slice()], &[a3.as_slice()], &[a4.as_slice()]];
     let results = indicator_by_assets::<4>(&inputs, &[10.0], None).unwrap();
+    for (i, asset_outputs) in results.iter().enumerate() {
+        println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
+    }
     ```
 
     **By options** — same asset, N option sets in parallel:
@@ -138,6 +152,9 @@ The percentage change between the current price and the price `period` bars ago.
 
     let opts: [&[f64; 1]; 4] = [&[5.0], &[10.0], &[20.0], &[50.0]];
     let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
+    for (i, asset_outputs) in results.iter().enumerate() {
+        println!("Option {}: {:?}", i + 1, asset_outputs[0]);
+    }
     ```
 
 === "Python"

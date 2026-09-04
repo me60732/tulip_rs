@@ -341,8 +341,6 @@ mod tests {
 
     #[test]
     fn test_vwap_simd_by_assets_vs_regular_database() {
-        use tulip_rs::indicators::vwap::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -382,7 +380,7 @@ mod tests {
         ];
         let inputs_4: [&[&[f64]; 4]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-        let (simd_results, _) = indicator_by_assets::<4>(&inputs_4, &OPTIONS, None)
+        let (simd_results, _) = Vwap::indicator_by_assets::<4>(&inputs_4, &OPTIONS, None)
             .expect("SIMD by-assets VWAP failed");
 
         for (asset_idx, (stock_symbol, high, low, close, volume)) in stock_data.iter().enumerate() {
@@ -421,8 +419,6 @@ mod tests {
 
     #[test]
     fn test_vwap_simd_by_assets_state_continuity() {
-        use tulip_rs::indicators::vwap::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -463,7 +459,7 @@ mod tests {
         ];
         let inputs_4: [&[&[f64]; 4]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-        let (simd_first, mut states) = indicator_by_assets::<4>(&inputs_4, &OPTIONS, None)
+        let (simd_first, mut states) = Vwap::indicator_by_assets::<4>(&inputs_4, &OPTIONS, None)
             .expect("SIMD by-assets VWAP failed on first chunk");
 
         for (asset_idx, (stock_symbol, high, low, close, volume)) in stock_data.iter().enumerate() {

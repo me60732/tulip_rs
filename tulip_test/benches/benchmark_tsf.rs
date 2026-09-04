@@ -1,5 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::tsf::{Tsf, Indicator, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::tsf::{
+    Indicator, IndicatorByOptions, IndicatorState, TIndicatorState, Tsf,
+};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_tsf, ti_tsf_start};
@@ -133,7 +135,8 @@ fn bench_rust_tsf(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust TSF {{ {:.1} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result = Tsf::indicator(&inputs, &options, None).expect("TSF indicator failed");
+                    let result =
+                        Tsf::indicator(&inputs, &options, None).expect("TSF indicator failed");
                     black_box(&result);
                 });
             });
@@ -162,8 +165,8 @@ fn bench_rust_tsf_from_state(c: &mut Criterion) {
                         let close_chunk = close[..min_data].to_vec();
                         let chunk_inputs = [close_chunk.as_slice()];
 
-                        let (_, mut state) =
-                            Tsf::indicator(&chunk_inputs, &options, None).expect("TSF indicator failed");
+                        let (_, mut state) = Tsf::indicator(&chunk_inputs, &options, None)
+                            .expect("TSF indicator failed");
 
                         // Chunks
                         let mut close_chunks = close[min_data..].chunks_exact(CHUNK_SIZE);
@@ -199,8 +202,8 @@ fn bench_rust_tsf_from_state(c: &mut Criterion) {
                     let new_close_vec = close[..close.len() - 1].to_vec();
                     let new_inputs = [new_close_vec.as_slice()];
                     let final_close_vec = close[close.len() - 1..].to_vec();
-                    let (_, mut state) =
-                        Tsf::indicator(&new_inputs, &options, None).expect("Rust TSF indicator failed");
+                    let (_, mut state) = Tsf::indicator(&new_inputs, &options, None)
+                        .expect("Rust TSF indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -223,8 +226,8 @@ fn bench_rust_tsf_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) =
-                        Tsf::indicator(&new_inputs, &options, None).expect("Rust TSF indicator failed");
+                    let (_, state) = Tsf::indicator(&new_inputs, &options, None)
+                        .expect("Rust TSF indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -298,10 +301,8 @@ fn bench_rust_tsf_from_state(c: &mut Criterion) {
                 let (_, mut state) =
                     Tsf::indicator(&new_inputs, &options, None).expect("Rust TSF indicator failed");
 
-                let mut group = c.benchmark_group(format!(
-                    "Rust TSF from state 1 bar {{ {:.1} }}",
-                    options[0]
-                ));
+                let mut group =
+                    c.benchmark_group(format!("Rust TSF from state 1 bar {{ {:.1} }}", options[0]));
                 group.sample_size(SAMPLE_SIZE);
                 group.bench_function("benchmark", |b| {
                     b.iter(|| {
@@ -343,10 +344,8 @@ fn bench_rust_tsf_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = tulip_rs::indicators::tsf::indicator_by_assets::<4>(
-                        &inputs, &options, None,
-                    )
-                    .expect("Rust SIMD by assets TSF indicator failed");
+                    let result = Tsf::indicator_by_assets::<4>(&inputs, &options, None)
+                        .expect("Rust SIMD by assets TSF indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -371,10 +370,8 @@ fn bench_rust_tsf_simd_by_assets(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             c.bench_function(&format!("SIMD by assets TSF {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result = tulip_rs::indicators::tsf::indicator_by_assets::<4>(
-                        &inputs, &options, None,
-                    )
-                    .expect("Rust SIMD by assets TSF indicator failed");
+                    let result = Tsf::indicator_by_assets::<4>(&inputs, &options, None)
+                        .expect("Rust SIMD by assets TSF indicator failed");
                     black_box(&result);
                 });
             });
@@ -438,8 +435,6 @@ fn bench_rust_tsf_optional(c: &mut Criterion) {
 
 // --- SIMD-by-options benchmark (mirrors LINREG pattern) ---
 fn bench_rust_tsf_simd_by_options(c: &mut Criterion) {
-    use tulip_rs::indicators::tsf::indicator_by_options;
-
     if should_log_to_db() {
         init_database_data();
         init_logging("tsf");
@@ -460,7 +455,7 @@ fn bench_rust_tsf_simd_by_options(c: &mut Criterion) {
                         &OPTIONS_LIST[2],
                         &OPTIONS_LIST[3],
                     ];
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result = Tsf::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD by options TSF indicator failed");
                     black_box(&result);
                 },
@@ -492,9 +487,8 @@ fn bench_rust_tsf_simd_by_options(c: &mut Criterion) {
                     &OPTIONS_LIST[2],
                     &OPTIONS_LIST[3],
                 ];
-                let result =
-                    tulip_rs::indicators::tsf::indicator_by_options::<4>(&inputs, &options_4, None)
-                        .expect("Rust SIMD by options TSF indicator failed");
+                let result = Tsf::indicator_by_options::<4>(&inputs, &options_4, None)
+                    .expect("Rust SIMD by options TSF indicator failed");
                 black_box(&result);
             });
         });

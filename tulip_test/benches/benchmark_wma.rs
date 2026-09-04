@@ -1,5 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::wma::{Wma, Indicator, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::wma::{
+    Indicator, IndicatorByOptions, IndicatorState, TIndicatorState, Wma,
+};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_wma, ti_wma_start};
@@ -137,8 +139,8 @@ fn bench_rust_wma(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result =
-                            Wma::indicator(&inputs, &options, None).expect("Rust WMA indicator failed");
+                        let result = Wma::indicator(&inputs, &options, None)
+                            .expect("Rust WMA indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -188,8 +190,8 @@ fn bench_rust_wma_from_state(c: &mut Criterion) {
                         let close_chunk = close[..min_data].to_vec();
                         let chunk_inputs = [close_chunk.as_slice()];
 
-                        let (_, mut state) =
-                            Wma::indicator(&chunk_inputs, &options, None).expect("WMA indicator failed");
+                        let (_, mut state) = Wma::indicator(&chunk_inputs, &options, None)
+                            .expect("WMA indicator failed");
 
                         // Chunks
                         let mut close_chunks = close[min_data..].chunks_exact(CHUNK_SIZE);
@@ -224,8 +226,8 @@ fn bench_rust_wma_from_state(c: &mut Criterion) {
                 if inputs[0].len() > 1 {
                     let new_inputs = [&close[..close.len() - 1]];
                     let final_inputs = [&close[close.len() - 1..]];
-                    let (_, mut state) =
-                        Wma::indicator(&new_inputs, &options, None).expect("Rust WMA indicator failed");
+                    let (_, mut state) = Wma::indicator(&new_inputs, &options, None)
+                        .expect("Rust WMA indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -248,8 +250,8 @@ fn bench_rust_wma_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) =
-                        Wma::indicator(&new_inputs, &options, None).expect("Rust WMA indicator failed");
+                    let (_, state) = Wma::indicator(&new_inputs, &options, None)
+                        .expect("Rust WMA indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -490,10 +492,8 @@ fn bench_rust_wma_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = tulip_rs::indicators::wma::indicator_by_assets::<4>(
-                        &inputs, &options, None,
-                    )
-                    .expect("Rust SIMD by assets WMA indicator failed");
+                    let result = Wma::indicator_by_assets::<4>(&inputs, &options, None)
+                        .expect("Rust SIMD by assets WMA indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -523,10 +523,8 @@ fn bench_rust_wma_simd_by_assets(c: &mut Criterion) {
                 format!("Rust SIMD by assets WMA {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = tulip_rs::indicators::wma::indicator_by_assets::<4>(
-                            &inputs, &options, None,
-                        )
-                        .expect("Rust SIMD by assets WMA indicator failed");
+                        let result = Wma::indicator_by_assets::<4>(&inputs, &options, None)
+                            .expect("Rust SIMD by assets WMA indicator failed");
                         black_box(&result);
                     });
                 },
@@ -538,8 +536,6 @@ fn bench_rust_wma_simd_by_assets(c: &mut Criterion) {
 
 // SIMD-by-options benchmark for WMA (4 lanes, with and without optional outputs)
 fn bench_rust_wma_simd_by_options(c: &mut Criterion) {
-    use tulip_rs::indicators::wma::indicator_by_options;
-
     let options_4 = [
         &OPTIONS_LIST[0],
         &OPTIONS_LIST[1],
@@ -561,7 +557,7 @@ fn bench_rust_wma_simd_by_options(c: &mut Criterion) {
             timing.measure(
                 || {
                     // Process 4 options with 4-wide SIMD
-                    let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result_4 = Wma::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD WMA indicator failed");
                     black_box(&result_4);
                 },
@@ -587,7 +583,7 @@ fn bench_rust_wma_simd_by_options(c: &mut Criterion) {
         group.bench_function("Rust SIMD WMA (4 lanes)", |b| {
             b.iter(|| {
                 // Process 4 options with 4-wide SIMD
-                let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result_4 = Wma::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD WMA indicator failed");
                 black_box(&result_4);
             });

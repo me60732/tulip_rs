@@ -1,5 +1,11 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{TIndicatorState, Indicator, IndicatorResult, TState};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
+
+/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
+/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
+
 use crate::indicators::typprice::calc as calc_typprice;
 pub use crate::indicators::typprice::Typprice;
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
@@ -10,22 +16,6 @@ pub const INPUTS: usize = 4;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 0;
 
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::vwap_simd::indicator_by_assets;
-
-// Sub-module exports with common naming
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    pub use crate::indicators::simd_indicators::vwap_simd::indicator_by_assets as indicator;
-}
- 
 /// Running state for the Volume Weighted Average Price (VWAP) indicator.
 ///
 /// Holds the cumulative price-volume sum (`pv_sum`) and cumulative volume sum
@@ -48,7 +38,7 @@ impl State {
 impl TState for State {
     type Inputs<'a> = (f64, f64, f64, f64);
     type Outputs = (f64, f64);
-    
+
     #[inline(always)]
     fn calc<'a>(&mut self, (high, low, close, volume): Self::Inputs<'a>) -> Self::Outputs {
         let tp = calc_typprice(high, low, close);
@@ -91,7 +81,6 @@ impl TIndicatorState<INPUTS> for IndicatorState {
     }
 }
 
-
 /// Iterates over the high, low, close, and volume slices and computes VWAP values for each bar.
 ///
 /// # Arguments
@@ -129,7 +118,6 @@ fn cycle(
     }
 }
 
-
 pub struct Vwap;
 impl Indicator<INPUTS, OPTIONS> for Vwap {
     type IndicatorState = IndicatorState;
@@ -164,7 +152,7 @@ impl Indicator<INPUTS, OPTIONS> for Vwap {
     ) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
         // Expecting four inputs: High, Low, Close, Volume.
         validate_inputs(inputs, Typprice::min_data(_options))?;
-    
+
         let [high, low, close, volume] = *inputs;
         let (mut vwap_line, mut typprice_line) = {
             let capacity = Typprice::output_length(high.len(), &[]);
@@ -176,9 +164,9 @@ impl Indicator<INPUTS, OPTIONS> for Vwap {
                 ),
             )
         };
-    
+
         let mut state = IndicatorState::new();
-    
+
         cycle(
             high,
             low,
@@ -188,8 +176,21 @@ impl Indicator<INPUTS, OPTIONS> for Vwap {
             &mut vwap_line,
             &mut typprice_line,
         );
-    
+
         // State holds running pv_sum and vol_sum for incremental updates.
         Ok((vec![vwap_line, typprice_line], state))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::vwap_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

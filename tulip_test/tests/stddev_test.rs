@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::stddev::{StdDev, Indicator, TIndicatorState};
+    use tulip_rs::indicator_types::IndicatorByOptions;
+    use tulip_rs::indicators::stddev::{Indicator, StdDev, TIndicatorState};
     use tulip_test::c_bindings::{ti_sma, ti_sma_start, ti_stddev, ti_stddev_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
     const EPSILON: f64 = 1e-6;
@@ -57,8 +58,8 @@ mod tests {
 
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
-            let (outputs, _) =
-                StdDev::indicator(&inputs_rust, &options, None).expect("Rust STDDEV indicator failed");
+            let (outputs, _) = StdDev::indicator(&inputs_rust, &options, None)
+                .expect("Rust STDDEV indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -282,8 +283,6 @@ mod tests {
 
     #[test]
     fn test_stddev_simd_vs_regular_database() {
-        use tulip_rs::indicators::stddev::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -306,7 +305,7 @@ mod tests {
             // Test without optional outputs
             {
                 // Get SIMD by assets result
-                let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+                let (simd_results, _) = StdDev::indicator_by_assets::<4>(&inputs, &options, None)
                     .expect("SIMD by assets STDDEV indicator failed");
 
                 // Compare each SIMD result with regular indicator for each stock
@@ -371,8 +370,6 @@ mod tests {
 
     #[test]
     fn test_stddev_simd_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::stddev::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -396,7 +393,7 @@ mod tests {
             {
                 // Get SIMD by assets result with optional outputs
                 let (simd_results_opt, _) =
-                    indicator_by_assets::<4>(&inputs, &options, Some(&[true]))
+                    StdDev::indicator_by_assets::<4>(&inputs, &options, Some(&[true]))
                         .expect("SIMD by assets STDDEV indicator with optional outputs failed");
 
                 // Compare each SIMD result with regular indicator for each stock
@@ -567,12 +564,8 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get STDDEV with SMA optional output
                 let optional_outputs = Some(&[true][..]);
-                let (stddev_result, _) = StdDev::indicator(
-                    &[&close],
-                    &[options[0]],
-                    optional_outputs,
-                )
-                .unwrap();
+                let (stddev_result, _) =
+                    StdDev::indicator(&[&close], &[options[0]], optional_outputs).unwrap();
 
                 let rust_sma = &stddev_result[1];
 
@@ -632,8 +625,6 @@ mod tests {
 
     #[test]
     fn test_stddev_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::stddev::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -648,12 +639,12 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = StdDev::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD STDDEV 4-wide failed");
 
             // Process remaining 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
-            let (simd_results_2, _) = indicator_by_options::<2>(&inputs, &options_2, None)
+            let (simd_results_2, _) = StdDev::indicator_by_options::<2>(&inputs, &options_2, None)
                 .expect("SIMD STDDEV 2-wide failed");
 
             // Combine SIMD results in the same order as OPTIONS_LIST
@@ -668,8 +659,8 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
-                let (regular_results, _) =
-                    StdDev::indicator(&inputs, options, None).expect("Regular STDDEV indicator failed");
+                let (regular_results, _) = StdDev::indicator(&inputs, options, None)
+                    .expect("Regular STDDEV indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -720,8 +711,6 @@ mod tests {
 
     #[test]
     fn test_stddev_simd_by_options_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::stddev::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -740,13 +729,13 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, _) =
-                indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
+                StdDev::indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
                     .expect("SIMD STDDEV 4-wide with optional outputs failed");
 
             // Process remaining 2 options with 2-wide SIMD (with optional outputs)
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
             let (simd_results_2, _) =
-                indicator_by_options::<2>(&inputs, &options_2, optional_outputs)
+                StdDev::indicator_by_options::<2>(&inputs, &options_2, optional_outputs)
                     .expect("SIMD STDDEV 2-wide with optional outputs failed");
 
             // Combine SIMD results in the same order as OPTIONS_LIST
@@ -859,5 +848,4 @@ mod tests {
             "\u{2713} All SIMD by options vs Regular STDDEV database tests with optional outputs passed!"
         );
     }
-
-    }
+}

@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::cci::{Cci, Indicator, TIndicatorState};
+    use tulip_rs::indicators::cci::{Cci, Indicator, IndicatorByOptions, TIndicatorState};
     use tulip_test::c_bindings::{
         ti_cci, ti_cci_start, ti_md, ti_md_start, ti_sma, ti_sma_start, ti_typprice,
         ti_typprice_start,
@@ -163,8 +163,8 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (outputs, _) =
-                    Cci::indicator(&inputs_rust, &options, None).expect("Rust CCI indicator failed");
+                let (outputs, _) = Cci::indicator(&inputs_rust, &options, None)
+                    .expect("Rust CCI indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -341,8 +341,9 @@ mod tests {
 
             // Run the Rust implementation with typprice optional output enabled
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-            let (rust_outputs, _) = Cci::indicator(&inputs_rust, &options, Some(&[false, false, true]))
-                .expect("Rust CCI indicator failed");
+            let (rust_outputs, _) =
+                Cci::indicator(&inputs_rust, &options, Some(&[false, false, true]))
+                    .expect("Rust CCI indicator failed");
 
             // Extract the typprice optional output (fourth output)
             let rust_typprice = &rust_outputs[3];
@@ -448,8 +449,9 @@ mod tests {
 
             // Run the Rust implementation with SMA optional output enabled
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-            let (rust_outputs, _) = Cci::indicator(&inputs_rust, &options, Some(&[true, false, false]))
-                .expect("Rust CCI indicator failed");
+            let (rust_outputs, _) =
+                Cci::indicator(&inputs_rust, &options, Some(&[true, false, false]))
+                    .expect("Rust CCI indicator failed");
 
             // Extract the SMA optional output (second output)
             let rust_sma = &rust_outputs[1];
@@ -564,8 +566,9 @@ mod tests {
 
             // Run the Rust implementation with MD optional output enabled
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-            let (rust_outputs, _) = Cci::indicator(&inputs_rust, &options, Some(&[false, true, false]))
-                .expect("Rust CCI indicator failed");
+            let (rust_outputs, _) =
+                Cci::indicator(&inputs_rust, &options, Some(&[false, true, false]))
+                    .expect("Rust CCI indicator failed");
 
             // Extract the MD optional output (third output)
             let rust_md = &rust_outputs[2];
@@ -947,8 +950,6 @@ mod tests {
 
     #[test]
     fn test_cci_simd_vs_regular_database() {
-        use tulip_rs::indicators::cci::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -990,7 +991,7 @@ mod tests {
             // Test without optional outputs
             {
                 // Get SIMD by assets result
-                let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+                let (simd_results, _) = Cci::indicator_by_assets::<4>(&inputs, &options, None)
                     .expect("SIMD by assets CCI indicator failed");
 
                 // Compare each SIMD result with regular indicator for each stock
@@ -1061,8 +1062,6 @@ mod tests {
 
     #[test]
     fn test_cci_simd_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::cci::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -1107,7 +1106,7 @@ mod tests {
 
                 // Get SIMD by assets result with optional outputs
                 let (simd_results, _) =
-                    indicator_by_assets::<4>(&inputs, &options, optional_outputs)
+                    Cci::indicator_by_assets::<4>(&inputs, &options, optional_outputs)
                         .expect("SIMD by assets CCI indicator with optional outputs failed");
 
                 // Compare each SIMD result with regular indicator for each stock
@@ -1120,8 +1119,9 @@ mod tests {
                         stock_low.as_slice(),
                         stock_close.as_slice(),
                     ];
-                    let (regular_results, _) = Cci::indicator(&stock_inputs, &options, optional_outputs)
-                        .expect("Regular CCI indicator with optional outputs failed");
+                    let (regular_results, _) =
+                        Cci::indicator(&stock_inputs, &options, optional_outputs)
+                            .expect("Regular CCI indicator with optional outputs failed");
 
                     // Compare CCI output (index 0)
                     let simd_cci_result = &simd_results[stock_idx][0];
@@ -1238,8 +1238,6 @@ mod tests {
 
     #[test]
     fn test_cci_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::cci::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -1254,12 +1252,12 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Cci::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD CCI 4-wide failed");
 
             // Process remaining 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
-            let (simd_results_2, _) = indicator_by_options::<2>(&inputs, &options_2, None)
+            let (simd_results_2, _) = Cci::indicator_by_options::<2>(&inputs, &options_2, None)
                 .expect("SIMD CCI 2-wide failed");
 
             // Combine all SIMD results
@@ -1321,8 +1319,6 @@ mod tests {
 
     #[test]
     fn test_cci_simd_by_options_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::cci::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -1341,13 +1337,13 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, _) =
-                indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
+                Cci::indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
                     .expect("SIMD CCI 4-wide with optional outputs failed");
 
             // Process remaining 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
             let (simd_results_2, _) =
-                indicator_by_options::<2>(&inputs, &options_2, optional_outputs)
+                Cci::indicator_by_options::<2>(&inputs, &options_2, optional_outputs)
                     .expect("SIMD CCI 2-wide with optional outputs failed");
 
             // Combine all SIMD results
@@ -1545,8 +1541,6 @@ mod tests {
 
     #[test]
     fn test_cci_simd_state_handover_by_options() {
-        use tulip_rs::indicators::cci::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -1578,13 +1572,13 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, states_4) =
-                indicator_by_options::<4>(&first_inputs, &options_4, None)
+                Cci::indicator_by_options::<4>(&first_inputs, &options_4, None)
                     .expect("SIMD CCI 4-wide failed on first chunk");
 
             // process remaining 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
             let (simd_results_2, states_2) =
-                indicator_by_options::<2>(&first_inputs, &options_2, None)
+                Cci::indicator_by_options::<2>(&first_inputs, &options_2, None)
                     .expect("SIMD CCI 2-wide failed on first chunk");
 
             // Combine SIMD results for first part and prepare to extend with batch_indicator outputs
@@ -1645,5 +1639,4 @@ mod tests {
 
         println!("✓ All CCI SIMD state handover by options tests passed!");
     }
-
-    }
+}

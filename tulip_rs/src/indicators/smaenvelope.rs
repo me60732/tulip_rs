@@ -1,7 +1,10 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
+
 use crate::indicators::sma::State as SmaState;
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -10,37 +13,6 @@ pub const INPUTS: usize = 1;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 2;
 
-// SIMD variants are not yet implemented for SMA Envelope.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::smaenvelope_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::smaenvelope_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::smaenvelope_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    /// See the parent module's [`super::indicator_by_options`] for full documentation.
-    pub use crate::indicators::simd_indicators::smaenvelope_simd::indicator_by_options as indicator;
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
     real: Vec<f64>,
@@ -48,17 +20,17 @@ pub struct IndicatorState {
     period: usize,
 }
 #[derive(Serialize, Deserialize)]
-#[serde(bound="")]
+#[serde(bound = "")]
 pub struct State<S = Cold> {
     pub sma_state: SmaState<S>,
-    pub percentage: f64
+    pub percentage: f64,
 }
 impl State<Cold> {
     pub fn new(sum: f64, period: usize, percentage: f64) -> Self {
         let percentage = percentage / 100.0;
         Self {
             percentage,
-            sma_state: SmaState::new(sum, period)
+            sma_state: SmaState::new(sum, period),
         }
     }
     pub fn init_state(real: &[f64], period: usize, percentage: f64) -> State<Warm> {
@@ -66,7 +38,7 @@ impl State<Cold> {
         let percentage = percentage / 100.0;
         State {
             sma_state,
-            percentage
+            percentage,
         }
     }
 }
@@ -74,13 +46,10 @@ impl TState for State<Warm> {
     type Inputs<'a> = (f64, f64);
     type Outputs = (f64, f64, f64);
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        inputs: Self::Inputs<'a>
-    ) -> Self::Outputs {
+    fn calc<'a>(&mut self, inputs: Self::Inputs<'a>) -> Self::Outputs {
         let sma = self.sma_state.calc(inputs);
         let step = sma * self.percentage;
-    
+
         (sma - step, sma, sma + step)
     }
 }
@@ -132,7 +101,6 @@ pub(crate) fn validate_options(options: &[f64; OPTIONS]) -> Result<(), Indicator
     Ok(())
 }
 
-
 /// Performs the main calculation loop for the SMA Envelope indicator.
 ///
 /// Iterates over `real[period..]`, advancing the rolling sum one bar at a time
@@ -152,10 +120,8 @@ fn cycle(
     state: &mut State<Warm>,
     (lower_band, middle_band, upper_band): (&mut [f64], &mut [f64], &mut [f64]),
 ) {
-
     for (j, i) in (period..real.len()).enumerate() {
-        let inputs =
-            unsafe { (*real.get_unchecked(i), *real.get_unchecked(i - period)) };
+        let inputs = unsafe { (*real.get_unchecked(i), *real.get_unchecked(i - period)) };
 
         let (lower, middle, upper) = state.calc(inputs);
         unsafe {
@@ -191,7 +157,7 @@ impl Indicator<INPUTS, OPTIONS> for SmaEnvelope {
     fn min_data(options: &[f64; OPTIONS]) -> usize {
         options[0] as usize + 1
     }
-    
+
     fn indicator(
         inputs: &[&[f64]; INPUTS],
         options: &[f64; OPTIONS],
@@ -200,10 +166,10 @@ impl Indicator<INPUTS, OPTIONS> for SmaEnvelope {
         validate_options(options)?;
         let period = options[0] as usize;
         let percentage = options[1];
-    
+
         validate_inputs(inputs, Self::min_data(options))?;
         let real = inputs[0];
-    
+
         let (mut middle_band, mut upper_band, mut lower_band) = {
             let capacity = Self::output_length(real.len(), options);
             (
@@ -212,7 +178,7 @@ impl Indicator<INPUTS, OPTIONS> for SmaEnvelope {
                 crate::uninit_vec!(f64, capacity),
             )
         };
-    
+
         let mut state = State::init_state(real, period, percentage);
         cycle(
             real,
@@ -220,10 +186,38 @@ impl Indicator<INPUTS, OPTIONS> for SmaEnvelope {
             &mut state,
             (&mut lower_band, &mut middle_band, &mut upper_band),
         );
-    
+
         Ok((
             vec![lower_band, middle_band, upper_band],
             IndicatorState::new(real, state, period),
         ))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::smaenvelope_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for SmaEnvelope {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::smaenvelope_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::smaenvelope::{
-    SmaEnvelope, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
+    Indicator, IndicatorByOptions, IndicatorState, SmaEnvelope, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -202,8 +202,8 @@ fn bench_rust_smaenvelope_from_state(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let min = SmaEnvelope::min_data(&options);
             let chunk_inputs = [&close_vec[..min]];
-            let (_, mut state) =
-                SmaEnvelope::indicator(&chunk_inputs, &options, None).expect("SMA Envelope indicator failed");
+            let (_, mut state) = SmaEnvelope::indicator(&chunk_inputs, &options, None)
+                .expect("SMA Envelope indicator failed");
 
             let mut group = c.benchmark_group("smaenvelope_rust_from_state");
             group.sample_size(SAMPLE_SIZE);
@@ -235,8 +235,8 @@ fn bench_rust_smaenvelope_from_state(c: &mut Criterion) {
             if close_vec.len() > 1 {
                 let new_inputs = [&close_vec[..close_vec.len() - 1]];
                 let final_inputs = [&close_vec[close_vec.len() - 1..]];
-                let (_, mut state) =
-                    SmaEnvelope::indicator(&new_inputs, &options, None).expect("SMA Envelope indicator failed");
+                let (_, mut state) = SmaEnvelope::indicator(&new_inputs, &options, None)
+                    .expect("SMA Envelope indicator failed");
 
                 let mut group = c.benchmark_group("smaenvelope_rust_from_state_1_bar");
                 group.sample_size(SAMPLE_SIZE);
@@ -288,7 +288,7 @@ fn bench_rust_smaenvelope_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = SmaEnvelope::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("SIMD by-assets SMA Envelope failed");
                     black_box(&result);
                 },
@@ -321,7 +321,7 @@ fn bench_rust_smaenvelope_simd_by_assets(c: &mut Criterion) {
                 ),
                 |b| {
                     b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = SmaEnvelope::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("SIMD by-assets SMA Envelope failed");
                         black_box(&result);
                     });
@@ -355,7 +355,7 @@ fn bench_rust_smaenvelope_simd_by_options(c: &mut Criterion) {
                         &OPTIONS_LIST[2],
                         &OPTIONS_LIST[3],
                     ];
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result = SmaEnvelope::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("SIMD by-options SMA Envelope failed");
                     black_box(&result);
                 },
@@ -386,7 +386,7 @@ fn bench_rust_smaenvelope_simd_by_options(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust SIMD by options SMA Envelope (4 lanes)", |b| {
             b.iter(|| {
-                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result = SmaEnvelope::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("SIMD by-options SMA Envelope failed");
                 black_box(&result);
             });

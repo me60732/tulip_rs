@@ -1,4 +1,4 @@
-use tulip_rs::indicators::vwap::{Vwap, indicator_by_assets, TIndicatorState, Indicator};
+use tulip_rs::indicators::vwap::{Vwap, TIndicatorState, Indicator};
 
 fn main() {
     let high = [
@@ -83,7 +83,7 @@ fn main() {
     let asset3: [&[f64]; 4] = [&high, &low, &close, &volume];
     let inputs_4: [&[&[f64]; 4]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-    let (simd_asset_outputs, _) = match indicator_by_assets::<4>(&inputs_4, &[], None) {
+    let (simd_asset_outputs, _) = match Vwap::indicator_by_assets::<4>(&inputs_4, &[], None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

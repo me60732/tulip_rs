@@ -1,10 +1,12 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
 use crate::indicators::md::{Md, State as MdState};
 use crate::indicators::typprice::calc as typprice_calc;
 use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
 //use crate::ring_buffer::single_buffer::mirror_buffer::MirrorBuffer;
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -12,38 +14,6 @@ pub const INPUTS: usize = 3;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::cci_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::cci_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::cci_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    /// See the parent module's [`super::indicator_by_options`] for full documentation.
-    pub use crate::indicators::simd_indicators::cci_simd::indicator_by_options as indicator;
-}
 
 #[derive(Serialize, Deserialize)]
 #[serde(bound = "")]
@@ -56,7 +26,7 @@ impl State<Warm> {
     #[inline(always)]
     fn calc<const N: usize>(
         &mut self,
-        (high, low, close): (f64, f64, f64)
+        (high, low, close): (f64, f64, f64),
     ) -> (f64, f64, f64, f64) {
         let typprice = typprice_calc(high, low, close);
         //let (mut mean_deviation, mut sma, mut cci) = (0.0, 0.0, 0.0);
@@ -78,7 +48,6 @@ impl State {
         period: usize,
         (sma_line, md_line, typprice_line): (&mut [f64], &mut [f64], &mut [f64]),
     ) -> State<Warm> {
-        
         let mut buffer = Buffer::new(period);
         let mut md_state = MdState::new(0.0, period);
 
@@ -92,7 +61,7 @@ impl State {
             );
             i += 1;
         }
-        
+
         let mut md_state = md_state.into_warm();
         let mut buffer = buffer.into_full();
         for i in period..period * 2 - 2 {
@@ -106,12 +75,8 @@ impl State {
                 typprice_line => typprice
             );
         }
-        State {
-            buffer,
-            md_state,
-        }
+        State { buffer, md_state }
     }
-
 }
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
@@ -289,23 +254,40 @@ impl Indicator<INPUTS, OPTIONS> for Cci {
             (&high[from..], &low[from..], &close[from..])
         };
         match period {
-            1..=49 => cycle::<1>(
-                inputs,
-                &mut state,
-                &mut cci_line,
-                optional_outputs,
-            ),
-            _ => cycle::<8>(
-                inputs,
-                &mut state,
-                &mut cci_line,
-                optional_outputs,
-            ),
+            1..=49 => cycle::<1>(inputs, &mut state, &mut cci_line, optional_outputs),
+            _ => cycle::<8>(inputs, &mut state, &mut cci_line, optional_outputs),
         }
 
         Ok((
             vec![cci_line, sma_line, md_line, typprice_line],
             IndicatorState::new(state, period),
         ))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::cci_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Cci {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::cci_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

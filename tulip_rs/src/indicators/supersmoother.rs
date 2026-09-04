@@ -31,7 +31,10 @@
 //! high-quality low-pass filter for any price series.
 
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
+
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
@@ -40,39 +43,6 @@ pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::supersmoother_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::supersmoother_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::supersmoother_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    /// See the parent module's [`super::indicator_by_options`] for full documentation.
-    pub use crate::indicators::simd_indicators::supersmoother_simd::indicator_by_options as indicator;
-}
-
 
 pub type IndicatorState = State;
 impl TIndicatorState<1> for IndicatorState {
@@ -85,11 +55,7 @@ impl TIndicatorState<1> for IndicatorState {
 
         let mut super_line = crate::uninit_vec!(f64, inputs[0].len());
 
-        cycle(
-            inputs[0],
-            self,
-            &mut super_line,
-        );
+        cycle(inputs[0], self, &mut super_line);
 
         Ok(vec![super_line])
     }
@@ -103,7 +69,7 @@ pub struct State {
     pub prev_real: f64, // x[t-1] for Ehlers input averaging: (Close + Close[1]) / 2
     pub a1: f64,
     pub a2: f64,
-    pub b0: f64
+    pub b0: f64,
 }
 impl State {
     pub fn new(period: usize) -> Self {
@@ -124,7 +90,6 @@ impl State {
         }
         state
     }
-    
 }
 impl TState for State {
     type Inputs<'a> = f64;
@@ -132,7 +97,10 @@ impl TState for State {
     #[inline(always)]
     fn calc<'a>(&mut self, real: Self::Inputs<'a>) -> Self::Outputs {
         // Ehlers: coeff/2 * (Close + Close[1]) + a1*y1 + a2*y2
-        let y = self.b0.mul_add(real + self.prev_real, self.a1.mul_add(self.y1, self.a2 * self.y2));
+        let y = self.b0.mul_add(
+            real + self.prev_real,
+            self.a1.mul_add(self.y1, self.a2 * self.y2),
+        );
         self.y2 = self.y1;
         self.y1 = y;
         self.prev_real = real;
@@ -155,7 +123,6 @@ fn cycle(real: &[f64], state: &mut State, super_line: &mut [f64]) {
         }
     }
 }
-
 
 /// Computes the 2-pole SuperSmoother filter coefficients for a given period.
 ///
@@ -208,16 +175,44 @@ impl Indicator<INPUTS, OPTIONS> for SuperSmoother {
         validate_options(options)?;
         let period = options[0] as usize;
         validate_inputs(inputs, Self::min_data(options))?;
-    
+
         let mut super_line = {
             let capacity = Self::output_length(inputs[0].len(), options);
             crate::uninit_vec!(f64, capacity)
         };
         let mut state = State::init_state(inputs[0], period);
-    
+
         let real = &inputs[0][period..];
         cycle(real, &mut state, &mut super_line);
-    
+
         Ok((vec![super_line], state))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::supersmoother_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for SuperSmoother {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::supersmoother_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

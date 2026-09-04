@@ -9,7 +9,7 @@ Measures the instantaneous dominant cycle period by comparing successive bar pha
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::homodynediscriminator::indicator;
+    use tulip_rs::indicators::homodynediscriminator::{HomodyneDiscriminator, Indicator, TIndicatorState};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
@@ -17,7 +17,7 @@ Measures the instantaneous dominant cycle period by comparing successive bar pha
                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20_f64];
 
     // homodynediscriminator takes no options — pass an empty slice
-    let (outputs, _state) = indicator(&[close.as_slice()], &[], None).unwrap();
+    let (outputs, _state) = HomodyneDiscriminator::indicator(&[close.as_slice()], &[], None).unwrap();
     println!("DC Period: {:?}", outputs[0]);
 
     // State continuation
@@ -100,7 +100,7 @@ Measures the instantaneous dominant cycle period by comparing successive bar pha
     **By assets** — applied to 4 assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::homodynediscriminator::indicator_by_assets;
+    use tulip_rs::indicators::homodynediscriminator::{HomodyneDiscriminator, Indicator, TIndicatorState};
 
     let a1 = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
                   85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
@@ -126,8 +126,8 @@ Measures the instantaneous dominant cycle period by comparing successive bar pha
         &[a4.as_slice()],
     ];
 
-    let results = indicator_by_assets::<4>(&inputs, &[], None).unwrap();
-    for (i, asset_outputs) in results.0.iter().enumerate() {
+    let results = HomodyneDiscriminator::indicator_by_assets::<4>(&inputs, &[], None).unwrap();
+    for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
     ```

@@ -9,16 +9,20 @@ Identifies whether the market is trending or ranging. Higher values indicate a t
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::vhf::indicator;
+    use tulip_rs::indicators::vhf::{Vhf, Indicator, TIndicatorState};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
-    let (outputs, mut state) = indicator(&[close.as_slice()], &[28.0], None).unwrap();
+    let (outputs, mut state) = Vhf::indicator(&[close.as_slice()], &[28.0], None).unwrap();
     println!("{:?}", outputs[0]); // VHF values
 
     // State continuation — feed new bars without reprocessing history
-    let new_close = vec![85.10, 85.72_f64];
+    let partial = close[..8].to_vec();
+    let (outputs2, mut state) = Vhf::indicator(&[partial.as_slice()], &[28.0], None).unwrap();
+    println!("{:?}", outputs2[0]);
+
+    let new_close = vec![85.53_f64];
     let continued = state.batch_indicator(&[new_close.as_slice()], None).unwrap();
     println!("{:?}", continued[0]);
     ```

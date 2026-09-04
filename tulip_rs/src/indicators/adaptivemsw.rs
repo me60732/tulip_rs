@@ -34,22 +34,13 @@
 //! The DFT computation reuses [`msw::calc_full`] — only the window length changes each bar.
 
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+pub use crate::indicator_types::{Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState};
 use crate::indicators::homodynediscriminator;
 use crate::indicators::msw;
 use crate::ring_buffer::fixed_single_buffer::FixedMirrorBuffer;
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::adaptivemsw_simd::indicator_by_assets;
-
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    pub use crate::indicators::simd_indicators::adaptivemsw_simd::indicator_by_assets as indicator;
-}
-
-/// Number of input price series required by this indicator.
 pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
@@ -102,23 +93,23 @@ impl State<Cold> {
     ) -> State<Warm> {
         // HD warmup = min_data - 1 = 22 bars, returns State<Warm>
         let hd = homodynediscriminator::State::init_state(real);
-    
+
         // Push those same 22 bars into price_buf
         let mut price_buf = FixedMirrorBuffer::new();
         for price in &real[..22] {
             price_buf.push(*price);
         }
-    
+
         let mut state = State::<Warm> { hd, price_buf };
-    
+
         // Bar 22 — first valid output
         let (sine, lead) = state.calc(real[22]);
         sine_line[0] = sine;
         lead_line[0] = lead;
-    
+
         let (_, want_dc) = crate::calc_want_flags!(dc_period_line);
         crate::store_optional_outputs!(0, want_dc, dc_period_line => state.hd.smooth_period);
-    
+
         state
     }
 
@@ -326,5 +317,14 @@ impl Indicator<INPUTS, OPTIONS> for AdaptiveMSW {
         );
 
         Ok((vec![sine_line, lead_line, dc_period_line], state))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::adaptivemsw_simd::indicator_by_assets::<N>(inputs, options, optional_outputs)
     }
 }

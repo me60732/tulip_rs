@@ -1,6 +1,8 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -8,37 +10,6 @@ pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::trima_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::trima_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    pub use crate::indicators::simd_indicators::trima_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    pub use crate::indicators::simd_indicators::trima_simd::indicator_by_options as indicator;
-}
-
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
@@ -66,12 +37,7 @@ impl TIndicatorState<1> for IndicatorState {
 
         let mut trima_line = crate::uninit_vec!(f64, inputs[0].len());
 
-        cycle_trima(
-            &self.real,
-            self.period,
-            &mut trima_line,
-            &mut self.state,
-        );
+        cycle_trima(&self.real, self.period, &mut trima_line, &mut self.state);
 
         self.real.drain(..self.real.len() - self.period + 1);
 
@@ -96,7 +62,7 @@ impl State {
             state: std::marker::PhantomData,
         }
     }
-    
+
     pub fn init_state(real: &[f64], period: usize) -> State<Warm> {
         let mut weight_sum = 0.0;
         let mut lead_sum = 0.0;
@@ -128,17 +94,13 @@ impl State {
             state: std::marker::PhantomData,
         }
     }
-
 }
 impl TState for State<Warm> {
     type Inputs<'a> = (f64, f64, f64, f64);
     type Outputs = f64;
 
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        (real, lsi, tsi1, tsi2): Self::Inputs<'a>,
-    ) -> Self::Outputs {
+    fn calc<'a>(&mut self, (real, lsi, tsi1, tsi2): Self::Inputs<'a>) -> Self::Outputs {
         let (mut weight_sum, mut lead_sum, mut trail_sum) =
             (self.weight_sum, self.lead_sum, self.trail_sum);
         weight_sum += real;
@@ -162,12 +124,7 @@ impl TState for State<Warm> {
 /// * `multiplier` - Normalization factor applied to produce the final TRIMA value.
 /// * `trima_line` - A mutable slice for storing the TRIMA output values.
 /// * `state` - A mutable reference to the rolling sums state.
-pub fn cycle_trima(
-    real: &[f64],
-    period: usize,
-    trima_line: &mut [f64],
-    state: &mut State<Warm>,
-) {
+pub fn cycle_trima(real: &[f64], period: usize, trima_line: &mut [f64], state: &mut State<Warm>) {
     let (mut lsi, mut tsi1) = initialize_counters(period);
 
     for (j, i) in (period - 1..real.len()).enumerate() {
@@ -300,9 +257,34 @@ impl Indicator<INPUTS, OPTIONS> for Trima {
 
         cycle_trima(real, period, &mut trima_line, &mut state);
 
-        Ok((
-            vec![trima_line],
-            IndicatorState::new(real, state, period),
-        ))
+        Ok((vec![trima_line], IndicatorState::new(real, state, period)))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::trima_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Trima {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::trima_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

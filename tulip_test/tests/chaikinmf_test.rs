@@ -1,8 +1,7 @@
 #[cfg(test)]
 mod tests {
     use tulip_rs::indicators::chaikinmf::{
-        ChaikinMf, Indicator, indicator_by_assets, indicator_by_options,
-        TIndicatorState,
+        ChaikinMf, Indicator, IndicatorByOptions, TIndicatorState,
     };
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -127,8 +126,8 @@ mod tests {
                     continue;
                 }
 
-                let (outputs, _) =
-                    ChaikinMf::indicator(&inputs, &options, None).expect("Chaikin MF indicator failed");
+                let (outputs, _) = ChaikinMf::indicator(&inputs, &options, None)
+                    .expect("Chaikin MF indicator failed");
 
                 let cmf = &outputs[0];
 
@@ -190,8 +189,9 @@ mod tests {
                         &close[..min_data_val],
                         &volume[..min_data_val],
                     ];
-                    let (first_outputs, mut state) = ChaikinMf::indicator(&chunk_inputs, &options, None)
-                        .expect("Failed to run Chaikin MF on first chunk");
+                    let (first_outputs, mut state) =
+                        ChaikinMf::indicator(&chunk_inputs, &options, None)
+                            .expect("Failed to run Chaikin MF on first chunk");
                     batch_full_output.extend_from_slice(&first_outputs[0]);
 
                     // Remaining data in CHUNK_SIZE chunks.
@@ -307,7 +307,7 @@ mod tests {
             ];
             let inputs_4: [&[&[f64]; 4]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs_4, &options, None)
+            let (simd_results, _) = ChaikinMf::indicator_by_assets::<4>(&inputs_4, &options, None)
                 .expect("SIMD by-assets ChaikinMF failed");
 
             for (asset_idx, (stock_symbol, high, low, close, volume)) in
@@ -319,8 +319,8 @@ mod tests {
                     close.as_slice(),
                     volume.as_slice(),
                 ];
-                let (scalar_outputs, _) =
-                    ChaikinMf::indicator(&scalar_inputs, &options, None).expect("Rust ChaikinMF failed");
+                let (scalar_outputs, _) = ChaikinMf::indicator(&scalar_inputs, &options, None)
+                    .expect("Rust ChaikinMF failed");
 
                 let simd_cmf = &simd_results[asset_idx][0];
                 let scalar_cmf = &scalar_outputs[0];
@@ -365,7 +365,7 @@ mod tests {
                 volume.as_slice(),
             ];
 
-            let (simd_results, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results, _) = ChaikinMf::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD by-options ChaikinMF failed");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
@@ -440,8 +440,9 @@ mod tests {
             ];
             let inputs_4: [&[&[f64]; 4]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-            let (simd_first, mut states) = indicator_by_assets::<4>(&inputs_4, &options, None)
-                .expect("SIMD by-assets failed on first chunk");
+            let (simd_first, mut states) =
+                ChaikinMf::indicator_by_assets::<4>(&inputs_4, &options, None)
+                    .expect("SIMD by-assets failed on first chunk");
 
             for (asset_idx, (stock_symbol, high, low, close, volume)) in
                 stock_data.iter().enumerate()
@@ -482,8 +483,8 @@ mod tests {
                     close.as_slice(),
                     volume.as_slice(),
                 ];
-                let (scalar_outputs, _) =
-                    ChaikinMf::indicator(&scalar_inputs, &options, None).expect("Rust ChaikinMF failed");
+                let (scalar_outputs, _) = ChaikinMf::indicator(&scalar_inputs, &options, None)
+                    .expect("Rust ChaikinMF failed");
 
                 assert_eq!(
                     batch_cmf.len(),
@@ -528,7 +529,7 @@ mod tests {
                 &volume[..FIRST_CHUNK],
             ];
             let (simd_first, mut states) =
-                indicator_by_options::<4>(&first_inputs, &options_4, None)
+                ChaikinMf::indicator_by_options::<4>(&first_inputs, &options_4, None)
                     .expect("SIMD by-options failed on first chunk");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
@@ -568,8 +569,8 @@ mod tests {
                     close.as_slice(),
                     volume.as_slice(),
                 ];
-                let (scalar_outputs, _) =
-                    ChaikinMf::indicator(&scalar_inputs, options, None).expect("Rust ChaikinMF failed");
+                let (scalar_outputs, _) = ChaikinMf::indicator(&scalar_inputs, options, None)
+                    .expect("Rust ChaikinMF failed");
 
                 assert_eq!(
                     batch_cmf.len(),
@@ -585,5 +586,4 @@ mod tests {
             println!("✓ SIMD by-options state continuity ok for stock={stock_symbol}");
         }
     }
-
-    }
+}

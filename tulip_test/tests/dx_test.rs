@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::dx::{Dx, Indicator, TIndicatorState, indicator_by_assets, indicator_by_options};
+    use tulip_rs::indicators::dx::{Dx, Indicator, IndicatorByOptions, TIndicatorState};
     use tulip_test::c_bindings::{ti_atr, ti_atr_start, ti_dx, ti_dx_start, ti_tr, ti_tr_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -238,8 +238,8 @@ mod tests {
 
                 if high.len() <= min_data_val {
                     // If data is too small, just run full calculation
-                    let (outputs, _) =
-                        Dx::indicator(&inputs_rust, &options, None).expect("Failed to run DX indicator");
+                    let (outputs, _) = Dx::indicator(&inputs_rust, &options, None)
+                        .expect("Failed to run DX indicator");
                     batch_full_output.extend_from_slice(&outputs[0]);
                 } else {
                     // First chunk - convert to Vec<&Vec<f64>>
@@ -503,12 +503,8 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get DX with ATR optional output
                 let optional_outputs = Some(&[true, false][..]);
-                let (dx_result, _) = Dx::indicator(
-                    &[&high, &low, &close],
-                    &[options[0]],
-                    optional_outputs,
-                )
-                .unwrap();
+                let (dx_result, _) =
+                    Dx::indicator(&[&high, &low, &close], &[options[0]], optional_outputs).unwrap();
 
                 let rust_atr = &dx_result[1];
 
@@ -581,12 +577,8 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get DX with TR optional output
                 let optional_outputs = Some(&[false, true][..]);
-                let (dx_result, _) = Dx::indicator(
-                    &[&high, &low, &close],
-                    &[options[0]],
-                    optional_outputs,
-                )
-                .unwrap();
+                let (dx_result, _) =
+                    Dx::indicator(&[&high, &low, &close], &[options[0]], optional_outputs).unwrap();
 
                 let rust_tr = &dx_result[2];
 
@@ -686,7 +678,7 @@ mod tests {
             ];
 
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, options, None)
+            let (simd_results, _) = Dx::indicator_by_assets::<4>(&inputs, options, None)
                 .expect("SIMD by assets DX indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -699,8 +691,8 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_outputs, _) =
-                    Dx::indicator(&stock_inputs, options, None).unwrap_or_else(|_| {
+                let (regular_outputs, _) = Dx::indicator(&stock_inputs, options, None)
+                    .unwrap_or_else(|_| {
                         panic!(
                             "Regular DX failed for {} with period {}",
                             stock_symbol, options[0]
@@ -778,8 +770,9 @@ mod tests {
             ];
 
             // Get SIMD by assets result with optional ATR output
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, options, optional_outputs)
-                .expect("SIMD by assets DX indicator with optional ATR failed");
+            let (simd_results, _) =
+                Dx::indicator_by_assets::<4>(&inputs, options, optional_outputs)
+                    .expect("SIMD by assets DX indicator with optional ATR failed");
 
             // Compare each SIMD result with regular indicator for each stock
             for (stock_idx, (stock_symbol, stock_high, stock_low, stock_close)) in
@@ -905,8 +898,9 @@ mod tests {
             ];
 
             // Get SIMD by assets result with optional TR output
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, options, optional_outputs)
-                .expect("SIMD by assets DX indicator with optional TR failed");
+            let (simd_results, _) =
+                Dx::indicator_by_assets::<4>(&inputs, options, optional_outputs)
+                    .expect("SIMD by assets DX indicator with optional TR failed");
 
             // Compare each SIMD result with regular indicator for each stock
             for (stock_idx, (stock_symbol, stock_high, stock_low, stock_close)) in
@@ -1004,7 +998,7 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Dx::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD DX 4-wide failed");
 
             // Use SIMD results directly
@@ -1083,7 +1077,7 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, _) =
-                indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
+                Dx::indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
                     .expect("SIMD DX 4-wide with optional outputs failed");
 
             // Use SIMD results directly
@@ -1233,5 +1227,4 @@ mod tests {
             "✓ All SIMD by options vs Regular DX database tests with optional outputs passed!"
         );
     }
-
-    }
+}

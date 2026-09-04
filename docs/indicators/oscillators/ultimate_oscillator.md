@@ -9,7 +9,7 @@ Combines momentum from three different time periods (short, medium, and long) to
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::ultosc::indicator;
+    use tulip_rs::indicators::ultosc::{UltOsc, TIndicatorState, Indicator};
 
     let high  = vec![82.15, 81.89, 83.03, 83.30, 83.85,
                      83.90, 83.33, 84.30, 84.84, 85.00_f64];
@@ -20,12 +20,12 @@ Combines momentum from three different time periods (short, medium, and long) to
 
     // Options: [short_period, medium_period, long_period]
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-    let (outputs, _state) = indicator(&inputs, &[7.0, 14.0, 28.0], None).unwrap();
+    let (outputs, _state) = UltOsc::indicator(&inputs, &[7.0, 14.0, 28.0], None).unwrap();
     println!("Ultimate Oscillator: {:?}", outputs[0]);
 
     // State continuation
     let inputs2 = [&high[..8], &low[..8], &close[..8]];
-    let (outputs2, mut state) = indicator(&inputs2, &[7.0, 14.0, 28.0], None).unwrap();
+    let (outputs2, mut state) = UltOsc::indicator(&inputs2, &[7.0, 14.0, 28.0], None).unwrap();
     println!("Partial Ultimate Oscillator: {:?}", outputs2[0]);
 
     let new_inputs = [&high[8..], &low[8..], &close[8..]];
@@ -121,7 +121,7 @@ Combines momentum from three different time periods (short, medium, and long) to
     ];
 
     let results = indicator_by_assets::<4>(&inputs, &[7.0, 14.0, 28.0], None).unwrap();
-    for (i, asset_outputs) in results.0.iter().enumerate() {
+    for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
     ```
@@ -147,7 +147,7 @@ Combines momentum from three different time periods (short, medium, and long) to
 
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
     let results = indicator_by_options::<4>(&inputs, &opts, None).unwrap();
-    for (i, opt_outputs) in results.0.iter().enumerate() {
+    for (i, opt_outputs) in results.iter().enumerate() {
         println!("Option set {}: {:?}", i + 1, opt_outputs[0]);
     }
     ```

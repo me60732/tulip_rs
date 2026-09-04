@@ -172,8 +172,8 @@ mod tests {
                 low.as_slice(),
                 close.as_slice(),
             ];
-            let (outputs, _) =
-                AvgPrice::indicator(&inputs_rust, &[], None).expect("Rust AVGPRICE indicator failed");
+            let (outputs, _) = AvgPrice::indicator(&inputs_rust, &[], None)
+                .expect("Rust AVGPRICE indicator failed");
 
             let output_len_rust = outputs[0].len();
             let options: [f64; 0] = [];
@@ -358,8 +358,6 @@ mod tests {
 
     #[test]
     fn test_avgprice_simd_vs_regular_database() {
-        use tulip_rs::indicators::avgprice::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -405,7 +403,7 @@ mod tests {
         // Test without optional outputs (AVGPRICE doesn't have optional outputs)
         {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = AvgPrice::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets AVGPRICE indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock

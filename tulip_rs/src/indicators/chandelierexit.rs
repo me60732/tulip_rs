@@ -1,5 +1,7 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
 
 use crate::indicators::{
     atr::{Atr, State as AtrState},
@@ -16,38 +18,6 @@ pub const INPUTS: usize = 3;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 2;
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::chandelierexit_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::chandelierexit_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::chandelierexit_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    /// See the parent module's [`super::indicator_by_options`] for full documentation.
-    pub use crate::indicators::simd_indicators::chandelierexit_simd::indicator_by_options as indicator;
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
@@ -169,10 +139,7 @@ impl TState for State<Warm> {
         (long, short, atr, tr, min, max)
     }
     #[inline(always)]
-    unsafe fn calc_unchecked(
-        &mut self,
-        inputs: Self::Inputs<'_>,
-    ) -> Self::Outputs {
+    unsafe fn calc_unchecked(&mut self, inputs: Self::Inputs<'_>) -> Self::Outputs {
         self.calc_chuncked_unchecked::<4>(inputs)
     }
 }
@@ -182,8 +149,12 @@ impl State<Warm> {
         &mut self,
         (high, low, close, i, periods): (&[f64], &[f64], f64, usize, (usize, usize)),
     ) -> (f64, f64, f64, f64, f64, f64) {
-        let (min, _) = self.min_state.calc_chuncked_unchecked::<N>((low, i, periods));
-        let (max, _) = self.max_state.calc_chuncked_unchecked::<N>((high, i, periods));
+        let (min, _) = self
+            .min_state
+            .calc_chuncked_unchecked::<N>((low, i, periods));
+        let (max, _) = self
+            .max_state
+            .calc_chuncked_unchecked::<N>((high, i, periods));
 
         let (atr, tr) = self
             .atr_state
@@ -226,7 +197,7 @@ fn cycle(
     let (has_optional, want_atr, want_tr, want_min, want_max) =
         crate::calc_want_flags!(atr_line, tr_line, min_line, max_line);
     for (j, i) in (periods.0..inputs.0.len()).enumerate() {
-        let (long, short, atr, tr, min, max);// =state.calc((high, low, unsafe { *close.get_unchecked(j) }, i, periods));
+        let (long, short, atr, tr, min, max); // =state.calc((high, low, unsafe { *close.get_unchecked(j) }, i, periods));
         unsafe {
             (long, short, atr, tr, min, max) =
                 state.calc_unchecked((high, low, *close.get_unchecked(j), i, periods));
@@ -345,10 +316,38 @@ impl Indicator<INPUTS, OPTIONS> for ChandelierExit {
             &mut state,
             optional_outputs,
         );
-        
+
         Ok((
             vec![long_line, short_line, atr_line, tr_line, min_line, max_line],
             IndicatorState::new(high, low, state, periods),
         ))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::chandelierexit_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for ChandelierExit {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::chandelierexit_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

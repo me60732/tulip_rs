@@ -2,7 +2,7 @@
 mod tests {
     use tulip_rs::indicators::highpass::HighPass;
     use tulip_rs::indicators::hilberttransform::{
-        indicator_by_assets, indicator_by_options, HilbertTransform, Indicator, TIndicatorState,
+        HilbertTransform, Indicator, IndicatorByOptions, TIndicatorState,
     };
     use tulip_rs::indicators::roofingfilter::RoofingFilter;
     use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -324,9 +324,12 @@ mod tests {
         ];
 
         for options in OPTIONS_LIST {
-            let (simd_results, _) =
-                indicator_by_assets::<4>(&inputs_4, &options, Some(&[true, true]))
-                    .expect("SIMD by-assets HilbertTransform failed");
+            let (simd_results, _) = HilbertTransform::indicator_by_assets::<4>(
+                &inputs_4,
+                &options,
+                Some(&[true, true]),
+            )
+            .expect("SIMD by-assets HilbertTransform failed");
 
             for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
                 let (scalar_out, _) =
@@ -387,9 +390,12 @@ mod tests {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
-            let (simd_results, _) =
-                indicator_by_options::<4>(&inputs, &options_4, Some(&[true, true]))
-                    .expect("SIMD by-options HilbertTransform failed");
+            let (simd_results, _) = HilbertTransform::indicator_by_options::<4>(
+                &inputs,
+                &options_4,
+                Some(&[true, true]),
+            )
+            .expect("SIMD by-options HilbertTransform failed");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
                 let (scalar_out, _) =
@@ -456,9 +462,12 @@ mod tests {
                 &[&stock_data[3].1[..FIRST_CHUNK]],
             ];
 
-            let (simd_first, mut states) =
-                indicator_by_assets::<4>(&inputs_4, &options, Some(&[true, true]))
-                    .expect("SIMD by-assets HilbertTransform failed on first chunk");
+            let (simd_first, mut states) = HilbertTransform::indicator_by_assets::<4>(
+                &inputs_4,
+                &options,
+                Some(&[true, true]),
+            )
+            .expect("SIMD by-assets HilbertTransform failed on first chunk");
 
             for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
                 let mut batch = [
@@ -546,9 +555,12 @@ mod tests {
             let close = get_close_array(stock_data);
             let first_inputs = [&close[..FIRST_CHUNK] as &[f64]];
 
-            let (simd_first, mut states) =
-                indicator_by_options::<4>(&first_inputs, &options_4, Some(&[true, true]))
-                    .expect("SIMD by-options HilbertTransform failed on first chunk");
+            let (simd_first, mut states) = HilbertTransform::indicator_by_options::<4>(
+                &first_inputs,
+                &options_4,
+                Some(&[true, true]),
+            )
+            .expect("SIMD by-options HilbertTransform failed on first chunk");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
                 let mut batch = [

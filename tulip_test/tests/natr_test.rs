@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::natr::{Natr, Indicator, TIndicatorState};
+    use tulip_rs::indicator_types::IndicatorByOptions;
+    use tulip_rs::indicators::natr::{Indicator, Natr, TIndicatorState};
     use tulip_test::c_bindings::{
         ti_atr, ti_atr_start, ti_natr, ti_natr_start, ti_tr, ti_tr_start,
     };
@@ -154,8 +155,8 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (outputs, _) =
-                    Natr::indicator(&inputs_rust, &options, None).expect("Rust NATR indicator failed");
+                let (outputs, _) = Natr::indicator(&inputs_rust, &options, None)
+                    .expect("Rust NATR indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -486,12 +487,9 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get NATR with ATR optional output
                 let optional_outputs = Some(&[true, false][..]);
-                let (natr_result, _) = Natr::indicator(
-                    &[&high, &low, &close],
-                    &[options[0]],
-                    optional_outputs,
-                )
-                .unwrap();
+                let (natr_result, _) =
+                    Natr::indicator(&[&high, &low, &close], &[options[0]], optional_outputs)
+                        .unwrap();
 
                 let rust_atr = &natr_result[1];
 
@@ -566,12 +564,9 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get NATR with TR optional output
                 let optional_outputs = Some(&[false, true][..]);
-                let (natr_result, _) = Natr::indicator(
-                    &[&high, &low, &close],
-                    &[options[0]],
-                    optional_outputs,
-                )
-                .unwrap();
+                let (natr_result, _) =
+                    Natr::indicator(&[&high, &low, &close], &[options[0]], optional_outputs)
+                        .unwrap();
 
                 let rust_tr = &natr_result[2];
 
@@ -631,8 +626,6 @@ mod tests {
 
     #[test]
     fn test_natr_simd_vs_regular_database() {
-        use tulip_rs::indicators::natr::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -673,7 +666,7 @@ mod tests {
             ];
 
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, options, None)
+            let (simd_results, _) = Natr::indicator_by_assets::<4>(&inputs, options, None)
                 .expect("SIMD by assets NATR indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -686,8 +679,8 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_outputs, _) =
-                    Natr::indicator(&stock_inputs, options, None).unwrap_or_else(|_| {
+                let (regular_outputs, _) = Natr::indicator(&stock_inputs, options, None)
+                    .unwrap_or_else(|_| {
                         panic!(
                             "Regular NATR failed for {} with period {}",
                             stock_symbol, options[0]
@@ -726,8 +719,6 @@ mod tests {
 
     #[test]
     fn test_natr_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::natr::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -742,12 +733,12 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Natr::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD NATR 4-wide failed");
 
             // Process remaining 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
-            let (simd_results_2, _) = indicator_by_options::<2>(&inputs, &options_2, None)
+            let (simd_results_2, _) = Natr::indicator_by_options::<2>(&inputs, &options_2, None)
                 .expect("SIMD NATR 2-wide failed");
 
             // Combine results
@@ -814,8 +805,6 @@ mod tests {
 
     #[test]
     fn test_natr_simd_by_assets_optional_outputs() {
-        use tulip_rs::indicators::natr::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -837,13 +826,14 @@ mod tests {
             ];
 
             let (simd_results, _) =
-                indicator_by_assets::<4>(&inputs_4, &options, Some(&[true, true]))
+                Natr::indicator_by_assets::<4>(&inputs_4, &options, Some(&[true, true]))
                     .expect("SIMD by-assets NATR with optional outputs failed");
 
             for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
                 let scalar_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (scalar_results, _) = Natr::indicator(&scalar_inputs, &options, Some(&[true, true]))
-                    .expect("Scalar NATR with optional outputs failed");
+                let (scalar_results, _) =
+                    Natr::indicator(&scalar_inputs, &options, Some(&[true, true]))
+                        .expect("Scalar NATR with optional outputs failed");
 
                 const EPSILON: f64 = 1e-8;
 
@@ -916,8 +906,6 @@ mod tests {
 
     #[test]
     fn test_natr_simd_by_options_optional_outputs() {
-        use tulip_rs::indicators::natr::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -933,13 +921,13 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, _) =
-                indicator_by_options::<4>(&inputs, &options_4, Some(&[true, true]))
+                Natr::indicator_by_options::<4>(&inputs, &options_4, Some(&[true, true]))
                     .expect("SIMD NATR 4-wide with optional outputs failed");
 
             // 2-wide SIMD for the remaining 2 options
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
             let (simd_results_2, _) =
-                indicator_by_options::<2>(&inputs, &options_2, Some(&[true, true]))
+                Natr::indicator_by_options::<2>(&inputs, &options_2, Some(&[true, true]))
                     .expect("SIMD NATR 2-wide with optional outputs failed");
 
             let mut all_simd = simd_results_4;
@@ -997,5 +985,4 @@ mod tests {
         }
         println!("✓ All SIMD by-options NATR optional output tests passed!");
     }
-
-    }
+}

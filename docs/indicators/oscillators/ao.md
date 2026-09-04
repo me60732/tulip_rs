@@ -9,7 +9,7 @@ Measures market momentum as the difference between a 5-period and 34-period simp
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::ao::indicator;
+    use tulip_rs::indicators::ao::{Ao, TIndicatorState, Indicator};
 
     let high = vec![82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
                     85.90, 86.58, 86.98, 88.00, 87.87, 88.10, 88.50, 89.00, 89.40, 89.80,
@@ -22,12 +22,12 @@ Measures market momentum as the difference between a 5-period and 34-period simp
 
     // AO takes no options — pass an empty slice
     let inputs = [high.as_slice(), low.as_slice()];
-    let (outputs, _state) = indicator(&inputs, &[], None).unwrap();
+    let (outputs, _state) = Ao::indicator(&inputs, &[], None).unwrap();
     println!("AO: {:?}", outputs[0]);
 
     // State continuation
     let inputs2 = [&high[..30], &low[..30]];
-    let (outputs2, mut state) = indicator(&inputs2, &[], None).unwrap();
+    let (outputs2, mut state) = Ao::indicator(&inputs2, &[], None).unwrap();
     println!("Partial AO: {:?}", outputs2[0]);
 
     let new_inputs = [&high[30..], &low[30..]];
@@ -119,7 +119,7 @@ Measures market momentum as the difference between a 5-period and 34-period simp
     `ao` exposes 3 optional outputs: `short_sma`, `long_sma`, `medprice`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::ao::indicator;
+    use tulip_rs::indicators::ao::{Ao, TIndicatorState, Indicator};
 
     let high = vec![82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
                     85.90, 86.58, 86.98, 88.00, 87.87, 88.10, 88.50, 89.00, 89.40, 89.80,
@@ -131,7 +131,7 @@ Measures market momentum as the difference between a 5-period and 34-period simp
                     93.10, 93.50, 93.90, 94.30, 94.60_f64];
 
     let mask = [true, false, false]; // one per optional output
-    let (outputs, _state) = indicator(&[high.as_slice(), low.as_slice()], &[], Some(&mask)).unwrap();
+    let (outputs, _state) = Ao::indicator(&[high.as_slice(), low.as_slice()], &[], Some(&mask)).unwrap();
 
     let ao        = &outputs[0]; // ao (primary)
     let short_sma = &outputs[1]; // short_sma (optional — requested)
@@ -224,7 +224,7 @@ Measures market momentum as the difference between a 5-period and 34-period simp
     ];
 
     let results = indicator_by_assets::<4>(&inputs, &[], None).unwrap();
-    for (i, asset_outputs) in results.0.iter().enumerate() {
+    for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
     ```

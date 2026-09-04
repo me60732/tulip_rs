@@ -1,8 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::ccfisher::{
-    CcFisher, Indicator, indicator_by_assets, indicator_by_options,
-};
+use tulip_rs::indicators::ccfisher::{CcFisher, Indicator, IndicatorByOptions};
 //use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::criterion_logger::TimingMeasurements;
@@ -48,7 +46,8 @@ fn bench_ccfisher(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = CcFisher::indicator(&inputs, &options, None).expect("CCFisher failed");
+                        let result =
+                            CcFisher::indicator(&inputs, &options, None).expect("CCFisher failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -64,7 +63,8 @@ fn bench_ccfisher(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             group.bench_function(format!("Rust CCFisher (alpha={})", options[0]), |b| {
                 b.iter(|| {
-                    let result = CcFisher::indicator(&inputs, &options, None).expect("CCFisher failed");
+                    let result =
+                        CcFisher::indicator(&inputs, &options, None).expect("CCFisher failed");
                     black_box(&result);
                 });
             });
@@ -91,8 +91,9 @@ fn bench_ccfisher_with_trendmode(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = CcFisher::indicator(&inputs, &options, Some(&[true, false, false]))
-                            .expect("CCFisher+TrendMode failed");
+                        let result =
+                            CcFisher::indicator(&inputs, &options, Some(&[true, false, false]))
+                                .expect("CCFisher+TrendMode failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -117,8 +118,9 @@ fn bench_ccfisher_with_trendmode(c: &mut Criterion) {
                 format!("Rust CCFisher+TrendMode (alpha={})", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = CcFisher::indicator(&inputs, &options, Some(&[true, false, false]))
-                            .expect("CCFisher+TrendMode failed");
+                        let result =
+                            CcFisher::indicator(&inputs, &options, Some(&[true, false, false]))
+                                .expect("CCFisher+TrendMode failed");
                         black_box(&result);
                     });
                 },
@@ -207,8 +209,8 @@ fn bench_ccfisher_from_state(c: &mut Criterion) {
         let close_vec = expand_inputs();
         for options in OPTIONS_LIST {
             let seed = CcFisher::min_data(&options).max(CHUNK_SIZE);
-            let (_, mut state) =
-                CcFisher::indicator(&[&close_vec[..seed]], &options, None).expect("CCFisher seed failed");
+            let (_, mut state) = CcFisher::indicator(&[&close_vec[..seed]], &options, None)
+                .expect("CCFisher seed failed");
 
             let mut group = c.benchmark_group("ccfisher_rust_from_state");
             group.sample_size(SAMPLE_SIZE);
@@ -279,7 +281,7 @@ fn bench_ccfisher_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = CcFisher::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("SIMD by_assets CCFisher failed");
                     black_box(&result);
                 },
@@ -305,7 +307,7 @@ fn bench_ccfisher_simd_by_assets(c: &mut Criterion) {
                 format!("Rust SIMD by_assets CCFisher (N=4, alpha={})", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = CcFisher::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("SIMD by_assets CCFisher failed");
                         black_box(&result);
                     });
@@ -338,7 +340,7 @@ fn bench_ccfisher_simd_by_options(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result = CcFisher::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("SIMD by_options CCFisher failed");
                     black_box(&result);
                 },
@@ -366,7 +368,7 @@ fn bench_ccfisher_simd_by_options(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust SIMD by_options CCFisher (4 alpha lanes)", |b| {
             b.iter(|| {
-                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result = CcFisher::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("SIMD by_options CCFisher failed");
                 black_box(&result);
             });

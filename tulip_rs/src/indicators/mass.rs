@@ -1,9 +1,12 @@
 use crate::common::{validate_inputs, validate_options};
-use crate::indicators::ema::{State as EmaState, calc as calc_ema};
+use crate::indicators::ema::{calc as calc_ema, State as EmaState};
 
-pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
+
 use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
 
@@ -12,38 +15,6 @@ pub const INPUTS: usize = 2;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::mass_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::mass_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::mass_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    /// See the parent module's [`super::indicator_by_options`] for full documentation.
-    pub use crate::indicators::simd_indicators::mass_simd::indicator_by_options as indicator;
-}
 
 pub type IndicatorState = State<Warm>;
 
@@ -72,10 +43,14 @@ pub struct State<S = Cold> {
 }
 impl<S> Deref for State<S> {
     type Target = EmaState<S>;
-    fn deref(&self) -> &Self::Target { &self.ema_state }
+    fn deref(&self) -> &Self::Target {
+        &self.ema_state
+    }
 }
 impl<S> DerefMut for State<S> {
-    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.ema_state }
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.ema_state
+    }
 }
 impl State<Cold> {
     pub fn init_state(
@@ -84,8 +59,12 @@ impl State<Cold> {
         period: usize,
         mass_line: &mut [f64],
     ) -> (usize, State<Warm>) {
-        let (mut ema_state, mut ema_signal, mut buffer, mut sum) =
-            (EmaState::new(high[0] - low[0], 9).into_warm(), 0.0, Buffer::new(period), 0.0);
+        let (mut ema_state, mut ema_signal, mut buffer, mut sum) = (
+            EmaState::new(high[0] - low[0], 9).into_warm(),
+            0.0,
+            Buffer::new(period),
+            0.0,
+        );
         let mut i = 1;
         while !buffer.is_full() {
             let hl_diff = high[i] - low[i];
@@ -94,7 +73,12 @@ impl State<Cold> {
                 ema_signal = ema;
             }
             if i >= 8 {
-                ema_signal = calc_ema(ema, ema_signal, ema_state.multiplier, ema_state.inv_multiplier);
+                ema_signal = calc_ema(
+                    ema,
+                    ema_signal,
+                    ema_state.multiplier,
+                    ema_state.inv_multiplier,
+                );
                 if i >= 16 {
                     let mass = (ema / ema_signal).max(0.0);
                     sum += mass;
@@ -116,17 +100,13 @@ impl State<Cold> {
             },
         )
     }
-
 }
 impl TState for State<Warm> {
     type Inputs<'a> = (f64, f64);
     type Outputs = f64;
 
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        (high, low): Self::Inputs<'a>,
-    ) -> f64 {
+    fn calc<'a>(&mut self, (high, low): Self::Inputs<'a>) -> f64 {
         let hl_diff = (high - low).max(f64::EPSILON);
 
         let ema = self.ema_state.calc(hl_diff);
@@ -146,13 +126,7 @@ impl TState for State<Warm> {
 /// * `multipliers` - A tuple of EMA multipliers for the Mass calculation.
 /// * `mass_line` - A mutable slice for storing the Mass output values.
 /// * `state` - A mutable reference to the current `State`.
-fn cycle_mass(
-    high: &[f64],
-    low: &[f64],
-    mass_line: &mut [f64],
-    state: &mut State<Warm>,
-) {
-    
+fn cycle_mass(high: &[f64], low: &[f64], mass_line: &mut [f64], state: &mut State<Warm>) {
     for i in 0..high.len() {
         unsafe {
             *mass_line.get_unchecked_mut(i) =
@@ -160,7 +134,6 @@ fn cycle_mass(
         }
     }
 }
-
 
 pub struct Mass;
 
@@ -194,26 +167,50 @@ impl Indicator<INPUTS, OPTIONS> for Mass {
         _optional_outputs: Option<&[bool]>,
     ) -> IndicatorResult<Self::IndicatorState> {
         validate_options(options)?;
-    
+
         validate_inputs(inputs, Self::min_data(options))?;
-    
+
         let mut mass_line = {
             let capacity = Self::output_length(inputs[0].len(), options);
             crate::uninit_vec!(f64, capacity)
         };
 
         let (high, low, mut state) = {
-            let (start, state) = State::init_state(
-                inputs[0],
-                inputs[1],
-                options[0] as usize,
-                &mut mass_line,
-            );
+            let (start, state) =
+                State::init_state(inputs[0], inputs[1], options[0] as usize, &mut mass_line);
             (&inputs[0][start..], &inputs[1][start..], state)
         };
-    
+
         cycle_mass(high, low, &mut mass_line[1..], &mut state);
-    
+
         Ok((vec![mass_line], state))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::mass_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Mass {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS],
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::mass_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

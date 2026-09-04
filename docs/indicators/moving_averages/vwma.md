@@ -9,7 +9,7 @@ Moving average weighted by trading volume so that high-volume bars have more inf
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::vwma::indicator;
+    use tulip_rs::indicators::vwma::{Vwma, TIndicatorState, Indicator};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
@@ -17,14 +17,14 @@ Moving average weighted by trading volume so that high-volume bars have more inf
                       3798000.0, 3936200.0, 4732000.0, 4841300.0, 3915300.0_f64];
 
     let inputs = [close.as_slice(), volume.as_slice()];
-    let (outputs, _state) = indicator(&inputs, &[14.0], None).unwrap();
+    let (outputs, _state) = Vwma::indicator(&inputs, &[14.0], None).unwrap();
     println!("VWMA(14): {:?}", outputs[0]);
 
     // State continuation
     let partial_close  = close[..8].to_vec();
     let partial_volume = volume[..8].to_vec();
     let inputs2 = [partial_close.as_slice(), partial_volume.as_slice()];
-    let (outputs2, mut state) = indicator(&inputs2, &[14.0], None).unwrap();
+    let (outputs2, mut state) = Vwma::indicator(&inputs2, &[14.0], None).unwrap();
     println!("Partial VWMA: {:?}", outputs2[0]);
 
     let new_close  = close[8..].to_vec();
@@ -132,7 +132,7 @@ Moving average weighted by trading volume so that high-volume bars have more inf
     ];
 
     let results = indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
-    for (i, asset_outputs) in results.0.iter().enumerate() {
+    for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
     ```
@@ -150,7 +150,7 @@ Moving average weighted by trading volume so that high-volume bars have more inf
     let opts: [&[f64; 1]; 4] = [&[5.0], &[10.0], &[14.0], &[20.0]];
 
     let results = indicator_by_options::<4>(&[close.as_slice(), volume.as_slice()], &opts, None).unwrap();
-    for (i, opt_outputs) in results.0.iter().enumerate() {
+    for (i, opt_outputs) in results.iter().enumerate() {
         println!("Period set {}: {:?}", i + 1, opt_outputs[0]);
     }
     ```

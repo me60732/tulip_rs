@@ -9,7 +9,7 @@ Band-pass filters price by first applying a high-pass filter to remove trend and
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::roofingfilter::indicator;
+    use tulip_rs::indicators::roofingfilter::{RoofingFilter, Indicator, TIndicatorState};
 
     let close = vec![
         81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
@@ -19,7 +19,7 @@ Band-pass filters price by first applying a high-pass filter to remove trend and
     ];
 
     // Options: [ss_period, hp_period]
-    let (outputs, _state) = indicator(&[close.as_slice()], &[10.0, 40.0], None).unwrap();
+    let (outputs, _state) = RoofingFilter::indicator(&[close.as_slice()], &[10.0, 40.0], None).unwrap();
     println!("Roofing Filter: {:?}", outputs[0]);
 
     // State continuation
@@ -110,7 +110,7 @@ Band-pass filters price by first applying a high-pass filter to remove trend and
     `roofingfilter` exposes 1 optional output: `highpass`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::roofingfilter::indicator;
+    use tulip_rs::indicators::roofingfilter::{RoofingFilter, Indicator, TIndicatorState};
 
     let close = vec![
         81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
@@ -120,7 +120,7 @@ Band-pass filters price by first applying a high-pass filter to remove trend and
     ];
 
     let mask = [true]; // one per optional output
-    let (outputs, _state) = indicator(&[close.as_slice()], &[10.0, 40.0], Some(&mask)).unwrap();
+    let (outputs, _state) = RoofingFilter::indicator(&[close.as_slice()], &[10.0, 40.0], Some(&mask)).unwrap();
 
     let roofing  = &outputs[0]; // roofing (primary)
     let highpass = &outputs[1]; // highpass (optional — requested)
@@ -175,7 +175,7 @@ Band-pass filters price by first applying a high-pass filter to remove trend and
     **By assets** — same options applied to 4 assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::roofingfilter::indicator_by_assets;
+    use tulip_rs::indicators::roofingfilter::{RoofingFilter, Indicator, TIndicatorState};
 
     let a1 = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
     let a2 = vec![86.59, 86.06, 87.87, 88.00, 88.61, 88.15, 87.84, 88.99, 89.55, 89.36_f64];
@@ -189,8 +189,8 @@ Band-pass filters price by first applying a high-pass filter to remove trend and
         &[a4.as_slice()],
     ];
 
-    let results = indicator_by_assets::<4>(&inputs, &[10.0, 40.0], None).unwrap();
-    for (i, asset_outputs) in results.0.iter().enumerate() {
+    let results = RoofingFilter::indicator_by_assets::<4>(&inputs, &[10.0, 40.0], None).unwrap();
+    for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
     ```
@@ -198,7 +198,7 @@ Band-pass filters price by first applying a high-pass filter to remove trend and
     **By options** — same asset, 4 different option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::roofingfilter::indicator_by_options;
+    use tulip_rs::indicators::roofingfilter::{RoofingFilter, Indicator, TIndicatorState};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
@@ -210,8 +210,8 @@ Band-pass filters price by first applying a high-pass filter to remove trend and
         &[20.0, 60.0],
     ];
 
-    let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
-    for (i, opt_outputs) in results.0.iter().enumerate() {
+    let results = RoofingFilter::indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
+    for (i, opt_outputs) in results.iter().enumerate() {
         println!("Option set {}: {:?}", i + 1, opt_outputs[0]);
     }
     ```

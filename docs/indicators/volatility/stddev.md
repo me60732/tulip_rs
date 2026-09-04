@@ -9,16 +9,20 @@ Rolling standard deviation of the price series over `period` bars.
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::stddev::indicator;
+    use tulip_rs::indicators::stddev::{StdDev, Indicator, TIndicatorState};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
-    let (outputs, mut state) = indicator(&[close.as_slice()], &[20.0], None).unwrap();
+    let (outputs, mut state) = StdDev::indicator(&[close.as_slice()], &[20.0], None).unwrap();
     println!("{:?}", outputs[0]); // StdDev values
 
     // State continuation — feed new bars without reprocessing history
-    let new_close = vec![85.10, 85.72_f64];
+    let partial = close[..8].to_vec();
+    let (outputs2, mut state) = StdDev::indicator(&[partial.as_slice()], &[20.0], None).unwrap();
+    println!("{:?}", outputs2[0]);
+
+    let new_close = vec![85.53_f64];
     let continued = state.batch_indicator(&[new_close.as_slice()], None).unwrap();
     println!("{:?}", continued[0]);
     ```
@@ -87,13 +91,13 @@ Rolling standard deviation of the price series over `period` bars.
     `stddev` exposes 1 optional output: `"sma"`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::stddev::indicator;
+    use tulip_rs::indicators::stddev::{StdDev, Indicator, TIndicatorState};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
     let mask = [true]; // request sma
-    let (outputs, _state) = indicator(&[close.as_slice()], &[5.0], Some(&mask)).unwrap();
+    let (outputs, _state) = StdDev::indicator(&[close.as_slice()], &[5.0], Some(&mask)).unwrap();
 
     let stddev = &outputs[0]; // stddev (primary)
     let sma    = &outputs[1]; // sma    (optional — requested)

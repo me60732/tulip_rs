@@ -1,8 +1,9 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_test::c_bindings::{ti_min, ti_min_start};
+    use tulip_rs::indicator_types::IndicatorByOptions;
     use tulip_rs::indicators::min::{Indicator, Min, TIndicatorState};
+    use tulip_test::c_bindings::{ti_min, ti_min_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
     const CHUNK_SIZE: usize = 100;
@@ -155,8 +156,8 @@ mod tests {
                 assert_eq!(ret, 0, "ti_min returned error code {}", ret);
 
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) =
-                    Min::indicator(&inputs_rust, &options, None).expect("Rust MIN indicator failed");
+                let (outputs, _) = Min::indicator(&inputs_rust, &options, None)
+                    .expect("Rust MIN indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -216,8 +217,6 @@ mod tests {
 
     #[test]
     fn test_min_simd_by_assets_vs_regular_database() {
-        use tulip_rs::indicators::min::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -238,15 +237,15 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = Min::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets MIN indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
             for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_close.as_slice()];
-                let (regular_results, _) =
-                    Min::indicator(&stock_inputs, &options, None).expect("Regular MIN indicator failed");
+                let (regular_results, _) = Min::indicator(&stock_inputs, &options, None)
+                    .expect("Regular MIN indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];
@@ -381,8 +380,6 @@ mod tests {
     }
     #[test]
     fn test_min_simd_options_vs_regular_database() {
-        use tulip_rs::indicators::min::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -401,7 +398,7 @@ mod tests {
                 &OPTIONS_LIST[6],
                 &OPTIONS_LIST[7],
             ];
-            let (all_simd_results, _) = indicator_by_options::<8>(&inputs, &options_8, None)
+            let (all_simd_results, _) = Min::indicator_by_options::<8>(&inputs, &options_8, None)
                 .expect("SIMD MIN 4-wide failed");
 
             // Compare each SIMD result with regular indicator

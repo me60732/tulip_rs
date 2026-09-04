@@ -1,5 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::stoch::{Stoch, Indicator, TIndicatorState, IndicatorState};
+use tulip_rs::indicators::stoch::{
+    Indicator, IndicatorByOptions, IndicatorState, Stoch, TIndicatorState,
+};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_stoch, ti_stoch_start};
@@ -358,8 +360,8 @@ fn bench_rust_stoch_from_state(c: &mut Criterion) {
                         &close_vec[..min_data],
                     ];
 
-                    let (_, mut state) =
-                        Stoch::indicator(&chunk_inputs, &options, None).expect("STOCH indicator failed");
+                    let (_, mut state) = Stoch::indicator(&chunk_inputs, &options, None)
+                        .expect("STOCH indicator failed");
 
                     // Chunks
                     let mut high_chunks = high_vec[min_data..].chunks_exact(CHUNK_SIZE);
@@ -402,8 +404,8 @@ fn bench_rust_stoch_from_state(c: &mut Criterion) {
                     &low_vec[low_vec.len() - 1..],
                     &close_vec[close_vec.len() - 1..],
                 ];
-                let (_, mut state) =
-                    Stoch::indicator(&new_inputs, &options, None).expect("Rust STOCH indicator failed");
+                let (_, mut state) = Stoch::indicator(&new_inputs, &options, None)
+                    .expect("Rust STOCH indicator failed");
 
                 let mut group = c.benchmark_group(format!(
                     "Rust STOCH from state 1 bar {{ {}, {}, {} }}",
@@ -536,10 +538,8 @@ fn bench_rust_stoch_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = tulip_rs::indicators::stoch::indicator_by_assets::<4>(
-                        &inputs, &options, None,
-                    )
-                    .expect("Rust SIMD by assets STOCH indicator failed");
+                    let result = Stoch::indicator_by_assets::<4>(&inputs, &options, None)
+                        .expect("Rust SIMD by assets STOCH indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -576,10 +576,8 @@ fn bench_rust_stoch_simd_by_assets(c: &mut Criterion) {
                 ),
                 |b| {
                     b.iter(|| {
-                        let result = tulip_rs::indicators::stoch::indicator_by_assets::<4>(
-                            &inputs, &options, None,
-                        )
-                        .expect("Rust SIMD by assets STOCH indicator failed");
+                        let result = Stoch::indicator_by_assets::<4>(&inputs, &options, None)
+                            .expect("Rust SIMD by assets STOCH indicator failed");
                         black_box(&result);
                     });
                 },
@@ -612,10 +610,8 @@ fn bench_rust_stoch_simd_by_options(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result_4 = tulip_rs::indicators::stoch::indicator_by_options::<4>(
-                        &inputs, &options_4, None,
-                    )
-                    .expect("Rust SIMD STOCH indicator failed");
+                    let result_4 = Stoch::indicator_by_options::<4>(&inputs, &options_4, None)
+                        .expect("Rust SIMD STOCH indicator failed");
                     black_box(&result_4);
                 },
                 SAMPLE_SIZE,
@@ -641,10 +637,8 @@ fn bench_rust_stoch_simd_by_options(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust SIMD by options STOCH (4 lanes)", |b| {
             b.iter(|| {
-                let result = tulip_rs::indicators::stoch::indicator_by_options::<4>(
-                    &inputs, &options_4, None,
-                )
-                .expect("Rust SIMD STOCH indicator failed");
+                let result = Stoch::indicator_by_options::<4>(&inputs, &options_4, None)
+                    .expect("Rust SIMD STOCH indicator failed");
                 black_box(&result);
             });
         });

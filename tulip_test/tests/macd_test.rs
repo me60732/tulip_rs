@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::macd::{Macd, Indicator, TIndicatorState, indicator_by_assets, indicator_by_options};
+    use tulip_rs::indicators::macd::{Indicator, IndicatorByOptions, Macd, TIndicatorState};
     use tulip_test::c_bindings::{ti_ema, ti_ema_start, ti_macd, ti_macd_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -227,8 +227,8 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) =
-                    Macd::indicator(&inputs_rust, &options, None).expect("Rust MACD indicator failed");
+                let (outputs, _) = Macd::indicator(&inputs_rust, &options, None)
+                    .expect("Rust MACD indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -270,7 +270,11 @@ mod tests {
 
                     if !approx_eq!(f64, c_val, rust_val, epsilon = 1e-10) {
                         let from = if index > 10 { index - 10 } else { 0 };
-                        let to = if index < outputs[0].len() - 10 { index + 10 } else { outputs[0].len() };
+                        let to = if index < outputs[0].len() - 10 {
+                            index + 10
+                        } else {
+                            outputs[0].len()
+                        };
                         println!(
                             "MACD test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}",
                             index, &macd_output_vec_c[from..to], &outputs[0][from..to], options, stock_symbol
@@ -307,7 +311,11 @@ mod tests {
 
                     if !approx_eq!(f64, c_val, rust_val, epsilon = 1e-10) {
                         let from = if index > 10 { index - 10 } else { 0 };
-                        let to = if index < outputs[1].len() - 10 { index + 10 } else { outputs[1].len() };
+                        let to = if index < outputs[1].len() - 10 {
+                            index + 10
+                        } else {
+                            outputs[1].len()
+                        };
                         println!(
                             "SIGNAL test failed at index {}: \n\nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}",
                             index, &signal_output_vec_c[from..to], &outputs[1][from..to], options, stock_symbol
@@ -439,7 +447,6 @@ mod tests {
 
     #[test]
     fn test_macd_simd_vs_regular_database() {
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -462,7 +469,7 @@ mod tests {
             // Test without optional outputs
             {
                 // Get SIMD by assets result
-                let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+                let (simd_results, _) = Macd::indicator_by_assets::<4>(&inputs, &options, None)
                     .expect("SIMD by assets MACD indicator failed");
 
                 // Compare each SIMD result with regular indicator for each stock
@@ -532,8 +539,6 @@ mod tests {
 
     #[test]
     fn test_macd_simd_vs_regular_database_optional_outputs() {
-        
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -557,7 +562,7 @@ mod tests {
             {
                 // Get SIMD by assets result with optional outputs
                 let (simd_results_opt, _) =
-                    indicator_by_assets::<4>(&inputs, &options, Some(&[true, true]))
+                    Macd::indicator_by_assets::<4>(&inputs, &options, Some(&[true, true]))
                         .expect("SIMD by assets MACD indicator with optional outputs failed");
 
                 // Compare each SIMD result with regular indicator for each stock
@@ -959,8 +964,6 @@ mod tests {
 
     #[test]
     fn test_macd_simd_by_options_vs_regular_database() {
-        
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -975,12 +978,12 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Macd::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD MACD 4-wide failed");
 
             // Process remaining 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
-            let (simd_results_2, _) = indicator_by_options::<2>(&inputs, &options_2, None)
+            let (simd_results_2, _) = Macd::indicator_by_options::<2>(&inputs, &options_2, None)
                 .expect("SIMD MACD 2-wide failed");
 
             // Combine SIMD results
@@ -1061,7 +1064,6 @@ mod tests {
 
     #[test]
     fn test_macd_simd_by_options_vs_regular_database_optional_outputs() {
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -1080,13 +1082,13 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, _) =
-                indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
+                Macd::indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
                     .expect("SIMD MACD 4-wide with optional outputs failed");
 
             // Process remaining 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
             let (simd_results_2, _) =
-                indicator_by_options::<2>(&inputs, &options_2, optional_outputs)
+                Macd::indicator_by_options::<2>(&inputs, &options_2, optional_outputs)
                     .expect("SIMD MACD 2-wide with optional outputs failed");
 
             // Combine SIMD results
@@ -1249,5 +1251,4 @@ mod tests {
 
         println!("✓ All SIMD by options vs Regular MACD optional outputs database tests passed!");
     }
-
-    }
+}

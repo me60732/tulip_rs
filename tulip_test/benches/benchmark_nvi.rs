@@ -1,7 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::nvi::{
-    Nvi,  Indicator, indicator_by_assets, IndicatorState, TIndicatorState,
-};
+use tulip_rs::indicators::nvi::{Indicator, IndicatorState, Nvi, TIndicatorState};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_nvi, ti_nvi_start};
@@ -151,7 +149,8 @@ fn bench_rust_nvi(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust NVI", |b| {
             b.iter(|| {
-                let result = Nvi::indicator(&inputs, &OPTIONS, None).expect("Rust NVI indicator failed");
+                let result =
+                    Nvi::indicator(&inputs, &OPTIONS, None).expect("Rust NVI indicator failed");
                 black_box(&result);
             });
         });
@@ -179,8 +178,8 @@ fn bench_rust_nvi_from_state(c: &mut Criterion) {
                     // First chunk
                     let chunk_inputs = [&close_vec[..min_data], &volume_vec[..min_data]];
 
-                    let (_, mut state) =
-                        Nvi::indicator(&chunk_inputs, &OPTIONS, None).expect("NVI indicator failed");
+                    let (_, mut state) = Nvi::indicator(&chunk_inputs, &OPTIONS, None)
+                        .expect("NVI indicator failed");
 
                     // Chunks
                     let mut close_chunks = close_vec[min_data..].chunks_exact(CHUNK_SIZE);
@@ -374,7 +373,7 @@ fn bench_rust_nvi_simd_by_assets(c: &mut Criterion) {
         let mut timing = TimingMeasurements::new();
         timing.measure(
             || {
-                let result = indicator_by_assets::<4>(&inputs, &OPTIONS, None)
+                let result = Nvi::indicator_by_assets::<4>(&inputs, &OPTIONS, None)
                     .expect("Rust SIMD by assets NVI indicator failed");
                 black_box(&result);
             },
@@ -405,7 +404,7 @@ fn bench_rust_nvi_simd_by_assets(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust SIMD by assets NVI", |b| {
             b.iter(|| {
-                let result = indicator_by_assets::<4>(&inputs, &OPTIONS, None)
+                let result = Nvi::indicator_by_assets::<4>(&inputs, &OPTIONS, None)
                     .expect("Rust SIMD by assets NVI indicator failed");
                 black_box(&result);
             });

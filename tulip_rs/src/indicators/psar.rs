@@ -1,6 +1,9 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{TIndicatorState, Indicator, IndicatorResult, TState};
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
+
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -8,38 +11,6 @@ pub const INPUTS: usize = 2;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 2;
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::psar_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::psar_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::psar_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    /// See the parent module's [`super::indicator_by_options`] for full documentation.
-    pub use crate::indicators::simd_indicators::psar_simd::indicator_by_options as indicator;
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
@@ -69,11 +40,7 @@ impl TIndicatorState<2> for IndicatorState {
 
         let mut psar_line = crate::uninit_vec!(f64, inputs[0].len());
 
-        cycle_psar(
-            (&self.high, &self.low),
-            &mut psar_line,
-            &mut self.state
-        );
+        cycle_psar((&self.high, &self.low), &mut psar_line, &mut self.state);
         self.high.drain(..self.high.len() - 2);
         self.low.drain(..self.low.len() - 2);
         Ok(vec![psar_line])
@@ -117,7 +84,13 @@ impl State<Cold> {
             state: std::marker::PhantomData::<Warm>,
         }
     }
-    pub fn init_state(high: &[f64], low: &[f64], af_step: f64, max_af: f64, psar_line: &mut [f64] ) -> State<Warm> {
+    pub fn init_state(
+        high: &[f64],
+        low: &[f64],
+        af_step: f64,
+        max_af: f64,
+        psar_line: &mut [f64],
+    ) -> State<Warm> {
         let mut state = Self::new(high, low, af_step, max_af).into_warm();
         psar_line[0] = state.calc((high, low, 1));
         state
@@ -126,15 +99,18 @@ impl State<Cold> {
 impl TState for State<Warm> {
     type Inputs<'a> = (&'a [f64], &'a [f64], usize);
     type Outputs = f64;
-    
+
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        (high, low, i): Self::Inputs<'a>
-    ) -> f64 {
-        let (mut psar, mut extream, mut uptrend, mut accel, af_step, max_af) =
-            (self.psar, self.extream, self.uptrend, self.accel, self.af_step, self.max_af);
-    
+    fn calc<'a>(&mut self, (high, low, i): Self::Inputs<'a>) -> f64 {
+        let (mut psar, mut extream, mut uptrend, mut accel, af_step, max_af) = (
+            self.psar,
+            self.extream,
+            self.uptrend,
+            self.accel,
+            self.af_step,
+            self.max_af,
+        );
+
         // Use += for potential FMA optimization
         //psar += (extream - psar) * accel;
         psar = accel.mul_add(extream - psar, psar);
@@ -146,7 +122,7 @@ impl TState for State<Warm> {
             if psar > low[i - 1] {
                 psar = low[i - 1];
             }
-    
+
             // Combined condition for extreme and acceleration
             if high[i] > extream {
                 extream = high[i];
@@ -159,43 +135,46 @@ impl TState for State<Warm> {
             if psar < high[i - 1] {
                 psar = high[i - 1];
             }
-    
+
             if low[i] < extream {
                 extream = low[i];
                 accel = (accel + af_step).min(max_af);
             }
         }
-    
+
         if (uptrend && low[i] < psar) || (!uptrend && high[i] > psar) {
             uptrend = !uptrend;
             psar = extream;
             accel = af_step;
             extream = if uptrend { high[i] } else { low[i] };
         }
-    
+
         (self.psar, self.extream, self.uptrend, self.accel) = (psar, extream, uptrend, accel);
         psar
     }
     #[inline(always)]
-    unsafe fn calc_unchecked(
-        &mut self,
-        (high, low, i): (&[f64], &[f64], usize)
-    ) -> f64 {
-        let (mut psar, mut extream, mut accel, af_step, max_af, mut uptrend) =
-            (self.psar, self.extream, self.accel, self.af_step, self.max_af, self.uptrend);
+    unsafe fn calc_unchecked(&mut self, (high, low, i): (&[f64], &[f64], usize)) -> f64 {
+        let (mut psar, mut extream, mut accel, af_step, max_af, mut uptrend) = (
+            self.psar,
+            self.extream,
+            self.accel,
+            self.af_step,
+            self.max_af,
+            self.uptrend,
+        );
         let (h, prev_high, old_high, l, prev_low, old_low) = {
-            let prev = i-1;
-            let before = i-2;
+            let prev = i - 1;
+            let before = i - 2;
             (
                 *high.get_unchecked(i),
                 *high.get_unchecked(prev),
                 *high.get_unchecked(before),
                 *low.get_unchecked(i),
                 *low.get_unchecked(prev),
-                *low.get_unchecked(before)
+                *low.get_unchecked(before),
             )
         };
-    
+
         //psar += (extream - psar) * accel;
         psar = accel.mul_add(extream - psar, psar);
 
@@ -206,7 +185,7 @@ impl TState for State<Warm> {
             if psar > prev_low {
                 psar = prev_low;
             }
-    
+
             if h > extream {
                 extream = h;
                 accel = (accel + af_step).min(max_af);
@@ -218,20 +197,20 @@ impl TState for State<Warm> {
             if psar < prev_high {
                 psar = prev_high;
             }
-    
+
             if l < extream {
                 extream = l;
                 accel = (accel + af_step).min(max_af);
             }
         }
-    
+
         if (uptrend && l < psar) || (!uptrend && h > psar) {
             uptrend = !uptrend;
             psar = extream;
             accel = af_step;
             extream = if uptrend { h } else { l };
         }
-    
+
         (self.psar, self.extream, self.accel, self.uptrend) = (psar, extream, accel, uptrend);
         psar
     }
@@ -243,14 +222,8 @@ pub(crate) fn validate_options(options: &[f64; OPTIONS]) -> Result<(), Indicator
     Ok(())
 }
 
-
 /// Iterates over the input data and applies the calc function.
-fn cycle_psar(
-    (high, low): (&[f64], &[f64]),
-    psar_line: &mut [f64],
-    state: &mut State<Warm>,
-) {
-
+fn cycle_psar((high, low): (&[f64], &[f64]), psar_line: &mut [f64], state: &mut State<Warm>) {
     for (j, i) in (2..high.len()).enumerate() {
         unsafe {
             *psar_line.get_unchecked_mut(j) = state.calc_unchecked((high, low, i));
@@ -281,7 +254,7 @@ impl Indicator<INPUTS, OPTIONS> for Psar {
     fn min_data(_options: &[f64; OPTIONS]) -> usize {
         2
     }
-    
+
     fn indicator(
         inputs: &[&[f64]; INPUTS],
         options: &[f64; OPTIONS],
@@ -290,29 +263,49 @@ impl Indicator<INPUTS, OPTIONS> for Psar {
         validate_options(options)?;
         let af_step = options[0];
         let max_af = options[1];
-    
+
         validate_inputs(inputs, Self::min_data(options))?;
-    
+
         let high = inputs[0];
         let low = inputs[1];
-    
-        
+
         let mut psar_line = {
             let capacity = Self::output_length(high.len(), options);
             crate::uninit_vec!(f64, capacity)
         };
 
         let mut state = State::init_state(high, low, af_step, max_af, &mut psar_line);
-        
-        cycle_psar(
-            (high, low),
-            &mut psar_line[1..],
-            &mut state,
-        );
-    
-        Ok((
-            vec![psar_line],
-            IndicatorState::new(state, high, low),
-        ))
+
+        cycle_psar((high, low), &mut psar_line[1..], &mut state);
+
+        Ok((vec![psar_line], IndicatorState::new(state, high, low)))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::psar_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Psar {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::psar_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

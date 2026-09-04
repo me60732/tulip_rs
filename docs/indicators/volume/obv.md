@@ -9,7 +9,7 @@ Cumulative volume indicator: adds volume on up-days and subtracts on down-days. 
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::obv::indicator;
+    use tulip_rs::indicators::obv::{Obv, Indicator, TIndicatorState};
 
     let close  = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                       83.15, 82.84, 83.99, 84.55, 84.36_f64];
@@ -17,7 +17,7 @@ Cumulative volume indicator: adds volume on up-days and subtracts on down-days. 
                       900.0, 1500.0, 1800.0, 1000.0, 1700.0_f64];
 
     let inputs = [close.as_slice(), volume.as_slice()];
-    let (outputs, mut state) = indicator(&inputs, &[], None).unwrap();
+    let (outputs, mut state) = Obv::indicator(&inputs, &[], None).unwrap();
     println!("{:?}", outputs[0]); // OBV values
 
     // State continuation — feed new bars without reprocessing history
@@ -97,7 +97,7 @@ Cumulative volume indicator: adds volume on up-days and subtracts on down-days. 
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::obv::indicator_by_assets;
+    use tulip_rs::indicators::obv::{Obv, Indicator, TIndicatorState};
 
     let inputs: [&[&[f64]; 2]; 4] = [
         &[c1.as_slice(), v1.as_slice()],
@@ -105,7 +105,7 @@ Cumulative volume indicator: adds volume on up-days and subtracts on down-days. 
         &[c3.as_slice(), v3.as_slice()],
         &[c4.as_slice(), v4.as_slice()],
     ];
-    let results = indicator_by_assets::<4>(&inputs, &[], None).unwrap();
+    let results = obv::indicator_by_assets::<4>(&inputs, &[], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }

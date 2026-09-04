@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
+    use tulip_rs::indicator_types::IndicatorByOptions;
     use tulip_rs::indicators::aroonosc::{AroonOsc, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_aroon, ti_aroon_start, ti_aroonosc, ti_aroonosc_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -80,8 +81,8 @@ mod tests {
 
             // Run the Rust implementation
             let inputs_rust = [high.as_slice(), low.as_slice()];
-            let (outputs, _) =
-                AroonOsc::indicator(&inputs_rust, &options, None).expect("Rust AROONOSC AroonOsc::indicator failed");
+            let (outputs, _) = AroonOsc::indicator(&inputs_rust, &options, None)
+                .expect("Rust AROONOSC AroonOsc::indicator failed");
 
             let output_len_rust = outputs[0].len();
             // Compare the outputs in reverse for the length of the Rust outputs
@@ -252,8 +253,9 @@ mod tests {
                     let low_vec = low[..min_data_val].to_vec();
                     let chunk_inputs = [high_vec.as_slice(), low_vec.as_slice()];
 
-                    let (first_outputs, mut state) = AroonOsc::indicator(&chunk_inputs, &options, None)
-                        .expect("Failed to run AROONOSC AroonOsc::indicator on first chunk");
+                    let (first_outputs, mut state) =
+                        AroonOsc::indicator(&chunk_inputs, &options, None)
+                            .expect("Failed to run AROONOSC AroonOsc::indicator on first chunk");
                     batch_full_output.extend_from_slice(&first_outputs[0]);
 
                     // Process remaining data in chunks using state
@@ -324,8 +326,9 @@ mod tests {
 
             // Get Rust AROONOSC with both optional outputs enabled
             let inputs_rust = [high.as_slice(), low.as_slice()];
-            let (rust_outputs, _) = AroonOsc::indicator(&inputs_rust, &options, Some(&[true, true]))
-                .expect("Rust AROONOSC AroonOsc::indicator with optional outputs failed");
+            let (rust_outputs, _) =
+                AroonOsc::indicator(&inputs_rust, &options, Some(&[true, true]))
+                    .expect("Rust AROONOSC AroonOsc::indicator with optional outputs failed");
 
             let rust_aroon_up = &rust_outputs[2]; // aroon_up is at index 1
             let rust_aroon_down = &rust_outputs[1]; // aroon_down is at index 2
@@ -451,8 +454,9 @@ mod tests {
 
                 // Get Rust AROONOSC with both optional outputs enabled
                 let inputs_rust = [high.as_slice(), low.as_slice()];
-                let (rust_outputs, _) = AroonOsc::indicator(&inputs_rust, &options, Some(&[true, true]))
-                    .expect("Rust AROONOSC AroonOsc::indicator with optional outputs failed");
+                let (rust_outputs, _) =
+                    AroonOsc::indicator(&inputs_rust, &options, Some(&[true, true]))
+                        .expect("Rust AROONOSC AroonOsc::indicator with optional outputs failed");
 
                 let rust_aroon_up = &rust_outputs[1]; // aroon_up is at index 1
                 let rust_aroon_down = &rust_outputs[2]; // aroon_down is at index 2
@@ -564,8 +568,6 @@ mod tests {
 
     #[test]
     fn test_aroonosc_simd_vs_regular_database() {
-        use tulip_rs::indicators::aroonosc::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -591,7 +593,7 @@ mod tests {
             // Test without optional outputs
             {
                 // Get SIMD by assets result
-                let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+                let (simd_results, _) = AroonOsc::indicator_by_assets::<4>(&inputs, &options, None)
                     .expect("SIMD by assets AROONOSC AroonOsc::indicator failed");
 
                 // Compare each SIMD result with regular AroonOsc::indicator for each stock
@@ -661,8 +663,6 @@ mod tests {
 
     #[test]
     fn test_aroonosc_simd_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::aroonosc::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -689,7 +689,7 @@ mod tests {
             {
                 // Get SIMD by assets result with optional outputs
                 let (simd_results, _) =
-                    indicator_by_assets::<4>(&inputs, &options, Some(&[true, true]))
+                    AroonOsc::indicator_by_assets::<4>(&inputs, &options, Some(&[true, true]))
                         .expect("SIMD by assets AROONOSC AroonOsc::indicator failed");
 
                 // Compare each SIMD result with regular AroonOsc::indicator for each stock
@@ -797,8 +797,6 @@ mod tests {
 
     #[test]
     fn test_aroonosc_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::aroonosc::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -814,7 +812,7 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4_first, _) =
-               indicator_by_options::<4>(&inputs, &options_4_first, None)
+                AroonOsc::indicator_by_options::<4>(&inputs, &options_4_first, None)
                     .expect("SIMD AROONOSC 4-wide first failed");
 
             // Process second 4 options with 4-wide SIMD
@@ -825,7 +823,7 @@ mod tests {
                 &OPTIONS_LIST[7],
             ];
             let (simd_results_4_second, _) =
-                indicator_by_options::<4>(&inputs, &options_4_second, None)
+                AroonOsc::indicator_by_options::<4>(&inputs, &options_4_second, None)
                     .expect("SIMD AROONOSC 4-wide second failed");
 
             // Combine all SIMD results
@@ -835,8 +833,8 @@ mod tests {
             // Compare each SIMD result with regular AroonOsc::indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular AroonOsc::indicator result
-                let (regular_results, _) =
-                    AroonOsc::indicator(&inputs, options, None).expect("Regular AROONOSC AroonOsc::indicator failed");
+                let (regular_results, _) = AroonOsc::indicator(&inputs, options, None)
+                    .expect("Regular AROONOSC AroonOsc::indicator failed");
 
                 let simd_result = &all_simd_results[idx];
                 let regular_result = &regular_results;
@@ -889,8 +887,6 @@ mod tests {
 
     #[test]
     fn test_aroonosc_simd_by_options_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::aroonosc::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -906,7 +902,7 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4_first, _) =
-                indicator_by_options::<4>(&inputs, &options_4_first, Some(&[true, true]))
+                AroonOsc::indicator_by_options::<4>(&inputs, &options_4_first, Some(&[true, true]))
                     .expect("SIMD AROONOSC 4-wide first failed");
 
             // Process second 4 options with 4-wide SIMD
@@ -916,9 +912,12 @@ mod tests {
                 &OPTIONS_LIST[6],
                 &OPTIONS_LIST[7],
             ];
-            let (simd_results_4_second, _) =
-                indicator_by_options::<4>(&inputs, &options_4_second, Some(&[true, true]))
-                    .expect("SIMD AROONOSC 4-wide second failed");
+            let (simd_results_4_second, _) = AroonOsc::indicator_by_options::<4>(
+                &inputs,
+                &options_4_second,
+                Some(&[true, true]),
+            )
+            .expect("SIMD AROONOSC 4-wide second failed");
 
             // Combine all SIMD results
             let mut all_simd_results = simd_results_4_first;
@@ -927,8 +926,9 @@ mod tests {
             // Compare each SIMD result with regular AroonOsc::indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular AroonOsc::indicator result with optional outputs
-                let (regular_results, _) = AroonOsc::indicator(&inputs, options, Some(&[true, true]))
-                    .expect("Regular AROONOSC AroonOsc::indicator failed");
+                let (regular_results, _) =
+                    AroonOsc::indicator(&inputs, options, Some(&[true, true]))
+                        .expect("Regular AROONOSC AroonOsc::indicator failed");
 
                 let simd_result = &all_simd_results[idx];
                 let regular_result = &regular_results;
@@ -1016,5 +1016,4 @@ mod tests {
     }
 
     //add test code here
-
-    }
+}

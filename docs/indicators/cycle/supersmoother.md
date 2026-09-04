@@ -9,7 +9,7 @@ A two-pole Butterworth filter with no phase lag that provides smoother output th
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::supersmoother::indicator;
+    use tulip_rs::indicators::supersmoother::{SuperSmoother, Indicator, TIndicatorState};
 
     let close = vec![
         81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
@@ -18,7 +18,7 @@ A two-pole Butterworth filter with no phase lag that provides smoother output th
         90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20_f64,
     ];
 
-    let (outputs, _state) = indicator(&[close.as_slice()], &[10.0], None).unwrap();
+    let (outputs, _state) = SuperSmoother::indicator(&[close.as_slice()], &[10.0], None).unwrap();
     println!("Super Smoother(10): {:?}", outputs[0]);
 
     // State continuation
@@ -108,7 +108,7 @@ A two-pole Butterworth filter with no phase lag that provides smoother output th
     **By assets** — same period applied to 4 assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::supersmoother::indicator_by_assets;
+    use tulip_rs::indicators::supersmoother::{SuperSmoother, Indicator, TIndicatorState};
 
     let a1 = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
     let a2 = vec![86.59, 86.06, 87.87, 88.00, 88.61, 88.15, 87.84, 88.99, 89.55, 89.36_f64];
@@ -122,8 +122,8 @@ A two-pole Butterworth filter with no phase lag that provides smoother output th
         &[a4.as_slice()],
     ];
 
-    let results = indicator_by_assets::<4>(&inputs, &[10.0], None).unwrap();
-    for (i, asset_outputs) in results.0.iter().enumerate() {
+    let results = SuperSmoother::indicator_by_assets::<4>(&inputs, &[10.0], None).unwrap();
+    for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
     ```
@@ -131,15 +131,15 @@ A two-pole Butterworth filter with no phase lag that provides smoother output th
     **By options** — same asset, 4 different periods in parallel:
 
     ```rust
-    use tulip_rs::indicators::supersmoother::indicator_by_options;
+    use tulip_rs::indicators::supersmoother::{SuperSmoother, Indicator, TIndicatorState};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
     let opts: [&[f64; 1]; 4] = [&[5.0], &[10.0], &[14.0], &[20.0]];
 
-    let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
-    for (i, opt_outputs) in results.0.iter().enumerate() {
+    let results = SuperSmoother::indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
+    for (i, opt_outputs) in results.iter().enumerate() {
         println!("Period set {}: {:?}", i + 1, opt_outputs[0]);
     }
     ```

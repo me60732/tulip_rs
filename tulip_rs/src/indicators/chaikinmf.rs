@@ -1,30 +1,18 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
+
 use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::simd::Simd;
+
 /// Number of input price series required by this indicator.
 pub const INPUTS: usize = 4;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
-
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::chaikinmf_simd::indicator_by_assets;
-
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::chaikinmf_simd::indicator_by_options;
-
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    pub use crate::indicators::simd_indicators::chaikinmf_simd::indicator_by_assets as indicator;
-}
-
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    pub use crate::indicators::simd_indicators::chaikinmf_simd::indicator_by_options as indicator;
-}
 
 impl TIndicatorState<4> for IndicatorState {
     /// Runs the Chaikin Money Flow calculation over a new batch of input bars,
@@ -87,23 +75,23 @@ impl State<Cold> {
     }
 
     pub fn init_state(inputs: (&[f64], &[f64], &[f64], &[f64]), period: usize) -> State<Warm> {
-            let (high, low, close, volume) = inputs;
-            let mut buffer = Buffer::new(period);
-            let mut sums = Simd::splat(0.0);
-            let mut i = 0;
-            while !buffer.is_full() {
-                let mfv = calc_mfv((high[i], low[i], close[i], volume[i]));
-                let values = Simd::from_array([mfv, volume[i]]);
-                buffer.push(values);
-                sums += values;
-    
-                i += 1;
-            }
-            State {
-                buffer: buffer.into_full(),
-                sums,
-            }
+        let (high, low, close, volume) = inputs;
+        let mut buffer = Buffer::new(period);
+        let mut sums = Simd::splat(0.0);
+        let mut i = 0;
+        while !buffer.is_full() {
+            let mfv = calc_mfv((high[i], low[i], close[i], volume[i]));
+            let values = Simd::from_array([mfv, volume[i]]);
+            buffer.push(values);
+            sums += values;
+
+            i += 1;
         }
+        State {
+            buffer: buffer.into_full(),
+            sums,
+        }
+    }
 }
 
 impl TState for State<Warm> {
@@ -198,5 +186,32 @@ impl Indicator<INPUTS, OPTIONS> for ChaikinMf {
         );
 
         Ok((vec![cmf_line], state))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::chaikinmf_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for ChaikinMf {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::chaikinmf_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

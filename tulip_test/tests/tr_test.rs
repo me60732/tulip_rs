@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::tr::{Indicator, TIndicatorState, Tr, indicator_by_assets};
+    use tulip_rs::indicators::tr::{Indicator, TIndicatorState, Tr};
     use tulip_test::c_bindings::{ti_tr, ti_tr_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -64,7 +64,8 @@ mod tests {
 
         // Run the Rust implementation
         let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-        let (outputs, _) = Tr::indicator(&inputs_rust, &[], None).expect("Rust TR indicator failed");
+        let (outputs, _) =
+            Tr::indicator(&inputs_rust, &[], None).expect("Rust TR indicator failed");
 
         let output_len_rust = outputs[0].len();
 
@@ -145,7 +146,8 @@ mod tests {
             assert_eq!(ret, 0, "ti_tr returned error code {}", ret);
 
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-            let (outputs, _) = Tr::indicator(&inputs_rust, &[], None).expect("Rust TR indicator failed");
+            let (outputs, _) =
+                Tr::indicator(&inputs_rust, &[], None).expect("Rust TR indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -319,8 +321,8 @@ mod tests {
         let options = [];
 
         // Get SIMD by assets result
-        let (simd_results, _) =
-            indicator_by_assets::<4>(&inputs, &options, None).expect("SIMD by assets TR indicator failed");
+        let (simd_results, _) = Tr::indicator_by_assets::<4>(&inputs, &options, None)
+            .expect("SIMD by assets TR indicator failed");
 
         // Compare each SIMD result with regular indicator for each stock
         for (stock_idx, (stock_symbol, stock_high, stock_low, stock_close)) in

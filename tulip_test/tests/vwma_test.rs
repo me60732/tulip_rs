@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::vwma::{Vwma, Indicator, TIndicatorState};
+    use tulip_rs::indicator_types::IndicatorByOptions;
+    use tulip_rs::indicators::vwma::{Indicator, TIndicatorState, Vwma};
     use tulip_test::c_bindings::{ti_vwma, ti_vwma_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
     const EPSILON: f64 = 1e-10;
@@ -145,8 +146,8 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [close.as_slice(), volume.as_slice()];
-                let (outputs, _) =
-                    Vwma::indicator(&inputs_rust, &options, None).expect("Rust VWMA indicator failed");
+                let (outputs, _) = Vwma::indicator(&inputs_rust, &options, None)
+                    .expect("Rust VWMA indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -212,8 +213,8 @@ mod tests {
                 let inputs_rust = [close.as_slice(), volume.as_slice()];
 
                 // Get full output from processing all data at once
-                let (full_outputs, _) =
-                    Vwma::indicator(&inputs_rust, &options, None).expect("Rust VWMA indicator failed");
+                let (full_outputs, _) = Vwma::indicator(&inputs_rust, &options, None)
+                    .expect("Rust VWMA indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
@@ -225,8 +226,8 @@ mod tests {
                 let volume_vec = volume[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice(), volume_vec.as_slice()];
 
-                let (first_outputs, mut state) =
-                    Vwma::indicator(&chunk_inputs, &options, None).expect("Rust VWMA indicator failed");
+                let (first_outputs, mut state) = Vwma::indicator(&chunk_inputs, &options, None)
+                    .expect("Rust VWMA indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
                 // Process remaining data in chunks
@@ -291,8 +292,6 @@ mod tests {
 
     #[test]
     fn test_vwma_simd_by_assets() {
-        use tulip_rs::indicators::vwma::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -332,7 +331,7 @@ mod tests {
             }
 
             // Run SIMD by assets implementation
-            let (simd_outputs, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_outputs, _) = Vwma::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets VWMA indicator failed");
 
             // Compare with individual Rust implementations
@@ -391,8 +390,6 @@ mod tests {
     // SIMD-by-options test for VWMA (compare SIMD to regular for all options)
     #[test]
     fn test_vwma_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::vwma::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -407,12 +404,12 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Vwma::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD VWMA 4-wide failed");
 
             // Process remaining 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
-            let (simd_results_2, _) = indicator_by_options::<2>(&inputs, &options_2, None)
+            let (simd_results_2, _) = Vwma::indicator_by_options::<2>(&inputs, &options_2, None)
                 .expect("SIMD VWMA 2-wide failed");
 
             // Combine SIMD results
@@ -474,5 +471,4 @@ mod tests {
             }
         }
     }
-
-    }
+}

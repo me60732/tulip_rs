@@ -1,5 +1,5 @@
 use tulip_rs::indicators::supersmoother::{
-    indicator_by_assets, indicator_by_options, Indicator, SuperSmoother, TIndicatorState,
+    Indicator, IndicatorByOptions, SuperSmoother, TIndicatorState,
 };
 
 // 80 bars of price data (close prices)
@@ -73,10 +73,11 @@ fn main() {
     let asset3: [&[f64]; 1] = [close3.as_slice()];
     let inputs_4: [&[&[f64]; 1]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-    let (simd_asset_outputs, _) = match indicator_by_assets::<4>(&inputs_4, &options, None) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (simd_asset_outputs, _) =
+        match SuperSmoother::indicator_by_assets::<4>(&inputs_4, &options, None) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
     for (i, asset_out) in simd_asset_outputs.iter().enumerate() {
         let out = &asset_out[0];
         println!(
@@ -94,10 +95,11 @@ fn main() {
     //   period=20 → min_data=21 → 60 output values
     let options_4 = [&[5.0f64], &[10.0], &[15.0], &[20.0]];
 
-    let (simd_option_outputs, _) = match indicator_by_options::<4>(&inputs, &options_4, None) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (simd_option_outputs, _) =
+        match SuperSmoother::indicator_by_options::<4>(&inputs, &options_4, None) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
     for (i, opts) in options_4.iter().enumerate() {
         let out = &simd_option_outputs[i][0];
         println!(

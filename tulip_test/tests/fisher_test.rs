@@ -1,9 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::fisher::{
-        indicator_by_assets, indicator_by_options, Fisher, Indicator, TIndicatorState,
-    };
+    use tulip_rs::indicators::fisher::{Fisher, Indicator, IndicatorByOptions, TIndicatorState};
     use tulip_test::c_bindings::{ti_fisher, ti_fisher_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
     const EPSILION: f64 = 1e-12;
@@ -450,12 +448,12 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Fisher::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD Fisher 4-wide failed");
 
             // Process remaining 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
-            let (simd_results_2, _) = indicator_by_options::<2>(&inputs, &options_2, None)
+            let (simd_results_2, _) = Fisher::indicator_by_options::<2>(&inputs, &options_2, None)
                 .expect("SIMD Fisher 2-wide failed");
 
             // Combine all SIMD results
@@ -582,7 +580,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = Fisher::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets Fisher indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -727,7 +725,7 @@ mod tests {
             ];
 
             let (simd_first_results, simd_states) =
-                indicator_by_options::<4>(&first_1000_slice_inputs, &options_4, None)
+                Fisher::indicator_by_options::<4>(&first_1000_slice_inputs, &options_4, None)
                     .expect("SIMD Fisher first 1000 rows failed");
 
             // Process remainder using state.batch_indicator for each option

@@ -1,9 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use tulip_rs::indicator_types::{Indicator, TIndicatorState};
-    use tulip_rs::indicators::cybercycle::{
-        indicator_by_assets, indicator_by_options, multiplier, Cybercycle,
-    };
+    use tulip_rs::indicator_types::{Indicator, IndicatorByOptions, TIndicatorState};
+    use tulip_rs::indicators::cybercycle::{multiplier, Cybercycle};
     use tulip_rs::types::IndicatorError;
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -26,7 +24,11 @@ mod tests {
         assert_eq!(Cybercycle::min_data(&[0.05]), 7, "min_data must be 7");
 
         // output_length = data_len - 6
-        assert_eq!(Cybercycle::output_length(7, &[0.07]), 1, "Cybercycle::output_length(7) must be 1");
+        assert_eq!(
+            Cybercycle::output_length(7, &[0.07]),
+            1,
+            "Cybercycle::output_length(7) must be 1"
+        );
         assert_eq!(
             Cybercycle::output_length(100, &[0.07]),
             94,
@@ -87,8 +89,8 @@ mod tests {
             let close = get_close_array(stock_data);
             let n = close.len();
             for options in OPTIONS_LIST {
-                let (out, _) =
-                    Cybercycle::indicator(&[close.as_slice()], &options, None).expect("indicator failed");
+                let (out, _) = Cybercycle::indicator(&[close.as_slice()], &options, None)
+                    .expect("indicator failed");
                 assert_eq!(
                     out[0].len(),
                     Cybercycle::output_length(n, &options),
@@ -111,7 +113,8 @@ mod tests {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
             for options in OPTIONS_LIST {
-                let (out, _) = Cybercycle::indicator(&inputs, &options, None).expect("CyberCycle failed");
+                let (out, _) =
+                    Cybercycle::indicator(&inputs, &options, None).expect("CyberCycle failed");
                 for (i, &v) in out[0].iter().enumerate() {
                     assert!(
                         v.is_finite(),
@@ -134,8 +137,8 @@ mod tests {
         for (stock_symbol, stock_data) in data {
             let close = get_close_array(stock_data);
             for options in OPTIONS_LIST {
-                let (out, _) =
-                    Cybercycle::indicator(&[close.as_slice()], &options, Some(&[true])).expect("failed");
+                let (out, _) = Cybercycle::indicator(&[close.as_slice()], &options, Some(&[true]))
+                    .expect("failed");
                 let cycle = &out[0];
                 let trigger = &out[1];
                 for i in 1..cycle.len() {
@@ -235,7 +238,8 @@ mod tests {
 
             for options in OPTIONS_LIST {
                 let (ref_out, _) =
-                    Cybercycle::indicator(&[close.as_slice()], &options, Some(&[true])).expect("ref run");
+                    Cybercycle::indicator(&[close.as_slice()], &options, Some(&[true]))
+                        .expect("ref run");
 
                 let (first_out, mut state) =
                     Cybercycle::indicator(&[&close[..FIRST_CHUNK]], &options, Some(&[true]))
@@ -312,13 +316,15 @@ mod tests {
                 &[&stock_data[3].1],
             ];
 
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs_4, &options, Some(&[true]))
-                .expect("SIMD by_assets failed");
+            let (simd_results, _) =
+                Cybercycle::indicator_by_assets::<4>(&inputs_4, &options, Some(&[true]))
+                    .expect("SIMD by_assets failed");
 
             let labels = ["cybercycle", "trigger"];
             for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
                 let (scalar_out, _) =
-                    Cybercycle::indicator(&[close.as_slice()], &options, Some(&[true])).expect("scalar");
+                    Cybercycle::indicator(&[close.as_slice()], &options, Some(&[true]))
+                        .expect("scalar");
 
                 for k in 0..2 {
                     let simd_line = &simd_results[asset_idx][k];
@@ -376,7 +382,7 @@ mod tests {
             ];
 
             let (simd_first, mut states) =
-                indicator_by_assets::<4>(&inputs_first, &options, Some(&[true]))
+                Cybercycle::indicator_by_assets::<4>(&inputs_first, &options, Some(&[true]))
                     .expect("SIMD first chunk failed");
 
             let labels = ["cybercycle", "trigger"];
@@ -406,7 +412,8 @@ mod tests {
                 }
 
                 let (scalar_out, _) =
-                    Cybercycle::indicator(&[close.as_slice()], &options, Some(&[true])).expect("scalar");
+                    Cybercycle::indicator(&[close.as_slice()], &options, Some(&[true]))
+                        .expect("scalar");
 
                 for k in 0..2 {
                     assert_eq!(
@@ -462,8 +469,9 @@ mod tests {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
-            let (simd_results, _) = indicator_by_options::<4>(&inputs, &options_4, Some(&[true]))
-                .expect("SIMD by_options failed");
+            let (simd_results, _) =
+                Cybercycle::indicator_by_options::<4>(&inputs, &options_4, Some(&[true]))
+                    .expect("SIMD by_options failed");
 
             let labels = ["cybercycle", "trigger"];
             for (lane, options) in OPTIONS_LIST.iter().enumerate() {
@@ -522,7 +530,7 @@ mod tests {
 
             let inputs_first = [&close[..FIRST_CHUNK] as &[f64]];
             let (simd_first, mut states) =
-                indicator_by_options::<4>(&inputs_first, &options_4, Some(&[true]))
+                Cybercycle::indicator_by_options::<4>(&inputs_first, &options_4, Some(&[true]))
                     .expect("SIMD by_options first chunk failed");
 
             let labels = ["cybercycle", "trigger"];
@@ -549,8 +557,8 @@ mod tests {
                 }
 
                 let inputs_full = [close.as_slice()];
-                let (scalar_out, _) =
-                    Cybercycle::indicator(&inputs_full, options, Some(&[true])).expect("scalar failed");
+                let (scalar_out, _) = Cybercycle::indicator(&inputs_full, options, Some(&[true]))
+                    .expect("scalar failed");
 
                 for k in 0..2 {
                     assert_eq!(

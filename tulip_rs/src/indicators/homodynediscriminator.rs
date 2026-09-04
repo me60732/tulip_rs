@@ -43,30 +43,22 @@
 //! dominant cycle period in bars.
 
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+pub use crate::indicator_types::{
+    Indicator, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
 use crate::indicators::hilberttransform::ht_kernel;
 use crate::indicators::simd_indicators::hilberttransform_simd::ht_kernel_base as ht_kernel_q_simd;
 use crate::ring_buffer::fixed_single_buffer::FixedRingBuffer;
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 use std::simd::Simd;
 
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::homodynediscriminator_simd::indicator_by_assets;
-
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::homodynediscriminator_simd::indicator_by_assets as indicator;
-}
 /// Number of input price series required by this indicator.
 pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
 /// Zero — all constants are fixed by Ehlers.
 pub const OPTIONS: usize = 0;
-
 
 /// Per-bar state for the Ehlers Homodyne Discriminator.
 ///
@@ -161,7 +153,7 @@ impl State<Cold> {
             smooth_period: state.smooth_period,
         }
     }
-    pub fn into_full(self) -> State<Warm>{
+    pub fn into_full(self) -> State<Warm> {
         State {
             price_buf: self.price_buf.into_full(),
             smooth_buf: self.smooth_buf.into_full(),
@@ -181,7 +173,6 @@ impl State<Cold> {
     /// Returns `0.0` while any ring buffer is still filling (warmup guard).
     /// All buffers are guaranteed full after [`init_state`], so the guards are
     /// cost-free on every production bar.
-    
 
     /// One-bar update returning `(smooth_period, i1, q1)`.
     ///
@@ -223,7 +214,6 @@ impl State<Cold> {
         let dc_period = self.apply_discriminator(i1, q1, j_i, j_q);
         (dc_period, i1, q1)
     }
-
 }
 impl<S> State<S> {
     #[inline(always)]
@@ -290,8 +280,7 @@ impl State<Warm> {
         self.detrender_buf.push(detrender);
         let (i1, q1) = ht_kernel(&self.detrender_buf, gain);
 
-        self.iq1_buf
-            .push(Simd::<f64, 2>::from_array([i1, q1]));
+        self.iq1_buf.push(Simd::<f64, 2>::from_array([i1, q1]));
         let [j_i, j_q] = ht_kernel_q_simd(&self.iq1_buf, Simd::<f64, 2>::splat(gain)).to_array();
 
         let dc_period = self.apply_discriminator(i1, q1, j_i, j_q);
@@ -321,8 +310,7 @@ impl TState for State<Warm> {
         let (i1, q1) = ht_kernel(&self.detrender_buf, gain);
 
         // ── Stage 3: jI and jQ via a single Simd<f64, 2> kernel pass ─────────
-        self.iq1_buf
-            .push(Simd::<f64, 2>::from_array([i1, q1]));
+        self.iq1_buf.push(Simd::<f64, 2>::from_array([i1, q1]));
         let [j_i, j_q] = ht_kernel_q_simd(&self.iq1_buf, Simd::<f64, 2>::splat(gain)).to_array();
 
         self.apply_discriminator(i1, q1, j_i, j_q)
@@ -398,7 +386,6 @@ impl TIndicatorState<INPUTS> for IndicatorState {
     }
 }
 
-
 /// Core calculation loop for the Homodyne Discriminator.
 ///
 /// # Arguments
@@ -408,7 +395,7 @@ impl TIndicatorState<INPUTS> for IndicatorState {
 /// * `dc_period_line` - Output slice; must be the same length as `real`.
 fn cycle(real: &[f64], state: &mut State<Warm>, dc_period_line: &mut [f64]) {
     for i in 0..real.len() {
-        let dc = state.calc( unsafe { *real.get_unchecked(i) } );
+        let dc = state.calc(unsafe { *real.get_unchecked(i) });
         unsafe {
             *dc_period_line.get_unchecked_mut(i) = dc;
         }
@@ -450,12 +437,25 @@ impl Indicator<INPUTS, OPTIONS> for HomodyneDiscriminator {
         validate_inputs(inputs, Self::min_data(options))?;
         let capacity = Self::output_length(inputs[0].len(), options);
         let mut dc_period_line = crate::uninit_vec!(f64, capacity);
-    
+
         let mut state = State::init_state(inputs[0]);
         // Slice starting at bar (min_data - 1) = 21, the first bar with valid output
         let real = &inputs[0][(Self::min_data(options) - 1)..];
         cycle(real, &mut state, &mut dc_period_line);
-    
+
         Ok((vec![dc_period_line], state))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::homodynediscriminator_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

@@ -1,8 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::trendmode::{
-    TrendMode, Indicator, indicator_by_assets, indicator_by_options,
-};
+use tulip_rs::indicators::trendmode::{Indicator, IndicatorByOptions, TrendMode};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 //use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::criterion_logger::TimingMeasurements;
@@ -44,7 +42,8 @@ fn bench_trendmode(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = TrendMode::indicator(&inputs, &options, None).expect("TrendMode failed");
+                        let result = TrendMode::indicator(&inputs, &options, None)
+                            .expect("TrendMode failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -67,7 +66,8 @@ fn bench_trendmode(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             group.bench_function(format!("Rust TrendMode (alpha={})", options[0]), |b| {
                 b.iter(|| {
-                    let result = TrendMode::indicator(&inputs, &options, None).expect("TrendMode failed");
+                    let result =
+                        TrendMode::indicator(&inputs, &options, None).expect("TrendMode failed");
                     black_box(&result);
                 });
             });
@@ -92,8 +92,9 @@ fn bench_trendmode_from_state(c: &mut Criterion) {
                 timing.measure(
                     || {
                         let seed = TrendMode::min_data(&options).max(CHUNK_SIZE);
-                        let (_, mut state) = TrendMode::indicator(&[&close[..seed]], &options, None)
-                            .expect("TrendMode seed failed");
+                        let (_, mut state) =
+                            TrendMode::indicator(&[&close[..seed]], &options, None)
+                                .expect("TrendMode seed failed");
                         for chunk in close[seed..].chunks_exact(CHUNK_SIZE) {
                             black_box(
                                 state
@@ -152,8 +153,8 @@ fn bench_trendmode_from_state(c: &mut Criterion) {
         let close_vec = expand_inputs();
         for options in OPTIONS_LIST {
             let seed = TrendMode::min_data(&options).max(CHUNK_SIZE);
-            let (_, mut state) =
-                TrendMode::indicator(&[&close_vec[..seed]], &options, None).expect("TrendMode seed failed");
+            let (_, mut state) = TrendMode::indicator(&[&close_vec[..seed]], &options, None)
+                .expect("TrendMode seed failed");
 
             let mut group = c.benchmark_group("trendmode_rust_from_state");
             group.sample_size(SAMPLE_SIZE);
@@ -221,7 +222,7 @@ fn bench_trendmode_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = TrendMode::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("SIMD by_assets TrendMode failed");
                     black_box(&result);
                 },
@@ -247,7 +248,7 @@ fn bench_trendmode_simd_by_assets(c: &mut Criterion) {
                 format!("Rust SIMD by_assets TrendMode (N=4, alpha={})", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = TrendMode::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("SIMD by_assets TrendMode failed");
                         black_box(&result);
                     });
@@ -277,7 +278,7 @@ fn bench_trendmode_simd_by_options(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result = TrendMode::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("SIMD by_options TrendMode failed");
                     black_box(&result);
                 },
@@ -305,7 +306,7 @@ fn bench_trendmode_simd_by_options(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust SIMD by_options TrendMode (4 alpha lanes)", |b| {
             b.iter(|| {
-                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result = TrendMode::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("SIMD by_options TrendMode failed");
                 black_box(&result);
             });

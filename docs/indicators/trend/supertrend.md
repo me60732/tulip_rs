@@ -9,7 +9,7 @@ A trend-following overlay that plots above price in a downtrend and below price 
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::supertrend::indicator;
+    use tulip_rs::indicators::supertrend::{SuperTrend, Indicator, TIndicatorState};
 
     let high  = vec![82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
                      85.90, 86.58, 86.98, 88.00, 87.87, 88.20, 88.70, 89.10, 88.50, 89.00,
@@ -26,17 +26,20 @@ A trend-following overlay that plots above price in a downtrend and below price 
 
     // options: [period, step] — step is the ATR multiplier
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-    let (outputs, _state) = indicator(&inputs, &[10.0, 3.0], None).unwrap();
+    let (outputs, mut state) = SuperTrend::indicator(&inputs, &[10.0, 3.0], None).unwrap();
     println!("Super Trend: {:?}", outputs[0]);
 
-    // State continuation
-    let n = high.len() - 5;
-    let partial_inputs = [&high[..n], &low[..n], &close[..n]];
-    let (outputs2, mut state) = indicator(&partial_inputs, &[10.0, 3.0], None).unwrap();
-    println!("Partial Super Trend: {:?}", outputs2[0]);
+    // State continuation — feed new bars without reprocessing history
+    let partial_high   = high[..8].to_vec();
+    let partial_low    = low[..8].to_vec();
+    let partial_close  = close[..8].to_vec();
+    let (outputs2, mut state) = SuperTrend::indicator(&[partial_high.as_slice(), partial_low.as_slice(), partial_close.as_slice()], &[10.0, 3.0], None).unwrap();
+    println!("Super Trend: {:?}", outputs2[0]);
 
-    let rest_inputs = [&high[n..], &low[n..], &close[n..]];
-    let continued = state.batch_indicator(&rest_inputs, None).unwrap();
+    let new_high   = vec![85.90_f64];
+    let new_low    = vec![84.03_f64];
+    let new_close  = vec![85.53_f64];
+    let continued = state.batch_indicator(&[new_high.as_slice(), new_low.as_slice(), new_close.as_slice()], None).unwrap();
     println!("Continued Super Trend: {:?}", continued[0]);
     ```
 
@@ -141,11 +144,11 @@ A trend-following overlay that plots above price in a downtrend and below price 
     `supertrend` exposes 3 optional outputs: `atr`, `tr`, `medprice`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::supertrend::indicator;
+    use tulip_rs::indicators::supertrend::{SuperTrend, Indicator, TIndicatorState};
 
     // ... (same high, low, close data as above)
     let mask = [true, true, true];
-    let (outputs, _state) = indicator(
+    let (outputs, _state) = SuperTrend::indicator(
         &[high.as_slice(), low.as_slice(), close.as_slice()],
         &[10.0, 3.0],
         Some(&mask),
@@ -221,7 +224,7 @@ A trend-following overlay that plots above price in a downtrend and below price 
     ];
 
     let results = indicator_by_assets::<4>(&inputs, &[10.0, 3.0], None).unwrap();
-    for (i, asset_outputs) in results.0.iter().enumerate() {
+    for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
     ```
@@ -234,7 +237,7 @@ A trend-following overlay that plots above price in a downtrend and below price 
     let opts: [&[f64; 2]; 4] = [&[7.0, 2.0], &[10.0, 3.0], &[14.0, 3.5], &[20.0, 4.0]];
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
     let results = indicator_by_options::<4>(&inputs, &opts, None).unwrap();
-    for (i, out) in results.0.iter().enumerate() {
+    for (i, out) in results.iter().enumerate() {
         println!("Period/Step {}/{}: {:?}", opts[i][0], opts[i][1], out[0]);
     }
     ```

@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::marketfi::{Marketfi, Indicator,TIndicatorState};
+    use tulip_rs::indicators::marketfi::{Indicator, Marketfi, TIndicatorState};
     use tulip_test::c_bindings::{ti_marketfi, ti_marketfi_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -161,8 +161,8 @@ mod tests {
 
             // Rust implementation
             let inputs_rust = [high.as_slice(), low.as_slice(), volume.as_slice()];
-            let (outputs, _) =
-                Marketfi::indicator(&inputs_rust, &[], None).expect("Rust MarketFI indicator failed");
+            let (outputs, _) = Marketfi::indicator(&inputs_rust, &[], None)
+                .expect("Rust MarketFI indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -316,8 +316,6 @@ mod tests {
 
     #[test]
     fn test_marketfi_simd_vs_regular_database() {
-        use tulip_rs::indicators::marketfi::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -340,7 +338,7 @@ mod tests {
         ];
 
         // Get SIMD by assets result
-        let (simd_results, _) = indicator_by_assets::<4>(&inputs, &[], None)
+        let (simd_results, _) = Marketfi::indicator_by_assets::<4>(&inputs, &[], None)
             .expect("SIMD by assets MARKETFI indicator failed");
 
         // Compare each SIMD result with regular indicator for each stock
@@ -353,8 +351,8 @@ mod tests {
                 stock_low.as_slice(),
                 stock_volume.as_slice(),
             ];
-            let (regular_results, _) =
-                Marketfi::indicator(&stock_inputs, &[], None).expect("Regular MARKETFI indicator failed");
+            let (regular_results, _) = Marketfi::indicator(&stock_inputs, &[], None)
+                .expect("Regular MARKETFI indicator failed");
 
             let simd_result = &simd_results[stock_idx][0];
             let regular_result = &regular_results[0];
@@ -410,5 +408,4 @@ mod tests {
 
         println!("✓ All SIMD by assets vs Regular MARKETFI database tests passed!");
     }
-
-    }
+}

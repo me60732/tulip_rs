@@ -9,7 +9,7 @@ Identifies long-term money flow trends while remaining sensitive enough to detec
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::kvo::indicator;
+    use tulip_rs::indicators::kvo::{Kvo, Indicator, TIndicatorState};
 
     let high   = vec![82.15, 81.89, 83.03, 83.30, 83.85,
                       83.90, 83.33, 84.30, 84.84, 85.00_f64];
@@ -22,7 +22,7 @@ Identifies long-term money flow trends while remaining sensitive enough to detec
 
     // options: [short_period, long_period]
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice(), volume.as_slice()];
-    let (outputs, mut state) = indicator(&inputs, &[34.0, 55.0], None).unwrap();
+    let (outputs, mut state) = Kvo::indicator(&inputs, &[34.0, 55.0], None).unwrap();
     println!("{:?}", outputs[0]); // KVO values
 
     // State continuation — feed new bars without reprocessing history
@@ -118,7 +118,7 @@ Identifies long-term money flow trends while remaining sensitive enough to detec
     `kvo` exposes 2 optional outputs: `short_ema`, `long_ema`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::kvo::indicator;
+    use tulip_rs::indicators::kvo::{Kvo, Indicator, TIndicatorState};
 
     let close  = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
     let high   = close.iter().map(|x| x + 1.0).collect::<Vec<_>>();
@@ -126,7 +126,7 @@ Identifies long-term money flow trends while remaining sensitive enough to detec
     let volume = vec![10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0, 11800.0, 10200.0_f64];
 
     let mask = [true, false];
-    let (outputs, _state) = indicator(
+    let (outputs, _state) = Kvo::indicator(
         &[high.as_slice(), low.as_slice(), close.as_slice(), volume.as_slice()],
         &[9.0, 26.0],
         Some(&mask),
@@ -187,7 +187,7 @@ Identifies long-term money flow trends while remaining sensitive enough to detec
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::kvo::indicator_by_assets;
+    use tulip_rs::indicators::kvo::{Kvo, Indicator, TIndicatorState};
 
     let inputs: [&[&[f64]; 4]; 4] = [
         &[h1.as_slice(), l1.as_slice(), c1.as_slice(), v1.as_slice()],
@@ -195,7 +195,7 @@ Identifies long-term money flow trends while remaining sensitive enough to detec
         &[h3.as_slice(), l3.as_slice(), c3.as_slice(), v3.as_slice()],
         &[h4.as_slice(), l4.as_slice(), c4.as_slice(), v4.as_slice()],
     ];
-    let results = indicator_by_assets::<4>(&inputs, &[34.0, 55.0], None).unwrap();
+    let results = kvo::indicator_by_assets::<4>(&inputs, &[34.0, 55.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
@@ -204,10 +204,10 @@ Identifies long-term money flow trends while remaining sensitive enough to detec
     **By options** — same asset, N option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::kvo::indicator_by_options;
+    use tulip_rs::indicators::kvo::{Kvo, Indicator, TIndicatorState};
 
     let opts: [&[f64; 2]; 4] = [&[13.0, 21.0], &[21.0, 34.0], &[34.0, 55.0], &[55.0, 89.0]];
-    let results = indicator_by_options::<4>(&inputs, &opts, None).unwrap();
+    let results = kvo::indicator_by_options::<4>(&inputs, &opts, None).unwrap();
     for (i, out) in results.iter().enumerate() {
         println!("Option set {}: {:?}", i + 1, out[0]);
     }

@@ -2,9 +2,7 @@
 mod tests {
     use tulip_rs::indicator_types::TIndicatorState;
     use tulip_rs::indicators::cybercycle::Cybercycle;
-    use tulip_rs::indicators::trendmode::{
-        indicator_by_assets, indicator_by_options, Indicator, TrendMode,
-    };
+    use tulip_rs::indicators::trendmode::{Indicator, IndicatorByOptions, TrendMode};
     use tulip_rs::types::IndicatorError;
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -360,7 +358,7 @@ mod tests {
             let inputs = [close.as_slice()];
 
             let (simd_results, _) =
-                indicator_by_options::<4>(&inputs, &mixed_options, Some(&[true, true]))
+                TrendMode::indicator_by_options::<4>(&inputs, &mixed_options, Some(&[true, true]))
                     .expect("SIMD by_options mixed failed");
 
             let labels = ["trendmode", "cycle", "peak"];
@@ -416,7 +414,7 @@ mod tests {
             ];
 
             let (simd_results, _) =
-                indicator_by_assets::<4>(&inputs_4, &options, Some(&[true, true]))
+                TrendMode::indicator_by_assets::<4>(&inputs_4, &options, Some(&[true, true]))
                     .expect("SIMD by_assets failed");
 
             let labels = ["trendmode", "cycle", "peak"];
@@ -486,7 +484,7 @@ mod tests {
             ];
 
             let (simd_first, mut states) =
-                indicator_by_assets::<4>(&inputs_first, &options, Some(&[true, true]))
+                TrendMode::indicator_by_assets::<4>(&inputs_first, &options, Some(&[true, true]))
                     .expect("SIMD first chunk failed");
 
             let labels = ["trendmode", "cycle", "peak"];
@@ -581,7 +579,7 @@ mod tests {
             let inputs = [close.as_slice()];
 
             let (simd_results, _) =
-                indicator_by_options::<4>(&inputs, &options_4, Some(&[true, true]))
+                TrendMode::indicator_by_options::<4>(&inputs, &options_4, Some(&[true, true]))
                     .expect("SIMD by_options failed");
 
             let labels = ["trendmode", "cycle", "peak"];
@@ -640,9 +638,12 @@ mod tests {
             let close = get_close_array(stock_data);
 
             let inputs_first = [&close[..FIRST_CHUNK] as &[f64]];
-            let (simd_first, mut states) =
-                indicator_by_options::<4>(&inputs_first, &options_4, Some(&[true, true]))
-                    .expect("SIMD by_options first chunk failed");
+            let (simd_first, mut states) = TrendMode::indicator_by_options::<4>(
+                &inputs_first,
+                &options_4,
+                Some(&[true, true]),
+            )
+            .expect("SIMD by_options first chunk failed");
 
             let labels = ["trendmode", "cycle", "peak"];
             for (lane, options) in OPTIONS_LIST.iter().enumerate() {

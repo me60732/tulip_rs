@@ -1,6 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::adxr::{indicator_by_assets, indicator_by_options};
-use tulip_rs::indicators::adxr::{Adxr, Indicator, TIndicatorState, IndicatorState};
+use tulip_rs::indicators::adxr::{
+    Adxr, Indicator, IndicatorByOptions, IndicatorState, TIndicatorState,
+};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_adxr, ti_adxr_start};
@@ -531,7 +532,7 @@ fn bench_rust_adxr_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, options, None)
+                    let result = Adxr::indicator_by_assets::<4>(&inputs, options, None)
                         .expect("Rust SIMD by assets ADXR indicator failed");
                     black_box(&result);
                 },
@@ -567,7 +568,7 @@ fn bench_rust_adxr_simd_by_assets(c: &mut Criterion) {
                 format!("Rust SIMD by assets ADXR period {}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, options, None)
+                        let result = Adxr::indicator_by_assets::<4>(&inputs, options, None)
                             .expect("Rust SIMD by assets ADXR indicator failed");
                         black_box(&result);
                     });
@@ -605,7 +606,7 @@ fn bench_rust_adxr_simd_by_options(c: &mut Criterion) {
                         &OPTIONS_LIST[2],
                         &OPTIONS_LIST[3],
                     ];
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result = Adxr::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD ADXR indicator failed");
                     black_box(&result);
                 },
@@ -641,7 +642,7 @@ fn bench_rust_adxr_simd_by_options(c: &mut Criterion) {
                     &OPTIONS_LIST[2],
                     &OPTIONS_LIST[3],
                 ];
-                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result = Adxr::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD ADXR indicator failed");
                 black_box(&result);
             });

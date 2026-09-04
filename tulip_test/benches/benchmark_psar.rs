@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::psar::{
-    Psar, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
+    Indicator, IndicatorByOptions, IndicatorState, Psar, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -131,8 +131,8 @@ fn bench_rust_psar(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result =
-                            Psar::indicator(&inputs, &options, None).expect("PSAR indicator failed");
+                        let result = Psar::indicator(&inputs, &options, None)
+                            .expect("PSAR indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -154,8 +154,8 @@ fn bench_rust_psar(c: &mut Criterion) {
                 format!("Rust PSAR {{ {:.2}, {:.1} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
-                        let result =
-                            Psar::indicator(&inputs, &options, None).expect("PSAR indicator failed");
+                        let result = Psar::indicator(&inputs, &options, None)
+                            .expect("PSAR indicator failed");
                         black_box(&result);
                     });
                 },
@@ -222,8 +222,8 @@ fn bench_rust_psar_from_state(c: &mut Criterion) {
                 if high.len() > 1 {
                     let new_inputs = [&high[..high.len() - 1], &low[..low.len() - 1]];
                     let final_inputs = [&high[high.len() - 1..], &low[low.len() - 1..]];
-                    let (_, mut state) =
-                        Psar::indicator(&new_inputs, &options, None).expect("Rust PSAR indicator failed");
+                    let (_, mut state) = Psar::indicator(&new_inputs, &options, None)
+                        .expect("Rust PSAR indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -246,8 +246,8 @@ fn bench_rust_psar_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) =
-                        Psar::indicator(&new_inputs, &options, None).expect("Rust PSAR indicator failed");
+                    let (_, state) = Psar::indicator(&new_inputs, &options, None)
+                        .expect("Rust PSAR indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -291,8 +291,8 @@ fn bench_rust_psar_from_state(c: &mut Criterion) {
                     // First chunk
                     let chunk_inputs = [&high_vec[..min_data], &low_vec[..min_data]];
 
-                    let (_, mut state) =
-                        Psar::indicator(&chunk_inputs, &options, None).expect("PSAR indicator failed");
+                    let (_, mut state) = Psar::indicator(&chunk_inputs, &options, None)
+                        .expect("PSAR indicator failed");
 
                     // Chunks
                     let mut high_chunks = high_vec[min_data..].chunks_exact(CHUNK_SIZE);
@@ -327,8 +327,8 @@ fn bench_rust_psar_from_state(c: &mut Criterion) {
                     &high_vec[high_vec.len() - 1..],
                     &low_vec[low_vec.len() - 1..],
                 ];
-                let (_, mut state) =
-                    Psar::indicator(&new_inputs, &options, None).expect("Rust PSAR indicator failed");
+                let (_, mut state) = Psar::indicator(&new_inputs, &options, None)
+                    .expect("Rust PSAR indicator failed");
 
                 let mut group = c.benchmark_group(format!(
                     "Rust PSAR from state 1 bar {{ {:.2}, {:.1} }}",
@@ -452,7 +452,7 @@ fn bench_rust_psar_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = Psar::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("Rust SIMD by assets PSAR indicator failed");
                     black_box(&result);
                 },
@@ -490,7 +490,7 @@ fn bench_rust_psar_simd_by_assets(c: &mut Criterion) {
                 ),
                 |b| {
                     b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = Psar::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("Rust SIMD by assets PSAR indicator failed");
                         black_box(&result);
                     });
@@ -522,7 +522,7 @@ fn bench_rust_psar_simd_by_options(c: &mut Criterion) {
                         &OPTIONS_LIST[2],
                         &OPTIONS_LIST[3],
                     ];
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result = Psar::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD PSAR indicator failed");
                     black_box(&result);
                 },
@@ -554,7 +554,7 @@ fn bench_rust_psar_simd_by_options(c: &mut Criterion) {
                     &OPTIONS_LIST[2],
                     &OPTIONS_LIST[3],
                 ];
-                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result = Psar::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD PSAR indicator failed");
                 black_box(&result);
             });

@@ -9,7 +9,7 @@ Compares a security's closing price to its price range over a given period. %K i
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::stoch::indicator;
+    use tulip_rs::indicators::stoch::{Stoch, TIndicatorState, Indicator};
 
     let high  = vec![82.15, 81.89, 83.03, 83.30, 83.85,
                      83.90, 83.33, 84.30, 84.84, 85.00_f64];
@@ -20,13 +20,13 @@ Compares a security's closing price to its price range over a given period. %K i
 
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
     // Options: [k_period, k_slowing_period, d_period]
-    let (outputs, _state) = indicator(&inputs, &[14.0, 3.0, 3.0], None).unwrap();
+    let (outputs, _state) = Stoch::indicator(&inputs, &[14.0, 3.0, 3.0], None).unwrap();
     println!("Stoch %K: {:?}", outputs[0]);
     println!("Stoch %D: {:?}", outputs[1]);
 
     // State continuation
     let inputs2 = [&high[..8], &low[..8], &close[..8]];
-    let (outputs2, mut state) = indicator(&inputs2, &[14.0, 3.0, 3.0], None).unwrap();
+    let (outputs2, mut state) = Stoch::indicator(&inputs2, &[14.0, 3.0, 3.0], None).unwrap();
     println!("Partial %K: {:?}", outputs2[0]);
 
     let new_inputs = [&high[8..], &low[8..], &close[8..]];
@@ -128,7 +128,7 @@ Compares a security's closing price to its price range over a given period. %K i
     ];
 
     let results = indicator_by_assets::<4>(&inputs, &[14.0, 3.0, 3.0], None).unwrap();
-    for (i, asset_outputs) in results.0.iter().enumerate() {
+    for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {} %K: {:?}", i + 1, asset_outputs[0]);
         println!("Asset {} %D: {:?}", i + 1, asset_outputs[1]);
     }
@@ -155,7 +155,7 @@ Compares a security's closing price to its price range over a given period. %K i
 
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
     let results = indicator_by_options::<4>(&inputs, &opts, None).unwrap();
-    for (i, opt_outputs) in results.0.iter().enumerate() {
+    for (i, opt_outputs) in results.iter().enumerate() {
         println!("Option set {} %K: {:?}", i + 1, opt_outputs[0]);
         println!("Option set {} %D: {:?}", i + 1, opt_outputs[1]);
     }

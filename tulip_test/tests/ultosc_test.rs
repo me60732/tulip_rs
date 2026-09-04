@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::ultosc::indicator_by_options;
-    use tulip_rs::indicators::ultosc::{Ultosc, Indicator, TIndicatorState};
+    use tulip_rs::indicator_types::IndicatorByOptions;
+    use tulip_rs::indicators::ultosc::{Indicator, TIndicatorState, Ultosc};
     use tulip_test::c_bindings::{ti_ultosc, ti_ultosc_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -75,8 +75,8 @@ mod tests {
 
             // Run the Rust implementation
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-            let (outputs, _) =
-                Ultosc::indicator(&inputs_rust, &options, None).expect("Rust ULTOSC indicator failed");
+            let (outputs, _) = Ultosc::indicator(&inputs_rust, &options, None)
+                .expect("Rust ULTOSC indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -302,8 +302,6 @@ mod tests {
 
     #[test]
     fn test_ultosc_simd_by_assets_vs_regular_database() {
-        use tulip_rs::indicators::ultosc::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -327,7 +325,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = Ultosc::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets ULTOSC indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -397,8 +395,6 @@ mod tests {
 
     #[test]
     fn test_ultosc_simd_by_assets_state_handover() {
-        use tulip_rs::indicators::ultosc::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -453,8 +449,9 @@ mod tests {
             ];
 
             // Process first chunk with SIMD by assets
-            let (first_results, states) = indicator_by_assets::<4>(&inputs_first, &options, None)
-                .expect("SIMD by assets first chunk failed");
+            let (first_results, states) =
+                Ultosc::indicator_by_assets::<4>(&inputs_first, &options, None)
+                    .expect("SIMD by assets first chunk failed");
 
             // Process second chunk using state handover for each asset
             let mut combined_results = Vec::new();
@@ -533,7 +530,7 @@ mod tests {
 
             // Test with SIMD by options (4-wide)
             let inputs = [&high[..], &low[..], &close[..]];
-            let (simd_result, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_result, _) = Ultosc::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD by options ULTOSC indicator failed");
 
             // Compare against regular indicator for each option
@@ -597,8 +594,9 @@ mod tests {
 
             // Process first chunk with SIMD by options
             let inputs1 = [high1, low1, close1];
-            let (first_results, states) = indicator_by_options::<4>(&inputs1, &options_4, None)
-                .expect("SIMD by options first chunk failed");
+            let (first_results, states) =
+                Ultosc::indicator_by_options::<4>(&inputs1, &options_4, None)
+                    .expect("SIMD by options first chunk failed");
 
             // Process second chunk using state handover for each option
             let mut combined_results = Vec::new();
@@ -736,8 +734,6 @@ mod tests {
 
     #[test]
     fn test_ultosc_simd_by_assets_optional_outputs() {
-        use tulip_rs::indicators::ultosc::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -762,7 +758,7 @@ mod tests {
 
             // Run SIMD with both optional outputs (TR=true, BP=true).
             let (simd_results, _) =
-                indicator_by_assets::<4>(&inputs, &options, Some(&[true, true]))
+                Ultosc::indicator_by_assets::<4>(&inputs, &options, Some(&[true, true]))
                     .expect("SIMD by-assets ULTOSC with optional outputs failed");
 
             for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
@@ -868,7 +864,7 @@ mod tests {
 
             // Run SIMD by-options with both optional outputs enabled.
             let (simd_results, _) =
-                indicator_by_options::<4>(&inputs, &options_4, Some(&[true, true]))
+                Ultosc::indicator_by_options::<4>(&inputs, &options_4, Some(&[true, true]))
                     .expect("SIMD by-options ULTOSC with optional outputs failed");
 
             for (option_idx, options) in OPTIONS_LIST.iter().enumerate() {
@@ -945,5 +941,4 @@ mod tests {
 
         println!("\u{2713} All SIMD by-options optional output ULTOSC tests passed!");
     }
-
-    }
+}

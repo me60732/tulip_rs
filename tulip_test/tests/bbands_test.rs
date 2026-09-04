@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
+    use tulip_rs::indicator_types::IndicatorByOptions;
     use tulip_rs::indicators::bbands::{BBands, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_bbands, ti_bbands_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -64,8 +65,8 @@ mod tests {
 
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
-            let (outputs, _) =
-                BBands::indicator(&inputs_rust, &options, None).expect("Rust BBANDS indicator failed");
+            let (outputs, _) = BBands::indicator(&inputs_rust, &options, None)
+                .expect("Rust BBANDS indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -354,8 +355,6 @@ mod tests {
 
     #[test]
     fn test_bbands_simd_vs_regular_database() {
-        use tulip_rs::indicators::bbands::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -378,7 +377,7 @@ mod tests {
             // Test without optional outputs
             {
                 // Get SIMD by assets result
-                let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+                let (simd_results, _) = BBands::indicator_by_assets::<4>(&inputs, &options, None)
                     .expect("SIMD by assets BBANDS indicator failed");
 
                 // Compare each SIMD result with regular indicator for each stock
@@ -448,8 +447,6 @@ mod tests {
 
     #[test]
     fn test_bbands_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::bbands::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -464,7 +461,7 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = BBands::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD BBANDS 4-wide failed");
 
             // Use SIMD results directly
@@ -473,8 +470,8 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
-                let (regular_results, _) =
-                    BBands::indicator(&inputs, options, None).expect("Regular BBANDS indicator failed");
+                let (regular_results, _) = BBands::indicator(&inputs, options, None)
+                    .expect("Regular BBANDS indicator failed");
 
                 // BBANDS produces 3 outputs: [lower, middle, upper]
                 assert_eq!(
@@ -624,5 +621,4 @@ mod tests {
             }
         }
     }
-
-    }
+}

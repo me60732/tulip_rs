@@ -29,19 +29,21 @@
 //! `crate::common::validate_options` rejects any option `< 1.0`, which would flag
 //! every valid α value. The local function checks `α ∈ (0.0, 1.0)` strictly.
 //!
-//! ## Adaptive alpha (`α = 0.0`)
-//!
+//! Adaptive alpha (`α = 0.0`)
+
 //! Adaptive alpha is **not** supported by the standalone `cybercycle::indicator`.
 //! It requires a Homodyne Discriminator (HD) to derive `SmoothPeriod` each bar,
 //! which is not part of this indicator. Passing `α = 0.0` will return
 //! [`IndicatorError::InvalidOptions`].
-//!
+
 //! Adaptive mode is available in [`trendmode`](super::trendmode) and
 //! [`ccfisher`](super::ccfisher), both of which embed an HD alongside the
 //! CyberCycle and compute `α = 2 / (SmoothPeriod.max(3) + 1)` every bar.
 
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
 use crate::ring_buffer::fixed_single_buffer::FixedRingBuffer;
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
@@ -51,24 +53,6 @@ pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1; // [alpha]
-
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::cybercycle_simd::indicator_by_assets;
-
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::cybercycle_simd::indicator_by_options;
-
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    pub use crate::indicators::simd_indicators::cybercycle_simd::indicator_by_assets as indicator;
-}
-
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes one asset with `N` different alpha values in parallel.
-    pub use crate::indicators::simd_indicators::cybercycle_simd::indicator_by_options as indicator;
-}
 
 /// `IndicatorState` is the complete self-contained state — coefficients live inside
 /// `State` alongside the filter history, matching the `ema::IndicatorState` pattern.
@@ -149,7 +133,7 @@ impl State<Cold> {
             d2,
         }
     }
-    pub fn into_full(self) -> State<Warm>{
+    pub fn into_full(self) -> State<Warm> {
         State {
             price_buf: self.price_buf.into_full(),
             smooth_buf: self.smooth_buf.into_full(),
@@ -248,7 +232,6 @@ impl State<Cold> {
             d2: state.d2,
         }
     }
-
 }
 impl TState for State<Warm> {
     type Inputs<'a> = f64;
@@ -352,7 +335,12 @@ pub fn adaptive_alpha(smooth_period: f64) -> f64 {
 /// Shared hot loop used by both `indicator` and `batch_indicator`.
 ///
 /// After each bar: `state.cycle_prev2` = Cycle[1] = trigger for that bar.
-fn run_cycle(real: &[f64], state: &mut State<Warm>, cycle_line: &mut [f64], trigger_line: &mut [f64]) {
+fn run_cycle(
+    real: &[f64],
+    state: &mut State<Warm>,
+    cycle_line: &mut [f64],
+    trigger_line: &mut [f64],
+) {
     let want_trigger = !trigger_line.is_empty();
     for i in 0..real.len() {
         unsafe {
@@ -416,5 +404,33 @@ impl Indicator<INPUTS, OPTIONS> for Cybercycle {
         );
 
         Ok((vec![cycle_line, trigger_line], state))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::cybercycle_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Cybercycle {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::cybercycle_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

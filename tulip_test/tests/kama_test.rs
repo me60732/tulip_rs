@@ -1,10 +1,11 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::kama::{Kama, Indicator, TIndicatorState};
+    use tulip_rs::indicator_types::IndicatorByOptions;
+    use tulip_rs::indicators::ef::Ef;
+    use tulip_rs::indicators::kama::{Indicator, Kama, TIndicatorState};
     use tulip_test::c_bindings::{ti_kama, ti_kama_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
-    use tulip_rs::indicators::ef::Ef;
     const CHUNK_SIZE: usize = 100;
 
     const CLOSE: [f64; 15] = [
@@ -143,8 +144,8 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) =
-                    Kama::indicator(&inputs_rust, &options, None).expect("Rust KAMA indicator failed");
+                let (outputs, _) = Kama::indicator(&inputs_rust, &options, None)
+                    .expect("Rust KAMA indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -280,8 +281,6 @@ mod tests {
 
     #[test]
     fn test_kama_simd_vs_regular_database() {
-        use tulip_rs::indicators::kama::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -302,7 +301,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = Kama::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets KAMA indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -371,8 +370,6 @@ mod tests {
 
     #[test]
     fn test_kama_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::kama::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -387,7 +384,7 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Kama::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD KAMA 4-wide failed");
 
             // Compare each SIMD result with regular indicator
@@ -459,14 +456,12 @@ mod tests {
 
     #[test]
     fn test_kama_scalar_optional_ef_vs_standalone() {
-        
-
         let close = expand_close();
         let inputs = [close.as_slice()];
 
         for options in OPTIONS_LIST {
-            let (kama_outputs, _) =
-                Kama::indicator(&inputs, &options, Some(&[true])).expect("KAMA with optional ef failed");
+            let (kama_outputs, _) = Kama::indicator(&inputs, &options, Some(&[true]))
+                .expect("KAMA with optional ef failed");
             let (ef_outputs, _) =
                 Ef::indicator(&inputs, &options, None).expect("Standalone EF indicator failed");
 
@@ -495,7 +490,6 @@ mod tests {
 
     #[test]
     fn test_kama_scalar_optional_ef_database() {
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -533,8 +527,6 @@ mod tests {
 
     #[test]
     fn test_kama_simd_by_assets_optional_outputs() {
-        use tulip_rs::indicators::kama::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -552,8 +544,9 @@ mod tests {
         ];
 
         for options in OPTIONS_LIST {
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, Some(&[true]))
-                .expect("SIMD by-assets KAMA with optional outputs failed");
+            let (simd_results, _) =
+                Kama::indicator_by_assets::<4>(&inputs, &options, Some(&[true]))
+                    .expect("SIMD by-assets KAMA with optional outputs failed");
 
             for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
                 let scalar_inputs = [close.as_slice()];
@@ -614,8 +607,6 @@ mod tests {
 
     #[test]
     fn test_kama_simd_by_options_optional_outputs() {
-        use tulip_rs::indicators::kama::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -630,8 +621,9 @@ mod tests {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
-            let (simd_results, _) = indicator_by_options::<4>(&inputs, &options_4, Some(&[true]))
-                .expect("SIMD by-options KAMA with optional outputs failed");
+            let (simd_results, _) =
+                Kama::indicator_by_options::<4>(&inputs, &options_4, Some(&[true]))
+                    .expect("SIMD by-options KAMA with optional outputs failed");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
                 let (scalar_results, _) = Kama::indicator(&inputs, options, Some(&[true]))
@@ -680,5 +672,4 @@ mod tests {
         }
         println!("✓ All SIMD by-options KAMA optional output tests passed!");
     }
-
-    }
+}

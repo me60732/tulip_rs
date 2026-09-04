@@ -9,17 +9,17 @@ Further reduces lag with three EMA layers: `3 * EMA - 3 * EMA(EMA) + EMA(EMA(EMA
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::tema::indicator;
+    use tulip_rs::indicators::tema::{Tema, TIndicatorState, Indicator};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
-    let (outputs, _state) = indicator(&[close.as_slice()], &[14.0], None).unwrap();
+    let (outputs, _state) = Tema::indicator(&[close.as_slice()], &[14.0], None).unwrap();
     println!("TEMA(14): {:?}", outputs[0]);
 
     // State continuation
     let partial = close[..8].to_vec();
-    let (outputs2, mut state) = indicator(&[partial.as_slice()], &[14.0], None).unwrap();
+    let (outputs2, mut state) = Tema::indicator(&[partial.as_slice()], &[14.0], None).unwrap();
     println!("Partial TEMA: {:?}", outputs2[0]);
 
     let new_close = close[8..].to_vec();
@@ -93,14 +93,14 @@ Further reduces lag with three EMA layers: `3 * EMA - 3 * EMA(EMA) + EMA(EMA(EMA
     `tema` exposes 2 optional outputs: `"dema"`, `"ema"`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::tema::indicator;
+    use tulip_rs::indicators::tema::{Tema, TIndicatorState, Indicator};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
     // Request dema but not ema
     let mask = [true, false]; // one per optional output
-    let (outputs, _state) = indicator(&[close.as_slice()], &[5.0], Some(&mask)).unwrap();
+    let (outputs, _state) = Tema::indicator(&[close.as_slice()], &[5.0], Some(&mask)).unwrap();
 
     let tema = &outputs[0]; // tema (primary)
     let dema = &outputs[1]; // "dema" (optional — requested)
@@ -179,7 +179,7 @@ Further reduces lag with three EMA layers: `3 * EMA - 3 * EMA(EMA) + EMA(EMA(EMA
     ];
 
     let results = indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
-    for (i, asset_outputs) in results.0.iter().enumerate() {
+    for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
     ```
@@ -195,7 +195,7 @@ Further reduces lag with three EMA layers: `3 * EMA - 3 * EMA(EMA) + EMA(EMA(EMA
     let opts: [&[f64; 1]; 4] = [&[5.0], &[10.0], &[14.0], &[20.0]];
 
     let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
-    for (i, opt_outputs) in results.0.iter().enumerate() {
+    for (i, opt_outputs) in results.iter().enumerate() {
         println!("Period set {}: {:?}", i + 1, opt_outputs[0]);
     }
     ```

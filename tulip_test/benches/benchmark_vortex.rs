@@ -1,5 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::vortex::{Vortex, Indicator, TIndicatorState, IndicatorState, indicator_by_assets, indicator_by_options};
+use tulip_rs::indicators::vortex::{
+    Indicator, IndicatorByOptions, IndicatorState, TIndicatorState, Vortex,
+};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::criterion_logger::TimingMeasurements;
@@ -85,7 +87,8 @@ fn bench_rust_vortex(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust Vortex {{ period: {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result = Vortex::indicator(&inputs, &options, None).expect("Rust Vortex failed");
+                    let result =
+                        Vortex::indicator(&inputs, &options, None).expect("Rust Vortex failed");
                     black_box(&result);
                 });
             });
@@ -214,8 +217,8 @@ fn bench_rust_vortex_from_state(c: &mut Criterion) {
                     let final_inputs = [&high[n - 1..], &low[n - 1..], &close[n - 1..]];
 
                     // --- Rust_FromState_1_Bar ---
-                    let (_, mut state) =
-                        Vortex::indicator(&new_inputs, &options, None).expect("Vortex indicator failed");
+                    let (_, mut state) = Vortex::indicator(&new_inputs, &options, None)
+                        .expect("Vortex indicator failed");
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
                         || {
@@ -236,8 +239,8 @@ fn bench_rust_vortex_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json ---
-                    let (_, state) =
-                        Vortex::indicator(&new_inputs, &options, None).expect("Vortex indicator failed");
+                    let (_, state) = Vortex::indicator(&new_inputs, &options, None)
+                        .expect("Vortex indicator failed");
                     let json = serde_json::to_string(&state).expect("JSON serialisation failed");
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -307,8 +310,8 @@ fn bench_rust_vortex_from_state(c: &mut Criterion) {
                 let n = high_vec.len();
                 let new_inputs = [&high_vec[..n - 1], &low_vec[..n - 1], &close_vec[..n - 1]];
                 let final_inputs = [&high_vec[n - 1..], &low_vec[n - 1..], &close_vec[n - 1..]];
-                let (_, mut state) =
-                    Vortex::indicator(&new_inputs, &options, None).expect("Vortex indicator failed");
+                let (_, mut state) = Vortex::indicator(&new_inputs, &options, None)
+                    .expect("Vortex indicator failed");
 
                 let mut group = c.benchmark_group("vortex_rust_from_state_1_bar");
                 group.sample_size(SAMPLE_SIZE);
@@ -356,7 +359,7 @@ fn bench_rust_vortex_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = Vortex::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("Rust SIMD by assets Vortex failed");
                     black_box(&result);
                 },
@@ -378,21 +381,24 @@ fn bench_rust_vortex_simd_by_assets(c: &mut Criterion) {
         let asset: [&[f64]; 3] = [&high_vec, &low_vec, &close_vec];
         let inputs: [&[&[f64]; 3]; 4] = [&asset, &asset, &asset, &asset];
 
-        for options in OPTIONS_LIST {
-            let mut group = c.benchmark_group("vortex_rust_simd_by_assets");
-            group.sample_size(SAMPLE_SIZE);
-            group.bench_function(
-                format!("Rust SIMD by assets Vortex {{ period: {} }}", options[0]),
-                |b| {
-                    b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
-                            .expect("Rust SIMD by assets Vortex failed");
-                        black_box(&result);
-                    });
-                },
-            );
-            group.finish();
-        }
+        // Use first option for SIMD-by-assets benchmark
+        let options_single = OPTIONS_LIST[0];
+        let mut group = c.benchmark_group("vortex_rust_simd_by_assets");
+        group.sample_size(SAMPLE_SIZE);
+        group.bench_function(
+            format!(
+                "Rust SIMD by assets Vortex {{ period: {} }}",
+                options_single[0]
+            ),
+            |b| {
+                b.iter(|| {
+                    let result = Vortex::indicator_by_assets::<4>(&inputs, &options_single, None)
+                        .expect("Rust SIMD by assets Vortex failed");
+                    black_box(&result);
+                });
+            },
+        );
+        group.finish();
     }
 }
 
@@ -417,7 +423,7 @@ fn bench_rust_vortex_simd_by_options(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result = Vortex::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD by options Vortex failed");
                     black_box(&result);
                 },
@@ -451,7 +457,7 @@ fn bench_rust_vortex_simd_by_options(c: &mut Criterion) {
                     &OPTIONS_LIST[2],
                     &OPTIONS_LIST[3],
                 ];
-                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result = Vortex::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD by options Vortex failed");
                 black_box(&result);
             });

@@ -1,11 +1,11 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::{TIndicatorState, TState, Indicator, IndicatorResult};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
 //use crate::indicators::atr::calc as calc_atr;
 pub use crate::indicators::atr::{multiplier, State as AtrState};
 use crate::indicators::tr::Tr;
-use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold
-};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
 /// Number of input price series required by this indicator.
@@ -14,40 +14,8 @@ pub const INPUTS: usize = 3;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
 
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::natr_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::natr_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::natr_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    /// See the parent module's [`super::indicator_by_options`] for full documentation.
-    pub use crate::indicators::simd_indicators::natr_simd::indicator_by_options as indicator;
-}
-
 #[derive(Serialize, Deserialize)]
-#[serde(bound="")]
+#[serde(bound = "")]
 #[repr(transparent)]
 pub struct State<S = Cold>(pub AtrState<S>);
 impl<S> Deref for State<S> {
@@ -73,18 +41,17 @@ impl State<Cold> {
         period: usize,
         tr_line: &mut [f64],
     ) -> State<Warm> {
-        State(AtrState::init_state(high, low, close, period, tr_line, false))
+        State(AtrState::init_state(
+            high, low, close, period, tr_line, false,
+        ))
     }
 }
 impl TState for State<Warm> {
     type Inputs<'a> = (f64, f64, f64);
     type Outputs = (f64, f64, f64);
-    
+
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        (high, low, close): Self::Inputs<'a>
-    ) -> Self::Outputs {
+    fn calc<'a>(&mut self, (high, low, close): Self::Inputs<'a>) -> Self::Outputs {
         let (atr, tr) = self.0.calc((high, low, close));
         ((atr / close) * 100.0, atr, tr)
     }
@@ -119,7 +86,6 @@ impl TIndicatorState<3> for IndicatorState {
     }
 }
 
-
 /// Iterates over the input data and applies the calc function.
 //#[inline(always)]
 fn cycle_natr(
@@ -149,7 +115,6 @@ fn cycle_natr(
         }
     }
 }
-
 
 pub struct Natr;
 
@@ -194,7 +159,7 @@ impl Indicator<INPUTS, OPTIONS> for Natr {
         {
             let capacity = Self::output_length(inputs[0].len(), options);
             natr_line = crate::uninit_vec!(f64, capacity);
-    
+
             (atr_line, tr_line) = crate::init_optional_outputs_eff!(
                 optional_outputs, &[false, false],
                 atr_line: capacity,
@@ -203,7 +168,7 @@ impl Indicator<INPUTS, OPTIONS> for Natr {
         }
         let mut state = State::init_state(inputs[0], inputs[1], inputs[2], period, &mut tr_line);
         let offset = crate::slice_outputs_start!(natr_line.len(), tr_line);
-    
+
         cycle_natr(
             (
                 &inputs[0][period..],
@@ -214,10 +179,35 @@ impl Indicator<INPUTS, OPTIONS> for Natr {
             (&mut atr_line, &mut tr_line[offset..]),
             &mut state,
         );
-    
-        Ok((
-            vec![natr_line, atr_line, tr_line],
-            state,
-        ))
+
+        Ok((vec![natr_line, atr_line, tr_line], state))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::natr_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Natr {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::natr_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

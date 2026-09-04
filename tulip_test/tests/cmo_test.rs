@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::cmo::indicator_by_assets;
+    use tulip_rs::indicator_types::IndicatorByOptions;
     use tulip_rs::indicators::cmo::{Cmo, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_cmo, ti_cmo_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -141,8 +141,8 @@ mod tests {
                 assert_eq!(ret, 0, "ti_cmo returned error code {}", ret);
 
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) =
-                    Cmo::indicator(&inputs_rust, &options, None).expect("Rust CMO indicator failed");
+                let (outputs, _) = Cmo::indicator(&inputs_rust, &options, None)
+                    .expect("Rust CMO indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -207,8 +207,8 @@ mod tests {
                 let inputs_rust = [close.as_slice()];
 
                 // Get full output
-                let (full_outputs, _) =
-                    Cmo::indicator(&inputs_rust, &options, None).expect("Rust CMO indicator failed");
+                let (full_outputs, _) = Cmo::indicator(&inputs_rust, &options, None)
+                    .expect("Rust CMO indicator failed");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
@@ -284,7 +284,7 @@ mod tests {
             ];
 
             // Run SIMD implementation
-            let (simd_outputs, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_outputs, _) = Cmo::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD CMO indicator failed");
 
             // Run regular implementation for comparison
@@ -372,7 +372,7 @@ mod tests {
                 ];
 
                 // Run SIMD implementation
-                let (simd_outputs, _) = indicator_by_assets::<4>(&inputs, &options, None)
+                let (simd_outputs, _) = Cmo::indicator_by_assets::<4>(&inputs, &options, None)
                     .expect("SIMD CMO indicator failed");
 
                 // Compare each asset's SIMD output with its regular output
@@ -425,8 +425,6 @@ mod tests {
 
     #[test]
     fn test_cmo_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::cmo::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -441,7 +439,7 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Cmo::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD CMO 4-wide failed");
 
             // Use SIMD results directly
@@ -500,7 +498,6 @@ mod tests {
         println!("✓ All SIMD by options vs Regular CMO database tests passed!");
     }
 
-    
     fn get_close_array(stock_data: &[tulip_test::database::EodData]) -> Vec<f64> {
         stock_data.iter().map(|d| d.close).collect()
     }

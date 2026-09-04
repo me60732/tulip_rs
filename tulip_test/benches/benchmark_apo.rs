@@ -1,5 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::apo::{Apo, Indicator, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::apo::{
+    Apo, Indicator, IndicatorByOptions, IndicatorState, TIndicatorState,
+};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_apo, ti_apo_start};
@@ -83,26 +85,23 @@ fn bench_c_apo(c: &mut Criterion) {
 
             let mut group = c.benchmark_group("apo_c");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(
-                format!("C APO {{ {}, {} }}", options[0], options[1]),
-                |b| {
-                    b.iter(|| {
-                        let mut output_vec = vec![0.0_f64; output_len];
-                        let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
+            group.bench_function(format!("C APO {{ {}, {} }}", options[0], options[1]), |b| {
+                b.iter(|| {
+                    let mut output_vec = vec![0.0_f64; output_len];
+                    let mut outputs: Vec<*mut f64> = vec![output_vec.as_mut_ptr()];
 
-                        let ret = unsafe {
-                            ti_apo(
-                                close_vec.len() as i32,
-                                inputs.as_ptr(),
-                                options.as_ptr(),
-                                outputs.as_mut_ptr(),
-                            )
-                        };
-                        assert_eq!(ret, 0, "ti_apo returned error code {}", ret);
-                        black_box(&output_vec);
-                    });
-                },
-            );
+                    let ret = unsafe {
+                        ti_apo(
+                            close_vec.len() as i32,
+                            inputs.as_ptr(),
+                            options.as_ptr(),
+                            outputs.as_mut_ptr(),
+                        )
+                    };
+                    assert_eq!(ret, 0, "ti_apo returned error code {}", ret);
+                    black_box(&output_vec);
+                });
+            });
             group.finish();
         }
     }
@@ -125,8 +124,8 @@ fn bench_rust_apo(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result =
-                            Apo::indicator(&inputs, &options, None).expect("Rust APO indicator failed");
+                        let result = Apo::indicator(&inputs, &options, None)
+                            .expect("Rust APO indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -147,8 +146,8 @@ fn bench_rust_apo(c: &mut Criterion) {
                 format!("Rust APO {{ {}, {} }}", options[0], options[1]),
                 |b| {
                     b.iter(|| {
-                        let result =
-                            Apo::indicator(&inputs, &options, None).expect("Rust APO indicator failed");
+                        let result = Apo::indicator(&inputs, &options, None)
+                            .expect("Rust APO indicator failed");
                         black_box(&result);
                     });
                 },
@@ -237,8 +236,8 @@ fn bench_rust_apo_from_state(c: &mut Criterion) {
                         // First chunk
                         let chunk_inputs = [&close[..min_data_val]];
 
-                        let (_, mut state) =
-                            Apo::indicator(&chunk_inputs, &options, None).expect("APO indicator failed");
+                        let (_, mut state) = Apo::indicator(&chunk_inputs, &options, None)
+                            .expect("APO indicator failed");
 
                         // Chunks
                         let mut close_chunks = close[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -396,10 +395,8 @@ fn bench_rust_apo_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = tulip_rs::indicators::apo::indicator_by_assets::<4>(
-                        &inputs, &options, None,
-                    )
-                    .expect("Rust SIMD by assets APO indicator failed");
+                    let result = Apo::indicator_by_assets::<4>(&inputs, &options, None)
+                        .expect("Rust SIMD by assets APO indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -432,10 +429,8 @@ fn bench_rust_apo_simd_by_assets(c: &mut Criterion) {
                 ),
                 |b| {
                     b.iter(|| {
-                        let result = tulip_rs::indicators::apo::indicator_by_assets::<4>(
-                            &inputs, &options, None,
-                        )
-                        .expect("Rust SIMD by assets APO indicator failed");
+                        let result = Apo::indicator_by_assets::<4>(&inputs, &options, None)
+                            .expect("Rust SIMD by assets APO indicator failed");
                         black_box(&result);
                     });
                 },
@@ -541,10 +536,8 @@ fn bench_rust_apo_simd_by_options(c: &mut Criterion) {
                         &OPTIONS_LIST[2],
                         &OPTIONS_LIST[3],
                     ];
-                    let result = tulip_rs::indicators::apo::indicator_by_options::<4>(
-                        &inputs, &options_4, None,
-                    )
-                    .expect("Rust SIMD APO indicator failed");
+                    let result = Apo::indicator_by_options::<4>(&inputs, &options_4, None)
+                        .expect("Rust SIMD APO indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -575,9 +568,8 @@ fn bench_rust_apo_simd_by_options(c: &mut Criterion) {
                     &OPTIONS_LIST[2],
                     &OPTIONS_LIST[3],
                 ];
-                let result =
-                    tulip_rs::indicators::apo::indicator_by_options::<4>(&inputs, &options_4, None)
-                        .expect("Rust SIMD APO indicator failed");
+                let result = Apo::indicator_by_options::<4>(&inputs, &options_4, None)
+                    .expect("Rust SIMD APO indicator failed");
                 black_box(&result);
             });
         });

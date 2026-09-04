@@ -1,6 +1,4 @@
-use tulip_rs::indicators::fisher::{
-    indicator_by_assets, indicator_by_options, Fisher, Indicator, TIndicatorState,
-};
+use tulip_rs::indicators::fisher::{Fisher, Indicator, IndicatorByOptions, TIndicatorState};
 
 const HIGH: [f64; 15] = [
     82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98,
@@ -61,7 +59,8 @@ fn main() {
     let asset3: [&[f64]; 2] = [&high, &low];
     let inputs_4: [&[&[f64]; 2]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-    let (simd_asset_outputs, _) = match indicator_by_assets::<4>(&inputs_4, &options, None) {
+    let (simd_asset_outputs, _) = match Fisher::indicator_by_assets::<4>(&inputs_4, &options, None)
+    {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -77,10 +76,11 @@ fn main() {
     /////////////////////// SIMD by-options: 1 asset, 4 option sets ///////////////////////
     let options_4 = [&[5.0], &[7.0], &[10.0], &[14.0]];
 
-    let (simd_option_outputs, _) = match indicator_by_options::<4>(&inputs, &options_4, None) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (simd_option_outputs, _) =
+        match Fisher::indicator_by_options::<4>(&inputs, &options_4, None) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
     for (i, opts) in options_4.iter().enumerate() {
         println!(
             "\nSIMD by-options Fisher        (period={}): {:?}",

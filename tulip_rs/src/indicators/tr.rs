@@ -1,5 +1,7 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
@@ -9,20 +11,6 @@ pub const INPUTS: usize = 3;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 0;
 
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::tr_simd::indicator_by_assets;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    pub use crate::indicators::simd_indicators::tr_simd::indicator_by_assets as indicator;
-}
 pub type IndicatorState = State;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct State {
@@ -72,7 +60,6 @@ impl TIndicatorState<3> for IndicatorState {
     }
 }
 
-
 /// Performs the main calculation loop for the TR indicator.
 ///
 /// # Arguments
@@ -84,18 +71,14 @@ impl TIndicatorState<3> for IndicatorState {
 /// * `start` - The starting index into `high`, `low`, and `close` to begin reading from.
 /// * `tr_line` - A mutable slice for storing the TR output values.
 #[inline(always)]
-fn cycle_tr(
-    high: &[f64],
-    low: &[f64],
-    close: &[f64],
-    state: &mut State,
-    tr_line: &mut [f64],
-) {
-
+fn cycle_tr(high: &[f64], low: &[f64], close: &[f64], state: &mut State, tr_line: &mut [f64]) {
     for i in 0..high.len() {
         unsafe {
-            *tr_line.get_unchecked_mut(i) =
-                state.calc((*high.get_unchecked(i), *low.get_unchecked(i), *close.get_unchecked(i)));
+            *tr_line.get_unchecked_mut(i) = state.calc((
+                *high.get_unchecked(i),
+                *low.get_unchecked(i),
+                *close.get_unchecked(i),
+            ));
         }
     }
 }
@@ -146,9 +129,19 @@ impl Indicator<INPUTS, OPTIONS> for Tr {
         let mut state = State::new(close[0]);
         cycle_tr(&high[1..], &low[1..], &close[1..], &mut state, &mut tr_line);
 
-        Ok((
-            vec![tr_line],
-            state
-        ))
+        Ok((vec![tr_line], state))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::tr_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

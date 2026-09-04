@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::dema::{Dema, Indicator, TIndicatorState, indicator_by_assets, indicator_by_options};
+    use tulip_rs::indicators::dema::{Dema, Indicator, IndicatorByOptions, TIndicatorState};
     use tulip_test::c_bindings::{ti_dema, ti_dema_start, ti_ema, ti_ema_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -141,8 +141,8 @@ mod tests {
                 assert_eq!(ret, 0, "ti_dema returned error code {}", ret);
 
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) =
-                    Dema::indicator(&inputs_rust, &options, None).expect("Rust DEMA indicator failed");
+                let (outputs, _) = Dema::indicator(&inputs_rust, &options, None)
+                    .expect("Rust DEMA indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -207,8 +207,8 @@ mod tests {
                 let inputs_rust = [close.as_slice()];
 
                 // Get full output
-                let (full_outputs, _) =
-                    Dema::indicator(&inputs_rust, &options, None).expect("Rust DEMA indicator failed");
+                let (full_outputs, _) = Dema::indicator(&inputs_rust, &options, None)
+                    .expect("Rust DEMA indicator failed");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
@@ -284,13 +284,13 @@ mod tests {
             ];
 
             // Run SIMD implementation
-            let (simd_outputs, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_outputs, _) = Dema::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD DEMA indicator failed");
 
             // Run regular implementation for comparison
             let inputs_rust = [close.as_slice()];
-            let (regular_outputs, _) =
-                Dema::indicator(&inputs_rust, &options, None).expect("Regular DEMA indicator failed");
+            let (regular_outputs, _) = Dema::indicator(&inputs_rust, &options, None)
+                .expect("Regular DEMA indicator failed");
 
             // Compare each SIMD asset output with regular output
             for (asset_idx, simd_output_data) in simd_outputs.iter().enumerate() {
@@ -358,7 +358,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = Dema::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets DEMA indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -434,8 +434,9 @@ mod tests {
             ];
 
             // Test with optional outputs
-            let (simd_outputs_opt, _) = indicator_by_assets::<4>(&inputs, &options, Some(&[true]))
-                .expect("SIMD DEMA indicator with optional outputs failed");
+            let (simd_outputs_opt, _) =
+                Dema::indicator_by_assets::<4>(&inputs, &options, Some(&[true]))
+                    .expect("SIMD DEMA indicator with optional outputs failed");
 
             // Run regular implementation for comparison with optional outputs
             let inputs_rust = [close.as_slice()];
@@ -552,15 +553,17 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result with optional outputs
-            let (simd_results_opt, _) = indicator_by_assets::<4>(&inputs, &options, Some(&[true]))
-                .expect("SIMD by assets DEMA indicator with optional outputs failed");
+            let (simd_results_opt, _) =
+                Dema::indicator_by_assets::<4>(&inputs, &options, Some(&[true]))
+                    .expect("SIMD by assets DEMA indicator with optional outputs failed");
 
             // Compare each SIMD result with regular indicator for each stock
             for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                 // Get regular indicator result for this stock with optional outputs
                 let stock_inputs = [stock_close.as_slice()];
-                let (regular_results_opt, _) = Dema::indicator(&stock_inputs, &options, Some(&[true]))
-                    .expect("Regular DEMA indicator with optional outputs failed");
+                let (regular_results_opt, _) =
+                    Dema::indicator(&stock_inputs, &options, Some(&[true]))
+                        .expect("Regular DEMA indicator with optional outputs failed");
 
                 // Compare all outputs: DEMA, EMA
                 let output_names = ["DEMA", "EMA"];
@@ -731,12 +734,8 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get DEMA with EMA optional output
                 let optional_outputs = Some(&[true][..]);
-                let (dema_result, _) = Dema::indicator(
-                    &[&close],
-                    &[options[0]],
-                    optional_outputs,
-                )
-                .unwrap();
+                let (dema_result, _) =
+                    Dema::indicator(&[&close], &[options[0]], optional_outputs).unwrap();
 
                 let rust_ema = &dema_result[1];
 
@@ -810,7 +809,7 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Dema::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD DEMA 4-wide failed");
 
             // Use SIMD results directly
@@ -889,7 +888,7 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, _) =
-                indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
+                Dema::indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
                     .expect("SIMD DEMA 4-wide with optional outputs failed");
 
             // Use SIMD results directly
@@ -995,5 +994,4 @@ mod tests {
             "✓ All SIMD by options vs Regular DEMA database tests with optional outputs passed!"
         );
     }
-
-    }
+}

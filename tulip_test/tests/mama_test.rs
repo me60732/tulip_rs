@@ -2,7 +2,7 @@
 mod tests {
     use tulip_rs::indicator_types::TIndicatorState;
     use tulip_rs::indicators::homodynediscriminator::HomodyneDiscriminator;
-    use tulip_rs::indicators::mama::{indicator_by_assets, indicator_by_options, Indicator, Mama};
+    use tulip_rs::indicators::mama::{Indicator, IndicatorByOptions, Mama};
     use tulip_rs::types::IndicatorError;
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -383,7 +383,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             let (simd_results, _) =
-                indicator_by_assets::<4>(&inputs_4, &options, Some(&[true, true]))
+                Mama::indicator_by_assets::<4>(&inputs_4, &options, Some(&[true, true]))
                     .expect("SIMD by_assets failed");
 
             for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
@@ -447,7 +447,7 @@ mod tests {
             let inputs = [close.as_slice()];
 
             let (simd_results, _) =
-                indicator_by_options::<4>(&inputs, &options_4, Some(&[true, true]))
+                Mama::indicator_by_options::<4>(&inputs, &options_4, Some(&[true, true]))
                     .expect("SIMD by_options failed");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
@@ -517,7 +517,7 @@ mod tests {
             ];
 
             let (simd_first, mut states) =
-                indicator_by_assets::<4>(&inputs_4_first, &options, Some(&[true, true]))
+                Mama::indicator_by_assets::<4>(&inputs_4_first, &options, Some(&[true, true]))
                     .expect("SIMD by_assets failed on first chunk");
 
             for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
@@ -606,7 +606,7 @@ mod tests {
             let first_inputs = [&close[..FIRST_CHUNK] as &[f64]];
 
             let (simd_first, mut states) =
-                indicator_by_options::<4>(&first_inputs, &options_4, Some(&[true, true]))
+                Mama::indicator_by_options::<4>(&first_inputs, &options_4, Some(&[true, true]))
                     .expect("SIMD by_options failed on first chunk");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {

@@ -1,47 +1,15 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
-use crate::indicators::sma::{
-    multiplier as sma_multiplier, Sma,
-    State as SmaState
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
 };
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+use crate::indicators::sma::{multiplier as sma_multiplier, Sma, State as SmaState};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
 pub const INPUTS: usize = 1;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 2;
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::vosc_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::vosc_simd::indicator_by_options;
-
-// Sub-module exports with common naming
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    pub use crate::indicators::simd_indicators::vosc_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    pub use crate::indicators::simd_indicators::vosc_simd::indicator_by_options as indicator;
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
@@ -50,11 +18,7 @@ pub struct IndicatorState {
     periods: (usize, usize),
 }
 impl IndicatorState {
-    pub fn new(
-        volume: &[f64],
-        state: State<Warm>,
-        periods: (usize, usize),
-    ) -> Self {
+    pub fn new(volume: &[f64], state: State<Warm>, periods: (usize, usize)) -> Self {
         Self {
             volume: volume[volume.len() - periods.1..].to_vec(),
             state,
@@ -96,7 +60,7 @@ impl TIndicatorState<1> for IndicatorState {
     }
 }
 #[derive(Serialize, Deserialize)]
-#[serde(bound="")]
+#[serde(bound = "")]
 pub struct State<S = Cold> {
     pub short_state: SmaState<S>,
     pub long_state: SmaState<S>,
@@ -111,11 +75,10 @@ impl State<Cold> {
         volume: &[f64],
         short_sma_line: &mut [f64],
     ) -> State<Warm> {
-
         let mut short_state = SmaState::init_state(volume, short_period);
 
         for i in short_period..long_period {
-            let sma = short_state.calc((volume[i], volume[i-short_period]));
+            let sma = short_state.calc((volume[i], volume[i - short_period]));
             crate::init_store_optional_outputs!(i, volume.len(),
                 short_sma_line => sma
             );
@@ -125,17 +88,13 @@ impl State<Cold> {
             long_state: SmaState::init_state(volume, long_period),
         }
     }
-    
 }
 impl TState for State<Warm> {
     type Inputs<'a> = (f64, f64, f64);
     type Outputs = (f64, f64, f64);
-    
+
     #[inline(always)]
-    fn calc(
-        &mut self,
-        (current, short,  long): (f64, f64, f64),
-    ) -> (f64, f64, f64) {
+    fn calc(&mut self, (current, short, long): (f64, f64, f64)) -> (f64, f64, f64) {
         let fast_sma = self.short_state.calc((current, short));
         let slow_sma = self.long_state.calc((current, long));
         if slow_sma == 0.0 {
@@ -151,7 +110,6 @@ pub(crate) fn validate_options(options: &[f64; OPTIONS]) -> Result<(), Indicator
     }
     Ok(())
 }
-
 
 /// Iterates over the volume data and computes VOSC values for each bar.
 ///
@@ -179,13 +137,11 @@ fn cycle(
     for (j, i) in (long_period..volume.len()).enumerate() {
         let (vosc, short_sma, long_sma);
         unsafe {
-            (vosc, short_sma, long_sma) = state.calc(
-                (
-                    *volume.get_unchecked(i),
-                    *volume.get_unchecked(i - short_period),
-                    *volume.get_unchecked(j),
-                )
-            );
+            (vosc, short_sma, long_sma) = state.calc((
+                *volume.get_unchecked(i),
+                *volume.get_unchecked(i - short_period),
+                *volume.get_unchecked(j),
+            ));
             *vosc_line.get_unchecked_mut(j) = vosc;
         }
         if has_optional {
@@ -196,7 +152,6 @@ fn cycle(
         }
     }
 }
-
 
 #[inline(always)]
 pub fn multiplier(short_period: usize, long_period: usize) -> (f64, f64) {
@@ -234,16 +189,15 @@ impl Indicator<INPUTS, OPTIONS> for Vosc {
         ],
     };
 
-
     fn indicator(
         inputs: &[&[f64]; INPUTS],
         options: &[f64; OPTIONS],
         optional_outputs: Option<&[bool]>,
-    ) ->IndicatorResult<Self::IndicatorState> {
+    ) -> IndicatorResult<Self::IndicatorState> {
         validate_options(options)?;
         let short_period = options[0] as usize;
         let long_period = options[1] as usize;
-    
+
         validate_inputs(inputs, Self::min_data(options))?;
         let volume = inputs[0];
         let (mut vosc_line, (mut short_sma_line, mut long_sma_line)) = {
@@ -262,9 +216,9 @@ impl Indicator<INPUTS, OPTIONS> for Vosc {
         let start = crate::slice_outputs_start!(vosc_line.len(), short_sma_line);
         // Initialize state.
         let mut state = State::init_state(short_period, long_period, volume, &mut short_sma_line);
-    
+
         // The very first value is calculated during initialization.
-    
+
         // Process from index = long_period (first full window is available).
         cycle(
             volume,
@@ -273,10 +227,38 @@ impl Indicator<INPUTS, OPTIONS> for Vosc {
             &mut vosc_line,
             (&mut short_sma_line[start..], &mut long_sma_line),
         );
-    
+
         Ok((
             vec![vosc_line, short_sma_line, long_sma_line],
             IndicatorState::new(volume, state, (short_period, long_period)),
         ))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::vosc_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Vosc {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::vosc_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

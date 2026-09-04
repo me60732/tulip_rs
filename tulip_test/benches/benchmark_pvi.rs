@@ -1,7 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::pvi::{
-    Pvi, Indicator, indicator_by_assets, IndicatorState, TIndicatorState,
-};
+use tulip_rs::indicators::pvi::{Indicator, IndicatorState, Pvi, TIndicatorState};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_pvi, ti_pvi_start};
@@ -151,7 +149,8 @@ fn bench_rust_pvi(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust PVI", |b| {
             b.iter(|| {
-                let result = Pvi::indicator(&inputs, &OPTIONS, None).expect("Rust PVI indicator failed");
+                let result =
+                    Pvi::indicator(&inputs, &OPTIONS, None).expect("Rust PVI indicator failed");
                 black_box(&result);
             });
         });
@@ -179,8 +178,8 @@ fn bench_rust_pvi_from_state(c: &mut Criterion) {
                     // First chunk
                     let chunk_inputs = [&close_vec[..min_data], &volume_vec[..min_data]];
 
-                    let (_, mut state) =
-                        Pvi::indicator(&chunk_inputs, &OPTIONS, None).expect("PVI indicator failed");
+                    let (_, mut state) = Pvi::indicator(&chunk_inputs, &OPTIONS, None)
+                        .expect("PVI indicator failed");
 
                     // Chunks
                     let mut close_chunks = close_vec[min_data..].chunks_exact(CHUNK_SIZE);
@@ -375,7 +374,7 @@ fn bench_rust_pvi_simd_by_assets(c: &mut Criterion) {
         let mut timing = TimingMeasurements::new();
         timing.measure(
             || {
-                let result = indicator_by_assets::<4>(&inputs, &OPTIONS, None)
+                let result = Pvi::indicator_by_assets::<4>(&inputs, &OPTIONS, None)
                     .expect("Rust SIMD by assets PVI indicator failed");
                 black_box(&result);
             },
@@ -406,7 +405,7 @@ fn bench_rust_pvi_simd_by_assets(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust SIMD by assets PVI", |b| {
             b.iter(|| {
-                let result = indicator_by_assets::<4>(&inputs, &OPTIONS, None)
+                let result = Pvi::indicator_by_assets::<4>(&inputs, &OPTIONS, None)
                     .expect("Rust SIMD by assets PVI indicator failed");
                 black_box(&result);
             });

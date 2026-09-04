@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::qstick::{QStick, Indicator, TIndicatorState};
+    use tulip_rs::indicators::qstick::{Indicator, IndicatorByOptions, QStick, TIndicatorState};
     use tulip_test::c_bindings::{ti_qstick, ti_qstick_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -70,8 +70,8 @@ mod tests {
 
             // Run the Rust implementation
             let inputs_rust = [open.as_slice(), close.as_slice()];
-            let (outputs, _) =
-                QStick::indicator(&inputs_rust, &options, None).expect("Rust QSTICK indicator failed");
+            let (outputs, _) = QStick::indicator(&inputs_rust, &options, None)
+                .expect("Rust QSTICK indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -217,8 +217,6 @@ mod tests {
 
     #[test]
     fn test_qstick_simd_vs_regular_database() {
-        use tulip_rs::indicators::qstick::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -242,7 +240,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = QStick::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets QSTICK indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -394,8 +392,6 @@ mod tests {
 
     #[test]
     fn test_qstick_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::qstick::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -410,7 +406,7 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = QStick::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD QSTICK 4-wide failed");
 
             // Use SIMD results directly
@@ -419,8 +415,8 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
-                let (regular_results, _) =
-                    QStick::indicator(&inputs, options, None).expect("Regular QSTICK indicator failed");
+                let (regular_results, _) = QStick::indicator(&inputs, options, None)
+                    .expect("Regular QSTICK indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -468,5 +464,4 @@ mod tests {
 
         println!("✓ All SIMD by options vs Regular QSTICK database tests passed!");
     }
-
-    }
+}

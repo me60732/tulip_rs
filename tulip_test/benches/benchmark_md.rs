@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::md::{
-    Md, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
+    Indicator, IndicatorByOptions, IndicatorState, Md, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -130,8 +130,8 @@ fn bench_rust_md(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result =
-                            Md::indicator(&inputs, &options, None).expect("Rust MD indicator failed");
+                        let result = Md::indicator(&inputs, &options, None)
+                            .expect("Rust MD indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -187,8 +187,8 @@ fn bench_rust_md_from_state(c: &mut Criterion) {
                         // First chunk
                         let chunk_inputs = [&close[..min_data]];
 
-                        let (_, mut state) =
-                            Md::indicator(&chunk_inputs, &options, None).expect("MD indicator failed");
+                        let (_, mut state) = Md::indicator(&chunk_inputs, &options, None)
+                            .expect("MD indicator failed");
 
                         // Chunks
                         let mut close_chunks = close[min_data..].chunks_exact(CHUNK_SIZE);
@@ -221,8 +221,8 @@ fn bench_rust_md_from_state(c: &mut Criterion) {
                 if inputs[0].len() > 1 {
                     let new_inputs = [&close[..close.len() - 1]];
                     let final_inputs = [&close[close.len() - 1..]];
-                    let (_, mut state) =
-                        Md::indicator(&new_inputs, &options, None).expect("Rust MD indicator failed");
+                    let (_, mut state) = Md::indicator(&new_inputs, &options, None)
+                        .expect("Rust MD indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -245,8 +245,8 @@ fn bench_rust_md_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) =
-                        Md::indicator(&new_inputs, &options, None).expect("Rust MD indicator failed");
+                    let (_, state) = Md::indicator(&new_inputs, &options, None)
+                        .expect("Rust MD indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -364,7 +364,7 @@ fn bench_rust_md_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = Md::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("Rust SIMD by assets MD indicator failed");
                     black_box(&result);
                 },
@@ -395,7 +395,7 @@ fn bench_rust_md_simd_by_assets(c: &mut Criterion) {
                 format!("Rust SIMD by assets MD {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = Md::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("Rust SIMD by assets MD indicator failed");
                         black_box(&result);
                     });
@@ -494,14 +494,14 @@ fn bench_rust_md_simd_by_options(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    /*let result = indicator_by_options::<8>(&inputs, &options_8, None)
+                    /*let result = Md::indicator_by_options::<8>(&inputs, &options_8, None)
                         .expect("Rust SIMD MD 4-wide failed");
                     black_box(&result);*/
                     // Process all 4 options with 4-wide SIMD
-                    let result = indicator_by_options::<4>(&inputs, &options_4_1, None)
+                    let result = Md::indicator_by_options::<4>(&inputs, &options_4_1, None)
                         .expect("Rust SIMD MD 4-wide failed");
                     black_box(&result);
-                    /*let result = indicator_by_options::<4>(&inputs, &options_4_2, None)
+                    /*let result = Md::indicator_by_options::<4>(&inputs, &options_4_2, None)
                         .expect("Rust SIMD MD 4-wide failed");
                     black_box(&result);*/
                 },
@@ -521,17 +521,23 @@ fn bench_rust_md_simd_by_options(c: &mut Criterion) {
         // Run Criterion benchmark with synthetic data
         let close_vec = expand_inputs();
         let inputs = [close_vec.as_slice()];
+        let options_4 = [
+            &OPTIONS_LIST[0],
+            &OPTIONS_LIST[1],
+            &OPTIONS_LIST[2],
+            &OPTIONS_LIST[3],
+        ];
 
         let mut group = c.benchmark_group("md_rust_simd_by_options");
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust SIMD by options MD (4 lanes)", |b| {
             b.iter(|| {
                 // Process all 4 options with 4-wide SIMD
-                let result = indicator_by_options::<4>(&inputs, &options_4_1, None)
+                let result = Md::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD MD 4-wide failed");
 
                 black_box(result);
-                /*let result = indicator_by_options::<4>(&inputs, &options_4_2, None)
+                /*let result = Md::indicator_by_options::<4>(&inputs, &options_4_2, None)
                     .expect("Rust SIMD MD 4-wide failed");
 
                 black_box(result);*/

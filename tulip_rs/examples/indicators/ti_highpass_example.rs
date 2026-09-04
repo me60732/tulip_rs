@@ -1,6 +1,4 @@
-use tulip_rs::indicators::highpass::{
-    indicator_by_assets, indicator_by_options, HighPass, Indicator, TIndicatorState,
-};
+use tulip_rs::indicators::highpass::{HighPass, Indicator, IndicatorByOptions, TIndicatorState};
 
 // 80 bars of close prices
 const CLOSE: [f64; 80] = [
@@ -82,10 +80,11 @@ fn main() {
     let asset3: [&[f64]; 1] = [close3.as_slice()];
     let inputs_4: [&[&[f64]; 1]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-    let (simd_asset_outputs, _) = match indicator_by_assets::<4>(&inputs_4, &options2, None) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (simd_asset_outputs, _) =
+        match HighPass::indicator_by_assets::<4>(&inputs_4, &options2, None) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
     for (i, asset_out) in simd_asset_outputs.iter().enumerate() {
         let out = &asset_out[0];
         println!(
@@ -103,10 +102,11 @@ fn main() {
     //   period=48 → min_data=49 → 32 output values
     let options_4 = [&[10.0f64], &[20.0], &[30.0], &[48.0]];
 
-    let (simd_option_outputs, _) = match indicator_by_options::<4>(&inputs, &options_4, None) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (simd_option_outputs, _) =
+        match HighPass::indicator_by_options::<4>(&inputs, &options_4, None) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
     for (i, opts) in options_4.iter().enumerate() {
         let out = &simd_option_outputs[i][0];
         println!(

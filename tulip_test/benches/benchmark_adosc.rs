@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::adosc::{Adosc, Indicator, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::adosc::{Adosc, Indicator, IndicatorState, TIndicatorState, IndicatorByOptions};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_adosc, ti_adosc_start};
@@ -533,7 +533,7 @@ fn bench_rust_adosc_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = tulip_rs::indicators::adosc::indicator_by_assets::<4>(
+                    let result = Adosc::indicator_by_assets::<4>(
                         &inputs, &options, None,
                     ) //Some(&[true, true, true]))
                     .expect("Rust SIMD by assets ADOSC indicator failed");
@@ -573,7 +573,7 @@ fn bench_rust_adosc_simd_by_assets(c: &mut Criterion) {
                 ),
                 |b| {
                     b.iter(|| {
-                        let result = tulip_rs::indicators::adosc::indicator_by_assets::<4>(
+                        let result = Adosc::indicator_by_assets::<4>(
                             &inputs, &options, None,
                         )
                         .expect("Rust SIMD by assets ADOSC indicator failed");
@@ -699,7 +699,7 @@ fn bench_rust_adosc_simd_by_options(c: &mut Criterion) {
                         &OPTIONS_LIST[2],
                         &OPTIONS_LIST[3],
                     ];
-                    let result = tulip_rs::indicators::adosc::indicator_by_options::<4>(
+                    let result = Adosc::indicator_by_options::<4>(
                         &inputs, &options_4, None,
                     )
                     .expect("Rust SIMD ADOSC indicator failed");
@@ -738,7 +738,7 @@ fn bench_rust_adosc_simd_by_options(c: &mut Criterion) {
                     &OPTIONS_LIST[2],
                     &OPTIONS_LIST[3],
                 ];
-                let result = tulip_rs::indicators::adosc::indicator_by_options::<4>(
+                let result = Adosc::indicator_by_options::<4>(
                     &inputs, &options_4, None,
                 )
                 .expect("Rust SIMD ADOSC indicator failed");

@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::macd::{
-    Macd, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
+    Indicator, IndicatorByOptions, IndicatorState, Macd, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -158,8 +158,8 @@ fn bench_rust_macd(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result =
-                            Macd::indicator(&inputs, &options, None).expect("Rust MACD indicator failed");
+                        let result = Macd::indicator(&inputs, &options, None)
+                            .expect("Rust MACD indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -183,8 +183,8 @@ fn bench_rust_macd(c: &mut Criterion) {
                 ),
                 |b| {
                     b.iter(|| {
-                        let result =
-                            Macd::indicator(&inputs, &options, None).expect("Rust MACD indicator failed");
+                        let result = Macd::indicator(&inputs, &options, None)
+                            .expect("Rust MACD indicator failed");
                         black_box(&result);
                     });
                 },
@@ -250,8 +250,8 @@ fn bench_rust_macd_from_state(c: &mut Criterion) {
                 if inputs[0].len() > 1 {
                     let new_inputs = [&close[..close.len() - 1]];
                     let final_inputs = [&close[close.len() - 1..]];
-                    let (_, mut state) =
-                        Macd::indicator(&new_inputs, &options, None).expect("Rust MACD indicator failed");
+                    let (_, mut state) = Macd::indicator(&new_inputs, &options, None)
+                        .expect("Rust MACD indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -274,8 +274,8 @@ fn bench_rust_macd_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) =
-                        Macd::indicator(&new_inputs, &options, None).expect("Rust MACD indicator failed");
+                    let (_, state) = Macd::indicator(&new_inputs, &options, None)
+                        .expect("Rust MACD indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -320,8 +320,8 @@ fn bench_rust_macd_from_state(c: &mut Criterion) {
                     // First chunk
                     let chunk_inputs = [&close_vec[..min_data]];
 
-                    let (_, mut state) =
-                        Macd::indicator(&chunk_inputs, &options, None).expect("MACD indicator failed");
+                    let (_, mut state) = Macd::indicator(&chunk_inputs, &options, None)
+                        .expect("MACD indicator failed");
 
                     // Chunks
                     let mut close_chunks = close_vec[min_data..].chunks_exact(CHUNK_SIZE);
@@ -348,8 +348,8 @@ fn bench_rust_macd_from_state(c: &mut Criterion) {
             if close_vec.len() > 1 {
                 let new_inputs = [&close_vec[..close_vec.len() - 1]];
                 let final_inputs = [&close_vec[close_vec.len() - 1..]];
-                let (_, mut state) =
-                    Macd::indicator(&new_inputs, &options, None).expect("Rust MACD indicator failed");
+                let (_, mut state) = Macd::indicator(&new_inputs, &options, None)
+                    .expect("Rust MACD indicator failed");
 
                 let mut group = c.benchmark_group(format!(
                     "Rust MACD from state 1 bar {{ {:.1}, {:.1}, {:.1} }}",
@@ -547,7 +547,7 @@ fn bench_rust_macd_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = Macd::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("Rust SIMD by assets MACD indicator failed");
                     black_box(&result);
                 },
@@ -578,7 +578,7 @@ fn bench_rust_macd_simd_by_assets(c: &mut Criterion) {
                 ),
                 |b| {
                     b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = Macd::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("Rust SIMD by assets MACD indicator failed");
                         black_box(&result);
                     });
@@ -611,7 +611,7 @@ fn bench_rust_macd_simd_by_options(c: &mut Criterion) {
             timing.measure(
                 || {
                     // Process first 4 options with 4-wide SIMD
-                    let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result_4 = Macd::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD by options MACD indicator failed (4-wide)");
                     black_box(&result_4);
                 },
@@ -637,7 +637,7 @@ fn bench_rust_macd_simd_by_options(c: &mut Criterion) {
         group.bench_function("Rust SIMD by options MACD (4 lanes)", |b| {
             b.iter(|| {
                 // Process first 4 options with 4-wide SIMD
-                let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result_4 = Macd::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD by options MACD indicator failed (4-wide)");
                 black_box(&result_4);
             });

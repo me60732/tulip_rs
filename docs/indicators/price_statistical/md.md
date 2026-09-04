@@ -9,10 +9,21 @@ The mean of the absolute deviations of each bar from the rolling mean over `peri
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::md::indicator;
+    use tulip_rs::indicators::md::{Md, Indicator, TIndicatorState};
 
-    let (outputs, _) = indicator(&[close.as_slice()], &[14.0], None).unwrap();
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
+                     83.15, 82.84, 83.99, 84.55, 84.36_f64];
+    let (outputs, mut state) = Md::indicator(&[close.as_slice()], &[14.0], None).unwrap();
     println!("{:?}", outputs[0]);
+
+    // State continuation — feed new bars without reprocessing history
+    let partial = close[..8].to_vec();
+    let (outputs2, mut state) = Md::indicator(&[partial.as_slice()], &[14.0], None).unwrap();
+    println!("{:?}", outputs2[0]);
+
+    let new_close = vec![85.53_f64];
+    let continued = state.batch_indicator(&[new_close.as_slice()], None).unwrap();
+    println!("{:?}", continued[0]);
     ```
 
 === "Python"
@@ -68,13 +79,13 @@ The mean of the absolute deviations of each bar from the rolling mean over `peri
     `md` exposes 1 optional output: `sma`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::md::indicator;
+    use tulip_rs::indicators::md::{Md, Indicator, TIndicatorState};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
     let mask = [true]; // one per optional output
-    let (outputs, _state) = indicator(&[close.as_slice()], &[10.0], Some(&mask)).unwrap();
+    let (outputs, _state) = Md::indicator(&[close.as_slice()], &[10.0], Some(&mask)).unwrap();
 
     let md  = &outputs[0]; // md (primary)
     let sma = &outputs[1]; // sma (optional — requested)
@@ -129,6 +140,9 @@ The mean of the absolute deviations of each bar from the rolling mean over `peri
 
     let inputs: [&[&[f64]; 1]; 4] = [&[a1.as_slice()], &[a2.as_slice()], &[a3.as_slice()], &[a4.as_slice()]];
     let results = indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
+    for (i, asset_outputs) in results.iter().enumerate() {
+        println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
+    }
     ```
 
     **By options** — same asset, N option sets in parallel:
@@ -138,6 +152,9 @@ The mean of the absolute deviations of each bar from the rolling mean over `peri
 
     let opts: [&[f64; 1]; 4] = [&[7.0], &[14.0], &[21.0], &[28.0]];
     let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
+    for (i, asset_outputs) in results.iter().enumerate() {
+        println!("Option {}: {:?}", i + 1, asset_outputs[0]);
+    }
     ```
 
 === "Python"

@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::hilberttransform::{
-    indicator_by_assets, indicator_by_options, HilbertTransform, Indicator, TIndicatorState,
+    HilbertTransform, Indicator, IndicatorByOptions, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -323,8 +323,9 @@ fn bench_rust_hilberttransform_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
-                        .expect("SIMD by-assets HilbertTransform failed");
+                    let result =
+                        HilbertTransform::indicator_by_assets::<4>(&inputs, &options, None)
+                            .expect("SIMD by-assets HilbertTransform failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -352,8 +353,9 @@ fn bench_rust_hilberttransform_simd_by_assets(c: &mut Criterion) {
                 ),
                 |b| {
                     b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
-                            .expect("SIMD by-assets HilbertTransform failed");
+                        let result =
+                            HilbertTransform::indicator_by_assets::<4>(&inputs, &options, None)
+                                .expect("SIMD by-assets HilbertTransform failed");
                         black_box(&result);
                     });
                 },
@@ -385,8 +387,9 @@ fn bench_rust_hilberttransform_simd_by_options(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
-                        .expect("SIMD by-options HilbertTransform failed");
+                    let result =
+                        HilbertTransform::indicator_by_options::<4>(&inputs, &options_4, None)
+                            .expect("SIMD by-options HilbertTransform failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -414,7 +417,7 @@ fn bench_rust_hilberttransform_simd_by_options(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust HilbertTransform SIMD by options (4 lanes)", |b| {
             b.iter(|| {
-                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result = HilbertTransform::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("SIMD by-options HilbertTransform failed");
                 black_box(&result);
             });

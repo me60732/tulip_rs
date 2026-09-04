@@ -1,9 +1,11 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
 
 use crate::indicators::max::State as MaxState;
 use crate::indicators::min::State as MinState;
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -11,38 +13,6 @@ pub const INPUTS: usize = 2;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::aroon_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::aroon_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::aroon_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    /// See the parent module's [`super::indicator_by_options`] for full documentation.
-    pub use crate::indicators::simd_indicators::aroon_simd::indicator_by_options as indicator;
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
@@ -95,7 +65,7 @@ impl TIndicatorState<2> for IndicatorState {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(bound="")]
+#[serde(bound = "")]
 pub struct State<S = Cold> {
     pub min_state: MinState<S>,
     pub max_state: MaxState<S>,
@@ -113,7 +83,7 @@ impl State<Cold> {
         let multiplier = multiplier(period);
         let min_state = MinState::init_state(low, period);
         let max_state = MaxState::init_state(high, period);
-        
+
         State {
             min_state,
             max_state,
@@ -127,12 +97,12 @@ impl State<Warm> {
         &mut self,
         (high, low, i, period): (&[f64], &[f64], usize, usize),
     ) -> (f64, f64) {
-        let (_, min_trail) = self
-            .min_state
-            .calc_chuncked_unchecked::<N>((low, i, (period, period)));
-        let (_, max_trail) = self
-            .max_state
-            .calc_chuncked_unchecked::<N>((high, i, (period, period)));
+        let (_, min_trail) =
+            self.min_state
+                .calc_chuncked_unchecked::<N>((low, i, (period, period)));
+        let (_, max_trail) =
+            self.max_state
+                .calc_chuncked_unchecked::<N>((high, i, (period, period)));
 
         calc_aroon(min_trail, max_trail, period, self.multiplier)
     }
@@ -148,10 +118,7 @@ impl TState for State<Warm> {
         calc_aroon(min_trail, max_trail, period, self.multiplier)
     }
     #[inline(always)]
-    unsafe fn calc_unchecked(
-        &mut self,
-        inputs: Self::Inputs<'_>,
-    ) -> Self::Outputs {
+    unsafe fn calc_unchecked(&mut self, inputs: Self::Inputs<'_>) -> Self::Outputs {
         self.calc_chuncked_unchecked::<4>(inputs)
     }
 }
@@ -242,11 +209,38 @@ impl Indicator<INPUTS, OPTIONS> for Aroon {
             (&mut aroon_down_line, &mut aroon_up_line),
             &mut state,
         );
-        
 
         Ok((
             vec![aroon_down_line, aroon_up_line],
             IndicatorState::new(high, low, state, period),
         ))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::aroon_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Aroon {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::aroon_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

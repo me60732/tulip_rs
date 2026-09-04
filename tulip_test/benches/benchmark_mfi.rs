@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::mfi::{
-    Mfi, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
+    Indicator, IndicatorByOptions, IndicatorState, Mfi, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -160,8 +160,8 @@ fn bench_rust_mfi(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result =
-                            Mfi::indicator(&inputs, &options, None).expect("Rust MFI indicator failed");
+                        let result = Mfi::indicator(&inputs, &options, None)
+                            .expect("Rust MFI indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -225,8 +225,8 @@ fn bench_rust_mfi_from_state(c: &mut Criterion) {
                             &volume[..min_data],
                         ];
 
-                        let (_, mut state) =
-                            Mfi::indicator(&chunk_inputs, &options, None).expect("MFI indicator failed");
+                        let (_, mut state) = Mfi::indicator(&chunk_inputs, &options, None)
+                            .expect("MFI indicator failed");
 
                         // Chunks
                         let mut high_chunks = high[min_data..].chunks_exact(CHUNK_SIZE);
@@ -283,8 +283,8 @@ fn bench_rust_mfi_from_state(c: &mut Criterion) {
                         &close[close.len() - 1..],
                         &volume[volume.len() - 1..],
                     ];
-                    let (_, mut state) =
-                        Mfi::indicator(&new_inputs, &options, None).expect("Rust MFI indicator failed");
+                    let (_, mut state) = Mfi::indicator(&new_inputs, &options, None)
+                        .expect("Rust MFI indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -307,8 +307,8 @@ fn bench_rust_mfi_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) =
-                        Mfi::indicator(&new_inputs, &options, None).expect("Rust MFI indicator failed");
+                    let (_, state) = Mfi::indicator(&new_inputs, &options, None)
+                        .expect("Rust MFI indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -356,8 +356,8 @@ fn bench_rust_mfi_from_state(c: &mut Criterion) {
                         &volume_vec[..min_data],
                     ];
 
-                    let (_, mut state) =
-                        Mfi::indicator(&chunk_inputs, &options, None).expect("MFI indicator failed");
+                    let (_, mut state) = Mfi::indicator(&chunk_inputs, &options, None)
+                        .expect("MFI indicator failed");
 
                     // Chunks
                     let mut high_chunks = high_vec[min_data..].chunks_exact(CHUNK_SIZE);
@@ -621,7 +621,7 @@ fn bench_rust_mfi_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = Mfi::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("Rust SIMD by assets MFI indicator failed");
                     black_box(&result);
                 },
@@ -656,7 +656,7 @@ fn bench_rust_mfi_simd_by_assets(c: &mut Criterion) {
                 format!("Rust SIMD by assets MFI {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = Mfi::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("Rust SIMD by assets MFI indicator failed");
                         black_box(&result);
                     });
@@ -696,12 +696,12 @@ fn bench_rust_mfi_simd_by_options(c: &mut Criterion) {
             timing.measure(
                 || {
                     // Process first 4 options with 4-wide SIMD
-                    let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result_4 = Mfi::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD MFI indicator failed");
                     black_box(&result_4);
 
                     // Process remaining 2 options with 2-wide SIMD
-                    /*let result_2 = indicator_by_options::<2>(&inputs, &options_2, None)
+                    /*let result_2 = Mfi::indicator_by_options::<2>(&inputs, &options_2, None)
                         .expect("Rust SIMD MFI indicator failed");
                     black_box(&result_2);*/
                 },
@@ -725,12 +725,12 @@ fn bench_rust_mfi_simd_by_options(c: &mut Criterion) {
         group.bench_function("Rust SIMD MFI (4+2 lanes)", |b| {
             b.iter(|| {
                 // Process first 4 options with 4-wide SIMD
-                let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result_4 = Mfi::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD MFI indicator failed");
                 black_box(&result_4);
 
                 // Process remaining 2 options with 2-wide SIMD
-                /*let result_2 = indicator_by_options::<2>(&inputs, &options_2, None)
+                /*let result_2 = Mfi::indicator_by_options::<2>(&inputs, &options_2, None)
                     .expect("Rust SIMD MFI indicator failed");
                 black_box(&result_2);*/
             });

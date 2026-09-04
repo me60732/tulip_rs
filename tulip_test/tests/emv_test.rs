@@ -72,7 +72,8 @@ mod tests {
 
         // Run the Rust implementation
         let inputs_rust = [high.as_slice(), low.as_slice(), volume.as_slice()];
-        let (outputs, _) = Emv::indicator(&inputs_rust, &[], None).expect("Rust EMV indicator failed");
+        let (outputs, _) =
+            Emv::indicator(&inputs_rust, &[], None).expect("Rust EMV indicator failed");
 
         let output_len_rust = outputs[0].len();
 
@@ -309,8 +310,6 @@ mod tests {
 
     #[test]
     fn test_emv_simd_vs_regular_database() {
-        use tulip_rs::indicators::emv::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -351,7 +350,7 @@ mod tests {
         // Test without optional outputs
         {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &[], None)
+            let (simd_results, _) = Emv::indicator_by_assets::<4>(&inputs, &[], None)
                 .expect("SIMD by assets EMV indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -421,8 +420,6 @@ mod tests {
 
     #[test]
     fn test_emv_simd_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::emv::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -463,7 +460,7 @@ mod tests {
         // Test with optional outputs
         {
             // Get SIMD by assets result with optional outputs
-            let (simd_results_opt, _) = indicator_by_assets::<4>(&inputs, &[], Some(&[true]))
+            let (simd_results_opt, _) = Emv::indicator_by_assets::<4>(&inputs, &[], Some(&[true]))
                 .expect("SIMD by assets EMV indicator with optional outputs failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -635,12 +632,8 @@ mod tests {
 
             // Get EMV with medprice optional output
             let optional_outputs = Some(&[true][..]);
-            let (emv_result, _) = Emv::indicator(
-                &[&high, &low, &volume],
-                &OPTIONS,
-                optional_outputs,
-            )
-            .unwrap();
+            let (emv_result, _) =
+                Emv::indicator(&[&high, &low, &volume], &OPTIONS, optional_outputs).unwrap();
 
             let rust_medprice = &emv_result[1];
 
@@ -693,5 +686,4 @@ mod tests {
             }
         }
     }
-
-    }
+}

@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::chaikinmf::{
-    ChaikinMf, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
+    ChaikinMf, Indicator, IndicatorByOptions, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -109,8 +109,8 @@ fn bench_rust_chaikinmf(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust Chaikin MF {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result =
-                        ChaikinMf::indicator(&inputs, &options, None).expect("Chaikin MF ChaikinMf::indicator failed");
+                    let result = ChaikinMf::indicator(&inputs, &options, None)
+                        .expect("Chaikin MF ChaikinMf::indicator failed");
                     black_box(&result);
                 });
             });
@@ -320,8 +320,8 @@ fn bench_rust_chaikinmf_from_state(c: &mut Criterion) {
                     &close_vec[n - 1..],
                     &volume_vec[n - 1..],
                 ];
-                let (_, mut state) =
-                    ChaikinMf::indicator(&new_inputs, &options, None).expect("Chaikin MF ChaikinMf::indicator failed");
+                let (_, mut state) = ChaikinMf::indicator(&new_inputs, &options, None)
+                    .expect("Chaikin MF ChaikinMf::indicator failed");
 
                 let mut group = c.benchmark_group(format!(
                     "Rust Chaikin MF from state 1 bar {{ {:.1} }}",
@@ -388,7 +388,7 @@ fn bench_chaikinmf_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs_4, &options, None)
+                    let result = ChaikinMf::indicator_by_assets::<4>(&inputs_4, &options, None)
                         .expect("SIMD by-assets ChaikinMF failed");
                     black_box(&result);
                 },
@@ -413,7 +413,7 @@ fn bench_chaikinmf_simd_by_assets(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("SIMD ByAssets {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result = indicator_by_assets::<4>(&inputs_4, &options, None)
+                    let result = ChaikinMf::indicator_by_assets::<4>(&inputs_4, &options, None)
                         .expect("SIMD by-assets ChaikinMF failed");
                     black_box(&result);
                 });
@@ -450,7 +450,7 @@ fn bench_chaikinmf_simd_by_options(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result = ChaikinMf::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("SIMD by-options ChaikinMF failed");
                     black_box(&result);
                 },
@@ -478,7 +478,7 @@ fn bench_chaikinmf_simd_by_options(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("SIMD ByOptions {5/10/14/20}", |b| {
             b.iter(|| {
-                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result = ChaikinMf::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("SIMD by-options ChaikinMF failed");
                 black_box(&result);
             });

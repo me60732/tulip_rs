@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::vosc::{Vosc, Indicator, TIndicatorState};
+    use tulip_rs::indicator_types::IndicatorByOptions;
+    use tulip_rs::indicators::vosc::{Indicator, TIndicatorState, Vosc};
     use tulip_test::c_bindings::{ti_sma, ti_sma_start, ti_vosc, ti_vosc_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -147,8 +148,8 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [volume.as_slice()];
-                let (outputs, _) =
-                    Vosc::indicator(&inputs_rust, &options, None).expect("Rust VOSC indicator failed");
+                let (outputs, _) = Vosc::indicator(&inputs_rust, &options, None)
+                    .expect("Rust VOSC indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -214,8 +215,8 @@ mod tests {
                 let inputs_rust = [volume.as_slice()];
 
                 // Get full output from processing all data at once
-                let (full_outputs, _) =
-                    Vosc::indicator(&inputs_rust, &options, None).expect("Rust VOSC indicator failed");
+                let (full_outputs, _) = Vosc::indicator(&inputs_rust, &options, None)
+                    .expect("Rust VOSC indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
@@ -226,8 +227,8 @@ mod tests {
                 let volume_vec = volume[..min_data_val].to_vec();
                 let chunk_inputs = [volume_vec.as_slice()];
 
-                let (first_outputs, mut state) =
-                    Vosc::indicator(&chunk_inputs, &options, None).expect("Rust VOSC indicator failed");
+                let (first_outputs, mut state) = Vosc::indicator(&chunk_inputs, &options, None)
+                    .expect("Rust VOSC indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
                 // Process remaining data in chunks
@@ -283,8 +284,6 @@ mod tests {
 
     #[test]
     fn test_vosc_simd_vs_regular_database() {
-        use tulip_rs::indicators::vosc::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -308,7 +307,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = Vosc::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets VOSC indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -372,8 +371,6 @@ mod tests {
 
     #[test]
     fn test_vosc_simd_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::vosc::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -400,7 +397,7 @@ mod tests {
 
             // Get SIMD by assets result with optional outputs
             let (simd_results, _) =
-                indicator_by_assets::<4>(&inputs, &options, Some(&optional_flags))
+                Vosc::indicator_by_assets::<4>(&inputs, &options, Some(&optional_flags))
                     .expect("SIMD by assets VOSC indicator with optional outputs failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -656,12 +653,9 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get VOSC with short_sma optional output
                 let optional_outputs = Some(&[true, false][..]);
-                let (vosc_result, _) = Vosc::indicator(
-                    &[&volume],
-                    &[options[0], options[1]],
-                    optional_outputs,
-                )
-                .unwrap();
+                let (vosc_result, _) =
+                    Vosc::indicator(&[&volume], &[options[0], options[1]], optional_outputs)
+                        .unwrap();
 
                 let rust_short_sma = &vosc_result[1];
 
@@ -736,12 +730,9 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get VOSC with long_sma optional output
                 let optional_outputs = Some(&[false, true][..]);
-                let (vosc_result, _) = Vosc::indicator(
-                    &[&volume],
-                    &[options[0], options[1]],
-                    optional_outputs,
-                )
-                .unwrap();
+                let (vosc_result, _) =
+                    Vosc::indicator(&[&volume], &[options[0], options[1]], optional_outputs)
+                        .unwrap();
 
                 let rust_long_sma = &vosc_result[2];
 
@@ -802,8 +793,6 @@ mod tests {
     // SIMD-by-options test for VOSC (4-wide SIMD, compare to regular)
     #[test]
     fn test_vosc_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::vosc::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -818,7 +807,7 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Vosc::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD VOSC 4-wide failed");
 
             // Compare each SIMD result with regular indicator
@@ -882,8 +871,6 @@ mod tests {
     // SIMD-by-options optional outputs test for VOSC (4-wide SIMD, compare to regular)
     #[test]
     fn test_vosc_simd_by_options_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::vosc::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -902,7 +889,7 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, _) =
-                indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
+                Vosc::indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
                     .expect("SIMD VOSC 4-wide with optional outputs failed");
 
             // Compare each SIMD result with regular indicator (with optional outputs)
@@ -1021,5 +1008,4 @@ mod tests {
 
         println!("✓ All SIMD by options vs Regular VOSC optional outputs database tests passed!");
     }
-
-    }
+}

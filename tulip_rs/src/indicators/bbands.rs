@@ -1,8 +1,10 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{TIndicatorState, TState, Indicator, IndicatorResult};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
 //use crate::indicators::stddev::Calc as StdDevCalc;
 use crate::indicators::stddev::State as StddevState;
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
 pub const INPUTS: usize = 1;
@@ -10,51 +12,18 @@ pub const INPUTS: usize = 1;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 2;
 
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::bbands_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::bbands_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::bbands_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    /// See the parent module's [`super::indicator_by_options`] for full documentation.
-    pub use crate::indicators::simd_indicators::bbands_simd::indicator_by_options as indicator;
-}
-
-
 #[derive(Serialize, Deserialize)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
     pub stddev_state: StddevState<S>,
-    pub std_dev: f64
+    pub std_dev: f64,
 }
 impl State {
     pub fn init_state(real: &[f64], period: usize, std_dev: f64) -> State<Warm> {
         let stddev_state = StddevState::init_state(real, period);
         State {
             std_dev,
-            stddev_state
+            stddev_state,
         }
     }
 }
@@ -64,16 +33,13 @@ impl TState for State<Warm> {
     type Outputs = (f64, f64, f64);
 
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        inputs: Self::Inputs<'a>
-    ) -> Self::Outputs {
+    fn calc<'a>(&mut self, inputs: Self::Inputs<'a>) -> Self::Outputs {
         let (sd, sma);
         (sd, sma) = self.stddev_state.calc(inputs);
-    
+
         let upper_band = self.std_dev.mul_add(sd, sma);
         let lower_band = (-self.std_dev).mul_add(sd, sma);
-    
+
         (lower_band, sma, upper_band)
     }
 }
@@ -133,7 +99,6 @@ pub(crate) fn validate_options(options: &[f64; OPTIONS]) -> Result<(), Indicator
     Ok(())
 }
 
-
 /// Performs the main calculation loop for the BBANDS indicator.
 ///
 /// # Arguments
@@ -151,11 +116,9 @@ fn cycle_bbands(
     state: &mut State<Warm>,
 ) {
     for (j, i) in (period..real.len()).enumerate() {
-
-        let (lower, middle, upper) = state.calc((
-            unsafe { *real.get_unchecked(i) },
-            unsafe { *real.get_unchecked(j) },
-        ));
+        let (lower, middle, upper) = state.calc((unsafe { *real.get_unchecked(i) }, unsafe {
+            *real.get_unchecked(j)
+        }));
         unsafe {
             *middle_band.get_unchecked_mut(j) = middle;
             *upper_band.get_unchecked_mut(j) = upper;
@@ -163,7 +126,6 @@ fn cycle_bbands(
         }
     }
 }
-
 
 pub struct BBands;
 
@@ -198,10 +160,10 @@ impl Indicator<INPUTS, OPTIONS> for BBands {
         validate_options(options)?;
         let period = options[0] as usize;
         let std_dev = options[1];
-    
+
         validate_inputs(inputs, Self::min_data(options))?;
         let real = inputs[0];
-    
+
         let (mut middle_band, mut upper_band, mut lower_band) = {
             let capacity = Self::output_length(real.len(), options);
             (
@@ -210,7 +172,7 @@ impl Indicator<INPUTS, OPTIONS> for BBands {
                 crate::uninit_vec!(f64, capacity),
             )
         };
-    
+
         let mut state = State::init_state(real, period, std_dev);
         cycle_bbands(
             real,
@@ -218,11 +180,38 @@ impl Indicator<INPUTS, OPTIONS> for BBands {
             (&mut lower_band, &mut middle_band, &mut upper_band),
             &mut state,
         );
-    
+
         Ok((
             vec![lower_band, middle_band, upper_band],
             IndicatorState::new(real, state, period),
         ))
     }
-    
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::bbands_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for BBands {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::bbands_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
 }

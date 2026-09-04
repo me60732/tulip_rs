@@ -1,5 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::vwma::{Vwma, Indicator, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::vwma::{
+    Indicator, IndicatorByOptions, IndicatorState, TIndicatorState, Vwma,
+};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_vwma, ti_vwma_start};
@@ -131,8 +133,8 @@ fn bench_rust_vwma(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result =
-                            Vwma::indicator(&inputs, &options, None).expect("Rust VWMA indicator failed");
+                        let result = Vwma::indicator(&inputs, &options, None)
+                            .expect("Rust VWMA indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -158,8 +160,8 @@ fn bench_rust_vwma(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust VWMA {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result =
-                        Vwma::indicator(&inputs, &options, None).expect("Rust VWMA indicator failed");
+                    let result = Vwma::indicator(&inputs, &options, None)
+                        .expect("Rust VWMA indicator failed");
                     black_box(&result);
                 });
             });
@@ -235,8 +237,8 @@ fn bench_rust_vwma_from_state(c: &mut Criterion) {
                     let new_inputs = [new_close_vec.as_slice(), new_volume_vec.as_slice()];
                     let final_close_vec = close_vec[close_vec.len() - 1..].to_vec();
                     let final_volume_vec = volume_vec[volume_vec.len() - 1..].to_vec();
-                    let (_, mut state) =
-                        Vwma::indicator(&new_inputs, &options, None).expect("Rust VWMA indicator failed");
+                    let (_, mut state) = Vwma::indicator(&new_inputs, &options, None)
+                        .expect("Rust VWMA indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -262,8 +264,8 @@ fn bench_rust_vwma_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) =
-                        Vwma::indicator(&new_inputs, &options, None).expect("Rust VWMA indicator failed");
+                    let (_, state) = Vwma::indicator(&new_inputs, &options, None)
+                        .expect("Rust VWMA indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -299,8 +301,7 @@ fn bench_rust_vwma_from_state(c: &mut Criterion) {
         let _inputs = [&close_vec, &volume_vec];
 
         for options in OPTIONS_LIST {
-            let mut group =
-                c.benchmark_group(format!("Rust VWMA from state {{ {} }}", options[0]));
+            let mut group = c.benchmark_group(format!("Rust VWMA from state {{ {} }}", options[0]));
             group.sample_size(SAMPLE_SIZE);
 
             group.bench_function("benchmark", |b| {
@@ -309,8 +310,8 @@ fn bench_rust_vwma_from_state(c: &mut Criterion) {
                     // First chunk
                     let chunk_inputs = [&close_vec[..min_data_val], &volume_vec[..min_data_val]];
 
-                    let (_, mut state) =
-                        Vwma::indicator(&chunk_inputs, &options, None).expect("VWMA indicator failed");
+                    let (_, mut state) = Vwma::indicator(&chunk_inputs, &options, None)
+                        .expect("VWMA indicator failed");
 
                     // Chunks
                     let mut close_chunks = close_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -346,8 +347,8 @@ fn bench_rust_vwma_from_state(c: &mut Criterion) {
 
                 let final_close_vec = close_vec[close_vec.len() - 1..].to_vec();
                 let final_volume_vec = volume_vec[volume_vec.len() - 1..].to_vec();
-                let (_, mut state) =
-                    Vwma::indicator(&new_inputs, &options, None).expect("Rust VWMA indicator failed");
+                let (_, mut state) = Vwma::indicator(&new_inputs, &options, None)
+                    .expect("Rust VWMA indicator failed");
 
                 let mut group =
                     c.benchmark_group(format!("Rust VWMA from state 1 bar {{ {} }}", options[0]));
@@ -417,8 +418,7 @@ fn bench_rust_vwma_simd_by_assets(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        use tulip_rs::indicators::vwma::indicator_by_assets;
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = Vwma::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("SIMD VWMA indicator failed");
                         black_box(&result);
                     },
@@ -451,8 +451,7 @@ fn bench_rust_vwma_simd_by_assets(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("SIMD VWMA by assets {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    use tulip_rs::indicators::vwma::indicator_by_assets;
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = Vwma::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("SIMD VWMA indicator failed");
                     black_box(&result);
                 });
@@ -464,8 +463,6 @@ fn bench_rust_vwma_simd_by_assets(c: &mut Criterion) {
 
 // SIMD-by-options benchmark for VWMA (4 lanes)
 fn bench_rust_vwma_simd_by_options(c: &mut Criterion) {
-    use tulip_rs::indicators::vwma::indicator_by_options;
-
     let options_4 = [
         &OPTIONS_LIST[0],
         &OPTIONS_LIST[1],
@@ -488,7 +485,7 @@ fn bench_rust_vwma_simd_by_options(c: &mut Criterion) {
             timing.measure(
                 || {
                     // Process 4 options with 4-wide SIMD
-                    let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result_4 = Vwma::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD VWMA indicator failed");
                     black_box(&result_4);
                 },
@@ -514,7 +511,7 @@ fn bench_rust_vwma_simd_by_options(c: &mut Criterion) {
         group.bench_function("Rust SIMD VWMA (4 lanes)", |b| {
             b.iter(|| {
                 // Process 4 options with 4-wide SIMD
-                let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result_4 = Vwma::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD VWMA indicator failed");
                 black_box(&result_4);
             });

@@ -1,14 +1,12 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{TIndicatorState, TState, Indicator, IndicatorResult};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
 use crate::indicators::{
     sma::calc as sma_calc,
-    stddev::{
-        StdDev, State as StddevState, multiplier as stddev_multiplier
-    },
+    stddev::{multiplier as stddev_multiplier, State as StddevState, StdDev},
 };
-use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold
-};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -16,39 +14,11 @@ pub const INPUTS: usize = 1;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 3;
 
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::vidya_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::vidya_simd::indicator_by_options;
-
-// Sub-module exports with common naming
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    pub use crate::indicators::simd_indicators::vidya_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    pub use crate::indicators::simd_indicators::vidya_simd::indicator_by_options as indicator;
-}
-
 pub fn multiplier(short_period: usize, long_period: usize) -> (f64, f64) {
-    (stddev_multiplier(short_period), stddev_multiplier(long_period))
+    (
+        stddev_multiplier(short_period),
+        stddev_multiplier(long_period),
+    )
 }
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
@@ -57,11 +27,7 @@ pub struct IndicatorState {
     periods: (usize, usize),
 }
 impl IndicatorState {
-    pub fn new(
-        real: &[f64],
-        state: State<Warm>,
-        periods: (usize, usize),
-    ) -> Self {
+    pub fn new(real: &[f64], state: State<Warm>, periods: (usize, usize)) -> Self {
         Self {
             real: real[real.len() - periods.1..].to_vec(),
             state,
@@ -124,7 +90,7 @@ impl TIndicatorState<1> for IndicatorState {
     }
 }
 #[derive(Serialize, Deserialize)]
-#[serde(bound="")]
+#[serde(bound = "")]
 pub struct State<S = Cold> {
     pub short_state: StddevState<S>,
     pub long_state: StddevState<S>,
@@ -132,12 +98,18 @@ pub struct State<S = Cold> {
     pub prev_vidya: f64,
 }
 impl State {
-    pub fn new(short_state: (f64, f64), long_state: (f64, f64), alpha: f64, prev_vidya: f64, (short_period, long_period): (usize, usize)) -> Self {
+    pub fn new(
+        short_state: (f64, f64),
+        long_state: (f64, f64),
+        alpha: f64,
+        prev_vidya: f64,
+        (short_period, long_period): (usize, usize),
+    ) -> Self {
         Self {
             short_state: StddevState::new(short_state.0, short_state.1, short_period),
             long_state: StddevState::new(long_state.0, long_state.1, long_period),
             prev_vidya,
-            alpha
+            alpha,
         }
     }
     pub fn init_state(
@@ -146,13 +118,18 @@ impl State {
         real: &[f64],
         alpha: f64,
         vidya_line: &mut [f64],
-        (short_sma_line, long_sma_line, short_sd_line, long_sd_line): (&mut [f64], &mut [f64], &mut [f64], &mut [f64]),
+        (short_sma_line, long_sma_line, short_sd_line, long_sd_line): (
+            &mut [f64],
+            &mut [f64],
+            &mut [f64],
+            &mut [f64],
+        ),
     ) -> State<Warm> {
         let mut sum_short: f64 = 0.0;
         let mut sum_sq_short: f64 = 0.0;
         let mut sum_long: f64 = 0.0;
         let mut sum_sq_long: f64 = 0.0;
-        
+
         let (short_multiplier, long_multiplier) = multiplier(short_period, long_period);
         for (i, &value) in real.iter().enumerate().take(long_period) {
             sum_long += value;
@@ -201,20 +178,15 @@ impl State {
             short_state: StddevState::new(sum_short, sum_sq_short, short_period).into_warm(),
             long_state: StddevState::new(sum_long, sum_sq_long, long_period).into_warm(),
             alpha,
-            prev_vidya: vidya
+            prev_vidya: vidya,
         }
     }
-    
 }
 impl TState for State<Warm> {
     type Inputs<'a> = (f64, f64, f64);
     type Outputs = (f64, f64, f64, f64, f64);
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        (value, prev_short, prev_long): Self::Inputs<'a>
-    ) -> Self::Outputs {
-
+    fn calc<'a>(&mut self, (value, prev_short, prev_long): Self::Inputs<'a>) -> Self::Outputs {
         let (sd_short, sma_short) = self.short_state.calc((value, prev_short));
 
         // Compute long-term STDDEV.
@@ -235,7 +207,6 @@ pub(crate) fn validate_options(options: &[f64; OPTIONS]) -> Result<(), Indicator
     Ok(())
 }
 
-
 /// Iterates over the real data slice and computes VIDYA values for each bar.
 ///
 /// # Arguments
@@ -253,7 +224,12 @@ fn cycle(
     (short_period, long_period): (usize, usize),
     state: &mut State<Warm>,
     vidya_line: &mut [f64],
-    (short_sma_line, long_sma_line, short_sd_line, long_sd_line): (&mut [f64], &mut [f64], &mut [f64], &mut [f64]),
+    (short_sma_line, long_sma_line, short_sd_line, long_sd_line): (
+        &mut [f64],
+        &mut [f64],
+        &mut [f64],
+        &mut [f64],
+    ),
 ) {
     let (has_optional, want_short_sma, want_long_sma, want_short_sd, want_long_sd) =
         crate::calc_want_flags!(short_sma_line, long_sma_line, short_sd_line, long_sd_line);
@@ -262,12 +238,11 @@ fn cycle(
         let inputs = unsafe {
             (
                 *real.get_unchecked(i),
-                *real.get_unchecked(i - short_period), 
+                *real.get_unchecked(i - short_period),
                 *real.get_unchecked(j),
             )
         };
-        let (vidya, sma_short, sma_long, sd_short, sd_long) =
-            state.calc(inputs);
+        let (vidya, sma_short, sma_long, sd_short, sd_long) = state.calc(inputs);
         unsafe { *vidya_line.get_unchecked_mut(j) = vidya };
 
         if has_optional {
@@ -333,11 +308,11 @@ impl Indicator<INPUTS, OPTIONS> for Vidya {
         let short_period = options[0] as usize;
         let long_period = options[1] as usize;
         let alpha = options[2];
-    
+
         validate_inputs(inputs, Self::min_data(options))?;
-    
+
         let real = inputs[0];
-    
+
         let (
             mut vidya_line,
             mut short_sma_line,
@@ -351,7 +326,7 @@ impl Indicator<INPUTS, OPTIONS> for Vidya {
             let capacity = Self::output_length(real.len(), options);
             let long_capacity = StdDev::output_length(real.len(), &[long_period as f64]);
             let short_capacity = StdDev::output_length(real.len(), &[short_period as f64]);
-    
+
             vidya_line = crate::uninit_vec!(f64, capacity);
             (short_sma_line, long_sma_line, short_sd_line, long_sd_line) = crate::init_optional_outputs_eff!(
                 optional_outputs, &[false, false, false, false],
@@ -360,7 +335,7 @@ impl Indicator<INPUTS, OPTIONS> for Vidya {
                 short_sd_line: short_capacity,
                 long_sd_line: long_capacity
             );
-    
+
             // Start processing at the max period for a full window.
             state = State::init_state(
                 short_period,
@@ -389,7 +364,7 @@ impl Indicator<INPUTS, OPTIONS> for Vidya {
                 &mut long_sd_line[start.3..],
             )
         }
-    
+
         cycle(
             real,
             (short_period, long_period),
@@ -397,7 +372,7 @@ impl Indicator<INPUTS, OPTIONS> for Vidya {
             &mut vidya_line[1..],
             outputs,
         );
-    
+
         Ok((
             vec![
                 vidya_line,
@@ -408,5 +383,33 @@ impl Indicator<INPUTS, OPTIONS> for Vidya {
             ],
             IndicatorState::new(real, state, (short_period, long_period)),
         ))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::vidya_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Vidya {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::vidya_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

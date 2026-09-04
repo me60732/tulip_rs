@@ -9,14 +9,25 @@ Uses the high-low trading range to identify potential trend reversals via range 
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::mass::indicator;
+    use tulip_rs::indicators::mass::{Mass, Indicator, TIndicatorState};
 
     let high = [82.15_f64, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00];
     let low  = [81.29_f64, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11];
 
     let inputs = [high.as_slice(), low.as_slice()];
-    let (outputs, _) = indicator(&inputs, &[25.0], None).unwrap();
+    let (outputs, mut state) = Mass::indicator(&inputs, &[25.0], None).unwrap();
     println!("{:?}", outputs[0]);
+
+    // State continuation — feed new bars without reprocessing history
+    let partial_high = high[..8].to_vec();
+    let partial_low  = low[..8].to_vec();
+    let (outputs2, mut state) = Mass::indicator(&[partial_high.as_slice(), partial_low.as_slice()], &[25.0], None).unwrap();
+    println!("{:?}", outputs2[0]);
+
+    let new_high = vec![86.54_f64];
+    let new_low  = vec![85.39_f64];
+    let continued = state.batch_indicator(&[new_high.as_slice(), new_low.as_slice()], None).unwrap();
+    println!("{:?}", continued[0]);
     ```
 
 === "Python"

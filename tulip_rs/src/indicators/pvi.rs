@@ -1,5 +1,7 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{TIndicatorState, Indicator, IndicatorResult, TState};
+pub use crate::indicator_types::{
+    Indicator, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
@@ -9,21 +11,6 @@ pub const INPUTS: usize = 2;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 0;
 
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::pvi_simd::indicator_by_assets;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::pvi_simd::indicator_by_assets as indicator;
-}
 pub type IndicatorState = State;
 #[derive(Serialize, Deserialize)]
 pub struct State {
@@ -36,7 +23,7 @@ impl State {
     pub fn new(pvi: f64, close: f64, volume: f64) -> Self {
         Self { pvi, close, volume }
     }
-    
+
     fn cycle(&mut self, close: &[f64], volume: &[f64], pvi_line: &mut [f64]) {
         for i in 0..close.len() {
             unsafe {
@@ -46,10 +33,10 @@ impl State {
         }
     }
 }
-impl TState for State { 
+impl TState for State {
     type Inputs<'a> = (f64, f64);
     type Outputs = f64;
-    
+
     #[inline(always)]
     fn calc<'a>(&mut self, (close, volume): Self::Inputs<'a>) -> Self::Outputs {
         if volume > self.volume {
@@ -77,7 +64,6 @@ impl TIndicatorState<2> for IndicatorState {
         Ok(vec![pvi_line])
     }
 }
-
 
 /// Iterates over the input data and applies the calc function.
 fn cycle(close: &[f64], volume: &[f64], pvi_line: &mut [f64], mut pvi: f64) {
@@ -139,14 +125,14 @@ impl Indicator<INPUTS, OPTIONS> for Pvi {
         _optional_outputs: Option<&[bool]>,
     ) -> IndicatorResult<Self::IndicatorState> {
         validate_inputs(inputs, Self::min_data(_options))?;
-    
+
         let close = inputs[0];
         let volume = inputs[1];
         let mut pvi_line = {
             let capacity = Self::output_length(close.len(), _options);
             crate::uninit_vec!(f64, capacity)
         };
-    
+
         cycle(close, volume, &mut pvi_line, 1000.0);
         let pvi = pvi_line[pvi_line.len() - 1];
         Ok((
@@ -157,5 +143,18 @@ impl Indicator<INPUTS, OPTIONS> for Pvi {
                 volume: volume[volume.len() - 1],
             },
         ))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::pvi_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

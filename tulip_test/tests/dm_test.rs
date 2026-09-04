@@ -1,9 +1,8 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::dm::indicator_by_assets;
-    use tulip_rs::indicators::dm::indicator_by_options;
-use tulip_rs::indicators::dm::{Dm, Indicator, TIndicatorState};
+    use tulip_rs::indicator_types::IndicatorByOptions;
+    use tulip_rs::indicators::dm::{Dm, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{ti_dm, ti_dm_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -304,8 +303,8 @@ use tulip_rs::indicators::dm::{Dm, Indicator, TIndicatorState};
 
                 if high.len() <= min_data_val {
                     // If data is too small, just run full calculation
-                    let (outputs, _) =
-                        Dm::indicator(&inputs_rust, &options, None).expect("Failed to run DM indicator");
+                    let (outputs, _) = Dm::indicator(&inputs_rust, &options, None)
+                        .expect("Failed to run DM indicator");
                     for (output_idx, output) in outputs.iter().enumerate() {
                         batch_full_outputs[output_idx].extend_from_slice(output);
                     }
@@ -409,7 +408,7 @@ use tulip_rs::indicators::dm::{Dm, Indicator, TIndicatorState};
 
         for options in &OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, options, None)
+            let (simd_results, _) = Dm::indicator_by_assets::<4>(&inputs, options, None)
                 .expect("SIMD by assets DM indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -417,8 +416,8 @@ use tulip_rs::indicators::dm::{Dm, Indicator, TIndicatorState};
             {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_high.as_slice(), stock_low.as_slice()];
-                let (regular_outputs, _) =
-                    Dm::indicator(&stock_inputs, options, None).unwrap_or_else(|_| {
+                let (regular_outputs, _) = Dm::indicator(&stock_inputs, options, None)
+                    .unwrap_or_else(|_| {
                         panic!(
                             "Regular DM failed for {} with options {:?}",
                             stock_symbol, options
@@ -503,7 +502,7 @@ use tulip_rs::indicators::dm::{Dm, Indicator, TIndicatorState};
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_3, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_3, _) = Dm::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD DM 3-wide failed");
 
             // Use SIMD results directly
@@ -608,5 +607,4 @@ use tulip_rs::indicators::dm::{Dm, Indicator, TIndicatorState};
 
         println!("✓ All SIMD by options vs Regular DM database tests passed!");
     }
-
-    }
+}

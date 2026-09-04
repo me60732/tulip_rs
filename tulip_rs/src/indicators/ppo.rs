@@ -1,11 +1,9 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
-use crate::indicators::ema::{
-    State as EmaState, Ema,
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
 };
-use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold
-};
+use crate::indicators::ema::{Ema, State as EmaState};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -13,38 +11,6 @@ pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 2;
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::ppo_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::ppo_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::ppo_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    /// See the parent module's [`super::indicator_by_options`] for full documentation.
-    pub use crate::indicators::simd_indicators::ppo_simd::indicator_by_options as indicator;
-}
 
 impl TIndicatorState<1> for IndicatorState {
     fn batch_indicator(
@@ -78,7 +44,7 @@ impl TIndicatorState<1> for IndicatorState {
 }
 pub type IndicatorState = State<Warm>;
 #[derive(Serialize, Deserialize)]
-#[serde(bound="")]
+#[serde(bound = "")]
 pub struct State<S = Cold> {
     pub short_ema: EmaState<S>,
     pub long_ema: EmaState<S>,
@@ -90,7 +56,11 @@ impl State {
             long_ema: EmaState::new(long_ema, long_period),
         }
     }
-    pub fn init_state(real: &[f64], (short_period, long_period): (usize, usize), short_ema_line: &mut [f64]) -> State<Warm> {
+    pub fn init_state(
+        real: &[f64],
+        (short_period, long_period): (usize, usize),
+        short_ema_line: &mut [f64],
+    ) -> State<Warm> {
         let mut short_ema = EmaState::new(real[0], short_period).into_warm();
         let mut long_ema = EmaState::new(real[0], long_period).into_warm();
         for i in 1..long_period {
@@ -110,15 +80,18 @@ impl State {
 impl TState for State<Warm> {
     type Inputs<'a> = f64;
     type Outputs = (f64, f64, f64);
-    
+
     /// Performs the core calculation for the Percentage Price Oscillator (PPO) indicator.
     #[inline(always)]
     fn calc<'a>(&mut self, real: Self::Inputs<'a>) -> Self::Outputs {
-    
         let short_ema = self.short_ema.calc(real);
         let long_ema = self.long_ema.calc(real).max(f64::EPSILON);
 
-        ((short_ema - long_ema) * 100.0 / long_ema, short_ema, long_ema)
+        (
+            (short_ema - long_ema) * 100.0 / long_ema,
+            short_ema,
+            long_ema,
+        )
     }
 }
 
@@ -128,7 +101,6 @@ pub(crate) fn validate_options(options: &[f64; OPTIONS]) -> Result<(), Indicator
     }
     Ok(())
 }
-
 
 /// Iterates over the input data and applies the calc function.
 fn cycle_ppo(
@@ -155,7 +127,6 @@ fn cycle_ppo(
         }
     }
 }
-
 
 pub struct Ppo;
 
@@ -201,15 +172,15 @@ impl Indicator<INPUTS, OPTIONS> for Ppo {
             let long_period = options[1] as usize;
             let capacity = Self::output_length(inputs[0].len(), options);
             let short_ema_capacity = Ema::output_length(inputs[0].len(), &[short_period as f64]);
-    
+
             ppo_line = crate::uninit_vec!(f64, capacity);
-    
+
             (short_ema_line, long_ema_line) = crate::init_optional_outputs_eff!(
                 optional_outputs, &[false, false],
                 short_ema_line: short_ema_capacity,
                 long_ema_line: capacity
             );
-    
+
             state = State::init_state(inputs[0], (short_period, long_period), &mut short_ema_line);
             real = &inputs[0][long_period..];
         }
@@ -217,17 +188,37 @@ impl Indicator<INPUTS, OPTIONS> for Ppo {
             let offset = crate::slice_outputs_start!(ppo_line.len(), short_ema_line);
             (&mut short_ema_line[offset..], long_ema_line.as_mut_slice())
         };
-    
-        cycle_ppo(
-            real,
-            &mut ppo_line,
-            &mut state,
+
+        cycle_ppo(real, &mut ppo_line, &mut state, optional_outputs);
+
+        Ok((vec![ppo_line, short_ema_line, long_ema_line], state))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::ppo_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
             optional_outputs,
-        );
-    
-        Ok((
-            vec![ppo_line, short_ema_line, long_ema_line],
-            state,
-        ))
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Ppo {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::ppo_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

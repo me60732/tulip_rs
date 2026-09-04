@@ -1,5 +1,5 @@
 use tulip_rs::indicators::smaenvelope::{
-    indicator_by_assets, indicator_by_options, Indicator, SmaEnvelope, TIndicatorState,
+    Indicator, IndicatorByOptions, SmaEnvelope, TIndicatorState,
 };
 
 fn main() {
@@ -60,10 +60,11 @@ fn main() {
     let asset3: [&[f64]; 1] = [close3.as_slice()];
     let inputs_4: [&[&[f64]; 1]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-    let (simd_asset_outputs, _) = match indicator_by_assets::<4>(&inputs_4, &options, None) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (simd_asset_outputs, _) =
+        match SmaEnvelope::indicator_by_assets::<4>(&inputs_4, &options, None) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
     println!(
         "\nSIMD by-assets Lower  (asset 0): {:?}",
         simd_asset_outputs[0][0]
@@ -85,10 +86,11 @@ fn main() {
     //   period=12 → min_data=13 → 3 output values
     let options_4 = [&[5.0, 2.0], &[7.0, 3.0], &[10.0, 2.0], &[12.0, 5.0]];
 
-    let (simd_option_outputs, _) = match indicator_by_options::<4>(&inputs, &options_4, None) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (simd_option_outputs, _) =
+        match SmaEnvelope::indicator_by_options::<4>(&inputs, &options_4, None) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
     for (i, opts) in options_4.iter().enumerate() {
         println!(
             "\nSIMD by-options Lower  (period={}, pct={}%): {:?}",

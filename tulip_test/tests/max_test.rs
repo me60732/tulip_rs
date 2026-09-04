@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::max::{Max, Indicator, TIndicatorState};
+    use tulip_rs::indicator_types::IndicatorByOptions;
+    use tulip_rs::indicators::max::{Indicator, Max, TIndicatorState};
     use tulip_test::c_bindings::{ti_max, ti_max_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -150,8 +151,8 @@ mod tests {
                 assert_eq!(ret, 0, "ti_max returned error code {}", ret);
 
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) =
-                    Max::indicator(&inputs_rust, &options, None).expect("Rust MAX indicator failed");
+                let (outputs, _) = Max::indicator(&inputs_rust, &options, None)
+                    .expect("Rust MAX indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -192,7 +193,11 @@ mod tests {
 
                     if !approx_eq!(f64, c_val, rust_val, epsilon = 1e-12) {
                         let start = if index > 10 { index - 10 } else { 0 };
-                        let end = if index < output_len_rust - 10 { index + 10 } else { output_len_rust };
+                        let end = if index < output_len_rust - 10 {
+                            index + 10
+                        } else {
+                            output_len_rust
+                        };
                         println!(
                             "Test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}",
                             index, &max_output_vec_c[start..end], &outputs[0][start..end], options, stock_symbol
@@ -288,8 +293,6 @@ mod tests {
 
     #[test]
     fn test_max_simd_by_assets_vs_regular_database() {
-        use tulip_rs::indicators::max::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -310,15 +313,15 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = Max::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets MAX indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
             for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_close.as_slice()];
-                let (regular_results, _) =
-                    Max::indicator(&stock_inputs, &options, None).expect("Regular MAX indicator failed");
+                let (regular_results, _) = Max::indicator(&stock_inputs, &options, None)
+                    .expect("Regular MAX indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];
@@ -379,8 +382,6 @@ mod tests {
 
     #[test]
     fn test_max_simd_options_vs_regular_database() {
-        use tulip_rs::indicators::max::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -399,7 +400,7 @@ mod tests {
                 &OPTIONS_LIST[6],
                 &OPTIONS_LIST[7],
             ];
-            let (all_simd_results, _) = indicator_by_options::<8>(&inputs, &options_8, None)
+            let (all_simd_results, _) = Max::indicator_by_options::<8>(&inputs, &options_8, None)
                 .expect("SIMD MAX 8-wide failed");
 
             // Compare each SIMD result with regular indicator
@@ -461,5 +462,4 @@ mod tests {
 
         //println!("✓ All SIMD vs Regular MAX database tests passed!");
     }
-
 }

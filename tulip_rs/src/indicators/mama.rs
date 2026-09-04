@@ -37,26 +37,13 @@
 //! benchmark comparison is valid as a throughput measurement.
 
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
+
 use crate::indicators::homodynediscriminator;
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
-
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::mama_simd::indicator_by_assets;
-
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::mama_simd::indicator_by_options;
-
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    pub use crate::indicators::simd_indicators::mama_simd::indicator_by_assets as indicator;
-}
-
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    pub use crate::indicators::simd_indicators::mama_simd::indicator_by_options as indicator;
-}
 
 /// Number of input price series required by this indicator.
 pub const INPUTS: usize = 1;
@@ -64,7 +51,6 @@ pub const INPUTS: usize = 1;
 /// Number of option parameters required by this indicator.
 /// `[fast_limit, slow_limit]`
 pub const OPTIONS: usize = 2;
-
 
 /// Per-bar state for the Ehlers MESA Adaptive Moving Average (MAMA) and
 /// Following Adaptive Moving Average (FAMA).
@@ -99,7 +85,7 @@ pub struct State<S = Cold> {
     pub fama: f64,
     pub alpha: f64,
     pub fast_limit: f64,
-    pub slow_limit: f64
+    pub slow_limit: f64,
 }
 
 impl State {
@@ -133,10 +119,10 @@ impl State {
         alpha_line: &mut [f64],
     ) -> State<Warm> {
         let hd = homodynediscriminator::State::init_state(real);
-    
+
         // Seed MAMA and FAMA from bar 22's price so first output is price-exact.
         let seed = real[22];
-    
+
         let mut state = State::<Warm> {
             hd,
             prev_phase: 0.0,
@@ -146,22 +132,20 @@ impl State {
             fast_limit,
             slow_limit,
         };
-    
+
         // Process bar 22 — first valid output
         let (mama, fama) = state.calc(real[22]);
         mama_line[0] = mama;
         fama_line[0] = fama;
-    
+
         let (_, want_dc, want_alpha) = crate::calc_want_flags!(dc_period_line, alpha_line);
         crate::store_optional_outputs!(0,
             want_dc,    dc_period_line => state.hd.smooth_period,
             want_alpha, alpha_line     => state.alpha
         );
-    
+
         state
     }
-
-
 }
 impl<S> State<S> {
     /// Applies the MAMA-specific computation: phase delta → adaptive alpha → EMA updates.
@@ -202,7 +186,7 @@ impl<S> State<S> {
 impl TState for State<Cold> {
     type Inputs<'a> = f64;
     type Outputs = (f64, f64);
-    
+
     #[inline(always)]
     fn calc<'a>(&mut self, real: Self::Inputs<'a>) -> Self::Outputs {
         let (_, i1, q1) = self.hd.calc_with_iq(real);
@@ -217,10 +201,7 @@ impl TState for State<Warm> {
     type Inputs<'a> = f64;
     type Outputs = (f64, f64);
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        real: Self::Inputs<'a>,
-    ) -> Self::Outputs {
+    fn calc<'a>(&mut self, real: Self::Inputs<'a>) -> Self::Outputs {
         let (_, i1, q1) = self.hd.calc_with_iq(real);
         self.apply_mama(real, i1, q1);
         (self.mama, self.fama)
@@ -233,7 +214,6 @@ impl TState for State<Warm> {
 }*/
 
 pub type IndicatorState = State<Warm>;
-
 
 impl TIndicatorState<INPUTS> for IndicatorState {
     fn batch_indicator(
@@ -324,11 +304,11 @@ impl Indicator<INPUTS, OPTIONS> for Mama {
         validate_options(options)?;
         let fast_limit = options[0];
         let slow_limit = options[1];
-    
+
         validate_inputs(inputs, Self::min_data(options))?;
         let real = inputs[0];
         let capacity = Self::output_length(real.len(), options);
-    
+
         let (mut mama_line, mut fama_line, (mut dc_period_line, mut alpha_line)) = (
             crate::uninit_vec!(f64, capacity),
             crate::uninit_vec!(f64, capacity),
@@ -338,7 +318,7 @@ impl Indicator<INPUTS, OPTIONS> for Mama {
                 alpha_line: capacity
             ),
         );
-    
+
         // init_state fills HD buffers, seeds MAMA/FAMA from first-output-bar price,
         // processes bar (min_data − 1) = 22, and writes to output[0].
         let mut state = State::init_state(
@@ -350,7 +330,7 @@ impl Indicator<INPUTS, OPTIONS> for Mama {
             &mut dc_period_line,
             &mut alpha_line,
         );
-    
+
         // cycle processes bars min_data..len-1 and writes to output[1..].
         let real_tail = &real[Self::min_data(options)..];
         let (_, want_dc, want_alpha) = crate::calc_want_flags!(dc_period_line, alpha_line);
@@ -364,7 +344,7 @@ impl Indicator<INPUTS, OPTIONS> for Mama {
         } else {
             &mut alpha_line[..]
         };
-    
+
         cycle(
             real_tail,
             &mut state,
@@ -372,11 +352,39 @@ impl Indicator<INPUTS, OPTIONS> for Mama {
             &mut fama_line[1..],
             (dc_tail, alpha_tail),
         );
-    
+
         Ok((
             vec![mama_line, fama_line, dc_period_line, alpha_line],
             state,
         ))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::mama_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Mama {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS],
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::mama_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }
 
@@ -412,8 +420,7 @@ fn cycle(
     let (has_optional, want_dc, want_alpha) = crate::calc_want_flags!(dc_period_line, alpha_line);
 
     for i in 0..real.len() {
-        let (mama, fama) =
-            state.calc(unsafe { *real.get_unchecked(i) } );
+        let (mama, fama) = state.calc(unsafe { *real.get_unchecked(i) });
 
         unsafe {
             *mama_line.get_unchecked_mut(i) = mama;

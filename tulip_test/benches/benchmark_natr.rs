@@ -1,5 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::natr::{Natr, Indicator, TIndicatorState, IndicatorState, indicator_by_assets, indicator_by_options};
+use tulip_rs::indicators::natr::{
+    Indicator, IndicatorByOptions, IndicatorState, Natr, TIndicatorState,
+};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_natr, ti_natr_start};
@@ -146,8 +148,8 @@ fn bench_rust_natr(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result =
-                            Natr::indicator(&inputs, &options, None).expect("Rust NATR indicator failed");
+                        let result = Natr::indicator(&inputs, &options, None)
+                            .expect("Rust NATR indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -177,8 +179,8 @@ fn bench_rust_natr(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust NATR {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result =
-                        Natr::indicator(&inputs, &options, None).expect("Rust NATR indicator failed");
+                    let result = Natr::indicator(&inputs, &options, None)
+                        .expect("Rust NATR indicator failed");
                     black_box(&result);
                 });
             });
@@ -265,8 +267,8 @@ fn bench_rust_natr_from_state(c: &mut Criterion) {
                     Some(stock_symbol),
                 );
 
-                let (_, mut state) =
-                    Natr::indicator(&new_inputs, &options, None).expect("Rust NATR indicator failed");
+                let (_, mut state) = Natr::indicator(&new_inputs, &options, None)
+                    .expect("Rust NATR indicator failed");
 
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
@@ -288,8 +290,8 @@ fn bench_rust_natr_from_state(c: &mut Criterion) {
                     Some(stock_symbol),
                 );
 
-                let (_, state) =
-                    Natr::indicator(&new_inputs, &options, None).expect("Rust NATR indicator failed");
+                let (_, state) = Natr::indicator(&new_inputs, &options, None)
+                    .expect("Rust NATR indicator failed");
                 let json = serde_json::to_string(&state).expect("json failed");
 
                 let mut timing = TimingMeasurements::new();
@@ -560,7 +562,7 @@ fn bench_rust_natr_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, options, None)
+                    let result = Natr::indicator_by_assets::<4>(&inputs, options, None)
                         .expect("Rust SIMD by assets NATR indicator failed");
                     black_box(&result);
                 },
@@ -596,7 +598,7 @@ fn bench_rust_natr_simd_by_assets(c: &mut Criterion) {
                 format!("Rust SIMD by assets NATR period {}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, options, None)
+                        let result = Natr::indicator_by_assets::<4>(&inputs, options, None)
                             .expect("Rust SIMD by assets NATR indicator failed");
                         black_box(&result);
                     });
@@ -635,7 +637,7 @@ fn bench_rust_natr_simd_by_options(c: &mut Criterion) {
                         &OPTIONS_LIST[2],
                         &OPTIONS_LIST[3],
                     ];
-                    let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result_4 = Natr::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD NATR 4-wide failed");
                     black_box(&result_4);
                 },
@@ -671,7 +673,7 @@ fn bench_rust_natr_simd_by_options(c: &mut Criterion) {
                     &OPTIONS_LIST[2],
                     &OPTIONS_LIST[3],
                 ];
-                let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result_4 = Natr::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD NATR 4-wide failed");
                 black_box(&result_4);
             });

@@ -2,7 +2,7 @@
 mod tests {
     use tulip_rs::indicators::highpass::HighPass;
     use tulip_rs::indicators::roofingfilter::{
-        indicator_by_assets, indicator_by_options, Indicator, RoofingFilter, TIndicatorState,
+        Indicator, IndicatorByOptions, RoofingFilter, TIndicatorState,
     };
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -197,8 +197,9 @@ mod tests {
         ];
 
         for options in OPTIONS_LIST {
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs_4, &options, Some(&[true]))
-                .expect("SIMD by-assets RoofingFilter failed");
+            let (simd_results, _) =
+                RoofingFilter::indicator_by_assets::<4>(&inputs_4, &options, Some(&[true]))
+                    .expect("SIMD by-assets RoofingFilter failed");
 
             for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
                 let (scalar_out, _) =
@@ -284,8 +285,9 @@ mod tests {
             let close = get_close_array(stock_data);
             let inputs = [close.as_slice()];
 
-            let (simd_results, _) = indicator_by_options::<4>(&inputs, &options_4, Some(&[true]))
-                .expect("SIMD by-options RoofingFilter failed");
+            let (simd_results, _) =
+                RoofingFilter::indicator_by_options::<4>(&inputs, &options_4, Some(&[true]))
+                    .expect("SIMD by-options RoofingFilter failed");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
                 let (scalar_out, _) = RoofingFilter::indicator(&inputs, options, Some(&[true]))
@@ -377,7 +379,7 @@ mod tests {
             ];
 
             let (simd_first, mut states) =
-                indicator_by_assets::<4>(&inputs_4, &options, Some(&[true]))
+                RoofingFilter::indicator_by_assets::<4>(&inputs_4, &options, Some(&[true]))
                     .expect("SIMD by-assets RoofingFilter failed on first chunk");
 
             for (asset_idx, (stock_symbol, close)) in stock_data.iter().enumerate() {
@@ -482,7 +484,7 @@ mod tests {
             let first_inputs = [&close[..FIRST_CHUNK] as &[f64]];
 
             let (simd_first, mut states) =
-                indicator_by_options::<4>(&first_inputs, &options_4, Some(&[true]))
+                RoofingFilter::indicator_by_options::<4>(&first_inputs, &options_4, Some(&[true]))
                     .expect("SIMD by-options RoofingFilter failed on first chunk");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {

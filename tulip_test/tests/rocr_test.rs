@@ -1,8 +1,11 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::rocr::{Rocr, Indicator, TIndicatorState};
-    use tulip_rs::indicators::rocr::{indicator_by_assets, indicator_by_options};
+    use tulip_rs::indicator_types::TIndicatorState;
+    use tulip_rs::indicators::rocr::{Indicator, Rocr};
+    use tulip_rs::indicators::simd_indicators::rocr_simd::{
+        indicator_by_assets, indicator_by_options,
+    };
     use tulip_test::c_bindings::{ti_rocr, ti_rocr_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -142,8 +145,8 @@ mod tests {
                 assert_eq!(ret, 0, "ti_rocr returned error code {}", ret);
 
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) =
-                    Rocr::indicator(&inputs_rust, &options, None).expect("Rust ROCR indicator failed");
+                let (outputs, _) = Rocr::indicator(&inputs_rust, &options, None)
+                    .expect("Rust ROCR indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -208,8 +211,8 @@ mod tests {
                 let inputs_rust = [close.as_slice()];
 
                 // Get full output from processing all data at once
-                let (full_outputs, _) =
-                    Rocr::indicator(&inputs_rust, &options, None).expect("Rust ROCR indicator failed");
+                let (full_outputs, _) = Rocr::indicator(&inputs_rust, &options, None)
+                    .expect("Rust ROCR indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
@@ -220,8 +223,8 @@ mod tests {
                 let close_vec = close[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice()];
 
-                let (first_outputs, mut state) =
-                    Rocr::indicator(&chunk_inputs, &options, None).expect("Rust ROCR indicator failed");
+                let (first_outputs, mut state) = Rocr::indicator(&chunk_inputs, &options, None)
+                    .expect("Rust ROCR indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
                 // Process remaining data in chunks
@@ -427,5 +430,4 @@ mod tests {
     fn get_close_array(stock_data: &[tulip_test::database::EodData]) -> Vec<f64> {
         stock_data.iter().map(|d| d.close).collect()
     }
-
-    }
+}

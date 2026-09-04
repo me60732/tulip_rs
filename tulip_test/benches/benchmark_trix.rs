@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::trix::indicator_by_assets;
-use tulip_rs::indicators::trix::indicator_by_options;
-use tulip_rs::indicators::trix::{Trix, Indicator, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::trix::{
+    Indicator, IndicatorByOptions, IndicatorState, TIndicatorState, Trix,
+};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_trix, ti_trix_start};
@@ -130,8 +130,8 @@ fn bench_rust_trix(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result =
-                            Trix::indicator(&inputs, &options, None).expect("Rust TRIX Trix::indicator failed");
+                        let result = Trix::indicator(&inputs, &options, None)
+                            .expect("Rust TRIX Trix::indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -157,8 +157,8 @@ fn bench_rust_trix(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust TRIX {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result =
-                        Trix::indicator(&inputs, &options, None).expect("Rust TRIX Trix::indicator failed");
+                    let result = Trix::indicator(&inputs, &options, None)
+                        .expect("Rust TRIX Trix::indicator failed");
                     black_box(&result);
                 });
             });
@@ -228,8 +228,8 @@ fn bench_rust_trix_from_state(c: &mut Criterion) {
                 if inputs[0].len() > 1 {
                     let new_inputs = [&close_vec[..close_vec.len() - 1]];
                     let final_inputs = [&close_vec[close_vec.len() - 1..]];
-                    let (_, mut state) =
-                        Trix::indicator(&new_inputs, &options, None).expect("Rust TRIX Trix::indicator failed");
+                    let (_, mut state) = Trix::indicator(&new_inputs, &options, None)
+                        .expect("Rust TRIX Trix::indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -252,8 +252,8 @@ fn bench_rust_trix_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) =
-                        Trix::indicator(&new_inputs, &options, None).expect("Rust TRIX Trix::indicator failed");
+                    let (_, state) = Trix::indicator(&new_inputs, &options, None)
+                        .expect("Rust TRIX Trix::indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -290,8 +290,8 @@ fn bench_rust_trix_from_state(c: &mut Criterion) {
             let close_chunk = close_vec[..min_data].to_vec();
             let chunk_inputs = [close_chunk.as_slice()];
 
-            let (_, mut state) =
-                Trix::indicator(&chunk_inputs, &options, None).expect("TRIX Trix::indicator failed");
+            let (_, mut state) = Trix::indicator(&chunk_inputs, &options, None)
+                .expect("TRIX Trix::indicator failed");
 
             let mut group = c.benchmark_group("trix_rust_from_state");
             group.sample_size(SAMPLE_SIZE);
@@ -321,8 +321,8 @@ fn bench_rust_trix_from_state(c: &mut Criterion) {
             if close_vec.len() > 1 {
                 let new_inputs = [&close_vec[..close_vec.len() - 1]];
                 let final_inputs = [&close_vec[close_vec.len() - 1..]];
-                let (_, mut state) =
-                    Trix::indicator(&new_inputs, &options, None).expect("Rust TRIX Trix::indicator failed");
+                let (_, mut state) = Trix::indicator(&new_inputs, &options, None)
+                    .expect("Rust TRIX Trix::indicator failed");
 
                 let mut group = c.benchmark_group("trix_rust_from_state_1_bar");
                 group.sample_size(SAMPLE_SIZE);
@@ -387,7 +387,7 @@ fn bench_rust_trix_simd_by_assets(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = Trix::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("SIMD TRIX Trix::indicator failed");
                         black_box(&result);
                     },
@@ -420,7 +420,7 @@ fn bench_rust_trix_simd_by_assets(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("SIMD TRIX by assets {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = Trix::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("SIMD TRIX Trix::indicator failed");
                     black_box(&result);
                 });
@@ -453,7 +453,7 @@ fn bench_rust_trix_simd_by_options(c: &mut Criterion) {
                         &OPTIONS_LIST[2],
                         &OPTIONS_LIST[3],
                     ];
-                    let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result_4 = Trix::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD TRIX 4-wide Trix::indicator failed");
 
                     black_box(&result_4);
@@ -486,7 +486,7 @@ fn bench_rust_trix_simd_by_options(c: &mut Criterion) {
                     &OPTIONS_LIST[2],
                     &OPTIONS_LIST[3],
                 ];
-                let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result_4 = Trix::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD TRIX 4-wide Trix::indicator failed");
 
                 black_box(&result_4);

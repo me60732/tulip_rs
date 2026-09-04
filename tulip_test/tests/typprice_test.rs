@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::typprice::{Typprice, Indicator, TIndicatorState};
+    use tulip_rs::indicators::typprice::{Indicator, TIndicatorState, Typprice};
     use tulip_test::c_bindings::{ti_typprice, ti_typprice_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -154,8 +154,8 @@ mod tests {
             assert_eq!(ret, 0, "ti_typprice returned error code {}", ret);
 
             let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-            let (outputs, _) =
-                Typprice::indicator(&inputs_rust, &[], None).expect("Rust TYPPRICE indicator failed");
+            let (outputs, _) = Typprice::indicator(&inputs_rust, &[], None)
+                .expect("Rust TYPPRICE indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -297,8 +297,6 @@ mod tests {
 
     #[test]
     fn test_typprice_simd_vs_regular_database() {
-        use tulip_rs::indicators::typprice::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -340,7 +338,7 @@ mod tests {
         // Test without optional outputs (TYPPRICE doesn't have optional outputs)
         {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = Typprice::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets TYPPRICE indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -407,5 +405,4 @@ mod tests {
 
         println!("\u{2713} All SIMD by assets vs Regular TYPPRICE database tests passed!");
     }
-
-    }
+}

@@ -9,7 +9,7 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::adx::indicator;
+    use tulip_rs::indicators::adx::{Adx, Indicator, TIndicatorState};
 
     let high  = vec![82.15, 81.89, 83.03, 83.30, 83.85,
                      83.90, 83.33, 84.30, 84.84, 85.00_f64];
@@ -19,13 +19,19 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-    let (outputs, mut state) = indicator(&inputs, &[14.0], None).unwrap();
+    let (outputs, mut state) = Adx::indicator(&inputs, &[14.0], None).unwrap();
     println!("{:?}", outputs[0]); // ADX values
 
     // State continuation — feed new bars without reprocessing history
-    let new_high  = vec![85.20_f64];
-    let new_low   = vec![84.50_f64];
-    let new_close = vec![85.00_f64];
+    let partial_high   = high[..8].to_vec();
+    let partial_low    = low[..8].to_vec();
+    let partial_close  = close[..8].to_vec();
+    let (outputs2, mut state) = Adx::indicator(&[partial_high.as_slice(), partial_low.as_slice(), partial_close.as_slice()], &[14.0], None).unwrap();
+    println!("{:?}", outputs2[0]);
+
+    let new_high  = vec![85.90_f64];
+    let new_low   = vec![84.03_f64];
+    let new_close = vec![85.53_f64];
     let continued = state.batch_indicator(
         &[new_high.as_slice(), new_low.as_slice(), new_close.as_slice()],
         None,
@@ -105,14 +111,14 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
     `adx` exposes 3 optional outputs: `dx`, `atr`, `tr`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::adx::indicator;
+    use tulip_rs::indicators::adx::{Adx, Indicator, TIndicatorState};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
     let high  = close.iter().map(|x| x + 1.0).collect::<Vec<_>>();
     let low   = close.iter().map(|x| x - 1.0).collect::<Vec<_>>();
 
     let mask = [true, true, false];
-    let (outputs, _state) = indicator(
+    let (outputs, _state) = Adx::indicator(
         &[high.as_slice(), low.as_slice(), close.as_slice()],
         &[14.0],
         Some(&mask),

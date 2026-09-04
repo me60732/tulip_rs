@@ -1,6 +1,5 @@
-use tulip_rs::indicators::homodynediscriminator::{
-    indicator_by_assets, HomodyneDiscriminator, Indicator, TIndicatorState,
-};
+use tulip_rs::indicator_types::{Indicator, TIndicatorState};
+use tulip_rs::indicators::homodynediscriminator::HomodyneDiscriminator;
 
 // 80 bars of close prices
 const CLOSE: [f64; 80] = [
@@ -75,10 +74,11 @@ fn main() {
     let asset3: [&[f64]; 1] = [close3.as_slice()];
     let inputs_4: [&[&[f64]; 1]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-    let (simd_asset_outputs, _) = match indicator_by_assets::<4>(&inputs_4, &options, None) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (simd_asset_outputs, _) =
+        match HomodyneDiscriminator::indicator_by_assets::<4>(&inputs_4, &options, None) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
     println!(
         "\nSIMD by-assets DC Period last 5 (asset 0): {:?}",
         &simd_asset_outputs[0][0][simd_asset_outputs[0][0].len() - 5..]

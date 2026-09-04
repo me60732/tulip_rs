@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::dpo::indicator_by_options;
+    use tulip_rs::indicator_types::IndicatorByOptions;
     use tulip_rs::indicators::dpo::{Dpo, Indicator as rust_dpo, TIndicatorState};
     use tulip_test::c_bindings::{ti_dpo, ti_dpo_start, ti_sma, ti_sma_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -145,8 +145,8 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) =
-                    Dpo::indicator(&inputs_rust, &options, None).expect("Rust DPO indicator failed");
+                let (outputs, _) = Dpo::indicator(&inputs_rust, &options, None)
+                    .expect("Rust DPO indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -203,8 +203,6 @@ mod tests {
 
     #[test]
     fn test_dpo_simd_vs_regular_database() {
-        use tulip_rs::indicators::dpo::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -227,7 +225,7 @@ mod tests {
             // Test without optional outputs
             {
                 // Get SIMD by assets result
-                let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+                let (simd_results, _) = Dpo::indicator_by_assets::<4>(&inputs, &options, None)
                     .expect("SIMD by assets DPO indicator failed");
 
                 // Compare each SIMD result with regular indicator for each stock
@@ -292,8 +290,6 @@ mod tests {
 
     #[test]
     fn test_dpo_simd_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::dpo::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -317,15 +313,16 @@ mod tests {
             {
                 // Get SIMD by assets result with optional outputs
                 let (simd_results_opt, _) =
-                    indicator_by_assets::<4>(&inputs, &options, Some(&[true]))
+                    Dpo::indicator_by_assets::<4>(&inputs, &options, Some(&[true]))
                         .expect("SIMD by assets DPO indicator with optional outputs failed");
 
                 // Compare each SIMD result with regular indicator for each stock
                 for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                     // Get regular indicator result for this stock with optional outputs
                     let stock_inputs = [stock_close.as_slice()];
-                    let (regular_results_opt, _) = Dpo::indicator(&stock_inputs, &options, Some(&[true]))
-                        .expect("Regular DPO indicator with optional outputs failed");
+                    let (regular_results_opt, _) =
+                        Dpo::indicator(&stock_inputs, &options, Some(&[true]))
+                            .expect("Regular DPO indicator with optional outputs failed");
 
                     // Compare both outputs: DPO and SMA
                     let output_names = ["DPO", "SMA"];
@@ -401,8 +398,8 @@ mod tests {
                 let inputs_rust = [close.as_slice()];
 
                 // Get full output
-                let (full_outputs, _) =
-                    Dpo::indicator(&inputs_rust, &options, None).expect("Rust DPO indicator failed");
+                let (full_outputs, _) = Dpo::indicator(&inputs_rust, &options, None)
+                    .expect("Rust DPO indicator failed");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
@@ -477,8 +474,8 @@ mod tests {
 
             // Run the Rust implementation with SMA optional output enabled
             let inputs_rust = [close.as_slice()];
-            let (rust_outputs, _) =
-                Dpo::indicator(&inputs_rust, &options, Some(&[true])).expect("Rust DPO indicator failed");
+            let (rust_outputs, _) = Dpo::indicator(&inputs_rust, &options, Some(&[true]))
+                .expect("Rust DPO indicator failed");
 
             // Extract the SMA optional output (second output)
             let rust_sma = &rust_outputs[1];
@@ -567,12 +564,8 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get DPO with SMA optional output
                 let optional_outputs = Some(&[true][..]);
-                let (dpo_result, _) = Dpo::indicator(
-                    &[&close],
-                    &[options[0]],
-                    optional_outputs,
-                )
-                .unwrap();
+                let (dpo_result, _) =
+                    Dpo::indicator(&[&close], &[options[0]], optional_outputs).unwrap();
 
                 let rust_sma = &dpo_result[1];
 
@@ -646,7 +639,7 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Dpo::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD DPO 4-wide failed");
 
             // Use SIMD results directly
@@ -725,7 +718,7 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, _) =
-                indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
+                Dpo::indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
                     .expect("SIMD DPO 4-wide with optional outputs failed");
 
             // Use SIMD results directly
@@ -831,5 +824,4 @@ mod tests {
             "✓ All SIMD by options vs Regular DPO database tests with optional outputs passed!"
         );
     }
-
-    }
+}

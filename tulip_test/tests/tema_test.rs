@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::tema::{Tema, Indicator, TIndicatorState, indicator_by_assets, indicator_by_options};
+    use tulip_rs::indicators::tema::{Indicator, IndicatorByOptions, TIndicatorState, Tema};
     use tulip_test::c_bindings::{
         ti_dema, ti_dema_start, ti_ema, ti_ema_start, ti_tema, ti_tema_start,
     };
@@ -142,8 +142,8 @@ mod tests {
                 assert_eq!(ret, 0, "ti_tema returned error code {}", ret);
 
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) =
-                    Tema::indicator(&inputs_rust, &options, None).expect("Rust TEMA indicator failed");
+                let (outputs, _) = Tema::indicator(&inputs_rust, &options, None)
+                    .expect("Rust TEMA indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -208,8 +208,8 @@ mod tests {
                 let inputs_rust = [close.as_slice()];
 
                 // Get full output from processing all data at once
-                let (full_outputs, _) =
-                    Tema::indicator(&inputs_rust, &options, None).expect("Rust TEMA indicator failed");
+                let (full_outputs, _) = Tema::indicator(&inputs_rust, &options, None)
+                    .expect("Rust TEMA indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
@@ -220,8 +220,8 @@ mod tests {
                 let close_vec = close[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice()];
 
-                let (first_outputs, mut state) =
-                    Tema::indicator(&chunk_inputs, &options, None).expect("Rust TEMA indicator failed");
+                let (first_outputs, mut state) = Tema::indicator(&chunk_inputs, &options, None)
+                    .expect("Rust TEMA indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
                 // Process remaining data in chunks
@@ -285,13 +285,13 @@ mod tests {
             ];
 
             // Run SIMD implementation
-            let (simd_outputs, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_outputs, _) = Tema::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD TEMA indicator failed");
 
             // Run regular implementation for comparison
             let inputs_rust = [close.as_slice()];
-            let (regular_outputs, _) =
-                Tema::indicator(&inputs_rust, &options, None).expect("Regular TEMA indicator failed");
+            let (regular_outputs, _) = Tema::indicator(&inputs_rust, &options, None)
+                .expect("Regular TEMA indicator failed");
 
             // Compare each SIMD asset output with regular output
             for (asset_idx, simd_output_data) in simd_outputs.iter().enumerate() {
@@ -359,7 +359,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = Tema::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets TEMA indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -436,13 +436,14 @@ mod tests {
 
             // Test with optional outputs (both DEMA and EMA)
             let (simd_outputs_opt, _) =
-                indicator_by_assets::<4>(&inputs, &options, Some(&[true, true]))
+                Tema::indicator_by_assets::<4>(&inputs, &options, Some(&[true, true]))
                     .expect("SIMD TEMA indicator with optional outputs failed");
 
             // Run regular implementation for comparison with optional outputs
             let inputs_rust = [close.as_slice()];
-            let (regular_outputs_opt, _) = Tema::indicator(&inputs_rust, &options, Some(&[true, true]))
-                .expect("Regular TEMA indicator with optional outputs failed");
+            let (regular_outputs_opt, _) =
+                Tema::indicator(&inputs_rust, &options, Some(&[true, true]))
+                    .expect("Regular TEMA indicator with optional outputs failed");
 
             // Compare each SIMD asset output with regular output
             for (asset_idx, simd_output_opt_data) in simd_outputs_opt.iter().enumerate() {
@@ -599,7 +600,7 @@ mod tests {
         for options in OPTIONS_LIST {
             // Get SIMD by assets result with optional outputs
             let (simd_results_opt, _) =
-                indicator_by_assets::<4>(&inputs, &options, Some(&[true, true]))
+                Tema::indicator_by_assets::<4>(&inputs, &options, Some(&[true, true]))
                     .expect("SIMD by assets TEMA indicator with optional outputs failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -690,7 +691,7 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Tema::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD TEMA 4-wide failed");
 
             // Use SIMD results directly
@@ -769,7 +770,7 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, _) =
-                indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
+                Tema::indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
                     .expect("SIMD TEMA 4-wide with optional outputs failed");
 
             // Use SIMD results directly
@@ -1119,12 +1120,8 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get TEMA with DEMA optional output
                 let optional_outputs = Some(&[true, false][..]);
-                let (tema_result, _) = Tema::indicator(
-                    &[&close],
-                    &[options[0]],
-                    optional_outputs,
-                )
-                .unwrap();
+                let (tema_result, _) =
+                    Tema::indicator(&[&close], &[options[0]], optional_outputs).unwrap();
 
                 let rust_dema = &tema_result[1];
 
@@ -1199,12 +1196,8 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get TEMA with EMA optional output
                 let optional_outputs = Some(&[false, true][..]);
-                let (tema_result, _) = Tema::indicator(
-                    &[&close],
-                    &[options[0]],
-                    optional_outputs,
-                )
-                .unwrap();
+                let (tema_result, _) =
+                    Tema::indicator(&[&close], &[options[0]], optional_outputs).unwrap();
 
                 let rust_ema = &tema_result[2];
 
@@ -1261,5 +1254,4 @@ mod tests {
             }
         }
     }
-
-    }
+}

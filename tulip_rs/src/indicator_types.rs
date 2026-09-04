@@ -11,7 +11,7 @@ pub trait TIndicatorState<const I: usize> {
 }
 
 pub type IndicatorResult<S> = Result<(Vec<Vec<f64>>, S), IndicatorError>;
-
+pub type SimdIndicatorResult<S> = Result<(Vec<Vec<Vec<f64>>>, S), IndicatorError>;
 pub trait Indicator<const I: usize, const OP: usize> {
     type IndicatorState: TIndicatorState<I> + Serialize + DeserializeOwned;
     const INFO: Info;
@@ -31,6 +31,21 @@ pub trait Indicator<const I: usize, const OP: usize> {
         options: &[f64; OP],
         optional_outputs: Option<&[bool]>,
     ) -> IndicatorResult<Self::IndicatorState>;
+    
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; I]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OP],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>>;
+}
+#[cfg(feature = "simd_options")]
+pub trait IndicatorByOptions<const I: usize, const OP: usize> : Indicator<I, OP> {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; I], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OP]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>>;
 }
 
 pub trait TState {

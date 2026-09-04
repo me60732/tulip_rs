@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::wilders::{Wilders, Indicator, TIndicatorState};
+    use tulip_rs::indicator_types::IndicatorByOptions;
+    use tulip_rs::indicators::wilders::{Indicator, TIndicatorState, Wilders};
     use tulip_test::c_bindings::{ti_wilders, ti_wilders_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -57,8 +58,8 @@ mod tests {
 
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
-            let (outputs, _) =
-                Wilders::indicator(&inputs_rust, &options, None).expect("Rust WILDERS indicator failed");
+            let (outputs, _) = Wilders::indicator(&inputs_rust, &options, None)
+                .expect("Rust WILDERS indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -278,8 +279,6 @@ mod tests {
 
     #[test]
     fn test_wilders_simd_by_assets_vs_regular_database() {
-        use tulip_rs::indicators::wilders::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -300,7 +299,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = Wilders::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets WILDERS indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -369,8 +368,6 @@ mod tests {
     // SIMD-by-options test for WILDERS (compare SIMD to regular for all options)
     #[test]
     fn test_wilders_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::wilders::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -385,12 +382,12 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Wilders::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD WILDERS 4-wide failed");
 
             // Process remaining 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
-            let (simd_results_2, _) = indicator_by_options::<2>(&inputs, &options_2, None)
+            let (simd_results_2, _) = Wilders::indicator_by_options::<2>(&inputs, &options_2, None)
                 .expect("SIMD WILDERS 2-wide failed");
 
             // Combine SIMD results
@@ -405,8 +402,8 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
-                let (regular_results, _) =
-                    Wilders::indicator(&inputs, options, None).expect("Regular WILDERS indicator failed");
+                let (regular_results, _) = Wilders::indicator(&inputs, options, None)
+                    .expect("Regular WILDERS indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -452,5 +449,4 @@ mod tests {
             }
         }
     }
-
-    }
+}

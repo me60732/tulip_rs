@@ -1,10 +1,11 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
-pub use crate::indicator_types::{Indicator, IndicatorResult, TState};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
 use crate::indicators::dema::Dema;
 use crate::indicators::ema::Ema;
 use crate::indicators::tema::{State as TemaState, Tema};
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
 /// Number of input price series required by this indicator.
@@ -13,38 +14,8 @@ pub const INPUTS: usize = 1;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
 
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::trix_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::trix_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    pub use crate::indicators::simd_indicators::trix_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    pub use crate::indicators::simd_indicators::trix_simd::indicator_by_options as indicator;
-}
-
 #[derive(Serialize, Deserialize)]
-#[serde(bound="")]
+#[serde(bound = "")]
 #[repr(transparent)]
 pub struct State<S = Cold>(pub TemaState<S>);
 impl<S> Deref for State<S> {
@@ -71,10 +42,10 @@ impl State<Cold> {
         let tema_capacity = Tema::output_length(real.len(), &[period as f64]);
         let mut state = State(TemaState::init_state(real, period, (dema_line, ema_line)));
         let mut i = real.len() - tema_capacity;
-    
+
         while i < remaining {
             let (tema, dema, ema) = state.0.calc(real[i]);
-    
+
             crate::init_store_optional_outputs!(i, real.len(),
                 tema_line => tema,
                 dema_line => dema,
@@ -152,8 +123,7 @@ fn cycle_trix(
     for i in 0..real.len() {
         let (tema, dema, ema);
         unsafe {
-            (*trix_line.get_unchecked_mut(i), tema, dema, ema) =
-                state.calc(*real.get_unchecked(i))
+            (*trix_line.get_unchecked_mut(i), tema, dema, ema) = state.calc(*real.get_unchecked(i))
         };
 
         if has_optional {
@@ -165,8 +135,6 @@ fn cycle_trix(
         }
     }
 }
-
-
 
 pub struct Trix;
 
@@ -212,14 +180,7 @@ impl Indicator<INPUTS, OPTIONS> for Trix {
 
         validate_inputs(inputs, Self::min_data(options))?;
 
-        let (
-            mut trix_line,
-            mut tema_line,
-            mut dema_line,
-            mut ema_line,
-            mut state,
-            real,
-        );
+        let (mut trix_line, mut tema_line, mut dema_line, mut ema_line, mut state, real);
         {
             let len = inputs[0].len();
             let capacity = Self::output_length(len, options);
@@ -257,9 +218,34 @@ impl Indicator<INPUTS, OPTIONS> for Trix {
 
         cycle_trix(real, &mut state, &mut trix_line, optional_outputs);
 
-        Ok((
-            vec![trix_line, tema_line, dema_line, ema_line],
-            state,
-        ))
+        Ok((vec![trix_line, tema_line, dema_line, ema_line], state))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::trix_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Trix {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::trix_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

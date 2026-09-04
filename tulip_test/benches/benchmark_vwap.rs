@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::vwap::{Vwap, Indicator, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::vwap::{Indicator, IndicatorState, TIndicatorState, Vwap};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::criterion_logger::TimingMeasurements;
@@ -63,8 +63,8 @@ fn bench_rust_vwap(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result =
-                        Vwap::indicator(&inputs, &OPTIONS, None).expect("Rust VWAP indicator failed");
+                    let result = Vwap::indicator(&inputs, &OPTIONS, None)
+                        .expect("Rust VWAP indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -126,8 +126,8 @@ fn bench_rust_vwap_from_state(c: &mut Criterion) {
                         &volume_vec[..min_data_val],
                     ];
 
-                    let (_, mut state) =
-                        Vwap::indicator(&chunk_inputs, &OPTIONS, None).expect("VWAP indicator failed");
+                    let (_, mut state) = Vwap::indicator(&chunk_inputs, &OPTIONS, None)
+                        .expect("VWAP indicator failed");
 
                     // Chunks
                     let mut high_chunks = high_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -188,8 +188,8 @@ fn bench_rust_vwap_from_state(c: &mut Criterion) {
                     &close_vec[close_vec.len() - 1..],
                     &volume_vec[volume_vec.len() - 1..],
                 ];
-                let (_, mut state) =
-                    Vwap::indicator(&new_inputs, &OPTIONS, None).expect("Rust VWAP indicator failed");
+                let (_, mut state) = Vwap::indicator(&new_inputs, &OPTIONS, None)
+                    .expect("Rust VWAP indicator failed");
 
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
@@ -212,8 +212,8 @@ fn bench_rust_vwap_from_state(c: &mut Criterion) {
                 );
 
                 // --- Rust_from_state_1_Bar_json benchmark ---
-                let (_, state) =
-                    Vwap::indicator(&new_inputs, &OPTIONS, None).expect("Rust VWAP indicator failed");
+                let (_, state) = Vwap::indicator(&new_inputs, &OPTIONS, None)
+                    .expect("Rust VWAP indicator failed");
                 let json = serde_json::to_string(&state).expect("json failed");
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
@@ -375,9 +375,8 @@ fn bench_rust_vwap_simd_by_assets(c: &mut Criterion) {
         let mut timing = TimingMeasurements::new();
         timing.measure(
             || {
-                let result =
-                    tulip_rs::indicators::vwap::indicator_by_assets::<4>(&inputs, &OPTIONS, None)
-                        .expect("Rust SIMD by-assets VWAP failed");
+                let result = Vwap::indicator_by_assets::<4>(&inputs, &OPTIONS, None)
+                    .expect("Rust SIMD by-assets VWAP failed");
                 black_box(&result);
             },
             SAMPLE_SIZE,
@@ -404,11 +403,10 @@ fn bench_rust_vwap_simd_by_assets(c: &mut Criterion) {
 
         let mut group = c.benchmark_group("vwap_rust_simd_by_assets");
         group.sample_size(SAMPLE_SIZE);
-        group.bench_function("Rust SIMD by-assets VWAP", |b| {
+        group.bench_function("SIMD by assets VWAP", |b| {
             b.iter(|| {
-                let result =
-                    tulip_rs::indicators::vwap::indicator_by_assets::<4>(&inputs, &OPTIONS, None)
-                        .expect("Rust SIMD by-assets VWAP failed");
+                let result = Vwap::indicator_by_assets::<4>(&inputs, &OPTIONS, None)
+                    .expect("Rust SIMD by-assets VWAP failed");
                 black_box(&result);
             });
         });

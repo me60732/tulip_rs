@@ -1,8 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::trix::{indicator_by_assets, indicator_by_options};
-    use tulip_rs::indicators::trix::{Indicator, TIndicatorState, Trix};
+    use tulip_rs::indicators::trix::{Indicator, IndicatorByOptions, TIndicatorState, Trix};
     use tulip_test::c_bindings::{
         ti_dema, ti_dema_start, ti_ema, ti_ema_start, ti_tema, ti_tema_start, ti_trix,
         ti_trix_start,
@@ -187,7 +186,6 @@ mod tests {
                     }
 
                     if !approx_eq!(f64, c_val, rust_val, epsilon = EPSILION) {
-                        
                         println!(
                             "Test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}",
                             index, output_vec_c, outputs[0], options, stock_symbol
@@ -213,8 +211,8 @@ mod tests {
                 let inputs_rust = [close.as_slice()];
 
                 // Get full output from processing all data at once
-                let (full_outputs, _) =
-                    Trix::indicator(&inputs_rust, &options, None).expect("Rust TRIX indicator failed");
+                let (full_outputs, _) = Trix::indicator(&inputs_rust, &options, None)
+                    .expect("Rust TRIX indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
@@ -225,8 +223,8 @@ mod tests {
                 let close_vec = close[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice()];
 
-                let (first_outputs, mut state) =
-                    Trix::indicator(&chunk_inputs, &options, None).expect("Rust TRIX indicator failed");
+                let (first_outputs, mut state) = Trix::indicator(&chunk_inputs, &options, None)
+                    .expect("Rust TRIX indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
                 // Process remaining data in chunks
@@ -290,13 +288,13 @@ mod tests {
             ];
 
             // Run SIMD implementation
-            let (simd_outputs, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_outputs, _) = Trix::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD TRIX indicator failed");
 
             // Run regular implementation for comparison
             let inputs_rust = [close.as_slice()];
-            let (regular_outputs, _) =
-                Trix::indicator(&inputs_rust, &options, None).expect("Regular TRIX indicator failed");
+            let (regular_outputs, _) = Trix::indicator(&inputs_rust, &options, None)
+                .expect("Regular TRIX indicator failed");
 
             // Compare each SIMD asset output with regular output
             for (asset_idx, simd_output_data) in simd_outputs.iter().enumerate() {
@@ -378,7 +376,7 @@ mod tests {
                 ];
 
                 // Run SIMD implementation
-                let (simd_outputs, _) = indicator_by_assets::<4>(&inputs, &options, None)
+                let (simd_outputs, _) = Trix::indicator_by_assets::<4>(&inputs, &options, None)
                     .expect("SIMD TRIX indicator failed");
 
                 // Compare each asset's SIMD output with its regular output
@@ -443,7 +441,7 @@ mod tests {
 
             // Test with optional outputs (all three outputs)
             let (simd_outputs_opt, _) =
-                indicator_by_assets::<4>(&inputs, &options, Some(&[true, true, true]))
+                Trix::indicator_by_assets::<4>(&inputs, &options, Some(&[true, true, true]))
                     .expect("SIMD TRIX indicator with optional outputs failed");
 
             // Run regular implementation for comparison with optional outputs
@@ -621,7 +619,7 @@ mod tests {
 
                 // Get SIMD by assets result with optional outputs
                 let (simd_results_opt, _) =
-                    indicator_by_assets::<4>(&inputs, &options, Some(&[true, true, true]))
+                    Trix::indicator_by_assets::<4>(&inputs, &options, Some(&[true, true, true]))
                         .expect("SIMD by assets TRIX indicator with optional outputs failed");
 
                 // Compare each SIMD result with regular indicator for each stock
@@ -749,12 +747,12 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Trix::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD TRIX 4-wide failed");
 
             // Process remaining 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
-            let (simd_results_2, _) = indicator_by_options::<2>(&inputs, &options_2, None)
+            let (simd_results_2, _) = Trix::indicator_by_options::<2>(&inputs, &options_2, None)
                 .expect("SIMD TRIX 2-wide failed");
 
             // Combine SIMD results
@@ -843,13 +841,13 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, _) =
-                indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
+                Trix::indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
                     .expect("SIMD TRIX 4-wide with optional outputs failed");
 
             // Process remaining 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
             let (simd_results_2, _) =
-                indicator_by_options::<2>(&inputs, &options_2, optional_outputs)
+                Trix::indicator_by_options::<2>(&inputs, &options_2, optional_outputs)
                     .expect("SIMD TRIX 2-wide with optional outputs failed");
 
             // Combine SIMD results
@@ -1338,12 +1336,8 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get TRIX with TEMA optional output
                 let optional_outputs = Some(&[true, false, false][..]);
-                let (trix_result, _) = Trix::indicator(
-                    &[&close],
-                    &[options[0]],
-                    optional_outputs,
-                )
-                .unwrap();
+                let (trix_result, _) =
+                    Trix::indicator(&[&close], &[options[0]], optional_outputs).unwrap();
 
                 let rust_tema = &trix_result[1];
 
@@ -1418,12 +1412,8 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get TRIX with DEMA optional output
                 let optional_outputs = Some(&[false, true, false][..]);
-                let (trix_result, _) = Trix::indicator(
-                    &[&close],
-                    &[options[0]],
-                    optional_outputs,
-                )
-                .unwrap();
+                let (trix_result, _) =
+                    Trix::indicator(&[&close], &[options[0]], optional_outputs).unwrap();
 
                 let rust_dema = &trix_result[2];
 
@@ -1498,12 +1488,8 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get TRIX with EMA optional output
                 let optional_outputs = Some(&[false, false, true][..]);
-                let (trix_result, _) = Trix::indicator(
-                    &[&close],
-                    &[options[0]],
-                    optional_outputs,
-                )
-                .unwrap();
+                let (trix_result, _) =
+                    Trix::indicator(&[&close], &[options[0]], optional_outputs).unwrap();
 
                 let rust_ema = &trix_result[3];
 

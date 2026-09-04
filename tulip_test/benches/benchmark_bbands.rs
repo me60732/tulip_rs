@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::bbands::{
-    BBands, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
+    BBands, Indicator, IndicatorByOptions, IndicatorState, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -342,8 +342,8 @@ fn bench_rust_bbands_from_state(c: &mut Criterion) {
             if close_vec.len() > 1 {
                 let new_inputs = [&close_vec[..close_vec.len() - 1]];
                 let final_inputs = [&close_vec[close_vec.len() - 1..]];
-                let (_, mut state) =
-                    BBands::indicator(&new_inputs, &options, None).expect("Rust BBANDS indicator failed");
+                let (_, mut state) = BBands::indicator(&new_inputs, &options, None)
+                    .expect("Rust BBANDS indicator failed");
 
                 let mut group = c.benchmark_group("bbands_rust_from_state_1_bar");
                 group.sample_size(SAMPLE_SIZE);
@@ -391,7 +391,7 @@ fn bench_rust_bbands_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = BBands::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("Rust SIMD by assets BBANDS indicator failed");
                     black_box(&result);
                 },
@@ -425,7 +425,7 @@ fn bench_rust_bbands_simd_by_assets(c: &mut Criterion) {
                 ),
                 |b| {
                     b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = BBands::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("Rust SIMD by assets BBANDS indicator failed");
                         black_box(&result);
                     });
@@ -458,7 +458,7 @@ fn bench_rust_bbands_simd_by_options(c: &mut Criterion) {
                         &OPTIONS_LIST[2],
                         &OPTIONS_LIST[3],
                     ];
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result = BBands::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD BBANDS indicator failed");
                     black_box(&result);
                 },
@@ -490,7 +490,7 @@ fn bench_rust_bbands_simd_by_options(c: &mut Criterion) {
                     &OPTIONS_LIST[2],
                     &OPTIONS_LIST[3],
                 ];
-                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result = BBands::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD BBANDS indicator failed");
                 black_box(&result);
             });

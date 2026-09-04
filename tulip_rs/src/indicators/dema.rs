@@ -1,12 +1,12 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
 pub use crate::indicators::ema::multiplier;
 use crate::indicators::ema::{calc as calc_ema, Ema, State as EmaState};
-use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold
-};
-use std::ops::{Deref, DerefMut};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
+use std::ops::{Deref, DerefMut};
 
 /// Number of input price series required by this indicator.
 pub const INPUTS: usize = 1;
@@ -14,51 +14,23 @@ pub const INPUTS: usize = 1;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
 
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::dema_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::dema_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::dema_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    /// See the parent module's [`super::indicator_by_options`] for full documentation.
-    pub use crate::indicators::simd_indicators::dema_simd::indicator_by_options as indicator;
-}
-
 pub type IndicatorState = State<Warm>;
 #[derive(Serialize, Deserialize)]
-#[serde(bound="")]
+#[serde(bound = "")]
 pub struct State<S = Cold> {
     pub ema_state: EmaState<S>,
     pub ema2: f64,
 }
 impl<S> Deref for State<S> {
     type Target = EmaState<S>;
-    fn deref(&self) -> &Self::Target { &self.ema_state }
+    fn deref(&self) -> &Self::Target {
+        &self.ema_state
+    }
 }
 impl<S> DerefMut for State<S> {
-    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.ema_state }
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.ema_state
+    }
 }
 impl State<Cold> {
     #[allow(unused)]
@@ -76,7 +48,7 @@ impl State<Cold> {
         // Seed ema2 once, at the transition point
         let mut state = State::<Warm> {
             ema2: ema_state.ema,
-            ema_state
+            ema_state,
         };
 
         // Phase 2: run full DEMA calc for the remaining init bars
@@ -119,17 +91,11 @@ impl TIndicatorState<1> for IndicatorState {
                 ),
             )
         };
-        cycle_dema(
-            inputs[0],
-            self,
-            &mut dema_line,
-            &mut ema_line,
-        );
+        cycle_dema(inputs[0], self, &mut dema_line, &mut ema_line);
 
         Ok(vec![dema_line, ema_line])
     }
 }
-
 
 /// Performs the main calculation loop for the DEMA indicator.
 ///
@@ -140,12 +106,7 @@ impl TIndicatorState<1> for IndicatorState {
 /// * `state` - Mutable reference to the DEMA state holding `ema1` and `ema2`.
 /// * `dema_line` - Mutable slice to write the DEMA output values into.
 /// * `ema_line` - Mutable slice to write the EMA output values into (optional output).
-fn cycle_dema(
-    real: &[f64],
-    state: &mut State<Warm>,
-    dema_line: &mut [f64],
-    ema_line: &mut [f64],
-) {
+fn cycle_dema(real: &[f64], state: &mut State<Warm>, dema_line: &mut [f64], ema_line: &mut [f64]) {
     let (_, want_ema) = crate::calc_want_flags!(ema_line);
 
     for i in 0..real.len() {
@@ -192,37 +153,62 @@ impl Indicator<INPUTS, OPTIONS> for Dema {
         validate_options(options)?;
         let period = options[0] as usize;
         validate_inputs(inputs, Self::min_data(options))?;
-    
+
         let (mut dema_line, mut ema_line, mut state);
         {
             let capacity = Self::output_length(inputs[0].len(), options);
             let ema_capacity = Ema::output_length(inputs[0].len(), options);
-    
+
             dema_line = crate::uninit_vec!(f64, capacity);
-    
+
             // Initialize any optional outputs
             ema_line = crate::init_optional_outputs_eff!(
                 optional_outputs, &[false],
                 ema_line: ema_capacity
             );
-    
-            state = State::init_state(inputs[0], /*capacity, */period, &mut ema_line);
+
+            state = State::init_state(inputs[0], /*capacity, */ period, &mut ema_line);
         }
         let ema = {
             let offset = crate::slice_outputs_start!(dema_line.len(), ema_line);
             &mut ema_line[offset..]
         };
-    
+
         cycle_dema(
             &inputs[0][period * 2 - 2..],
             &mut state,
             &mut dema_line,
             ema,
         );
-    
-        Ok((
-            vec![dema_line, ema_line],
-            state,
-        ))
+
+        Ok((vec![dema_line, ema_line], state))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::dema_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Dema {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::dema_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

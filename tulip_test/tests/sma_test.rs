@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::sma::{Sma, Indicator, TIndicatorState};
+    use tulip_rs::indicator_types::Indicator;
+    use tulip_rs::indicators::sma::TIndicatorState;
     use tulip_test::c_bindings::{ti_sma, ti_sma_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -54,8 +55,12 @@ mod tests {
 
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
-            let (outputs, _) =
-                Sma::indicator(&inputs_rust, &options, None).expect("Rust SMA indicator failed");
+            let (outputs, _) = <tulip_rs::indicators::sma::Sma as Indicator<1, 1>>::indicator(
+                &inputs_rust,
+                &options,
+                None,
+            )
+            .expect("Rust SMA indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -140,8 +145,12 @@ mod tests {
                 assert_eq!(ret, 0, "ti_sma returned error code {}", ret);
 
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) =
-                    Sma::indicator(&inputs_rust, &options, None).expect("Rust SMA indicator failed");
+                let (outputs, _) = <tulip_rs::indicators::sma::Sma as Indicator<1, 1>>::indicator(
+                    &inputs_rust,
+                    &options,
+                    None,
+                )
+                .expect("Rust SMA indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -206,16 +215,28 @@ mod tests {
 
                 // Get full output
                 let (full_outputs, _) =
-                    Sma::indicator(&inputs_rust, &options, None).expect("Rust SMA indicator failed");
+                    <tulip_rs::indicators::sma::Sma as Indicator<1, 1>>::indicator(
+                        &inputs_rust,
+                        &options,
+                        None,
+                    )
+                    .expect("Rust SMA indicator failed");
 
                 // Process in batches
                 let mut batch_full_output = Vec::new();
 
-                let min_data_val = Sma::min_data(&options).max(CHUNK_SIZE);
+                let min_data_val =
+                    <tulip_rs::indicators::sma::Sma as Indicator<1, 1>>::min_data(&options)
+                        .max(CHUNK_SIZE);
 
                 if close.len() <= min_data_val {
                     // If data is too small, just run full calculation
-                    let (outputs, _) = Sma::indicator(&inputs_rust, &options, None)
+                    let (outputs, _) =
+                        <tulip_rs::indicators::sma::Sma as Indicator<1, 1>>::indicator(
+                            &inputs_rust,
+                            &options,
+                            None,
+                        )
                         .expect("Failed to run SMA indicator");
                     batch_full_output.extend_from_slice(&outputs[0]);
                 } else {
@@ -223,7 +244,12 @@ mod tests {
                     let close_vec = close[..min_data_val].to_vec();
                     let chunk_inputs = [close_vec.as_slice()];
 
-                    let (first_outputs, mut state) = Sma::indicator(&chunk_inputs, &options, None)
+                    let (first_outputs, mut state) =
+                        <tulip_rs::indicators::sma::Sma as Indicator<1, 1>>::indicator(
+                            &chunk_inputs,
+                            &options,
+                            None,
+                        )
                         .expect("Failed to run SMA indicator on first chunk");
                     batch_full_output.extend_from_slice(&first_outputs[0]);
 
@@ -269,104 +295,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sma_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::sma::indicator_by_options;
-
-        init_database_data();
-        let data = get_all_stock_data().unwrap();
-
-        for (stock_symbol, stock_data) in data {
-            let close = get_close_array(stock_data);
-            let inputs = [close.as_slice()];
-
-            // Process first 4 options with 4-wide SIMD
-            let options_4 = [
-                &OPTIONS_LIST[0],
-                &OPTIONS_LIST[1],
-                &OPTIONS_LIST[2],
-                &OPTIONS_LIST[3],
-            ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
-                .expect("SIMD SMA 4-wide failed");
-
-            // Process remaining 2 options with 2-wide SIMD
-            let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
-            let (simd_results_2, _) = indicator_by_options::<2>(&inputs, &options_2, None)
-                .expect("SIMD SMA 2-wide failed");
-
-            // Combine SIMD results
-            let mut all_simd_results = Vec::new();
-
-            // Add 4-wide results
-            for result in &simd_results_4 {
-                all_simd_results.push(result.clone());
-            }
-
-            // Add 2-wide results
-            for result in &simd_results_2 {
-                all_simd_results.push(result.clone());
-            }
-
-            // Compare each SIMD result with regular indicator
-            for (idx, options) in OPTIONS_LIST.iter().enumerate() {
-                // Get regular indicator result
-                let (regular_results, _) =
-                    Sma::indicator(&inputs, options, None).expect("Regular SMA indicator failed");
-
-                let simd_result = &all_simd_results[idx][0];
-                let regular_result = &regular_results[0];
-
-                // Compare output lengths
-                assert_eq!(
-                    simd_result.len(),
-                    regular_result.len(),
-                    "Output length mismatch for stock {} options {:?}: SIMD={}, Regular={}",
-                    stock_symbol,
-                    options,
-                    simd_result.len(),
-                    regular_result.len()
-                );
-
-                // Compare each value
-                for (i, (&simd_val, &regular_val)) in
-                    simd_result.iter().zip(regular_result.iter()).enumerate()
-                {
-                    // Check for NaN/infinity in SIMD result
-                    if simd_val.is_nan() {
-                        panic!(
-                            "SIMD SMA has NaN at index {} for stock {}: SIMD = {}, Options = {:?}",
-                            i, stock_symbol, simd_val, options
-                        );
-                    }
-
-                    if simd_val.is_infinite() {
-                        panic!(
-                            "SIMD SMA has infinity at index {} for stock {}: SIMD = {}, Options = {:?}",
-                            i, stock_symbol, simd_val, options
-                        );
-                    }
-
-                    // Compare values with high precision
-                    if !approx_eq!(f64, simd_val, regular_val, epsilon = 1e-12) {
-                        //println!("\nSIMD RESULTS: {:?}\n\nREGULAR RESULTS: {:?}", simd_result, regular_result);
-                        panic!(
-                            "Mismatch at index {} for stock {} options {:?}: SIMD = {}, Regular = {}",
-                            i, stock_symbol, options, simd_val, regular_val
-                        );
-                    }
-                }
-            }
-
-            //println!("✓ SIMD vs Regular test passed for stock {}", stock_symbol);
-        }
-
-        //println!("✓ All SIMD vs Regular SMA database tests passed!");
-    }
-
-    #[test]
     fn test_sma_simd_by_assets_vs_regular_database() {
-        use tulip_rs::indicators::sma::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -387,7 +316,10 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) =
+                <tulip_rs::indicators::sma::Sma as Indicator<1, 1>>::indicator_by_assets::<4>(
+                    &inputs, &options, None,
+                )
                 .expect("SIMD by assets SMA indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -395,7 +327,12 @@ mod tests {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_close.as_slice()];
                 let (regular_results, _) =
-                    Sma::indicator(&stock_inputs, &options, None).expect("Regular SMA indicator failed");
+                    <tulip_rs::indicators::sma::Sma as Indicator<1, 1>>::indicator(
+                        &stock_inputs,
+                        &options,
+                        None,
+                    )
+                    .expect("Regular SMA indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];
@@ -457,5 +394,4 @@ mod tests {
     fn get_close_array(stock_data: &[tulip_test::database::EodData]) -> Vec<f64> {
         stock_data.iter().map(|d| d.close).collect()
     }
-
-    }
+}

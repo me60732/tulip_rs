@@ -1,6 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::volatility::indicator_by_options;
-use tulip_rs::indicators::volatility::{Volatility, Indicator, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::volatility::{
+    Indicator, IndicatorByOptions, IndicatorState, TIndicatorState, Volatility,
+};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_volatility, ti_volatility_start};
@@ -373,10 +374,8 @@ fn bench_rust_volatility_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = tulip_rs::indicators::volatility::indicator_by_assets::<4>(
-                        &inputs, &options, None,
-                    )
-                    .expect("Rust SIMD by assets VOLATILITY indicator failed");
+                    let result = Volatility::indicator_by_assets::<4>(&inputs, &options, None)
+                        .expect("Rust SIMD by assets VOLATILITY indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -406,10 +405,8 @@ fn bench_rust_volatility_simd_by_assets(c: &mut Criterion) {
                 format!("Rust SIMD by assets VOLATILITY {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = tulip_rs::indicators::volatility::indicator_by_assets::<4>(
-                            &inputs, &options, None,
-                        )
-                        .expect("Rust SIMD by assets VOLATILITY indicator failed");
+                        let result = Volatility::indicator_by_assets::<4>(&inputs, &options, None)
+                            .expect("Rust SIMD by assets VOLATILITY indicator failed");
                         black_box(&result);
                     });
                 },
@@ -442,7 +439,7 @@ fn bench_rust_volatility_simd_by_options(c: &mut Criterion) {
             timing.measure(
                 || {
                     // Process 4 options with 4-wide SIMD
-                    let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result_4 = Volatility::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD VOLATILITY indicator failed");
                     black_box(&result_4);
                 },
@@ -468,7 +465,7 @@ fn bench_rust_volatility_simd_by_options(c: &mut Criterion) {
         group.bench_function("Rust SIMD VOLATILITY (4 lanes)", |b| {
             b.iter(|| {
                 // Process 4 options with 4-wide SIMD
-                let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result_4 = Volatility::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD VOLATILITY indicator failed");
                 black_box(&result_4);
             });

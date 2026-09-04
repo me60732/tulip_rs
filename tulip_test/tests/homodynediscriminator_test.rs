@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use tulip_rs::indicator_types::{Indicator, TIndicatorState};
-    use tulip_rs::indicators::homodynediscriminator::{indicator_by_assets, HomodyneDiscriminator};
+    use tulip_rs::indicators::homodynediscriminator::HomodyneDiscriminator;
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
     const CHUNK_SIZE: usize = 100;
@@ -53,8 +53,9 @@ mod tests {
                 .expect("reference run failed");
             let ref_dc = &ref_out[0];
 
-            let (first_out, mut state) = HomodyneDiscriminator::indicator(&[&close[..FIRST_CHUNK]], &[], None)
-                .expect("seed run failed");
+            let (first_out, mut state) =
+                HomodyneDiscriminator::indicator(&[&close[..FIRST_CHUNK]], &[], None)
+                    .expect("seed run failed");
 
             let mut batch_dc = first_out[0].clone();
 
@@ -102,8 +103,8 @@ mod tests {
 
         for (stock_symbol, stock_data) in data {
             let close = get_close_array(stock_data);
-            let (out, _) =
-                HomodyneDiscriminator::indicator(&[close.as_slice()], &[], None).expect("indicator failed");
+            let (out, _) = HomodyneDiscriminator::indicator(&[close.as_slice()], &[], None)
+                .expect("indicator failed");
             let dc = &out[0];
 
             for (i, &v) in dc.iter().enumerate() {
@@ -132,8 +133,8 @@ mod tests {
         for (stock_symbol, stock_data) in data {
             let close = get_close_array(stock_data);
             let n = close.len();
-            let (out, _) =
-                HomodyneDiscriminator::indicator(&[close.as_slice()], &[], None).expect("indicator failed");
+            let (out, _) = HomodyneDiscriminator::indicator(&[close.as_slice()], &[], None)
+                .expect("indicator failed");
             assert_eq!(
                 out[0].len(),
                 HomodyneDiscriminator::output_length(n, &[]),
@@ -167,12 +168,13 @@ mod tests {
             &[&stock_data[3].1],
         ];
 
-        let (simd_results, _) =
-            indicator_by_assets::<4>(&inputs, &[], None).expect("SIMD by_assets failed");
+        let (simd_results, _) = HomodyneDiscriminator::indicator_by_assets::<4>(&inputs, &[], None)
+            .expect("SIMD by_assets failed");
 
         for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
-            let (scalar_out, _) = HomodyneDiscriminator::indicator(&[stock_close.as_slice()], &[], None)
-                .expect("scalar indicator failed");
+            let (scalar_out, _) =
+                HomodyneDiscriminator::indicator(&[stock_close.as_slice()], &[], None)
+                    .expect("scalar indicator failed");
 
             let simd_dc = &simd_results[stock_idx][0];
             let scalar_dc = &scalar_out[0];
@@ -238,8 +240,9 @@ mod tests {
             &[&stock_data[3].1[..FIRST_CHUNK]],
         ];
 
-        let (simd_first, mut states) = indicator_by_assets::<4>(&inputs_first, &[], None)
-            .expect("SIMD by_assets failed on first chunk");
+        let (simd_first, mut states) =
+            HomodyneDiscriminator::indicator_by_assets::<4>(&inputs_first, &[], None)
+                .expect("SIMD by_assets failed on first chunk");
 
         // For each asset: extend the first-chunk output with batch_indicator remainder,
         // then compare the combined result against the full scalar run.

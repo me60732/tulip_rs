@@ -1,7 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::highpass::{
-    indicator_by_assets, indicator_by_options, HighPass, Indicator, TIndicatorState,
-};
+use tulip_rs::indicators::highpass::{HighPass, Indicator, IndicatorByOptions, TIndicatorState};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::criterion_logger::TimingMeasurements;
@@ -241,7 +239,7 @@ fn bench_rust_highpass_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = HighPass::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("SIMD by-assets HighPass failed");
                     black_box(&result);
                 },
@@ -267,7 +265,7 @@ fn bench_rust_highpass_simd_by_assets(c: &mut Criterion) {
                 format!("Rust HighPass SIMD by assets {{ period: {} }}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = HighPass::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("SIMD by-assets HighPass failed");
                         black_box(&result);
                     });
@@ -299,7 +297,7 @@ fn bench_rust_highpass_simd_by_options(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result = HighPass::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("SIMD by-options HighPass failed");
                     black_box(&result);
                 },
@@ -328,7 +326,7 @@ fn bench_rust_highpass_simd_by_options(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust HighPass SIMD by options (4 lanes)", |b| {
             b.iter(|| {
-                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result = HighPass::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("SIMD by-options HighPass failed");
                 black_box(&result);
             });

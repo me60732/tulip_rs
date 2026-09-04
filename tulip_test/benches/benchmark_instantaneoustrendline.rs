@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::instantaneoustrendline::{InstantaneousTrendline, Indicator, indicator_by_assets};
+use tulip_rs::indicators::instantaneoustrendline::{Indicator, InstantaneousTrendline};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::criterion_logger::TimingMeasurements;
 use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -40,7 +40,8 @@ fn bench_it(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = InstantaneousTrendline::indicator(&inputs, &[], None).expect("IT failed");
+                    let result =
+                        InstantaneousTrendline::indicator(&inputs, &[], None).expect("IT failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -61,7 +62,8 @@ fn bench_it(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust Instantaneous Trendline", |b| {
             b.iter(|| {
-                let result = InstantaneousTrendline::indicator(&inputs, &[], None).expect("IT failed");
+                let result =
+                    InstantaneousTrendline::indicator(&inputs, &[], None).expect("IT failed");
                 black_box(&result);
             });
         });
@@ -84,8 +86,9 @@ fn bench_it_from_state(c: &mut Criterion) {
             timing.measure(
                 || {
                     let seed = InstantaneousTrendline::min_data(&[]).max(CHUNK_SIZE);
-                    let (_, mut state) = InstantaneousTrendline::indicator(&[&close[..seed]], &[], None)
-                        .expect("IT seed failed");
+                    let (_, mut state) =
+                        InstantaneousTrendline::indicator(&[&close[..seed]], &[], None)
+                            .expect("IT seed failed");
                     for chunk in close[seed..].chunks_exact(CHUNK_SIZE) {
                         black_box(
                             state
@@ -115,8 +118,9 @@ fn bench_it_from_state(c: &mut Criterion) {
 
             // --- single-bar update ---
             if n > 1 {
-                let (_, mut state) = InstantaneousTrendline::indicator(&[&close[..n - 1]], &[], None)
-                    .expect("IT seed (1-bar) failed");
+                let (_, mut state) =
+                    InstantaneousTrendline::indicator(&[&close[..n - 1]], &[], None)
+                        .expect("IT seed (1-bar) failed");
                 let final_input = [&close[n - 1..]];
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
@@ -161,8 +165,9 @@ fn bench_it_from_state(c: &mut Criterion) {
         group.finish();
 
         if close_vec.len() > 1 {
-            let (_, mut state) = InstantaneousTrendline::indicator(&[&close_vec[..close_vec.len() - 1]], &[], None)
-                .expect("IT seed (1-bar) failed");
+            let (_, mut state) =
+                InstantaneousTrendline::indicator(&[&close_vec[..close_vec.len() - 1]], &[], None)
+                    .expect("IT seed (1-bar) failed");
             let final_input = [&close_vec[close_vec.len() - 1..]];
             let mut group = c.benchmark_group("instantaneoustrendline_rust_from_state_1_bar");
             group.sample_size(SAMPLE_SIZE);
@@ -200,7 +205,7 @@ fn bench_it_simd_by_assets(c: &mut Criterion) {
         let mut timing = TimingMeasurements::new();
         timing.measure(
             || {
-                let result = indicator_by_assets::<4>(&inputs, &[], None)
+                let result = InstantaneousTrendline::indicator_by_assets::<4>(&inputs, &[], None)
                     .expect("SIMD by_assets IT failed");
                 black_box(&result);
             },
@@ -222,7 +227,7 @@ fn bench_it_simd_by_assets(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust SIMD by_assets IT (N=4)", |b| {
             b.iter(|| {
-                let result = indicator_by_assets::<4>(&inputs, &[], None)
+                let result = InstantaneousTrendline::indicator_by_assets::<4>(&inputs, &[], None)
                     .expect("SIMD by_assets IT failed");
                 black_box(&result);
             });
@@ -283,20 +288,23 @@ fn bench_talib_ht_trendline(c: &mut Criterion) {
         let out_len = n - lookback as usize;
         let mut group = c.benchmark_group("instantaneoustrendline_talib");
         group.sample_size(SAMPLE_SIZE);
-        group.bench_function("TA-Lib HT_TRENDLINE (different algorithm — throughput only)", |b| {
-            b.iter(|| {
-                let mut out_trendline = vec![0.0_f64; out_len];
-                let mut outputs: Vec<*mut f64> = vec![out_trendline.as_mut_ptr()];
-                let ret = ta_ht_trendline(
-                    n as i32,
-                    inputs.as_ptr(),
-                    std::ptr::null(),
-                    outputs.as_mut_ptr(),
-                );
-                assert_eq!(ret, 0, "ta_ht_trendline returned error {ret}");
-                black_box(&out_trendline);
-            });
-        });
+        group.bench_function(
+            "TA-Lib HT_TRENDLINE (different algorithm — throughput only)",
+            |b| {
+                b.iter(|| {
+                    let mut out_trendline = vec![0.0_f64; out_len];
+                    let mut outputs: Vec<*mut f64> = vec![out_trendline.as_mut_ptr()];
+                    let ret = ta_ht_trendline(
+                        n as i32,
+                        inputs.as_ptr(),
+                        std::ptr::null(),
+                        outputs.as_mut_ptr(),
+                    );
+                    assert_eq!(ret, 0, "ta_ht_trendline returned error {ret}");
+                    black_box(&out_trendline);
+                });
+            },
+        );
         group.finish();
     }
 }

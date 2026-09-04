@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::mfi::indicator_by_options;
-    use tulip_rs::indicators::mfi::{Mfi, Indicator, TIndicatorState};
+    use tulip_rs::indicator_types::IndicatorByOptions;
+    use tulip_rs::indicators::mfi::{Indicator, Mfi, TIndicatorState};
     use tulip_test::c_bindings::{ti_mfi, ti_mfi_start, ti_typprice, ti_typprice_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -171,8 +171,8 @@ mod tests {
                     close.as_slice(),
                     volume.as_slice(),
                 ];
-                let (outputs, _) =
-                    Mfi::indicator(&inputs_rust, &options, None).expect("Rust MFI indicator failed");
+                let (outputs, _) = Mfi::indicator(&inputs_rust, &options, None)
+                    .expect("Rust MFI indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -522,8 +522,6 @@ mod tests {
 
     #[test]
     fn test_mfi_simd_by_assets_vs_regular_database() {
-        use tulip_rs::indicators::mfi::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -567,7 +565,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = Mfi::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets MFI indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -581,8 +579,8 @@ mod tests {
                     stock_close.as_slice(),
                     stock_volume.as_slice(),
                 ];
-                let (regular_results, _) =
-                    Mfi::indicator(&stock_inputs, &options, None).expect("Regular MFI indicator failed");
+                let (regular_results, _) = Mfi::indicator(&stock_inputs, &options, None)
+                    .expect("Regular MFI indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];
@@ -638,8 +636,6 @@ mod tests {
 
     #[test]
     fn test_mfi_simd_by_assets_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::mfi::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -683,7 +679,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result with optional outputs
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, Some(&[true]))
+            let (simd_results, _) = Mfi::indicator_by_assets::<4>(&inputs, &options, Some(&[true]))
                 .expect("SIMD by assets MFI indicator with optional outputs failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -790,13 +786,13 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
 
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Mfi::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD MFI by options 4-wide failed");
 
             // Process last 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
 
-            let (simd_results_2, _) = indicator_by_options::<2>(&inputs, &options_2, None)
+            let (simd_results_2, _) = Mfi::indicator_by_options::<2>(&inputs, &options_2, None)
                 .expect("SIMD MFI by options 2-wide failed");
 
             // Combine SIMD results
@@ -897,14 +893,16 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
 
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, Some(&[true]))
-                .expect("SIMD MFI by options 4-wide with optional outputs failed");
+            let (simd_results_4, _) =
+                Mfi::indicator_by_options::<4>(&inputs, &options_4, Some(&[true]))
+                    .expect("SIMD MFI by options 4-wide with optional outputs failed");
 
             // Process last 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
 
-            let (simd_results_2, _) = indicator_by_options::<2>(&inputs, &options_2, Some(&[true]))
-                .expect("SIMD MFI by options 2-wide with optional outputs failed");
+            let (simd_results_2, _) =
+                Mfi::indicator_by_options::<2>(&inputs, &options_2, Some(&[true]))
+                    .expect("SIMD MFI by options 2-wide with optional outputs failed");
 
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
@@ -1017,13 +1015,13 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, states_4) =
-                indicator_by_options::<4>(&first_inputs, &options_4, None)
+                Mfi::indicator_by_options::<4>(&first_inputs, &options_4, None)
                     .expect("SIMD MFI 4-wide failed on first chunk");
 
             // Process last 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
             let (simd_results_2, states_2) =
-                indicator_by_options::<2>(&first_inputs, &options_2, None)
+                Mfi::indicator_by_options::<2>(&first_inputs, &options_2, None)
                     .expect("SIMD MFI 2-wide failed on first chunk");
 
             // Combine SIMD results for first part and prepare to extend with batch_indicator outputs
@@ -1089,5 +1087,4 @@ mod tests {
 
         println!("✓ All MFI SIMD state handover by options tests passed!");
     }
-
-    }
+}

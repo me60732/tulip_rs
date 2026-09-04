@@ -1,6 +1,4 @@
-use tulip_rs::indicators::ichimoku::{
-    indicator_by_assets, indicator_by_options, Ichimoku, Indicator, TIndicatorState,
-};
+use tulip_rs::indicators::ichimoku::{Ichimoku, Indicator, IndicatorByOptions, TIndicatorState};
 
 // 40 bars of OHLC prices
 // With short_period=5, long_period=10: min_data = (10*2+1) + 10 = 31
@@ -125,10 +123,11 @@ fn main() {
     let asset3: [&[f64]; 3] = [high3.as_slice(), low3.as_slice(), close3.as_slice()];
     let inputs_4: [&[&[f64]; 3]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-    let (simd_asset_outputs, _) = match indicator_by_assets::<4>(&inputs_4, &options, None) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (simd_asset_outputs, _) =
+        match Ichimoku::indicator_by_assets::<4>(&inputs_4, &options, None) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
     // Show last 3 of conversion and base for asset 0 only
     let conv0 = &simd_asset_outputs[0][0];
     let base0 = &simd_asset_outputs[0][1];
@@ -149,10 +148,11 @@ fn main() {
     //   [7.0, 13.0] → min_data = 40  → conversion has 34 values
     let options_4 = [&[3.0, 7.0], &[5.0, 10.0], &[5.0, 12.0], &[7.0, 13.0]];
 
-    let (simd_option_outputs, _) = match indicator_by_options::<4>(&inputs, &options_4, None) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (simd_option_outputs, _) =
+        match Ichimoku::indicator_by_options::<4>(&inputs, &options_4, None) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
     for (i, opts) in options_4.iter().enumerate() {
         let conv = &simd_option_outputs[i][0];
         println!(

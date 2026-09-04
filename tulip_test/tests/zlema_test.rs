@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::zlema::{Zlema, Indicator, TIndicatorState};
+    use tulip_rs::indicator_types::IndicatorByOptions;
+    use tulip_rs::indicators::zlema::{Indicator, TIndicatorState, Zlema};
     use tulip_test::c_bindings::{ti_zlema, ti_zlema_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -54,8 +55,8 @@ mod tests {
 
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
-            let (outputs, _) =
-                Zlema::indicator(&inputs_rust, &options, None).expect("Rust ZLEMA indicator failed");
+            let (outputs, _) = Zlema::indicator(&inputs_rust, &options, None)
+                .expect("Rust ZLEMA indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -141,8 +142,8 @@ mod tests {
                 assert_eq!(ret, 0, "ti_zlema returned error code {}", ret);
 
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) =
-                    Zlema::indicator(&inputs_rust, &options, None).expect("Rust ZLEMA indicator failed");
+                let (outputs, _) = Zlema::indicator(&inputs_rust, &options, None)
+                    .expect("Rust ZLEMA indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -207,8 +208,8 @@ mod tests {
                 let inputs_rust = [close.as_slice()];
 
                 // Get full output from processing all data at once
-                let (full_outputs, _) =
-                    Zlema::indicator(&inputs_rust, &options, None).expect("Rust ZLEMA indicator failed");
+                let (full_outputs, _) = Zlema::indicator(&inputs_rust, &options, None)
+                    .expect("Rust ZLEMA indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
@@ -219,8 +220,8 @@ mod tests {
                 let close_vec = close[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice()];
 
-                let (first_outputs, mut state) =
-                    Zlema::indicator(&chunk_inputs, &options, None).expect("Rust ZLEMA indicator failed");
+                let (first_outputs, mut state) = Zlema::indicator(&chunk_inputs, &options, None)
+                    .expect("Rust ZLEMA indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
                 // Process remaining data in chunks
@@ -272,8 +273,6 @@ mod tests {
 
     #[test]
     fn test_zlema_simd_vs_regular_database() {
-        use tulip_rs::indicators::zlema::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -302,7 +301,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = Zlema::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets ZLEMA indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -370,8 +369,6 @@ mod tests {
 
     #[test]
     fn test_zlema_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::zlema::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -386,12 +383,12 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Zlema::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD ZLEMA 4-wide failed");
 
             // SIMD for last 2 options
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
-            let (simd_results_2, _) = indicator_by_options::<2>(&inputs, &options_2, None)
+            let (simd_results_2, _) = Zlema::indicator_by_options::<2>(&inputs, &options_2, None)
                 .expect("SIMD ZLEMA 2-wide failed");
 
             // Combine results
@@ -401,8 +398,8 @@ mod tests {
 
             // Compare each SIMD result with regular
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
-                let (regular_results, _) =
-                    Zlema::indicator(&inputs, options, None).expect("Regular ZLEMA indicator failed");
+                let (regular_results, _) = Zlema::indicator(&inputs, options, None)
+                    .expect("Regular ZLEMA indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -442,5 +439,4 @@ mod tests {
             }
         }
     }
-
-    }
+}

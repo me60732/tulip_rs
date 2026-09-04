@@ -1,5 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::keltnerchannel::{KeltnerChannel, Indicator, TIndicatorState, indicator_by_assets, indicator_by_options, IndicatorState};
+use tulip_rs::indicators::keltnerchannel::{
+    Indicator, IndicatorByOptions, IndicatorState, KeltnerChannel, TIndicatorState,
+};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::criterion_logger::TimingMeasurements;
@@ -134,8 +136,9 @@ fn bench_rust_keltnerchannel_from_state(c: &mut Criterion) {
                             &low[..min_data_val],
                             &close[..min_data_val],
                         ];
-                        let (_, mut state) = KeltnerChannel::indicator(&chunk_inputs, &options, None)
-                            .expect("Rust KeltnerChannel indicator failed");
+                        let (_, mut state) =
+                            KeltnerChannel::indicator(&chunk_inputs, &options, None)
+                                .expect("Rust KeltnerChannel indicator failed");
 
                         let mut high_chunks = high[min_data_val..].chunks_exact(CHUNK_SIZE);
                         let mut low_chunks = low[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -242,8 +245,8 @@ fn bench_rust_keltnerchannel_from_state(c: &mut Criterion) {
                 &low_vec[..min_data_val],
                 &close_vec[..min_data_val],
             ];
-            let (_, mut state) =
-                KeltnerChannel::indicator(&chunk_inputs, &options, None).expect("KeltnerChannel indicator failed");
+            let (_, mut state) = KeltnerChannel::indicator(&chunk_inputs, &options, None)
+                .expect("KeltnerChannel indicator failed");
 
             let mut group = c.benchmark_group(format!(
                 "Rust KeltnerChannel from state {{ {:.1}, {:.1} }}",
@@ -327,8 +330,9 @@ fn bench_rust_keltnerchannel_optional(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = KeltnerChannel::indicator(&inputs, &options, Some(&[true, true]))
-                            .expect("Rust KeltnerChannel indicator failed");
+                        let result =
+                            KeltnerChannel::indicator(&inputs, &options, Some(&[true, true]))
+                                .expect("Rust KeltnerChannel indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -362,8 +366,9 @@ fn bench_rust_keltnerchannel_optional(c: &mut Criterion) {
                 ),
                 |b| {
                     b.iter(|| {
-                        let result = KeltnerChannel::indicator(&inputs, &options, Some(&[true, true]))
-                            .expect("Rust KeltnerChannel indicator failed");
+                        let result =
+                            KeltnerChannel::indicator(&inputs, &options, Some(&[true, true]))
+                                .expect("Rust KeltnerChannel indicator failed");
                         black_box(&result);
                     });
                 },
@@ -504,7 +509,7 @@ fn bench_rust_keltnerchannel_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = KeltnerChannel::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("Rust SIMD by assets KC indicator failed");
                     black_box(&result);
                 },
@@ -536,8 +541,9 @@ fn bench_rust_keltnerchannel_simd_by_assets(c: &mut Criterion) {
                 ),
                 |b| {
                     b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
-                            .expect("Rust SIMD by assets KC indicator failed");
+                        let result =
+                            KeltnerChannel::indicator_by_assets::<4>(&inputs, &options, None)
+                                .expect("Rust SIMD by assets KC indicator failed");
                         black_box(&result);
                     });
                 },
@@ -568,8 +574,9 @@ fn bench_rust_keltnerchannel_simd_by_options(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
-                        .expect("Rust SIMD by options KC indicator failed");
+                    let result =
+                        KeltnerChannel::indicator_by_options::<4>(&inputs, &options_4, None)
+                            .expect("Rust SIMD by options KC indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -602,7 +609,7 @@ fn bench_rust_keltnerchannel_simd_by_options(c: &mut Criterion) {
                     &OPTIONS_LIST[2],
                     &OPTIONS_LIST[3],
                 ];
-                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result = KeltnerChannel::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD by options KC indicator failed");
                 black_box(&result);
             });

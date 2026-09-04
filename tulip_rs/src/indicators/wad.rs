@@ -1,5 +1,7 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{TIndicatorState, Indicator, IndicatorResult, TState};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
@@ -7,22 +9,6 @@ use serde::{Deserialize, Serialize};
 pub const INPUTS: usize = 3;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 0;
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::wad_simd::indicator_by_assets;
-
-// Sub-module exports with common naming
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    pub use crate::indicators::simd_indicators::wad_simd::indicator_by_assets as indicator;
-}
 
 pub type IndicatorState = State;
 #[derive(Serialize, Deserialize)]
@@ -34,12 +20,11 @@ impl State {
     pub fn new(prev_close: f64, wad: f64) -> Self {
         Self { prev_close, wad }
     }
-    
 }
 impl TState for State {
     type Inputs<'a> = (f64, f64, f64);
     type Outputs = f64;
-    
+
     #[inline(always)]
     fn calc<'a>(&mut self, (high, low, close): Self::Inputs<'a>) -> Self::Outputs {
         self.wad += if close > self.prev_close {
@@ -71,7 +56,6 @@ impl TIndicatorState<3> for IndicatorState {
     }
 }
 
-
 /// Iterates over the high, low, and close slices and computes WAD values for each bar.
 ///
 /// # Arguments
@@ -81,13 +65,7 @@ impl TIndicatorState<3> for IndicatorState {
 /// * `close` - Input close price slice.
 /// * `state` - Mutable reference to the `IndicatorState` (previous close and cumulative WAD).
 /// * `wad_line` - Mutable output slice for WAD values.
-fn cycle(
-    high: &[f64],
-    low: &[f64],
-    close: &[f64],
-    state: &mut State,
-    wad_line: &mut [f64],
-) {
+fn cycle(high: &[f64], low: &[f64], close: &[f64], state: &mut State, wad_line: &mut [f64]) {
     for i in 0..close.len() {
         unsafe {
             *wad_line.get_unchecked_mut(i) = state.calc((
@@ -136,9 +114,9 @@ impl Indicator<INPUTS, OPTIONS> for Wad {
             let capacity = Self::output_length(high.len(), _options);
             crate::uninit_vec!(f64, capacity)
         };
-    
+
         let mut state = IndicatorState::new(inputs[2][0], 0.0);
-    
+
         cycle(
             &high[1..],
             &low[1..],
@@ -146,8 +124,21 @@ impl Indicator<INPUTS, OPTIONS> for Wad {
             &mut state,
             &mut wad_line,
         );
-    
+
         // Store last used close and sum for incremental updates.
         Ok((vec![wad_line], state))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::wad_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

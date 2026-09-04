@@ -9,16 +9,20 @@ Annualised historical volatility based on log returns over `period` bars.
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::volatility::indicator;
+    use tulip_rs::indicators::volatility::{Volatility, Indicator, TIndicatorState};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
-    let (outputs, mut state) = indicator(&[close.as_slice()], &[14.0], None).unwrap();
+    let (outputs, mut state) = Volatility::indicator(&[close.as_slice()], &[14.0], None).unwrap();
     println!("{:?}", outputs[0]); // Annualised volatility values
 
     // State continuation — feed new bars without reprocessing history
-    let new_close = vec![85.10, 85.72_f64];
+    let partial = close[..8].to_vec();
+    let (outputs2, mut state) = Volatility::indicator(&[partial.as_slice()], &[14.0], None).unwrap();
+    println!("{:?}", outputs2[0]);
+
+    let new_close = vec![85.53_f64];
     let continued = state.batch_indicator(&[new_close.as_slice()], None).unwrap();
     println!("{:?}", continued[0]);
     ```

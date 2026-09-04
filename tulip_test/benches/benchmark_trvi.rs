@@ -1,5 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::trvi::{Trvi, Indicator, TIndicatorState, IndicatorState, indicator_by_assets, indicator_by_options};
+use tulip_rs::indicators::trvi::{
+    Indicator, IndicatorByOptions, IndicatorState, TIndicatorState, Trvi,
+};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::criterion_logger::TimingMeasurements;
@@ -63,8 +65,8 @@ fn bench_rust_trvi(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result =
-                            Trvi::indicator(&inputs, &options, None).expect("Rust TRVI indicator failed");
+                        let result = Trvi::indicator(&inputs, &options, None)
+                            .expect("Rust TRVI indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -86,8 +88,8 @@ fn bench_rust_trvi(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust TRVI {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result =
-                        Trvi::indicator(&inputs, &options, None).expect("Rust TRVI indicator failed");
+                    let result = Trvi::indicator(&inputs, &options, None)
+                        .expect("Rust TRVI indicator failed");
                     black_box(&result);
                 });
             });
@@ -162,8 +164,8 @@ fn bench_rust_trvi_from_state(c: &mut Criterion) {
                 if n > 1 {
                     let new_inputs = [&high[..n - 1], &low[..n - 1], &close[..n - 1]];
                     let final_inputs = [&high[n - 1..], &low[n - 1..], &close[n - 1..]];
-                    let (_, mut state) =
-                        Trvi::indicator(&new_inputs, &options, None).expect("Rust TRVI indicator failed");
+                    let (_, mut state) = Trvi::indicator(&new_inputs, &options, None)
+                        .expect("Rust TRVI indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -185,8 +187,8 @@ fn bench_rust_trvi_from_state(c: &mut Criterion) {
                     );
 
                     // ── Rust_FromState_1_Bar_json ────────────────────────────
-                    let (_, state) =
-                        Trvi::indicator(&new_inputs, &options, None).expect("Rust TRVI indicator failed");
+                    let (_, state) = Trvi::indicator(&new_inputs, &options, None)
+                        .expect("Rust TRVI indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -259,8 +261,8 @@ fn bench_rust_trvi_from_state(c: &mut Criterion) {
             if n > 1 {
                 let new_inputs = [&high_vec[..n - 1], &low_vec[..n - 1], &close_vec[..n - 1]];
                 let final_inputs = [&high_vec[n - 1..], &low_vec[n - 1..], &close_vec[n - 1..]];
-                let (_, mut state) =
-                    Trvi::indicator(&new_inputs, &options, None).expect("Rust TRVI indicator failed");
+                let (_, mut state) = Trvi::indicator(&new_inputs, &options, None)
+                    .expect("Rust TRVI indicator failed");
 
                 let mut group = c.benchmark_group("trvi_rust_from_state_1_bar");
                 group.sample_size(SAMPLE_SIZE);
@@ -369,7 +371,7 @@ fn bench_rust_trvi_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = Trvi::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("Rust SIMD by-assets TRVI failed");
                     black_box(&result);
                 },
@@ -398,7 +400,7 @@ fn bench_rust_trvi_simd_by_assets(c: &mut Criterion) {
                 format!("Rust SIMD by-assets TRVI {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = Trvi::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("Rust SIMD by-assets TRVI failed");
                         black_box(&result);
                     });
@@ -431,21 +433,14 @@ fn bench_rust_trvi_simd_by_options(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result = Trvi::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD by-options TRVI failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
             );
 
-            log_timing_result(
-                "trvi",
-                "Rust_SIMD",
-                &[0.0],
-                n,
-                &timing,
-                Some(stock_symbol),
-            );
+            log_timing_result("trvi", "Rust_SIMD", &[0.0], n, &timing, Some(stock_symbol));
         }
     } else {
         let (high_vec, low_vec, close_vec) = expand_inputs();
@@ -465,7 +460,7 @@ fn bench_rust_trvi_simd_by_options(c: &mut Criterion) {
                     &OPTIONS_LIST[2],
                     &OPTIONS_LIST[3],
                 ];
-                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result = Trvi::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD by-options TRVI failed");
                 black_box(&result);
             });

@@ -1,14 +1,14 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
 
 pub use crate::indicators::max::Max;
 use crate::indicators::{
-    max::State as MaxState,
-    medprice::calc as calc_medprice,
-    min::State as MinState,
+    max::State as MaxState, medprice::calc as calc_medprice, min::State as MinState,
 };
 
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -16,38 +16,6 @@ pub const INPUTS: usize = 2;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::donchianchannel_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::donchianchannel_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::donchianchannel_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    /// See the parent module's [`super::indicator_by_options`] for full documentation.
-    pub use crate::indicators::simd_indicators::donchianchannel_simd::indicator_by_options as indicator;
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
@@ -98,7 +66,7 @@ impl TIndicatorState<INPUTS> for IndicatorState {
     }
 }
 #[derive(Serialize, Deserialize)]
-#[serde(bound="")]
+#[serde(bound = "")]
 pub struct State<S = Cold> {
     pub min_state: MinState<S>,
     pub max_state: MaxState<S>,
@@ -156,10 +124,7 @@ impl TState for State<Warm> {
     ///
     /// A tuple `(lower, middle, upper)` for the current bar.
     #[inline(always)]
-    unsafe fn calc_unchecked(
-        &mut self,
-        inputs: Self::Inputs<'_>,
-    ) -> Self::Outputs {
+    unsafe fn calc_unchecked(&mut self, inputs: Self::Inputs<'_>) -> Self::Outputs {
         self.calc_chuncked_unchecked::<4>(inputs)
     }
 }
@@ -169,8 +134,12 @@ impl State<Warm> {
         &mut self,
         (high, low, i, periods): (&[f64], &[f64], usize, (usize, usize)),
     ) -> (f64, f64, f64) {
-        let (min, _) = self.min_state.calc_chuncked_unchecked::<N>((low, i, periods));
-        let (max, _) = self.max_state.calc_chuncked_unchecked::<N>((high, i, periods));
+        let (min, _) = self
+            .min_state
+            .calc_chuncked_unchecked::<N>((low, i, periods));
+        let (max, _) = self
+            .max_state
+            .calc_chuncked_unchecked::<N>((high, i, periods));
 
         let middle = calc_medprice(max, min);
 
@@ -256,10 +225,38 @@ impl Indicator<INPUTS, OPTIONS> for DonchianChannel {
             (&mut lower_line, &mut middle_line, &mut upper_line),
             &mut state,
         );
-        
+
         Ok((
             vec![lower_line, middle_line, upper_line],
             IndicatorState::new(state, high, low, periods),
         ))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::donchianchannel_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for DonchianChannel {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::donchianchannel_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

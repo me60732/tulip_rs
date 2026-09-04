@@ -1,8 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::hma::{Hma, Indicator, TIndicatorState};
-    use tulip_rs::indicators::hma::{indicator_by_assets, indicator_by_options};
+    use tulip_rs::indicators::hma::{Hma, Indicator, IndicatorByOptions, TIndicatorState};
     use tulip_test::c_bindings::{ti_hma, ti_hma_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -142,8 +141,8 @@ mod tests {
                 assert_eq!(ret, 0, "ti_hma returned error code {}", ret);
 
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) =
-                    Hma::indicator(&inputs_rust, &options, None).expect("Rust HMA indicator failed");
+                let (outputs, _) = Hma::indicator(&inputs_rust, &options, None)
+                    .expect("Rust HMA indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -221,7 +220,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = match indicator_by_assets::<4>(&inputs, &options, None) {
+            let (simd_results, _) = match Hma::indicator_by_assets::<4>(&inputs, &options, None) {
                 Ok(r) => r,
                 Err(e) => {
                     all_failures.push(format!(
@@ -436,15 +435,15 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&simd_inputs, &options, None)
+            let (simd_results, _) = Hma::indicator_by_assets::<4>(&simd_inputs, &options, None)
                 .expect("SIMD by assets HMA indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
             for (stock_idx, (stock_symbol, stock_close)) in stocks.iter().enumerate() {
                 // Get regular indicator result for this stock
                 let stock_inputs = [*stock_close];
-                let (regular_results, _) =
-                    Hma::indicator(&stock_inputs, &options, None).expect("Regular HMA indicator failed");
+                let (regular_results, _) = Hma::indicator(&stock_inputs, &options, None)
+                    .expect("Regular HMA indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];
@@ -513,7 +512,7 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
 
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Hma::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD HMA by options failed");
 
             // Compare each SIMD result with regular indicator
@@ -583,7 +582,7 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, states_4) =
-                indicator_by_options::<4>(&first_inputs, &options_4, None)
+                Hma::indicator_by_options::<4>(&first_inputs, &options_4, None)
                     .expect("SIMD HMA 4-wide failed on first chunk");
 
             // Combine SIMD results for first part and prepare to extend with batch_indicator outputs
@@ -632,5 +631,4 @@ mod tests {
 
         println!("✓ All HMA SIMD state handover by options tests passed!");
     }
-
-    }
+}

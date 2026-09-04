@@ -1,6 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::tr::{Tr, Indicator, TIndicatorState, IndicatorState};
-use tulip_rs::indicators::tr::indicator_by_assets as rust_tr_simd;
+use tulip_rs::indicators::tr::{Indicator, IndicatorState, TIndicatorState, Tr};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 //use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_tr, ti_tr_start};
@@ -29,7 +28,6 @@ const OPTIONS: [f64; 0] = [];
 
 // Chunk size for from_state benchmarks
 const CHUNK_SIZE: usize = 100;
-
 
 fn expand_inputs() -> (Vec<f64>, Vec<f64>, Vec<f64>) {
     let mut high_vec = HIGH.to_vec();
@@ -170,7 +168,8 @@ fn bench_rust_tr(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust TR", |b| {
             b.iter(|| {
-                let result = Tr::indicator(&inputs, &OPTIONS, None).expect("Rust TR indicator failed");
+                let result =
+                    Tr::indicator(&inputs, &OPTIONS, None).expect("Rust TR indicator failed");
                 black_box(&result);
             });
         });
@@ -212,8 +211,8 @@ fn bench_rust_tr_from_state(c: &mut Criterion) {
                         &close[..min_data_val],
                     ];
 
-                    let (_, mut state) =
-                        Tr::indicator(&chunk_inputs, &OPTIONS, None).expect("Rust TR indicator failed");
+                    let (_, mut state) = Tr::indicator(&chunk_inputs, &OPTIONS, None)
+                        .expect("Rust TR indicator failed");
 
                     // Chunks
                     let mut high_chunks = high[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -471,7 +470,7 @@ fn bench_rust_tr_simd_by_assets(c: &mut Criterion) {
         let mut timing = TimingMeasurements::new();
         timing.measure(
             || {
-                let result = rust_tr_simd::<4>(&inputs, &OPTIONS, None)
+                let result = Tr::indicator_by_assets::<4>(&inputs, &OPTIONS, None)
                     .expect("Rust SIMD by assets TR indicator failed");
                 black_box(&result);
             },
@@ -502,7 +501,7 @@ fn bench_rust_tr_simd_by_assets(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust SIMD by assets TR", |b| {
             b.iter(|| {
-                let result = rust_tr_simd::<4>(&inputs, &OPTIONS, None)
+                let result = Tr::indicator_by_assets::<4>(&inputs, &OPTIONS, None)
                     .expect("Rust SIMD by assets TR indicator failed");
                 black_box(&result);
             });

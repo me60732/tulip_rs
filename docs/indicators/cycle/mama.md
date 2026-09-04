@@ -9,7 +9,7 @@ An adaptive moving average that adjusts its smoothing factor in proportion to th
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::mama::indicator;
+    use tulip_rs::indicators::mama::{Mama, Indicator, TIndicatorState};
 
     let close = vec![
         81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
@@ -19,7 +19,7 @@ An adaptive moving average that adjusts its smoothing factor in proportion to th
     ];
 
     // Options: [fast_limit, slow_limit]
-    let (outputs, _state) = indicator(&[close.as_slice()], &[0.5, 0.05], None).unwrap();
+    let (outputs, _state) = Mama::indicator(&[close.as_slice()], &[0.5, 0.05], None).unwrap();
     println!("MAMA:  {:?}", outputs[0]);
     println!("FAMA:  {:?}", outputs[1]);
 
@@ -118,7 +118,7 @@ An adaptive moving average that adjusts its smoothing factor in proportion to th
     `mama` exposes 2 optional outputs: `dc_period`, `alpha`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::mama::indicator;
+    use tulip_rs::indicators::mama::{Mama, Indicator, TIndicatorState};
 
     let close = vec![
         81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
@@ -128,7 +128,7 @@ An adaptive moving average that adjusts its smoothing factor in proportion to th
     ];
 
     let mask = [true, true]; // one per optional output
-    let (outputs, _state) = indicator(&[close.as_slice()], &[0.5, 0.05], Some(&mask)).unwrap();
+    let (outputs, _state) = Mama::indicator(&[close.as_slice()], &[0.5, 0.05], Some(&mask)).unwrap();
 
     let mama      = &outputs[0]; // mama (primary)
     let fama      = &outputs[1]; // fama (primary)
@@ -191,7 +191,7 @@ An adaptive moving average that adjusts its smoothing factor in proportion to th
     **By assets** — same options applied to 4 assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::mama::indicator_by_assets;
+    use tulip_rs::indicators::mama::{Mama, Indicator, TIndicatorState};
 
     let a1 = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
     let a2 = vec![86.59, 86.06, 87.87, 88.00, 88.61, 88.15, 87.84, 88.99, 89.55, 89.36_f64];
@@ -205,8 +205,8 @@ An adaptive moving average that adjusts its smoothing factor in proportion to th
         &[a4.as_slice()],
     ];
 
-    let results = indicator_by_assets::<4>(&inputs, &[0.5, 0.05], None).unwrap();
-    for (i, asset_outputs) in results.0.iter().enumerate() {
+    let results = Mama::indicator_by_assets::<4>(&inputs, &[0.5, 0.05], None).unwrap();
+    for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {} MAMA: {:?}", i + 1, asset_outputs[0]);
         println!("Asset {} FAMA: {:?}", i + 1, asset_outputs[1]);
     }
@@ -215,7 +215,7 @@ An adaptive moving average that adjusts its smoothing factor in proportion to th
     **By options** — same asset, 4 different option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::mama::indicator_by_options;
+    use tulip_rs::indicators::mama::{Mama, Indicator, TIndicatorState};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
@@ -227,8 +227,8 @@ An adaptive moving average that adjusts its smoothing factor in proportion to th
         &[0.6, 0.06],
     ];
 
-    let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
-    for (i, opt_outputs) in results.0.iter().enumerate() {
+    let results = Mama::indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
+    for (i, opt_outputs) in results.iter().enumerate() {
         println!("Option set {} MAMA: {:?}", i + 1, opt_outputs[0]);
         println!("Option set {} FAMA: {:?}", i + 1, opt_outputs[1]);
     }

@@ -9,7 +9,7 @@ Similar to CVI but uses True Range instead of high − low. Applies an EMA to TR
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::trvi::indicator;
+    use tulip_rs::indicators::trvi::{Trvi, Indicator, TIndicatorState};
 
     let high  = vec![82.15, 81.89, 83.03, 83.30, 83.85,
                      83.90, 83.33, 84.30, 84.84, 85.00_f64];
@@ -19,10 +19,17 @@ Similar to CVI but uses True Range instead of high − low. Applies an EMA to TR
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-    let (outputs, mut state) = indicator(&inputs, &[14.0], None).unwrap();
+    let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
+    let (outputs, mut state) = Trvi::indicator(&inputs, &[14.0], None).unwrap();
     println!("{:?}", outputs[0]); // TRVI values
 
     // State continuation — feed new bars without reprocessing history
+    let partial_high   = high[..8].to_vec();
+    let partial_low    = low[..8].to_vec();
+    let partial_close  = close[..8].to_vec();
+    let (outputs2, mut state) = Trvi::indicator(&[partial_high.as_slice(), partial_low.as_slice(), partial_close.as_slice()], &[14.0], None).unwrap();
+    println!("{:?}", outputs2[0]);
+
     let new_high  = vec![85.20_f64];
     let new_low   = vec![84.50_f64];
     let new_close = vec![85.00_f64];
@@ -105,14 +112,14 @@ Similar to CVI but uses True Range instead of high − low. Applies an EMA to TR
     `trvi` exposes 2 optional outputs: `tr`, `ema`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::trvi::indicator;
+    use tulip_rs::indicators::trvi::{Trvi, Indicator, TIndicatorState};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
     let high  = close.iter().map(|x| x + 1.0).collect::<Vec<_>>();
     let low   = close.iter().map(|x| x - 1.0).collect::<Vec<_>>();
 
     let mask = [true, true];
-    let (outputs, _state) = indicator(
+    let (outputs, _state) = Trvi::indicator(
         &[high.as_slice(), low.as_slice(), close.as_slice()],
         &[14.0],
         Some(&mask),

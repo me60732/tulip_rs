@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::stddev::{
-    StdDev,  Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
+    Indicator, IndicatorByOptions, IndicatorState, StdDev, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -158,8 +158,8 @@ fn bench_rust_stddev(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust STDDEV {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result =
-                        StdDev::indicator(&inputs, &options, None).expect("Rust STDDEV indicator failed");
+                    let result = StdDev::indicator(&inputs, &options, None)
+                        .expect("Rust STDDEV indicator failed");
                     black_box(&result);
                 });
             });
@@ -321,8 +321,8 @@ fn bench_rust_stddev_from_state(c: &mut Criterion) {
                 let new_close_vec = close_vec[..close_vec.len() - 1].to_vec();
                 let new_inputs = [new_close_vec.as_slice()];
                 let final_close_vec = close_vec[close_vec.len() - 1..].to_vec();
-                let (_, mut state) =
-                    StdDev::indicator(&new_inputs, &options, None).expect("Rust STDDEV indicator failed");
+                let (_, mut state) = StdDev::indicator(&new_inputs, &options, None)
+                    .expect("Rust STDDEV indicator failed");
 
                 let mut group = c.benchmark_group("stddev_rust_from_state_1_bar");
                 group.sample_size(SAMPLE_SIZE);
@@ -370,7 +370,7 @@ fn bench_rust_stddev_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = StdDev::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("Rust SIMD by assets STDDEV indicator failed");
                     black_box(&result);
                 },
@@ -401,7 +401,7 @@ fn bench_rust_stddev_simd_by_assets(c: &mut Criterion) {
                 format!("Rust SIMD by assets STDDEV {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = StdDev::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("Rust SIMD by assets STDDEV indicator failed");
                         black_box(&result);
                     });
@@ -489,7 +489,7 @@ fn bench_rust_stddev_simd_by_options(c: &mut Criterion) {
                 || {
                     // Process first 4 options with 4-wide SIMD
 
-                    let _ = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let _ = StdDev::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD STDDEV 4-wide failed");
                 },
                 SAMPLE_SIZE,
@@ -514,7 +514,7 @@ fn bench_rust_stddev_simd_by_options(c: &mut Criterion) {
         group.bench_function("Rust SIMD by options STDDEV (4 lanes)", |b| {
             b.iter(|| {
                 // Process first 4 options with 4-wide SIMD
-                let _ = indicator_by_options::<4>(&inputs, &options_4, None)
+                let _ = StdDev::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD STDDEV 4-wide failed");
 
                 black_box(());
@@ -555,14 +555,7 @@ fn bench_rust_ta_stddev(c: &mut Criterion) {
                     SAMPLE_SIZE,
                 );
 
-                log_timing_result(
-                    "stddev",
-                    "RustTa",
-                    &options,
-                    n,
-                    &timing,
-                    Some(stock_symbol),
-                );
+                log_timing_result("stddev", "RustTa", &options, n, &timing, Some(stock_symbol));
             }
         }
     } else {
@@ -597,6 +590,5 @@ criterion_group!(
     bench_c_stddev,
     bench_rust_stddev_from_state,
     bench_rust_stddev_optional,
-    
 );
 criterion_main!(benches);

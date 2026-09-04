@@ -12,7 +12,7 @@ Applies the Fisher Transform to the normalised Cyber Cycle oscillator, convertin
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::ccfisher::indicator;
+    use tulip_rs::indicators::ccfisher::{Ccfisher, Indicator, TIndicatorState};
 
     let close = vec![
         81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
@@ -26,14 +26,14 @@ Applies the Fisher Transform to the normalised Cyber Cycle oscillator, convertin
     ];
 
     // alpha = 0.0 to use automatic smoothing
-    let (outputs, _state) = indicator(&[close.as_slice()], &[0.0], None).unwrap();
+    let (outputs, _state) = Ccfisher::indicator(&[close.as_slice()], &[0.0], None).unwrap();
     println!("Fisher: {:?}", outputs[0]);
     println!("Signal: {:?}", outputs[1]);
 
     // State continuation
     let n = close.len() - 5;
     let partial = close[..n].to_vec();
-    let (outputs2, mut state) = indicator(&[partial.as_slice()], &[0.0], None).unwrap();
+    let (outputs2, mut state) = Ccfisher::indicator(&[partial.as_slice()], &[0.0], None).unwrap();
     println!("Partial Fisher: {:?}", outputs2[0]);
 
     let rest = close[n..].to_vec();
@@ -139,7 +139,7 @@ Applies the Fisher Transform to the normalised Cyber Cycle oscillator, convertin
     `ccfisher` exposes 3 optional outputs: `trendmode`, `cycle`, `peak`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::ccfisher::indicator;
+    use tulip_rs::indicators::ccfisher::{Ccfisher, Indicator, TIndicatorState};
 
     let close = vec![
         81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
@@ -153,7 +153,7 @@ Applies the Fisher Transform to the normalised Cyber Cycle oscillator, convertin
     ];
 
     let mask = [true, true, true]; // one per optional output
-    let (outputs, _state) = indicator(&[close.as_slice()], &[0.0], Some(&mask)).unwrap();
+    let (outputs, _state) = Ccfisher::indicator(&[close.as_slice()], &[0.0], Some(&mask)).unwrap();
 
     let fisher    = &outputs[0]; // fisher (primary)
     let signal    = &outputs[1]; // signal (primary)
@@ -224,7 +224,7 @@ Applies the Fisher Transform to the normalised Cyber Cycle oscillator, convertin
     **By assets** — same alpha applied to 4 assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::ccfisher::indicator_by_assets;
+    use tulip_rs::indicators::ccfisher::{Ccfisher, Indicator, TIndicatorState};
 
     let a1 = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
     let a2 = vec![86.59, 86.06, 87.87, 88.00, 88.61, 88.15, 87.84, 88.99, 89.55, 89.36_f64];
@@ -238,8 +238,8 @@ Applies the Fisher Transform to the normalised Cyber Cycle oscillator, convertin
         &[a4.as_slice()],
     ];
 
-    let results = indicator_by_assets::<4>(&inputs, &[0.0], None).unwrap();
-    for (i, asset_outputs) in results.0.iter().enumerate() {
+    let results = Ccfisher::indicator_by_assets::<4>(&inputs, &[0.0], None).unwrap();
+    for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {} Fisher: {:?}", i + 1, asset_outputs[0]);
         println!("Asset {} Signal: {:?}", i + 1, asset_outputs[1]);
     }
@@ -248,15 +248,15 @@ Applies the Fisher Transform to the normalised Cyber Cycle oscillator, convertin
     **By options** — same asset, 4 different alpha values in parallel:
 
     ```rust
-    use tulip_rs::indicators::ccfisher::indicator_by_options;
+    use tulip_rs::indicators::ccfisher::{Ccfisher, Indicator, TIndicatorState};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
     let opts: [&[f64; 1]; 4] = [&[0.0], &[0.1], &[0.2], &[0.3]];
 
-    let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
-    for (i, opt_outputs) in results.0.iter().enumerate() {
+    let results = Ccfisher::indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
+    for (i, opt_outputs) in results.iter().enumerate() {
         println!("Alpha set {} Fisher: {:?}", i + 1, opt_outputs[0]);
         println!("Alpha set {} Signal: {:?}", i + 1, opt_outputs[1]);
     }

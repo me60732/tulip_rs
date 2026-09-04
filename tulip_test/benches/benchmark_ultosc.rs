@@ -1,6 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::ultosc::indicator_by_options;
-use tulip_rs::indicators::ultosc::{Ultosc, Indicator, TIndicatorState, IndicatorState};
+use tulip_rs::indicators::ultosc::{
+    Indicator, IndicatorByOptions, IndicatorState, TIndicatorState, Ultosc,
+};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_ultosc, ti_ultosc_start};
@@ -152,8 +153,8 @@ fn bench_rust_ultosc(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result =
-                            Ultosc::indicator(&inputs, &options, None).expect("ULTOSC indicator failed");
+                        let result = Ultosc::indicator(&inputs, &options, None)
+                            .expect("ULTOSC indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -182,8 +183,8 @@ fn bench_rust_ultosc(c: &mut Criterion) {
                 ),
                 |b| {
                     b.iter(|| {
-                        let result =
-                            Ultosc::indicator(&inputs, &options, None).expect("ULTOSC indicator failed");
+                        let result = Ultosc::indicator(&inputs, &options, None)
+                            .expect("ULTOSC indicator failed");
                         black_box(&result);
                     });
                 },
@@ -267,8 +268,8 @@ fn bench_rust_ultosc_from_state(c: &mut Criterion) {
                         &low[low.len() - 1..],
                         &close[close.len() - 1..],
                     ];
-                    let (_, mut state) =
-                        Ultosc::indicator(&new_inputs, &options, None).expect("ULTOSC indicator failed");
+                    let (_, mut state) = Ultosc::indicator(&new_inputs, &options, None)
+                        .expect("ULTOSC indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -345,8 +346,8 @@ fn bench_rust_ultosc_from_state(c: &mut Criterion) {
                         &close_vec[..min_data_val],
                     ];
 
-                    let (_, mut state) =
-                        Ultosc::indicator(&chunk_inputs, &options, None).expect("ULTOSC indicator failed");
+                    let (_, mut state) = Ultosc::indicator(&chunk_inputs, &options, None)
+                        .expect("ULTOSC indicator failed");
 
                     // Chunks
                     let mut high_chunks = high_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -389,8 +390,8 @@ fn bench_rust_ultosc_from_state(c: &mut Criterion) {
                     &low_vec[low_vec.len() - 1..],
                     &close_vec[close_vec.len() - 1..],
                 ];
-                let (_, mut state) =
-                    Ultosc::indicator(&new_inputs, &options, None).expect("ULTOSC indicator failed");
+                let (_, mut state) = Ultosc::indicator(&new_inputs, &options, None)
+                    .expect("ULTOSC indicator failed");
 
                 let mut group = c.benchmark_group(format!(
                     "Rust ULTOSC from state 1 bar {{ {:.1}, {:.1}, {:.1} }}",
@@ -445,8 +446,7 @@ fn bench_rust_ultosc_simd_by_assets(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        use tulip_rs::indicators::ultosc::indicator_by_assets;
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = Ultosc::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("SIMD by assets ULTOSC indicator failed");
                         black_box(&result);
                     },
@@ -487,8 +487,7 @@ fn bench_rust_ultosc_simd_by_assets(c: &mut Criterion) {
                 ),
                 |b| {
                     b.iter(|| {
-                        use tulip_rs::indicators::ultosc::indicator_by_assets;
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = Ultosc::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("SIMD by assets ULTOSC indicator failed");
                         black_box(&result);
                     });
@@ -521,7 +520,7 @@ fn bench_rust_ultosc_simd_by_options(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result = Ultosc::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("SIMD by options ULTOSC indicator failed");
                     black_box(&result);
                 },
@@ -547,7 +546,7 @@ fn bench_rust_ultosc_simd_by_options(c: &mut Criterion) {
 
         group.bench_function("synthetic_data", |b| {
             b.iter(|| {
-                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result = Ultosc::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("SIMD by options ULTOSC indicator failed");
                 black_box(&result);
             });

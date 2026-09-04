@@ -1,8 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::nvi::indicator_by_assets;
-    use tulip_rs::indicators::nvi::{Nvi, Indicator, TIndicatorState};
+    use tulip_rs::indicators::nvi::{Indicator, Nvi, TIndicatorState};
     use tulip_test::c_bindings::{ti_nvi, ti_nvi_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -64,7 +63,8 @@ mod tests {
 
         // Run the Rust implementation
         let inputs_rust = [close.as_slice(), volume.as_slice()];
-        let (outputs, _) = Nvi::indicator(&inputs_rust, &[], None).expect("Rust NVI indicator failed");
+        let (outputs, _) =
+            Nvi::indicator(&inputs_rust, &[], None).expect("Rust NVI indicator failed");
 
         let output_len_rust = outputs[0].len();
 
@@ -300,7 +300,7 @@ mod tests {
         ];
 
         // Run SIMD by assets implementation
-        let (simd_outputs, _) = indicator_by_assets::<4>(&inputs, &[], None)
+        let (simd_outputs, _) = Nvi::indicator_by_assets::<4>(&inputs, &[], None)
             .expect("SIMD by assets NVI indicator failed");
 
         // Compare with individual Rust implementations
@@ -346,5 +346,4 @@ mod tests {
             }
         }
     }
-
-    }
+}

@@ -9,11 +9,27 @@
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::medprice::indicator;
+    use tulip_rs::indicators::medprice::{Medprice, Indicator, TIndicatorState};
+
+    let high = vec![82.15, 81.89, 83.03, 83.30, 83.85,
+                    83.90, 83.33, 84.30, 84.84, 85.00_f64];
+    let low  = vec![81.29, 80.64, 81.31, 82.65, 83.07,
+                    83.11, 82.49, 82.30, 84.15, 84.11_f64];
 
     let inputs = [high.as_slice(), low.as_slice()];
-    let (outputs, _) = indicator(&inputs, &[], None).unwrap();
+    let (outputs, mut state) = Medprice::indicator(&inputs, &[], None).unwrap();
     println!("{:?}", outputs[0]);
+
+    // State continuation — feed new bars without reprocessing history
+    let partial_high   = high[..8].to_vec();
+    let partial_low    = low[..8].to_vec();
+    let (outputs2, mut state) = Medprice::indicator(&[partial_high.as_slice(), partial_low.as_slice()], &[], None).unwrap();
+    println!("{:?}", outputs2[0]);
+
+    let new_high   = vec![85.90_f64];
+    let new_low    = vec![84.03_f64];
+    let continued = state.batch_indicator(&[new_high.as_slice(), new_low.as_slice()], None).unwrap();
+    println!("{:?}", continued[0]);
     ```
 
 === "Python"
@@ -78,6 +94,9 @@
         &[h4.as_slice(), l4.as_slice()],
     ];
     let results = indicator_by_assets::<4>(&inputs, &[], None).unwrap();
+    for (i, asset_outputs) in results.iter().enumerate() {
+        println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
+    }
     ```
 
     _This indicator has no options, so by-options SIMD does not apply._

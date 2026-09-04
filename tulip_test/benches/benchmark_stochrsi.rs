@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::stochrsi::{
-    StochRsi, Indicator, indicator_by_options, IndicatorState, TIndicatorState,
+    Indicator, IndicatorByOptions, IndicatorState, StochRsi, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -156,8 +156,8 @@ fn bench_rust_stochrsi(c: &mut Criterion) {
             group.bench_function("benchmark", |b| {
                 b.iter(|| {
                     let inputs = [close.as_slice()];
-                    let result =
-                        StochRsi::indicator(&inputs, &options, None).expect("STOCHRSI indicator failed");
+                    let result = StochRsi::indicator(&inputs, &options, None)
+                        .expect("STOCHRSI indicator failed");
                     black_box(&result);
                 });
             });
@@ -421,10 +421,8 @@ fn bench_rust_stochrsi_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = tulip_rs::indicators::stochrsi::indicator_by_assets::<4>(
-                        &inputs, &options, None,
-                    )
-                    .expect("Rust SIMD by assets STOCHRSI indicator failed");
+                    let result = StochRsi::indicator_by_assets::<4>(&inputs, &options, None)
+                        .expect("Rust SIMD by assets STOCHRSI indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -451,10 +449,8 @@ fn bench_rust_stochrsi_simd_by_assets(c: &mut Criterion) {
                 &format!("SIMD by assets STOCHRSI {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = tulip_rs::indicators::stochrsi::indicator_by_assets::<4>(
-                            &inputs, &options, None,
-                        )
-                        .expect("Rust SIMD by assets STOCHRSI indicator failed");
+                        let result = StochRsi::indicator_by_assets::<4>(&inputs, &options, None)
+                            .expect("Rust SIMD by assets STOCHRSI indicator failed");
                         black_box(&result);
                     });
                 },
@@ -483,7 +479,7 @@ fn bench_rust_stochrsi_simd_by_options(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result = StochRsi::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD STOCHRSI indicator failed");
                     black_box(&result);
                 },
@@ -509,7 +505,7 @@ fn bench_rust_stochrsi_simd_by_options(c: &mut Criterion) {
 
         group.bench_function("Rust SIMD by options STOCHRSI (4 lanes)", |b| {
             b.iter(|| {
-                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result = StochRsi::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD STOCHRSI indicator failed");
                 black_box(&result);
             });

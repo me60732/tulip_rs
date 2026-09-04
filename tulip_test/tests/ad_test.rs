@@ -321,8 +321,6 @@ mod tests {
     }
     #[test]
     fn test_ad_simd_vs_regular_database() {
-        use tulip_rs::indicators::ad::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -367,7 +365,7 @@ mod tests {
         let options = [];
 
         // Get SIMD by assets result
-        let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+        let (simd_results, _) = Ad::indicator_by_assets::<4>(&inputs, &options, None)
             .expect("SIMD by assets AD indicator failed");
 
         // Compare each SIMD result with regular indicator for each stock
@@ -443,5 +441,4 @@ mod tests {
         let volume: Vec<f64> = stock_data.iter().map(|d| d.volume).collect();
         (high, low, close, volume)
     }
-
-    }
+}

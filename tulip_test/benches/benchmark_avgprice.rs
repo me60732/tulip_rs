@@ -1,8 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-use tulip_rs::indicators::avgprice::{
-    AvgPrice, Indicator, indicator_by_assets, IndicatorState, TIndicatorState,
-};
+use tulip_rs::indicators::avgprice::{AvgPrice, Indicator, IndicatorState, TIndicatorState};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_avgprice, ti_avgprice_start};
@@ -206,8 +204,8 @@ fn bench_rust_avgprice(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function("Rust AVGPRICE", |b| {
                 b.iter(|| {
-                    let result =
-                        AvgPrice::indicator(&inputs, &options, None).expect("Rust AVGPRICE indicator failed");
+                    let result = AvgPrice::indicator(&inputs, &options, None)
+                        .expect("Rust AVGPRICE indicator failed");
                     black_box(&result);
                 })
             });
@@ -431,8 +429,8 @@ fn bench_rust_avgprice_from_state(c: &mut Criterion) {
                     &low_vec[low_vec.len() - 1..],
                     &close_vec[close_vec.len() - 1..],
                 ];
-                let (_, mut state) =
-                    AvgPrice::indicator(&new_inputs, &options, None).expect("Rust AVGPRICE indicator failed");
+                let (_, mut state) = AvgPrice::indicator(&new_inputs, &options, None)
+                    .expect("Rust AVGPRICE indicator failed");
 
                 let mut group = c.benchmark_group("Rust AVGPRICE from state 1 bar");
                 group.sample_size(SAMPLE_SIZE);
@@ -505,7 +503,7 @@ fn bench_rust_avgprice_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = AvgPrice::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("Rust SIMD by assets AVGPRICE indicator failed");
                     black_box(&result);
                 },
@@ -538,7 +536,7 @@ fn bench_rust_avgprice_simd_by_assets(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function("Rust SIMD by assets AVGPRICE", |b| {
                 b.iter(|| {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = AvgPrice::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("Rust SIMD by assets AVGPRICE indicator failed");
                     black_box(&result);
                 });

@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::mama::{Mama, Indicator, indicator_by_assets, indicator_by_options};
+use tulip_rs::indicators::mama::{Indicator, IndicatorByOptions, Mama};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::criterion_logger::TimingMeasurements;
 use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -83,8 +83,8 @@ fn bench_mama_from_state(c: &mut Criterion) {
                 timing.measure(
                     || {
                         let seed = Mama::min_data(opts).max(CHUNK_SIZE);
-                        let (_, mut state) =
-                            Mama::indicator(&[&close[..seed]], opts, None).expect("MAMA seed failed");
+                        let (_, mut state) = Mama::indicator(&[&close[..seed]], opts, None)
+                            .expect("MAMA seed failed");
                         for chunk in close[seed..].chunks_exact(CHUNK_SIZE) {
                             black_box(state.batch_indicator(&[chunk], None).expect("batch failed"));
                         }
@@ -105,8 +105,8 @@ fn bench_mama_from_state(c: &mut Criterion) {
                 );
 
                 if n > 1 {
-                    let (_, mut state) =
-                        Mama::indicator(&[&close[..n - 1]], opts, None).expect("MAMA 1-bar seed failed");
+                    let (_, mut state) = Mama::indicator(&[&close[..n - 1]], opts, None)
+                        .expect("MAMA 1-bar seed failed");
                     let final_input = [&close[n - 1..]];
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -199,7 +199,7 @@ fn bench_mama_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let r = indicator_by_assets::<4>(&inputs, opts, None)
+                    let r = Mama::indicator_by_assets::<4>(&inputs, opts, None)
                         .expect("SIMD by_assets failed");
                     black_box(&r);
                 },
@@ -227,7 +227,7 @@ fn bench_mama_simd_by_assets(c: &mut Criterion) {
             group.bench_function(&label, |b| {
                 b.iter(|| {
                     black_box(
-                        indicator_by_assets::<4>(&inputs, opts, None)
+                        Mama::indicator_by_assets::<4>(&inputs, opts, None)
                             .expect("SIMD by_assets failed"),
                     )
                 });
@@ -251,7 +251,7 @@ fn bench_mama_simd_by_options(c: &mut Criterion) {
         let mut timing = TimingMeasurements::new();
         timing.measure(
             || {
-                let r = indicator_by_options::<4>(&inputs, &options_refs, None)
+                let r = Mama::indicator_by_options::<4>(&inputs, &options_refs, None)
                     .expect("SIMD by_options failed");
                 black_box(&r);
             },
@@ -278,7 +278,7 @@ fn bench_mama_simd_by_options(c: &mut Criterion) {
             |b| {
                 b.iter(|| {
                     black_box(
-                        indicator_by_options::<4>(&inputs, &options_refs, None)
+                        Mama::indicator_by_options::<4>(&inputs, &options_refs, None)
                             .expect("SIMD by_options failed"),
                     )
                 });

@@ -1,5 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::willr::{Willr, Indicator, TIndicatorState, IndicatorState};
+use tulip_rs::indicators::willr::{
+    Indicator, IndicatorByOptions, IndicatorState, TIndicatorState, Willr,
+};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_willr, ti_willr_start};
@@ -196,8 +198,8 @@ fn bench_rust_willr(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust WILLR {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result =
-                        Willr::indicator(&inputs, &options, None).expect("Rust WILLR indicator failed");
+                    let result = Willr::indicator(&inputs, &options, None)
+                        .expect("Rust WILLR indicator failed");
                     black_box(&result);
                 });
             });
@@ -364,8 +366,8 @@ fn bench_rust_willr_from_state(c: &mut Criterion) {
                         &close_vec[..min_data_val],
                     ];
 
-                    let (_, mut state) =
-                        Willr::indicator(&chunk_inputs, &options, None).expect("WILLR indicator failed");
+                    let (_, mut state) = Willr::indicator(&chunk_inputs, &options, None)
+                        .expect("WILLR indicator failed");
 
                     // Chunks
                     let mut high_chunks = high_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -410,8 +412,8 @@ fn bench_rust_willr_from_state(c: &mut Criterion) {
                 let final_high_vec = high_vec[high_vec.len() - 1..].to_vec();
                 let final_low_vec = low_vec[low_vec.len() - 1..].to_vec();
                 let final_close_vec = close_vec[close_vec.len() - 1..].to_vec();
-                let (_, mut state) =
-                    Willr::indicator(&new_inputs, &options, None).expect("Rust WILLR indicator failed");
+                let (_, mut state) = Willr::indicator(&new_inputs, &options, None)
+                    .expect("Rust WILLR indicator failed");
 
                 let mut group =
                     c.benchmark_group(format!("Rust WILLR from state 1 bar {{ {} }}", options[0]));
@@ -537,10 +539,8 @@ fn bench_rust_willr_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = tulip_rs::indicators::willr::indicator_by_assets::<4>(
-                        &inputs, &options, None,
-                    )
-                    .expect("Rust SIMD by assets WILLR indicator failed");
+                    let result = Willr::indicator_by_assets::<4>(&inputs, &options, None)
+                        .expect("Rust SIMD by assets WILLR indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -574,10 +574,8 @@ fn bench_rust_willr_simd_by_assets(c: &mut Criterion) {
                 format!("SIMD by assets WILLR {{ {:.1} }}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = tulip_rs::indicators::willr::indicator_by_assets::<4>(
-                            &inputs, &options, None,
-                        )
-                        .expect("Rust SIMD by assets WILLR indicator failed");
+                        let result = Willr::indicator_by_assets::<4>(&inputs, &options, None)
+                            .expect("Rust SIMD by assets WILLR indicator failed");
                         black_box(&result);
                     });
                 },
@@ -674,10 +672,8 @@ fn bench_rust_willr_simd_by_options(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = tulip_rs::indicators::willr::indicator_by_options::<4>(
-                        &inputs, &options_4, None,
-                    )
-                    .expect("Rust SIMD by options WILLR indicator failed");
+                    let result = Willr::indicator_by_options::<4>(&inputs, &options_4, None)
+                        .expect("Rust SIMD by options WILLR indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -703,10 +699,8 @@ fn bench_rust_willr_simd_by_options(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("SIMD by options WILLR (4 lanes)", |b| {
             b.iter(|| {
-                let result = tulip_rs::indicators::willr::indicator_by_options::<4>(
-                    &inputs, &options_4, None,
-                )
-                .expect("Rust SIMD by options WILLR indicator failed");
+                let result = Willr::indicator_by_options::<4>(&inputs, &options_4, None)
+                    .expect("Rust SIMD by options WILLR indicator failed");
                 black_box(&result);
             });
         });

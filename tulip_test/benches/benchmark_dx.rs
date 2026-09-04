@@ -1,6 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::dx::{indicator_by_assets, indicator_by_options};
-use tulip_rs::indicators::dx::{Dx, Indicator, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::dx::{
+    Dx, Indicator, IndicatorByOptions, IndicatorState, TIndicatorState,
+};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_dx, ti_dx_start};
@@ -194,8 +195,8 @@ fn bench_rust_dx_from_state(c: &mut Criterion) {
                             &close[..min_data_val],
                         ];
 
-                        let (_, mut state) =
-                            Dx::indicator(&chunk_inputs, &options, None).expect("DX indicator failed");
+                        let (_, mut state) = Dx::indicator(&chunk_inputs, &options, None)
+                            .expect("DX indicator failed");
 
                         // Chunks
                         let mut high_chunks = high[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -246,8 +247,8 @@ fn bench_rust_dx_from_state(c: &mut Criterion) {
                         &low[low.len() - 1..],
                         &close[close.len() - 1..],
                     ];
-                    let (_, mut state) =
-                        Dx::indicator(&new_inputs, &options, None).expect("Rust DX indicator failed");
+                    let (_, mut state) = Dx::indicator(&new_inputs, &options, None)
+                        .expect("Rust DX indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -270,8 +271,8 @@ fn bench_rust_dx_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) =
-                        Dx::indicator(&new_inputs, &options, None).expect("Rust DX indicator failed");
+                    let (_, state) = Dx::indicator(&new_inputs, &options, None)
+                        .expect("Rust DX indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -453,7 +454,7 @@ fn bench_rust_dx_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, options, None)
+                    let result = Dx::indicator_by_assets::<4>(&inputs, options, None)
                         .expect("Rust SIMD by assets DX indicator failed");
                     black_box(&result);
                 },
@@ -489,7 +490,7 @@ fn bench_rust_dx_simd_by_assets(c: &mut Criterion) {
                 format!("Rust SIMD by assets DX period {}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, options, None)
+                        let result = Dx::indicator_by_assets::<4>(&inputs, options, None)
                             .expect("Rust SIMD by assets DX indicator failed");
                         black_box(&result);
                     });
@@ -525,7 +526,7 @@ fn bench_rust_dx_simd_by_options(c: &mut Criterion) {
                         &OPTIONS_LIST[2],
                         &OPTIONS_LIST[3],
                     ];
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result = Dx::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD DX indicator failed");
                     black_box(&result);
                 },
@@ -561,7 +562,7 @@ fn bench_rust_dx_simd_by_options(c: &mut Criterion) {
                     &OPTIONS_LIST[2],
                     &OPTIONS_LIST[3],
                 ];
-                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result = Dx::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD DX indicator failed");
                 black_box(&result);
             });

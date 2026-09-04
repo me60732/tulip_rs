@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::ema::{Ema, Indicator, TIndicatorState};
+    use tulip_rs::indicators::ema::{Ema, Indicator, IndicatorByOptions, TIndicatorState};
     use tulip_test::c_bindings::{ti_ema, ti_ema_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -141,8 +141,8 @@ mod tests {
                 assert_eq!(ret, 0, "ti_ema returned error code {}", ret);
 
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) =
-                    Ema::indicator(&inputs_rust, &options, None).expect("Rust EMA indicator failed");
+                let (outputs, _) = Ema::indicator(&inputs_rust, &options, None)
+                    .expect("Rust EMA indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -282,8 +282,6 @@ mod tests {
     //#[cfg(feature = "portable_simd")]
     #[test]
     fn test_ema_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::ema::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -298,12 +296,12 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Ema::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD EMA 4-wide failed");
 
             // Process remaining 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
-            let (simd_results_2, _) = indicator_by_options::<2>(&inputs, &options_2, None)
+            let (simd_results_2, _) = Ema::indicator_by_options::<2>(&inputs, &options_2, None)
                 .expect("SIMD EMA 2-wide failed");
 
             // Combine SIMD results
@@ -381,8 +379,6 @@ mod tests {
 
     #[test]
     fn test_ema_simd_by_assets_vs_regular_database() {
-        use tulip_rs::indicators::ema::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -403,15 +399,15 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = Ema::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets EMA indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
             for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_close.as_slice()];
-                let (regular_results, _) =
-                    Ema::indicator(&stock_inputs, &options, None).expect("Regular EMA indicator failed");
+                let (regular_results, _) = Ema::indicator(&stock_inputs, &options, None)
+                    .expect("Regular EMA indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];
@@ -470,7 +466,6 @@ mod tests {
         println!("✓ All SIMD by assets vs Regular EMA database tests passed!");
     }
 
-    
     fn get_close_array(stock_data: &[tulip_test::database::EodData]) -> Vec<f64> {
         stock_data.iter().map(|d| d.close).collect()
     }

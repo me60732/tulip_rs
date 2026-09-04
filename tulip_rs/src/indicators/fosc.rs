@@ -1,8 +1,10 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::{TIndicatorState, Indicator, IndicatorResult, TState};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
 //use crate::indicators::linreg::State as LinregState;
-use crate::indicators::tsf::{Tsf, State as TsfState};
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+use crate::indicators::tsf::{State as TsfState, Tsf};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -10,38 +12,6 @@ pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::fosc_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::fosc_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::fosc_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    /// See the parent module's [`super::indicator_by_options`] for full documentation.
-    pub use crate::indicators::simd_indicators::fosc_simd::indicator_by_options as indicator;
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
@@ -122,14 +92,19 @@ impl State<Cold> {
     pub fn init_state(
         real: &[f64],
         period: usize,
-        (tsf_line, linreg_line, slope_line, intercept_line): (&mut [f64], &mut [f64], &mut [f64], &mut [f64]),
+        (tsf_line, linreg_line, slope_line, intercept_line): (
+            &mut [f64],
+            &mut [f64],
+            &mut [f64],
+            &mut [f64],
+        ),
     ) -> State<Warm> {
         let (has_optional, _, _, _, _) =
             crate::calc_want_flags!(tsf_line, linreg_line, slope_line, intercept_line);
 
         let mut tsf_state = TsfState::init_state(&real[1..period], period);
         let (tsf, linreg, slope, intercept) = tsf_state.calc((real[1], real[period]));
-        
+
         if has_optional {
             crate::init_store_optional_outputs!(period, real.len(),
                 tsf_line => tsf,
@@ -138,25 +113,17 @@ impl State<Cold> {
                 intercept_line => intercept
             );
         }
-        State {
-            tsf_state,
-            tsf,
-        }
+        State { tsf_state, tsf }
     }
-
 }
 impl TState for State<Warm> {
     type Inputs<'a> = (f64, f64);
     type Outputs = (f64, f64, f64, f64, f64);
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        (prev_value, value): Self::Inputs<'a>
-    ) ->  Self::Outputs {
+    fn calc<'a>(&mut self, (prev_value, value): Self::Inputs<'a>) -> Self::Outputs {
         let fosc = 100.0 * (value - self.tsf) / value; //.max(f64::EPSILON);
-    
-        let (tsf, linreg, slope, intercept) =
-            self.tsf_state.calc((prev_value, value));
+
+        let (tsf, linreg, slope, intercept) = self.tsf_state.calc((prev_value, value));
         self.tsf = tsf;
         (fosc, tsf, linreg, slope, intercept)
     }
@@ -177,17 +144,20 @@ fn cycle_fosc(
     real: &[f64],
     state: &mut State<Warm>,
     period: usize,
-    (fosc_line, tsf_line, linreg_line, slope_line, intercept_line): (&mut [f64], &mut [f64], &mut [f64], &mut [f64], &mut [f64]),
+    (fosc_line, tsf_line, linreg_line, slope_line, intercept_line): (
+        &mut [f64],
+        &mut [f64],
+        &mut [f64],
+        &mut [f64],
+        &mut [f64],
+    ),
 ) {
     let (has_optional, want_tsf, want_linreg, want_slope, want_intercept) =
         crate::calc_want_flags!(tsf_line, linreg_line, slope_line, intercept_line);
 
     //for (i, &value) in real.iter().enumerate().skip(start) {
-    for (j, i) in (period-1..real.len()).enumerate() {
-        let inputs = unsafe {( 
-            *real.get_unchecked(j), 
-            *real.get_unchecked(i)
-        )};
+    for (j, i) in (period - 1..real.len()).enumerate() {
+        let inputs = unsafe { (*real.get_unchecked(j), *real.get_unchecked(i)) };
         let (fosc, tsf, linreg, slope, intercept) = state.calc(inputs);
 
         unsafe { *fosc_line.get_unchecked_mut(j) = fosc };
@@ -263,9 +233,9 @@ impl Indicator<INPUTS, OPTIONS> for Fosc {
     ) -> IndicatorResult<Self::IndicatorState> {
         validate_options(options)?;
         let period = options[0] as usize;
-    
+
         validate_inputs(inputs, Self::min_data(options))?;
-    
+
         let real = inputs[0];
         let (mut fosc_line, mut tsf_line, mut linreg_line, mut slope_line, mut intercept_line);
         {
@@ -278,7 +248,7 @@ impl Indicator<INPUTS, OPTIONS> for Fosc {
                 slope_line: tsf_capacity,
                 intercept_line: tsf_capacity
             );
-    
+
             fosc_line = crate::uninit_vec!(f64, capacity);
         }
         let mut state = State::init_state(
@@ -307,13 +277,41 @@ impl Indicator<INPUTS, OPTIONS> for Fosc {
                 &mut intercept_line[offsets.3..],
             )
         };
-    
+
         // Perform the main FOSC calculation
         cycle_fosc(&real[2..], &mut state, period, outputs);
-    
+
         Ok((
             vec![fosc_line, tsf_line, linreg_line, slope_line, intercept_line],
             IndicatorState::new(state, real, period),
         ))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::fosc_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Fosc {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::fosc_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

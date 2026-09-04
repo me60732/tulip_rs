@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::vidya::{Vidya, Indicator, TIndicatorState};
+    use tulip_rs::indicators::vidya::{Indicator, IndicatorByOptions, TIndicatorState, Vidya};
     use tulip_test::c_bindings::{
         ti_sma, ti_sma_start, ti_stddev, ti_stddev_start, ti_vidya, ti_vidya_start,
     };
@@ -64,8 +64,8 @@ mod tests {
 
             // Run the Rust implementation
             let inputs_rust = [close.as_slice()];
-            let (outputs, _) =
-                Vidya::indicator(&inputs_rust, &options, None).expect("Rust VIDYA indicator failed");
+            let (outputs, _) = Vidya::indicator(&inputs_rust, &options, None)
+                .expect("Rust VIDYA indicator failed");
 
             let output_len_rust = outputs[0].len();
 
@@ -150,8 +150,8 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) =
-                    Vidya::indicator(&inputs_rust, &options, None).expect("Rust VIDYA indicator failed");
+                let (outputs, _) = Vidya::indicator(&inputs_rust, &options, None)
+                    .expect("Rust VIDYA indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -217,8 +217,8 @@ mod tests {
                 let inputs_rust = [close.as_slice()];
 
                 // Get full output from processing all data at once
-                let (full_outputs, _) =
-                    Vidya::indicator(&inputs_rust, &options, None).expect("Rust VIDYA indicator failed");
+                let (full_outputs, _) = Vidya::indicator(&inputs_rust, &options, None)
+                    .expect("Rust VIDYA indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
@@ -229,8 +229,8 @@ mod tests {
                 let close_vec = close[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice()];
 
-                let (first_outputs, mut state) =
-                    Vidya::indicator(&chunk_inputs, &options, None).expect("Rust VIDYA indicator failed");
+                let (first_outputs, mut state) = Vidya::indicator(&chunk_inputs, &options, None)
+                    .expect("Rust VIDYA indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
                 // Process remaining data in chunks
@@ -286,8 +286,6 @@ mod tests {
 
     #[test]
     fn test_vidya_simd_vs_regular_database() {
-        use tulip_rs::indicators::vidya::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -311,7 +309,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = Vidya::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets VIDYA indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -380,8 +378,6 @@ mod tests {
 
     #[test]
     fn test_vidya_simd_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::vidya::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -408,7 +404,7 @@ mod tests {
 
             // Get SIMD by assets result with optional outputs
             let (simd_results, _) =
-                indicator_by_assets::<4>(&inputs, &options, Some(&optional_flags))
+                Vidya::indicator_by_assets::<4>(&inputs, &options, Some(&optional_flags))
                     .expect("SIMD by assets VIDYA indicator with optional outputs failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -1180,8 +1176,6 @@ mod tests {
 
     #[test]
     fn test_vidya_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::vidya::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -1196,12 +1190,12 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Vidya::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD VIDYA 4-wide failed");
 
             // Process remaining 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
-            let (simd_results_2, _) = indicator_by_options::<2>(&inputs, &options_2, None)
+            let (simd_results_2, _) = Vidya::indicator_by_options::<2>(&inputs, &options_2, None)
                 .expect("SIMD VIDYA 2-wide failed");
 
             // Combine SIMD results in the same order as OPTIONS_LIST
@@ -1216,8 +1210,8 @@ mod tests {
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
-                let (regular_results, _) =
-                    Vidya::indicator(&inputs, options, None).expect("Regular VIDYA indicator failed");
+                let (regular_results, _) = Vidya::indicator(&inputs, options, None)
+                    .expect("Regular VIDYA indicator failed");
 
                 // main VIDYA output
                 let simd_result = &all_simd_results[idx][0];
@@ -1274,8 +1268,6 @@ mod tests {
 
     #[test]
     fn test_vidya_simd_by_options_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::vidya::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -1294,13 +1286,13 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, _) =
-                indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
+                Vidya::indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
                     .expect("SIMD VIDYA 4-wide with optional outputs failed");
 
             // Process remaining 2 options with 2-wide SIMD (with optional outputs)
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
             let (simd_results_2, _) =
-                indicator_by_options::<2>(&inputs, &options_2, optional_outputs)
+                Vidya::indicator_by_options::<2>(&inputs, &options_2, optional_outputs)
                     .expect("SIMD VIDYA 2-wide with optional outputs failed");
 
             // Combine SIMD results in the same order as OPTIONS_LIST
@@ -1484,5 +1476,4 @@ mod tests {
 
         println!("✓ All SIMD by options vs Regular VIDYA optional outputs database tests passed!");
     }
-
-    }
+}

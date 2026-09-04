@@ -1,7 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::emv::{
-    Emv, Indicator, indicator_by_assets, IndicatorState, TIndicatorState,
-};
+use tulip_rs::indicators::emv::{Emv, Indicator, IndicatorState, TIndicatorState};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_emv, ti_emv_start};
@@ -136,20 +134,13 @@ fn bench_rust_emv(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result =
-                        Emv::indicator(&inputs, &OPTIONS_LIST, None).expect("EMV Emv::indicator failed");
+                    let result = Emv::indicator(&inputs, &OPTIONS_LIST, None)
+                        .expect("EMV Emv::indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
             );
-            log_timing_result(
-                "emv",
-                "Rust",
-                &OPTIONS_LIST,
-                n,
-                &timing,
-                Some(stock_symbol),
-            );
+            log_timing_result("emv", "Rust", &OPTIONS_LIST, n, &timing, Some(stock_symbol));
         }
     } else {
         // Criterion profiling mode - benchmark synthetic data
@@ -158,7 +149,8 @@ fn bench_rust_emv(c: &mut Criterion) {
         c.bench_function("benchmark", |b| {
             b.iter(|| {
                 let inputs = [high.as_slice(), low.as_slice(), volume.as_slice()];
-                let result = Emv::indicator(&inputs, &OPTIONS_LIST, None).expect("EMV Emv::indicator failed");
+                let result = Emv::indicator(&inputs, &OPTIONS_LIST, None)
+                    .expect("EMV Emv::indicator failed");
                 black_box(&result);
             });
         });
@@ -238,8 +230,8 @@ fn bench_rust_emv_from_state(c: &mut Criterion) {
                     &low[low.len() - 1..],
                     &volume[volume.len() - 1..],
                 ];
-                let (_, mut state) =
-                    Emv::indicator(&new_inputs, &OPTIONS_LIST, None).expect("Rust EMV Emv::indicator failed");
+                let (_, mut state) = Emv::indicator(&new_inputs, &OPTIONS_LIST, None)
+                    .expect("Rust EMV Emv::indicator failed");
 
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
@@ -262,8 +254,8 @@ fn bench_rust_emv_from_state(c: &mut Criterion) {
                 );
 
                 // --- Rust_FromState_1_Bar_json benchmark ---
-                let (_, state) =
-                    Emv::indicator(&new_inputs, &OPTIONS_LIST, None).expect("Rust EMV Emv::indicator failed");
+                let (_, state) = Emv::indicator(&new_inputs, &OPTIONS_LIST, None)
+                    .expect("Rust EMV Emv::indicator failed");
                 let json = serde_json::to_string(&state).expect("json failed");
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
@@ -382,7 +374,7 @@ fn bench_rust_emv_simd_by_assets(c: &mut Criterion) {
         let mut timing = TimingMeasurements::new();
         timing.measure(
             || {
-                let result = indicator_by_assets::<4>(&inputs, &OPTIONS_LIST, None)
+                let result = Emv::indicator_by_assets::<4>(&inputs, &OPTIONS_LIST, None)
                     .expect("Rust SIMD by assets EMV Emv::indicator failed");
                 black_box(&result);
             },
@@ -411,7 +403,7 @@ fn bench_rust_emv_simd_by_assets(c: &mut Criterion) {
 
         c.bench_function("benchmark", |b| {
             b.iter(|| {
-                let result = indicator_by_assets::<4>(&inputs, &OPTIONS_LIST, None)
+                let result = Emv::indicator_by_assets::<4>(&inputs, &OPTIONS_LIST, None)
                     .expect("Rust SIMD by assets EMV Emv::indicator failed");
                 black_box(&result);
             });

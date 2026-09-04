@@ -1,8 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::obv::indicator_by_assets;
-    use tulip_rs::indicators::obv::{Obv, Indicator, TIndicatorState};
+    use tulip_rs::indicators::obv::{Indicator, Obv, TIndicatorState};
     use tulip_test::c_bindings::{ti_obv, ti_obv_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -64,7 +63,8 @@ mod tests {
 
         // Run the Rust implementation
         let inputs_rust = [close.as_slice(), volume.as_slice()];
-        let (outputs, _) = Obv::indicator(&inputs_rust, &[], None).expect("Rust OBV indicator failed");
+        let (outputs, _) =
+            Obv::indicator(&inputs_rust, &[], None).expect("Rust OBV indicator failed");
 
         let output_len_rust = outputs[0].len();
 
@@ -207,8 +207,8 @@ mod tests {
             let inputs_rust = [close.as_slice(), volume.as_slice()];
 
             // Get full output
-            let (full_outputs, _) =
-                Obv::indicator(&inputs_rust, &[], None).expect("OBV indicator should work on full data");
+            let (full_outputs, _) = Obv::indicator(&inputs_rust, &[], None)
+                .expect("OBV indicator should work on full data");
 
             // Process in batches
             let mut batch_full_outputs = vec![Vec::new(); full_outputs.len()];
@@ -299,7 +299,7 @@ mod tests {
         ];
 
         // Run SIMD by assets implementation
-        let (simd_outputs, _) = indicator_by_assets::<4>(&inputs, &[], None)
+        let (simd_outputs, _) = Obv::indicator_by_assets::<4>(&inputs, &[], None)
             .expect("SIMD by assets OBV indicator failed");
 
         // Compare with individual Rust implementations
@@ -345,5 +345,4 @@ mod tests {
             }
         }
     }
-
-    }
+}

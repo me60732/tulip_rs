@@ -33,9 +33,12 @@
 //!   Small extra cost vs fixed α: one `max` + one division per bar.
 
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
+
 use crate::indicators::{cybercycle, homodynediscriminator};
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -43,23 +46,6 @@ pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1; // [alpha]
-
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::trendmode_simd::indicator_by_assets;
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::trendmode_simd::indicator_by_options;
-
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    pub use crate::indicators::simd_indicators::trendmode_simd::indicator_by_assets as indicator;
-}
-
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes one asset with `N` different alpha values in parallel.
-    pub use crate::indicators::simd_indicators::trendmode_simd::indicator_by_options as indicator;
-}
 
 /// Per-bar filter state for the Ehlers TrendMode.
 ///
@@ -81,7 +67,7 @@ pub struct State<S = Cold> {
     pub pk: f64,
     /// Alpha value used to construct this state. `0.0` = adaptive.
     pub alpha: f64,
-    pub(crate) is_adaptive: bool
+    pub(crate) is_adaptive: bool,
 }
 
 impl State<Cold> {
@@ -155,7 +141,7 @@ impl State<Cold> {
                 state.cc.d1 = d1;
                 state.cc.d2 = d2;
             }
-            let cycle =state.cc.calc(real[i]);
+            let cycle = state.cc.calc(real[i]);
             state.pk = (state.pk * 0.991).max(cycle.abs());
         }
 
@@ -177,7 +163,7 @@ impl State<Cold> {
         let trendmode = if state.is_adaptive {
             state.calc_adaptive(real[55])
         } else {
-           state.calc(real[55])
+            state.calc(real[55])
         };
         trendmode_line[0] = trendmode;
         if !cycle_line.is_empty() {
@@ -191,7 +177,7 @@ impl State<Cold> {
             cc: state.cc.into_full(),
             pk: state.pk,
             alpha,
-            is_adaptive: state.is_adaptive
+            is_adaptive: state.is_adaptive,
         }
     }
 }
@@ -233,7 +219,6 @@ where
         }
     }
 }
-
 
 impl Default for State<Cold> {
     fn default() -> Self {
@@ -397,6 +382,34 @@ impl Indicator<INPUTS, OPTIONS> for TrendMode {
         );
 
         Ok((vec![trendmode_line, cycle_line, peak_line], state))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::trendmode_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for TrendMode {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::trendmode_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }
 

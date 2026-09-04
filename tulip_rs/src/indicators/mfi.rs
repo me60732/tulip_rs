@@ -1,47 +1,16 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::{TIndicatorState, TState, Indicator, IndicatorResult};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
 use crate::indicators::typprice::calc as calc_typprice;
 use crate::ring_buffer::multi_buffer::multi_buffer::MultiBuffer as Buffer;
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
 pub const INPUTS: usize = 4;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::mfi_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::mfi_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::mfi_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    /// See the parent module's [`super::indicator_by_options`] for full documentation.
-    pub use crate::indicators::simd_indicators::mfi_simd::indicator_by_options as indicator;
-}
-
 
 impl TIndicatorState<4> for IndicatorState {
     fn batch_indicator(
@@ -107,7 +76,7 @@ impl State<Cold> {
             pos_sum: state.pos_sum,
             neg_sum: state.neg_sum,
         }
-    } 
+    }
     #[inline(always)]
     fn init_calc(&mut self, (high, low, close, volume): (f64, f64, f64, f64)) {
         let prev_typprice = self.typprice;
@@ -137,10 +106,7 @@ impl TState for State<Warm> {
     type Inputs<'a> = (f64, f64, f64, f64);
     type Outputs = f64;
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        (high, low, close, volume): Self::Inputs<'a>
-    ) -> Self::Outputs {
+    fn calc<'a>(&mut self, (high, low, close, volume): Self::Inputs<'a>) -> Self::Outputs {
         let prev_typprice = self.typprice;
         self.typprice = calc_typprice(high, low, close);
 
@@ -155,15 +121,13 @@ impl TState for State<Warm> {
             (0.0, 0.0)
         };
 
-        let [pos_flow_old, neg_flow_old] =
-            self.buffer.push_with_info([pos_flow, neg_flow]);
+        let [pos_flow_old, neg_flow_old] = self.buffer.push_with_info([pos_flow, neg_flow]);
         self.pos_sum += pos_flow - pos_flow_old;
         self.neg_sum += neg_flow - neg_flow_old;
 
         self.pos_sum / (self.pos_sum + self.neg_sum).max(f64::EPSILON) * 100.0
     }
 }
-
 
 /// Performs the main calculation loop for the MFI indicator.
 ///
@@ -233,7 +197,7 @@ impl Indicator<INPUTS, OPTIONS> for Mfi {
         optional_outputs: Option<&[bool]>,
     ) -> IndicatorResult<Self::IndicatorState> {
         validate_options(options)?;
-        
+
         let [high, low, close, volume] = *inputs;
         validate_inputs(inputs, Self::min_data(options))?;
         let (mut mfi_line, mut typprice_line) = {
@@ -250,31 +214,50 @@ impl Indicator<INPUTS, OPTIONS> for Mfi {
         let (mut state, inputs, typprice) = {
             let period = options[0] as usize;
             let offset = crate::slice_outputs_start!(mfi_line.len(), typprice_line);
-            let state = State::init_state(
-                (high, low, close, volume),
-                period,
-                &mut typprice_line,
-            );
-            (state, (
-                &high[period..],
-                &low[period..],
-                &close[period..],
-                &volume[period..],
-            ),
-            &mut typprice_line[offset..]
+            let state = State::init_state((high, low, close, volume), period, &mut typprice_line);
+            (
+                state,
+                (
+                    &high[period..],
+                    &low[period..],
+                    &close[period..],
+                    &volume[period..],
+                ),
+                &mut typprice_line[offset..],
             )
         };
-        
-        
+
         // Perform the main MFI calculation
-        cycle_mfi(
-            inputs,
-            &mut state,
-            &mut mfi_line,
-            typprice,
-        );
-    
+        cycle_mfi(inputs, &mut state, &mut mfi_line, typprice);
+
         Ok((vec![mfi_line, typprice_line], state))
     }
-    
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::mfi_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Mfi {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS],
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::mfi_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
 }

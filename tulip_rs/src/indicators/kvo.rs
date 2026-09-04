@@ -1,5 +1,7 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
 use crate::indicators::ema::{Ema, State as EmaState};
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
@@ -9,38 +11,6 @@ pub const INPUTS: usize = 4;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 2;
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::kvo_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::kvo_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::kvo_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    /// See the parent module's [`super::indicator_by_options`] for full documentation.
-    pub use crate::indicators::simd_indicators::kvo_simd::indicator_by_options as indicator;
-}
 
 pub type IndicatorState = State<Warm>;
 
@@ -121,22 +91,23 @@ impl State<Cold> {
         let hlc0 = high[0] + low[0] + close[0];
         let hlc1 = high[1] + low[1] + close[1];
         let (initial_trend, initial_cm) = if hlc1 > hlc0 {
-            (true,  high[0] - low[0])
+            (true, high[0] - low[0])
         } else if hlc1 < hlc0 {
-            (false, high[0] - low[0]) 
+            (false, high[0] - low[0])
         } else {
             (false, 0.0)
         };
-    
+
         let mut state = Self::new(
             EmaState::new(0.0, short_period),
             EmaState::new(0.0, long_period),
-            initial_trend,  
+            initial_trend,
             initial_cm,
             hlc0,
-            high[0] - low[0]
-        ).into_warm();
-    
+            high[0] - low[0],
+        )
+        .into_warm();
+
         for i in 1..long_period {
             let inputs = unsafe {
                 (
@@ -159,7 +130,6 @@ impl State<Cold> {
         }
         state
     }
-
 }
 impl State<Warm> {
     #[inline(always)]
@@ -316,5 +286,33 @@ impl Indicator<INPUTS, OPTIONS> for Kvo {
         cycle_kvo(inputs, &mut kvo_line, &mut state, optional_outputs);
 
         Ok((vec![kvo_line, short_ema_line, long_ema_line], state))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::kvo_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Kvo {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS],
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::kvo_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

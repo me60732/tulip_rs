@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::ef::{Ef, Indicator, TIndicatorState};
+    use tulip_rs::indicators::ef::{Ef, Indicator, IndicatorByOptions, TIndicatorState};
     use tulip_rs::indicators::kama::Kama;
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -196,8 +196,6 @@ mod tests {
     /// the scalar EF indicator for each of the first four database stocks.
     #[test]
     fn test_ef_simd_vs_regular_database() {
-        use tulip_rs::indicators::ef::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -215,7 +213,7 @@ mod tests {
         ];
 
         for options in OPTIONS_LIST {
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = Ef::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets EF failed");
 
             for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
@@ -267,8 +265,6 @@ mod tests {
     /// scalar EF for each option set, across all database stocks.
     #[test]
     fn test_ef_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::ef::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -282,7 +278,7 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results, _) = Ef::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD by options EF failed");
 
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
@@ -328,5 +324,4 @@ mod tests {
 
         println!("✓ All SIMD by options vs Regular EF database tests passed!");
     }
-
-    }
+}

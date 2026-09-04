@@ -1,6 +1,5 @@
-use tulip_rs::indicators::cybercycle::{
-    indicator_by_assets, indicator_by_options, Cybercycle, Indicator, TIndicatorState,
-};
+use tulip_rs::indicator_types::{Indicator, IndicatorByOptions, TIndicatorState};
+use tulip_rs::indicators::cybercycle::Cybercycle;
 
 // 80 bars of close prices (cybercycle only needs min_data = 7)
 const CLOSE: [f64; 80] = [
@@ -87,10 +86,11 @@ fn main() {
     let asset3: [&[f64]; 1] = [close3.as_slice()];
     let inputs_4: [&[&[f64]; 1]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-    let (simd_asset_outputs, _) = match indicator_by_assets::<4>(&inputs_4, &options, None) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (simd_asset_outputs, _) =
+        match Cybercycle::indicator_by_assets::<4>(&inputs_4, &options, None) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
     for (i, outs) in simd_asset_outputs.iter().enumerate() {
         let len = outs[0].len();
         println!(
@@ -105,10 +105,11 @@ fn main() {
     // Minimum valid alpha is just above 0.0; use 0.05 as the smallest test value.
     let options_4 = [&[0.05f64], &[0.07], &[0.10], &[0.15]];
 
-    let (simd_option_outputs, _) = match indicator_by_options::<4>(&inputs, &options_4, None) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (simd_option_outputs, _) =
+        match Cybercycle::indicator_by_options::<4>(&inputs, &options_4, None) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
     for (i, opts) in options_4.iter().enumerate() {
         let len = simd_option_outputs[i][0].len();
         println!(

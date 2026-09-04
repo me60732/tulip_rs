@@ -1,5 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::wilders::{Wilders, Indicator, TIndicatorState, IndicatorState};
+use tulip_rs::indicators::wilders::{
+    Indicator, IndicatorByOptions, IndicatorState, TIndicatorState, Wilders,
+};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_wilders, ti_wilders_start};
@@ -156,8 +158,8 @@ fn bench_rust_wilders(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust WILDERS {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result =
-                        Wilders::indicator(&inputs, &options, None).expect("Rust WILDERS indicator failed");
+                    let result = Wilders::indicator(&inputs, &options, None)
+                        .expect("Rust WILDERS indicator failed");
                     black_box(&result);
                 });
             });
@@ -290,8 +292,8 @@ fn bench_rust_wilders_from_state(c: &mut Criterion) {
                     // First chunk
                     let chunk_inputs = [&close_vec[..min_data_val]];
 
-                    let (_, mut state) =
-                        Wilders::indicator(&chunk_inputs, &options, None).expect("WILDERS indicator failed");
+                    let (_, mut state) = Wilders::indicator(&chunk_inputs, &options, None)
+                        .expect("WILDERS indicator failed");
 
                     // Chunks
                     let mut close_chunks = close_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -317,8 +319,8 @@ fn bench_rust_wilders_from_state(c: &mut Criterion) {
                 let new_close_vec = close_vec[..close_vec.len() - 1].to_vec();
                 let new_inputs = [new_close_vec.as_slice()];
                 let final_close_vec = close_vec[close_vec.len() - 1..].to_vec();
-                let (_, mut state) =
-                    Wilders::indicator(&new_inputs, &options, None).expect("Rust WILDERS indicator failed");
+                let (_, mut state) = Wilders::indicator(&new_inputs, &options, None)
+                    .expect("Rust WILDERS indicator failed");
 
                 let mut group = c.benchmark_group(format!(
                     "Rust WILDERS from state 1 bar {{ {} }}",
@@ -366,10 +368,8 @@ fn bench_rust_wilders_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = tulip_rs::indicators::wilders::indicator_by_assets::<4>(
-                        &inputs, &options, None,
-                    )
-                    .expect("Rust SIMD by assets WILDERS indicator failed");
+                    let result = Wilders::indicator_by_assets::<4>(&inputs, &options, None)
+                        .expect("Rust SIMD by assets WILDERS indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -399,10 +399,8 @@ fn bench_rust_wilders_simd_by_assets(c: &mut Criterion) {
                 format!("Rust SIMD by assets WILDERS {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = tulip_rs::indicators::wilders::indicator_by_assets::<4>(
-                            &inputs, &options, None,
-                        )
-                        .expect("Rust SIMD by assets WILDERS indicator failed");
+                        let result = Wilders::indicator_by_assets::<4>(&inputs, &options, None)
+                            .expect("Rust SIMD by assets WILDERS indicator failed");
                         black_box(&result);
                     });
                 },
@@ -414,7 +412,6 @@ fn bench_rust_wilders_simd_by_assets(c: &mut Criterion) {
 
 // SIMD-by-options benchmark for WILDERS (4+2 lanes)
 fn bench_rust_wilders_simd_by_options(c: &mut Criterion) {
-    use tulip_rs::indicators::wilders::indicator_by_options;
     let options_4 = [
         &OPTIONS_LIST[0],
         &OPTIONS_LIST[1],
@@ -435,7 +432,7 @@ fn bench_rust_wilders_simd_by_options(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result_4 = Wilders::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD WILDERS indicator failed");
                     black_box(&result_4);
                 },
@@ -460,7 +457,7 @@ fn bench_rust_wilders_simd_by_options(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust SIMD WILDERS (4 lanes)", |b| {
             b.iter(|| {
-                let result_4 = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result_4 = Wilders::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD WILDERS indicator failed");
                 black_box(&result_4);
             });

@@ -28,7 +28,10 @@
 //! which is not directly tradeable but is essential for cycle-period estimation.
 
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::{TIndicatorState, TState, Indicator, IndicatorResult};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
+
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
@@ -38,40 +41,14 @@ pub const INPUTS: usize = 1;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
 
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::highpass_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::highpass_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::highpass_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    /// See the parent module's [`super::indicator_by_options`] for full documentation.
-    pub use crate::indicators::simd_indicators::highpass_simd::indicator_by_options as indicator;
-}
-
-
 pub type IndicatorState = State;
+#[derive(Serialize, Deserialize)]
+pub struct State {
+    pub y1: f64, // y[t-1]
+    pub prev_real: f64,
+    pub a1: f64,
+    pub a2: f64,
+}
 impl TIndicatorState<1> for IndicatorState {
     fn batch_indicator(
         &mut self,
@@ -82,22 +59,10 @@ impl TIndicatorState<1> for IndicatorState {
 
         let mut highpass_line = crate::uninit_vec!(f64, inputs[0].len());
 
-        cycle(
-            inputs[0],
-            self,
-            &mut highpass_line,
-        );
+        cycle(inputs[0], self, &mut highpass_line);
 
         Ok(vec![highpass_line])
     }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct State {
-    pub y1: f64, // y[t-1]
-    pub prev_real: f64,
-    pub a1: f64,
-    pub a2: f64
 }
 impl TState for State {
     type Inputs<'a> = f64;
@@ -127,9 +92,7 @@ impl State {
         }
         state
     }
-    
 }
-
 
 /// Performs the core filter loop for the SuperSmoother indicator.
 ///
@@ -167,7 +130,6 @@ pub fn multiplier(period: usize) -> (f64, f64) {
     (a1, a2)
 }
 
-
 pub struct HighPass;
 impl Indicator<INPUTS, OPTIONS> for HighPass {
     type IndicatorState = IndicatorState;
@@ -197,16 +159,44 @@ impl Indicator<INPUTS, OPTIONS> for HighPass {
         validate_options(options)?;
         let period = options[0] as usize;
         validate_inputs(inputs, Self::min_data(options))?;
-    
+
         let mut highpass_line = {
             let capacity = Self::output_length(inputs[0].len(), options);
             crate::uninit_vec!(f64, capacity)
         };
         let mut state = State::init_state(inputs[0], period);
-    
+
         let real = &inputs[0][period..];
         cycle(real, &mut state, &mut highpass_line);
-    
+
         Ok((vec![highpass_line], state))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::highpass_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for HighPass {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::highpass_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

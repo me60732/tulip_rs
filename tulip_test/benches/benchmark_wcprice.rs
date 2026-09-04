@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::wcprice::{WcPrice, Indicator, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::wcprice::{Indicator, IndicatorState, TIndicatorState, WcPrice};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_wcprice, ti_wcprice_start};
@@ -145,8 +145,8 @@ fn bench_rust_wcprice(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result =
-                        WcPrice::indicator(&inputs, &OPTIONS, None).expect("Rust WCPRICE indicator failed");
+                    let result = WcPrice::indicator(&inputs, &OPTIONS, None)
+                        .expect("Rust WCPRICE indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -167,8 +167,8 @@ fn bench_rust_wcprice(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust WCPRICE", |b| {
             b.iter(|| {
-                let result =
-                    WcPrice::indicator(&inputs, &OPTIONS, None).expect("Rust WCPRICE indicator failed");
+                let result = WcPrice::indicator(&inputs, &OPTIONS, None)
+                    .expect("Rust WCPRICE indicator failed");
                 black_box(&result);
             });
         });
@@ -199,8 +199,8 @@ fn bench_rust_wcprice_from_state(c: &mut Criterion) {
                         &close[..min_data_val],
                     ];
 
-                    let (_, mut state) =
-                        WcPrice::indicator(&chunk_inputs, &OPTIONS, None).expect("WCPRICE indicator failed");
+                    let (_, mut state) = WcPrice::indicator(&chunk_inputs, &OPTIONS, None)
+                        .expect("WCPRICE indicator failed");
 
                     // Chunks
                     let mut high_chunks = high[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -252,8 +252,8 @@ fn bench_rust_wcprice_from_state(c: &mut Criterion) {
                     &low[low.len() - 1..],
                     &close[close.len() - 1..],
                 ];
-                let (_, mut state) =
-                    WcPrice::indicator(&new_inputs, &OPTIONS, None).expect("Rust WCPRICE indicator failed");
+                let (_, mut state) = WcPrice::indicator(&new_inputs, &OPTIONS, None)
+                    .expect("Rust WCPRICE indicator failed");
 
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
@@ -276,8 +276,8 @@ fn bench_rust_wcprice_from_state(c: &mut Criterion) {
                 );
 
                 // --- Rust_FromState_1_Bar_json benchmark ---
-                let (_, state) =
-                    WcPrice::indicator(&new_inputs, &OPTIONS, None).expect("Rust WCPRICE indicator failed");
+                let (_, state) = WcPrice::indicator(&new_inputs, &OPTIONS, None)
+                    .expect("Rust WCPRICE indicator failed");
                 let json = serde_json::to_string(&state).expect("json failed");
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
@@ -320,8 +320,8 @@ fn bench_rust_wcprice_from_state(c: &mut Criterion) {
                     &close_vec[..min_data_val],
                 ];
 
-                let (_, mut state) =
-                    WcPrice::indicator(&chunk_inputs, &OPTIONS, None).expect("WCPRICE indicator failed");
+                let (_, mut state) = WcPrice::indicator(&chunk_inputs, &OPTIONS, None)
+                    .expect("WCPRICE indicator failed");
 
                 // Chunks
                 let mut high_chunks = high_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -364,8 +364,8 @@ fn bench_rust_wcprice_from_state(c: &mut Criterion) {
                 &low_vec[low_vec.len() - 1..],
                 &close_vec[close_vec.len() - 1..],
             ];
-            let (_, mut state) =
-                WcPrice::indicator(&new_inputs, &OPTIONS, None).expect("Rust WCPRICE indicator failed");
+            let (_, mut state) = WcPrice::indicator(&new_inputs, &OPTIONS, None)
+                .expect("Rust WCPRICE indicator failed");
 
             let mut group = c.benchmark_group("Rust WCPRICE from state 1 bar");
             group.sample_size(SAMPLE_SIZE);
@@ -427,10 +427,8 @@ fn bench_rust_wcprice_simd_by_assets(c: &mut Criterion) {
         let mut timing = TimingMeasurements::new();
         timing.measure(
             || {
-                let result = tulip_rs::indicators::wcprice::indicator_by_assets::<4>(
-                    &inputs, &OPTIONS, None,
-                )
-                .expect("Rust SIMD by assets WCPRICE indicator failed");
+                let result = WcPrice::indicator_by_assets::<4>(&inputs, &OPTIONS, None)
+                    .expect("Rust SIMD by assets WCPRICE indicator failed");
                 black_box(&result);
             },
             SAMPLE_SIZE,
@@ -460,10 +458,8 @@ fn bench_rust_wcprice_simd_by_assets(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust SIMD by assets WCPRICE", |b| {
             b.iter(|| {
-                let result = tulip_rs::indicators::wcprice::indicator_by_assets::<4>(
-                    &inputs, &OPTIONS, None,
-                )
-                .expect("Rust SIMD by assets WCPRICE indicator failed");
+                let result = WcPrice::indicator_by_assets::<4>(&inputs, &OPTIONS, None)
+                    .expect("Rust SIMD by assets WCPRICE indicator failed");
                 black_box(&result);
             });
         });

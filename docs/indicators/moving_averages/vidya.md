@@ -9,18 +9,18 @@ Similar to KAMA but uses the Chande Momentum Oscillator as its efficiency measur
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::vidya::indicator;
+    use tulip_rs::indicators::vidya::{Vidya, TIndicatorState, Indicator};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
     // Options: [short_period, long_period, alpha]
-    let (outputs, _state) = indicator(&[close.as_slice()], &[2.0, 5.0, 0.2], None).unwrap();
+    let (outputs, _state) = Vidya::indicator(&[close.as_slice()], &[2.0, 5.0, 0.2], None).unwrap();
     println!("VIDYA: {:?}", outputs[0]);
 
     // State continuation
     let partial = close[..8].to_vec();
-    let (outputs2, mut state) = indicator(&[partial.as_slice()], &[2.0, 5.0, 0.2], None).unwrap();
+    let (outputs2, mut state) = Vidya::indicator(&[partial.as_slice()], &[2.0, 5.0, 0.2], None).unwrap();
     println!("Partial VIDYA: {:?}", outputs2[0]);
 
     let new_close = close[8..].to_vec();
@@ -95,14 +95,14 @@ Similar to KAMA but uses the Chande Momentum Oscillator as its efficiency measur
     `vidya` exposes 4 optional outputs: `"short_sma"`, `"long_sma"`, `"short_sdtdev"`, `"long_sdtdev"`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::vidya::indicator;
+    use tulip_rs::indicators::vidya::{Vidya, TIndicatorState, Indicator};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
     // Request short_sma and long_sma but not the stddev outputs
     let mask = [true, true, false, false]; // one per optional output
-    let (outputs, _state) = indicator(&[close.as_slice()], &[5.0, 20.0, 0.2], Some(&mask)).unwrap();
+    let (outputs, _state) = Vidya::indicator(&[close.as_slice()], &[5.0, 20.0, 0.2], Some(&mask)).unwrap();
 
     let vidya     = &outputs[0]; // vidya (primary)
     let short_sma = &outputs[1]; // "short_sma" (optional — requested)
@@ -189,7 +189,7 @@ Similar to KAMA but uses the Chande Momentum Oscillator as its efficiency measur
     ];
 
     let results = indicator_by_assets::<4>(&inputs, &[2.0, 5.0, 0.2], None).unwrap();
-    for (i, asset_outputs) in results.0.iter().enumerate() {
+    for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
     ```
@@ -210,7 +210,7 @@ Similar to KAMA but uses the Chande Momentum Oscillator as its efficiency measur
     ];
 
     let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
-    for (i, opt_outputs) in results.0.iter().enumerate() {
+    for (i, opt_outputs) in results.iter().enumerate() {
         println!("Option set {}: {:?}", i + 1, opt_outputs[0]);
     }
     ```

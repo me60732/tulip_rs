@@ -1,8 +1,9 @@
 #[cfg(test)]
 mod tests {
     use tulip_rs::indicators::donchianchannel::DonchianChannel;
-    use tulip_rs::indicators::ichimoku::{Ichimoku, Indicator, TIndicatorState};
-    use tulip_rs::indicators::ichimoku::{indicator_by_assets, indicator_by_options};
+    use tulip_rs::indicators::ichimoku::{
+        Ichimoku, Indicator, IndicatorByOptions, TIndicatorState,
+    };
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
     const CHUNK_SIZE: usize = 100;
@@ -257,8 +258,8 @@ mod tests {
         let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
         let options = OPTIONS_LIST[0];
 
-        let (outputs, _) =
-            Ichimoku::indicator(&inputs, &options, None).expect("Ichimoku without lagging_span failed");
+        let (outputs, _) = Ichimoku::indicator(&inputs, &options, None)
+            .expect("Ichimoku without lagging_span failed");
         assert!(
             outputs[4].is_empty(),
             "lagging_span should be empty when optional output is not requested"
@@ -290,8 +291,8 @@ mod tests {
                 let seed_len = Ichimoku::min_data(&options).max(CHUNK_SIZE);
                 let seed_inputs = [&high[..seed_len], &low[..seed_len], &close[..seed_len]];
 
-                let (seed_out, mut state) =
-                    Ichimoku::indicator(&seed_inputs, &options, None).expect("Ichimoku seed failed");
+                let (seed_out, mut state) = Ichimoku::indicator(&seed_inputs, &options, None)
+                    .expect("Ichimoku seed failed");
                 for j in 0..seed_out.len() {
                     batch_outputs[j].extend_from_slice(&seed_out[j]);
                 }
@@ -368,7 +369,6 @@ mod tests {
 
     #[test]
     fn test_ichimoku_simd_by_assets() {
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -389,8 +389,8 @@ mod tests {
                 &[&stock_data[3].1, &stock_data[3].2, &stock_data[3].3],
             ];
 
-            let (simd_results, _) =
-                indicator_by_assets::<4>(&inputs_4, &options, None).expect("SIMD by_assets failed");
+            let (simd_results, _) = Ichimoku::indicator_by_assets::<4>(&inputs_4, &options, None)
+                .expect("SIMD by_assets failed");
 
             let labels = ["conversion", "base", "span_a", "span_b"];
             for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
@@ -436,7 +436,6 @@ mod tests {
 
     #[test]
     fn test_ichimoku_simd_by_options() {
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -447,12 +446,13 @@ mod tests {
             let (high, low, close) = get_arrays(stock_data);
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
-            let (simd_results, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results, _) = Ichimoku::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD by_options failed");
 
             let labels = ["conversion", "base", "span_a", "span_b"];
             for (lane, &options) in options_4.iter().enumerate() {
-                let (scalar_out, _) = Ichimoku::indicator(&inputs, options, None).expect("scalar failed");
+                let (scalar_out, _) =
+                    Ichimoku::indicator(&inputs, options, None).expect("scalar failed");
 
                 for k in 0..4 {
                     let simd_line = &simd_results[lane][k];
@@ -493,7 +493,6 @@ mod tests {
 
     #[test]
     fn test_ichimoku_simd_by_assets_state_continuity() {
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -532,8 +531,9 @@ mod tests {
                 ],
             ];
 
-            let (simd_first, mut states) = indicator_by_assets::<4>(&inputs_4, &options, None)
-                .expect("SIMD by_assets first chunk failed");
+            let (simd_first, mut states) =
+                Ichimoku::indicator_by_assets::<4>(&inputs_4, &options, None)
+                    .expect("SIMD by_assets first chunk failed");
 
             let names = ["conversion", "base", "span_a", "span_b"];
             for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
@@ -598,7 +598,6 @@ mod tests {
 
     #[test]
     fn test_ichimoku_simd_by_options_state_continuity() {
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -615,7 +614,7 @@ mod tests {
             ];
 
             let (simd_first, mut states) =
-                indicator_by_options::<4>(&seed_inputs, &options_4, None)
+                Ichimoku::indicator_by_options::<4>(&seed_inputs, &options_4, None)
                     .expect("SIMD by_options first chunk failed");
 
             let names = ["conversion", "base", "span_a", "span_b"];
@@ -626,8 +625,8 @@ mod tests {
             for (lane, &options) in options_4.iter().enumerate() {
                 // Full scalar reference for this option set
                 let full_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (full_out, _) =
-                    Ichimoku::indicator(&full_inputs, options, None).expect("scalar full run failed");
+                let (full_out, _) = Ichimoku::indicator(&full_inputs, options, None)
+                    .expect("scalar full run failed");
 
                 // Stitch: SIMD first chunk + batch_indicator for the rest
                 let mut combined: Vec<Vec<f64>> =
@@ -671,5 +670,4 @@ mod tests {
             }
         }
     }
-
-    }
+}

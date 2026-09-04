@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 use tulip_rs::indicators::tema::{
-    Tema, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
+    Indicator, IndicatorByOptions, IndicatorState, TIndicatorState, Tema,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -128,8 +128,8 @@ fn bench_rust_tema(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result =
-                            Tema::indicator(&inputs, &options, None).expect("Rust TEMA Tema::indicator failed");
+                        let result = Tema::indicator(&inputs, &options, None)
+                            .expect("Rust TEMA Tema::indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -148,8 +148,8 @@ fn bench_rust_tema(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust TEMA {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result =
-                        Tema::indicator(&inputs, &options, None).expect("Rust TEMA Tema::indicator failed");
+                    let result = Tema::indicator(&inputs, &options, None)
+                        .expect("Rust TEMA Tema::indicator failed");
                     black_box(&result);
                 });
             });
@@ -217,8 +217,8 @@ fn bench_rust_tema_from_state(c: &mut Criterion) {
                 if inputs[0].len() > 1 {
                     let new_inputs = [&close[..close.len() - 1]];
                     let final_inputs = [&close[close.len() - 1..]];
-                    let (_, mut state) =
-                        Tema::indicator(&new_inputs, &options, None).expect("Rust TEMA Tema::indicator failed");
+                    let (_, mut state) = Tema::indicator(&new_inputs, &options, None)
+                        .expect("Rust TEMA Tema::indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -241,8 +241,8 @@ fn bench_rust_tema_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) =
-                        Tema::indicator(&new_inputs, &options, None).expect("Rust TEMA Tema::indicator failed");
+                    let (_, state) = Tema::indicator(&new_inputs, &options, None)
+                        .expect("Rust TEMA Tema::indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -280,8 +280,8 @@ fn bench_rust_tema_from_state(c: &mut Criterion) {
             let close_chunk = close_vec[..min_data].to_vec();
             let chunk_inputs = [close_chunk.as_slice()];
 
-            let (_, mut state) =
-                Tema::indicator(&chunk_inputs, &options, None).expect("TEMA Tema::indicator failed");
+            let (_, mut state) = Tema::indicator(&chunk_inputs, &options, None)
+                .expect("TEMA Tema::indicator failed");
 
             let mut group = c.benchmark_group("tema_rust_from_state");
             group.sample_size(SAMPLE_SIZE);
@@ -311,8 +311,8 @@ fn bench_rust_tema_from_state(c: &mut Criterion) {
             if close_vec.len() > 1 {
                 let new_inputs = [&close_vec[..close_vec.len() - 1]];
                 let final_inputs = [&close_vec[close_vec.len() - 1..]];
-                let (_, mut state) =
-                    Tema::indicator(&new_inputs, &options, None).expect("Rust TEMA Tema::indicator failed");
+                let (_, mut state) = Tema::indicator(&new_inputs, &options, None)
+                    .expect("Rust TEMA Tema::indicator failed");
 
                 let mut group = c.benchmark_group("tema_rust_from_state_1_bar");
                 group.sample_size(SAMPLE_SIZE);
@@ -431,7 +431,7 @@ fn bench_rust_tema_simd_by_assets(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = Tema::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("SIMD TEMA Tema::indicator failed");
                         black_box(&result);
                     },
@@ -464,7 +464,7 @@ fn bench_rust_tema_simd_by_assets(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("SIMD TEMA by assets {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = Tema::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("SIMD TEMA Tema::indicator failed");
                     black_box(&result);
                 });
@@ -495,7 +495,7 @@ fn bench_rust_tema_simd_by_options(c: &mut Criterion) {
                         &OPTIONS_LIST[2],
                         &OPTIONS_LIST[3],
                     ];
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result = Tema::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD TEMA Tema::indicator failed");
                     black_box(&result);
                 },
@@ -527,7 +527,7 @@ fn bench_rust_tema_simd_by_options(c: &mut Criterion) {
                     &OPTIONS_LIST[2],
                     &OPTIONS_LIST[3],
                 ];
-                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result = Tema::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD TEMA Tema::indicator failed");
                 black_box(&result);
             });

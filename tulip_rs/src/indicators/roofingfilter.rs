@@ -35,7 +35,10 @@
 //! kernel directly to a simple WMA-smoothed price.
 
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
+
 use crate::indicators::{
     highpass::{HighPass, State as HpState},
     supersmoother::State as SsState,
@@ -49,39 +52,6 @@ pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 2;
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::roofingfilter_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::roofingfilter_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::roofingfilter_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    /// See the parent module's [`super::indicator_by_options`] for full documentation.
-    pub use crate::indicators::simd_indicators::roofingfilter_simd::indicator_by_options as indicator;
-}
-
 
 pub type IndicatorState = State;
 impl TIndicatorState<1> for IndicatorState {
@@ -103,11 +73,7 @@ impl TIndicatorState<1> for IndicatorState {
             )
         };
 
-        cycle(
-            inputs[0],
-            self,
-            (&mut rf_line, &mut hp_line),
-        );
+        cycle(inputs[0], self, (&mut rf_line, &mut hp_line));
 
         Ok(vec![rf_line, hp_line])
     }
@@ -140,7 +106,6 @@ impl State {
         }
         state
     }
-    
 }
 impl TState for State {
     type Inputs<'a> = f64;
@@ -152,7 +117,6 @@ impl TState for State {
     }
 }
 
-
 /// Performs the core filter loop for the RoofingFilter indicator.
 ///
 /// # Arguments
@@ -161,11 +125,7 @@ impl TState for State {
 /// * `state` - A mutable reference to the composite filter state (`ss_state`, `hp_state`).
 /// * `multipliers` - The precomputed filter coefficients `((a1, a2, b0), (a1, a2))`.
 /// * `outputs` - Tuple of `(rf_line, hp_line)` output slices; `rf_line` must be the same length as `real`.
-fn cycle(
-    real: &[f64],
-    state: &mut State,
-    (rf_line, hp_line): (&mut [f64], &mut [f64]),
-) {
+fn cycle(real: &[f64], state: &mut State, (rf_line, hp_line): (&mut [f64], &mut [f64])) {
     let (_, want_hp) = crate::calc_want_flags!(hp_line);
     for i in 0..real.len() {
         let (rf, hp);
@@ -178,7 +138,6 @@ fn cycle(
         );
     }
 }
-
 
 pub struct RoofingFilter;
 impl Indicator<INPUTS, OPTIONS> for RoofingFilter {
@@ -214,7 +173,7 @@ impl Indicator<INPUTS, OPTIONS> for RoofingFilter {
         let periods = (options[0] as usize, options[1] as usize);
 
         validate_inputs(inputs, Self::min_data(options))?;
-    
+
         let (mut rf_line, mut hp_line) = {
             let capacity = Self::output_length(inputs[0].len(), options);
             (
@@ -226,17 +185,42 @@ impl Indicator<INPUTS, OPTIONS> for RoofingFilter {
             )
         };
         let mut state = State::init_state(inputs[0], periods, &mut hp_line);
-    
+
         let real = &inputs[0][periods.0.max(periods.1)..];
         let outputs = {
             let offset = crate::slice_outputs_start!(rf_line.len(), hp_line);
             (rf_line.as_mut_slice(), &mut hp_line[offset..])
         };
         cycle(real, &mut state, outputs);
-    
-        Ok((
-            vec![rf_line, hp_line],
-            state,
-        ))
+
+        Ok((vec![rf_line, hp_line], state))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::roofingfilter_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for RoofingFilter {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::roofingfilter_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

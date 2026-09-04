@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::mass::{Mass, Indicator, TIndicatorState, indicator_by_assets, indicator_by_options};
+    use tulip_rs::indicators::mass::{Indicator, IndicatorByOptions, Mass, TIndicatorState};
     use tulip_test::c_bindings::{ti_mass, ti_mass_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -231,8 +231,8 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [high.as_slice(), low.as_slice()];
-                let (outputs, _) =
-                    Mass::indicator(&inputs_rust, &options, None).expect("Rust MASS indicator failed");
+                let (outputs, _) = Mass::indicator(&inputs_rust, &options, None)
+                    .expect("Rust MASS indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -289,8 +289,6 @@ mod tests {
 
     #[test]
     fn test_mass_simd_by_assets_vs_regular_database() {
-        
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -314,7 +312,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = Mass::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets MASS indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -379,8 +377,6 @@ mod tests {
 
     #[test]
     fn test_mass_simd_by_options_vs_regular_database() {
-        
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -395,12 +391,12 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Mass::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD MASS 4-wide failed");
 
             // Process remaining 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
-            let (simd_results_2, _) = indicator_by_options::<2>(&inputs, &options_2, None)
+            let (simd_results_2, _) = Mass::indicator_by_options::<2>(&inputs, &options_2, None)
                 .expect("SIMD MASS 2-wide failed");
 
             // Combine SIMD results
@@ -481,8 +477,6 @@ mod tests {
 
     #[test]
     fn test_mass_simd_state_handover_by_options() {
-        
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -514,13 +508,13 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, states_4) =
-                indicator_by_options::<4>(&first_inputs, &options_4, None)
+                Mass::indicator_by_options::<4>(&first_inputs, &options_4, None)
                     .expect("SIMD MASS 4-wide failed on first chunk");
 
             // process remaining 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
             let (simd_results_2, states_2) =
-                indicator_by_options::<2>(&first_inputs, &options_2, None)
+                Mass::indicator_by_options::<2>(&first_inputs, &options_2, None)
                     .expect("SIMD MASS 2-wide failed on first chunk");
 
             // Combine SIMD results for first part and prepare to extend with batch_indicator outputs
@@ -576,5 +570,4 @@ mod tests {
             }
         }
     }
-
-    }
+}

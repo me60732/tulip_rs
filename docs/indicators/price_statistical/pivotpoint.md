@@ -9,16 +9,39 @@ Classic floor-trader pivot points calculated from the previous bar's high, low, 
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::pivotpoint::indicator;
+    use tulip_rs::indicators::pivotpoint::{PivotPoint, Indicator, TIndicatorState};
+
+    let high  = vec![82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00_f64];
+    let low   = vec![81.29, 80.64, 81.31, 82.65, 83.07,
+                     83.11, 82.49, 82.30, 84.15, 84.11_f64];
+    let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
+                     83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-    let (outputs, _) = indicator(&inputs, &[], None).unwrap();
+    let (outputs, mut state) = PivotPoint::indicator(&inputs, &[], None).unwrap();
 
     println!("Pivot: {:?}", outputs[0]);
     println!("R1:    {:?}", outputs[1]);
     println!("S1:    {:?}", outputs[2]);
     println!("R2:    {:?}", outputs[3]);
     println!("S2:    {:?}", outputs[4]);
+
+    // State continuation — feed new bars without reprocessing history
+    let partial_high   = high[..8].to_vec();
+    let partial_low    = low[..8].to_vec();
+    let partial_close  = close[..8].to_vec();
+    let (outputs2, mut state) = PivotPoint::indicator(&[partial_high.as_slice(), partial_low.as_slice(), partial_close.as_slice()], &[], None).unwrap();
+
+    println!("Pivot: {:?}", outputs2[0]);
+    println!("R1:    {:?}", outputs2[1]);
+    println!("S1:    {:?}", outputs2[2]);
+
+    let new_high   = vec![85.90_f64];
+    let new_low    = vec![84.03_f64];
+    let new_close  = vec![85.53_f64];
+    let continued = state.batch_indicator(&[new_high.as_slice(), new_low.as_slice(), new_close.as_slice()], None).unwrap();
+    println!("Continued Pivot: {:?}", continued[0]);
     ```
 
 === "Python"
@@ -105,7 +128,9 @@ Classic floor-trader pivot points calculated from the previous bar's high, low, 
         &[h4.as_slice(), l4.as_slice(), c4.as_slice()],
     ];
     let results = indicator_by_assets::<4>(&inputs, &[], None).unwrap();
-    // results[i][0] = pivot, [1] = R1, [2] = S1, [3] = R2, [4] = S2 for asset i
+    for (i, asset_outputs) in results.iter().enumerate() {
+        println!("Asset {}: Pivot={:?}, R1={:?}, S1={:?}", i + 1, asset_outputs[0], asset_outputs[1], asset_outputs[2]);
+    }
     ```
 
     _This indicator has no options, so by-options SIMD does not apply._

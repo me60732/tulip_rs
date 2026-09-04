@@ -9,23 +9,26 @@ Three bands plotted around a moving average. The width expands and contracts wit
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::bbands::indicator;
+    use tulip_rs::indicators::bbands::{BBands, Indicator, TIndicatorState};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
     // options: [period, stddev_multiplier]
-    let (outputs, mut state) = indicator(&[close.as_slice()], &[20.0, 2.0], None).unwrap();
+    let (outputs, mut state) = BBands::indicator(&[close.as_slice()], &[20.0, 2.0], None).unwrap();
     println!("Lower:  {:?}", outputs[0]);
     println!("Middle: {:?}", outputs[1]);
     println!("Upper:  {:?}", outputs[2]);
 
     // State continuation — feed new bars without reprocessing history
-    let new_close = vec![85.10, 85.72_f64];
+    let partial = close[..8].to_vec();
+    let (outputs2, mut state) = BBands::indicator(&[partial.as_slice()], &[20.0, 2.0], None).unwrap();
+    println!("Lower:  {:?}", outputs2[0]);
+    println!("Middle: {:?}", outputs2[1]);
+
+    let new_close = vec![85.53_f64];
     let continued = state.batch_indicator(&[new_close.as_slice()], None).unwrap();
     println!("Lower continued:  {:?}", continued[0]);
-    println!("Middle continued: {:?}", continued[1]);
-    println!("Upper continued:  {:?}", continued[2]);
     ```
 
 === "Python"

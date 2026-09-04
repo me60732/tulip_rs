@@ -1,50 +1,21 @@
 use crate::common::{validate_inputs, validate_options};
-use crate::common_simd::{deserialize_f64x2, serialize_f64x2};
-pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult};
-use crate::indicators::tr::{Tr, State as TrState};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
+use crate::indicators::tr::{State as TrState, Tr};
 use crate::ring_buffer::multi_type_buffer::MultiTypeBuffer;
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
-
-use serde::{Deserialize, Serialize};
-//use wide::*;
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use std::simd::{num::SimdFloat, Simd};
+
+use crate::common_simd::{deserialize_f64x2, serialize_f64x2};
+use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
 pub const INPUTS: usize = 3;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
 
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::vortex_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::vortex_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    pub use crate::indicators::simd_indicators::vortex_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    pub use crate::indicators::simd_indicators::vortex_simd::indicator_by_options as indicator;
-}
-
-
+pub type IndicatorState = State<Warm>;
 impl TIndicatorState<3> for IndicatorState {
     fn batch_indicator(
         &mut self,
@@ -76,7 +47,6 @@ impl TIndicatorState<3> for IndicatorState {
         Ok(vec![vi_up_line, vi_down_line, tr_line])
     }
 }
-pub type IndicatorState = State<Warm>;
 
 #[derive(Serialize, Deserialize)]
 #[serde(bound = "")]
@@ -134,7 +104,7 @@ impl State<Cold> {
         }
     }
     #[inline(always)]
-    fn init_calc(&mut self, (high, low, close):  (f64, f64, f64)) -> f64 {
+    fn init_calc(&mut self, (high, low, close): (f64, f64, f64)) -> f64 {
         let tr = self.tr_state.calc((high, low, close));
         let high_low_simd = Simd::from_array([high, low]);
         /*let vm_up = (high - self.prev_low).abs();
@@ -144,7 +114,7 @@ impl State<Cold> {
         self.prev_low_high = high_low_simd.reverse();
 
         self.buffer.push((tr, vm_simd));
-        
+
         self.tr_sum += tr;
         self.vm_sums += vm_simd;
 
@@ -159,7 +129,7 @@ impl TState for State<Warm> {
         let tr = self.tr_state.calc((high, low, close));
         let high_low_simd = Simd::from_array([high, low]);
         let vm_simd = (high_low_simd - self.prev_low_high).abs();
-        
+
         self.prev_low_high = high_low_simd.reverse();
 
         let (old_tr, old_vm) = self.buffer.push_with_info((tr, vm_simd));
@@ -172,7 +142,6 @@ impl TState for State<Warm> {
         (vi_simd[0], vi_simd[1], tr)
     }
 }
-
 
 /// Performs the main calculation loop for the Vortex indicator.
 ///
@@ -254,10 +223,10 @@ impl Indicator<INPUTS, OPTIONS> for Vortex {
     ) -> IndicatorResult<Self::IndicatorState> {
         validate_options(options)?;
         let period = options[0] as usize;
-    
+
         validate_inputs(inputs, Self::min_data(options))?;
         let [high, low, close] = inputs;
-    
+
         let (mut vi_up_line, mut vi_down_line, mut tr_line) = {
             let len = high.len();
             let capacity = Self::output_length(len, options);
@@ -270,7 +239,7 @@ impl Indicator<INPUTS, OPTIONS> for Vortex {
                 ),
             )
         };
-    
+
         let mut state = State::init_state(high, low, close, period, &mut tr_line);
         let inputs = (
             &high[period + 1..],
@@ -283,7 +252,35 @@ impl Indicator<INPUTS, OPTIONS> for Vortex {
         };
         // Single-pass calculation loop.
         cycle(inputs, &mut state, (&mut vi_up_line, &mut vi_down_line), tr);
-    
+
         Ok((vec![vi_up_line, vi_down_line, tr_line], state))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::vortex_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Vortex {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::vortex_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

@@ -1,6 +1,5 @@
-use tulip_rs::indicators::instantaneoustrendline::{
-    InstantaneousTrendline, indicator_by_assets, TIndicatorState, Indicator,
-};
+use tulip_rs::indicator_types::{Indicator, TIndicatorState};
+use tulip_rs::indicators::instantaneoustrendline::InstantaneousTrendline;
 
 // 80 bars of close prices
 const CLOSE: [f64; 80] = [
@@ -26,10 +25,11 @@ fn main() {
 
     // --- Full run with optional trigger and dc_period enabled ---
     // optional_outputs = [trigger, dc_period, alpha]
-    let (outputs, _) = match InstantaneousTrendline::indicator(&inputs, &options, Some(&[true, true, false])) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (outputs, _) =
+        match InstantaneousTrendline::indicator(&inputs, &options, Some(&[true, true, false])) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
 
     println!("Instantaneous Trendline — {} values", outputs[0].len());
     println!(
@@ -50,10 +50,11 @@ fn main() {
     let split = CLOSE.len() - 5;
     let inputs_partial = [&CLOSE[..split]];
 
-    let (outputs_partial, mut state) = match InstantaneousTrendline::indicator(&inputs_partial, &options, None) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (outputs_partial, mut state) =
+        match InstantaneousTrendline::indicator(&inputs_partial, &options, None) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
 
     println!(
         "\nPartial run ({} bars, {} values):",
@@ -88,10 +89,11 @@ fn main() {
     let asset3: [&[f64]; 1] = [close3.as_slice()];
     let inputs_4: [&[&[f64]; 1]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-    let (simd_asset_outputs, _) = match indicator_by_assets::<4>(&inputs_4, &options, None) {
-        Ok(result) => result,
-        Err(e) => panic!("Error: {}", e),
-    };
+    let (simd_asset_outputs, _) =
+        match InstantaneousTrendline::indicator_by_assets::<4>(&inputs_4, &options, None) {
+            Ok(result) => result,
+            Err(e) => panic!("Error: {}", e),
+        };
     println!(
         "\nSIMD by-assets Trendline last 5 (asset 0): {:?}",
         &simd_asset_outputs[0][0][simd_asset_outputs[0][0].len() - 5..]

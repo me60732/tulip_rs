@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::indicators::linreg::{
-    Linreg, Indicator, indicator_by_assets, indicator_by_options, IndicatorState, TIndicatorState,
+    Indicator, IndicatorByOptions, IndicatorState, Linreg, TIndicatorState,
 };
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -129,8 +129,8 @@ fn bench_rust_linreg(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result =
-                            Linreg::indicator(&inputs, &options, None).expect("LINREG indicator failed");
+                        let result = Linreg::indicator(&inputs, &options, None)
+                            .expect("LINREG indicator failed");
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -149,8 +149,8 @@ fn bench_rust_linreg(c: &mut Criterion) {
             group.bench_function("benchmark", |b| {
                 b.iter(|| {
                     let inputs = [close.as_slice()];
-                    let result =
-                        Linreg::indicator(&inputs, &options, None).expect("LINREG indicator failed");
+                    let result = Linreg::indicator(&inputs, &options, None)
+                        .expect("LINREG indicator failed");
                     black_box(&result);
                 });
             });
@@ -311,8 +311,8 @@ fn bench_rust_linreg_from_state(c: &mut Criterion) {
                 let new_close = close[..close.len() - 1].to_vec();
                 let final_close = close[close.len() - 1..].to_vec();
                 let new_inputs = [new_close.as_slice()];
-                let (_, mut state) =
-                    Linreg::indicator(&new_inputs, &options, None).expect("Rust LINREG indicator failed");
+                let (_, mut state) = Linreg::indicator(&new_inputs, &options, None)
+                    .expect("Rust LINREG indicator failed");
 
                 let mut group = c.benchmark_group(format!(
                     "Rust LINREG from state 1 bar {{ {:.1} }}",
@@ -360,7 +360,7 @@ fn bench_rust_linreg_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None)
+                    let result = Linreg::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("Rust SIMD by assets LINREG indicator failed");
                     black_box(&result);
                 },
@@ -388,7 +388,7 @@ fn bench_rust_linreg_simd_by_assets(c: &mut Criterion) {
                 &format!("SIMD by assets LINREG {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = Linreg::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("Rust SIMD by assets LINREG indicator failed");
                         black_box(&result);
                     });
@@ -474,7 +474,7 @@ fn bench_rust_linreg_simd_by_options(c: &mut Criterion) {
                         &OPTIONS_LIST[2],
                         &OPTIONS_LIST[3],
                     ];
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result = Linreg::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD by options LINREG indicator failed");
                     black_box(&result);
                 },
@@ -506,7 +506,7 @@ fn bench_rust_linreg_simd_by_options(c: &mut Criterion) {
                     &OPTIONS_LIST[2],
                     &OPTIONS_LIST[3],
                 ];
-                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result = Linreg::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD by options LINREG indicator failed");
                 black_box(&result);
             });

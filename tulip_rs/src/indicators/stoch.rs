@@ -1,48 +1,18 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::{TIndicatorState, TState, Indicator, IndicatorResult};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
 
 pub use crate::indicators::{max::State as MaxState, min::State as MinState};
 
 use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
 pub const INPUTS: usize = 3;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 3;
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::stoch_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::stoch_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::stoch_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    /// See the parent module's [`super::indicator_by_options`] for full documentation.
-    pub use crate::indicators::simd_indicators::stoch_simd::indicator_by_options as indicator;
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
@@ -52,12 +22,7 @@ pub struct IndicatorState {
     k_period: usize,
 }
 impl IndicatorState {
-    pub fn new(
-        state: State<Warm>,
-        high: &[f64],
-        low: &[f64],
-        k_period: usize,
-    ) -> Self {
+    pub fn new(state: State<Warm>, high: &[f64], low: &[f64], k_period: usize) -> Self {
         Self {
             state,
             high: high[high.len() - k_period..].to_vec(),
@@ -111,7 +76,7 @@ pub struct State<S = Cold> {
     pub k_sum: f64,
     pub d_sum: f64,
     pub k_multiplier: f64,
-    pub d_multiplier: f64
+    pub d_multiplier: f64,
 }
 
 impl State<Cold> {
@@ -128,7 +93,7 @@ impl State<Cold> {
             d_multiplier,
         }
     }
-    
+
     pub fn init_state(
         inputs: (&[f64], &[f64], &[f64]),
         k_period: usize,
@@ -137,7 +102,7 @@ impl State<Cold> {
         k_line: &mut [f64],
     ) -> (State<Warm>, usize, usize) {
         let (high, low, _) = inputs;
-    
+
         let mut min_state = MinState::init_state(low, k_period + 1);
         let mut max_state = MaxState::init_state(high, k_period + 1);
         let mut prev_k = Buffer::new(k_slow);
@@ -148,13 +113,7 @@ impl State<Cold> {
         let mut k_count = 0;
         let mut start = 0;
         for i in k_period + 1..k_period + k_slow + d_period {
-            let k_fast = calc_kfast::<4>(
-                &mut min_state,
-                &mut max_state,
-                inputs,
-                i,
-                k_period,
-            );
+            let k_fast = calc_kfast::<4>(&mut min_state, &mut max_state, inputs, i, k_period);
             k_sum += k_fast;
             if let Some(k_old) = prev_k.push_with_info(k_fast) {
                 k_sum -= k_old;
@@ -170,16 +129,20 @@ impl State<Cold> {
             start = i;
         }
         start += 1;
-        (State {
-            prev_k: prev_k.into_full(),
-            prev_d: prev_d.into_full(),
-            min_state,
-            max_state,
-            k_sum,
-            d_sum,
-            k_multiplier,
-            d_multiplier,
-        }, k_count, start)
+        (
+            State {
+                prev_k: prev_k.into_full(),
+                prev_d: prev_d.into_full(),
+                min_state,
+                max_state,
+                k_sum,
+                d_sum,
+                k_multiplier,
+                d_multiplier,
+            },
+            k_count,
+            start,
+        )
     }
 }
 
@@ -187,10 +150,7 @@ impl TState for State<Warm> {
     type Inputs<'a> = ((&'a [f64], &'a [f64], &'a [f64]), usize, usize);
     type Outputs = (f64, f64);
     #[inline(always)]
-    fn calc(
-        &mut self,
-        inputs: ((&[f64], &[f64], &[f64]), usize, usize),
-    ) -> (f64, f64) {
+    fn calc(&mut self, inputs: ((&[f64], &[f64], &[f64]), usize, usize)) -> (f64, f64) {
         self.calc_chuncked::<4>(inputs)
     }
 }
@@ -200,7 +160,6 @@ impl State<Warm> {
         &mut self,
         (inputs, i, k_period): ((&[f64], &[f64], &[f64]), usize, usize),
     ) -> (f64, f64) {
-    
         let kfast = calc_kfast::<N>(
             &mut self.min_state,
             &mut self.max_state,
@@ -208,13 +167,13 @@ impl State<Warm> {
             i,
             k_period,
         );
-    
+
         let old_k = self.prev_k.push_with_info(kfast);
         self.k_sum += kfast - old_k;
         let k = self.k_sum * self.k_multiplier;
         let old_d = self.prev_d.push_with_info(k);
         self.d_sum += k - old_d;
-    
+
         (k, self.d_sum * self.d_multiplier)
     }
 }
@@ -229,8 +188,10 @@ fn calc_kfast<const N: usize>(
 ) -> f64 {
     let shift = low.len() - close.len();
 
-    let (min, _) = unsafe { min_state.calc_chuncked_unchecked::<N>((low, i + shift, (period, period - 1))) };
-    let (max, _) = unsafe { max_state.calc_chuncked_unchecked::<N>((high, i + shift, (period, period - 1))) };
+    let (min, _) =
+        unsafe { min_state.calc_chuncked_unchecked::<N>((low, i + shift, (period, period - 1))) };
+    let (max, _) =
+        unsafe { max_state.calc_chuncked_unchecked::<N>((high, i + shift, (period, period - 1))) };
 
     100.0 * (close[i] - min) / (max - min).max(f64::EPSILON)
 }
@@ -259,12 +220,10 @@ fn cycle(
     }
 }
 
-
 #[inline(always)]
 pub fn multiplier(k_slow: usize, d_period: usize) -> (f64, f64) {
     (1.0 / k_slow as f64, 1.0 / d_period as f64)
 }
-
 
 pub struct Stoch;
 
@@ -295,7 +254,7 @@ impl Indicator<INPUTS, OPTIONS> for Stoch {
         let d_capacity = data_len - Self::min_data(options) + 1;
         vec![d_capacity + options[2] as usize, d_capacity]
     }
-    
+
     fn indicator(
         inputs: &[&[f64]; INPUTS],
         options: &[f64; OPTIONS],
@@ -303,16 +262,16 @@ impl Indicator<INPUTS, OPTIONS> for Stoch {
     ) -> IndicatorResult<Self::IndicatorState> {
         validate_options(options)?;
         let k_period = options[0] as usize;
-    
+
         validate_inputs(inputs, Self::min_data(options))?;
         let [high, low, close] = inputs;
-    
+
         let (mut k_line, mut d_line, mut state, outputs, start);
         {
             let caps = Self::slot_lengths(high.len(), options);
             k_line = crate::uninit_vec!(f64, caps[0]);
             d_line = crate::uninit_vec!(f64, caps[1]);
-    
+
             let k_slow = options[1] as usize;
             let d_period = options[2] as usize;
             let k_count;
@@ -320,17 +279,39 @@ impl Indicator<INPUTS, OPTIONS> for Stoch {
                 State::init_state((high, low, close), k_period, k_slow, d_period, &mut k_line);
             outputs = (&mut k_line[k_count..], d_line.as_mut_slice());
         }
-        cycle(
-            (high, low, close),
-            k_period,
-            start,
-            &mut state,
-            outputs,
-        );
-    
+        cycle((high, low, close), k_period, start, &mut state, outputs);
+
         Ok((
             vec![k_line, d_line],
             IndicatorState::new(state, high, low, k_period),
         ))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::stoch_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Stoch {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::stoch_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

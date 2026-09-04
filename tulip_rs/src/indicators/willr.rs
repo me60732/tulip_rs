@@ -1,46 +1,17 @@
 use crate::common::{validate_inputs, validate_options};
 //use crate::indicators::aroon::State;
-pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
 use crate::indicators::max::{Max, State as MaxState};
 use crate::indicators::min::State as MinState;
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
 pub const INPUTS: usize = 3;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::willr_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::willr_simd::indicator_by_options;
-
-// Sub-module exports with common naming
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    pub use crate::indicators::simd_indicators::willr_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    pub use crate::indicators::simd_indicators::willr_simd::indicator_by_options as indicator;
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
@@ -89,7 +60,7 @@ impl TIndicatorState<3> for IndicatorState {
             &mut willr_line,
             (&mut min_line, &mut max_line),
         );
-        
+
         self.high.drain(..self.high.len() - self.period);
         self.low.drain(..self.low.len() - self.period);
 
@@ -97,7 +68,7 @@ impl TIndicatorState<3> for IndicatorState {
     }
 }
 #[derive(Serialize, Deserialize)]
-#[serde(bound="")]
+#[serde(bound = "")]
 pub struct State<S = Cold> {
     pub min_state: MinState<S>,
     pub max_state: MaxState<S>,
@@ -117,7 +88,7 @@ impl State {
         min_max: (&mut [f64], &mut [f64]),
     ) -> State<Warm> {
         let (min_line, max_line) = min_max;
-        let look_back = period -1;
+        let look_back = period - 1;
         let mut min_state = MinState::init_state(low, look_back);
         let mut max_state = MaxState::init_state(high, look_back);
 
@@ -134,13 +105,10 @@ impl State {
     }
 }
 impl TState for State<Warm> {
-    type Inputs<'a> = (&'a[f64], &'a[f64], f64, usize, (usize, usize));
+    type Inputs<'a> = (&'a [f64], &'a [f64], f64, usize, (usize, usize));
     type Outputs = (f64, f64, f64);
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        (high, low, close, i, periods): Self::Inputs<'a>
-    ) -> Self::Outputs {
+    fn calc<'a>(&mut self, (high, low, close, i, periods): Self::Inputs<'a>) -> Self::Outputs {
         // Update the minimum and maximum for the rolling window.
         let (min, _) = self.min_state.calc((low, i, periods));
         let (max, _) = self.max_state.calc((high, i, periods));
@@ -172,7 +140,7 @@ impl TState for State<Warm> {
     #[inline(always)]
     unsafe fn calc_unchecked(
         &mut self,
-        inputs: (&[f64], &[f64], f64, usize, (usize, usize))
+        inputs: (&[f64], &[f64], f64, usize, (usize, usize)),
     ) -> (f64, f64, f64) {
         self.calc_chuncked_unchecked::<4>(inputs)
     }
@@ -199,11 +167,15 @@ impl State<Warm> {
     #[inline(always)]
     pub unsafe fn calc_chuncked_unchecked<const N: usize>(
         &mut self,
-        (high, low, close, i, periods): (&[f64], &[f64], f64, usize, (usize, usize))
+        (high, low, close, i, periods): (&[f64], &[f64], f64, usize, (usize, usize)),
     ) -> (f64, f64, f64) {
         // Update the minimum and maximum for the rolling window.
-        let (min, _) = self.min_state.calc_chuncked_unchecked::<N>((low, i, periods));
-        let (max, _) = self.max_state.calc_chuncked_unchecked::<N>((high, i, periods));
+        let (min, _) = self
+            .min_state
+            .calc_chuncked_unchecked::<N>((low, i, periods));
+        let (max, _) = self
+            .max_state
+            .calc_chuncked_unchecked::<N>((high, i, periods));
 
         if (max - min).abs() < f64::EPSILON {
             return (0.0, min, max);
@@ -323,11 +295,38 @@ impl Indicator<INPUTS, OPTIONS> for Willr {
             &mut willr_line,
             optional_outputs,
         );
-        
 
         Ok((
             vec![willr_line, min_line, max_line],
             IndicatorState::new(state, high, low, period),
         ))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::willr_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Willr {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::willr_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

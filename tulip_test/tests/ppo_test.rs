@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::ppo::{Ppo, Indicator, TIndicatorState, indicator_by_assets, indicator_by_options};
+    use tulip_rs::indicators::ppo::{Indicator, IndicatorByOptions, Ppo, TIndicatorState};
     use tulip_test::c_bindings::{ti_ema, ti_ema_start, ti_ppo, ti_ppo_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -144,8 +144,8 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) =
-                    Ppo::indicator(&inputs_rust, &options, None).expect("Rust PPO indicator failed");
+                let (outputs, _) = Ppo::indicator(&inputs_rust, &options, None)
+                    .expect("Rust PPO indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -280,8 +280,6 @@ mod tests {
 
     #[test]
     fn test_ppo_simd_vs_regular_database() {
-       
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -305,15 +303,15 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = Ppo::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets PPO indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
             for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
                 // Get regular indicator result for this stock
                 let stock_inputs = [stock_close.as_slice()];
-                let (regular_results, _) =
-                    Ppo::indicator(&stock_inputs, &options, None).expect("Regular PPO indicator failed");
+                let (regular_results, _) = Ppo::indicator(&stock_inputs, &options, None)
+                    .expect("Regular PPO indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];
@@ -374,8 +372,6 @@ mod tests {
 
     #[test]
     fn test_ppo_simd_vs_regular_database_optional_outputs() {
-       
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -402,7 +398,7 @@ mod tests {
             {
                 // Get SIMD by assets result with optional outputs
                 let (simd_results_opt, _) =
-                    indicator_by_assets::<4>(&inputs, &options, Some(&[true, true]))
+                    Ppo::indicator_by_assets::<4>(&inputs, &options, Some(&[true, true]))
                         .expect("SIMD by assets PPO indicator with optional outputs failed");
 
                 // Compare each SIMD result with regular indicator for each stock
@@ -663,12 +659,8 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get PPO with short_ema optional output
                 let optional_outputs = Some(&[true, false][..]);
-                let (ppo_result, _) = Ppo::indicator(
-                    &[&close],
-                    &[options[0], options[1]],
-                    optional_outputs,
-                )
-                .unwrap();
+                let (ppo_result, _) =
+                    Ppo::indicator(&[&close], &[options[0], options[1]], optional_outputs).unwrap();
 
                 let rust_short_ema = &ppo_result[1];
 
@@ -743,12 +735,8 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get PPO with long_ema optional output
                 let optional_outputs = Some(&[false, true][..]);
-                let (ppo_result, _) = Ppo::indicator(
-                    &[&close],
-                    &[options[0], options[1]],
-                    optional_outputs,
-                )
-                .unwrap();
+                let (ppo_result, _) =
+                    Ppo::indicator(&[&close], &[options[0], options[1]], optional_outputs).unwrap();
 
                 let rust_long_ema = &ppo_result[2];
 
@@ -808,8 +796,6 @@ mod tests {
 
     #[test]
     fn test_ppo_simd_by_options_vs_regular_database() {
-       
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -824,7 +810,7 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Ppo::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD PPO 4-wide failed");
 
             // Use SIMD results directly
@@ -885,7 +871,6 @@ mod tests {
 
     #[test]
     fn test_ppo_simd_by_options_vs_regular_database_optional_outputs() {
-       
         const EPSILON: f64 = 1e-10;
 
         init_database_data();
@@ -906,7 +891,7 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, _) =
-                indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
+                Ppo::indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
                     .expect("SIMD PPO 4-wide with optional outputs failed");
 
             // Compare each SIMD result with regular indicator
@@ -979,5 +964,4 @@ mod tests {
             "✓ All SIMD by options vs Regular PPO database tests with optional outputs passed!"
         );
     }
-
-    }
+}

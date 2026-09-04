@@ -9,19 +9,19 @@ Three bands around a Simple Moving Average. `middle = SMA(real, period)`, `upper
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::smaenvelope::indicator;
+    use tulip_rs::indicators::smaenvelope::{SmaEnvelope, TIndicatorState, Indicator};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
     // options: [period, percentage]
-    let (outputs, _state) = indicator(&[close.as_slice()], &[14.0, 2.5], None).unwrap();
+    let (outputs, _state) = SmaEnvelope::indicator(&[close.as_slice()], &[14.0, 2.5], None).unwrap();
     println!("Lower:  {:?}", outputs[0]);
     println!("Middle: {:?}", outputs[1]);
     println!("Upper:  {:?}", outputs[2]);
 
     // State continuation
-    let (outputs2, mut state) = indicator(&[&close[..8]], &[14.0, 2.5], None).unwrap();
+    let (outputs2, mut state) = SmaEnvelope::indicator(&[&close[..8]], &[14.0, 2.5], None).unwrap();
     println!("Partial Lower:  {:?}", outputs2[0]);
     println!("Partial Middle: {:?}", outputs2[1]);
     println!("Partial Upper:  {:?}", outputs2[2]);
@@ -130,7 +130,7 @@ Three bands around a Simple Moving Average. `middle = SMA(real, period)`, `upper
     ];
 
     let results = indicator_by_assets::<4>(&inputs, &[14.0, 2.5], None).unwrap();
-    for (i, asset_outputs) in results.0.iter().enumerate() {
+    for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {} Lower:  {:?}", i + 1, asset_outputs[0]);
         println!("Asset {} Middle: {:?}", i + 1, asset_outputs[1]);
         println!("Asset {} Upper:  {:?}", i + 1, asset_outputs[2]);
@@ -153,7 +153,7 @@ Three bands around a Simple Moving Average. `middle = SMA(real, period)`, `upper
     ];
 
     let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
-    for (i, opt_outputs) in results.0.iter().enumerate() {
+    for (i, opt_outputs) in results.iter().enumerate() {
         println!("Option set {} Lower:  {:?}", i + 1, opt_outputs[0]);
         println!("Option set {} Middle: {:?}", i + 1, opt_outputs[1]);
         println!("Option set {} Upper:  {:?}", i + 1, opt_outputs[2]);

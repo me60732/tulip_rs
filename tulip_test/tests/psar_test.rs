@@ -1,10 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::psar::{
-        Psar, Indicator, indicator_by_assets, indicator_by_options,
-        TIndicatorState,
-    };
+    use tulip_rs::indicators::psar::{Indicator, IndicatorByOptions, Psar, TIndicatorState};
     use tulip_test::c_bindings::{ti_psar, ti_psar_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
     const EPSILON: f64 = 1e-12;
@@ -156,8 +153,8 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [high.as_slice(), low.as_slice()];
-                let (outputs, _) =
-                    Psar::indicator(&inputs_rust, &options, None).expect("Rust PSAR indicator failed");
+                let (outputs, _) = Psar::indicator(&inputs_rust, &options, None)
+                    .expect("Rust PSAR indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -317,7 +314,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = Psar::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets PSAR indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -396,7 +393,7 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Psar::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD PSAR 4-wide failed");
 
             // Use SIMD results directly
@@ -453,6 +450,4 @@ mod tests {
 
         println!("✓ All SIMD by options vs Regular PSAR database tests passed!");
     }
-
-
-    }
+}

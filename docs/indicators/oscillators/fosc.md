@@ -9,17 +9,17 @@ Measures the percentage difference between the current price and the linear regr
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::fosc::indicator;
+    use tulip_rs::indicators::fosc::{Fosc, TIndicatorState, Indicator};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
-    let (outputs, _state) = indicator(&[close.as_slice()], &[14.0], None).unwrap();
+    let (outputs, _state) = Fosc::indicator(&[close.as_slice()], &[14.0], None).unwrap();
     println!("FOSC(14): {:?}", outputs[0]);
 
     // State continuation
     let partial = close[..8].to_vec();
-    let (outputs2, mut state) = indicator(&[partial.as_slice()], &[14.0], None).unwrap();
+    let (outputs2, mut state) = Fosc::indicator(&[partial.as_slice()], &[14.0], None).unwrap();
     println!("Partial FOSC: {:?}", outputs2[0]);
 
     let new_close = close[8..].to_vec();
@@ -93,13 +93,13 @@ Measures the percentage difference between the current price and the linear regr
     `fosc` exposes 4 optional outputs: `tsf`, `linreg`, `linregslope`, `linregintercept`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::fosc::indicator;
+    use tulip_rs::indicators::fosc::{Fosc, TIndicatorState, Indicator};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
     let mask = [true, true, false, false]; // one per optional output
-    let (outputs, _state) = indicator(&[close.as_slice()], &[14.0], Some(&mask)).unwrap();
+    let (outputs, _state) = Fosc::indicator(&[close.as_slice()], &[14.0], Some(&mask)).unwrap();
 
     let fosc   = &outputs[0]; // fosc (primary)
     let tsf    = &outputs[1]; // tsf (optional — requested)
@@ -181,7 +181,7 @@ Measures the percentage difference between the current price and the linear regr
     ];
 
     let results = indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
-    for (i, asset_outputs) in results.0.iter().enumerate() {
+    for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
     ```
@@ -197,7 +197,7 @@ Measures the percentage difference between the current price and the linear regr
     let opts: [&[f64; 1]; 4] = [&[5.0], &[10.0], &[14.0], &[20.0]];
 
     let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
-    for (i, opt_outputs) in results.0.iter().enumerate() {
+    for (i, opt_outputs) in results.iter().enumerate() {
         println!("Period set {}: {:?}", i + 1, opt_outputs[0]);
     }
     ```

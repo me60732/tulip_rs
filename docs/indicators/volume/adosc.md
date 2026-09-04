@@ -9,7 +9,7 @@ The difference between a short and long EMA of the A/D line, used to confirm pri
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::adosc::indicator;
+    use tulip_rs::indicators::adosc::{Adosc, Indicator, TIndicatorState};
 
     let high   = vec![82.15, 81.89, 83.03, 83.30, 83.85,
                       83.90, 83.33, 84.30, 84.84, 85.00_f64];
@@ -22,14 +22,21 @@ The difference between a short and long EMA of the A/D line, used to confirm pri
 
     // options: [short_period, long_period]
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice(), volume.as_slice()];
-    let (outputs, mut state) = indicator(&inputs, &[3.0, 10.0], None).unwrap();
+    let (outputs, mut state) = Adosc::indicator(&inputs, &[3.0, 10.0], None).unwrap();
     println!("{:?}", outputs[0]); // ADOSC values
 
     // State continuation — feed new bars without reprocessing history
-    let new_high   = vec![85.20_f64];
-    let new_low    = vec![84.50_f64];
-    let new_close  = vec![85.00_f64];
-    let new_volume = vec![1550.0_f64];
+    let partial_high   = high[..8].to_vec();
+    let partial_low    = low[..8].to_vec();
+    let partial_close  = close[..8].to_vec();
+    let partial_volume = volume[..8].to_vec();
+    let (outputs2, mut state) = Adosc::indicator(&[partial_high.as_slice(), partial_low.as_slice(), partial_close.as_slice(), partial_volume.as_slice()], &[3.0, 10.0], None).unwrap();
+    println!("{:?}", outputs2[0]);
+
+    let new_high   = vec![85.90_f64];
+    let new_low    = vec![84.03_f64];
+    let new_close  = vec![85.53_f64];
+    let new_volume = vec![1520.0_f64];
     let continued = state.batch_indicator(
         &[new_high.as_slice(), new_low.as_slice(),
           new_close.as_slice(), new_volume.as_slice()],
@@ -118,7 +125,7 @@ The difference between a short and long EMA of the A/D line, used to confirm pri
     `adosc` exposes 3 optional outputs: `short_ema`, `long_ema`, `ad`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::adosc::indicator;
+    use tulip_rs::indicators::adosc::{Adosc, Indicator, TIndicatorState};
 
     let close  = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
     let high   = close.iter().map(|x| x + 1.0).collect::<Vec<_>>();
@@ -126,7 +133,7 @@ The difference between a short and long EMA of the A/D line, used to confirm pri
     let volume = vec![10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0, 11800.0, 10200.0_f64];
 
     let mask = [true, false, true];
-    let (outputs, _state) = indicator(
+    let (outputs, _state) = Adosc::indicator(
         &[high.as_slice(), low.as_slice(), close.as_slice(), volume.as_slice()],
         &[6.0, 20.0],
         Some(&mask),

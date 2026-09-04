@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::fosc::indicator_by_options;
+    use tulip_rs::indicator_types::IndicatorByOptions;
     use tulip_rs::indicators::fosc::{Fosc, Indicator, TIndicatorState};
     use tulip_test::c_bindings::{
         ti_fosc, ti_fosc_start, ti_linreg, ti_linreg_start, ti_linregintercept,
@@ -147,8 +147,8 @@ mod tests {
 
                 // Rust implementation
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) =
-                    Fosc::indicator(&inputs_rust, &options, None).expect("Rust FOSC indicator failed");
+                let (outputs, _) = Fosc::indicator(&inputs_rust, &options, None)
+                    .expect("Rust FOSC indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -214,8 +214,8 @@ mod tests {
                 let inputs_rust = [close.as_slice()];
 
                 // Get full output from processing all data at once
-                let (full_outputs, _) =
-                    Fosc::indicator(&inputs_rust, &options, None).expect("Rust FOSC indicator failed");
+                let (full_outputs, _) = Fosc::indicator(&inputs_rust, &options, None)
+                    .expect("Rust FOSC indicator failed");
 
                 // Process data in batches and accumulate outputs
                 let mut batch_full_output = Vec::new();
@@ -605,8 +605,6 @@ mod tests {
 
     #[test]
     fn test_fosc_simd_vs_regular_database() {
-        use tulip_rs::indicators::fosc::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -629,7 +627,7 @@ mod tests {
             // Test without optional outputs
             {
                 // Get SIMD by assets result
-                let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+                let (simd_results, _) = Fosc::indicator_by_assets::<4>(&inputs, &options, None)
                     .expect("SIMD by assets FOSC indicator failed");
 
                 // Compare each SIMD result with regular indicator for each stock
@@ -699,8 +697,6 @@ mod tests {
 
     #[test]
     fn test_fosc_simd_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::fosc::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -723,9 +719,12 @@ mod tests {
             // Test with optional outputs
             {
                 // Get SIMD by assets result with optional outputs
-                let (simd_results_opt, _) =
-                    indicator_by_assets::<4>(&inputs, &options, Some(&[true, true, true, true]))
-                        .expect("SIMD by assets FOSC indicator with optional outputs failed");
+                let (simd_results_opt, _) = Fosc::indicator_by_assets::<4>(
+                    &inputs,
+                    &options,
+                    Some(&[true, true, true, true]),
+                )
+                .expect("SIMD by assets FOSC indicator with optional outputs failed");
 
                 // Compare each SIMD result with regular indicator for each stock
                 for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
@@ -801,7 +800,7 @@ mod tests {
     #[test]
     //#[cfg(feature = "simd_assets")]
     fn test_fosc_simd_to_batch_state_handover() {
-        use tulip_rs::indicators::fosc::by_assets::indicator as fosc_simd_by_assets;
+        use tulip_rs::indicators::fosc::Fosc;
 
         init_database_data();
         let data = get_all_stock_data().unwrap();
@@ -841,7 +840,7 @@ mod tests {
         ];
 
         let (simd_results, mut simd_states) =
-            fosc_simd_by_assets::<4>(&first_inputs, &options, None)
+            Fosc::indicator_by_assets::<4>(&first_inputs, &options, None)
                 .expect("SIMD FOSC failed on first chunk");
 
         // Process remainder with batch_indicator for each stock
@@ -859,9 +858,8 @@ mod tests {
 
             // Compare with full regular calculation
             let full_inputs = [stock_data_vec[stock_idx].as_slice()];
-            let (regular_results, _) =
-                Fosc::indicator(&full_inputs, &options, None)
-                    .expect("Regular FOSC failed on full data");
+            let (regular_results, _) = Fosc::indicator(&full_inputs, &options, None)
+                .expect("Regular FOSC failed on full data");
 
             // Verify lengths match
             assert_eq!(
@@ -908,12 +906,8 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get FOSC with tsf optional output
                 let optional_outputs = Some(&[true, false, false, false][..]);
-                let (fosc_result, _) = Fosc::indicator(
-                    &[&close],
-                    &[options[0]],
-                    optional_outputs,
-                )
-                .unwrap();
+                let (fosc_result, _) =
+                    Fosc::indicator(&[&close], &[options[0]], optional_outputs).unwrap();
 
                 let rust_tsf = &fosc_result[1];
 
@@ -988,12 +982,8 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get FOSC with linreg optional output
                 let optional_outputs = Some(&[false, true, false, false][..]);
-                let (fosc_result, _) = Fosc::indicator(
-                    &[&close],
-                    &[options[0]],
-                    optional_outputs,
-                )
-                .unwrap();
+                let (fosc_result, _) =
+                    Fosc::indicator(&[&close], &[options[0]], optional_outputs).unwrap();
 
                 let rust_linreg = &fosc_result[2];
 
@@ -1071,12 +1061,8 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get FOSC with slope optional output
                 let optional_outputs = Some(&[false, false, true, false][..]);
-                let (fosc_result, _) = Fosc::indicator(
-                    &[&close],
-                    &[options[0]],
-                    optional_outputs,
-                )
-                .unwrap();
+                let (fosc_result, _) =
+                    Fosc::indicator(&[&close], &[options[0]], optional_outputs).unwrap();
 
                 let rust_slope = &fosc_result[3];
 
@@ -1154,12 +1140,8 @@ mod tests {
             for &options in &OPTIONS_LIST {
                 // Get FOSC with both slope and intercept optional outputs
                 let optional_outputs = Some(&[false, false, true, true][..]);
-                let (fosc_result, _) = Fosc::indicator(
-                    &[&close],
-                    &[options[0]],
-                    optional_outputs,
-                )
-                .unwrap();
+                let (fosc_result, _) =
+                    Fosc::indicator(&[&close], &[options[0]], optional_outputs).unwrap();
 
                 let rust_slope = &fosc_result[3];
                 let rust_intercept = &fosc_result[4];
@@ -1244,7 +1226,7 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Fosc::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD FOSC 4-wide failed");
 
             // Use SIMD results directly
@@ -1323,7 +1305,7 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, _) =
-                indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
+                Fosc::indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
                     .expect("SIMD FOSC 4-wide with optional outputs failed");
 
             // Use SIMD results directly
@@ -1561,5 +1543,4 @@ mod tests {
             "✓ All SIMD by options vs Regular FOSC database tests with optional outputs passed!"
         );
     }
-
-    }
+}

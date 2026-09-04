@@ -146,7 +146,8 @@ fn bench_rust_ao(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust AO", |b| {
             b.iter(|| {
-                let result = Ao::indicator(&inputs, &OPTIONS, None).expect("Rust AO indicator failed");
+                let result =
+                    Ao::indicator(&inputs, &OPTIONS, None).expect("Rust AO indicator failed");
                 black_box(&result);
             });
         });
@@ -395,9 +396,8 @@ fn bench_rust_ao_simd_by_assets(c: &mut Criterion) {
         let mut timing = TimingMeasurements::new();
         timing.measure(
             || {
-                let result =
-                    tulip_rs::indicators::ao::indicator_by_assets::<4>(&inputs, &OPTIONS, None)
-                        .expect("Rust SIMD by assets AO indicator failed");
+                let result = Ao::indicator_by_assets::<4>(&inputs, &OPTIONS, None)
+                    .expect("Rust SIMD by assets AO indicator failed");
                 black_box(&result);
             },
             SAMPLE_SIZE,
@@ -425,9 +425,8 @@ fn bench_rust_ao_simd_by_assets(c: &mut Criterion) {
 
         c.bench_function("SIMD by assets AO", |b| {
             b.iter(|| {
-                let result =
-                    tulip_rs::indicators::ao::indicator_by_assets::<4>(&inputs, &OPTIONS, None)
-                        .expect("Rust SIMD by assets AO indicator failed");
+                let result = Ao::indicator_by_assets::<4>(&inputs, &OPTIONS, None)
+                    .expect("Rust SIMD by assets AO indicator failed");
                 black_box(&result);
             });
         });

@@ -246,8 +246,8 @@ mod tests {
 
             if open.len() <= min_data_val {
                 // If data is too small, just run full calculation
-                let (outputs, _) =
-                    Bop::indicator(&inputs_rust, &options, None).expect("Failed to run BOP indicator");
+                let (outputs, _) = Bop::indicator(&inputs_rust, &options, None)
+                    .expect("Failed to run BOP indicator");
                 batch_full_output.extend_from_slice(&outputs[0]);
             } else {
                 // First chunk - convert to Vec<&Vec<f64>>
@@ -354,8 +354,6 @@ mod tests {
 
     #[test]
     fn test_bop_simd_vs_regular_database() {
-        use tulip_rs::indicators::bop::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -400,7 +398,7 @@ mod tests {
         // Test without optional outputs (BOP doesn't have optional outputs)
         {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &OPTIONS, None)
+            let (simd_results, _) = Bop::indicator_by_assets::<4>(&inputs, &OPTIONS, None)
                 .expect("SIMD by assets BOP indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -414,8 +412,8 @@ mod tests {
                     stock_low.as_slice(),
                     stock_close.as_slice(),
                 ];
-                let (regular_results, _) =
-                    Bop::indicator(&stock_inputs, &OPTIONS, None).expect("Regular BOP indicator failed");
+                let (regular_results, _) = Bop::indicator(&stock_inputs, &OPTIONS, None)
+                    .expect("Regular BOP indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];
@@ -468,5 +466,4 @@ mod tests {
 
         println!("✓ All SIMD by assets vs Regular BOP database tests passed!");
     }
-
-    }
+}

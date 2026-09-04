@@ -1,8 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::rsi::indicator_by_assets;
-    use tulip_rs::indicators::rsi::{Rsi, Indicator, TIndicatorState};
+    use tulip_rs::indicators::rsi::{Indicator, IndicatorByOptions, Rsi, TIndicatorState};
     use tulip_test::c_bindings::{ti_rsi, ti_rsi_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
     const EPSILON: f64 = 1e-8;
@@ -140,8 +139,8 @@ mod tests {
                 assert_eq!(ret, 0, "ti_rsi returned error code {}", ret);
 
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) =
-                    Rsi::indicator(&inputs_rust, &options, None).expect("Rust RSI indicator failed");
+                let (outputs, _) = Rsi::indicator(&inputs_rust, &options, None)
+                    .expect("Rust RSI indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -292,7 +291,7 @@ mod tests {
             ];
 
             // Run SIMD implementation
-            let (simd_outputs, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_outputs, _) = Rsi::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD RSI indicator failed");
 
             // Run regular implementation for comparison
@@ -380,7 +379,7 @@ mod tests {
                 ];
 
                 // Run SIMD implementation
-                let (simd_outputs, _) = indicator_by_assets::<4>(&inputs, &options, None)
+                let (simd_outputs, _) = Rsi::indicator_by_assets::<4>(&inputs, &options, None)
                     .expect("SIMD RSI indicator failed");
 
                 // Compare each asset's SIMD output with its regular output
@@ -433,8 +432,6 @@ mod tests {
 
     #[test]
     fn test_rsi_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::rsi::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -449,12 +446,12 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Rsi::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD RSI 4-wide failed");
 
             // Process remaining 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
-            let (simd_results_2, _) = indicator_by_options::<2>(&inputs, &options_2, None)
+            let (simd_results_2, _) = Rsi::indicator_by_options::<2>(&inputs, &options_2, None)
                 .expect("SIMD RSI 2-wide failed");
 
             // Combine SIMD results
@@ -526,5 +523,4 @@ mod tests {
     fn get_close_array(stock_data: &[tulip_test::database::EodData]) -> Vec<f64> {
         stock_data.iter().map(|d| d.close).collect()
     }
-
-    }
+}

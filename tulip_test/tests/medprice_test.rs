@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::medprice::{
-        indicator_by_assets, Indicator, Medprice, TIndicatorState,
-    };
+    use tulip_rs::indicator_types::TIndicatorState;
+    use tulip_rs::indicators::medprice::{Indicator, Medprice};
+    use tulip_rs::indicators::simd_indicators::medprice_simd::indicator_by_assets;
     use tulip_test::c_bindings::{ti_medprice, ti_medprice_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 

@@ -37,19 +37,13 @@
 //! fundamentally different algorithms that share the same name.
 
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
+
 use crate::indicators::homodynediscriminator;
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
-
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::instantaneoustrendline_simd::indicator_by_assets;
-
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    pub use crate::indicators::simd_indicators::instantaneoustrendline_simd::indicator_by_assets as indicator;
-}
 
 /// Number of input price series required by this indicator.
 pub const INPUTS: usize = 1;
@@ -57,7 +51,6 @@ pub const INPUTS: usize = 1;
 /// Number of option parameters required by this indicator.
 /// Zero — the IT is fully adaptive via the embedded Homodyne Discriminator.
 pub const OPTIONS: usize = 0;
-
 
 /// Per-bar state for the Ehlers Instantaneous Trendline.
 ///
@@ -117,20 +110,23 @@ impl State<Cold> {
         alpha_line: &mut [f64],
     ) -> State<Warm> {
         let hd = homodynediscriminator::State::init_state(real);
-    
+
         // Seed IIR from the HD's price buffer — same values as the manual loop left behind:
         // price_buf[0]=real[21], [1]=real[20], [2]=real[19], [3]=real[18]
-        let it_prev2 =
-            (hd.price_buf[1] + 2.0 * hd.price_buf[2] + hd.price_buf[3]) / 4.0;
-        let it_prev =
-            (hd.price_buf[0] + 2.0 * hd.price_buf[1] + hd.price_buf[2]) / 4.0;
-    
-        let mut state = State::<Warm> { hd, it_prev, it_prev2, alpha: 0.0 };
-    
+        let it_prev2 = (hd.price_buf[1] + 2.0 * hd.price_buf[2] + hd.price_buf[3]) / 4.0;
+        let it_prev = (hd.price_buf[0] + 2.0 * hd.price_buf[1] + hd.price_buf[2]) / 4.0;
+
+        let mut state = State::<Warm> {
+            hd,
+            it_prev,
+            it_prev2,
+            alpha: 0.0,
+        };
+
         // Bar 22 — first valid output
         let it = state.calc(real[22]);
         trendline_line[0] = it;
-    
+
         let (_, want_trigger, want_dc, want_alpha) =
             crate::calc_want_flags!(trigger_line, dc_period_line, alpha_line);
         crate::store_optional_outputs!(0,
@@ -138,14 +134,14 @@ impl State<Cold> {
             want_dc,      dc_period_line => state.hd.smooth_period,
             want_alpha,   alpha_line     => state.alpha
         );
-    
+
         state
     }
 }
 impl TState for State<Cold> {
     type Inputs<'a> = f64;
     type Outputs = f64;
-    
+
     #[inline(always)]
     fn calc<'a>(&mut self, price: Self::Inputs<'a>) -> Self::Outputs {
         self.hd.calc(price);
@@ -220,7 +216,6 @@ impl Default for State {
     }
 }
 pub type IndicatorState = State<Warm>;
-
 
 impl TIndicatorState<INPUTS> for IndicatorState {
     fn batch_indicator(
@@ -315,7 +310,7 @@ impl Indicator<INPUTS, OPTIONS> for InstantaneousTrendline {
         validate_inputs(inputs, Self::min_data(options))?;
         let real = inputs[0];
         let capacity = Self::output_length(real.len(), options);
-    
+
         let mut trendline_line = crate::uninit_vec!(f64, capacity);
         let (mut trigger_line, mut dc_period_line, mut alpha_line) = crate::init_optional_outputs!(
             optional_outputs, &[false, false, false],
@@ -323,7 +318,7 @@ impl Indicator<INPUTS, OPTIONS> for InstantaneousTrendline {
             dc_period_line: capacity,
             alpha_line: capacity
         );
-    
+
         let mut state = State::init_state(
             real,
             &mut trendline_line,
@@ -331,12 +326,12 @@ impl Indicator<INPUTS, OPTIONS> for InstantaneousTrendline {
             &mut dc_period_line,
             &mut alpha_line,
         );
-    
+
         // cycle processes bars min_data..len and writes to output[1..].
         let real_tail = &real[Self::min_data(options)..];
         let (_, want_trigger, want_dc, want_alpha) =
             crate::calc_want_flags!(trigger_line, dc_period_line, alpha_line);
-    
+
         let trigger_tail = if want_trigger {
             &mut trigger_line[1..]
         } else {
@@ -352,7 +347,7 @@ impl Indicator<INPUTS, OPTIONS> for InstantaneousTrendline {
         } else {
             &mut alpha_line[..]
         };
-    
+
         cycle(
             real_tail,
             &mut state,
@@ -361,14 +356,26 @@ impl Indicator<INPUTS, OPTIONS> for InstantaneousTrendline {
             dc_tail,
             alpha_tail,
         );
-    
+
         Ok((
             vec![trendline_line, trigger_line, dc_period_line, alpha_line],
             state,
         ))
     }
-}
 
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::instantaneoustrendline_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
 
 /// Core calculation loop for the Instantaneous Trendline.
 ///
@@ -386,7 +393,7 @@ fn cycle(
         crate::calc_want_flags!(trigger_line, dc_period_line, alpha_line);
 
     for i in 0..real.len() {
-        let it = state.calc( unsafe { *real.get_unchecked(i) } );
+        let it = state.calc(unsafe { *real.get_unchecked(i) });
 
         unsafe {
             *trendline_line.get_unchecked_mut(i) = it;

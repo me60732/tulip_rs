@@ -225,8 +225,8 @@ mod tests {
 
             if high.len() <= min_data_val {
                 // If data is too small, just run full calculation
-                let (outputs, _) =
-                    Ao::indicator(&inputs_rust, &options, None).expect("Failed to run AO indicator");
+                let (outputs, _) = Ao::indicator(&inputs_rust, &options, None)
+                    .expect("Failed to run AO indicator");
                 batch_full_output.extend_from_slice(&outputs[0]);
             } else {
                 // First chunk - convert to Vec<&Vec<f64>>
@@ -859,8 +859,6 @@ mod tests {
 
     #[test]
     fn test_ao_simd_vs_regular_database() {
-        use tulip_rs::indicators::ao::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -885,15 +883,15 @@ mod tests {
         // Test without optional outputs
         {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &OPTIONS, None)
+            let (simd_results, _) = Ao::indicator_by_assets::<4>(&inputs, &OPTIONS, None)
                 .expect("SIMD by assets AO indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
             for (stock_idx, (stock_symbol, high, low)) in stock_data.iter().enumerate() {
                 // Get regular indicator result for this stock
                 let stock_inputs = [high.as_slice(), low.as_slice()];
-                let (regular_results, _) =
-                    Ao::indicator(&stock_inputs, &OPTIONS, None).expect("Regular AO indicator failed");
+                let (regular_results, _) = Ao::indicator(&stock_inputs, &OPTIONS, None)
+                    .expect("Regular AO indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];
@@ -954,8 +952,6 @@ mod tests {
 
     #[test]
     fn test_ao_simd_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::ao::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -981,7 +977,7 @@ mod tests {
         {
             // Get SIMD by assets result with optional outputs
             let (simd_results, _) =
-                indicator_by_assets::<4>(&inputs, &OPTIONS, Some(&[true, true, true]))
+                Ao::indicator_by_assets::<4>(&inputs, &OPTIONS, Some(&[true, true, true]))
                     .expect("SIMD by assets AO indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -1113,5 +1109,4 @@ mod tests {
     }
 
     //add test code here
-
-    }
+}

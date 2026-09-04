@@ -1,7 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::fisher::{
-    Fisher, Indicator, indicator_by_assets, indicator_by_options, TIndicatorState,
-};
+use tulip_rs::indicators::fisher::{Fisher, Indicator, IndicatorByOptions, TIndicatorState};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_fisher, ti_fisher_start};
@@ -150,7 +148,8 @@ fn bench_rust_fisher(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = Fisher::indicator(&[high.as_slice(), low.as_slice()], &options, None);
+                        let result =
+                            Fisher::indicator(&[high.as_slice(), low.as_slice()], &options, None);
                         black_box(&result);
                     },
                     SAMPLE_SIZE,
@@ -175,7 +174,8 @@ fn bench_rust_fisher(c: &mut Criterion) {
 
             group.bench_function("benchmark", |b| {
                 b.iter(|| {
-                    let result = Fisher::indicator(&[high.as_slice(), low.as_slice()], &options, None);
+                    let result =
+                        Fisher::indicator(&[high.as_slice(), low.as_slice()], &options, None);
                     black_box(&result);
                 });
             });
@@ -304,8 +304,9 @@ fn bench_rust_fisher_from_state(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let min_data = Fisher::min_data(&options);
             // First chunk
-            let (_, mut state) = Fisher::indicator(&[&high[..min_data], &low[..min_data]], &options, None)
-                .expect("Fisher indicator failed");
+            let (_, mut state) =
+                Fisher::indicator(&[&high[..min_data], &low[..min_data]], &options, None)
+                    .expect("Fisher indicator failed");
 
             let mut group =
                 c.benchmark_group(format!("Rust Fisher from state {{ {:.1} }}", options[0]));
@@ -386,7 +387,7 @@ fn bench_rust_fisher_simd_by_options(c: &mut Criterion) {
             timing.measure(
                 || {
                     // Process first 4 options with 4-wide SIMD
-                    let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                    let result = Fisher::indicator_by_options::<4>(&inputs, &options_4, None)
                         .expect("Rust SIMD Fisher indicator failed");
                     black_box(&result);
 
@@ -421,7 +422,7 @@ fn bench_rust_fisher_simd_by_options(c: &mut Criterion) {
         group.bench_function("Rust SIMD by options Fisher (4 lanes)", |b| {
             b.iter(|| {
                 // Process first 4 options with 4-wide SIMD
-                let result = indicator_by_options::<4>(&inputs, &options_4, None)
+                let result = Fisher::indicator_by_options::<4>(&inputs, &options_4, None)
                     .expect("Rust SIMD Fisher indicator failed");
                 black_box(&result);
             });
@@ -430,7 +431,7 @@ fn bench_rust_fisher_simd_by_options(c: &mut Criterion) {
         /*group.bench_function("Rust SIMD by options Fisher (2 lanes)", |b| {
             b.iter(|| {
                 // Process remaining 2 options with 2-wide SIMD
-                let result = tulip_rs::indicators::nightly::fisher_simd::indicator_by_options::<2>(
+                let result = Fisher::indicator_by_options::<2>(
                     &inputs, &options_2, None,
                 )
                 .expect("Rust SIMD Fisher indicator failed");
@@ -480,7 +481,7 @@ fn bench_rust_fisher_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = indicator_by_assets::<4>(&inputs, &options, None);
+                    let result = Fisher::indicator_by_assets::<4>(&inputs, &options, None);
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -514,7 +515,7 @@ fn bench_rust_fisher_simd_by_assets(c: &mut Criterion) {
                 format!("Rust SIMD by assets Fisher {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = indicator_by_assets::<4>(&inputs, &options, None)
+                        let result = Fisher::indicator_by_assets::<4>(&inputs, &options, None)
                             .expect("Rust SIMD by assets Fisher indicator failed");
                         black_box(&result);
                     });

@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::wad::{Wad, Indicator, TIndicatorState};
+    use tulip_rs::indicators::wad::{Indicator, TIndicatorState, Wad};
     use tulip_test::c_bindings::{ti_wad, ti_wad_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -63,7 +63,8 @@ mod tests {
 
         // Run the Rust implementation
         let inputs_rust = [high.as_slice(), low.as_slice(), close.as_slice()];
-        let (outputs, _) = Wad::indicator(&inputs_rust, &[], None).expect("Rust WAD indicator failed");
+        let (outputs, _) =
+            Wad::indicator(&inputs_rust, &[], None).expect("Rust WAD indicator failed");
 
         let output_len_rust = outputs[0].len();
 
@@ -280,8 +281,6 @@ mod tests {
 
     #[test]
     fn test_wad_simd_vs_regular_database() {
-        use tulip_rs::indicators::wad::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -321,7 +320,7 @@ mod tests {
 
         let options: [f64; 0] = [];
         // Get SIMD by assets result
-        let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+        let (simd_results, _) = Wad::indicator_by_assets::<4>(&inputs, &options, None)
             .expect("SIMD by assets WAD indicator failed");
 
         // Compare each SIMD result with regular indicator for each stock
@@ -334,8 +333,8 @@ mod tests {
                 stock_low.as_slice(),
                 stock_close.as_slice(),
             ];
-            let (regular_results, _) =
-                Wad::indicator(&stock_inputs, &options, None).expect("Regular WAD indicator failed");
+            let (regular_results, _) = Wad::indicator(&stock_inputs, &options, None)
+                .expect("Regular WAD indicator failed");
 
             let simd_result = &simd_results[stock_idx][0];
             let regular_result = &regular_results[0];
@@ -396,5 +395,4 @@ mod tests {
         let close: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
         (high, low, close)
     }
-
-    }
+}

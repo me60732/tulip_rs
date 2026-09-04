@@ -1,5 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::aroon::{Aroon, Indicator, TIndicatorState, IndicatorState};
+use tulip_rs::indicators::aroon::{
+    Aroon, Indicator, IndicatorByOptions, IndicatorState, TIndicatorState,
+};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 //const SAMPLE_SIZE: usize = 30000;
@@ -441,9 +443,7 @@ fn bench_rust_aroon_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = tulip_rs::indicators::aroon::indicator_by_assets::<4>(
-                        &inputs, &options, None,
-                    );
+                    let result = Aroon::indicator_by_assets::<4>(&inputs, &options, None);
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -477,10 +477,8 @@ fn bench_rust_aroon_simd_by_assets(c: &mut Criterion) {
                 format!("Rust SIMD by assets AROON {{ {} }}", options[0]),
                 |b| {
                     b.iter(|| {
-                        let result = tulip_rs::indicators::aroon::indicator_by_assets::<4>(
-                            &inputs, &options, None,
-                        )
-                        .expect("Rust SIMD by assets Aroon indicator failed");
+                        let result = Aroon::indicator_by_assets::<4>(&inputs, &options, None)
+                            .expect("Rust SIMD by assets Aroon indicator failed");
                         black_box(&result);
                     });
                 },
@@ -511,10 +509,8 @@ fn bench_rust_aroon_simd_by_options(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = tulip_rs::indicators::aroon::indicator_by_options::<4>(
-                        &inputs, &options_4, None,
-                    )
-                    .expect("Rust SIMD AROON indicator failed");
+                    let result = Aroon::indicator_by_options::<4>(&inputs, &options_4, None)
+                        .expect("Rust SIMD AROON indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -539,10 +535,8 @@ fn bench_rust_aroon_simd_by_options(c: &mut Criterion) {
 
         group.bench_function("Rust SIMD by options AROON (4 lanes)", |b| {
             b.iter(|| {
-                let result = tulip_rs::indicators::aroon::indicator_by_options::<4>(
-                    &inputs, &options_4, None,
-                )
-                .expect("Rust SIMD AROON indicator failed");
+                let result = Aroon::indicator_by_options::<4>(&inputs, &options_4, None)
+                    .expect("Rust SIMD AROON indicator failed");
                 black_box(&result);
             });
         });

@@ -1,9 +1,10 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
+    use tulip_rs::indicator_types::IndicatorByOptions;
     use tulip_rs::indicators::{
-        kvo::{Kvo, Indicator, TIndicatorState},
-        ema::Ema
+        ema::Ema,
+        kvo::{Indicator, Kvo, TIndicatorState},
     };
     use tulip_test::c_bindings::{ti_kvo, ti_kvo_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -189,8 +190,8 @@ mod tests {
                     close.as_slice(),
                     volume.as_slice(),
                 ];
-                let (outputs, _) =
-                    Kvo::indicator(&inputs_rust, &options, None).expect("Rust KVO indicator failed");
+                let (outputs, _) = Kvo::indicator(&inputs_rust, &options, None)
+                    .expect("Rust KVO indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -355,8 +356,6 @@ mod tests {
 
     #[test]
     fn test_kvo_simd_vs_regular_database() {
-        use tulip_rs::indicators::kvo::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -400,7 +399,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = Kvo::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets KVO indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -414,8 +413,8 @@ mod tests {
                     close.as_slice(),
                     volume.as_slice(),
                 ];
-                let (regular_results, _) =
-                    Kvo::indicator(&stock_inputs, &options, None).expect("Regular KVO indicator failed");
+                let (regular_results, _) = Kvo::indicator(&stock_inputs, &options, None)
+                    .expect("Regular KVO indicator failed");
 
                 let simd_result = &simd_results[stock_idx][0];
                 let regular_result = &regular_results[0];
@@ -476,8 +475,6 @@ mod tests {
 
     #[test]
     fn test_kvo_simd_vs_regular_database_optional_outputs() {
-        use tulip_rs::indicators::kvo::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -524,7 +521,7 @@ mod tests {
             {
                 // Get SIMD by assets result with optional outputs
                 let (simd_results_opt, _) =
-                    indicator_by_assets::<4>(&inputs, &options, Some(&[true, true]))
+                    Kvo::indicator_by_assets::<4>(&inputs, &options, Some(&[true, true]))
                         .expect("SIMD by assets KVO indicator with optional outputs failed");
 
                 // Compare each SIMD result with regular indicator for each stock
@@ -607,7 +604,6 @@ mod tests {
 
     #[test]
     fn test_kvo_optional_outputs_validation() {
-
         let high = HIGH.to_vec();
         let low = LOW.to_vec();
         let close = CLOSE.to_vec();
@@ -720,7 +716,6 @@ mod tests {
 
     #[test]
     fn test_kvo_optional_outputs_database_validation() {
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -751,11 +746,14 @@ mod tests {
 
                 let optional_outputs = Some([true, true].as_slice()); // Request both EMAs
 
-                let result =
-                    match Kvo::indicator(&inputs[..4].try_into().unwrap(), &options, optional_outputs) {
-                        Ok(result) => result,
-                        Err(_) => continue, // Skip if not enough data
-                    };
+                let result = match Kvo::indicator(
+                    &inputs[..4].try_into().unwrap(),
+                    &options,
+                    optional_outputs,
+                ) {
+                    Ok(result) => result,
+                    Err(_) => continue, // Skip if not enough data
+                };
 
                 let rust_short_ema = &result.0[1];
                 let rust_long_ema = &result.0[2];
@@ -880,8 +878,6 @@ mod tests {
 
     #[test]
     fn test_kvo_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::kvo::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -901,12 +897,12 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Kvo::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD KVO 4-wide failed");
 
             // Process next 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
-            let (simd_results_2, _) = indicator_by_options::<2>(&inputs, &options_2, None)
+            let (simd_results_2, _) = Kvo::indicator_by_options::<2>(&inputs, &options_2, None)
                 .expect("SIMD KVO 2-wide failed");
 
             // Process last option with regular indicator (as single lane)
@@ -998,8 +994,6 @@ mod tests {
 
     #[test]
     fn test_kvo_simd_by_options_optional_outputs() {
-        use tulip_rs::indicators::kvo::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -1020,18 +1014,19 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, _) =
-                indicator_by_options::<4>(&inputs, &options_4, Some(&[true, true]))
+                Kvo::indicator_by_options::<4>(&inputs, &options_4, Some(&[true, true]))
                     .expect("SIMD KVO 4-wide with optional outputs failed");
 
             // Process next 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
             let (simd_results_2, _) =
-                indicator_by_options::<2>(&inputs, &options_2, Some(&[true, true]))
+                Kvo::indicator_by_options::<2>(&inputs, &options_2, Some(&[true, true]))
                     .expect("SIMD KVO 2-wide with optional outputs failed");
 
             // Process last option with scalar indicator
-            let (simd_results_1, _) = Kvo::indicator(&inputs, &OPTIONS_LIST[6], Some(&[true, true]))
-                .expect("Scalar KVO with optional outputs failed for last option");
+            let (simd_results_1, _) =
+                Kvo::indicator(&inputs, &OPTIONS_LIST[6], Some(&[true, true]))
+                    .expect("Scalar KVO with optional outputs failed for last option");
 
             // Combine results
             let mut all_simd_results = Vec::new();
@@ -1076,5 +1071,4 @@ mod tests {
         }
         println!("✓ All SIMD by-options KVO optional output tests passed!");
     }
-
 }

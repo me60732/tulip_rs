@@ -9,7 +9,7 @@ Converts prices into a Gaussian normal distribution. Sharp moves in the Fisher v
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::fisher::indicator;
+    use tulip_rs::indicators::fisher::{Fisher, TIndicatorState, Indicator};
 
     let high = vec![82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
                     85.90, 86.58, 86.98, 88.00, 87.87_f64];
@@ -17,13 +17,13 @@ Converts prices into a Gaussian normal distribution. Sharp moves in the Fisher v
                     84.03, 85.39, 85.76, 87.17, 87.01_f64];
 
     let inputs = [high.as_slice(), low.as_slice()];
-    let (outputs, _state) = indicator(&inputs, &[10.0], None).unwrap();
+    let (outputs, _state) = Fisher::indicator(&inputs, &[10.0], None).unwrap();
     println!("Fisher:        {:?}", outputs[0]);
     println!("Fisher Signal: {:?}", outputs[1]);
 
     // State continuation
     let inputs2 = [&high[..10], &low[..10]];
-    let (outputs2, mut state) = indicator(&inputs2, &[10.0], None).unwrap();
+    let (outputs2, mut state) = Fisher::indicator(&inputs2, &[10.0], None).unwrap();
     println!("Partial Fisher: {:?}", outputs2[0]);
 
     let new_inputs = [&high[10..], &low[10..]];
@@ -120,7 +120,7 @@ Converts prices into a Gaussian normal distribution. Sharp moves in the Fisher v
     ];
 
     let results = indicator_by_assets::<4>(&inputs, &[10.0], None).unwrap();
-    for (i, asset_outputs) in results.0.iter().enumerate() {
+    for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {} Fisher:        {:?}", i + 1, asset_outputs[0]);
         println!("Asset {} Fisher Signal: {:?}", i + 1, asset_outputs[1]);
     }
@@ -139,7 +139,7 @@ Converts prices into a Gaussian normal distribution. Sharp moves in the Fisher v
     let opts: [&[f64; 1]; 4] = [&[5.0], &[10.0], &[14.0], &[20.0]];
     let inputs = [high.as_slice(), low.as_slice()];
     let results = indicator_by_options::<4>(&inputs, &opts, None).unwrap();
-    for (i, opt_outputs) in results.0.iter().enumerate() {
+    for (i, opt_outputs) in results.iter().enumerate() {
         println!("Option set {} Fisher:        {:?}", i + 1, opt_outputs[0]);
         println!("Option set {} Fisher Signal: {:?}", i + 1, opt_outputs[1]);
     }

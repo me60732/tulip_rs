@@ -1,5 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::vhf::{Vhf, Indicator, TIndicatorState, IndicatorState};
+use tulip_rs::indicators::vhf::{
+    Indicator, IndicatorByOptions, IndicatorState, TIndicatorState, Vhf,
+};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_vhf, ti_vhf_start};
@@ -143,7 +145,8 @@ fn bench_rust_vhf(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust VHF {{ {:.1} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result = Vhf::indicator(&inputs, &options, None).expect("VHF indicator failed");
+                    let result =
+                        Vhf::indicator(&inputs, &options, None).expect("VHF indicator failed");
                     black_box(&result);
                 });
             });
@@ -171,8 +174,8 @@ fn bench_rust_vhf_from_state(c: &mut Criterion) {
                         // First chunk
                         let chunk_inputs = [&close[..min_data_val]];
 
-                        let (_, mut state) =
-                            Vhf::indicator(&chunk_inputs, &options, None).expect("VHF indicator failed");
+                        let (_, mut state) = Vhf::indicator(&chunk_inputs, &options, None)
+                            .expect("VHF indicator failed");
 
                         // Chunks
                         let mut close_chunks = close[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -206,8 +209,8 @@ fn bench_rust_vhf_from_state(c: &mut Criterion) {
                     let new_close_vec = close[..close.len() - 1].to_vec();
                     let new_inputs = [new_close_vec.as_slice()];
                     let final_close_vec = close[close.len() - 1..].to_vec();
-                    let (_, mut state) =
-                        Vhf::indicator(&new_inputs, &options, None).expect("Rust VHF indicator failed");
+                    let (_, mut state) = Vhf::indicator(&new_inputs, &options, None)
+                        .expect("Rust VHF indicator failed");
 
                     let mut timing = TimingMeasurements::new();
                     timing.measure(
@@ -230,8 +233,8 @@ fn bench_rust_vhf_from_state(c: &mut Criterion) {
                     );
 
                     // --- Rust_FromState_1_Bar_json benchmark ---
-                    let (_, state) =
-                        Vhf::indicator(&new_inputs, &options, None).expect("Rust VHF indicator failed");
+                    let (_, state) = Vhf::indicator(&new_inputs, &options, None)
+                        .expect("Rust VHF indicator failed");
                     let json = serde_json::to_string(&state).expect("json failed");
 
                     let mut timing = TimingMeasurements::new();
@@ -274,8 +277,8 @@ fn bench_rust_vhf_from_state(c: &mut Criterion) {
                     // First chunk
                     let chunk_inputs = [&close_vec[..min_data_val]];
 
-                    let (_, mut state) =
-                        Vhf::indicator(&chunk_inputs, &options, None).expect("VHF indicator failed");
+                    let (_, mut state) = Vhf::indicator(&chunk_inputs, &options, None)
+                        .expect("VHF indicator failed");
 
                     // Chunks
                     let mut close_chunks = close_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -304,10 +307,8 @@ fn bench_rust_vhf_from_state(c: &mut Criterion) {
                 let (_, mut state) =
                     Vhf::indicator(&new_inputs, &options, None).expect("Rust VHF indicator failed");
 
-                let mut group = c.benchmark_group(format!(
-                    "Rust VHF from state 1 bar {{ {:.1} }}",
-                    options[0]
-                ));
+                let mut group =
+                    c.benchmark_group(format!("Rust VHF from state 1 bar {{ {:.1} }}", options[0]));
                 group.sample_size(SAMPLE_SIZE);
                 group.bench_function("benchmark", |b| {
                     b.iter(|| {
@@ -349,10 +350,8 @@ fn bench_rust_vhf_simd_by_assets(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = tulip_rs::indicators::vhf::indicator_by_assets::<4>(
-                        &inputs, &options, None,
-                    )
-                    .expect("Rust SIMD by assets VHF indicator failed");
+                    let result = Vhf::indicator_by_assets::<4>(&inputs, &options, None)
+                        .expect("Rust SIMD by assets VHF indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -377,18 +376,13 @@ fn bench_rust_vhf_simd_by_assets(c: &mut Criterion) {
         for options in OPTIONS_LIST {
             let mut group = c.benchmark_group("vhf_rust_simd_by_assets");
             group.sample_size(SAMPLE_SIZE);
-            group.bench_function(
-                format!("SIMD by assets VHF {{ {:.1} }}", options[0]),
-                |b| {
-                    b.iter(|| {
-                        let result = tulip_rs::indicators::vhf::indicator_by_assets::<4>(
-                            &inputs, &options, None,
-                        )
+            group.bench_function(format!("SIMD by assets VHF {{ {:.1} }}", options[0]), |b| {
+                b.iter(|| {
+                    let result = Vhf::indicator_by_assets::<4>(&inputs, &options, None)
                         .expect("Rust SIMD by assets VHF indicator failed");
-                        black_box(&result);
-                    });
-                },
-            );
+                    black_box(&result);
+                });
+            });
             group.finish();
         }
     }
@@ -417,10 +411,8 @@ fn bench_rust_vhf_simd_by_options(c: &mut Criterion) {
             let mut timing = TimingMeasurements::new();
             timing.measure(
                 || {
-                    let result = tulip_rs::indicators::vhf::indicator_by_options::<4>(
-                        &inputs, &options_4, None,
-                    )
-                    .expect("Rust SIMD by options VHF indicator failed");
+                    let result = Vhf::indicator_by_options::<4>(&inputs, &options_4, None)
+                        .expect("Rust SIMD by options VHF indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -445,9 +437,8 @@ fn bench_rust_vhf_simd_by_options(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("SIMD by options VHF (4 lanes)", |b| {
             b.iter(|| {
-                let result =
-                    tulip_rs::indicators::vhf::indicator_by_options::<4>(&inputs, &options_4, None)
-                        .expect("Rust SIMD by options VHF indicator failed");
+                let result = Vhf::indicator_by_options::<4>(&inputs, &options_4, None)
+                    .expect("Rust SIMD by options VHF indicator failed");
                 black_box(&result);
             });
         });

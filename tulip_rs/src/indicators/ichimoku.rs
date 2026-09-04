@@ -1,48 +1,19 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
+
 use crate::indicators::{
     max::State as MaxState,
     min::{Min, State as MinState},
 };
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
 pub const INPUTS: usize = 3;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 2;
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::ichimoku_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::ichimoku_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::ichimoku_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    /// See the parent module's [`super::indicator_by_options`] for full documentation.
-    pub use crate::indicators::simd_indicators::ichimoku_simd::indicator_by_options as indicator;
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
@@ -100,7 +71,7 @@ impl TIndicatorState<INPUTS> for IndicatorState {
                 &mut span_b_line,
             ),
         );
-    
+
         self.high.drain(..self.high.len() - self.periods.2 .1);
         self.low.drain(..self.low.len() - self.periods.2 .1);
 
@@ -114,7 +85,7 @@ impl TIndicatorState<INPUTS> for IndicatorState {
     }
 }
 #[derive(Serialize, Deserialize)]
-#[serde(bound="")]
+#[serde(bound = "")]
 pub struct State<S = Cold> {
     pub short_min_state: MinState<S>,
     pub short_max_state: MaxState<S>,
@@ -141,7 +112,11 @@ impl State {
     }
     pub fn init_state(
         (high, low): (&[f64], &[f64]),
-        (short_periods, long_periods, ultra_periods): ((usize, usize), (usize, usize), (usize, usize)),
+        (short_periods, long_periods, ultra_periods): (
+            (usize, usize),
+            (usize, usize),
+            (usize, usize),
+        ),
         out_vecs: (&mut [f64], &mut [f64], &mut [f64]),
     ) -> State<Warm> {
         let mut short_min_state = MinState::init_state(low, short_periods.1);
@@ -184,15 +159,16 @@ impl State {
     }
 }
 impl TState for State<Warm> {
-    type Inputs<'a> = (&'a[f64], &'a[f64], usize, ((usize, usize), (usize, usize), (usize, usize)));
+    type Inputs<'a> = (
+        &'a [f64],
+        &'a [f64],
+        usize,
+        ((usize, usize), (usize, usize), (usize, usize)),
+    );
     type Outputs = (f64, f64, f64, f64);
 
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        (high, low, i, periods): Self::Inputs<'a>,
-    ) -> Self::Outputs {
-
+    fn calc<'a>(&mut self, (high, low, i, periods): Self::Inputs<'a>) -> Self::Outputs {
         let long_min = self.long_min_state.calc((low, i, periods.2)).0;
         let medium_min = self.medium_min_state.calc((low, i, periods.1)).0;
         let short_min = self.short_min_state.calc((low, i, periods.0)).0;
@@ -209,10 +185,7 @@ impl TState for State<Warm> {
         (conversion, base, span_a, span_b)
     }
     #[inline(always)]
-    unsafe fn calc_unchecked(
-        &mut self,
-        inputs: Self::Inputs<'_>,
-    ) -> Self::Outputs {
+    unsafe fn calc_unchecked(&mut self, inputs: Self::Inputs<'_>) -> Self::Outputs {
         self.calc_chuncked_unchecked::<1, 4, 4>(inputs)
     }
 }
@@ -220,7 +193,12 @@ impl State<Warm> {
     #[inline(always)]
     pub unsafe fn calc_chuncked_unchecked<const CS: usize, const CM: usize, const CL: usize>(
         &mut self,
-        (high, low, i, periods): (&[f64], &[f64], usize, ((usize, usize), (usize, usize), (usize, usize))),
+        (high, low, i, periods): (
+            &[f64],
+            &[f64],
+            usize,
+            ((usize, usize), (usize, usize), (usize, usize)),
+        ),
     ) -> (f64, f64, f64, f64) {
         let long_min = self
             .long_min_state
@@ -279,9 +257,13 @@ fn cycle(
     (high, low): (&[f64], &[f64]),
     periods: ((usize, usize), (usize, usize), (usize, usize)),
     state: &mut State<Warm>,
-    (conversion_line, base_line, span_a_line, span_b_line): (&mut [f64], &mut [f64], &mut [f64], &mut [f64]),
+    (conversion_line, base_line, span_a_line, span_b_line): (
+        &mut [f64],
+        &mut [f64],
+        &mut [f64],
+        &mut [f64],
+    ),
 ) {
-
     for (j, i) in (periods.2 .1..high.len()).enumerate() {
         unsafe {
             (
@@ -397,7 +379,7 @@ impl Indicator<INPUTS, OPTIONS> for Ichimoku {
             )
         };
         cycle((high, low), periods, &mut state, outputs);
-       
+
         Ok((
             vec![
                 conversion_line,
@@ -408,5 +390,33 @@ impl Indicator<INPUTS, OPTIONS> for Ichimoku {
             ],
             IndicatorState::new(high, low, periods, state),
         ))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::ichimoku_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Ichimoku {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS],
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::ichimoku_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

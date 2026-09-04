@@ -1,8 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::mom::{Mom, Indicator, TIndicatorState};
-    use tulip_rs::indicators::mom::{indicator_by_assets, indicator_by_options};
+    use tulip_rs::indicators::mom::{Indicator, IndicatorByOptions, Mom, TIndicatorState};
     use tulip_test::c_bindings::{ti_mom, ti_mom_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -151,8 +150,8 @@ mod tests {
                 assert_eq!(ret, 0, "ti_mom returned error code {}", ret);
 
                 let inputs_rust = [close.as_slice()];
-                let (outputs, _) =
-                    Mom::indicator(&inputs_rust, &options, None).expect("Rust MOM indicator failed");
+                let (outputs, _) = Mom::indicator(&inputs_rust, &options, None)
+                    .expect("Rust MOM indicator failed");
 
                 let output_len_rust = outputs[0].len();
 
@@ -303,7 +302,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Run SIMD by assets implementation
-            let (simd_outputs, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_outputs, _) = Mom::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets MOM indicator failed");
 
             // Compare with individual Rust implementations
@@ -368,7 +367,7 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Mom::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD MOM 4-wide failed");
 
             // Process remaining 4 options with 4-wide SIMD
@@ -379,7 +378,7 @@ mod tests {
                 &OPTIONS_LIST[7],
             ];
             let (simd_results_4_second, _) =
-                indicator_by_options::<4>(&inputs, &options_4_second, None)
+                Mom::indicator_by_options::<4>(&inputs, &options_4_second, None)
                     .expect("SIMD MOM 4-wide second failed");
 
             // Combine SIMD results
@@ -445,5 +444,4 @@ mod tests {
     fn get_close_array(stock_data: &[tulip_test::database::EodData]) -> Vec<f64> {
         stock_data.iter().map(|d| d.close).collect()
     }
-
-    }
+}

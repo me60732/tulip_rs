@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use tulip_rs::indicators::elderray::{Elderray, Indicator, TIndicatorState, indicator_by_assets, indicator_by_options};
+    use tulip_rs::indicators::elderray::{
+        Elderray, Indicator, IndicatorByOptions, TIndicatorState,
+    };
     use tulip_rs::indicators::ema::Ema;
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -72,8 +74,8 @@ mod tests {
             .expect("Rust Elder-ray indicator failed");
 
             // Standalone Rust EMA on close (same code path)
-            let (ema_outputs, _) =
-                Ema::indicator(&[close.as_slice()], &options, None).expect("Rust EMA indicator failed");
+            let (ema_outputs, _) = Ema::indicator(&[close.as_slice()], &options, None)
+                .expect("Rust EMA indicator failed");
 
             let n = outputs[0].len();
 
@@ -306,7 +308,7 @@ mod tests {
             let asset3: [&[f64]; 3] = [&stock_data[3].1, &stock_data[3].2, &stock_data[3].3];
             let inputs_4: [&[&[f64]; 3]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs_4, &options, None)
+            let (simd_results, _) = Elderray::indicator_by_assets::<4>(&inputs_4, &options, None)
                 .expect("SIMD by-assets Elder-ray failed");
 
             for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
@@ -369,7 +371,7 @@ mod tests {
             let (high, low, close) = get_arrays(stock_data);
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
-            let (simd_results, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results, _) = Elderray::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD by-options Elder-ray failed");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
@@ -451,8 +453,9 @@ mod tests {
             ];
             let inputs_4: [&[&[f64]; 3]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-            let (simd_first, mut states) = indicator_by_assets::<4>(&inputs_4, &options, None)
-                .expect("SIMD by-assets failed on first chunk");
+            let (simd_first, mut states) =
+                Elderray::indicator_by_assets::<4>(&inputs_4, &options, None)
+                    .expect("SIMD by-assets failed on first chunk");
 
             for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
                 let mut batch_bull = simd_first[asset_idx][0].clone();
@@ -548,7 +551,7 @@ mod tests {
                 &close[..FIRST_CHUNK],
             ];
             let (simd_first, mut states) =
-                indicator_by_options::<4>(&first_inputs, &options_4, None)
+                Elderray::indicator_by_options::<4>(&first_inputs, &options_4, None)
                     .expect("SIMD by-options failed on first chunk");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
@@ -640,13 +643,15 @@ mod tests {
             let asset3: [&[f64]; 3] = [&stock_data[3].1, &stock_data[3].2, &stock_data[3].3];
             let inputs_4: [&[&[f64]; 3]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs_4, &options, Some(&[true]))
-                .expect("SIMD by-assets Elder-ray with optional outputs failed");
+            let (simd_results, _) =
+                Elderray::indicator_by_assets::<4>(&inputs_4, &options, Some(&[true]))
+                    .expect("SIMD by-assets Elder-ray with optional outputs failed");
 
             for (asset_idx, (stock_symbol, high, low, close)) in stock_data.iter().enumerate() {
                 let scalar_inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-                let (scalar_outputs, _) = Elderray::indicator(&scalar_inputs, &options, Some(&[true]))
-                    .expect("Scalar Elder-ray with optional outputs failed");
+                let (scalar_outputs, _) =
+                    Elderray::indicator(&scalar_inputs, &options, Some(&[true]))
+                        .expect("Scalar Elder-ray with optional outputs failed");
 
                 // Primary outputs: bull [0], bear [1]
                 for out_idx in 0..2 {
@@ -715,8 +720,9 @@ mod tests {
             let (high, low, close) = get_arrays(stock_data);
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
-            let (simd_results, _) = indicator_by_options::<4>(&inputs, &options_4, Some(&[true]))
-                .expect("SIMD by-options Elder-ray with optional outputs failed");
+            let (simd_results, _) =
+                Elderray::indicator_by_options::<4>(&inputs, &options_4, Some(&[true]))
+                    .expect("SIMD by-options Elder-ray with optional outputs failed");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
                 let (scalar_outputs, _) = Elderray::indicator(&inputs, options, Some(&[true]))
@@ -768,5 +774,4 @@ mod tests {
         }
         println!("✓ All SIMD by-options Elder-ray optional output tests passed!");
     }
-
-    }
+}

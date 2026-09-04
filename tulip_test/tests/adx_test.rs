@@ -1,8 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::adx::{indicator_by_assets, indicator_by_options};
-    use tulip_rs::indicators::adx::{Adx, Indicator, TIndicatorState};
+    use tulip_rs::indicators::adx::{Adx, Indicator, IndicatorByOptions, TIndicatorState};
     use tulip_test::c_bindings::{
         ti_adx, ti_adx_start, ti_atr, ti_atr_start, ti_dx, ti_dx_start, ti_tr, ti_tr_start,
     };
@@ -885,8 +884,9 @@ mod tests {
             ];
 
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, options, None)
-                .expect("SIMD by assets ADX indicator failed");
+            let (simd_results, _) =
+                <Adx as Indicator<3, 1>>::indicator_by_assets::<4>(&inputs, options, None)
+                    .expect("SIMD by assets ADX indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
             for (stock_idx, (stock_symbol, stock_high, stock_low, stock_close)) in
@@ -977,8 +977,12 @@ mod tests {
             ];
 
             // Get SIMD by assets result with optional DX output
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, options, optional_outputs)
-                .expect("SIMD by assets ADX indicator with optional DX failed");
+            let (simd_results, _) = <Adx as Indicator<3, 1>>::indicator_by_assets::<4>(
+                &inputs,
+                options,
+                optional_outputs,
+            )
+            .expect("SIMD by assets ADX indicator with optional DX failed");
 
             // Compare each SIMD result with regular indicator for each stock
             for (stock_idx, (stock_symbol, stock_high, stock_low, stock_close)) in
@@ -1084,8 +1088,12 @@ mod tests {
             ];
 
             // Get SIMD by assets result with optional ATR output
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, options, optional_outputs)
-                .expect("SIMD by assets ADX indicator with optional ATR failed");
+            let (simd_results, _) = <Adx as Indicator<3, 1>>::indicator_by_assets::<4>(
+                &inputs,
+                options,
+                optional_outputs,
+            )
+            .expect("SIMD by assets ADX indicator with optional ATR failed");
 
             // Compare each SIMD result with regular indicator for each stock
             for (stock_idx, (stock_symbol, stock_high, stock_low, stock_close)) in
@@ -1191,8 +1199,12 @@ mod tests {
             ];
 
             // Get SIMD by assets result with optional TR output
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, options, optional_outputs)
-                .expect("SIMD by assets ADX indicator with optional TR failed");
+            let (simd_results, _) = <Adx as Indicator<3, 1>>::indicator_by_assets::<4>(
+                &inputs,
+                options,
+                optional_outputs,
+            )
+            .expect("SIMD by assets ADX indicator with optional TR failed");
 
             // Compare each SIMD result with regular indicator for each stock
             for (stock_idx, (stock_symbol, stock_high, stock_low, stock_close)) in
@@ -1263,15 +1275,17 @@ mod tests {
             let (high, low, close) = get_hlc_arrays(stock_data);
             let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
 
-            // Process all 4 options with 4-wide SIMD
+            // Process first 4 options with 4-wide SIMD
             let options_4 = [
                 &OPTIONS_LIST[0],
                 &OPTIONS_LIST[1],
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
-                .expect("SIMD ADX 4-wide failed");
+            let (simd_results_4, _) = <Adx as IndicatorByOptions<3, 1>>::indicator_by_options::<4>(
+                &inputs, &options_4, None,
+            )
+            .expect("SIMD ADX 4-wide failed");
 
             // Use SIMD results directly
             let all_simd_results = simd_results_4;
@@ -1348,9 +1362,12 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) =
-                indicator_by_options::<4>(&inputs, &options_4, optional_outputs)
-                    .expect("SIMD ADX 4-wide with optional outputs failed");
+            let (simd_results_4, _) = <Adx as IndicatorByOptions<3, 1>>::indicator_by_options::<4>(
+                &inputs,
+                &options_4,
+                optional_outputs,
+            )
+            .expect("SIMD ADX 4-wide with optional outputs failed");
 
             // Use SIMD results directly
             let all_simd_results = simd_results_4;

@@ -1,6 +1,4 @@
-use tulip_rs::indicators::min::{
-    indicator_by_assets, indicator_by_options, Indicator, Min, TIndicatorState,
-};
+use tulip_rs::indicators::min::{Indicator, IndicatorByOptions, Min, TIndicatorState};
 
 const CLOSE: [f64; 20] = [
     4.3879, 4.3324, 4.3805, 4.4249, 4.2768, 4.2879, 4.5545, 4.6656, 4.5271, 4.3805, 4.4435, 4.4657,
@@ -52,7 +50,7 @@ fn main() {
     let asset3: [&[f64]; 1] = [&close];
     let inputs_4: [&[&[f64]; 1]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-    let (simd_asset_outputs, _) = match indicator_by_assets::<4>(&inputs_4, &options, None) {
+    let (simd_asset_outputs, _) = match Min::indicator_by_assets::<4>(&inputs_4, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -64,7 +62,7 @@ fn main() {
     /////////////////////// SIMD by-options: 1 asset, 4 option sets ///////////////////////
     let options_4 = [&[5.0], &[8.0], &[10.0], &[14.0]];
 
-    let (simd_option_outputs, _) = match indicator_by_options::<4>(&inputs, &options_4, None) {
+    let (simd_option_outputs, _) = match Min::indicator_by_options::<4>(&inputs, &options_4, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };

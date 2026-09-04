@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use tulip_rs::indicators::donchianchannel::{DonchianChannel, Indicator, TIndicatorState, indicator_by_assets, indicator_by_options};
+    use tulip_rs::indicators::donchianchannel::{
+        DonchianChannel, Indicator, IndicatorByOptions, TIndicatorState,
+    };
     use tulip_rs::indicators::max::Max;
     use tulip_rs::indicators::min::Min;
     use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -51,12 +53,12 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Reference: standalone Rust max on high
-            let (max_outputs, _) =
-                Max::indicator(&[high.as_slice()], &options, None).expect("Rust MAX indicator failed");
+            let (max_outputs, _) = Max::indicator(&[high.as_slice()], &options, None)
+                .expect("Rust MAX indicator failed");
 
             // Reference: standalone Rust min on low
-            let (min_outputs, _) =
-                Min::indicator(&[low.as_slice()], &options, None).expect("Rust MIN indicator failed");
+            let (min_outputs, _) = Min::indicator(&[low.as_slice()], &options, None)
+                .expect("Rust MIN indicator failed");
 
             // Donchian Channel
             let (outputs, _) =
@@ -127,8 +129,8 @@ mod tests {
                     .expect("Rust MAX indicator failed");
 
                 // Reference: standalone Rust min on low
-                let (min_outputs, _) =
-                    Min::indicator(&[low.as_slice()], &options, None).expect("Rust MIN indicator failed");
+                let (min_outputs, _) = Min::indicator(&[low.as_slice()], &options, None)
+                    .expect("Rust MIN indicator failed");
 
                 // Donchian Channel
                 let (outputs, _) =
@@ -293,8 +295,9 @@ mod tests {
             let asset3: [&[f64]; 2] = [&stock_data[3].1, &stock_data[3].2];
             let inputs_4: [&[&[f64]; 2]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs_4, &options, None)
-                .expect("SIMD by assets DC indicator failed");
+            let (simd_results, _) =
+                DonchianChannel::indicator_by_assets::<4>(&inputs_4, &options, None)
+                    .expect("SIMD by assets DC indicator failed");
 
             for (asset_idx, (stock_symbol, high, low)) in stock_data.iter().enumerate() {
                 let (min_outputs, _) =
@@ -354,8 +357,9 @@ mod tests {
             let (high, low) = get_arrays(stock_data);
             let inputs = [high.as_slice(), low.as_slice()];
 
-            let (simd_results, _) = indicator_by_options::<4>(&inputs, &options_4, None)
-                .expect("SIMD by options DC indicator failed");
+            let (simd_results, _) =
+                DonchianChannel::indicator_by_options::<4>(&inputs, &options_4, None)
+                    .expect("SIMD by options DC indicator failed");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
                 let (min_outputs, _) =
@@ -434,8 +438,9 @@ mod tests {
             ];
             let inputs_4: [&[&[f64]; 2]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-            let (simd_first, mut states) = indicator_by_assets::<4>(&inputs_4, &options, None)
-                .expect("SIMD by assets failed on first chunk");
+            let (simd_first, mut states) =
+                DonchianChannel::indicator_by_assets::<4>(&inputs_4, &options, None)
+                    .expect("SIMD by assets failed on first chunk");
 
             for (asset_idx, (stock_symbol, high, low)) in stock_data.iter().enumerate() {
                 let mut batch_lower = simd_first[asset_idx][0].clone();
@@ -519,7 +524,7 @@ mod tests {
 
             let first_inputs = [&high[..FIRST_CHUNK], &low[..FIRST_CHUNK]];
             let (simd_first, mut states) =
-                indicator_by_options::<4>(&first_inputs, &options_4, None)
+                DonchianChannel::indicator_by_options::<4>(&first_inputs, &options_4, None)
                     .expect("SIMD by options failed on first chunk");
 
             for (opt_idx, options) in OPTIONS_LIST.iter().enumerate() {
@@ -580,5 +585,4 @@ mod tests {
             }
         }
     }
-
-    }
+}

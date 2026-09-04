@@ -1,8 +1,9 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
+    use tulip_rs::indicator_types::IndicatorByOptions;
     use tulip_rs::indicators::smaenvelope::{
-        SmaEnvelope, Indicator, IndicatorState, TIndicatorState,
+        Indicator, IndicatorState, SmaEnvelope, TIndicatorState,
     };
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -46,8 +47,8 @@ mod tests {
 
         for options in OPTIONS_LIST {
             let inputs = [close.as_slice()];
-            let (outputs, _) =
-                SmaEnvelope::indicator(&inputs, &options, None).expect("SMA Envelope indicator failed");
+            let (outputs, _) = SmaEnvelope::indicator(&inputs, &options, None)
+                .expect("SMA Envelope indicator failed");
 
             assert_eq!(outputs.len(), 3, "expected 3 output bands");
 
@@ -258,8 +259,8 @@ mod tests {
             // Seed with exactly SmaEnvelope::min_data bars to obtain state
             let min = SmaEnvelope::min_data(&options);
             let chunk_inputs = [&close[..min]];
-            let (first_out, mut state) =
-                SmaEnvelope::indicator(&chunk_inputs, &options, None).expect("SMA Envelope seed failed");
+            let (first_out, mut state) = SmaEnvelope::indicator(&chunk_inputs, &options, None)
+                .expect("SMA Envelope seed failed");
 
             let mut batch_outputs: Vec<Vec<f64>> = vec![Vec::new(); 3];
             for band in 0..3 {
@@ -323,8 +324,8 @@ mod tests {
 
             // Seed up to seed_len bars to obtain initial state
             let chunk_inputs = [&close[..seed_len]];
-            let (first_out, state) =
-                SmaEnvelope::indicator(&chunk_inputs, &options, None).expect("SMA Envelope seed failed");
+            let (first_out, state) = SmaEnvelope::indicator(&chunk_inputs, &options, None)
+                .expect("SMA Envelope seed failed");
 
             let mut batch_outputs: Vec<Vec<f64>> = vec![Vec::new(); 3];
             for band in 0..3 {
@@ -441,8 +442,6 @@ mod tests {
     /// scalar `indicator` for each stock and every option set.
     #[test]
     fn test_smaenvelope_simd_by_assets_vs_regular_database() {
-        use tulip_rs::indicators::smaenvelope::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -463,7 +462,7 @@ mod tests {
         let output_names = ["Lower", "Middle", "Upper"];
 
         for options in OPTIONS_LIST {
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = SmaEnvelope::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by-assets SMA Envelope failed");
 
             for (stock_idx, (stock_symbol, stock_close)) in stock_data.iter().enumerate() {
@@ -528,8 +527,6 @@ mod tests {
     /// the scalar `indicator` for every stock and every option set.
     #[test]
     fn test_smaenvelope_simd_by_options_vs_regular_database() {
-        use tulip_rs::indicators::smaenvelope::indicator_by_options;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -545,12 +542,13 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results, _) = indicator_by_options::<4>(&inputs, &options_4, None)
-                .expect("SIMD by-options SMA Envelope failed");
+            let (simd_results, _) =
+                SmaEnvelope::indicator_by_options::<4>(&inputs, &options_4, None)
+                    .expect("SIMD by-options SMA Envelope failed");
 
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
-                let (regular_results, _) =
-                    SmaEnvelope::indicator(&inputs, options, None).expect("Scalar SMA Envelope failed");
+                let (regular_results, _) = SmaEnvelope::indicator(&inputs, options, None)
+                    .expect("Scalar SMA Envelope failed");
 
                 assert_eq!(
                     simd_results[idx].len(),
@@ -606,5 +604,4 @@ mod tests {
 
         println!("\u{2713} All SIMD by-options vs Regular SMA Envelope database tests passed!");
     }
-
-    }
+}

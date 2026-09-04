@@ -1,5 +1,7 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
 use crate::indicators::max::State as MaxState;
 use crate::indicators::min::State as MinState;
 use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
@@ -11,36 +13,6 @@ pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::vhf_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::vhf_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    pub use crate::indicators::simd_indicators::vhf_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    pub use crate::indicators::simd_indicators::vhf_simd::indicator_by_options as indicator;
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
@@ -70,7 +42,7 @@ impl TIndicatorState<1> for IndicatorState {
 
         let mut vhf_line = crate::uninit_vec!(f64, inputs[0].len());
         cycle(&self.real, self.period, &mut self.state, &mut vhf_line);
-        
+
         self.real.drain(..self.real.len() - self.period - 1);
         Ok(vec![vhf_line])
     }
@@ -89,10 +61,7 @@ impl TState for State<Warm> {
     type Inputs<'a> = (f64, (&'a [f64], usize, (usize, usize)));
     type Outputs = f64;
     #[inline(always)]
-    fn calc(
-        &mut self,
-        (value, inputs): Self::Inputs<'_>,
-    ) -> f64 {
+    fn calc(&mut self, (value, inputs): Self::Inputs<'_>) -> f64 {
         let new = (value - self.prev_real).abs();
         let old = self.buffer.push_with_info(new);
         self.sum += new - old;
@@ -108,7 +77,10 @@ impl TState for State<Warm> {
 }
 impl State<Warm> {
     #[inline(always)]
-    pub unsafe fn calc_chuncked_unchecked<const N: usize>(&mut self, (value, inputs): (f64, (&[f64], usize, (usize, usize)))) -> f64 {
+    pub unsafe fn calc_chuncked_unchecked<const N: usize>(
+        &mut self,
+        (value, inputs): (f64, (&[f64], usize, (usize, usize))),
+    ) -> f64 {
         let new = (value - self.prev_real).abs();
         let old = self.buffer.push_with_info(new);
         self.sum += new - old;
@@ -134,7 +106,7 @@ impl State<Cold> {
             buffer: Buffer::new(period),
         }
     }
-    
+
     pub fn init_state(real: &[f64], period: usize, indicator_line: &mut [f64]) -> State<Warm> {
         // trail = period forces full window scan on first calc()
         let mut min_state = MinState::new(real[0], period).into_warm();
@@ -142,7 +114,7 @@ impl State<Cold> {
         let mut sum = 0.0;
         let mut prev_real = real[0];
         let mut buffer = Buffer::new(period);
-    
+
         // Build sum and buffer FIRST, with abs diffs
         for i in 1..=period {
             let abs_diff = (real[i] - prev_real).abs();
@@ -150,15 +122,20 @@ impl State<Cold> {
             sum += abs_diff;
             prev_real = real[i];
         }
-    
+
         // THEN advance min/max states to i=period
         let min = min_state.calc((real, period, (period, period - 1))).0;
         let max = max_state.calc((real, period, (period, period - 1))).0;
-    
-        indicator_line[0] = (max - min) / sum.max(f64::EPSILON);
-        State { buffer: buffer.into_full(), min_state, max_state, prev_real, sum }
-    }
 
+        indicator_line[0] = (max - min) / sum.max(f64::EPSILON);
+        State {
+            buffer: buffer.into_full(),
+            min_state,
+            max_state,
+            prev_real,
+            sum,
+        }
+    }
 }
 
 /// Performs the main calculation loop for the VHF indicator.
@@ -169,12 +146,7 @@ impl State<Cold> {
 /// * `period` - The period for the VHF calculation.
 /// * `state` - A mutable reference to the current indicator state.
 /// * `indicator_line` - A mutable slice for storing the VHF output values.
-fn cycle(
-    real: &[f64],
-    period: usize,
-    state: &mut State<Warm>,
-    indicator_line: &mut [f64],
-) {
+fn cycle(real: &[f64], period: usize, state: &mut State<Warm>, indicator_line: &mut [f64]) {
     let periods = (period, period - 1);
 
     for (j, i) in (period + 1..real.len()).enumerate() {
@@ -229,7 +201,34 @@ impl Indicator<INPUTS, OPTIONS> for Vhf {
 
         cycle(real, period, &mut state, &mut vhf_line[1..]);
 
-
         Ok((vec![vhf_line], IndicatorState::new(state, real, period)))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::vhf_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Vhf {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::vhf_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

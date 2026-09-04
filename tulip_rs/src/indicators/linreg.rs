@@ -1,6 +1,8 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::{TIndicatorState, TState, Indicator, IndicatorResult};
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+pub use crate::indicator_types::{
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -8,39 +10,6 @@ pub const INPUTS: usize = 1;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
-
-/// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
-/// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-#[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::linreg_simd::indicator_by_assets;
-
-/// SIMD-parallel variant that processes a single asset with `N` different option
-/// sets simultaneously. Requires the `simd_options` Cargo feature. See [`by_options`].
-#[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::linreg_simd::indicator_by_options;
-
-/// Convenience module that re-exports [`indicator_by_assets`] as `indicator`,
-/// allowing SIMD multi-asset computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_assets` Cargo feature.
-#[cfg(feature = "simd_assets")]
-pub mod by_assets {
-    /// Processes `N` assets in parallel with shared options.
-    /// See the parent module's [`super::indicator_by_assets`] for full documentation.
-    pub use crate::indicators::simd_indicators::linreg_simd::indicator_by_assets as indicator;
-}
-
-/// Convenience module that re-exports [`indicator_by_options`] as `indicator`,
-/// allowing SIMD multi-option computation to be used as a drop-in replacement
-/// for the standard single-asset [`indicator`] function.
-/// Requires the `simd_options` Cargo feature.
-#[cfg(feature = "simd_options")]
-pub mod by_options {
-    /// Processes a single asset with `N` different option sets in parallel.
-    /// See the parent module's [`super::indicator_by_options`] for full documentation.
-    pub use crate::indicators::simd_indicators::linreg_simd::indicator_by_options as indicator;
-}
-
 
 #[derive(Serialize, Deserialize)]
 pub struct IndicatorState {
@@ -134,25 +103,25 @@ impl State<Cold> {
             state: std::marker::PhantomData,
         }
     }
-    
 }
 impl TState for State<Warm> {
     type Inputs<'a> = (f64, f64);
     type Outputs = (f64, f64, f64);
     #[inline(always)]
     fn calc<'a>(&mut self, (prev_value, value): Self::Inputs<'a>) -> Self::Outputs {
-        let (sum_x, mut sum_y, mut sum_xy, per, n) = (self.sum_x, self.sum_y, self.sum_xy, self.per, self.n);
-    
+        let (sum_x, mut sum_y, mut sum_xy, per, n) =
+            (self.sum_x, self.sum_y, self.sum_xy, self.per, self.n);
+
         sum_xy += value * n;
         sum_y += value;
-    
+
         let slope = (n * sum_xy - sum_x * sum_y) * per;
         let intercept = (sum_y - slope * sum_x) / n;
         let linreg = intercept + slope * n;
-    
+
         sum_xy -= sum_y;
         sum_y -= prev_value;
-    
+
         (self.sum_y, self.sum_xy) = (sum_y, sum_xy);
         (linreg, slope, intercept)
     }
@@ -191,8 +160,6 @@ fn cycle_linreg(
         }
     }
 }
-
-
 
 /// Calculates the multiplier for the LINREG calculation.
 #[inline]
@@ -238,7 +205,7 @@ impl Indicator<INPUTS, OPTIONS> for Linreg {
     ) -> IndicatorResult<Self::IndicatorState> {
         validate_options(options)?;
         let period = options[0] as usize;
-    
+
         validate_inputs(inputs, Self::min_data(options))?;
         let real = inputs[0];
         let (mut linreg_line, mut slope_line, mut intercept_line);
@@ -260,10 +227,38 @@ impl Indicator<INPUTS, OPTIONS> for Linreg {
             &mut linreg_line,
             (&mut slope_line, &mut intercept_line),
         );
-    
+
         Ok((
             vec![linreg_line, slope_line, intercept_line],
             IndicatorState::new(state, real, period),
         ))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::linreg_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Linreg {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS],
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::linreg_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::wad::{Wad, Indicator, IndicatorState, TIndicatorState};
+use tulip_rs::indicators::wad::{Indicator, IndicatorState, TIndicatorState, Wad};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_wad, ti_wad_start};
@@ -167,7 +167,8 @@ fn bench_rust_wad(c: &mut Criterion) {
         group.sample_size(SAMPLE_SIZE);
         group.bench_function("Rust WAD", |b| {
             b.iter(|| {
-                let result = Wad::indicator(&inputs, &OPTIONS, None).expect("Rust WAD indicator failed");
+                let result =
+                    Wad::indicator(&inputs, &OPTIONS, None).expect("Rust WAD indicator failed");
                 black_box(&result);
             });
         });
@@ -200,8 +201,8 @@ fn bench_rust_wad_from_state(c: &mut Criterion) {
                         &close_vec[..min_data_val],
                     ];
 
-                    let (_, mut state) =
-                        Wad::indicator(&chunk_inputs, &OPTIONS, None).expect("WAD indicator failed");
+                    let (_, mut state) = Wad::indicator(&chunk_inputs, &OPTIONS, None)
+                        .expect("WAD indicator failed");
 
                     // Chunks
                     let mut high_chunks = high_vec[min_data_val..].chunks_exact(CHUNK_SIZE);
@@ -432,9 +433,8 @@ fn bench_rust_wad_simd_by_assets(c: &mut Criterion) {
         let mut timing = TimingMeasurements::new();
         timing.measure(
             || {
-                let result =
-                    tulip_rs::indicators::wad::indicator_by_assets::<4>(&inputs, &OPTIONS, None)
-                        .expect("Rust SIMD by assets WAD indicator failed");
+                let result = Wad::indicator_by_assets::<4>(&inputs, &OPTIONS, None)
+                    .expect("Rust SIMD by assets WAD indicator failed");
                 black_box(&result);
             },
             SAMPLE_SIZE,
@@ -462,11 +462,10 @@ fn bench_rust_wad_simd_by_assets(c: &mut Criterion) {
 
         let mut group = c.benchmark_group("wad_rust_simd_by_assets");
         group.sample_size(SAMPLE_SIZE);
-        group.bench_function("Rust SIMD by assets WAD", |b| {
+        group.bench_function("SIMD by assets WAD", |b| {
             b.iter(|| {
-                let result =
-                    tulip_rs::indicators::wad::indicator_by_assets::<4>(&inputs, &OPTIONS, None)
-                        .expect("Rust SIMD by assets WAD indicator failed");
+                let result = Wad::indicator_by_assets::<4>(&inputs, &OPTIONS, None)
+                    .expect("Rust SIMD by assets WAD indicator failed");
                 black_box(&result);
             });
         });

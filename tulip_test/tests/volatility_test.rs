@@ -1,10 +1,8 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::volatility::indicator_by_options;
-    use tulip_rs::indicators::volatility::{
-        Volatility, Indicator, TIndicatorState,
-    };
+    use tulip_rs::indicator_types::IndicatorByOptions;
+    use tulip_rs::indicators::volatility::{Indicator, TIndicatorState, Volatility};
     use tulip_test::c_bindings::{ti_volatility, ti_volatility_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
     const EPSILON: f64 = 1e-8;
@@ -227,8 +225,9 @@ mod tests {
                 let close_vec = close[..min_data_val].to_vec();
                 let chunk_inputs = [close_vec.as_slice()];
 
-                let (first_outputs, mut state) = Volatility::indicator(&chunk_inputs, &options, None)
-                    .expect("Rust VOLATILITY indicator failed");
+                let (first_outputs, mut state) =
+                    Volatility::indicator(&chunk_inputs, &options, None)
+                        .expect("Rust VOLATILITY indicator failed");
                 batch_full_output.extend_from_slice(&first_outputs[0]);
 
                 // Process remaining data in chunks
@@ -284,8 +283,6 @@ mod tests {
 
     #[test]
     fn test_volatility_simd_by_assets_vs_regular_database() {
-        use tulip_rs::indicators::volatility::indicator_by_assets;
-
         init_database_data();
         let data = get_all_stock_data().unwrap();
 
@@ -309,7 +306,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Get SIMD by assets result
-            let (simd_results, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_results, _) = Volatility::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets VOLATILITY indicator failed");
 
             // Compare each SIMD result with regular indicator for each stock
@@ -387,13 +384,15 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
-                .expect("SIMD VOLATILITY 4-wide failed");
+            let (simd_results_4, _) =
+                Volatility::indicator_by_options::<4>(&inputs, &options_4, None)
+                    .expect("SIMD VOLATILITY 4-wide failed");
 
             // Process remaining 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
-            let (simd_results_2, _) = indicator_by_options::<2>(&inputs, &options_2, None)
-                .expect("SIMD VOLATILITY 2-wide failed");
+            let (simd_results_2, _) =
+                Volatility::indicator_by_options::<2>(&inputs, &options_2, None)
+                    .expect("SIMD VOLATILITY 2-wide failed");
 
             // Combine SIMD results
             let mut all_simd_results = Vec::new();
@@ -499,13 +498,13 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, states_4) =
-                indicator_by_options::<4>(&first_inputs, &options_4, None)
+                Volatility::indicator_by_options::<4>(&first_inputs, &options_4, None)
                     .expect("SIMD VOLATILITY 4-wide failed on first chunk");
 
             // Process remaining 2 options with 2-wide SIMD
             let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
             let (simd_results_2, states_2) =
-                indicator_by_options::<2>(&first_inputs, &options_2, None)
+                Volatility::indicator_by_options::<2>(&first_inputs, &options_2, None)
                     .expect("SIMD VOLATILITY 2-wide failed on first chunk");
 
             // Combine SIMD results for first part and prepare to extend with batch_indicator outputs
@@ -533,8 +532,9 @@ mod tests {
 
             // Compare each SIMD result with regular indicator over the full data
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
-                let (regular_results, _) = Volatility::indicator(&[close.as_slice()], options, None)
-                    .expect("Regular VOLATILITY indicator failed");
+                let (regular_results, _) =
+                    Volatility::indicator(&[close.as_slice()], options, None)
+                        .expect("Regular VOLATILITY indicator failed");
                 let regular = &regular_results[0];
                 let simd_res = &all_simd_results[idx];
 
@@ -562,5 +562,4 @@ mod tests {
 
         println!("✓ All VOLATILITY SIMD state handover by options tests passed!");
     }
-
-    }
+}

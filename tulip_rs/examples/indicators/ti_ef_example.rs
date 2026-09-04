@@ -1,6 +1,4 @@
-use tulip_rs::indicators::ef::{
-    indicator_by_assets, indicator_by_options, Ef, Indicator, TIndicatorState,
-};
+use tulip_rs::indicators::ef::{Ef, Indicator, IndicatorByOptions, TIndicatorState};
 
 fn main() {
     let real = [
@@ -42,7 +40,7 @@ fn main() {
     let asset3: [&[f64]; 1] = [&real];
     let inputs_4: [&[&[f64]; 1]; 4] = [&asset0, &asset1, &asset2, &asset3];
 
-    let (simd_asset_outputs, _) = match indicator_by_assets::<4>(&inputs_4, &options, None) {
+    let (simd_asset_outputs, _) = match Ef::indicator_by_assets::<4>(&inputs_4, &options, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
@@ -54,7 +52,7 @@ fn main() {
     /////////////////////// SIMD by-options: 1 asset, 4 option sets ///////////////////////
     let options_4 = [&[3.0], &[5.0], &[10.0], &[14.0]];
 
-    let (simd_option_outputs, _) = match indicator_by_options::<4>(&inputs, &options_4, None) {
+    let (simd_option_outputs, _) = match Ef::indicator_by_options::<4>(&inputs, &options_4, None) {
         Ok(result) => result,
         Err(e) => panic!("Error: {}", e),
     };
