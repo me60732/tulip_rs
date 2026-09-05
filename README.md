@@ -82,13 +82,13 @@ Every indicator follows the same signature — learn it once, use it everywhere.
 ### Rust
 
 ```rust
-use tulip_rs::indicators::ema::indicator;
+use tulip_rs::indicators::ema::{Ema, TIndicatorState};
 
 let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                  83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
 // inputs: &[&[f64]]  |  options: &[f64]  |  optional_outputs: Option<&[bool]>
-let (outputs, state) = indicator(&[close.as_slice()], &[5.0], None).unwrap();
+let (outputs, state) = Ema::indicator(&[close.as_slice()], &[5.0], None).unwrap();
 
 println!("{:?}", outputs[0]); // EMA(5) values
 

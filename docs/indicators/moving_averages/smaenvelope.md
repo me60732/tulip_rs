@@ -115,7 +115,7 @@ Three bands around a Simple Moving Average. `middle = SMA(real, period)`, `upper
     **By assets** — same options applied to 4 assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::smaenvelope::indicator_by_assets;
+    use tulip_rs::indicators::smaenvelope::{SmaEnvelope, Indicator};
 
     let a1 = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
     let a2 = a1.iter().map(|x| x + 5.0).collect::<Vec<_>>();
@@ -129,7 +129,7 @@ Three bands around a Simple Moving Average. `middle = SMA(real, period)`, `upper
         &[a4.as_slice()],
     ];
 
-    let results = indicator_by_assets::<4>(&inputs, &[14.0, 2.5], None).unwrap();
+    let results = SmaEnvelope::indicator_by_assets::<4>(&inputs, &[14.0, 2.5], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {} Lower:  {:?}", i + 1, asset_outputs[0]);
         println!("Asset {} Middle: {:?}", i + 1, asset_outputs[1]);
@@ -140,7 +140,7 @@ Three bands around a Simple Moving Average. `middle = SMA(real, period)`, `upper
     **By options** — same asset, 4 different option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::smaenvelope::indicator_by_options;
+    use tulip_rs::indicators::smaenvelope::{SmaEnvelope, Indicator};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
@@ -152,7 +152,7 @@ Three bands around a Simple Moving Average. `middle = SMA(real, period)`, `upper
         &[50.0, 5.0],
     ];
 
-    let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
+    let results = SmaEnvelope::indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
     for (i, opt_outputs) in results.iter().enumerate() {
         println!("Option set {} Lower:  {:?}", i + 1, opt_outputs[0]);
         println!("Option set {} Middle: {:?}", i + 1, opt_outputs[1]);

@@ -174,7 +174,7 @@ Similar to KAMA but uses the Chande Momentum Oscillator as its efficiency measur
     **By assets** — same options applied to 4 assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::vidya::indicator_by_assets;
+    use tulip_rs::indicators::vidya::{Vidya, Indicator};
 
     let a1 = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
     let a2 = vec![72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50_f64];
@@ -188,7 +188,7 @@ Similar to KAMA but uses the Chande Momentum Oscillator as its efficiency measur
         &[a4.as_slice()],
     ];
 
-    let results = indicator_by_assets::<4>(&inputs, &[2.0, 5.0, 0.2], None).unwrap();
+    let results = Vidya::indicator_by_assets::<4>(&inputs, &[2.0, 5.0, 0.2], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
@@ -197,7 +197,7 @@ Similar to KAMA but uses the Chande Momentum Oscillator as its efficiency measur
     **By options** — same asset, 4 different option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::vidya::indicator_by_options;
+    use tulip_rs::indicators::vidya::{Vidya, IndicatorByOptions};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
@@ -209,7 +209,7 @@ Similar to KAMA but uses the Chande Momentum Oscillator as its efficiency measur
         &[5.0, 11.0, 0.5],
     ];
 
-    let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
+    let results = Vidya::indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
     for (i, opt_outputs) in results.iter().enumerate() {
         println!("Option set {}: {:?}", i + 1, opt_outputs[0]);
     }
