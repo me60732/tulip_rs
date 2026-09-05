@@ -20,7 +20,7 @@ The arithmetic mean of the last `period` values. The simplest and most widely us
 
     // Partial computation + state continuation
     let partial = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99];
-    let (outputs2, mut state) = indicator(&[partial.as_slice()], &[5.0], None).unwrap();
+    let (outputs2, mut state) = Sma::indicator(&[partial.as_slice()], &[5.0], None).unwrap();
     println!("Partial SMA: {:?}", outputs2[0]);
 
     let new_close = vec![84.55, 84.36_f64];
