@@ -141,12 +141,12 @@ Every indicator in TulipRS follows the same universal signature. Once you unders
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::sma::indicator;
+    use tulip_rs::indicators::sma::{Sma, Indicator};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
-    let (outputs, state) = indicator(&[close.as_slice()], &[5.0], None).unwrap();
+    let (outputs, state) = Sma::indicator(&[close.as_slice()], &[5.0], None).unwrap();
 
     println!("{:?}", outputs[0]); // SMA(5) — length is close.len() - period + 1
     ```
@@ -185,10 +185,10 @@ Every indicator in TulipRS follows the same universal signature. Once you unders
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::macd::indicator;
+    use tulip_rs::indicators::macd::{Macd, Indicator};
 
     // options: [fast_period, slow_period, signal_period]
-    let (outputs, state) = indicator(&[close.as_slice()], &[12.0, 26.0, 9.0], None).unwrap();
+    let (outputs, state) = Macd::indicator(&[close.as_slice()], &[12.0, 26.0, 9.0], None).unwrap();
 
     let macd_line  = &outputs[0]; // MACD line
     let signal     = &outputs[1]; // Signal line
@@ -229,14 +229,14 @@ Every indicator in TulipRS follows the same universal signature. Once you unders
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::adx::indicator;
+    use tulip_rs::indicators::adx::{Adx, Indicator};
 
     let high  = vec![/* ... */];
     let low   = vec![/* ... */];
     let close = vec![/* ... */];
 
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-    let (outputs, state) = indicator(&inputs, &[14.0], None).unwrap();
+    let (outputs, state) = Adx::indicator(&inputs, &[14.0], None).unwrap();
 
     println!("{:?}", outputs[0]); // ADX values
     ```
@@ -282,7 +282,7 @@ Every indicator in TulipRS follows the same universal signature. Once you unders
     | `IndicatorError::InputLengthMismatch` | Multi-input indicators received slices of different lengths |
 
     ```rust
-    match indicator(&[close.as_slice()], &[5.0], None) {
+    match [indicator].indicator(&[close.as_slice()], &[5.0], None) {
         Ok((outputs, state)) => { /* use outputs */ }
         Err(e) => eprintln!("Indicator error: {e}"),
     }

@@ -150,12 +150,12 @@ Optional outputs are **off by default**. Requesting them never changes the prima
 
 ### Which optional outputs does an indicator have?
 
-Call `info()` and inspect the `optional_outputs` field:
+Reference `INFO` constant and inspect the `optional_outputs` field:
 
 ```rust
 use tulip_rs::indicators::adx::{Adx, Indicator};
 
-let meta = adx::info();
+let meta = Adx::INFO;
 println!("{:?}", meta.optional_outputs); // ["dx", "atr", "tr"]
 ```
 
@@ -296,7 +296,7 @@ Optional output masks work the same way with `batch_indicator()`. Pass the same 
     ```rust
     // Initial batch — request AD line
     let mask = [false, false, true];
-    let (outputs, mut state) = adosc::indicator(&inputs, &[6.0, 20.0], Some(&mask)).unwrap();
+    let (outputs, mut state) = Adosc::indicator(&inputs, &[6.0, 20.0], Some(&mask)).unwrap();
 
     // Continue streaming — same mask
     let new_inputs = [new_high.as_slice(), new_low.as_slice(), new_close.as_slice(), new_vol.as_slice()];
@@ -487,7 +487,6 @@ The value depends on the indicator's options because period-based indicators req
 
 | Function | Signature | Returns |
 |---|---|---|
-| `info()` | `() -> Info<'static>` | Full metadata: names, types, input/option/output lists |
 | `min_data()` | `(options: &[f64]) -> usize` | Minimum bars to get any output |
 | `indicator()` | `(inputs, options, optional_outputs) -> Result<(Vec<Vec<f64>>, State), Error>` | Primary computation |
 | `state.batch_indicator()` | `(inputs, optional_outputs) -> Result<Vec<Vec<f64>>, Error>` | Streaming continuation |

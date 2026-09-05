@@ -40,12 +40,12 @@ Most technical analysis libraries are wrappers around the same scalar C code wri
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::sma::indicator;
+    use tulip_rs::indicators::sma::{Sma, Indicator};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
-    let (outputs, state) = indicator(&[close.as_slice()], &[5.0], None).unwrap();
+    let (outputs, state) = Sma::indicator(&[close.as_slice()], &[5.0], None).unwrap();
 
     println!("{:?}", outputs[0]); // SMA(5) values
     ```
