@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-use tulip_rs::indicators::sma::{Indicator, IndicatorState, Sma, TIndicatorState};
+use tulip_rs::indicators::sma::{Indicator, IndicatorState, Sma, TIndicatorState, IndicatorByOptions};
 
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 //use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -422,6 +422,60 @@ fn bench_rust_sma_simd_by_assets(c: &mut Criterion) {
         }
     }
 }
+fn bench_rust_sma_simd_by_options(c: &mut Criterion) {
+    let options_4 = [
+        &OPTIONS_LIST[0],
+        &OPTIONS_LIST[1],
+        &OPTIONS_LIST[2],
+        &OPTIONS_LIST[3],
+    ];
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("roc");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let close_vec: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+            let inputs = [close_vec.as_slice()];
+
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let result_4 = Sma::indicator_by_options::<4>(&inputs, &options_4, None)
+                        .expect("Rust SIMD ROC indicator failed");
+                    black_box(&result_4);
+                },
+                SAMPLE_SIZE,
+            );
+
+            log_timing_result(
+                "roc",
+                "Rust_SIMD",
+                &[0.0],
+                close_vec.len(),
+                &timing,
+                Some(stock_symbol),
+            );
+        }
+    } else {
+        // Run Criterion benchmark with synthetic data
+        let close_vec = expand_inputs();
+        let inputs = [close_vec.as_slice()];
+
+        let mut group = c.benchmark_group("roc_rust_simd_by_options");
+        group.sample_size(SAMPLE_SIZE);
+        group.bench_function("Rust SIMD by options ROC (4 lanes)", |b| {
+            b.iter(|| {
+                let result_4 = Sma::indicator_by_options::<4>(&inputs, &options_4, None)
+                    .expect("Rust SIMD ROC indicator failed");
+                black_box(&result_4);
+            });
+        });
+
+        group.finish();
+    }
+}
 
 /// Benchmark the Rust SIMD implementation of SMA.
 //#[cfg(feature = "portable_simd")]
@@ -539,6 +593,7 @@ fn bench_kand_sma(c: &mut Criterion) {
 criterion_group!(
     benches,
     bench_rust_sma_simd_by_assets,
+    bench_rust_sma_simd_by_options,
     bench_rust_sma,
     bench_rust_ta_sma,
     bench_c_sma,
@@ -551,6 +606,7 @@ criterion_group!(
 criterion_group!(
     benches,
     bench_rust_sma_simd_by_assets,
+    bench_rust_sma_simd_by_options,
     bench_rust_sma,
     bench_rust_ta_sma,
     bench_c_sma,
