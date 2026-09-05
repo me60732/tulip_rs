@@ -3,7 +3,6 @@ mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicator_types::TIndicatorState;
     use tulip_rs::indicators::medprice::{Indicator, Medprice};
-    use tulip_rs::indicators::simd_indicators::medprice_simd::indicator_by_assets;
     use tulip_test::c_bindings::{ti_medprice, ti_medprice_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -227,7 +226,7 @@ mod tests {
             &[&stock_data[3].1, &stock_data[3].2],
         ];
 
-        let (simd_results, _) = indicator_by_assets::<4>(&inputs, &[], None)
+        let (simd_results, _) = Medprice::indicator_by_assets::<4>(&inputs, &[], None)
             .expect("SIMD by assets MEDPRICE indicator failed");
 
         for (stock_idx, (stock_symbol, stock_high, stock_low)) in stock_data.iter().enumerate() {
