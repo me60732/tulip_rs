@@ -374,25 +374,27 @@ mod tests {
                 &OPTIONS_LIST[3],
             ];
             let (simd_results_4, _) = Sma::indicator_by_options::<4>(&inputs, &options_4, None)
-                .expect("SIMD ROCR 4-wide failed");
+                .expect("SIMD SMA 4-wide failed");
 
-            // Process remaining option with 1-wide SIMD
-            let options_1 = [&OPTIONS_LIST[4]];
-            let (simd_results_1, _) = Sma::indicator_by_options::<1>(&inputs, &options_1, None)
-                .expect("SIMD ROCR 1-wide failed");
+            // Process remaining 2 options with 2-wide SIMD
+            let options_2 = [&OPTIONS_LIST[4], &OPTIONS_LIST[5]];
+            let (simd_results_2, _) = Sma::indicator_by_options::<2>(&inputs, &options_2, None)
+                .expect("SIMD SMA 2-wide failed");
 
             // Combine SIMD results
             let mut all_simd_results = Vec::new();
             for result in &simd_results_4 {
                 all_simd_results.push(result.clone());
             }
-            all_simd_results.push(simd_results_1[0].clone());
+            for result in &simd_results_2 {
+                all_simd_results.push(result.clone());
+            }
 
             // Compare each SIMD result with regular indicator
             for (idx, options) in OPTIONS_LIST.iter().enumerate() {
                 // Get regular indicator result
                 let (regular_results, _) =
-                    Sma::indicator(&inputs, options, None).expect("Regular ROCR indicator failed");
+                    Sma::indicator(&inputs, options, None).expect("Regular SMA indicator failed");
 
                 let simd_result = &all_simd_results[idx][0];
                 let regular_result = &regular_results[0];
@@ -401,7 +403,7 @@ mod tests {
                 assert_eq!(
                     simd_result.len(),
                     regular_result.len(),
-                    "ROCR output length mismatch for stock {} options {:?}: SIMD={}, Regular={}",
+                    "SMA output length mismatch for stock {} options {:?}: SIMD={}, Regular={}",
                     stock_symbol,
                     options,
                     simd_result.len(),
@@ -415,14 +417,14 @@ mod tests {
                     // Check for NaN/infinity in SIMD result
                     if simd_val.is_nan() {
                         panic!(
-                            "SIMD ROCR has NaN at index {} for stock {}: SIMD = {}, Options = {:?}",
+                            "SIMD SMA has NaN at index {} for stock {}: SIMD = {}, Options = {:?}",
                             i, stock_symbol, simd_val, options
                         );
                     }
 
                     if simd_val.is_infinite() {
                         panic!(
-                            "SIMD ROCR has infinity at index {} for stock {}: SIMD = {}, Options = {:?}",
+                            "SIMD SMA has infinity at index {} for stock {}: SIMD = {}, Options = {:?}",
                             i, stock_symbol, simd_val, options
                         );
                     }
@@ -430,7 +432,7 @@ mod tests {
                     // Compare values with tolerance
                     if !approx_eq!(f64, simd_val, regular_val, epsilon = 1e-12) {
                         panic!(
-                            "ROCR mismatch at index {} for stock {} options {:?}: SIMD = {}, Regular = {}",
+                            "SMA mismatch at index {} for stock {} options {:?}: SIMD = {}, Regular = {}",
                             i, stock_symbol, options, simd_val, regular_val
                         );
                     }
