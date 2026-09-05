@@ -1,6 +1,6 @@
 use crate::common::validate_inputs;
 pub use crate::indicator_types::{
-    Indicator, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
 };
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
@@ -128,6 +128,20 @@ impl Indicator<INPUTS, OPTIONS> for Rocr {
         optional_outputs: Option<&[bool]>,
     ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
         crate::indicators::simd_indicators::rocr_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Rocr {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::rocr_simd::indicator_by_options::<N>(
             inputs,
             options,
             optional_outputs,
