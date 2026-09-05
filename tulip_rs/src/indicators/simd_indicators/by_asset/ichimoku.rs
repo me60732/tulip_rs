@@ -76,7 +76,7 @@ impl Driver<State<Warm>> for IchimokuDriver {
 /// `[conversion, base, span_a, span_b, lagging_span]` for asset `i` and `states[i]` is
 /// the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input is too short or options are invalid.
-pub fn indicator_by_assets<const N: usize>(
+pub(crate) fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS]; N],
     options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,

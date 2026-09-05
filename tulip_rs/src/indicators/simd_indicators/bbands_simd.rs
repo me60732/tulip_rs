@@ -1,12 +1,12 @@
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::bbands::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::bbands::indicator_by_assets;
 /// Re-uses [`stddev_simd::SimdState`] as the state for Bollinger Bands since the rolling
 /// standard deviation and SMA are the core calculations needed.
 use crate::indicators::simd_indicators::stddev_simd::SimdState as StddevSimdState;
 pub use crate::indicator_types::{TState, TSimdState};
 use crate::indicators::bbands::State;
 #[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::by_option::bbands::indicator_by_options;
+pub(crate) use crate::indicators::simd_indicators::by_option::bbands::indicator_by_options;
 use crate::types::Warm;
 use std::simd::{Simd, StdFloat};
 pub struct SimdState<const N: usize> {

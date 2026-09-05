@@ -1,5 +1,4 @@
 use tulip_rs::indicators::hma::{Hma, Indicator, TIndicatorState};
-use tulip_rs::indicators::simd_indicators::hma_simd::indicator_by_assets;
 
 fn main() {
     let close = [
@@ -70,7 +69,7 @@ fn main() {
         &[stock4_close.as_slice()], // Stock 4 inputs
     ];
 
-    match indicator_by_assets::<4>(&simd_inputs, &options, None) {
+    match Hma::indicator_by_assets::<4>(&simd_inputs, &options, None) {
         Ok((simd_outputs, _simd_states)) => {
             println!("\nSIMD processing successful!");
             for (i, (symbol, _)) in stocks.iter().enumerate() {

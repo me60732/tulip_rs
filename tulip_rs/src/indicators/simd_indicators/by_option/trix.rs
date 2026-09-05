@@ -80,7 +80,7 @@ impl Driver<State<Warm>> for TrixDriver {
 /// `outputs[i][3]` is `ema` (empty unless requested) for option set `i`,
 /// and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or any option set is invalid.
-pub fn indicator_by_options<const N: usize>(
+pub(crate) fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS],
     options: &[&[f64; OPTIONS]; N],
     optional_outputs: Option<&[bool]>,

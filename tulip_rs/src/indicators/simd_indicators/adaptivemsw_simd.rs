@@ -2,7 +2,7 @@ pub use crate::indicator_types::{TSimdState, TState};
 use crate::indicators::adaptivemsw::IndicatorState as State;
 use crate::indicators::msw;
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::adaptivemsw::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::adaptivemsw::indicator_by_assets;
 use crate::indicators::simd_indicators::homodynediscriminator_simd::SimdState as HdSimdState;
 use crate::ring_buffer::fixed_single_buffer::FixedMirrorBuffer;
 use std::simd::Simd;

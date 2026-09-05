@@ -1,5 +1,5 @@
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::wad::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::wad::indicator_by_assets;
 use crate::indicators::{simd_indicators::simd_types::F64Constants, wad::IndicatorState as State};
 use std::simd::{cmp::SimdPartialOrd, num::SimdFloat, *};
 pub use crate::indicator_types::{TSimdState, TState};

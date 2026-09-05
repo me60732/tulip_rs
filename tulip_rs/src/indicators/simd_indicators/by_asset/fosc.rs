@@ -4,7 +4,7 @@ use crate::common_simd::assets::validate_inputs;
 use crate::indicators::fosc::{
     Fosc, Indicator, IndicatorState, State, INPUTS, OPTIONS,
 };
-pub use crate::indicators::simd_indicators::fosc_simd::{SimdState, TSimdState, TState};
+pub(crate) use crate::indicators::simd_indicators::fosc_simd::{SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::tsf::Tsf;
 use crate::types::{IndicatorError, Warm};
@@ -96,7 +96,7 @@ impl Driver<State<Warm>> for FoscDriver {
 /// optional outputs at indices `1`-`4`, and `states[i]` is the final [`IndicatorState`]
 /// for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
-pub fn indicator_by_assets<const N: usize>(
+pub(crate) fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,

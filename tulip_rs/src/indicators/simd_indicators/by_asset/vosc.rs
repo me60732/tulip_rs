@@ -85,7 +85,7 @@ impl Driver<State<Warm>> for VoscDriver {
 /// `outputs[i][2]` is `long_sma` (empty unless requested), and
 /// `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short.
-pub fn indicator_by_assets<const N: usize>(
+pub(crate) fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,

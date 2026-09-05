@@ -71,7 +71,7 @@ impl Driver<State<Warm>> for HmaDriver {
 /// `Ok((outputs, states))` where `outputs[i][0]` is the HMA line for asset `i`
 /// and `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
-pub fn indicator_by_assets<const N: usize>(
+pub(crate) fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS],
     _optional_outputs: Option<&[bool]>,

@@ -64,7 +64,7 @@ impl Driver<State<Warm>, usize> for ZlemaDriver {
 /// `Ok((outputs, states))` where `outputs[i][0]` is `zlema` for option set `i`
 /// and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or any option set is invalid.
-pub fn indicator_by_options<const N: usize>(
+pub(crate) fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS],
     options: &[&[f64; OPTIONS]; N],
     _optional_outputs: Option<&[bool]>,

@@ -1,6 +1,6 @@
 use crate::indicators::nvi::IndicatorState as State;
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::nvi::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::nvi::indicator_by_assets;
 use std::simd::{cmp::SimdPartialOrd, *};
 
 pub use crate::indicator_types::{TSimdState, TState};

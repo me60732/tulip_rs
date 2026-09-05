@@ -2,12 +2,12 @@
 /// indicators track the same rolling min/max windows.
 
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::aroonosc::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::aroonosc::indicator_by_assets;
 
 pub use crate::indicator_types::{TSimdState, TState};
 use crate::indicators::aroonosc::State;
 #[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::by_option::aroonosc::indicator_by_options;
+pub(crate) use crate::indicators::simd_indicators::by_option::aroonosc::indicator_by_options;
 pub use crate::types::Warm;
 use std::ops::{Deref, DerefMut};
 use std::simd::Simd;
@@ -57,7 +57,7 @@ pub mod assets {
 }
 pub mod options {
     use super::*;
-    pub use crate::indicators::simd_indicators::aroon_simd::options::SimdState as AroonSimdState;
+    pub(crate) use crate::indicators::simd_indicators::aroon_simd::options::SimdState as AroonSimdState;
 
     #[repr(transparent)]
     pub struct SimdState<const N: usize>(pub AroonSimdState<N>);

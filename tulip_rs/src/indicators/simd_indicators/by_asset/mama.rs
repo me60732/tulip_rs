@@ -78,7 +78,7 @@ impl Driver<State<Warm>> for MamaDriver {
 /// (empty unless requested), and `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError::NotEnoughData)` if any input is shorter than
 /// [`min_data`] (23 bars), or `Err(IndicatorError::InvalidOptions)` if options are invalid.
-pub fn indicator_by_assets<const N: usize>(
+pub(crate) fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS]; N],
     options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,

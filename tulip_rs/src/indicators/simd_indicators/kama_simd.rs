@@ -1,12 +1,12 @@
 use crate::indicators::kama::State;
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::kama::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::kama::indicator_by_assets;
 use crate::indicators::simd_indicators::{
     ef_simd::SimdState as EfSimdState, simd_types::F64Constants,
 };
 
 #[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::by_option::kama::indicator_by_options;
+pub(crate) use crate::indicators::simd_indicators::by_option::kama::indicator_by_options;
 pub use crate::indicator_types::{TSimdState, TState};
 use std::simd::{Simd, StdFloat};
 use crate::types::Warm;

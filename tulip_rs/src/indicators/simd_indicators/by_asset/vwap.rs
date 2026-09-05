@@ -70,7 +70,7 @@ impl Driver<State> for VwapDriver {
 /// `outputs[i][1]` is `typprice` (empty unless requested), and
 /// `states[i]` is the final [`State`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short.
-pub fn indicator_by_assets<const N: usize>(
+pub(crate) fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
     _options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,

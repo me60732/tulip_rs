@@ -1,5 +1,5 @@
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::vwap::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::vwap::indicator_by_assets;
 use crate::indicators::{
     simd_indicators::typprice_simd::calc_simd as typprice_calc_simd, vwap::IndicatorState as State,
 };

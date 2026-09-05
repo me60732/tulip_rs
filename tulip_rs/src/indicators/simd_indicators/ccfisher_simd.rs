@@ -27,9 +27,9 @@
 //! `ln_arg = (1 + val1) / (1 − val1)` always strictly positive.
 
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::ccfisher::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::ccfisher::indicator_by_assets;
 #[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::by_option::ccfisher::indicator_by_options;
+pub(crate) use crate::indicators::simd_indicators::by_option::ccfisher::indicator_by_options;
 
 pub use crate::indicator_types::{TSimdState, TState};
 

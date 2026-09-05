@@ -60,7 +60,7 @@ impl Driver<State<Warm>> for HomodyneDriver {
 /// and `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError::NotEnoughData)` if any input is shorter than
 /// [`min_data`] (23 bars).
-pub fn indicator_by_assets<const N: usize>(
+pub(crate) fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS]; N],
     options: &[f64; OPTIONS],
     _optional_outputs: Option<&[bool]>,

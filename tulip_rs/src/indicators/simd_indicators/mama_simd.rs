@@ -1,9 +1,9 @@
 pub use crate::indicator_types::{TSimdState, TState};
 use crate::indicators::mama::IndicatorState as State;
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::mama::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::mama::indicator_by_assets;
 #[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::by_option::mama::indicator_by_options;
+pub(crate) use crate::indicators::simd_indicators::by_option::mama::indicator_by_options;
 use crate::indicators::simd_indicators::homodynediscriminator_simd::SimdState as HdSimdState;
 use crate::math_simd::trig::simd_atan;
 use std::simd::{cmp::SimdPartialEq, num::SimdFloat, Select, Simd, StdFloat};

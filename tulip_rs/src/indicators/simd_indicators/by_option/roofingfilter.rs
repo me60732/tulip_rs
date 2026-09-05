@@ -68,7 +68,7 @@ impl Driver<State> for RoofingDriver {
 /// and `outputs[i][1]` contains the optional `highpass` line (empty if not requested)
 /// for option set `i`, and `states[i]` is the final [`IndicatorState`] for that lane.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator_by_options<const N: usize>(
+pub(crate) fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS],
     options: &[&[f64; OPTIONS]; N],
     optional_outputs: Option<&[bool]>,

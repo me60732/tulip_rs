@@ -76,7 +76,7 @@ impl Driver<State<Warm>> for EmaDriver {
 /// (the `ema` vec is empty unless `optional_outputs` enables it) and `states[i]` is the
 /// final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator_by_options<const N: usize>(
+pub(crate) fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
     options: &[&[f64; OPTIONS]; N],
     optional_outputs: Option<&[bool]>,

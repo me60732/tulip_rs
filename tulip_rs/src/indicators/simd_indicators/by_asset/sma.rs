@@ -74,7 +74,7 @@ impl Driver<State<Warm>> for SmaDriver {
 /// # Errors
 ///
 /// Returns [`IndicatorError`] if inputs are too short or options are invalid.
-pub fn indicator_by_assets<const N: usize>(
+pub(crate) fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS],
     _optional_outputs: Option<&[bool]>,

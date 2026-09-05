@@ -75,7 +75,7 @@ impl Driver<State<Warm>> for HilbertDriver {
 /// `outputs[i][3]` is `highpass` (empty unless requested) for option set `i`.
 /// `states[i]` is the final [`IndicatorState`] for that lane.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator_by_options<const N: usize>(
+pub(crate) fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS],
     options: &[&[f64; OPTIONS]; N],
     optional_outputs: Option<&[bool]>,

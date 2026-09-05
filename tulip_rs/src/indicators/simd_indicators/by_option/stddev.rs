@@ -88,7 +88,7 @@ impl Driver<State<Warm>, usize> for StddevDriver {
 /// (empty if not requested) for option set `i`, and `states[i]` is the final
 /// [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
-pub fn indicator_by_options<const N: usize>(
+pub(crate) fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
     options: &[&[f64; OPTIONS]; N],
     optional_outputs: Option<&[bool]>,

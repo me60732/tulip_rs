@@ -3,9 +3,9 @@ use std::simd::{num::SimdFloat, Simd};
 pub use crate::indicator_types::{TSimdState, TState};
 use crate::indicators::cmo::State;
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::cmo::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::cmo::indicator_by_assets;
 #[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::by_option::cmo::indicator_by_options;
+pub(crate) use crate::indicators::simd_indicators::by_option::cmo::indicator_by_options;
 use crate::indicators::simd_indicators::simd_types::F64Constants;
 use crate::types::Warm;
 //use crate::math_simd::fast_max;

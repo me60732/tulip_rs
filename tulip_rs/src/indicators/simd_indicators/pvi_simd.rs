@@ -1,6 +1,6 @@
 use crate::indicators::pvi::IndicatorState as State;
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::pvi::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::pvi::indicator_by_assets;
 use std::simd::{cmp::SimdPartialOrd, *};
 pub use crate::indicator_types::{TSimdState, TState};
 /// SIMD-parallel state for the Positive Volume Index (PVI) indicator, holding `N` lanes of per-asset state.

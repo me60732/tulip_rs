@@ -1,7 +1,7 @@
 pub use crate::indicator_types::{TSimdState, TState};
 use crate::indicators::instantaneoustrendline::IndicatorState as State;
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::instantaneoustrendline::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::instantaneoustrendline::indicator_by_assets;
 use crate::indicators::simd_indicators::homodynediscriminator_simd::SimdState as HdSimdState;
 use crate::indicators::simd_indicators::simd_types::F64Constants;
 use std::simd::{Simd, StdFloat};

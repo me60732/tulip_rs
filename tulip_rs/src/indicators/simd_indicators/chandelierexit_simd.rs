@@ -1,9 +1,9 @@
 use crate::indicators::chandelierexit::State;
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::chandelierexit::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::chandelierexit::indicator_by_assets;
 
 #[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::by_option::chandelierexit::indicator_by_options;
+pub(crate) use crate::indicators::simd_indicators::by_option::chandelierexit::indicator_by_options;
 
 pub use crate::indicator_types::{TSimdState, TState};
 use crate::indicators::simd_indicators::atr_simd::SimdState as AtrSimdState;

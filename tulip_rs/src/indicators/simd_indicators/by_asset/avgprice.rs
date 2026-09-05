@@ -17,7 +17,7 @@ use crate::indicators::avgprice::{AvgPrice, Indicator, IndicatorState, INPUTS, O
 /// `Ok((outputs, states))` where `outputs[i][0]` is the average-price series for asset `i`
 /// and `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input is invalid.
-pub fn indicator_by_assets<const N: usize>(
+pub(crate) fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS]; N],
     _options: &[f64; OPTIONS],
     _optional_outputs: Option<&[bool]>,

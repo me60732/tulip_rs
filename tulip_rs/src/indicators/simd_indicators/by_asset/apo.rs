@@ -86,7 +86,7 @@ impl Driver<State<Warm>> for ApoDriver {
 /// `Ok((outputs, states))` where `outputs[i]` contains `[apo, short_ema?, long_ema?]`
 /// for asset `i` and `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input is too short or options are invalid.
-pub fn indicator_by_assets<const N: usize>(
+pub(crate) fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,

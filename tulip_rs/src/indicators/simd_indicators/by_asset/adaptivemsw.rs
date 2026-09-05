@@ -62,7 +62,7 @@ impl Driver<State<Warm>> for AdaptiveMswDriver {
 /// # Returns
 /// `Ok((outputs, states))` where `outputs[i][0]` = sine, `[1]` = lead_sine,
 /// `[2]` = dc_period (empty unless requested).
-pub fn indicator_by_assets<const N: usize>(
+pub(crate) fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS]; N],
     options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,

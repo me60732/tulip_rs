@@ -1,5 +1,4 @@
 use tulip_rs::indicators::aroon::{Aroon, Indicator, TIndicatorState};
-use tulip_rs::indicators::simd_indicators::by_asset::aroon::indicator_by_assets;
 
 const HIGH: [f64; 15] = [
     82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98,
@@ -122,7 +121,7 @@ fn simd_by_asset_example() {
     let options = [5.0];
 
     // Calculate AROON indicator for all 4 stocks in parallel using SIMD
-    let (outputs, _states) = match indicator_by_assets::<4>(&inputs, &options, None) {
+    let (outputs, _states) = match Aroon::indicator_by_assets::<4>(&inputs, &options, None) {
         Ok(r) => r,
         Err(e) => panic!("Error: {}", e),
     };

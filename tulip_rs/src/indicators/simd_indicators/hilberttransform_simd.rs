@@ -1,9 +1,9 @@
 use crate::indicators::hilberttransform::{IndicatorState as State, C0, C1, C2, C3};
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::hilberttransform::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::hilberttransform::indicator_by_assets;
 
 #[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::by_option::hilberttransform::indicator_by_options;
+pub(crate) use crate::indicators::simd_indicators::by_option::hilberttransform::indicator_by_options;
 
 use crate::indicators::simd_indicators::roofingfilter_simd::SimdState as RfSimdState;
 use crate::ring_buffer::fixed_single_buffer::{FixedRingBuffer, FixedSimdRingBuffer};

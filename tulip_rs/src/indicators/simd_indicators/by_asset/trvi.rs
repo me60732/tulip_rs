@@ -89,7 +89,7 @@ impl Driver<State<Warm>> for TrviDriver {
 /// `outputs[i][1]` is `tr` (optional), `outputs[i][2]` is the EMA of TR (optional),
 /// and `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input is too short or options are invalid.
-pub fn indicator_by_assets<const N: usize>(
+pub(crate) fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS]; N], //stock[ fields [ field [f64] ] ]
     options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,

@@ -1,9 +1,9 @@
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::vhf::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::vhf::indicator_by_assets;
 
 pub use crate::indicator_types::{TSimdState, TState};
 #[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::by_option::vhf::indicator_by_options;
+pub(crate) use crate::indicators::simd_indicators::by_option::vhf::indicator_by_options;
 
 use crate::indicators::vhf::State;
 /// SIMD-parallel state for the Vertical Horizontal Filter (VHF) indicator, holding `N` lanes of per-asset state.

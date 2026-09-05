@@ -1,5 +1,5 @@
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::supertrend::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::supertrend::indicator_by_assets;
 use crate::indicators::simd_indicators::{
     atr_simd::SimdState as AtrSimdState, medprice_simd::calc_simd as medprice_calc_simd,
 };
@@ -7,7 +7,7 @@ use crate::indicators::supertrend::State;
 
 pub use crate::indicator_types::{TSimdState, TState};
 #[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::by_option::supertrend::indicator_by_options;
+pub(crate) use crate::indicators::simd_indicators::by_option::supertrend::indicator_by_options;
 use crate::types::Warm;
 use std::simd::{cmp::SimdPartialOrd, num::SimdFloat, Mask, Select, Simd};
 /// SIMD-parallel state for computing the SuperTrend indicator across `N` assets

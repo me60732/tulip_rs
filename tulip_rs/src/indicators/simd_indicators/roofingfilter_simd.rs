@@ -1,9 +1,9 @@
 use crate::indicators::roofingfilter::State;
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::roofingfilter::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::roofingfilter::indicator_by_assets;
 
 #[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::by_option::roofingfilter::indicator_by_options;
+pub(crate) use crate::indicators::simd_indicators::by_option::roofingfilter::indicator_by_options;
 
 use crate::indicators::simd_indicators::{
     supersmoother_simd::SimdState as SimdSSState,

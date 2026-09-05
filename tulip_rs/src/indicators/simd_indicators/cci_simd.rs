@@ -1,8 +1,8 @@
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::cci::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::cci::indicator_by_assets;
 
 #[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::by_option::cci::indicator_by_options;
+pub(crate) use crate::indicators::simd_indicators::by_option::cci::indicator_by_options;
 
 pub use crate::indicator_types::{TSimdState, TState};
 mod imports {

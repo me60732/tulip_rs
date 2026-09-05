@@ -2,7 +2,7 @@ use crate::indicators::simd_indicators::simd_types::F64Constants;
 use std::simd::Simd;
 
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::trix::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::trix::indicator_by_assets;
 
 pub use crate::indicators::{
     simd_indicators::tema_simd::SimdState as TemaSimdState,
@@ -11,7 +11,7 @@ pub use crate::indicators::{
 pub use crate::indicator_types::{TSimdState, TState};
 
 #[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::by_option::trix::indicator_by_options;
+pub(crate) use crate::indicators::simd_indicators::by_option::trix::indicator_by_options;
 
 use std::ops::{Deref, DerefMut};
 use crate::types::Warm;

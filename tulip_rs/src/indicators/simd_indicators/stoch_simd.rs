@@ -1,9 +1,9 @@
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::stoch::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::stoch::indicator_by_assets;
 
 pub use crate::indicator_types::{TSimdState, TState};
 #[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::by_option::stoch::indicator_by_options;
+pub(crate) use crate::indicators::simd_indicators::by_option::stoch::indicator_by_options;
 use crate::indicators::stoch::State;
 use crate::types::Warm;
 use std::simd::{num::SimdFloat, Simd};

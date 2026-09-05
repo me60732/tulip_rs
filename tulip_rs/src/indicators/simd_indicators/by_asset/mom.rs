@@ -17,7 +17,7 @@ use crate::indicators::mom::{Mom, Indicator, IndicatorState, INPUTS, OPTIONS};
 /// `Ok((outputs, states))` where `outputs[i][0]` is the momentum series for asset `i`
 /// and `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input is too short or options are invalid.
-pub fn indicator_by_assets<const N: usize>(
+pub(crate) fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS]; N],
     options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,

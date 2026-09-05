@@ -67,7 +67,7 @@ impl Driver<State<Warm>> for TrendModeDriver {
 /// `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(NotEnoughData)` if any asset has fewer than 56 bars, or
 /// `Err(InvalidOptions)` if `alpha` is not in `(0, 1)`.
-pub fn indicator_by_assets<const N: usize>(
+pub(crate) fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS]; N],
     options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,

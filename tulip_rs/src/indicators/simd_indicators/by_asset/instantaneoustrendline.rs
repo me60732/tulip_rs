@@ -78,7 +78,7 @@ impl Driver<State<Warm>> for ItDriver {
 /// `trigger` (empty unless requested), `outputs[i][2]` is `dc_period`, `outputs[i][3]`
 /// is `alpha`, and `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError::NotEnoughData)` if any input is shorter than 23 bars.
-pub fn indicator_by_assets<const N: usize>(
+pub(crate) fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS]; N],
     options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,

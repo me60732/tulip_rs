@@ -1,7 +1,7 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-pub use crate::indicators::simd_indicators::tsf_simd::{SimdState, TSimdState, TState};
+pub(crate) use crate::indicators::simd_indicators::tsf_simd::{SimdState, TSimdState, TState};
 use crate::indicators::tsf::{Indicator, IndicatorState, State, Tsf, INPUTS, OPTIONS};
 use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
@@ -94,7 +94,7 @@ impl Driver<State<Warm>, usize> for TsfDriver {
 /// `outputs[i][3]` is `linregintercept` (empty unless requested) for option set `i`,
 /// and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or any option set is invalid.
-pub fn indicator_by_options<const N: usize>(
+pub(crate) fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
     options: &[&[f64; OPTIONS]; N],
     optional_outputs: Option<&[bool]>,

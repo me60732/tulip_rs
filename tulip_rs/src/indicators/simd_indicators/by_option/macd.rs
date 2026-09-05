@@ -85,7 +85,7 @@ impl Driver<State<Warm>> for MacdDriver {
 /// `[macd_line, signal_line, histogram, short_ema?, long_ema?]`
 /// and `states[i]` is the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if inputs are too short or options are invalid.
-pub fn indicator_by_options<const N: usize>(
+pub(crate) fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS],
     options: &[&[f64; OPTIONS]],
     optional_outputs: Option<&[bool]>,

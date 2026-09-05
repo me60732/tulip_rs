@@ -1,9 +1,9 @@
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::vortex::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::vortex::indicator_by_assets;
 
 pub use crate::indicator_types::{TSimdState, TState};
 #[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::by_option::vortex::indicator_by_options;
+pub(crate) use crate::indicators::simd_indicators::by_option::vortex::indicator_by_options;
 pub mod import {
     //! Internal imports shared by the [`assets`] and [`options`] SIMD sub-modules for the
     //! Vortex indicator.

@@ -1,7 +1,7 @@
 pub use crate::indicator_types::{TSimdState, TState};
 use crate::indicators::homodynediscriminator::IndicatorState as State;
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::homodynediscriminator::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::homodynediscriminator::indicator_by_assets;
 
 use crate::indicators::simd_indicators::hilberttransform_simd::{ht_kernel, ht_kernel_pair};
 use crate::math_simd::trig::simd_atan;

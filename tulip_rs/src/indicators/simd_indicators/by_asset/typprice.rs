@@ -17,7 +17,7 @@ use crate::indicators::typprice::{Typprice, Indicator, IndicatorState, INPUTS, O
 /// `Ok((outputs, states))` where `outputs[i][0]` is the typical-price series for asset `i`
 /// and `states[i]` is the final [`IndicatorState`] for asset `i`.
 /// Returns `Err(IndicatorError)` if any input is invalid.
-pub fn indicator_by_assets<const N: usize>(
+pub(crate) fn indicator_by_assets<const N: usize>(
     inputs: &[&[&[f64]; INPUTS]; N],
     options: &[f64; OPTIONS],
     optional_outputs: Option<&[bool]>,

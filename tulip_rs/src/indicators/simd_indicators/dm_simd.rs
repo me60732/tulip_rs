@@ -1,10 +1,10 @@
 use crate::indicators::dm::State;
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::dm::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::dm::indicator_by_assets;
 use crate::indicators::simd_indicators::simd_types::F64Constants;
 pub use crate::indicator_types::{TState, TSimdState};
 #[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::by_option::dm::indicator_by_options;
+pub(crate) use crate::indicators::simd_indicators::by_option::dm::indicator_by_options;
 use crate::types::Warm;
 use std::simd::{cmp::SimdPartialOrd, num::SimdFloat, Select, Simd, StdFloat};
 /// SIMD-parallel state for the Directional Movement (DM) indicator, holding `N` lanes of per-asset state.

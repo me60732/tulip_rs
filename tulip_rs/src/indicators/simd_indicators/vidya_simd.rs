@@ -1,9 +1,9 @@
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::vidya::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::vidya::indicator_by_assets;
 use crate::indicators::simd_indicators::stddev_simd::SimdState as StddevSimdState;
 
 #[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::by_option::vidya::indicator_by_options;
+pub(crate) use crate::indicators::simd_indicators::by_option::vidya::indicator_by_options;
 
 pub use crate::indicator_types::{TSimdState, TState};
 use crate::indicators::vidya::State;

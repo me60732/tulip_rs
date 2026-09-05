@@ -1,7 +1,7 @@
 use crate::indicators::ao::{IndicatorState as State, SHORT_PERIOD};
 
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::ao::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::ao::indicator_by_assets;
 
 pub use crate::indicator_types::{TSimdState, TState};
 use crate::indicators::simd_indicators::{

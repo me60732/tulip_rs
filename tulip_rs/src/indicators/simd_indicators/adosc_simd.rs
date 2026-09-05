@@ -6,10 +6,10 @@ use crate::indicators::simd_indicators::{
 use std::simd::Simd;
 use crate::types::Warm;
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::adosc::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::adosc::indicator_by_assets;
 
 #[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::by_option::adosc::indicator_by_options;
+pub(crate) use crate::indicators::simd_indicators::by_option::adosc::indicator_by_options;
 
 /// SIMD-parallel state for computing the Chaikin AD Oscillator (ADOSC) across `N` assets
 /// simultaneously. Each field is a SIMD vector where lane `i` corresponds to asset `i`.

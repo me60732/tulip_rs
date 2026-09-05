@@ -85,7 +85,7 @@ impl Driver<State, (usize, f64)> for MswDriver {
 /// `outputs[i][1]` is the `msw_lead` series for option set `i`, and `states[i]` is
 /// the final [`IndicatorState`] for option set `i`.
 /// Returns `Err(IndicatorError)` if any input slice is too short or options are invalid.
-pub fn indicator_by_options<const N: usize>(
+pub(crate) fn indicator_by_options<const N: usize>(
     inputs: &[&[f64]; INPUTS],
     options: &[&[f64; OPTIONS]; N],
     _optional_outputs: Option<&[bool]>,

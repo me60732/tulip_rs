@@ -2,10 +2,7 @@
 mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicator_types::TIndicatorState;
-    use tulip_rs::indicators::rocr::{Indicator, Rocr};
-    use tulip_rs::indicators::simd_indicators::rocr_simd::{
-        indicator_by_assets, indicator_by_options,
-    };
+    use tulip_rs::indicators::rocr::{Indicator, Rocr, IndicatorByOptions};
     use tulip_test::c_bindings::{ti_rocr, ti_rocr_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -296,7 +293,7 @@ mod tests {
 
         for options in OPTIONS_LIST {
             // Run SIMD by assets implementation
-            let (simd_outputs, _) = indicator_by_assets::<4>(&inputs, &options, None)
+            let (simd_outputs, _) = Rocr::indicator_by_assets::<4>(&inputs, &options, None)
                 .expect("SIMD by assets ROCR indicator failed");
 
             // Compare with individual Rust implementations
@@ -361,12 +358,12 @@ mod tests {
                 &OPTIONS_LIST[2],
                 &OPTIONS_LIST[3],
             ];
-            let (simd_results_4, _) = indicator_by_options::<4>(&inputs, &options_4, None)
+            let (simd_results_4, _) = Rocr::indicator_by_options::<4>(&inputs, &options_4, None)
                 .expect("SIMD ROCR 4-wide failed");
 
             // Process remaining option with 1-wide SIMD
             let options_1 = [&OPTIONS_LIST[4]];
-            let (simd_results_1, _) = indicator_by_options::<1>(&inputs, &options_1, None)
+            let (simd_results_1, _) = Rocr::indicator_by_options::<1>(&inputs, &options_1, None)
                 .expect("SIMD ROCR 1-wide failed");
 
             // Combine SIMD results

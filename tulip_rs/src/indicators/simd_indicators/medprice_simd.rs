@@ -1,5 +1,5 @@
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::medprice::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::medprice::indicator_by_assets;
 
 use crate::indicators::simd_indicators::simd_types::F64Constants;
 use std::simd::Simd;

@@ -1,6 +1,6 @@
 use crate::common::{validate_inputs, validate_options};
 pub use crate::indicator_types::{
-    Indicator, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
+    Indicator, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState, IndicatorByOptions
 };
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
@@ -173,6 +173,21 @@ impl Indicator<INPUTS, OPTIONS> for Sma {
         optional_outputs: Option<&[bool]>,
     ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
         crate::indicators::simd_indicators::sma_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+    
+}
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for Sma {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS], //stock[ fields [ field [f64] ] ]
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::sma_simd::indicator_by_options::<N>(
             inputs,
             options,
             optional_outputs,

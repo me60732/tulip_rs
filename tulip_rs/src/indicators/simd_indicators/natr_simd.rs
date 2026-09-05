@@ -1,9 +1,9 @@
 #[cfg(feature = "simd_assets")]
-pub use crate::indicators::simd_indicators::by_asset::natr::indicator_by_assets;
+pub(crate) use crate::indicators::simd_indicators::by_asset::natr::indicator_by_assets;
 use crate::indicators::simd_indicators::simd_types::F64Constants;
 
 #[cfg(feature = "simd_options")]
-pub use crate::indicators::simd_indicators::by_option::natr::indicator_by_options;
+pub(crate) use crate::indicators::simd_indicators::by_option::natr::indicator_by_options;
 pub use crate::indicators::{
     natr::State,
     simd_indicators::atr_simd::{SimdState as AtrSimdState, TSimdState, TState},
