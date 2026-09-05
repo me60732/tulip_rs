@@ -93,7 +93,7 @@ Moving average where each bar is weighted linearly, the most recent bar receivin
     `wma` exposes 1 optional output: `"sma"`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
     ```rust
-    use tulip_rs::indicators::wma::{Wma, Indicator, TIndicatorState};
+    use tulip_rs::indicators::wma::{Wma, Indicator};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];

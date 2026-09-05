@@ -82,7 +82,7 @@ Every indicator follows the same signature — learn it once, use it everywhere.
 ### Rust
 
 ```rust
-use tulip_rs::indicators::ema::{Ema, TIndicatorState};
+use tulip_rs::indicators::ema::{Ema, Indicator, TIndicatorState};
 
 let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                  83.15, 82.84, 83.99, 84.55, 84.36_f64];
@@ -116,7 +116,7 @@ next_outputs, next_state = state.batch_indicator([np.array([85.10])], None)
 ### SIMD — same indicator, N assets at once (Rust)
 
 ```rust
-use tulip_rs::indicators::ema::indicator_by_assets;
+use tulip_rs::indicators::ema::{Ema, Indicator};
 
 // 4 assets processed simultaneously in one CPU pass
 let inputs = [asset1.as_slice(), asset2.as_slice(),

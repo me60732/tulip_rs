@@ -33,9 +33,9 @@ pub struct DisplayGroup {
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::adosc;
+    use tulip_rs::indicators::adosc::{Adosc, Indicator};
 
-    let meta = adosc::info();
+    let meta = Adosc::INFO;
 
     println!("Name:             {}", meta.name);               // adosc
     println!("Full name:        {}", meta.full_name);          // Accumulation/Distribution Oscillator
@@ -153,7 +153,7 @@ Optional outputs are **off by default**. Requesting them never changes the prima
 Call `info()` and inspect the `optional_outputs` field:
 
 ```rust
-use tulip_rs::indicators::adx;
+use tulip_rs::indicators::adx::{Adx, Indicator};
 
 let meta = adx::info();
 println!("{:?}", meta.optional_outputs); // ["dx", "atr", "tr"]
@@ -179,7 +179,7 @@ The third argument to `indicator()` is `optional_outputs: Option<&[bool]>`. Each
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::adosc;
+    use tulip_rs::indicators::adosc::{Adosc, Indicator, TIndicatorState};
 
     let high  = vec![/* ... */];
     let low   = vec![/* ... */];
@@ -187,13 +187,13 @@ The third argument to `indicator()` is `optional_outputs: Option<&[bool]>`. Each
     let vol   = vec![/* ... */];
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice(), vol.as_slice()];
 
-    // info().optional_outputs == ["short_ema", "long_ema", "ad"]
-    //                              ^^^^^^^^^^^  ^^^^^^^^^^  ^^^^
-    //                              index 0      index 1     index 2
+    // Adosc::INFO.optional_outputs == ["short_ema", "long_ema", "ad"]
+    //                                ^^^^^^^^^^^  ^^^^^^^^^^  ^^^^
+    //                                index 0      index 1     index 2
 
     // Request only the AD line (index 2); skip short_ema and long_ema
     let mask = [false, false, true];
-    let (outputs, state) = adosc::indicator(&inputs, &[6.0, 20.0], Some(&mask)).unwrap();
+    let (outputs, state) = Adosc::indicator(&inputs, &[6.0, 20.0], Some(&mask)).unwrap();
 
     let adosc_line = &outputs[0]; // primary output — always present
     // outputs[1] and outputs[2] are empty (not requested)
@@ -331,11 +331,11 @@ The return type is `(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>)`. Index the outer 
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::adosc;
+    use tulip_rs::indicators::adosc::{Adosc, Indicator, IndicatorByOptions};
 
     // indicator_by_assets: 4 assets, same options, same optional-output mask
     let mask = [false, false, true]; // request the AD line only
-    let (all_outputs, _states) = adosc::indicator_by_assets::<4>(
+    let (all_outputs, _states) = Adosc::indicator_by_assets::<4>(
         &[&inputs_a, &inputs_b, &inputs_c, &inputs_d],
         &[6.0, 20.0],
         Some(&mask),
@@ -346,7 +346,7 @@ The return type is `(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>)`. Index the outer 
     let ad_a    = &all_outputs[0][3]; // optional output at index 2 (AD line)
 
     // indicator_by_options: 1 asset, 4 option sets, same optional-output mask
-    let (all_outputs, _states) = adosc::indicator_by_options::<4>(
+    let (all_outputs, _states) = Adosc::indicator_by_options::<4>(
         &inputs,
         &[&[3.0, 10.0], &[6.0, 20.0], &[12.0, 26.0], &[20.0, 50.0]],
         Some(&mask),
@@ -438,17 +438,17 @@ The value depends on the indicator's options because period-based indicators req
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::adx;
+    use tulip_rs::indicators::adx::{Adx, Indicator, TIndicatorState};
 
     // ADX with period = 14 needs at least 14*2 = 28 bars
-    let minimum = adx::min_data(&[14.0]);
+    let minimum = Adx::min_data(&[14.0]);
     println!("Min data: {minimum}"); // 28
 
     // Check before calling
     if close.len() < minimum {
         eprintln!("Not enough data: have {}, need {}", close.len(), minimum);
     } else {
-        let (outputs, state) = adx::indicator(&[high.as_slice(), low.as_slice(), close.as_slice()], &[14.0], None).unwrap();
+        let (outputs, state) = Adx::indicator(&[high.as_slice(), low.as_slice(), close.as_slice()], &[14.0], None).unwrap();
     }
     ```
 
