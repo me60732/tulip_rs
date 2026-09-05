@@ -122,7 +122,7 @@ use tulip_rs::indicators::ema::{Ema, Indicator};
 let inputs = [asset1.as_slice(), asset2.as_slice(),
               asset3.as_slice(), asset4.as_slice()];
 
-let results = indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
+let results = Ema::indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
 ```
 
 ---
