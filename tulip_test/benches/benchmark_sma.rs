@@ -1,6 +1,8 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-use tulip_rs::indicators::sma::{Indicator, IndicatorState, Sma, TIndicatorState, IndicatorByOptions};
+use tulip_rs::indicators::sma::{
+    Indicator, IndicatorByOptions, IndicatorState, Sma, TIndicatorState,
+};
 
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 //use tulip_test::benchmark_utils::SAMPLE_SIZE;
@@ -431,7 +433,7 @@ fn bench_rust_sma_simd_by_options(c: &mut Criterion) {
     ];
     if should_log_to_db() {
         init_database_data();
-        init_logging("roc");
+        init_logging("sma");
 
         let data = get_all_stock_data().unwrap();
 
@@ -443,14 +445,14 @@ fn bench_rust_sma_simd_by_options(c: &mut Criterion) {
             timing.measure(
                 || {
                     let result_4 = Sma::indicator_by_options::<4>(&inputs, &options_4, None)
-                        .expect("Rust SIMD ROC indicator failed");
+                        .expect("Rust SIMD SMA indicator failed");
                     black_box(&result_4);
                 },
                 SAMPLE_SIZE,
             );
 
             log_timing_result(
-                "roc",
+                "sma",
                 "Rust_SIMD",
                 &[0.0],
                 close_vec.len(),
@@ -463,12 +465,12 @@ fn bench_rust_sma_simd_by_options(c: &mut Criterion) {
         let close_vec = expand_inputs();
         let inputs = [close_vec.as_slice()];
 
-        let mut group = c.benchmark_group("roc_rust_simd_by_options");
+        let mut group = c.benchmark_group("sma_rust_simd_by_options");
         group.sample_size(SAMPLE_SIZE);
-        group.bench_function("Rust SIMD by options ROC (4 lanes)", |b| {
+        group.bench_function("Rust SIMD by options SMA (4 lanes)", |b| {
             b.iter(|| {
                 let result_4 = Sma::indicator_by_options::<4>(&inputs, &options_4, None)
-                    .expect("Rust SIMD ROC indicator failed");
+                    .expect("Rust SIMD SMA indicator failed");
                 black_box(&result_4);
             });
         });
