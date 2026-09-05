@@ -209,7 +209,7 @@ A trend-following overlay that plots above price in a downtrend and below price 
     **By assets** — same options applied to 4 assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::supertrend::indicator_by_assets;
+    use tulip_rs::indicators::supertrend::{SuperTrend, Indicator};
 
     let h1 = high.clone(); let l1 = low.clone(); let c1 = close.clone();
     let h2 = h1.clone();   let l2 = l1.clone(); let c2 = c1.clone();
@@ -223,7 +223,7 @@ A trend-following overlay that plots above price in a downtrend and below price 
         &[h4.as_slice(), l4.as_slice(), c4.as_slice()],
     ];
 
-    let results = indicator_by_assets::<4>(&inputs, &[10.0, 3.0], None).unwrap();
+    let results = SuperTrend::indicator_by_assets::<4>(&inputs, &[10.0, 3.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
@@ -232,11 +232,11 @@ A trend-following overlay that plots above price in a downtrend and below price 
     **By options** — same asset, 4 different option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::supertrend::indicator_by_options;
+    use tulip_rs::indicators::supertrend::{SuperTrend, IndicatorByOptions};
 
     let opts: [&[f64; 2]; 4] = [&[7.0, 2.0], &[10.0, 3.0], &[14.0, 3.5], &[20.0, 4.0]];
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-    let results = indicator_by_options::<4>(&inputs, &opts, None).unwrap();
+    let results = SuperTrend::indicator_by_options::<4>(&inputs, &opts, None).unwrap();
     for (i, out) in results.iter().enumerate() {
         println!("Period/Step {}/{}: {:?}", opts[i][0], opts[i][1], out[0]);
     }

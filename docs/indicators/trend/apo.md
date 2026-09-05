@@ -152,7 +152,7 @@ The raw difference between two EMAs (short minus long). Positive values indicate
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::apo::indicator_by_assets;
+    use tulip_rs::indicators::apo::{Apo, Indicator};
 
     let inputs: [&[&[f64]; 1]; 4] = [
         &[asset1_close.as_slice()],
@@ -160,7 +160,7 @@ The raw difference between two EMAs (short minus long). Positive values indicate
         &[asset3_close.as_slice()],
         &[asset4_close.as_slice()],
     ];
-    let results = indicator_by_assets::<4>(&inputs, &[12.0, 26.0], None).unwrap();
+    let results = Apo::indicator_by_assets::<4>(&inputs, &[12.0, 26.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
@@ -169,10 +169,10 @@ The raw difference between two EMAs (short minus long). Positive values indicate
     **By options** — same asset, N option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::apo::indicator_by_options;
+    use tulip_rs::indicators::apo::{Apo, IndicatorByOptions};
 
     let opts: [&[f64; 2]; 4] = [&[6.0, 13.0], &[12.0, 26.0], &[19.0, 39.0], &[24.0, 52.0]];
-    let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
+    let results = Apo::indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
     for (i, out) in results.iter().enumerate() {
         println!("Option set {}: {:?}", i + 1, out[0]);
     }

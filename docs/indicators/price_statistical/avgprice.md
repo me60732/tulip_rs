@@ -103,7 +103,7 @@ The arithmetic mean of open, high, low, and close for each bar: `(O + H + L + C)
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::avgprice::indicator_by_assets;
+    use tulip_rs::indicators::avgprice::{AvgPrice, Indicator};
 
     let o1 = vec![81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25_f64];
     let h1 = vec![82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00_f64];
@@ -120,7 +120,7 @@ The arithmetic mean of open, high, low, and close for each bar: `(O + H + L + C)
         &[o4.as_slice(), h4.as_slice(), l4.as_slice(), c4.as_slice()],
     ];
 
-    let results = indicator_by_assets::<4>(&inputs, &[], None).unwrap();
+    let results = AvgPrice::indicator_by_assets::<4>(&inputs, &[], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }

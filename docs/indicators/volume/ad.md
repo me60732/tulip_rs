@@ -114,7 +114,7 @@ A cumulative indicator that uses price and volume to assess whether a security i
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::ad::indicator_by_assets;
+    use tulip_rs::indicators::ad::{Ad, Indicator};
 
     let inputs: [&[&[f64]; 4]; 4] = [
         &[h1.as_slice(), l1.as_slice(), c1.as_slice(), v1.as_slice()],

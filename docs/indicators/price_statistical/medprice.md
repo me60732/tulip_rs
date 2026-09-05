@@ -9,7 +9,7 @@
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::medprice::{Medprice, Indicator, TIndicatorState};
+    use tulip_rs::indicators::medprice::{Medprice};
 
     let high = vec![82.15, 81.89, 83.03, 83.30, 83.85,
                     83.90, 83.33, 84.30, 84.84, 85.00_f64];
@@ -85,7 +85,7 @@
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::medprice::indicator_by_assets;
+    use tulip_rs::indicators::medprice::{Medprice, Indicator};
 
     let inputs: [&[&[f64]; 2]; 4] = [
         &[h1.as_slice(), l1.as_slice()],
@@ -93,7 +93,7 @@
         &[h3.as_slice(), l3.as_slice()],
         &[h4.as_slice(), l4.as_slice()],
     ];
-    let results = indicator_by_assets::<4>(&inputs, &[], None).unwrap();
+    let results = Medprice::indicator_by_assets::<4>(&inputs, &[], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }

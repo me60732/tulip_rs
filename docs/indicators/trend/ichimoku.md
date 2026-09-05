@@ -225,7 +225,7 @@ A comprehensive trend-following system that defines support/resistance, trend di
     **By assets** — same options applied to 4 assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::ichimoku::indicator_by_assets;
+    use tulip_rs::indicators::ichimoku::{Ichimoku, Indicator};
 
     let h1 = high.clone(); let l1 = low.clone(); let c1 = close.clone();
     let h2 = h1.clone();   let l2 = l1.clone(); let c2 = c1.clone();
@@ -239,7 +239,7 @@ A comprehensive trend-following system that defines support/resistance, trend di
         &[h4.as_slice(), l4.as_slice(), c4.as_slice()],
     ];
 
-    let results = indicator_by_assets::<4>(&inputs, &[9.0, 26.0], None).unwrap();
+    let results = Ichimoku::indicator_by_assets::<4>(&inputs, &[9.0, 26.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {} Conversion: {:?}", i + 1, asset_outputs[0]);
         println!("Asset {} Base:       {:?}", i + 1, asset_outputs[1]);
@@ -249,11 +249,11 @@ A comprehensive trend-following system that defines support/resistance, trend di
     **By options** — same asset, 4 different option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::ichimoku::indicator_by_options;
+    use tulip_rs::indicators::ichimoku::{Ichimoku, IndicatorByOptions};
 
     let opts: [&[f64; 2]; 4] = [&[7.0, 22.0], &[9.0, 26.0], &[11.0, 30.0], &[13.0, 34.0]];
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-    let results = indicator_by_options::<4>(&inputs, &opts, None).unwrap();
+    let results = Ichimoku::indicator_by_options::<4>(&inputs, &opts, None).unwrap();
     for (i, out) in results.iter().enumerate() {
         println!("Short/Long {}/{}: Conversion={:?}", opts[i][0], opts[i][1], out[0]);
     }

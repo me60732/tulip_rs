@@ -170,7 +170,7 @@ Relates price change to volume, indicating how easily a price moves. High values
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::emv::{Emv, Indicator, TIndicatorState};
+    use tulip_rs::indicators::emv::{Emv, Indicator};
 
     let inputs: [&[&[f64]; 3]; 4] = [
         &[h1.as_slice(), l1.as_slice(), v1.as_slice()],
@@ -178,7 +178,7 @@ Relates price change to volume, indicating how easily a price moves. High values
         &[h3.as_slice(), l3.as_slice(), v3.as_slice()],
         &[h4.as_slice(), l4.as_slice(), v4.as_slice()],
     ];
-    let results = emv::indicator_by_assets::<4>(&inputs, &[], None).unwrap();
+    let results = Emv::indicator_by_assets::<4>(&inputs, &[], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }

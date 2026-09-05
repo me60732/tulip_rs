@@ -175,7 +175,7 @@ Momentum indicator measuring the current close relative to the highest high over
     **By assets** — same period applied to 4 assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::willr::indicator_by_assets;
+    use tulip_rs::indicators::willr::{WillR, Indicator};
 
     let h1 = vec![82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00_f64];
     let l1 = vec![81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11_f64];
@@ -191,7 +191,7 @@ Momentum indicator measuring the current close relative to the highest high over
         &[h4.as_slice(), l4.as_slice(), c4.as_slice()],
     ];
 
-    let results = indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
+    let results = WillR::indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
@@ -200,7 +200,7 @@ Momentum indicator measuring the current close relative to the highest high over
     **By options** — same asset, 4 different periods in parallel:
 
     ```rust
-    use tulip_rs::indicators::willr::indicator_by_options;
+    use tulip_rs::indicators::willr::{WillR, IndicatorByOptions};
 
     let high  = vec![82.15, 81.89, 83.03, 83.30, 83.85,
                      83.90, 83.33, 84.30, 84.84, 85.00_f64];
@@ -211,7 +211,7 @@ Momentum indicator measuring the current close relative to the highest high over
 
     let opts: [&[f64; 1]; 4] = [&[7.0], &[14.0], &[21.0], &[28.0]];
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-    let results = indicator_by_options::<4>(&inputs, &opts, None).unwrap();
+    let results = WillR::indicator_by_options::<4>(&inputs, &opts, None).unwrap();
     for (i, opt_outputs) in results.iter().enumerate() {
         println!("Period set {}: {:?}", i + 1, opt_outputs[0]);
     }

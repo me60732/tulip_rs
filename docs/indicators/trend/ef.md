@@ -98,7 +98,7 @@ Measures how efficiently price moves in one direction over `period` bars; values
     **By assets** — same period applied to 4 assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::ef::indicator_by_assets;
+    use tulip_rs::indicators::ef::{Ef, Indicator};
 
     let a1 = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
                   85.53, 86.54, 86.89, 87.77, 87.29_f64];
@@ -116,7 +116,7 @@ Measures how efficiently price moves in one direction over `period` bars; values
         &[a4.as_slice()],
     ];
 
-    let results = indicator_by_assets::<4>(&inputs, &[5.0], None).unwrap();
+    let results = Ef::indicator_by_assets::<4>(&inputs, &[5.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
@@ -125,7 +125,7 @@ Measures how efficiently price moves in one direction over `period` bars; values
     **By options** — same asset, 4 different periods in parallel:
 
     ```rust
-    use tulip_rs::indicators::ef::indicator_by_options;
+    use tulip_rs::indicators::ef::{Ef, IndicatorByOptions};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36,
@@ -133,7 +133,7 @@ Measures how efficiently price moves in one direction over `period` bars; values
 
     let opts: [&[f64; 1]; 4] = [&[3.0], &[5.0], &[7.0], &[10.0]];
 
-    let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
+    let results = Ef::indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
     for (i, opt_outputs) in results.iter().enumerate() {
         println!("Period set {}: {:?}", i + 1, opt_outputs[0]);
     }

@@ -97,7 +97,7 @@ Cumulative volume indicator: adds volume on up-days and subtracts on down-days. 
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::obv::{Obv, Indicator, TIndicatorState};
+    use tulip_rs::indicators::obv::{Obv, Indicator};
 
     let inputs: [&[&[f64]; 2]; 4] = [
         &[c1.as_slice(), v1.as_slice()],
@@ -105,7 +105,7 @@ Cumulative volume indicator: adds volume on up-days and subtracts on down-days. 
         &[c3.as_slice(), v3.as_slice()],
         &[c4.as_slice(), v4.as_slice()],
     ];
-    let results = obv::indicator_by_assets::<4>(&inputs, &[], None).unwrap();
+    let results = Obv::indicator_by_assets::<4>(&inputs, &[], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }

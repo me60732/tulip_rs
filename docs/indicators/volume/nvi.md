@@ -97,7 +97,7 @@ Tracks price changes on days when volume decreases, based on the theory that sma
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::nvi::{Nvi, Indicator, TIndicatorState};
+    use tulip_rs::indicators::nvi::{Nvi, Indicator};
 
     let inputs: [&[&[f64]; 2]; 4] = [
         &[c1.as_slice(), v1.as_slice()],
@@ -105,7 +105,7 @@ Tracks price changes on days when volume decreases, based on the theory that sma
         &[c3.as_slice(), v3.as_slice()],
         &[c4.as_slice(), v4.as_slice()],
     ];
-    let results = nvi::indicator_by_assets::<4>(&inputs, &[], None).unwrap();
+    let results = Nvi::indicator_by_assets::<4>(&inputs, &[], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }

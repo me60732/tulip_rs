@@ -104,7 +104,7 @@ Three bands plotted around a moving average. The width expands and contracts wit
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::bbands::indicator_by_assets;
+    use tulip_rs::indicators::bbands::{BBands, Indicator};
 
     let inputs: [&[&[f64]; 1]; 4] = [
         &[asset1_close.as_slice()],
@@ -112,7 +112,7 @@ Three bands plotted around a moving average. The width expands and contracts wit
         &[asset3_close.as_slice()],
         &[asset4_close.as_slice()],
     ];
-    let results = indicator_by_assets::<4>(&inputs, &[20.0, 2.0], None).unwrap();
+    let results = BBands::indicator_by_assets::<4>(&inputs, &[20.0, 2.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {} Lower:  {:?}", i + 1, asset_outputs[0]);
         println!("Asset {} Middle: {:?}", i + 1, asset_outputs[1]);
@@ -123,10 +123,10 @@ Three bands plotted around a moving average. The width expands and contracts wit
     **By options** — same asset, N option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::bbands::indicator_by_options;
+    use tulip_rs::indicators::bbands::{BBands, IndicatorByOptions};
 
     let opts: [&[f64; 2]; 4] = [&[10.0, 1.5], &[20.0, 2.0], &[30.0, 2.0], &[50.0, 2.5]];
-    let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
+    let results = BBands::indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
     for (i, out) in results.iter().enumerate() {
         println!("Option set {} Lower:  {:?}", i + 1, out[0]);
         println!("Option set {} Middle: {:?}", i + 1, out[1]);

@@ -109,7 +109,7 @@ Measures how recently the highest high and lowest low occurred within the lookba
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::aroon::indicator_by_assets;
+    use tulip_rs::indicators::aroon::{Aroon, Indicator};
 
     let inputs: [&[&[f64]; 2]; 4] = [
         &[h1.as_slice(), l1.as_slice()],
@@ -117,7 +117,7 @@ Measures how recently the highest high and lowest low occurred within the lookba
         &[h3.as_slice(), l3.as_slice()],
         &[h4.as_slice(), l4.as_slice()],
     ];
-    let results = indicator_by_assets::<4>(&inputs, &[25.0], None).unwrap();
+    let results = Aroon::indicator_by_assets::<4>(&inputs, &[25.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {} Aroon Down: {:?}", i + 1, asset_outputs[0]);
         println!("Asset {} Aroon Up:   {:?}", i + 1, asset_outputs[1]);
@@ -127,10 +127,10 @@ Measures how recently the highest high and lowest low occurred within the lookba
     **By options** — same asset, N option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::aroon::indicator_by_options;
+    use tulip_rs::indicators::aroon::{Aroon, IndicatorByOptions};
 
     let opts: [&[f64; 1]; 4] = [&[5.0], &[10.0], &[25.0], &[50.0]];
-    let results = indicator_by_options::<4>(&inputs, &opts, None).unwrap();
+    let results = Aroon::indicator_by_options::<4>(&inputs, &opts, None).unwrap();
     for (i, out) in results.iter().enumerate() {
         println!("Period {} Aroon Down: {:?}", opts[i][0], out[0]);
         println!("Period {} Aroon Up:   {:?}", opts[i][0], out[1]);

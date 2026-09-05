@@ -202,7 +202,7 @@ Measures market momentum as the difference between a 5-period and 34-period simp
     **By assets** — applied to 4 assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::ao::indicator_by_assets;
+    use tulip_rs::indicators::ao::{Ao, Indicator};
 
     let h1 = vec![82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
                   85.90, 86.58, 86.98, 88.00, 87.87, 88.10, 88.50, 89.00, 89.40, 89.80,
@@ -223,7 +223,7 @@ Measures market momentum as the difference between a 5-period and 34-period simp
         &[h4.as_slice(), l4.as_slice()],
     ];
 
-    let results = indicator_by_assets::<4>(&inputs, &[], None).unwrap();
+    let results = Ao::indicator_by_assets::<4>(&inputs, &[], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }

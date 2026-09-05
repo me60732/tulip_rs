@@ -91,7 +91,7 @@ Identifies whether the market is trending or ranging. Higher values indicate a t
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::vhf::indicator_by_assets;
+    use tulip_rs::indicators::vhf::{Vhf, Indicator};
 
     let inputs: [&[&[f64]; 1]; 4] = [
         &[asset1_close.as_slice()],
@@ -99,7 +99,7 @@ Identifies whether the market is trending or ranging. Higher values indicate a t
         &[asset3_close.as_slice()],
         &[asset4_close.as_slice()],
     ];
-    let results = indicator_by_assets::<4>(&inputs, &[28.0], None).unwrap();
+    let results = Vhf::indicator_by_assets::<4>(&inputs, &[28.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
@@ -108,10 +108,10 @@ Identifies whether the market is trending or ranging. Higher values indicate a t
     **By options** — same asset, N option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::vhf::indicator_by_options;
+    use tulip_rs::indicators::vhf::{Vhf, IndicatorByOptions};
 
     let opts: [&[f64; 1]; 4] = [&[14.0], &[21.0], &[28.0], &[55.0]];
-    let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
+    let results = Vhf::indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
     for (i, out) in results.iter().enumerate() {
         println!("Period {}: {:?}", opts[i][0], out[0]);
     }

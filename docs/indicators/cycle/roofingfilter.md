@@ -25,7 +25,7 @@ Band-pass filters price by first applying a high-pass filter to remove trend and
     // State continuation
     let n = close.len() - 5;
     let partial = close[..n].to_vec();
-    let (outputs2, mut state) = indicator(&[partial.as_slice()], &[10.0, 40.0], None).unwrap();
+    let (outputs2, mut state) = RoofingFilter::indicator(&[partial.as_slice()], &[10.0, 40.0], None).unwrap();
     println!("Partial Roofing Filter: {:?}", outputs2[0]);
 
     let rest = close[n..].to_vec();
@@ -198,7 +198,7 @@ Band-pass filters price by first applying a high-pass filter to remove trend and
     **By options** — same asset, 4 different option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::roofingfilter::{RoofingFilter, Indicator, TIndicatorState};
+    use tulip_rs::indicators::roofingfilter::{RoofingFilter, IndicatorByOptions};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];

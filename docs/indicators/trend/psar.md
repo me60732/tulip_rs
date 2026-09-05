@@ -104,7 +104,7 @@ A trailing stop-and-reverse indicator. The SAR dot flips below or above price to
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::psar::indicator_by_assets;
+    use tulip_rs::indicators::psar::{Psar, Indicator};
 
     let inputs: [&[&[f64]; 2]; 4] = [
         &[h1.as_slice(), l1.as_slice()],
@@ -112,7 +112,7 @@ A trailing stop-and-reverse indicator. The SAR dot flips below or above price to
         &[h3.as_slice(), l3.as_slice()],
         &[h4.as_slice(), l4.as_slice()],
     ];
-    let results = indicator_by_assets::<4>(&inputs, &[0.02, 0.2], None).unwrap();
+    let results = Psar::indicator_by_assets::<4>(&inputs, &[0.02, 0.2], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
@@ -121,10 +121,10 @@ A trailing stop-and-reverse indicator. The SAR dot flips below or above price to
     **By options** — same asset, N option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::psar::indicator_by_options;
+    use tulip_rs::indicators::psar::{Psar, IndicatorByOptions};
 
     let opts: [&[f64; 2]; 4] = [&[0.01, 0.1], &[0.02, 0.2], &[0.03, 0.3], &[0.04, 0.4]];
-    let results = indicator_by_options::<4>(&inputs, &opts, None).unwrap();
+    let results = Psar::indicator_by_options::<4>(&inputs, &opts, None).unwrap();
     for (i, out) in results.iter().enumerate() {
         println!("Step/Max {}/{}: {:?}", opts[i][0], opts[i][1], out[0]);
     }

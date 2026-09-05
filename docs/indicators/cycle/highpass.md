@@ -24,7 +24,7 @@ Removes low-frequency trend components from price by applying Ehlers' two-pole h
     // State continuation
     let n = close.len() - 5;
     let partial = close[..n].to_vec();
-    let (outputs2, mut state) = indicator(&[partial.as_slice()], &[20.0], None).unwrap();
+    let (outputs2, mut state) = Highpass::indicator(&[partial.as_slice()], &[20.0], None).unwrap();
     println!("Partial Highpass: {:?}", outputs2[0]);
 
     let rest = close[n..].to_vec();
@@ -131,7 +131,7 @@ Removes low-frequency trend components from price by applying Ehlers' two-pole h
     **By options** — same asset, 4 different periods in parallel:
 
     ```rust
-    use tulip_rs::indicators::highpass::{Highpass, Indicator, TIndicatorState};
+    use tulip_rs::indicators::highpass::{Highpass, IndicatorByOptions};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];

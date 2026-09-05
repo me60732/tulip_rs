@@ -111,7 +111,7 @@ The single-bar true range: the greatest of (high-low), |high-prev_close|, |low-p
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::tr::indicator_by_assets;
+    use tulip_rs::indicators::tr::{Tr, Indicator};
 
     let inputs: [&[&[f64]; 3]; 4] = [
         &[h1.as_slice(), l1.as_slice(), c1.as_slice()],
@@ -119,7 +119,7 @@ The single-bar true range: the greatest of (high-low), |high-prev_close|, |low-p
         &[h3.as_slice(), l3.as_slice(), c3.as_slice()],
         &[h4.as_slice(), l4.as_slice(), c4.as_slice()],
     ];
-    let results = indicator_by_assets::<4>(&inputs, &[], None).unwrap();
+    let results = Tr::indicator_by_assets::<4>(&inputs, &[], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }

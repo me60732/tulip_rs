@@ -141,7 +141,7 @@ The end-point of a least-squares linear regression line fitted to the last `peri
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::linreg::indicator_by_assets;
+    use tulip_rs::indicators::linreg::{Linreg, Indicator};
 
     let a1 = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
     let a2 = vec![72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50_f64];
@@ -155,7 +155,7 @@ The end-point of a least-squares linear regression line fitted to the last `peri
         &[a4.as_slice()],
     ];
 
-    let results = indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
+    let results = Linreg::indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
@@ -164,14 +164,14 @@ The end-point of a least-squares linear regression line fitted to the last `peri
     **By options** — same asset, N option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::linreg::indicator_by_options;
+    use tulip_rs::indicators::linreg::{Linreg, IndicatorByOptions};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
     let opts: [&[f64; 1]; 4] = [&[7.0], &[14.0], &[21.0], &[28.0]];
 
-    let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
+    let results = Linreg::indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
     for (i, opt_outputs) in results.iter().enumerate() {
         println!("Period set {}: {:?}", i + 1, opt_outputs[0]);
     }

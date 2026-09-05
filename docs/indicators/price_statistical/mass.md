@@ -89,7 +89,7 @@ Uses the high-low trading range to identify potential trend reversals via range 
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::mass::indicator_by_assets;
+    use tulip_rs::indicators::mass::{Mass, Indicator};
 
     let inputs: [&[&[f64]; 2]; 4] = [
         &[h1.as_slice(), l1.as_slice()],
@@ -97,16 +97,16 @@ Uses the high-low trading range to identify potential trend reversals via range 
         &[h3.as_slice(), l3.as_slice()],
         &[h4.as_slice(), l4.as_slice()],
     ];
-    let results = indicator_by_assets::<4>(&inputs, &[25.0], None).unwrap();
+    let results = Mass::indicator_by_assets::<4>(&inputs, &[25.0], None).unwrap();
     ```
 
     **By options** — same asset, N option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::mass::indicator_by_options;
+    use tulip_rs::indicators::mass::{Mass, IndicatorByOptions};
 
     let opts: [&[f64; 1]; 4] = [&[15.0], &[20.0], &[25.0], &[30.0]];
-    let results = indicator_by_options::<4>(&inputs_single, &opts, None).unwrap();
+    let results = Mass::indicator_by_options::<4>(&inputs_single, &opts, None).unwrap();
     ```
 
 === "Python"

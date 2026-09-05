@@ -211,7 +211,7 @@ The average price weighted by trading volume over the entire input window; commo
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::vwap::{Vwap, Indicator, TIndicatorState};
+    use tulip_rs::indicators::vwap::{Vwap, Indicator};
 
     let h1 = high.clone();   let l1 = low.clone();
     let c1 = close.clone();  let v1 = volume.clone();

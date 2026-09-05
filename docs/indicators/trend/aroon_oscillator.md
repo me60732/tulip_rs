@@ -169,7 +169,7 @@ The difference between Aroon Up and Aroon Down. Positive values indicate bullish
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::aroonosc::indicator_by_assets;
+    use tulip_rs::indicators::aroonosc::{AroonOsc, Indicator};
 
     let inputs: [&[&[f64]; 2]; 4] = [
         &[h1.as_slice(), l1.as_slice()],
@@ -177,7 +177,7 @@ The difference between Aroon Up and Aroon Down. Positive values indicate bullish
         &[h3.as_slice(), l3.as_slice()],
         &[h4.as_slice(), l4.as_slice()],
     ];
-    let results = indicator_by_assets::<4>(&inputs, &[25.0], None).unwrap();
+    let results = AroonOsc::indicator_by_assets::<4>(&inputs, &[25.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
@@ -186,10 +186,10 @@ The difference between Aroon Up and Aroon Down. Positive values indicate bullish
     **By options** — same asset, N option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::aroonosc::indicator_by_options;
+    use tulip_rs::indicators::aroonosc::{AroonOsc, IndicatorByOptions};
 
     let opts: [&[f64; 1]; 4] = [&[5.0], &[10.0], &[25.0], &[50.0]];
-    let results = indicator_by_options::<4>(&inputs, &opts, None).unwrap();
+    let results = AroonOsc::indicator_by_options::<4>(&inputs, &opts, None).unwrap();
     for (i, out) in results.iter().enumerate() {
         println!("Period {}: {:?}", opts[i][0], out[0]);
     }

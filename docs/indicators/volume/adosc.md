@@ -198,7 +198,7 @@ The difference between a short and long EMA of the A/D line, used to confirm pri
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::adosc::indicator_by_assets;
+    use tulip_rs::indicators::adosc::{Adosc, Indicator};
 
     let inputs: [&[&[f64]; 4]; 4] = [
         &[h1.as_slice(), l1.as_slice(), c1.as_slice(), v1.as_slice()],
@@ -206,7 +206,7 @@ The difference between a short and long EMA of the A/D line, used to confirm pri
         &[h3.as_slice(), l3.as_slice(), c3.as_slice(), v3.as_slice()],
         &[h4.as_slice(), l4.as_slice(), c4.as_slice(), v4.as_slice()],
     ];
-    let results = indicator_by_assets::<4>(&inputs, &[3.0, 10.0], None).unwrap();
+    let results = Adosc::indicator_by_assets::<4>(&inputs, &[3.0, 10.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
@@ -215,10 +215,10 @@ The difference between a short and long EMA of the A/D line, used to confirm pri
     **By options** — same asset, N option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::adosc::indicator_by_options;
+    use tulip_rs::indicators::adosc::{Adosc, IndicatorByOptions};
 
     let opts: [&[f64; 2]; 4] = [&[2.0, 5.0], &[3.0, 10.0], &[5.0, 20.0], &[7.0, 28.0]];
-    let results = indicator_by_options::<4>(&inputs, &opts, None).unwrap();
+    let results = Adosc::indicator_by_options::<4>(&inputs, &opts, None).unwrap();
     for (i, out) in results.iter().enumerate() {
         println!("Option set {}: {:?}", i + 1, out[0]);
     }

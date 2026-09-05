@@ -213,7 +213,7 @@ A trailing stop-loss indicator that dynamically adjusts with volatility. The lon
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::chandelierexit::indicator_by_assets;
+    use tulip_rs::indicators::chandelierexit::{ChandelierExit, Indicator};
 
     let inputs: [&[&[f64]; 3]; 4] = [
         &[h1.as_slice(), l1.as_slice(), c1.as_slice()],
@@ -221,7 +221,7 @@ A trailing stop-loss indicator that dynamically adjusts with volatility. The lon
         &[h3.as_slice(), l3.as_slice(), c3.as_slice()],
         &[h4.as_slice(), l4.as_slice(), c4.as_slice()],
     ];
-    let results = indicator_by_assets::<4>(&inputs, &[14.0, 2.0], None).unwrap();
+    let results = ChandelierExit::indicator_by_assets::<4>(&inputs, &[14.0, 2.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: long={:?}", i + 1, asset_outputs[0]);
     }
@@ -230,10 +230,10 @@ A trailing stop-loss indicator that dynamically adjusts with volatility. The lon
     **By options** — same asset, N option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::chandelierexit::indicator_by_options;
+    use tulip_rs::indicators::chandelierexit::{ChandelierExit, IndicatorByOptions};
 
     let opts: [&[f64; 2]; 4] = [&[10.0, 2.0], &[14.0, 2.0], &[20.0, 2.0], &[30.0, 3.0]];
-    let results = indicator_by_options::<4>(&inputs, &opts, None).unwrap();
+    let results = ChandelierExit::indicator_by_options::<4>(&inputs, &opts, None).unwrap();
     for (i, out) in results.iter().enumerate() {
         println!("Period={} step={}: long={:?}", opts[i][0], opts[i][1], out[0]);
     }

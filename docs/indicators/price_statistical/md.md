@@ -136,10 +136,10 @@ The mean of the absolute deviations of each bar from the rolling mean over `peri
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::md::indicator_by_assets;
+    use tulip_rs::indicators::md::{Md, Indicator};
 
     let inputs: [&[&[f64]; 1]; 4] = [&[a1.as_slice()], &[a2.as_slice()], &[a3.as_slice()], &[a4.as_slice()]];
-    let results = indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
+    let results = Md::indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
@@ -148,10 +148,10 @@ The mean of the absolute deviations of each bar from the rolling mean over `peri
     **By options** — same asset, N option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::md::indicator_by_options;
+    use tulip_rs::indicators::md::{Md, IndicatorByOptions};
 
     let opts: [&[f64; 1]; 4] = [&[7.0], &[14.0], &[21.0], &[28.0]];
-    let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
+    let results = Md::indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Option {}: {:?}", i + 1, asset_outputs[0]);
     }

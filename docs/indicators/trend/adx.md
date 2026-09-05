@@ -188,7 +188,7 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::adx::indicator_by_assets;
+    use tulip_rs::indicators::adx::{Adx, Indicator};
 
     let inputs: [&[&[f64]; 3]; 4] = [
         &[h1.as_slice(), l1.as_slice(), c1.as_slice()],
@@ -196,7 +196,7 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
         &[h3.as_slice(), l3.as_slice(), c3.as_slice()],
         &[h4.as_slice(), l4.as_slice(), c4.as_slice()],
     ];
-    let results = indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
+    let results = Adx::indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
@@ -205,10 +205,10 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
     **By options** — same asset, N option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::adx::indicator_by_options;
+    use tulip_rs::indicators::adx::{Adx, IndicatorByOptions};
 
     let opts: [&[f64; 1]; 4] = [&[7.0], &[14.0], &[21.0], &[28.0]];
-    let results = indicator_by_options::<4>(&inputs, &opts, None).unwrap();
+    let results = Adx::indicator_by_options::<4>(&inputs, &opts, None).unwrap();
     for (i, out) in results.iter().enumerate() {
         println!("Period {}: {:?}", opts[i][0], out[0]);
     }

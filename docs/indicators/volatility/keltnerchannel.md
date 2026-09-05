@@ -214,7 +214,7 @@ A volatility-based envelope centred on an EMA of close. The middle band is EMA(c
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::keltnerchannel::indicator_by_assets;
+    use tulip_rs::indicators::keltnerchannel::{KeltnerChannel, Indicator};
 
     let inputs: [&[&[f64]; 3]; 4] = [
         &[h1.as_slice(), l1.as_slice(), c1.as_slice()],
@@ -222,7 +222,7 @@ A volatility-based envelope centred on an EMA of close. The middle band is EMA(c
         &[h3.as_slice(), l3.as_slice(), c3.as_slice()],
         &[h4.as_slice(), l4.as_slice(), c4.as_slice()],
     ];
-    let results = indicator_by_assets::<4>(&inputs, &[14.0, 2.0], None).unwrap();
+    let results = KeltnerChannel::indicator_by_assets::<4>(&inputs, &[14.0, 2.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: middle={:?}", i + 1, asset_outputs[1]);
     }
@@ -231,10 +231,10 @@ A volatility-based envelope centred on an EMA of close. The middle band is EMA(c
     **By options** — same asset, N option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::keltnerchannel::indicator_by_options;
+    use tulip_rs::indicators::keltnerchannel::{KeltnerChannel, IndicatorByOptions};
 
     let opts: [&[f64; 2]; 4] = [&[10.0, 1.5], &[14.0, 2.0], &[20.0, 2.0], &[30.0, 2.5]];
-    let results = indicator_by_options::<4>(&inputs, &opts, None).unwrap();
+    let results = KeltnerChannel::indicator_by_options::<4>(&inputs, &opts, None).unwrap();
     for (i, out) in results.iter().enumerate() {
         println!("Period={} step={}: middle={:?}", opts[i][0], opts[i][1], out[1]);
     }

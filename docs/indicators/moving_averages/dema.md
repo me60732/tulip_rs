@@ -154,7 +154,7 @@ Reduces EMA lag by applying a second EMA and combining the results: `2 * EMA - E
     **By assets** — same period applied to 4 assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::dema::indicator_by_assets;
+    use tulip_rs::indicators::dema::{Dema, Indicator};
 
     let a1 = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
     let a2 = vec![72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50_f64];
@@ -177,7 +177,7 @@ Reduces EMA lag by applying a second EMA and combining the results: `2 * EMA - E
     **By options** — same asset, 4 different periods in parallel:
 
     ```rust
-    use tulip_rs::indicators::dema::indicator_by_options;
+    use tulip_rs::indicators::dema::{Dema, IndicatorByOptions};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];

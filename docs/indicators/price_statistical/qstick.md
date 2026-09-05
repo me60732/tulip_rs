@@ -91,7 +91,7 @@ A moving average of `(Close - Open)` over `period` bars, summarising buying or s
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::qstick::indicator_by_assets;
+    use tulip_rs::indicators::qstick::{QStick, Indicator};
 
     let inputs: [&[&[f64]; 2]; 4] = [
         &[o1.as_slice(), c1.as_slice()],
@@ -99,7 +99,7 @@ A moving average of `(Close - Open)` over `period` bars, summarising buying or s
         &[o3.as_slice(), c3.as_slice()],
         &[o4.as_slice(), c4.as_slice()],
     ];
-    let results = indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
+    let results = QStick::indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
@@ -108,11 +108,11 @@ A moving average of `(Close - Open)` over `period` bars, summarising buying or s
     **By options** — same asset, N option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::qstick::indicator_by_options;
+    use tulip_rs::indicators::qstick::{QStick, IndicatorByOptions};
 
     let inputs_single = [open_.as_slice(), close.as_slice()];
     let opts: [&[f64; 1]; 4] = [&[5.0], &[10.0], &[14.0], &[20.0]];
-    let results = indicator_by_options::<4>(&inputs_single, &opts, None).unwrap();
+    let results = QStick::indicator_by_options::<4>(&inputs_single, &opts, None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Option {}: {:?}", i + 1, asset_outputs[0]);
     }

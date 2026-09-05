@@ -179,7 +179,7 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::mfi::{Mfi, Indicator, TIndicatorState};
+    use tulip_rs::indicators::mfi::{Mfi, Indicator};
 
     let inputs: [&[&[f64]; 4]; 4] = [
         &[h1.as_slice(), l1.as_slice(), c1.as_slice(), v1.as_slice()],
@@ -187,7 +187,7 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
         &[h3.as_slice(), l3.as_slice(), c3.as_slice(), v3.as_slice()],
         &[h4.as_slice(), l4.as_slice(), c4.as_slice(), v4.as_slice()],
     ];
-    let results = mfi::indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
+    let results = Mfi::indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
@@ -196,10 +196,10 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
     **By options** — same asset, N option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::mfi::{Mfi, Indicator, TIndicatorState};
+    use tulip_rs::indicators::mfi::{Mfi, IndicatorByOptions};
 
     let opts: [&[f64; 1]; 4] = [&[7.0], &[14.0], &[21.0], &[28.0]];
-    let results = mfi::indicator_by_options::<4>(&inputs, &opts, None).unwrap();
+    let results = Mfi::indicator_by_options::<4>(&inputs, &opts, None).unwrap();
     for (i, out) in results.iter().enumerate() {
         println!("Period {}: {:?}", opts[i][0], out[0]);
     }

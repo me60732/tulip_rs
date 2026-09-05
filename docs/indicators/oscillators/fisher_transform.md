@@ -102,7 +102,7 @@ Converts prices into a Gaussian normal distribution. Sharp moves in the Fisher v
     **By assets** — same period applied to 4 assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::fisher::indicator_by_assets;
+    use tulip_rs::indicators::fisher::{Fisher, Indicator};
 
     let h1 = vec![82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
                   85.90, 86.58, 86.98, 88.00, 87.87_f64];
@@ -119,7 +119,7 @@ Converts prices into a Gaussian normal distribution. Sharp moves in the Fisher v
         &[h4.as_slice(), l4.as_slice()],
     ];
 
-    let results = indicator_by_assets::<4>(&inputs, &[10.0], None).unwrap();
+    let results = Fisher::indicator_by_assets::<4>(&inputs, &[10.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {} Fisher:        {:?}", i + 1, asset_outputs[0]);
         println!("Asset {} Fisher Signal: {:?}", i + 1, asset_outputs[1]);
@@ -129,7 +129,7 @@ Converts prices into a Gaussian normal distribution. Sharp moves in the Fisher v
     **By options** — same asset, 4 different periods in parallel:
 
     ```rust
-    use tulip_rs::indicators::fisher::indicator_by_options;
+    use tulip_rs::indicators::fisher::{Fisher, IndicatorByOptions};
 
     let high = vec![82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
                     85.90, 86.58, 86.98, 88.00, 87.87_f64];
@@ -138,7 +138,7 @@ Converts prices into a Gaussian normal distribution. Sharp moves in the Fisher v
 
     let opts: [&[f64; 1]; 4] = [&[5.0], &[10.0], &[14.0], &[20.0]];
     let inputs = [high.as_slice(), low.as_slice()];
-    let results = indicator_by_options::<4>(&inputs, &opts, None).unwrap();
+    let results = Fisher::indicator_by_options::<4>(&inputs, &opts, None).unwrap();
     for (i, opt_outputs) in results.iter().enumerate() {
         println!("Option set {} Fisher:        {:?}", i + 1, opt_outputs[0]);
         println!("Option set {} Fisher Signal: {:?}", i + 1, opt_outputs[1]);

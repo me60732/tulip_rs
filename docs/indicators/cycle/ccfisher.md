@@ -248,7 +248,7 @@ Applies the Fisher Transform to the normalised Cyber Cycle oscillator, convertin
     **By options** — same asset, 4 different alpha values in parallel:
 
     ```rust
-    use tulip_rs::indicators::ccfisher::{Ccfisher, Indicator, TIndicatorState};
+    use tulip_rs::indicators::ccfisher::{Ccfisher, IndicatorByOptions};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];

@@ -22,7 +22,7 @@ Extracts the underlying trend from price by suppressing cycle-mode components us
 
     // State continuation
     let partial = close[..35].to_vec();
-    let (outputs2, mut state) = indicator(&[partial.as_slice()], &[], None).unwrap();
+    let (outputs2, mut state) = InstantaneousTrendline::indicator(&[partial.as_slice()], &[], None).unwrap();
     println!("Partial Trendline: {:?}", outputs2[0]);
 
     let new_close = close[35..].to_vec();
@@ -175,7 +175,7 @@ Extracts the underlying trend from price by suppressing cycle-mode components us
     **By assets** — applied to 4 assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::instantaneoustrendline::{InstantaneousTrendline, Indicator, TIndicatorState};
+    use tulip_rs::indicators::instantaneoustrendline::{InstantaneousTrendline Indicator};
 
     let a1 = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
                   85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,

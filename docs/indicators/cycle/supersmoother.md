@@ -24,7 +24,7 @@ A two-pole Butterworth filter with no phase lag that provides smoother output th
     // State continuation
     let n = close.len() - 5;
     let partial = close[..n].to_vec();
-    let (outputs2, mut state) = indicator(&[partial.as_slice()], &[10.0], None).unwrap();
+    let (outputs2, mut state) = SuperSmoother::indicator(&[partial.as_slice()], &[10.0], None).unwrap();
     println!("Partial Super Smoother: {:?}", outputs2[0]);
 
     let rest = close[n..].to_vec();
@@ -131,7 +131,7 @@ A two-pole Butterworth filter with no phase lag that provides smoother output th
     **By options** — same asset, 4 different periods in parallel:
 
     ```rust
-    use tulip_rs::indicators::supersmoother::{SuperSmoother, Indicator, TIndicatorState};
+    use tulip_rs::indicators::supersmoother::{SuperSmoother, IndicatorByOptions};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];

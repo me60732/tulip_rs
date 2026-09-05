@@ -83,10 +83,10 @@ The highest value in the input series over a rolling `period` window.
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::max::indicator_by_assets;
+    use tulip_rs::indicators::max::{Max};
 
     let inputs: [&[&[f64]; 1]; 4] = [&[a1.as_slice()], &[a2.as_slice()], &[a3.as_slice()], &[a4.as_slice()]];
-    let results = indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
+    let results = Max::indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
@@ -95,10 +95,10 @@ The highest value in the input series over a rolling `period` window.
     **By options** — same asset, N option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::max::indicator_by_options;
+    use tulip_rs::indicators::max::{Max, IndicatorByOptions};
 
     let opts: [&[f64; 1]; 4] = [&[5.0], &[10.0], &[20.0], &[50.0]];
-    let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
+    let results = Max::indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Option {}: {:?}", i + 1, asset_outputs[0]);
     }

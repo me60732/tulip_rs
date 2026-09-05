@@ -148,7 +148,7 @@ Rolling standard deviation of the price series over `period` bars.
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::stddev::indicator_by_assets;
+    use tulip_rs::indicators::stddev::{StdDev, Indicator};
 
     let inputs: [&[&[f64]; 1]; 4] = [
         &[asset1_close.as_slice()],
@@ -156,7 +156,7 @@ Rolling standard deviation of the price series over `period` bars.
         &[asset3_close.as_slice()],
         &[asset4_close.as_slice()],
     ];
-    let results = indicator_by_assets::<4>(&inputs, &[20.0], None).unwrap();
+    let results = StdDev::indicator_by_assets::<4>(&inputs, &[20.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
@@ -165,10 +165,10 @@ Rolling standard deviation of the price series over `period` bars.
     **By options** — same asset, N option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::stddev::indicator_by_options;
+    use tulip_rs::indicators::stddev::{StdDev, IndicatorByOptions};
 
     let opts: [&[f64; 1]; 4] = [&[10.0], &[20.0], &[30.0], &[50.0]];
-    let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
+    let results = StdDev::indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
     for (i, out) in results.iter().enumerate() {
         println!("Period {}: {:?}", opts[i][0], out[0]);
     }

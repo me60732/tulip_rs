@@ -105,7 +105,7 @@ A cumulative indicator that compares each close to the previous close to assess 
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::wad::{Wad, Indicator, TIndicatorState};
+    use tulip_rs::indicators::wad::{Wad, Indicator};
 
     let inputs: [&[&[f64]; 3]; 4] = [
         &[h1.as_slice(), l1.as_slice(), c1.as_slice()],
@@ -113,7 +113,7 @@ A cumulative indicator that compares each close to the previous close to assess 
         &[h3.as_slice(), l3.as_slice(), c3.as_slice()],
         &[h4.as_slice(), l4.as_slice(), c4.as_slice()],
     ];
-    let results = wad::indicator_by_assets::<4>(&inputs, &[], None).unwrap();
+    let results = Wad::indicator_by_assets::<4>(&inputs, &[], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }

@@ -176,7 +176,7 @@ Shows the relationship between two EMAs of different periods. The histogram visu
     **By assets** — same options applied to 4 assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::macd::indicator_by_assets;
+    use tulip_rs::indicators::macd::{Macd, Indicator};
 
     let a1 = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
     let a2 = vec![72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50_f64];
@@ -190,7 +190,7 @@ Shows the relationship between two EMAs of different periods. The histogram visu
         &[a4.as_slice()],
     ];
 
-    let results = indicator_by_assets::<4>(&inputs, &[12.0, 26.0, 9.0], None).unwrap();
+    let results = Macd::indicator_by_assets::<4>(&inputs, &[12.0, 26.0, 9.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {} MACD: {:?}", i + 1, asset_outputs[0]);
         println!("Asset {} Signal: {:?}", i + 1, asset_outputs[1]);
@@ -201,7 +201,7 @@ Shows the relationship between two EMAs of different periods. The histogram visu
     **By options** — same asset, 4 different option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::macd::indicator_by_options;
+    use tulip_rs::indicators::macd::{Macd, IndicatorByOptions};
 
     let close = vec![81.59, 81.06, 82.87, 83.00, 83.61,
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
@@ -213,7 +213,7 @@ Shows the relationship between two EMAs of different periods. The histogram visu
         &[24.0, 52.0, 18.0],
     ];
 
-    let results = indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
+    let results = Macd::indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
     for (i, opt_outputs) in results.iter().enumerate() {
         println!("Option set {} MACD:      {:?}", i + 1, opt_outputs[0]);
         println!("Option set {} Signal:    {:?}", i + 1, opt_outputs[1]);

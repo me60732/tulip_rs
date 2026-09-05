@@ -189,7 +189,7 @@ Smoothed directional movement expressed as a percentage of ATR. +DI and -DI cros
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::di::indicator_by_assets;
+    use tulip_rs::indicators::di::{Di, Indicator};
 
     let inputs: [&[&[f64]; 3]; 4] = [
         &[h1.as_slice(), l1.as_slice(), c1.as_slice()],
@@ -197,7 +197,7 @@ Smoothed directional movement expressed as a percentage of ATR. +DI and -DI cros
         &[h3.as_slice(), l3.as_slice(), c3.as_slice()],
         &[h4.as_slice(), l4.as_slice(), c4.as_slice()],
     ];
-    let results = indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
+    let results = Di::indicator_by_assets::<4>(&inputs, &[14.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {} +DI: {:?}", i + 1, asset_outputs[0]);
         println!("Asset {} -DI: {:?}", i + 1, asset_outputs[1]);
@@ -207,10 +207,10 @@ Smoothed directional movement expressed as a percentage of ATR. +DI and -DI cros
     **By options** — same asset, N option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::di::indicator_by_options;
+    use tulip_rs::indicators::di::{Di, IndicatorByOptions};
 
     let opts: [&[f64; 1]; 4] = [&[7.0], &[14.0], &[21.0], &[28.0]];
-    let results = indicator_by_options::<4>(&inputs, &opts, None).unwrap();
+    let results = Di::indicator_by_options::<4>(&inputs, &opts, None).unwrap();
     for (i, out) in results.iter().enumerate() {
         println!("Period {} +DI: {:?}", opts[i][0], out[0]);
         println!("Period {} -DI: {:?}", opts[i][0], out[1]);

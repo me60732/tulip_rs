@@ -146,7 +146,7 @@ The percentage difference between two volume moving averages. Expanding volume o
     **By assets** — same options, N assets in parallel:
 
     ```rust
-    use tulip_rs::indicators::vosc::{Vosc, Indicator, TIndicatorState};
+    use tulip_rs::indicators::vosc::{Vosc, Indicator};
 
     let inputs: [&[&[f64]; 1]; 4] = [
         &[v1.as_slice()],
@@ -154,7 +154,7 @@ The percentage difference between two volume moving averages. Expanding volume o
         &[v3.as_slice()],
         &[v4.as_slice()],
     ];
-    let results = vosc::indicator_by_assets::<4>(&inputs, &[5.0, 10.0], None).unwrap();
+    let results = Vosc::indicator_by_assets::<4>(&inputs, &[5.0, 10.0], None).unwrap();
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Asset {}: {:?}", i + 1, asset_outputs[0]);
     }
@@ -163,10 +163,10 @@ The percentage difference between two volume moving averages. Expanding volume o
     **By options** — same asset, N option sets in parallel:
 
     ```rust
-    use tulip_rs::indicators::vosc::{Vosc, Indicator, TIndicatorState};
+    use tulip_rs::indicators::vosc::{Vosc, IndicatorByOptions};
 
     let opts: [&[f64; 2]; 4] = [&[3.0, 6.0], &[5.0, 10.0], &[8.0, 16.0], &[12.0, 24.0]];
-    let results = vosc::indicator_by_options::<4>(&[volume.as_slice()], &opts, None).unwrap();
+    let results = Vosc::indicator_by_options::<4>(&[volume.as_slice()], &opts, None).unwrap();
     for (i, out) in results.iter().enumerate() {
         println!("Option set {}: {:?}", i + 1, out[0]);
     }
