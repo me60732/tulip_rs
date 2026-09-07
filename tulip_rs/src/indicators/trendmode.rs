@@ -33,9 +33,11 @@
 //!   Small extra cost vs fixed α: one `max` + one division per bar.
 
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{
-    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
-};
+#[cfg(feature = "simd_options")]
+pub use crate::indicator_types::IndicatorByOptions;
+#[cfg(any(feature = "simd_assets", feature = "simd_options"))]
+pub use crate::indicator_types::SimdIndicatorResult;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 
 use crate::indicators::{cybercycle, homodynediscriminator};
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};

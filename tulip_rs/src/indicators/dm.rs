@@ -1,8 +1,10 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::{TIndicatorState, Indicator, TState, IndicatorResult, SimdIndicatorResult, IndicatorByOptions};
-use crate::types::{
-    DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold
-};
+#[cfg(feature = "simd_options")]
+pub use crate::indicator_types::IndicatorByOptions;
+#[cfg(any(feature = "simd_assets", feature = "simd_options"))]
+pub use crate::indicator_types::SimdIndicatorResult;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
 /// Number of input price series required by this indicator.
@@ -26,7 +28,7 @@ pub type IndicatorState = State<Warm>;
 impl TState for State<Warm> {
     type Inputs<'a> = (f64, f64);
     type Outputs = (f64, f64);
-    
+
     #[inline(always)]
     fn calc<'a>(&mut self, (high, low): Self::Inputs<'a>) -> Self::Outputs {
         let (dp, dm) = self.calc_dp_dm(high, low);
@@ -67,7 +69,6 @@ impl State<Cold> {
     }
 }
 impl<S> State<S> {
-
     /// Applies Wilder's smoothing to update DM+ and DM- in state.
     ///
     /// # Arguments
@@ -106,19 +107,19 @@ impl<S> State<S> {
         let mut dp = high - self.prev_high;
         let mut dm = self.prev_low - low;
         (self.prev_high, self.prev_low) = (high, low);
-    
+
         if dp < 0.0 {
             dp = 0.0;
         } else if dp > dm {
             dm = 0.0;
         }
-    
+
         if dm < 0.0 {
             dm = 0.0;
         } else if dm > dp {
             dp = 0.0;
         }
-    
+
         if dp > dm {
             dm = 0.0;
         } else if dm > dp {
@@ -143,18 +144,11 @@ impl TIndicatorState<2> for IndicatorState {
             )
         };
         let [high, low] = inputs;
-        cycle_calc(
-            high,
-            low,
-            self,
-            &mut plus_dm_line,
-            &mut minus_dm_line,
-        );
+        cycle_calc(high, low, self, &mut plus_dm_line, &mut minus_dm_line);
 
         Ok(vec![plus_dm_line, minus_dm_line])
     }
 }
-
 
 /// Performs the main calculation loop for the DM indicator.
 ///
@@ -181,8 +175,6 @@ fn cycle_calc(
         }
     }
 }
-
-
 
 #[inline]
 pub fn multiplier(period: usize) -> f64 {
@@ -216,7 +208,7 @@ impl Indicator<INPUTS, OPTIONS> for Dm {
     ) -> IndicatorResult<Self::IndicatorState> {
         validate_options(options)?;
         let period = options[0] as usize;
-    
+
         validate_inputs(inputs, Self::min_data(options))?;
         let (mut plus_dm_line, mut minus_dm_line) = {
             let capacity: usize = Self::output_length(inputs[0].len(), options);
@@ -225,21 +217,12 @@ impl Indicator<INPUTS, OPTIONS> for Dm {
                 crate::uninit_vec!(f64, capacity),
             )
         };
-    
+
         let mut state = State::init_state(inputs[0], inputs[1], period);
         let (high, low) = (&inputs[0][period..], &inputs[1][period..]);
-        cycle_calc(
-            high,
-            low,
-            &mut state,
-            &mut plus_dm_line,
-            &mut minus_dm_line,
-        );
-    
-        Ok((
-            vec![plus_dm_line, minus_dm_line],
-            state,
-        ))
+        cycle_calc(high, low, &mut state, &mut plus_dm_line, &mut minus_dm_line);
+
+        Ok((vec![plus_dm_line, minus_dm_line], state))
     }
 
     #[cfg(feature = "simd_assets")]
@@ -248,7 +231,11 @@ impl Indicator<INPUTS, OPTIONS> for Dm {
         options: &[f64; OPTIONS],
         optional_outputs: Option<&[bool]>,
     ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
-        crate::indicators::simd_indicators::dm_simd::indicator_by_assets::<N>(inputs, options, optional_outputs)
+        crate::indicators::simd_indicators::dm_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }
 
@@ -259,6 +246,10 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Dm {
         options: &[&[f64; OPTIONS]; N],
         optional_outputs: Option<&[bool]>,
     ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
-        crate::indicators::simd_indicators::dm_simd::indicator_by_options::<N>(inputs, options, optional_outputs)
+        crate::indicators::simd_indicators::dm_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

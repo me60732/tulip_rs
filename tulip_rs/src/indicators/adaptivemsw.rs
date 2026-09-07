@@ -34,11 +34,15 @@
 //! The DFT computation reuses [`msw::calc_full`] — only the window length changes each bar.
 
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState};
+#[cfg(feature = "simd_options")]
+pub use crate::indicator_types::IndicatorByOptions;
+#[cfg(any(feature = "simd_assets", feature = "simd_options"))]
+pub use crate::indicator_types::SimdIndicatorResult;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 use crate::indicators::homodynediscriminator;
 use crate::indicators::msw;
 use crate::ring_buffer::fixed_single_buffer::FixedMirrorBuffer;
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
 pub const INPUTS: usize = 1;
@@ -112,7 +116,6 @@ impl State<Cold> {
 
         state
     }
-
 }
 impl<S> State<S> {
     /// Computes the windowed DFT and phase-to-sine conversion.
@@ -209,7 +212,7 @@ fn cycle(
     let (has_optional, want_dc) = crate::calc_want_flags!(dc_period_line);
 
     for i in 0..real.len() {
-        let (sine, lead) = state.calc( unsafe { *real.get_unchecked(i) });
+        let (sine, lead) = state.calc(unsafe { *real.get_unchecked(i) });
         unsafe {
             *sine_line.get_unchecked_mut(i) = sine;
             *lead_line.get_unchecked_mut(i) = lead;
@@ -325,6 +328,10 @@ impl Indicator<INPUTS, OPTIONS> for AdaptiveMSW {
         options: &[f64; OPTIONS],
         optional_outputs: Option<&[bool]>,
     ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
-        crate::indicators::simd_indicators::adaptivemsw_simd::indicator_by_assets::<N>(inputs, options, optional_outputs)
+        crate::indicators::simd_indicators::adaptivemsw_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

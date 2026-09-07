@@ -1,11 +1,12 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{
-    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
-};
+#[cfg(feature = "simd_options")]
+pub use crate::indicator_types::IndicatorByOptions;
+#[cfg(any(feature = "simd_assets", feature = "simd_options"))]
+pub use crate::indicator_types::SimdIndicatorResult;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 
 /// SIMD-parallel variant that processes `N` assets with identical options simultaneously.
 /// Requires the `simd_assets` Cargo feature. See [`by_assets`] for the module form.
-
 use crate::indicators::typprice::calc as calc_typprice;
 pub use crate::indicators::typprice::Typprice;
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};

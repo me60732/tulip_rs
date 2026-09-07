@@ -1,5 +1,7 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{Indicator, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState};
+#[cfg(any(feature = "simd_assets", feature = "simd_options"))]
+pub use crate::indicator_types::SimdIndicatorResult;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 use crate::indicators::medprice::calc as calc_medprice;
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
@@ -179,6 +181,10 @@ impl Indicator<INPUTS, OPTIONS> for Emv {
         options: &[f64; OPTIONS],
         optional_outputs: Option<&[bool]>,
     ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
-        crate::indicators::simd_indicators::emv_simd::indicator_by_assets::<N>(inputs, options, optional_outputs)
+        crate::indicators::simd_indicators::emv_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

@@ -1,8 +1,8 @@
 //use std::vec;
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{
-    Indicator, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
-};
+#[cfg(any(feature = "simd_assets", feature = "simd_options"))]
+pub use crate::indicator_types::SimdIndicatorResult;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 

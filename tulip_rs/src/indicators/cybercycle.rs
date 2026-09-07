@@ -41,9 +41,11 @@
 //! CyberCycle and compute `α = 2 / (SmoothPeriod.max(3) + 1)` every bar.
 
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{
-    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
-};
+#[cfg(feature = "simd_options")]
+pub use crate::indicator_types::IndicatorByOptions;
+#[cfg(any(feature = "simd_assets", feature = "simd_options"))]
+pub use crate::indicator_types::SimdIndicatorResult;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 use crate::ring_buffer::fixed_single_buffer::FixedRingBuffer;
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};

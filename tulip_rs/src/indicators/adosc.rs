@@ -1,5 +1,9 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{Indicator, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState, IndicatorByOptions};
+#[cfg(feature = "simd_options")]
+pub use crate::indicator_types::IndicatorByOptions;
+#[cfg(any(feature = "simd_assets", feature = "simd_options"))]
+pub use crate::indicator_types::SimdIndicatorResult;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 /// Number of input price series required by this indicator.
 pub use crate::indicators::ad::INPUTS;
 use crate::indicators::ad::{Ad, State as AdState};
@@ -8,20 +12,19 @@ use crate::indicators::{
     simd_indicators::ema_simd::{multiplier_simd, SimdState as EmaSimdState},
 };
 
-use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm, Cold};
+use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 use std::simd::Simd;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 2;
 
-
 pub type IndicatorState = State<Warm>;
 #[derive(Serialize, Deserialize)]
-#[serde(bound="")]
+#[serde(bound = "")]
 pub struct State<S = Cold> {
     pub ema_state: EmaSimdState<2>,
     pub ad_state: AdState,
-    pub(crate) state: std::marker::PhantomData<S>
+    pub(crate) state: std::marker::PhantomData<S>,
 }
 impl State<Cold> {
     pub fn init_state(
@@ -265,7 +268,11 @@ impl Indicator<INPUTS, OPTIONS> for Adosc {
         options: &[f64; OPTIONS],
         optional_outputs: Option<&[bool]>,
     ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
-        crate::indicators::simd_indicators::adosc_simd::indicator_by_assets::<N>(inputs, options, optional_outputs)
+        crate::indicators::simd_indicators::adosc_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }
 
@@ -276,6 +283,10 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Adosc {
         options: &[&[f64; OPTIONS]; N],
         optional_outputs: Option<&[bool]>,
     ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
-        crate::indicators::simd_indicators::adosc_simd::indicator_by_options::<N>(inputs, options, optional_outputs)
+        crate::indicators::simd_indicators::adosc_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }

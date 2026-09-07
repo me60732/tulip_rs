@@ -43,9 +43,9 @@
 //! dominant cycle period in bars.
 
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{
-    Indicator, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
-};
+#[cfg(any(feature = "simd_assets", feature = "simd_options"))]
+pub use crate::indicator_types::SimdIndicatorResult;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 use crate::indicators::hilberttransform::ht_kernel;
 use crate::indicators::simd_indicators::hilberttransform_simd::ht_kernel_base as ht_kernel_q_simd;
 use crate::ring_buffer::fixed_single_buffer::FixedRingBuffer;

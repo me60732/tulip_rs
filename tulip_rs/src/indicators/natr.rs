@@ -1,7 +1,9 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::{
-    Indicator, IndicatorByOptions, IndicatorResult, SimdIndicatorResult, TIndicatorState, TState,
-};
+#[cfg(feature = "simd_options")]
+pub use crate::indicator_types::IndicatorByOptions;
+#[cfg(any(feature = "simd_assets", feature = "simd_options"))]
+pub use crate::indicator_types::SimdIndicatorResult;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 //use crate::indicators::atr::calc as calc_atr;
 pub use crate::indicators::atr::{multiplier, State as AtrState};
 use crate::indicators::tr::Tr;

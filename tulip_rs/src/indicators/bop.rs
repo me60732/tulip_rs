@@ -1,5 +1,7 @@
 use crate::common::validate_inputs;
-pub use crate::indicator_types::{TIndicatorState, Indicator, IndicatorResult, SimdIndicatorResult};
+#[cfg(any(feature = "simd_assets", feature = "simd_options"))]
+pub use crate::indicator_types::SimdIndicatorResult;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 
@@ -8,7 +10,6 @@ pub const INPUTS: usize = 4;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 0;
-
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct IndicatorState;
@@ -22,7 +23,6 @@ impl TIndicatorState<4> for IndicatorState {
         process(inputs)
     }
 }
-
 
 //#[inline(always)]
 fn process(inputs: &[&[f64]]) -> Result<Vec<Vec<f64>>, IndicatorError> {
@@ -101,7 +101,7 @@ impl Indicator<INPUTS, OPTIONS> for Bop {
         _optional_outputs: Option<&[bool]>,
     ) -> IndicatorResult<Self::IndicatorState> {
         let outputs = process(inputs)?;
-    
+
         Ok((outputs, IndicatorState))
     }
 
@@ -111,6 +111,10 @@ impl Indicator<INPUTS, OPTIONS> for Bop {
         options: &[f64; OPTIONS],
         optional_outputs: Option<&[bool]>,
     ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
-        crate::indicators::simd_indicators::bop_simd::indicator_by_assets::<N>(inputs, options, optional_outputs)
+        crate::indicators::simd_indicators::bop_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
     }
 }
