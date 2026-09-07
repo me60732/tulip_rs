@@ -54,7 +54,7 @@
     git clone https://github.com/me60732/tulip-rs-node
     cd tulip-rs-node
     npm install
-    npm run build
+    RUSTFLAGS="-C target-cpu=native" npm run build
     ```
 
     **Requirements:** Node.js 18+, Rust nightly (only needed when building from source)
