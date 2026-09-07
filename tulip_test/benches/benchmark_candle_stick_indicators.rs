@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::candlestick::{indicator, min_data, ForecastType, OPTIONS as OPTIONS_WIDTH};
+use tulip_rs::indicators::candlestick::{CandleStick, ForecastType, OPTIONS as OPTIONS_WIDTH};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 const SAMPLE_SIZE: usize = 10000;
 use tulip_test::criterion_logger::TimingMeasurements;
@@ -86,7 +86,7 @@ fn bench_rust_candlestick(c: &mut Criterion) {
             let low_vec: Vec<f64> = stock_data.iter().map(|d| d.low).collect();
             let close_vec: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
 
-            let min_required = min_data(&OPTIONS);
+            let min_required = CandleStick::min_data(&OPTIONS);
             if open_vec.len() < min_required {
                 continue;
             }
@@ -102,7 +102,7 @@ fn bench_rust_candlestick(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = indicator(&inputs, &OPTIONS, forecast_type)
+                        let result = CandleStick::indicator(&inputs, &OPTIONS, forecast_type)
                             .expect("Rust candlestick indicator failed");
                         black_box(&result);
                     },
@@ -134,7 +134,7 @@ fn bench_rust_candlestick(c: &mut Criterion) {
         for (forecast_name, forecast_type) in get_all_forecast_variants() {
             group.bench_function(format!("Rust Candlestick - {}", forecast_name), |b| {
                 b.iter(|| {
-                    let result = indicator(&inputs, &OPTIONS, forecast_type)
+                    let result = CandleStick::indicator(&inputs, &OPTIONS, forecast_type)
                         .expect("Rust candlestick indicator failed");
                     black_box(&result);
                 });

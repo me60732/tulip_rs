@@ -1,4 +1,4 @@
-use tulip_rs::indicators::pivotpoint::indicator;
+use tulip_rs::indicators::pivotpoint::{Indicator, PivotPoint};
 fn main() {
     let high = [
         82.15, 81.89, 83.03, 83.3, 83.85, 83.9, 83.33, 84.3, 84.84, 85.0, 85.9, 86.58, 86.98, 88.0,
@@ -15,7 +15,7 @@ fn main() {
 
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
     let options = [5.0];
-    let (outputs, _) = match indicator(&inputs, &options, None) {
+    let (outputs, _) = match PivotPoint::indicator(&inputs, &options, None) {
         Ok(result) => result,
         Err(e) => {
             println!("Error: {:?}", e.message());

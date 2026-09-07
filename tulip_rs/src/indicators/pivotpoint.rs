@@ -1,34 +1,101 @@
 use crate::common::{validate_inputs, validate_options};
-pub use crate::indicator_types::TIndicatorState;
+#[cfg(feature = "simd_options")]
+pub use crate::indicator_types::IndicatorByOptions;
+#[cfg(any(feature = "simd_assets", feature = "simd_options"))]
+pub use crate::indicator_types::SimdIndicatorResult;
+pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
+
 /// Number of input price series required by this indicator.
 pub const INPUTS: usize = 3;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
 
-/// Returns information about the Pivot Point indicator.
-///
-/// # Returns
-///
-/// An `Info` struct containing metadata about the Pivot Point indicator.
-pub const INFO: Info = Info {
-    name: "pivotpoint",
-    full_name: "Pivot Point",
-    indicator_type: IndicatorType::Trend,
-    inputs: &["high", "low", "close"],
-    options: &["period"],
-    outputs: &["s3", "s2", "s1", "pp", "r1", "r2", "r3"],
-    optional_outputs: &[],
-    display_groups: &[DisplayGroup {
-        offset: None,
-        id: "pivotpoint",
-        label: "PIVOTPOINT",
-        display_type: DisplayType::Overlay,
+pub struct PivotPoint;
+impl Indicator<INPUTS, OPTIONS> for PivotPoint {
+    type IndicatorState = IndicatorState;
+
+    const INFO: Info = Info {
+        name: "pivotpoint",
+        full_name: "Pivot Point",
+        indicator_type: IndicatorType::Trend,
+        inputs: &["high", "low", "close"],
+        options: &["period"],
         outputs: &["s3", "s2", "s1", "pp", "r1", "r2", "r3"],
-    }],
-};
+        optional_outputs: &[],
+        display_groups: &[DisplayGroup {
+            offset: None,
+            id: "pivotpoint",
+            label: "PIVOTPOINT",
+            display_type: DisplayType::Overlay,
+            outputs: &["s3", "s2", "s1", "pp", "r1", "r2", "r3"],
+        }],
+    };
+
+    fn min_data(options: &[f64; OPTIONS]) -> usize {
+        options[0] as usize
+    }
+
+    fn output_length(_data_len: usize, _options: &[f64; OPTIONS]) -> usize {
+        1
+    }
+
+    fn indicator(
+        inputs: &[&[f64]; INPUTS],
+        options: &[f64; OPTIONS],
+        _optional_outputs: Option<&[bool]>,
+    ) -> IndicatorResult<Self::IndicatorState> {
+        validate_options(options)?;
+        let period = options[0] as usize;
+        validate_inputs(inputs, Self::min_data(options))?;
+
+        let high = inputs[0];
+        let low = inputs[1];
+        let close = inputs[2];
+        let outputs = process(high, low, close, period);
+
+        Ok((
+            outputs,
+            IndicatorState {
+                period,
+                high: high[high.len() - period + 1..].to_vec(),
+                low: low[low.len() - period + 1..].to_vec(),
+                close: close[close.len() - period + 1..].to_vec(),
+            },
+        ))
+    }
+
+    #[cfg(feature = "simd_assets")]
+    fn indicator_by_assets<const N: usize>(
+        inputs: &[&[&[f64]; INPUTS]; N],
+        options: &[f64; OPTIONS],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::pivotpoint_simd::indicator_by_assets::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
+#[cfg(feature = "simd_options")]
+impl IndicatorByOptions<INPUTS, OPTIONS> for PivotPoint {
+    fn indicator_by_options<const N: usize>(
+        inputs: &[&[f64]; INPUTS],
+        options: &[&[f64; OPTIONS]; N],
+        optional_outputs: Option<&[bool]>,
+    ) -> SimdIndicatorResult<Vec<Self::IndicatorState>> {
+        crate::indicators::simd_indicators::pivotpoint_simd::indicator_by_options::<N>(
+            inputs,
+            options,
+            optional_outputs,
+        )
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct IndicatorState {
     high: Vec<f64>,
@@ -55,81 +122,7 @@ impl TIndicatorState<3> for IndicatorState {
         Ok(outputs)
     }
 }
-/// Returns the minimum amount of data required for the Pivot Point indicator.
-///
-/// # Arguments
-///
-/// * `options` - A slice containing the options for the Pivot Point calculation (e.g. `period`).
-///
-/// # Returns
-///
-/// The minimum number of input data points required.
-pub fn min_data(options: &[f64]) -> usize {
-    options[0] as usize
-}
-/// Returns the output length for the Pivot Point indicator.
-///
-/// # Arguments
-///
-/// * `_data_len` - The length of the input data (unused; Pivot Point always returns one value).
-/// * `_options` - A slice containing the options for the Pivot Point calculation.
-///
-/// # Returns
-///
-/// Always returns `1`, as only the most recent pivot point values are output.
-pub fn output_length(_data_len: usize, _options: &[f64]) -> usize {
-    1
-}
 
-/// Calculates the Pivot Point indicator over the full input dataset.
-///
-/// # Inputs
-///
-/// * `inputs[0]` — high prices
-/// * `inputs[1]` — low prices
-/// * `inputs[2]` — close prices
-///
-/// # Options
-///
-/// * `options[0]` — period (look-back window length)
-///
-/// # Arguments
-///
-/// * `inputs` - Array of input price slices (see Inputs above).
-/// * `options` - Array of indicator options (see Options above).
-/// * `_optional_outputs` - Unused; this indicator has no optional outputs.
-///
-/// # Returns
-///
-/// `Ok((outputs, state))` where `outputs[0]` is a single-element vector
-/// `[s3, s2, s1, pp, r1, r2, r3]` representing the three support levels,
-/// pivot point, and three resistance levels computed from the most recent
-/// `period` bars. `state` can be passed to `IndicatorState::batch_indicator`
-/// for streaming. Returns `Err(IndicatorError)` if inputs are too short or
-/// options are invalid.
-pub fn indicator(
-    inputs: &[&[f64]; INPUTS],
-    options: &[f64; OPTIONS],
-    _optional_outputs: Option<&[bool]>,
-) -> Result<(Vec<Vec<f64>>, IndicatorState), IndicatorError> {
-    validate_options(options)?;
-    validate_inputs(inputs, min_data(options))?;
-    let period = options[0] as usize;
-    let high = inputs[0];
-    let low = inputs[1];
-    let close = inputs[2];
-    let outputs = process(high, low, close, period);
-
-    Ok((
-        outputs,
-        IndicatorState {
-            period,
-            high: high[high.len() - period + 1..].to_vec(),
-            low: low[low.len() - period + 1..].to_vec(),
-            close: close[close.len() - period + 1..].to_vec(),
-        },
-    ))
-}
 fn process(high: &[f64], low: &[f64], close: &[f64], period: usize) -> Vec<Vec<f64>> {
     let start_index = high.len() - period;
     let high = &high[start_index..];

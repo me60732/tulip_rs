@@ -108,7 +108,7 @@ fn main() {
         let lib_dir =
             std::env::var("TALIB_LIB_DIR").unwrap_or_else(|_| "/usr/local/lib".to_string());
         println!("cargo:rustc-link-search=native={}", lib_dir);
-        println!("cargo:rustc-link-lib=ta-lib");
+        println!("cargo:rustc-link-lib=ta_lib");
         println!("cargo:rerun-if-changed=src/talib_bindings.rs");
         println!("cargo:rerun-if-env-changed=TALIB_LIB_DIR");
     }

@@ -24,7 +24,7 @@ The candlestick engine accepts three options in the following order:
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::candlestick::indicator;
+    use tulip_rs::indicators::candlestick::CandleStick;
 
     let open  = vec![81.85_f64, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25];
     let high  = vec![82.15_f64, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00];
@@ -36,7 +36,7 @@ The candlestick engine accepts three options in the following order:
 
     // result is Vec<Option<Vec<Pattern>>> — one entry per output bar
     // Pattern is an enum; call .get_info() on each variant to retrieve its metadata
-    let (result, mut state) = indicator(&inputs, &options, None).unwrap();
+    let (result, mut state) = CandleStick::indicator(&inputs, &options, None).unwrap();
 
     for (i, bar) in result.iter().enumerate() {
         if let Some(patterns) = bar.as_ref() {
@@ -123,13 +123,13 @@ Pass a `forecast_type` argument to return only patterns with a specific forecast
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::candlestick::{indicator, ForecastType};
+    use tulip_rs::indicators::candlestick::{CandleStick, ForecastType};
 
     let inputs  = [open.as_slice(), high.as_slice(), low.as_slice(), close.as_slice()];
     let options = [5.0_f64, 1.0, 1.0];
 
     // Only bullish reversal patterns
-    let (result, _) = indicator(&inputs, &options, Some(ForecastType::BullishReversal)).unwrap();
+    let (result, _) = CandleStick::indicator(&inputs, &options, Some(ForecastType::BullishReversal)).unwrap();
 
     // Inspect the last bar for matches
     if let Some(patterns) = result.last().and_then(|bar| bar.as_ref()) {
@@ -208,7 +208,7 @@ Like every other indicator in TulipRS, the candlestick engine returns a `state` 
 === "Rust"
 
     ```rust
-    use tulip_rs::indicators::candlestick::indicator;
+    use tulip_rs::indicators::candlestick::CandleStick;
 
     let open  = vec![81.85_f64, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25];
     let high  = vec![82.15_f64, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00];
@@ -219,7 +219,7 @@ Like every other indicator in TulipRS, the candlestick engine returns a `state` 
     let options = [5.0_f64, 1.0, 1.0];
 
     // Step 1: run on historical data and capture state
-    let (_, mut state) = indicator(&inputs, &options, None).unwrap();
+    let (_, mut state) = CandleStick::indicator(&inputs, &options, None).unwrap();
 
     // Step 2: feed only the new bars
     let new_open  = [84.00_f64];

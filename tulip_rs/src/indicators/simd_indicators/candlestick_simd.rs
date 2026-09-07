@@ -1,0 +1,10 @@
+//! SIMD-parallel entry points for the Candlestick Pattern indicator.
+//!
+//! This module re-exports [`indicator_by_assets`] and [`indicator_by_options`] from
+//! their respective driver sub-modules. All SIMD computation is implemented there.
+
+#[cfg(feature = "simd_assets")]
+pub(crate) use crate::indicators::simd_indicators::by_asset::candlestick::indicator_by_assets;
+
+#[cfg(feature = "simd_options")]
+pub(crate) use crate::indicators::simd_indicators::by_option::candlestick::indicator_by_options;
