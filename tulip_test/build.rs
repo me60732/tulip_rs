@@ -22,21 +22,21 @@ fn load_dotenv() {
     }
 }
 
-/// Ensures the tulipindicators git submodule is checked out.
-/// If `tulip_indicators/tiamalgamation.c` is missing (submodule not yet
+/// Ensures the specified git submodule is checked out.
+/// If the marker file (relative to CARGO_MANIFEST_DIR) is missing (submodule not yet
 /// initialised), runs `git submodule update --init` automatically so that
 /// `cargo build` / `cargo bench` just works on a fresh clone.
-fn ensure_submodule() {
+fn ensure_submodule(marker_relative_path: &str, submodule_dir_name: &str) {
     let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let pkg_root = std::path::Path::new(&manifest);
-    let amalgamation = pkg_root.join("tulip_indicators/tiamalgamation.c");
+    let marker = pkg_root.join(marker_relative_path);
 
-    if amalgamation.exists() {
+    if marker.exists() {
         return; // Already initialised — nothing to do
     }
 
     println!(
-        "cargo:warning=tulip_indicators not found — initialising git submodule automatically..."
+        "cargo:warning={submodule_dir_name} not found — initialising git submodule automatically..."
     );
 
     // CARGO_MANIFEST_DIR is tulip_test/; its parent is the workspace/git root.
@@ -49,7 +49,7 @@ fn ensure_submodule() {
     let submodule_path = pkg_root
         .strip_prefix(repo_root)
         .unwrap()
-        .join("tulip_indicators");
+        .join(submodule_dir_name);
 
     let status = std::process::Command::new("git")
         .args([
@@ -64,7 +64,7 @@ fn ensure_submodule() {
 
     match status {
         Ok(s) if s.success() => {
-            println!("cargo:warning=tulip_indicators submodule initialised successfully");
+            println!("cargo:warning={submodule_dir_name} submodule initialised successfully");
         }
         Ok(_) => panic!(
             "\n\ngit submodule update --init failed.\
@@ -82,8 +82,8 @@ fn main() {
     load_dotenv();
     println!("cargo:rerun-if-changed=.env");
 
-    // Auto-init the submodule on first build after a fresh clone.
-    ensure_submodule();
+    // Auto-init the tulip_indicators submodule on first build after a fresh clone.
+    ensure_submodule("tulip_indicators/tiamalgamation.c", "tulip_indicators");
 
     // Rebuild if the upstream C sources change (e.g. after `git submodule update`).
     println!("cargo:rerun-if-changed=tulip_indicators/tiamalgamation.c");
@@ -102,14 +102,37 @@ fn main() {
         .compile("tulip");
 
     // TA-Lib: only link when the `talib` feature is enabled.
-    // Set TALIB_LIB_DIR in .env (or the environment) to point to your TA-Lib
-    // installation. Defaults to /usr/local/lib if not set.
     if std::env::var("CARGO_FEATURE_TALIB").is_ok() {
-        let lib_dir =
-            std::env::var("TALIB_LIB_DIR").unwrap_or_else(|_| "/usr/local/lib".to_string());
-        println!("cargo:rustc-link-search=native={}", lib_dir);
-        println!("cargo:rustc-link-lib=ta_lib");
+        ensure_submodule("ta_lib_src/include/ta_libc.h", "ta_lib_src");
+
+        println!("cargo:rerun-if-changed=ta_lib_src/src/ta_func");
+        println!("cargo:rerun-if-changed=ta_lib_src/src/ta_common");
         println!("cargo:rerun-if-changed=src/talib_bindings.rs");
-        println!("cargo:rerun-if-env-changed=TALIB_LIB_DIR");
+
+        let ta_func_dir = std::path::Path::new("ta_lib_src/src/ta_func");
+        let mut ta_func_sources: Vec<std::path::PathBuf> = std::fs::read_dir(ta_func_dir)
+            .expect("ta_lib_src/src/ta_func not found — did the submodule init correctly?")
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|ext| ext == "c"))
+            .collect();
+        ta_func_sources.sort();
+
+        let mut build = cc::Build::new();
+        build
+            .include("ta_lib_src/include")
+            .include("ta_lib_src/src/ta_common")
+            .include("ta_lib_src/src/ta_func")
+            .flag_if_supported("-O3")
+            .flag_if_supported("-w")
+            .file("ta_lib_src/src/ta_common/ta_global.c")
+            .file("ta_lib_src/src/ta_common/ta_retcode.c")
+            .file("ta_lib_src/src/ta_common/ta_version.c");
+
+        for src in &ta_func_sources {
+            build.file(src);
+        }
+
+        build.compile("ta_lib");
     }
 }

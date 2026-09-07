@@ -6,7 +6,7 @@
 |---|---|
 | **Rust nightly** | Required — the crate uses `portable_simd`. The repo's `rust-toolchain.toml` selects the right toolchain automatically. |
 | **Docker + Docker Compose v2** | For the benchmark database. |
-| **TA-Lib 0.4.0** *(optional)* | Only needed for the `--features talib` comparison benchmarks. |
+| TA-Lib *(optional)* | Automatically vendored via git submodule when `--features talib` is enabled — no manual installation needed. |
 
 ### 1. Start the benchmark database
 
@@ -44,8 +44,7 @@ BENCHMARK_DATABASE_URL=postgres://tulip:tulip@localhost:5432/indicator_benchmark
 # This is the preferred way — no shell export needed.
 BENCHMARK_LOG_TO_DB=0
 
-# TA-Lib library directory (build.rs reads this when --features talib is set)
-TALIB_LIB_DIR=/usr/local/lib
+
 ```
 
 !!! tip
@@ -98,22 +97,11 @@ distributions and history.
 TA-Lib benchmarks are disabled by default so the suite builds without any
 extra system dependencies. To enable them:
 
-1. Install TA-Lib 0.4.0 on your system. On most Linux distributions:
+1. The TA-Lib C library is automatically vendored via git submodule when
+   `--features talib` is enabled, exactly like the bundled `tulip_indicators`
+   C library — no manual installation or `TALIB_LIB_DIR` configuration needed.
 
-    ```sh
-    # from the tulip_test/ directory
-    bash setup_talib.sh
-    # or manually:
-    wget https://sourceforge.net/projects/ta-lib/files/ta-lib/0.4.0/ta-lib-0.4.0-src.tar.gz
-    tar -xzf ta-lib-0.4.0-src.tar.gz
-    cd ta-lib && ./configure --prefix=/usr/local && make -j$(nproc) && sudo make install
-    sudo ldconfig
-    ```
-
-2. Set `TALIB_LIB_DIR` in `tulip_test/.env` if TA-Lib was installed somewhere
-   other than `/usr/local/lib`.
-
-3. Run with the feature flag:
+2. Run with the feature flag:
 
     ```sh
     cargo bench --package tulip_test --features talib
