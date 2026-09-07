@@ -2,8 +2,8 @@
 
 `tulip_rs` uses 256-bit AVX2 `f64x4` SIMD (N = 4 lanes) in two modes:
 
-- **`by_assets`** — process 4 different assets with the same options in a single pass
-- **`by_options`** — process 1 asset with 4 different option configurations in a single pass
+- **[by_assets](simd/by-assets.md)** - process 4 different assets with the same options in a single pass
+- **[by_options](simd/by-options.md)** - process 1 asset with 4 different option configurations in a single pass
 
 All times are nanoseconds (ns). Lower is better.
 
@@ -11,232 +11,31 @@ All times are nanoseconds (ns). Lower is better.
 
 ## by_assets: 4 Assets Simultaneously
 
-Times represent the total wall-time for all 4 assets.
+Full comparison tables (vs C / TA-Lib, Python Binding, Node Binding, and each binding's reference libraries): **[SIMD by_assets →](simd/by-assets.md)**
 
-- **SIMD / 4× Rust** — ratio < 1.00 means SIMD is faster than 4 sequential Rust calls
-- **Speedup vs Rust** — how many times faster SIMD is compared to 4× sequential Rust
+??? success "Notable results - by_assets"
 
-=== "vs C"
+    **69 of 93 indicators (74%) show a SIMD speedup over 4x sequential Rust.**
+    Median speedup for benefiting indicators: **~1.80x**.
 
-    | Indicator | SIMD 4-Asset (ns) | 4× C Tulip (ns) | 4× TA-Lib (ns) | Speedup vs C |
-    |-----------|------------------:|----------------:|---------------:|-------------:|
-    | ad | 15,601 | 20,342 | 20,302 | 1.30× |
-    | adaptivemsw | 1,722,745 | N/A | N/A | — |
-    | adosc | 17,596 | 37,673 | 35,405 | 2.14× |
-    | adx | 22,027 | 53,976 | 153,892 | 2.45× |
-    | adxr | 25,162 | 91,922 | 155,291 | 3.65× |
-    | ao | 13,037 | 46,891 | N/A | 3.60× |
-    | apo | 9,531 | 34,908 | 44,924 | 3.66× |
-    | aroon | 73,254 | 154,405 | 296,452 | 2.11× |
-    | aroonosc | 79,726 | 148,011 | 281,394 | 1.86× |
-    | atr | 12,146 | 43,301 | 112,308 | 3.57× |
-    | avgprice | 5,745 | 7,977 | 13,868 | 1.39× |
-    | bbands | 22,512 | 54,069 | 92,483 | 2.40× |
-    | bop | 9,494 | 11,177 | 20,107 | 1.18× |
-    | ccfisher | 282,227 | N/A | N/A | — |
-    | cci | 70,875 | 298,961 | 488,984 | 4.22× |
-    | chaikinmf | 20,169 | N/A | N/A | — |
-    | chandelierexit | 94,297 | N/A | N/A | — |
-    | cmo | 16,079 | 89,529 | N/A | 5.57× |
-    | cvi | 12,936 | 57,332 | N/A | 4.43× |
-    | cybercycle | 53,739 | N/A | N/A | — |
-    | dema | 8,330 | 25,931 | 91,739 | 3.11× |
-    | di | 22,313 | 41,200 | 224,836 | 1.85× |
-    | dm | 17,030 | 27,013 | N/A | 1.59× |
-    | donchianchannel | 93,203 | 132,320 | N/A | 1.42× |
-    | dpo | 12,178 | 10,873 | N/A | 0.89× |
-    | dx | 19,627 | 26,268 | N/A | 1.34× |
-    | ef | 10,430 | N/A | N/A | — |
-    | elderray | 17,740 | 60,483 | N/A | 3.41× |
-    | ema | 8,465 | 43,435 | 43,465 | 5.13× |
-    | emv | 9,425 | 20,135 | N/A | 2.14× |
-    | fisher | 117,935 | 324,838 | N/A | 2.75× |
-    | fosc | 18,904 | 37,947 | N/A | 2.01× |
-    | highpass | 8,596 | N/A | N/A | — |
-    | hilberttransform | 24,373 | N/A | N/A | — |
-    | hma | 28,342 | 37,065 | N/A | 1.31× |
-    | homodynediscriminator | 303,911 | N/A | 803,805 | — |
-    | ichimoku | 392,468 | N/A | N/A | — |
-    | instantaneoustrendline | 370,021 | N/A | 939,137 | — |
-    | kama | 12,820 | 34,271 | 43,387 | 2.67× |
-    | keltnerchannel | 25,840 | N/A | N/A | — |
-    | kvo | 26,528 | 43,093 | N/A | 1.62× |
-    | linreg | 10,046 | 33,865 | N/A | 3.37× |
-    | macd | 21,980 | 42,290 | 147,120 | 1.92× |
-    | mama | 259,810 | N/A | 860,886 | — |
-    | marketfi | 12,325 | 10,850 | N/A | 0.88× |
-    | mass | 11,748 | 48,027 | N/A | 4.09× |
-    | max | 21,246 | 56,872 | 72,441 | 2.68× |
-    | md | 28,251 | 59,184 | N/A | 2.09× |
-    | medprice | 4,098 | 6,705 | 9,117 | 1.64× |
-    | mfi | 20,360 | 66,282 | 77,846 | 3.26× |
-    | min | 35,656 | 109,365 | 126,155 | 3.07× |
-    | mom | 3,390 | 5,403 | 7,592 | 1.59× |
-    | msw | 358,729 | 2,193,753 | N/A | 6.11× |
-    | natr | 13,737 | 43,256 | 113,309 | 3.15× |
-    | nvi | 10,018 | 13,916 | N/A | 1.39× |
-    | obv | 9,049 | 13,368 | 12,957 | 1.48× |
-    | ppo | 9,799 | 37,828 | 57,592 | 3.86× |
-    | psar | 65,093 | 48,987 | 31,590 | 0.75× |
-    | pvi | 9,957 | 13,793 | N/A | 1.38× |
-    | qstick | 11,571 | 12,221 | N/A | 1.06× |
-    | roc | 9,641 | 10,611 | 19,761 | 1.10× |
-    | rocr | 9,836 | 10,817 | 19,880 | 1.10× |
-    | roofingfilter | 12,195 | N/A | N/A | — |
-    | rsi | 9,709 | 37,738 | 102,948 | 3.89× |
-    | sma | 8,590 | 10,623 | 19,582 | 1.24× |
-    | smaenvelope | 22,137 | N/A | N/A | — |
-    | stddev | 14,114 | 42,121 | N/A | 2.98× |
-    | stoch | 86,023 | 195,420 | 205,485 | 2.27× |
-    | stochrsi | 86,010 | 175,549 | N/A | 2.04× |
-    | supersmoother | 12,525 | N/A | N/A | — |
-    | supertrend | 26,840 | N/A | N/A | — |
-    | tema | 8,837 | 27,466 | 130,085 | 3.11× |
-    | tr | 5,885 | 8,018 | 16,312 | 1.36× |
-    | trendmode | 258,052 | N/A | N/A | — |
-    | trima | 15,353 | 28,837 | 28,733 | 1.88× |
-    | trix | 9,718 | 42,657 | N/A | 4.39× |
-    | trvi | 16,770 | N/A | N/A | — |
-    | tsf | 9,807 | 33,633 | N/A | 3.43× |
-    | typprice | 4,445 | 7,208 | N/A | 1.62× |
-    | ultosc | 31,112 | 70,681 | N/A | 2.27× |
-    | vhf | 78,395 | 156,888 | N/A | 2.00× |
-    | vidya | 37,038 | 74,576 | N/A | 2.01× |
-    | volatility | 23,909 | 69,862 | N/A | 2.92× |
-    | vortex | 22,725 | N/A | N/A | — |
-    | vosc | 12,772 | 19,942 | N/A | 1.56× |
-    | vwap | 15,343 | N/A | N/A | — |
-    | vwma | 15,467 | 19,829 | N/A | 1.28× |
-    | wad | 13,386 | 19,957 | N/A | 1.49× |
-    | wcprice | 4,387 | 7,143 | N/A | 1.63× |
-    | wilders | 8,671 | 42,639 | N/A | 4.92× |
-    | willr | 79,254 | 150,691 | 159,325 | 1.90× |
-    | wma | 12,223 | 34,022 | 19,874 | 2.78× |
-    | zlema | 8,554 | 33,275 | N/A | 3.89× |
-
-=== "vs Sequential Rust"
-
-    Compares SIMD (1 pass, 4 assets) against 4 independent sequential Rust calls.
-
-    | Indicator | 4× Rust (ns) | SIMD 4-Asset (ns) | SIMD / 4×Rust | Speedup vs Rust |
-    |-----------|-------------:|------------------:|--------------:|----------------:|
-    | ad | 18,982 | 15,601 | 0.8219 | 1.22× |
-    | adaptivemsw | 2,051,696 | 1,722,745 | 0.8397 | 1.19× |
-    | adosc | 26,672 | 17,596 | 0.6597 | 1.52× |
-    | adx | 42,982 | 22,027 | 0.5125 | 1.95× |
-    | adxr | 56,165 | 25,162 | 0.4480 | 2.23× |
-    | ao | 22,572 | 13,037 | 0.5776 | 1.73× |
-    | apo | 18,837 | 9,531 | 0.5061 | 1.98× |
-    | aroon | 72,749 | 73,254 | 1.0181 | 0.99× |
-    | aroonosc | 85,149 | 79,726 | 0.9381 | 1.07× |
-    | atr | 18,856 | 12,146 | 0.6441 | 1.55× |
-    | avgprice | 5,632 | 5,745 | 1.0201 | 0.98× |
-    | bbands | 30,127 | 22,512 | 0.7499 | 1.33× |
-    | bop | 9,451 | 9,494 | 1.0045 | 1.00× |
-    | ccfisher | 917,848 | 282,227 | 0.3069 | 3.25× |
-    | cci | 229,714 | 70,875 | 0.3097 | 3.23× |
-    | chaikinmf | 28,290 | 20,169 | 0.7130 | 1.40× |
-    | chandelierexit | 75,915 | 94,297 | 1.2479 | 0.80× |
-    | cmo | 24,620 | 16,079 | 0.6531 | 1.53× |
-    | cvi | 24,394 | 12,936 | 0.5303 | 1.89× |
-    | cybercycle | 65,504 | 53,739 | 0.8204 | 1.22× |
-    | dema | 24,627 | 8,330 | 0.3383 | 2.96× |
-    | di | 56,286 | 22,313 | 0.3965 | 2.52× |
-    | dm | 36,931 | 17,030 | 0.4612 | 2.17× |
-    | donchianchannel | 51,814 | 93,203 | 1.8099 | 0.55× |
-    | dpo | 10,429 | 12,178 | 1.1677 | 0.86× |
-    | dx | 36,734 | 19,627 | 0.5343 | 1.87× |
-    | ef | 18,860 | 10,430 | 0.5531 | 1.81× |
-    | elderray | 25,126 | 17,740 | 0.7083 | 1.41× |
-    | ema | 18,760 | 8,465 | 0.4513 | 2.22× |
-    | emv | 9,569 | 9,425 | 0.9850 | 1.02× |
-    | fisher | 201,433 | 117,935 | 0.5905 | 1.69× |
-    | fosc | 31,159 | 18,904 | 0.6067 | 1.65× |
-    | highpass | 18,716 | 8,596 | 0.4593 | 2.18× |
-    | hilberttransform | 67,390 | 24,373 | 0.3617 | 2.77× |
-    | hma | 33,248 | 28,342 | 0.8525 | 1.17× |
-    | homodynediscriminator | 873,140 | 303,911 | 0.3481 | 2.87× |
-    | ichimoku | 265,903 | 392,468 | 1.4832 | 0.67× |
-    | instantaneoustrendline | 899,968 | 370,021 | 0.4111 | 2.43× |
-    | kama | 28,165 | 12,820 | 0.4552 | 2.20× |
-    | keltnerchannel | 26,052 | 25,840 | 0.9968 | 1.00× |
-    | kvo | 37,282 | 26,528 | 0.7116 | 1.41× |
-    | linreg | 25,518 | 10,046 | 0.3937 | 2.54× |
-    | macd | 25,213 | 21,980 | 0.8828 | 1.13× |
-    | mama | 898,880 | 259,810 | 0.2890 | 3.46× |
-    | marketfi | 9,476 | 12,325 | 1.3007 | 0.77× |
-    | mass | 21,682 | 11,748 | 0.5418 | 1.85× |
-    | max | 20,699 | 21,246 | 1.0275 | 0.97× |
-    | md | 50,310 | 28,251 | 0.5486 | 1.82× |
-    | medprice | 4,291 | 4,098 | 0.9550 | 1.05× |
-    | mfi | 30,439 | 20,360 | 0.6690 | 1.49× |
-    | min | 30,869 | 35,656 | 1.2046 | 0.83× |
-    | mom | 3,080 | 3,390 | 1.1033 | 0.91× |
-    | msw | 484,788 | 358,729 | 0.7401 | 1.35× |
-    | natr | 19,502 | 13,737 | 0.7045 | 1.42× |
-    | nvi | 9,730 | 10,018 | 1.0296 | 0.97× |
-    | obv | 13,779 | 9,049 | 0.6567 | 1.52× |
-    | ppo | 19,851 | 9,799 | 0.4936 | 2.03× |
-    | psar | 41,512 | 65,093 | 1.6158 | 0.62× |
-    | pvi | 9,823 | 9,957 | 1.0136 | 0.99× |
-    | qstick | 11,236 | 11,571 | 1.0298 | 0.97× |
-    | roc | 9,460 | 9,641 | 1.0192 | 0.98× |
-    | rocr | 9,482 | 9,836 | 1.0375 | 0.96× |
-    | roofingfilter | 42,192 | 12,195 | 0.2891 | 3.46× |
-    | rsi | 19,436 | 9,709 | 0.4995 | 2.00× |
-    | sma | 9,900 | 8,590 | 0.8677 | 1.15× |
-    | smaenvelope | 29,148 | 22,137 | 0.7798 | 1.28× |
-    | stddev | 14,582 | 14,114 | 0.9680 | 1.03× |
-    | stoch | 82,291 | 86,023 | 1.0452 | 0.96× |
-    | stochrsi | 78,192 | 86,010 | 1.0976 | 0.91× |
-    | supersmoother | 41,408 | 12,525 | 0.3025 | 3.31× |
-    | supertrend | 58,532 | 26,840 | 0.4591 | 2.18× |
-    | tema | 27,646 | 8,837 | 0.3196 | 3.13× |
-    | tr | 6,083 | 5,885 | 0.9675 | 1.03× |
-    | trendmode | 883,542 | 258,052 | 0.2921 | 3.42× |
-    | trima | 21,974 | 15,353 | 0.6987 | 1.43× |
-    | trix | 26,536 | 9,718 | 0.3662 | 2.73× |
-    | trvi | 24,399 | 16,770 | 0.6874 | 1.45× |
-    | tsf | 25,382 | 9,807 | 0.3865 | 2.59× |
-    | typprice | 4,142 | 4,445 | 1.0732 | 0.93× |
-    | ultosc | 65,093 | 31,112 | 0.4780 | 2.09× |
-    | vhf | 64,940 | 78,395 | 1.2082 | 0.83× |
-    | vidya | 47,904 | 37,038 | 0.7732 | 1.29× |
-    | volatility | 35,290 | 23,909 | 0.6775 | 1.48× |
-    | vortex | 32,568 | 22,725 | 0.7004 | 1.43× |
-    | vosc | 15,466 | 12,772 | 0.8258 | 1.21× |
-    | vwap | 13,805 | 15,343 | 1.1114 | 0.90× |
-    | vwma | 13,535 | 15,467 | 1.1428 | 0.88× |
-    | wad | 15,185 | 13,386 | 0.8815 | 1.13× |
-    | wcprice | 4,248 | 4,387 | 1.0327 | 0.97× |
-    | wilders | 18,674 | 8,671 | 0.4643 | 2.15× |
-    | willr | 63,041 | 79,254 | 1.2596 | 0.79× |
-    | wma | 25,004 | 12,223 | 0.4890 | 2.04× |
-    | zlema | 23,162 | 8,554 | 0.3694 | 2.71× |
-
-??? success "Notable results — by_assets"
-
-    **68 of 93 indicators (73%) show a SIMD speedup over 4× sequential Rust.**
-    Median speedup for benefiting indicators: **~1.77×**.
-
-    | Category | Indicator | SIMD Speedup vs 4× Sequential Rust |
+    | Category | Indicator | SIMD Speedup vs 4x Sequential Rust |
     |----------|-----------|:-----------------------------------:|
-    | **Top performers** | `roofingfilter` | **3.46×** |
-    | | `mama` | **3.46×** |
-    | | `trendmode` | **3.42×** |
-    | | `supersmoother` | **3.31×** |
-    | | `ccfisher` | **3.25×** |
-    | | `cci` | **3.23×** |
-    | | `tema` | **3.13×** |
-    | | `dema` | **2.96×** |
-    | | `homodynediscriminator` | **2.87×** |
-    | | `hilberttransform` | **2.77×** |
-    | | `trix` | **2.73×** |
-    | | `zlema` | **2.71×** |
-    | **Notable improvement** | `msw` | 1.35× (SDFT optimisation) |
-    | **SIMD slower than sequential** | `donchianchannel` | 0.55× |
-    | | `ichimoku` | 0.67× |
-    | | `stochrsi` | 0.91× |
+    | **Top performers** | `cci` | **4.34x** |
+    | **Top performers** | `roofingfilter` | **3.63x** |
+    | **Top performers** | `mama` | **3.43x** |
+    | **Top performers** | `supersmoother` | **3.40x** |
+    | **Top performers** | `trendmode` | **3.38x** |
+    | **Top performers** | `ccfisher` | **3.31x** |
+    | **Top performers** | `di` | **2.97x** |
+    | **Top performers** | `wma` | **2.94x** |
+    | **Top performers** | `homodynediscriminator` | **2.91x** |
+    | **Top performers** | `tema` | **2.84x** |
+    | **Notable improvement** | `msw` | 1.40x (SDFT optimisation) |
+    | **SIMD slower than sequential** | `donchianchannel` | 0.45x |
+    | **SIMD slower than sequential** | `psar` | 0.47x |
+    | **SIMD slower than sequential** | `vhf` | 0.65x |
+    | **SIMD slower than sequential** | `chandelierexit` | 0.66x |
+    | **SIMD slower than sequential** | `stoch` | 0.67x |
 
     Indicators where SIMD is slower typically involve highly sequential computation or irregular memory access patterns where SIMD setup overhead dominates.
 
@@ -244,108 +43,27 @@ Times represent the total wall-time for all 4 assets.
 
 ## by_options: 4 Option Sets Simultaneously
 
-Processes 1 asset with 4 different option configurations in a single SIMD pass. There is no C or TA-Lib equivalent for this mode — the comparison baseline is 4 independent sequential Rust calls.
+Full comparison tables (vs Sequential Rust, Python Binding, Node Binding): **[SIMD by_options →](simd/by-options.md)**
 
-- **Speedup** — `4× Sequential Rust / SIMD 4-Options`
-- **Best / Worst** — speedup range across the different option combinations tested
+??? success "Notable results - by_options"
 
-| Indicator | 4× Sequential Rust (ns) | SIMD 4-Options (ns) | Speedup | Best | Worst |
-|-----------|------------------------:|--------------------:|--------:|-----:|------:|
-| adosc | 26,672 | 10,173 | **2.63×** | 2.51× | 2.70× |
-| adx | 42,982 | 15,677 | **2.74×** | 2.69× | 2.85× |
-| adxr | 56,165 | 27,785 | **2.02×** | 1.97× | 2.13× |
-| apo | 18,837 | 9,633 | **2.00×** | 1.63× | 2.33× |
-| aroon | 72,749 | 92,615 | 0.79× | 0.77× | 0.81× |
-| aroonosc | 85,149 | 89,298 | 0.95× | 0.94× | 0.97× |
-| atr | 18,856 | 8,368 | **2.26×** | 2.23× | 2.29× |
-| bbands | 30,127 | 21,034 | 1.43× | 1.35× | 1.53× |
-| ccfisher | 917,848 | 277,796 | **3.31×** | 3.30× | 3.32× |
-| cci | 229,714 | 118,510 | 1.94× | 1.92× | 1.95× |
-| chaikinmf | 28,290 | 19,634 | 1.44× | 1.43× | 1.46× |
-| chandelierexit | 75,915 | 109,012 | 0.70× | 0.69× | 0.70× |
-| cmo | 24,620 | 16,706 | 1.47× | 1.47× | 1.48× |
-| cvi | 24,394 | 22,256 | 1.10× | 1.09× | 1.11× |
-| cybercycle | 65,504 | 20,428 | **3.21×** | 3.19× | 3.23× |
-| dema | 24,627 | 8,143 | **3.05×** | 2.58× | 3.22× |
-| di | 56,286 | 17,922 | **3.14×** | 3.01× | 3.32× |
-| dm | 36,931 | 16,203 | **2.28×** | 2.24× | 2.32× |
-| donchianchannel | 51,814 | 108,522 | 0.48× | 0.47× | 0.48× |
-| dpo | 10,429 | 12,204 | 0.86× | 0.84× | 0.87× |
-| dx | 36,734 | 14,157 | **2.60×** | 2.53× | 2.64× |
-| ef | 18,860 | 11,164 | 1.69× | 1.60× | 1.77× |
-| elderray | 25,126 | 17,401 | 1.46× | 1.29× | 1.54× |
-| ema | 18,760 | 8,118 | **2.31×** | 2.25× | 2.40× |
-| fisher | 201,433 | 170,471 | 1.19× | 1.15× | 1.23× |
-| fosc | 31,159 | 19,160 | 1.63× | 1.62× | 1.63× |
-| highpass | 18,716 | 8,821 | **2.12×** | 2.10× | 2.14× |
-| hilberttransform | 67,390 | 26,258 | **2.57×** | 2.56× | 2.58× |
-| hma | 33,248 | 28,869 | 1.15× | 1.15× | 1.16× |
-| ichimoku | 265,903 | 365,365 | 0.73× | 0.72× | 0.74× |
-| kama | 28,165 | 12,006 | **2.35×** | 2.32× | 2.36× |
-| keltnerchannel | 26,052 | 21,939 | 1.19× | 1.11× | 1.36× |
-| kvo | 37,282 | 20,035 | 1.86× | 1.85× | 1.89× |
-| linreg | 25,518 | 10,153 | **2.52×** | 2.49× | 2.54× |
-| macd | 25,213 | 21,179 | 1.19× | 1.11× | 1.29× |
-| mama | 918,272 | 262,591 | **3.50×** | 3.50× | 3.50× |
-| mass | 21,682 | 15,097 | 1.44× | 1.42× | 1.45× |
-| max | 20,699 | 27,547 | 0.75× | 0.74× | 0.76× |
-| md | 50,310 | 50,407 | 1.00× | 0.99× | 1.01× |
-| mfi | 30,439 | 19,658 | 1.55× | 1.54× | 1.56× |
-| min | 30,869 | 47,566 | 0.65× | 0.59× | 0.72× |
-| mom | 3,080 | 3,432 | 0.90× | 0.88× | 0.92× |
-| msw | 484,788 | 227,555 | **2.13×** | 2.10× | 2.15× |
-| natr | 19,502 | 11,625 | 1.71× | 1.44× | 1.96× |
-| ppo | 19,851 | 10,033 | 1.98× | 1.94× | 2.03× |
-| psar | 41,512 | 50,356 | 0.83× | 0.81× | 0.84× |
-| qstick | 11,236 | 11,392 | 0.99× | 0.98× | 0.99× |
-| roc | 9,460 | 10,169 | 0.93× | 0.85× | 0.97× |
-| rocr | 9,482 | 10,216 | 0.93× | 0.90× | 0.95× |
-| roofingfilter | 42,192 | 11,512 | **3.66×** | 3.64× | 3.68× |
-| rsi | 19,436 | 10,293 | 1.89× | 1.82× | 1.94× |
-| sma | 9,900 | 8,714 | 1.14× | 1.12× | 1.15× |
-| smaenvelope | 29,148 | 21,464 | 1.36× | 1.22× | 1.71× |
-| stddev | 14,582 | 14,373 | 1.01× | 1.01× | 1.02× |
-| stoch | 82,291 | 110,785 | 0.75× | 0.73× | 0.76× |
-| stochrsi | 78,192 | 98,799 | 0.79× | 0.77× | 0.82× |
-| supersmoother | 41,408 | 12,005 | **3.48×** | 2.97× | 3.66× |
-| supertrend | 58,532 | 23,569 | **2.48×** | 2.43× | 2.54× |
-| tema | 27,646 | 8,032 | **3.44×** | 3.40× | 3.49× |
-| trendmode | 883,542 | 229,837 | **3.85×** | 3.80× | 3.90× |
-| trima | 21,974 | 15,493 | 1.42× | 1.41× | 1.43× |
-| trix | 26,536 | 10,083 | **2.64×** | 2.52× | 2.68× |
-| trvi | 24,399 | 23,132 | 1.06× | 1.04× | 1.07× |
-| tsf | 25,382 | 10,616 | **2.40×** | 2.35× | 2.43× |
-| ultosc | 65,093 | 41,681 | 1.56× | 1.56× | 1.57× |
-| vhf | 64,940 | 89,020 | 0.73× | 0.71× | 0.74× |
-| vidya | 47,904 | 37,858 | 1.27× | 1.26× | 1.27× |
-| volatility | 35,290 | 22,541 | 1.57× | 1.55× | 1.59× |
-| vortex | 32,568 | 23,928 | 1.36× | 1.25× | 1.48× |
-| vosc | 15,466 | 12,798 | 1.21× | 1.21× | 1.21× |
-| vwma | 13,535 | 15,543 | 0.87× | 0.86× | 0.88× |
-| wilders | 18,674 | 9,048 | **2.09×** | 1.80× | 2.33× |
-| willr | 63,041 | 85,553 | 0.74× | 0.71× | 0.76× |
-| wma | 25,004 | 9,850 | **2.54×** | 2.44× | 2.61× |
-| zlema | 23,162 | 8,812 | **2.63×** | 2.50× | 2.70× |
-
-??? success "Notable results — by_options"
-
-    **56 of 75 indicators (75%) show a SIMD speedup over 4× sequential Rust.**
+    **54 of 75 indicators (72%) show a SIMD speedup over 4x sequential Rust.**
 
     | Category | Indicator | Speedup |
     |----------|-----------|:-------:|
-    | **Top performers** | `trendmode` | **3.85×** |
-    | | `roofingfilter` | **3.66×** |
-    | | `mama` | **3.50×** |
-    | | `supersmoother` | **3.48×** |
-    | | `tema` | **3.44×** |
-    | | `ccfisher` | **3.31×** |
-    | | `cybercycle` | **3.21×** |
-    | | `di` | **3.14×** |
-    | | `dema` | **3.05×** |
-    | **Notable improvement** | `msw` | **2.13×** (SDFT optimisation) |
-    | **SIMD slower than sequential** | `donchianchannel` | 0.48× |
-    | | `min` | 0.65× |
-    | | `vhf` | 0.73× |
-    | | `ichimoku` | 0.73× |
+    | **Top performers** | `trendmode` | **3.86x** |
+    | **Top performers** | `roofingfilter` | **3.52x** |
+    | **Top performers** | `mama` | **3.50x** |
+    | **Top performers** | `di` | **3.48x** |
+    | **Top performers** | `supersmoother` | **3.47x** |
+    | **Top performers** | `ccfisher` | **3.26x** |
+    | **Top performers** | `cybercycle` | **3.15x** |
+    | **Top performers** | `tema` | **3.13x** |
+    | **Top performers** | `wma` | **2.84x** |
+    | **Notable improvement** | `msw` | **2.23x** (SDFT optimisation) |
+    | **SIMD slower than sequential** | `donchianchannel` | 0.44x |
+    | **SIMD slower than sequential** | `vhf` | 0.50x |
+    | **SIMD slower than sequential** | `psar` | 0.56x |
+    | **SIMD slower than sequential** | `min` | 0.59x |
 
     Indicators that don't benefit tend to involve complex branching or irregular memory access patterns that prevent effective vectorisation.

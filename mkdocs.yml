@@ -155,8 +155,15 @@ nav:
     - Live Demo: demo.md
     - Benchmarks:
           - Overview: benchmarks/index.md
-          - Standard Performance: benchmarks/standard.md
-          - SIMD: benchmarks/simd.md
+          - Standard Performance:
+                - Overview: benchmarks/standard.md
+                - Rust: benchmarks/standard/rust.md
+                - Python: benchmarks/standard/python.md
+                - Node: benchmarks/standard/node.md
+          - SIMD:
+                - Overview: benchmarks/simd.md
+                - by_assets: benchmarks/simd/by-assets.md
+                - by_options: benchmarks/simd/by-options.md
           - Optional Outputs: benchmarks/optional-outputs.md
           - Streaming: benchmarks/streaming.md
           - Python Binding: benchmarks/python.md
