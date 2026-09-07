@@ -101,9 +101,8 @@ GROUP BY
     runs.id, runs.run_timestamp, runs.system_info,
     ind.name, res.stock_symbol, res.data_source, res.input_size, res.options
 HAVING
-    count(DISTINCT res.implementation_type) >= 2
-    AND count(DISTINCT CASE WHEN res.implementation_type = 'tulip_rs_python'
-                            THEN res.implementation_type END) = 1
+    count(DISTINCT CASE WHEN res.implementation_type = 'tulip_rs_python'
+                        THEN res.implementation_type END) = 1
 ORDER BY runs.run_timestamp DESC, ind.name, res.stock_symbol;
 
 -- ---------------------------------------------------------------------------
@@ -182,7 +181,6 @@ JOIN indicators ind        ON res.indicator_id = ind.id
 WHERE res.implementation_type IN ('tulip_rs_python', 'ta', 'pandas_ta')
 GROUP BY runs.id, runs.run_timestamp, runs.system_info, ind.name
 HAVING
-    count(DISTINCT res.implementation_type) >= 2
-    AND count(DISTINCT CASE WHEN res.implementation_type = 'tulip_rs_python'
-                            THEN res.implementation_type END) = 1
+    count(DISTINCT CASE WHEN res.implementation_type = 'tulip_rs_python'
+                        THEN res.implementation_type END) = 1
 ORDER BY runs.run_timestamp DESC, ind.name;
