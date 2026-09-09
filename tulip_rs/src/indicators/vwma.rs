@@ -12,7 +12,7 @@ pub const INPUTS: usize = 2;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct IndicatorState {
     close: Vec<f64>,
     volume: Vec<f64>,
@@ -56,7 +56,7 @@ impl TIndicatorState<2> for IndicatorState {
         Ok(vec![vwma_line])
     }
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct State<S = Cold> {
     pub sum: f64,
     pub vol_sum: f64,

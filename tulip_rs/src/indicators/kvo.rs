@@ -45,7 +45,7 @@ impl TIndicatorState<4> for IndicatorState {
         Ok(vec![kvo_line, short_ema_line, long_ema_line])
     }
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
     pub short_ema: EmaState<S>,

@@ -109,12 +109,12 @@ impl PatternTest {
         ));
     }
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct State {
     pub ema_state: EmaState,
     pub pattern_test: PatternTest,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EmaState {
     multipliers: (Simd<f64, 4>, Simd<f64, 4>),
     ema: Simd<f64, 4>,

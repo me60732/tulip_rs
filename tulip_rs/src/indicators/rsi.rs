@@ -36,7 +36,7 @@ impl TIndicatorState<1> for IndicatorState {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct State<S = Cold> {
     pub wilders_state: WildersSimdState<2>,
     pub prev_real: f64,

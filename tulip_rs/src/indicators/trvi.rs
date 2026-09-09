@@ -22,7 +22,7 @@ pub const OPTIONS: usize = 1;
 /// `S = NotFull` during warmup, `S = Full` once the buffer is filled.
 /// `#[serde(bound = "")]` suppresses the auto-derived `S: Serde` bound — the
 /// buffer's own Serde impl is already generic over any `S`.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
     pub buffer: Buffer<S>,

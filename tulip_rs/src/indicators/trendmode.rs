@@ -58,7 +58,7 @@ pub const OPTIONS: usize = 1; // [alpha]
 /// **Warmup:** after [`init_state`](State::init_state) completes all ring buffers
 /// are full and the IIR feedback is seeded. The hot path (`calc_unchecked`)
 /// operates unconditionally.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
     /// Embedded Homodyne Discriminator — provides `SmoothPeriod` (DC) per bar.

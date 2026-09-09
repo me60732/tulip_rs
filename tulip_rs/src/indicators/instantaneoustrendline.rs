@@ -70,7 +70,7 @@ pub const OPTIONS: usize = 0;
 /// formula for bars 20 and 21, then processes bar 22 (the first valid output bar)
 /// using the full formula. After `init_state`, the seeding branch is permanently
 /// bypassed — the hot path is unconditionally the IIR.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
     /// Embedded Homodyne Discriminator pipeline — provides `SmoothPeriod` (DC) per bar.

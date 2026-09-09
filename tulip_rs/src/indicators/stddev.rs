@@ -17,7 +17,7 @@ pub const OPTIONS: usize = 1;
 
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct IndicatorState {
     real: Vec<f64>,
     state: State<Warm>,
@@ -81,7 +81,7 @@ impl<S> DerefMut for State<S> {
         &mut self.sma_state
     }
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
     pub sma_state: SmaState<S>,

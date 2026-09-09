@@ -32,7 +32,7 @@ impl TIndicatorState<1> for IndicatorState {
         Ok(vec![volatility_line])
     }
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
     pub buffer: Buffer<S>,

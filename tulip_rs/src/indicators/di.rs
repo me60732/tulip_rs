@@ -18,7 +18,7 @@ pub const INPUTS: usize = 3;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
     pub di_state: DMState<S>,

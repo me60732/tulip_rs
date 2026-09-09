@@ -13,7 +13,7 @@ pub const INPUTS: usize = 1;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct IndicatorState {
     state: State<Warm>,
     real: Vec<f64>,
@@ -28,7 +28,7 @@ impl IndicatorState {
         }
     }
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct State<S = Cold> {
     pub zlema: f64,
     pub per: f64,

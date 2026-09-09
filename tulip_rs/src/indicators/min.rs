@@ -22,7 +22,7 @@ use std::{
         Simd,
     },
 };
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct State<S = Cold> {
     pub min: f64,
     pub trail: usize,
@@ -128,7 +128,7 @@ impl State<Warm> {
         (min, trail)
     }
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct IndicatorState {
     pub real: Vec<f64>,
     pub state: State<Warm>,

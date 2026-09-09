@@ -22,7 +22,7 @@ pub fn multiplier(short_period: usize, long_period: usize) -> (f64, f64) {
         stddev_multiplier(long_period),
     )
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct IndicatorState {
     state: State<Warm>,
     real: Vec<f64>,
@@ -91,7 +91,7 @@ impl TIndicatorState<1> for IndicatorState {
         ])
     }
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
     pub short_state: StddevState<S>,

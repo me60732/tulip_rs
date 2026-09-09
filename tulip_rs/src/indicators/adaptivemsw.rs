@@ -64,7 +64,7 @@ pub const OPTIONS: usize = 0;
 /// (it fills from 23 bars at the first output to 50 bars after 28 more bars). The
 /// first ~50 output bars should be treated as transient while both the HD IIR and
 /// the DFT window converge.
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
     /// Embedded Homodyne Discriminator — provides `SmoothPeriod` (DC) per bar.

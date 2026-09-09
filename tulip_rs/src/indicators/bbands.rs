@@ -14,7 +14,7 @@ pub const INPUTS: usize = 1;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 2;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
     pub stddev_state: StddevState<S>,
@@ -45,7 +45,7 @@ impl TState for State<Warm> {
         (lower_band, sma, upper_band)
     }
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct IndicatorState {
     real: Vec<f64>,
     state: State<Warm>,

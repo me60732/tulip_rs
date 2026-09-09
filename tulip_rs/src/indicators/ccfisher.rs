@@ -69,6 +69,7 @@ pub const OPTIONS: usize = 1; // [alpha]
 /// - `alpha ∈ (0, 1)` — fixed: coefficients are set once in [`State::new`].
 #[derive(Serialize, Deserialize)]
 #[serde(bound = "")]
+#[derive(Clone)]
 pub struct State<S = Cold> {
     /// Embedded Homodyne Discriminator — provides `SmoothPeriod` (DC) per bar.
     pub hd: homodynediscriminator::State<S>,

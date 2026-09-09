@@ -55,7 +55,7 @@ impl TIndicatorState<1> for IndicatorState {
         ])
     }
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
     pub short_ema: EmaState<S>,

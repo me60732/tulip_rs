@@ -15,14 +15,14 @@ pub const INPUTS: usize = 2;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct IndicatorState {
     open: Vec<f64>,
     close: Vec<f64>,
     state: State<Warm>,
     period: usize,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
 #[repr(transparent)]
 pub struct State<S = Cold>(pub SmaState<S>);

@@ -65,7 +65,7 @@ pub(crate) fn ht_kernel<S>(buf: &FixedRingBuffer<f64, 7, S>, gain: f64) -> (f64,
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 2;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
     pub rf_state: RfSate,

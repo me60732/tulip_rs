@@ -88,7 +88,7 @@ impl TIndicatorState<INPUTS> for IndicatorState {
 ///
 /// **Warmup:** after [`State::init_state`] completes, all ring buffers are full and
 /// the IIR feedback is seeded. The hot path (`calc_unchecked`) operates unconditionally.
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
     /// 4-bar price ring buffer: `[0]`=Price, `[1]`=Price[1], `[2]`=Price[2], `[3]`=Price[3].

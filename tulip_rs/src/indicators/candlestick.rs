@@ -13,7 +13,7 @@ pub const OPTIONS: usize = 3;
 
 
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct IndicatorState {
     state: State,
     open: Vec<f64>,

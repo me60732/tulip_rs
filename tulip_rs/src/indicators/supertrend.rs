@@ -28,7 +28,7 @@ pub(crate) fn validate_options(options: &[f64; OPTIONS]) -> Result<(), Indicator
     Ok(())
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
     pub atr_state: AtrState<S>,

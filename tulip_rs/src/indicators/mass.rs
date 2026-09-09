@@ -35,7 +35,7 @@ impl TIndicatorState<2> for IndicatorState {
         Ok(vec![mass_line])
     }
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
     pub buffer: Buffer<S>,

@@ -12,7 +12,7 @@ use std::ops::{Deref, DerefMut};
 /// Number of input price series required by this indicator.
 pub const INPUTS: usize = 2;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct IndicatorState {
     high: Vec<f64>,
     low: Vec<f64>,
@@ -64,7 +64,7 @@ impl TIndicatorState<2> for IndicatorState {
         Ok(vec![aroonosc_line, aroon_down_line, aroon_up_line])
     }
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
 #[repr(transparent)]
 pub struct State<S = Cold>(pub AroonState<S>);

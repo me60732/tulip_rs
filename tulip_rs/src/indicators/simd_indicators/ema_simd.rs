@@ -45,7 +45,7 @@ pub fn multiplier_simd<const N: usize>(periods: [usize; N]) -> (Simd<f64, N>, Si
 }
 
 // ── EmaSimd ───────────────────────────────────────────────────────────────────
-
+#[derive(Clone, Copy)]
 pub struct SimdState<const N: usize> {
     pub ema: Simd<f64, N>,
     pub inv_multiplier: Simd<f64, N>,

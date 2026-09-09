@@ -22,7 +22,7 @@ pub const SHORT_PERIOD: usize = 5;
 pub const LONG_PERIOD: usize = 34;
 
 pub type IndicatorState = State<Warm>;
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
     pub buffer: Buffer<S>,

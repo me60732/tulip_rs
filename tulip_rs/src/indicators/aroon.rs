@@ -16,7 +16,7 @@ pub const INPUTS: usize = 2;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct IndicatorState {
     high: Vec<f64>,
     low: Vec<f64>,
@@ -66,7 +66,7 @@ impl TIndicatorState<2> for IndicatorState {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
     pub min_state: MinState<S>,

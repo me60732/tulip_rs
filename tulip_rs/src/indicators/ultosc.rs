@@ -19,7 +19,7 @@ pub const OPTIONS: usize = 3;
 
 const MULTIPLIERS: Simd<f64, 2> = Simd::from_array([4.0, 2.0]);
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct IndicatorState {
     state: State<Warm>,
     periods: (usize, usize),
@@ -64,7 +64,7 @@ impl TIndicatorState<3> for IndicatorState {
         Ok(vec![ultosc_line, tr_line, bp_line])
     }
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
     pub buffer: Buffer<2, f64, S>,

@@ -19,7 +19,8 @@ use std::simd::{
     Simd,
 };
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(bound = "")]
 pub struct State<S = Cold> {
     pub max: f64,
     pub trail: usize,
@@ -128,7 +129,7 @@ impl State<Warm> {
         (max, trail)
     }
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct IndicatorState {
     pub real: Vec<f64>,
     pub state: State<Warm>,

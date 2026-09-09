@@ -13,7 +13,7 @@ pub const INPUTS: usize = 1;
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 1;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct IndicatorState {
     state: State<Warm>,
     real: Vec<f64>,
@@ -61,7 +61,7 @@ impl TIndicatorState<1> for IndicatorState {
         Ok(vec![linreg_line, slope_line, intercept_line])
     }
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct State<S = Cold> {
     pub sum_x: f64,
     pub sum_y: f64,

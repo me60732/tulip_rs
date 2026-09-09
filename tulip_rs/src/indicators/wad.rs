@@ -13,7 +13,7 @@ pub const INPUTS: usize = 3;
 pub const OPTIONS: usize = 0;
 
 pub type IndicatorState = State;
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct State {
     pub prev_close: f64,
     pub wad: f64,

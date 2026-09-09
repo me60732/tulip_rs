@@ -81,7 +81,7 @@ impl TIndicatorState<1> for IndicatorState {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct State {
     pub hp_state: HpState,
     pub ss_state: SsState, // SuperSmoother (low-pass) state

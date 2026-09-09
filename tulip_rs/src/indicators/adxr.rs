@@ -21,7 +21,7 @@ pub const OPTIONS: usize = 1;
 
 pub type IndicatorState = State<Warm>;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
     pub adx_state: AdxState<S>,

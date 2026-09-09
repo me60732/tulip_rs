@@ -87,7 +87,7 @@ const INV_SQRT2: f64 = std::f64::consts::FRAC_1_SQRT_2;
 ///
 /// Analogous to the `State` structs in other indicators (e.g. `stoch::State`).
 /// Stored inside [`IndicatorState`] and passed to [`calc`] and [`cycle_sdft`].
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct State {
     /// SDFT real accumulator.
     pub rp: f64,
@@ -149,7 +149,7 @@ impl<const N: usize> MSWConstants<N> {
 /// - `real`          — the last `period` price bars for the SDFT `old_sample` term
 /// - `cos_twiddles` / `sin_twiddles` — precomputed once, cached here so the
 ///   periodic re-anchor uses pure FMA (no trig) rather than recomputing `sin_cos`
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct IndicatorState {
     state: State,
     /// Last `period` input bars — sliding window tail.

@@ -44,7 +44,7 @@ impl TIndicatorState<4> for IndicatorState {
     }
 }
 pub type IndicatorState = State<Warm>;
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
     pub buffer: Buffer<2, f64, S>,

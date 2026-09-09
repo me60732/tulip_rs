@@ -17,13 +17,13 @@ pub const OPTIONS: usize = 1;
 
 use std::simd::{num::SimdFloat, Simd};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct IndicatorState {
     real: Vec<f64>,
     state: State<Warm>,
     period: usize,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
 #[repr(transparent)]
 pub struct State<S = Cold>(pub SmaState<S>);

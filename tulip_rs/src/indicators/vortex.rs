@@ -50,7 +50,7 @@ impl TIndicatorState<3> for IndicatorState {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
     pub buffer: MultiTypeBuffer<(f64, Simd<f64, 2>), S>,

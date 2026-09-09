@@ -12,7 +12,7 @@ pub const OPTIONS: usize = 0;
 pub const OUTPUTS: usize = 1;
 
 pub type State = IndicatorState;
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Copy)]
 pub struct IndicatorState {
     pub ad: f64,
 }

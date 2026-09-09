@@ -4,32 +4,32 @@ pub(crate) use crate::indicators::simd_indicators::by_asset::wilders::indicator_
 #[cfg(feature = "simd_options")]
 pub(crate) use crate::indicators::simd_indicators::by_option::wilders::indicator_by_options;
 
-use std::simd::{Simd, StdFloat, num::SimdUint};
+pub use crate::indicator_types::{TSimdState, TState};
+use crate::indicators::wilders::State;
+use crate::types::Warm;
 use serde::{
     de::{self, MapAccess, Visitor},
     ser::SerializeStruct,
     Deserialize, Deserializer, Serialize, Serializer,
 };
-pub use crate::indicator_types::{TState, TSimdState};
-use crate::indicators::wilders::State;
-use crate::types::Warm;
 use std::fmt;
 use std::marker::PhantomData;
+use std::simd::{num::SimdUint, Simd, StdFloat};
 
+#[derive(Clone)]
 pub struct SimdState<const N: usize> {
     pub wilders: Simd<f64, N>,
     pub multiplier: Simd<f64, N>,
-    pub inv_multiplier: Simd<f64, N>
+    pub inv_multiplier: Simd<f64, N>,
 }
 impl<const N: usize> TState for SimdState<N> {
     type Inputs<'a> = Simd<f64, N>;
     type Outputs = Simd<f64, N>;
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        value: Self::Inputs<'a>
-    ) -> Simd<f64, N> {
-        self.wilders = self.wilders.mul_add(self.multiplier, value * self.inv_multiplier);
+    fn calc<'a>(&mut self, value: Self::Inputs<'a>) -> Simd<f64, N> {
+        self.wilders = self
+            .wilders
+            .mul_add(self.multiplier, value * self.inv_multiplier);
         self.wilders
     }
 }
@@ -54,10 +54,7 @@ impl<const N: usize> SimdState<N> {
         }
     }
     #[inline(always)]
-    pub fn partial_calc_simd(
-        &mut self,
-        real: Simd<f64, N>,
-    ) -> Simd<f64, N> {
+    pub fn partial_calc_simd(&mut self, real: Simd<f64, N>) -> Simd<f64, N> {
         self.wilders = partial_calc_simd(self.wilders, real, self.multiplier);
         self.wilders
     }
@@ -154,7 +151,9 @@ where
                 }
 
                 Ok(SimdState {
-                    wilders: Simd::from_array(wilders.ok_or_else(|| de::Error::missing_field("wilders"))?),
+                    wilders: Simd::from_array(
+                        wilders.ok_or_else(|| de::Error::missing_field("wilders"))?,
+                    ),
                     multiplier: Simd::from_array(
                         multiplier.ok_or_else(|| de::Error::missing_field("multiplier"))?,
                     ),

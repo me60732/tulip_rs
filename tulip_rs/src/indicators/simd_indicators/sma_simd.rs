@@ -1,30 +1,28 @@
 #[cfg(feature = "simd_assets")]
 pub(crate) use crate::indicators::simd_indicators::by_asset::sma::indicator_by_assets;
 
+pub use crate::indicator_types::{TSimdState, TState};
 #[cfg(feature = "simd_options")]
 pub(crate) use crate::indicators::simd_indicators::by_option::sma::indicator_by_options;
+use crate::indicators::sma::State;
+use crate::types::Warm;
 use serde::{
     de::{self, MapAccess, Visitor},
     ser::SerializeStruct,
     Deserialize, Deserializer, Serialize, Serializer,
 };
-use crate::types::Warm;
-pub use crate::indicator_types::{TSimdState, TState};
-use crate::indicators::sma::State;
 use std::fmt;
 use std::marker::PhantomData;
 use std::simd::Simd;
 
+#[derive(Clone)]
 pub struct SimdState<const N: usize> {
     pub sum: Simd<f64, N>,
     pub multiplier: Simd<f64, N>,
 }
 impl<const N: usize> SimdState<N> {
     pub fn new(sum: Simd<f64, N>, multiplier: Simd<f64, N>) -> Self {
-        Self {
-            sum,
-            multiplier,
-        }
+        Self { sum, multiplier }
     }
 }
 impl<const N: usize> TSimdState for SimdState<N> {
@@ -47,7 +45,7 @@ impl<const N: usize> TState for SimdState<N> {
         self.sum * self.multiplier
     }
 }
-    
+
 impl<const N: usize> Serialize for SimdState<N>
 where
     [f64; N]: Serialize,

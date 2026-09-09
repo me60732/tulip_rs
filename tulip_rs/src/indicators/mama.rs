@@ -77,7 +77,7 @@ pub const OPTIONS: usize = 2;
 /// which is the same warmup as the Homodyne Discriminator. On that bar `mama = fama = price`
 /// exactly (seeded from the first-output-bar price so that α·p + (1−α)·p = p). Subsequent
 /// bars evolve from this seed.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
     /// Full Homodyne Discriminator pipeline (stages 0–3 and IIR discriminator).

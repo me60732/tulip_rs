@@ -19,7 +19,7 @@ use std::simd::Simd;
 pub const OPTIONS: usize = 2;
 
 pub type IndicatorState = State<Warm>;
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Copy)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
     pub ema_state: EmaSimdState<2>,

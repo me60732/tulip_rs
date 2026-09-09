@@ -22,7 +22,7 @@ pub const OPTIONS: usize = 0;
 /// Holds the cumulative price-volume sum (`pv_sum`) and cumulative volume sum
 /// (`vol_sum`) needed to compute the running VWAP at each new bar.
 pub type IndicatorState = State;
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct State {
     pub pv_sum: f64,
     pub vol_sum: f64,

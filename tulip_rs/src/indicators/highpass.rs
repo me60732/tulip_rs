@@ -44,7 +44,7 @@ pub const INPUTS: usize = 1;
 pub const OPTIONS: usize = 1;
 
 pub type IndicatorState = State;
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct State {
     pub y1: f64, // y[t-1]
     pub prev_real: f64,

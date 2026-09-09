@@ -13,7 +13,7 @@ pub const INPUTS: usize = 3;
 pub const OPTIONS: usize = 0;
 
 pub type IndicatorState = State<Warm>;
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct State<S = Cold> {
     pub prev_medprice: f64,
     pub(crate) state: std::marker::PhantomData<S>,

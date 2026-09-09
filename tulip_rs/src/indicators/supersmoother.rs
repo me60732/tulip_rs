@@ -63,7 +63,7 @@ impl TIndicatorState<1> for IndicatorState {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct State {
     // previous outputs
     pub y1: f64,        // y[t-1]
