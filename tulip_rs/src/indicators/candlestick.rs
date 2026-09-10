@@ -2,7 +2,7 @@ use crate::candle_indicators::candle_patterns::*;
 use crate::candle_indicators::pattern_test::{State, MAX_PATTERN_LENGTH};
 pub use crate::candle_indicators::types::ForecastType;
 use crate::common::{validate_inputs, validate_options};
-use crate::indicators::ema::{/*multiplier as ema_multiplier, */Ema, Indicator};
+use crate::indicators::ema::{/*multiplier as ema_multiplier, */ Ema, Indicator};
 use crate::types::{DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info};
 use serde::{Deserialize, Serialize};
 /// Number of input price series required by this indicator.
@@ -10,8 +10,6 @@ pub const INPUTS: usize = 4;
 
 /// Number of option parameters required by this indicator.
 pub const OPTIONS: usize = 3;
-
-
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct IndicatorState {
@@ -78,11 +76,15 @@ impl IndicatorState {
             forecast_type,
         );
 
-        self.open.drain(..self.open.len() - MAX_PATTERN_LENGTH - 1);
+        let keep_from = self.open.len() - MAX_PATTERN_LENGTH - 1;
+        self.open.drain(..keep_from);
+        self.high.drain(..keep_from);
+        self.low.drain(..keep_from);
+        self.close.drain(..keep_from);
+
         Ok(output)
     }
 }
-
 
 /// Iterates over the OHLC slices (starting at `start`) and writes candlestick
 /// pattern results into `output`.
@@ -112,7 +114,6 @@ fn cycle(
         unsafe { *output.get_unchecked_mut(j) = patterns };
     }
 }
-
 
 /// Returns EMA multiplier tuples for the three candlestick periods.
 ///
@@ -175,30 +176,30 @@ impl CandleStick {
     ) -> Result<(Vec<Option<Vec<CandlePattern>>>, IndicatorState), IndicatorError> {
         validate_options(options)?;
         validate_inputs(inputs, Self::min_data(options))?;
-    
+
         let candle_period = options[0] as usize;
         let trend_period = options[1] as usize;
         let signal_period = options[2] as usize;
-    
+
         let mut state = State::init(inputs, candle_period, trend_period, signal_period);
-    
+
         let greater_period = if candle_period > trend_period {
             candle_period
         } else {
             trend_period
         };
-    
+
         let (open, high, low, close) = (
             &inputs[0][greater_period..],
             &inputs[1][greater_period..],
             &inputs[2][greater_period..],
             &inputs[3][greater_period..],
         );
-    
+
         let capacity = Self::output_length(inputs[0].len(), options);
-    
+
         let mut output = vec![None; capacity];
-    
+
         // Process each candle
         cycle(
             open,
@@ -210,7 +211,7 @@ impl CandleStick {
             &mut output,
             forecast_type,
         );
-    
+
         Ok((output, IndicatorState::new(state, open, high, low, close)))
     }
 

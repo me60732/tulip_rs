@@ -72,4 +72,33 @@ fn main() {
             );
         }
     }
+
+    // batch streaming
+    let inputs = [&open[..16], &high[..16], &low[..16], &close[..16]];
+    let (_, mut state) =
+        match CandleStick::indicator(&inputs, &options, Some(ForecastType::BearishReversal)) {
+            Ok(r) => r,
+            Err(e) => panic!("Error: {}", e),
+        };
+    let inputs = [&open[16..17], &high[16..17], &low[16..17], &close[16..17]];
+    let _result = match state.batch_indicator(&inputs, Some(ForecastType::BearishReversal)) {
+        Ok(r) => r,
+        Err(e) => panic!("Error: {}", e),
+    };
+    let inputs = [&open[17..], &high[17..], &low[17..], &close[17..]];
+    let result = match state.batch_indicator(&inputs, Some(ForecastType::BearishReversal)) {
+        Ok(r) => r,
+        Err(e) => panic!("Error: {}", e),
+    };
+    println!("\n\nState Continuation test");
+    if let Some(patterns) = result.last().and_then(|opt| opt.as_ref()) {
+        println!("Forecast type Specified - Patterns found:");
+        for pattern in patterns {
+            let pattern_info = pattern.get_info();
+            println!(
+                "  - {} ({}), Bars: {}",
+                pattern_info.full_name, pattern_info.japanese_name, pattern_info.bars
+            );
+        }
+    }
 }
