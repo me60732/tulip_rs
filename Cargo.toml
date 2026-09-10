@@ -3,10 +3,6 @@ resolver = "3"
 members = [
     "tulip_rs",
     "tulip_test",
-    "tulip_rs_uniffi",
-    "tulip_rs_uniffi/tulip_rs_uniffi_macros",
-    "tulip_rs_diplomat",
-    "tulip_rs_diplomat/tulip_rs_diplomat_gen",
 ]
 
 [profile.release]
