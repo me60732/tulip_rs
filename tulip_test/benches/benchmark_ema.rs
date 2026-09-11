@@ -659,9 +659,10 @@ criterion_group!(
     bench_rust_ema_simd_by_options,
     bench_rust_ema_simd_by_assets,
     bench_rust_ema,
+    bench_kand_ema,
     bench_rust_ta_ema,
     bench_c_ema,
     bench_rust_ema_from_state,
-    bench_kand_ema,
+    
 );
 criterion_main!(benches);

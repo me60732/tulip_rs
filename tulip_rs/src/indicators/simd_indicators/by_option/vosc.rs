@@ -131,7 +131,7 @@ pub(crate) fn indicator_by_options<const N: usize>(
         if i == 0 {
             want_optional_outputs = crate::calc_want_flags!(short_sma_line, long_sma_line);
         }
-        let mut starts = [0; N];
+        let mut starts = [0; 3]; // 3 outputs: vosc_line, short_sma_line, long_sma_line
         starts[1] = crate::slice_outputs_start!(vosc_line.len(), short_sma_line);
 
         let state = State::init_state(param.0, param.1, inputs[0], &mut short_sma_line);
