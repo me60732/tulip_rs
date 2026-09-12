@@ -1,0 +1,5399 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="High-performance technical analysis library in Rust — 100+ indicators, 60+ candlestick patterns, SIMD acceleration">
+      
+      
+      
+        <link rel="canonical" href="https://me60732.github.io/tulip_rs/benchmarks/standard/python/">
+      
+      
+        <link rel="prev" href="../rust/">
+      
+      
+        <link rel="next" href="../node/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Python - TulipRS</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../stylesheets/floating-scrollbar.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#standard-performance-python" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="TulipRS" class="md-header__button md-logo" aria-label="TulipRS" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TulipRS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Python
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/me60732/tulip_rs" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    me60732/tulip_rs
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../../getting_started/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Getting Started
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../indicators/" class="md-tabs__link">
+          
+  
+  
+  Indicators
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../../candlestick_patterns/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Candlestick Patterns
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../../simd/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  SIMD
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../../state_management/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  State Management
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../../language_bindings/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Language Bindings
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../../demo/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Live Demo
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../../" class="md-tabs__link">
+          
+  
+  
+  Benchmarks
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="TulipRS" class="md-nav__button md-logo" aria-label="TulipRS" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    TulipRS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/me60732/tulip_rs" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    me60732/tulip_rs
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting_started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Indicators
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Indicators
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/indicator_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Indicator API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Moving Averages
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Moving Averages
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/moving_averages/sma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SMA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/moving_averages/ema/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    EMA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/moving_averages/wma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    WMA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/moving_averages/dema/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DEMA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/moving_averages/tema/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TEMA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/moving_averages/trima/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TRIMA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/moving_averages/hma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HMA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/moving_averages/zlema/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ZLEMA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/moving_averages/kama/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    KAMA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/moving_averages/vidya/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VIDYA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/moving_averages/vwma/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VWMA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/moving_averages/wilders/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Wilders
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/moving_averages/smaenvelope/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SMA Envelope
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_4" id="__nav_3_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Oscillators
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Oscillators
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/oscillators/rsi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RSI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/oscillators/macd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MACD
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/oscillators/stochastic_oscillator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stochastic Oscillator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/oscillators/stochrsi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    StochRSI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/oscillators/williams_r/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Williams %R
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/oscillators/cci/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CCI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/oscillators/cmo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CMO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/oscillators/ultimate_oscillator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ultimate Oscillator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/oscillators/ao/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/oscillators/fisher_transform/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fisher Transform
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/oscillators/fosc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FOSC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/oscillators/msw/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MSW
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/oscillators/trix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TRIX
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Trend
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Trend
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/trend/ppo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PPO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/trend/apo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    APO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/trend/adx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADX
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/trend/adxr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADXR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/trend/dm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DM
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/trend/di/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/trend/dx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DX
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/trend/aroon/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Aroon
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/trend/aroon_oscillator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Aroon Oscillator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/trend/psar/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PSAR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/trend/elderray/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Elder-Ray
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/trend/donchianchannel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Donchian Channel
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/trend/vortex/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vortex
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/trend/ichimoku/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ichimoku
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/trend/supertrend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SuperTrend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/trend/ef/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Efficiency Ratio
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_6" id="__nav_3_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Volatility
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Volatility
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/volatility/bbands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BBands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/volatility/atr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ATR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/volatility/natr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NATR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/volatility/tr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/volatility/stddev/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    StdDev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/volatility/volatility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Volatility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/volatility/vhf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VHF
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/volatility/cvi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CVI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/volatility/chandelierexit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chandelier Exit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/volatility/keltnerchannel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Keltner Channel
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/volatility/trvi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TRVI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_7" id="__nav_3_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Volume
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Volume
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/volume/ad/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AD
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/volume/adosc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADOSC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/volume/obv/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    OBV
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/volume/mfi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MFI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/volume/nvi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NVI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/volume/pvi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PVI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/volume/vosc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VOSC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/volume/kvo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    KVO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/volume/emv/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    EMV
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/volume/wad/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    WAD
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/volume/marketfi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Market Facilitation Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/volume/chaikinmf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chaikin Money Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/volume/vwap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VWAP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_8" id="__nav_3_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cycle & Ehlers
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Cycle & Ehlers
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/cycle/cybercycle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CyberCycle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/cycle/adaptivemsw/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Adaptive MSW
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/cycle/homodynediscriminator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Homodyne Discriminator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/cycle/instantaneoustrendline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Instantaneous Trendline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/cycle/trendmode/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TrendMode
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/cycle/mama/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MAMA
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/cycle/highpass/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    High Pass Filter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/cycle/hilberttransform/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hilbert Transform
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/cycle/roofingfilter/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roofing Filter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/cycle/supersmoother/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Super Smoother
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/cycle/ccfisher/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CC Fisher
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_9" id="__nav_3_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Price & Statistical
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Price & Statistical
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/price_statistical/avgprice/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Average Price
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/price_statistical/medprice/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Median Price
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/price_statistical/typprice/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Typical Price
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/price_statistical/wcprice/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Weighted Close Price
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/price_statistical/max/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Max
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/price_statistical/min/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Min
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/price_statistical/mom/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MOM
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/price_statistical/roc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ROC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/price_statistical/rocr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ROCR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/price_statistical/bop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BOP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/price_statistical/linreg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LinReg
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/price_statistical/tsf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TSF
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/price_statistical/dpo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DPO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/price_statistical/mass/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Mass Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/price_statistical/md/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MD
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/price_statistical/qstick/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    QStick
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../indicators/price_statistical/pivotpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pivot Point
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../candlestick_patterns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Candlestick Patterns
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../simd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SIMD
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../state_management/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    State Management
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../language_bindings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Language Bindings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../demo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live Demo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Benchmarks
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_9_2" id="__nav_9_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Standard Performance
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_9_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_9_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Standard Performance
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rust/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Rust
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../node/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Node
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_9_3" id="__nav_9_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SIMD
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_9_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    SIMD
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../simd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../simd/by-assets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    by_assets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../simd/by-options/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    by_options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../optional-outputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Optional Outputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../streaming/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Streaming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../python/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python Binding
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../node/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Node Binding
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Running Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../database/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmark Database
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="standard-performance-python">Standard Performance: Python<a class="headerlink" href="#standard-performance-python" title="Permanent link">&para;</a></h1>
+<p>Competitors: <strong>ta</strong> (bukosabino/ta, pandas-based) and <strong>pandas_ta</strong> (twopirllc/pandas-ta), called via the <strong><code>tulip_rs_python</code></strong> PyO3 binding.</p>
+<table>
+<thead>
+<tr>
+<th>Indicator</th>
+<th style="text-align: right;">tulip_rs_python (ns)</th>
+<th style="text-align: right;">ta (ns)</th>
+<th style="text-align: right;">ta / Python</th>
+<th style="text-align: right;">pandas_ta (ns)</th>
+<th style="text-align: right;">pandas_ta / Python</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ad</code></td>
+<td style="text-align: right;">5,401</td>
+<td style="text-align: right;">151,489</td>
+<td style="text-align: right;">28×</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td><code>adaptivemsw</code></td>
+<td style="text-align: right;">539,741</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td><code>adosc</code></td>
+<td style="text-align: right;">7,567</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td><code>adx</code></td>
+<td style="text-align: right;">32,009</td>
+<td style="text-align: right;">22,060,903</td>
+<td style="text-align: right;">689×</td>
+<td style="text-align: right;">3,419,175</td>
+<td style="text-align: right;">107×</td>
+</tr>
+<tr>
+<td><code>adxr</code></td>
+<td style="text-align: right;">20,068</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td><code>ao</code></td>
+<td style="text-align: right;">9,280</td>
+<td style="text-align: right;">190,411</td>
+<td style="text-align: right;">21×</td>
+<td style="text-align: right;">183,017</td>
+<td style="text-align: right;">20×</td>
+</tr>
+<tr>
+<td><code>apo</code></td>
+<td style="text-align: right;">5,911</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">119,192</td>
+<td style="text-align: right;">20×</td>
+</tr>
+<tr>
+<td><code>aroon</code></td>
+<td style="text-align: right;">30,395</td>
+<td style="text-align: right;">10,191,677</td>
+<td style="text-align: right;">335×</td>
+<td style="text-align: right;">13,420,336</td>
+<td style="text-align: right;">442×</td>
+</tr>
+<tr>
+<td><code>aroonosc</code></td>
+<td style="text-align: right;">25,630</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">13,575,299</td>
+<td style="text-align: right;">530×</td>
+</tr>
+<tr>
+<td><code>atr</code></td>
+<td style="text-align: right;">7,272</td>
+<td style="text-align: right;">11,625,476</td>
+<td style="text-align: right;">1,599×</td>
+<td style="text-align: right;">964,240</td>
+<td style="text-align: right;">133×</td>
+</tr>
+<tr>
+<td><code>avgprice</code></td>
+<td style="text-align: right;">2,084</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">53,169</td>
+<td style="text-align: right;">26×</td>
+</tr>
+<tr>
+<td><code>bbands</code></td>
+<td style="text-align: right;">12,619</td>
+<td style="text-align: right;">237,701</td>
+<td style="text-align: right;">19×</td>
+<td style="text-align: right;">565,491</td>
+<td style="text-align: right;">45×</td>
+</tr>
+<tr>
+<td><code>bop</code></td>
+<td style="text-align: right;">8,499</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">194,268</td>
+<td style="text-align: right;">23×</td>
+</tr>
+<tr>
+<td><code>ccfisher</code></td>
+<td style="text-align: right;">234,869</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td><code>cci</code></td>
+<td style="text-align: right;">86,063</td>
+<td style="text-align: right;">26,324,891</td>
+<td style="text-align: right;">306×</td>
+<td style="text-align: right;">22,572,986</td>
+<td style="text-align: right;">262×</td>
+</tr>
+<tr>
+<td><code>chaikinmf</code></td>
+<td style="text-align: right;">11,979</td>
+<td style="text-align: right;">280,858</td>
+<td style="text-align: right;">23×</td>
+<td style="text-align: right;">330,369</td>
+<td style="text-align: right;">28×</td>
+</tr>
+<tr>
+<td><code>chandelierexit</code></td>
+<td style="text-align: right;">31,140</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">1,762,397</td>
+<td style="text-align: right;">57×</td>
+</tr>
+<tr>
+<td><code>cmo</code></td>
+<td style="text-align: right;">7,979</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">565,963</td>
+<td style="text-align: right;">71×</td>
+</tr>
+<tr>
+<td><code>cvi</code></td>
+<td style="text-align: right;">6,291</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td><code>cybercycle</code></td>
+<td style="text-align: right;">17,610</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td><code>dema</code></td>
+<td style="text-align: right;">6,531</td>
+<td style="text-align: right;">134,656</td>
+<td style="text-align: right;">21×</td>
+<td style="text-align: right;">289,972</td>
+<td style="text-align: right;">44×</td>
+</tr>
+<tr>
+<td><code>di</code></td>
+<td style="text-align: right;">28,733</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">2,098,475</td>
+<td style="text-align: right;">73×</td>
+</tr>
+<tr>
+<td><code>dm</code></td>
+<td style="text-align: right;">20,862</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">2,094,072</td>
+<td style="text-align: right;">100×</td>
+</tr>
+<tr>
+<td><code>donchianchannel</code></td>
+<td style="text-align: right;">14,818</td>
+<td style="text-align: right;">278,072</td>
+<td style="text-align: right;">19×</td>
+<td style="text-align: right;">409,784</td>
+<td style="text-align: right;">28×</td>
+</tr>
+<tr>
+<td><code>dpo</code></td>
+<td style="text-align: right;">4,157</td>
+<td style="text-align: right;">130,816</td>
+<td style="text-align: right;">31×</td>
+<td style="text-align: right;">131,310</td>
+<td style="text-align: right;">32×</td>
+</tr>
+<tr>
+<td><code>dx</code></td>
+<td style="text-align: right;">17,015</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">3,423,874</td>
+<td style="text-align: right;">201×</td>
+</tr>
+<tr>
+<td><code>ef</code></td>
+<td style="text-align: right;">7,711</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">163,507</td>
+<td style="text-align: right;">21×</td>
+</tr>
+<tr>
+<td><code>elderray</code></td>
+<td style="text-align: right;">8,463</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">305,036</td>
+<td style="text-align: right;">36×</td>
+</tr>
+<tr>
+<td><code>ema</code></td>
+<td style="text-align: right;">6,709</td>
+<td style="text-align: right;">57,441</td>
+<td style="text-align: right;">9×</td>
+<td style="text-align: right;">118,986</td>
+<td style="text-align: right;">18×</td>
+</tr>
+<tr>
+<td><code>emv</code></td>
+<td style="text-align: right;">9,616</td>
+<td style="text-align: right;">171,682</td>
+<td style="text-align: right;">18×</td>
+<td style="text-align: right;">352,868</td>
+<td style="text-align: right;">37×</td>
+</tr>
+<tr>
+<td><code>fisher</code></td>
+<td style="text-align: right;">78,019</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">8,070,606</td>
+<td style="text-align: right;">103×</td>
+</tr>
+<tr>
+<td><code>fosc</code></td>
+<td style="text-align: right;">36,129</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td><code>highpass</code></td>
+<td style="text-align: right;">9,431</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td><code>hilberttransform</code></td>
+<td style="text-align: right;">20,105</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td><code>hma</code></td>
+<td style="text-align: right;">13,016</td>
+<td style="text-align: right;">9,677,355</td>
+<td style="text-align: right;">744×</td>
+<td style="text-align: right;">613,655</td>
+<td style="text-align: right;">47×</td>
+</tr>
+<tr>
+<td><code>homodynediscriminator</code></td>
+<td style="text-align: right;">224,841</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td><code>ichimoku</code></td>
+<td style="text-align: right;">78,196</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">1,360,540</td>
+<td style="text-align: right;">17×</td>
+</tr>
+<tr>
+<td><code>instantaneoustrendline</code></td>
+<td style="text-align: right;">224,627</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">341,484</td>
+<td style="text-align: right;">2×</td>
+</tr>
+<tr>
+<td><code>kama</code></td>
+<td style="text-align: right;">9,940</td>
+<td style="text-align: right;">3,880,074</td>
+<td style="text-align: right;">390×</td>
+<td style="text-align: right;">10,768,945</td>
+<td style="text-align: right;">1,083×</td>
+</tr>
+<tr>
+<td><code>keltnerchannel</code></td>
+<td style="text-align: right;">11,243</td>
+<td style="text-align: right;">421,763</td>
+<td style="text-align: right;">38×</td>
+<td style="text-align: right;">1,264,789</td>
+<td style="text-align: right;">112×</td>
+</tr>
+<tr>
+<td><code>kvo</code></td>
+<td style="text-align: right;">14,362</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">1,175,346</td>
+<td style="text-align: right;">82×</td>
+</tr>
+<tr>
+<td><code>linreg</code></td>
+<td style="text-align: right;">9,600</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">17,895,624</td>
+<td style="text-align: right;">1,864×</td>
+</tr>
+<tr>
+<td><code>macd</code></td>
+<td style="text-align: right;">9,875</td>
+<td style="text-align: right;">195,331</td>
+<td style="text-align: right;">20×</td>
+<td style="text-align: right;">813,685</td>
+<td style="text-align: right;">82×</td>
+</tr>
+<tr>
+<td><code>mama</code></td>
+<td style="text-align: right;">225,960</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">282,984</td>
+<td style="text-align: right;">1×</td>
+</tr>
+<tr>
+<td><code>marketfi</code></td>
+<td style="text-align: right;">8,051</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td><code>mass</code></td>
+<td style="text-align: right;">9,766</td>
+<td style="text-align: right;">211,520</td>
+<td style="text-align: right;">22×</td>
+<td style="text-align: right;">501,248</td>
+<td style="text-align: right;">51×</td>
+</tr>
+<tr>
+<td><code>max</code></td>
+<td style="text-align: right;">6,597</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td><code>md</code></td>
+<td style="text-align: right;">19,843</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">22,024,328</td>
+<td style="text-align: right;">1,110×</td>
+</tr>
+<tr>
+<td><code>medprice</code></td>
+<td style="text-align: right;">1,945</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">39,616</td>
+<td style="text-align: right;">20×</td>
+</tr>
+<tr>
+<td><code>mfi</code></td>
+<td style="text-align: right;">12,331</td>
+<td style="text-align: right;">30,026,055</td>
+<td style="text-align: right;">2,435×</td>
+<td style="text-align: right;">194,601</td>
+<td style="text-align: right;">16×</td>
+</tr>
+<tr>
+<td><code>min</code></td>
+<td style="text-align: right;">9,571</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td><code>mom</code></td>
+<td style="text-align: right;">1,924</td>
+<td style="text-align: right;">21,808</td>
+<td style="text-align: right;">11×</td>
+<td style="text-align: right;">31,220</td>
+<td style="text-align: right;">16×</td>
+</tr>
+<tr>
+<td><code>msw</code></td>
+<td style="text-align: right;">135,420</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td><code>natr</code></td>
+<td style="text-align: right;">21,425</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">1,076,430</td>
+<td style="text-align: right;">50×</td>
+</tr>
+<tr>
+<td><code>nvi</code></td>
+<td style="text-align: right;">8,275</td>
+<td style="text-align: right;">65,480,283</td>
+<td style="text-align: right;">7,913×</td>
+<td style="text-align: right;">722,015</td>
+<td style="text-align: right;">87×</td>
+</tr>
+<tr>
+<td><code>obv</code></td>
+<td style="text-align: right;">5,246</td>
+<td style="text-align: right;">129,246</td>
+<td style="text-align: right;">25×</td>
+<td style="text-align: right;">365,113</td>
+<td style="text-align: right;">70×</td>
+</tr>
+<tr>
+<td><code>pivotpoint</code></td>
+<td style="text-align: right;">611</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">28,185</td>
+<td style="text-align: right;">46×</td>
+</tr>
+<tr>
+<td><code>ppo</code></td>
+<td style="text-align: right;">8,083</td>
+<td style="text-align: right;">239,302</td>
+<td style="text-align: right;">30×</td>
+<td style="text-align: right;">463,924</td>
+<td style="text-align: right;">57×</td>
+</tr>
+<tr>
+<td><code>psar</code></td>
+<td style="text-align: right;">24,290</td>
+<td style="text-align: right;">198,059,801</td>
+<td style="text-align: right;">8,154×</td>
+<td style="text-align: right;">5,107,869</td>
+<td style="text-align: right;">210×</td>
+</tr>
+<tr>
+<td><code>pvi</code></td>
+<td style="text-align: right;">6,465</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">293,808</td>
+<td style="text-align: right;">45×</td>
+</tr>
+<tr>
+<td><code>qstick</code></td>
+<td style="text-align: right;">3,501</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td><code>roc</code></td>
+<td style="text-align: right;">5,019</td>
+<td style="text-align: right;">98,770</td>
+<td style="text-align: right;">20×</td>
+<td style="text-align: right;">35,144</td>
+<td style="text-align: right;">7×</td>
+</tr>
+<tr>
+<td><code>rocr</code></td>
+<td style="text-align: right;">3,085</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">32,906</td>
+<td style="text-align: right;">11×</td>
+</tr>
+<tr>
+<td><code>roofingfilter</code></td>
+<td style="text-align: right;">12,802</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td><code>rsi</code></td>
+<td style="text-align: right;">6,982</td>
+<td style="text-align: right;">488,581</td>
+<td style="text-align: right;">70×</td>
+<td style="text-align: right;">504,976</td>
+<td style="text-align: right;">72×</td>
+</tr>
+<tr>
+<td><code>sma</code></td>
+<td style="text-align: right;">6,155</td>
+<td style="text-align: right;">79,650</td>
+<td style="text-align: right;">13×</td>
+<td style="text-align: right;">341,130</td>
+<td style="text-align: right;">55×</td>
+</tr>
+<tr>
+<td><code>smaenvelope</code></td>
+<td style="text-align: right;">8,693</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td><code>stddev</code></td>
+<td style="text-align: right;">7,738</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">136,488</td>
+<td style="text-align: right;">18×</td>
+</tr>
+<tr>
+<td><code>stoch</code></td>
+<td style="text-align: right;">27,252</td>
+<td style="text-align: right;">298,106</td>
+<td style="text-align: right;">11×</td>
+<td style="text-align: right;">1,010,460</td>
+<td style="text-align: right;">37×</td>
+</tr>
+<tr>
+<td><code>stochrsi</code></td>
+<td style="text-align: right;">28,725</td>
+<td style="text-align: right;">914,237</td>
+<td style="text-align: right;">32×</td>
+<td style="text-align: right;">1,103,781</td>
+<td style="text-align: right;">38×</td>
+</tr>
+<tr>
+<td><code>supersmoother</code></td>
+<td style="text-align: right;">13,817</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">43,343</td>
+<td style="text-align: right;">3×</td>
+</tr>
+<tr>
+<td><code>supertrend</code></td>
+<td style="text-align: right;">27,390</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">45,415,255</td>
+<td style="text-align: right;">1,658×</td>
+</tr>
+<tr>
+<td><code>tema</code></td>
+<td style="text-align: right;">7,852</td>
+<td style="text-align: right;">219,201</td>
+<td style="text-align: right;">28×</td>
+<td style="text-align: right;">413,882</td>
+<td style="text-align: right;">53×</td>
+</tr>
+<tr>
+<td><code>tr</code></td>
+<td style="text-align: right;">8,472</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">767,689</td>
+<td style="text-align: right;">91×</td>
+</tr>
+<tr>
+<td><code>trendmode</code></td>
+<td style="text-align: right;">224,556</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td><code>trima</code></td>
+<td style="text-align: right;">6,610</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">94,623</td>
+<td style="text-align: right;">14×</td>
+</tr>
+<tr>
+<td><code>trix</code></td>
+<td style="text-align: right;">17,067</td>
+<td style="text-align: right;">303,990</td>
+<td style="text-align: right;">18×</td>
+<td style="text-align: right;">765,578</td>
+<td style="text-align: right;">45×</td>
+</tr>
+<tr>
+<td><code>trvi</code></td>
+<td style="text-align: right;">6,390</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td><code>tsf</code></td>
+<td style="text-align: right;">18,162</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">18,873,323</td>
+<td style="text-align: right;">1,039×</td>
+</tr>
+<tr>
+<td><code>typprice</code></td>
+<td style="text-align: right;">1,728</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">45,169</td>
+<td style="text-align: right;">26×</td>
+</tr>
+<tr>
+<td><code>ultosc</code></td>
+<td style="text-align: right;">29,060</td>
+<td style="text-align: right;">1,636,872</td>
+<td style="text-align: right;">56×</td>
+<td style="text-align: right;">1,968,683</td>
+<td style="text-align: right;">68×</td>
+</tr>
+<tr>
+<td><code>vhf</code></td>
+<td style="text-align: right;">22,478</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">496,186</td>
+<td style="text-align: right;">22×</td>
+</tr>
+<tr>
+<td><code>vidya</code></td>
+<td style="text-align: right;">17,513</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">82,955,252</td>
+<td style="text-align: right;">4,737×</td>
+</tr>
+<tr>
+<td><code>volatility</code></td>
+<td style="text-align: right;">19,051</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">137,721</td>
+<td style="text-align: right;">7×</td>
+</tr>
+<tr>
+<td><code>vortex</code></td>
+<td style="text-align: right;">17,479</td>
+<td style="text-align: right;">923,406</td>
+<td style="text-align: right;">53×</td>
+<td style="text-align: right;">1,273,940</td>
+<td style="text-align: right;">73×</td>
+</tr>
+<tr>
+<td><code>vosc</code></td>
+<td style="text-align: right;">7,617</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td><code>vwap</code></td>
+<td style="text-align: right;">6,781</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">1,311,264</td>
+<td style="text-align: right;">193×</td>
+</tr>
+<tr>
+<td><code>vwma</code></td>
+<td style="text-align: right;">6,869</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">178,764</td>
+<td style="text-align: right;">26×</td>
+</tr>
+<tr>
+<td><code>wad</code></td>
+<td style="text-align: right;">4,441</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr>
+<td><code>wcprice</code></td>
+<td style="text-align: right;">2,284</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">64,007</td>
+<td style="text-align: right;">28×</td>
+</tr>
+<tr>
+<td><code>wilders</code></td>
+<td style="text-align: right;">6,222</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">67,596</td>
+<td style="text-align: right;">11×</td>
+</tr>
+<tr>
+<td><code>willr</code></td>
+<td style="text-align: right;">19,971</td>
+<td style="text-align: right;">295,277</td>
+<td style="text-align: right;">15×</td>
+<td style="text-align: right;">341,566</td>
+<td style="text-align: right;">17×</td>
+</tr>
+<tr>
+<td><code>wma</code></td>
+<td style="text-align: right;">6,914</td>
+<td style="text-align: right;">3,221,847</td>
+<td style="text-align: right;">466×</td>
+<td style="text-align: right;">210,358</td>
+<td style="text-align: right;">30×</td>
+</tr>
+<tr>
+<td><code>zlema</code></td>
+<td style="text-align: right;">6,984</td>
+<td style="text-align: right;">N/A</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">224,080</td>
+<td style="text-align: right;">32×</td>
+</tr>
+</tbody>
+</table>
+<details class="success">
+<summary>Notable results</summary>
+<p><code>tulip_rs_python</code> beats <code>ta</code> on <strong>35 of 35 compared indicators</strong>.
+Median speedup: <strong>~28×</strong>.</p>
+<table>
+<thead>
+<tr>
+<th>Indicator</th>
+<th style="text-align: center;">ta / Python</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>psar</code></td>
+<td style="text-align: center;"><strong>8154×</strong></td>
+</tr>
+<tr>
+<td><code>nvi</code></td>
+<td style="text-align: center;"><strong>7913×</strong></td>
+</tr>
+<tr>
+<td><code>mfi</code></td>
+<td style="text-align: center;"><strong>2435×</strong></td>
+</tr>
+<tr>
+<td><code>atr</code></td>
+<td style="text-align: center;"><strong>1599×</strong></td>
+</tr>
+<tr>
+<td><code>hma</code></td>
+<td style="text-align: center;"><strong>744×</strong></td>
+</tr>
+<tr>
+<td><code>adx</code></td>
+<td style="text-align: center;"><strong>689×</strong></td>
+</tr>
+<tr>
+<td><code>wma</code></td>
+<td style="text-align: center;"><strong>466×</strong></td>
+</tr>
+<tr>
+<td><code>kama</code></td>
+<td style="text-align: center;"><strong>390×</strong></td>
+</tr>
+<tr>
+<td><code>aroon</code></td>
+<td style="text-align: center;"><strong>335×</strong></td>
+</tr>
+<tr>
+<td><code>cci</code></td>
+<td style="text-align: center;"><strong>306×</strong></td>
+</tr>
+</tbody>
+</table>
+<p>The following indicators show the smallest gap, likely because <code>ta</code> uses a compiled numpy/pandas path rather than a pure-Python loop:</p>
+<table>
+<thead>
+<tr>
+<th>Indicator</th>
+<th style="text-align: right;">Rust native (ns)</th>
+<th style="text-align: right;">tulip_rs_python (ns)</th>
+<th style="text-align: right;">ta (ns)</th>
+<th style="text-align: center;">ta / Python</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ema</code></td>
+<td style="text-align: right;">4,790</td>
+<td style="text-align: right;">6,709</td>
+<td style="text-align: right;">57,441</td>
+<td style="text-align: center;"><strong>9×</strong></td>
+</tr>
+<tr>
+<td><code>stoch</code></td>
+<td style="text-align: right;">21,788</td>
+<td style="text-align: right;">27,252</td>
+<td style="text-align: right;">298,106</td>
+<td style="text-align: center;"><strong>11×</strong></td>
+</tr>
+<tr>
+<td><code>mom</code></td>
+<td style="text-align: right;">897</td>
+<td style="text-align: right;">1,924</td>
+<td style="text-align: right;">21,808</td>
+<td style="text-align: center;"><strong>11×</strong></td>
+</tr>
+<tr>
+<td><code>sma</code></td>
+<td style="text-align: right;">2,445</td>
+<td style="text-align: right;">6,155</td>
+<td style="text-align: right;">79,650</td>
+<td style="text-align: center;"><strong>13×</strong></td>
+</tr>
+<tr>
+<td><code>willr</code></td>
+<td style="text-align: right;">16,465</td>
+<td style="text-align: right;">19,971</td>
+<td style="text-align: right;">295,277</td>
+<td style="text-align: center;"><strong>15×</strong></td>
+</tr>
+<tr>
+<td><code>trix</code></td>
+<td style="text-align: right;">6,197</td>
+<td style="text-align: right;">17,067</td>
+<td style="text-align: right;">303,990</td>
+<td style="text-align: center;"><strong>18×</strong></td>
+</tr>
+</tbody>
+</table>
+<p><code>tulip_rs_python</code> beats <code>pandas_ta</code> on <strong>72 of 72 compared indicators</strong>.
+Median speedup: <strong>~45×</strong>.</p>
+<table>
+<thead>
+<tr>
+<th>Indicator</th>
+<th style="text-align: center;">pandas_ta / Python</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>vidya</code></td>
+<td style="text-align: center;"><strong>4737×</strong></td>
+</tr>
+<tr>
+<td><code>linreg</code></td>
+<td style="text-align: center;"><strong>1864×</strong></td>
+</tr>
+<tr>
+<td><code>supertrend</code></td>
+<td style="text-align: center;"><strong>1658×</strong></td>
+</tr>
+<tr>
+<td><code>md</code></td>
+<td style="text-align: center;"><strong>1110×</strong></td>
+</tr>
+<tr>
+<td><code>kama</code></td>
+<td style="text-align: center;"><strong>1083×</strong></td>
+</tr>
+<tr>
+<td><code>tsf</code></td>
+<td style="text-align: center;"><strong>1039×</strong></td>
+</tr>
+<tr>
+<td><code>aroonosc</code></td>
+<td style="text-align: center;"><strong>530×</strong></td>
+</tr>
+<tr>
+<td><code>aroon</code></td>
+<td style="text-align: center;"><strong>442×</strong></td>
+</tr>
+<tr>
+<td><code>cci</code></td>
+<td style="text-align: center;"><strong>262×</strong></td>
+</tr>
+<tr>
+<td><code>psar</code></td>
+<td style="text-align: center;"><strong>210×</strong></td>
+</tr>
+</tbody>
+</table>
+</details>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["content.tabs.link", "content.code.copy", "content.code.annotate", "navigation.tabs", "navigation.top", "search.highlight"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../../../javascripts/floating-scrollbar.js"></script>
+      
+    
+  </body>
+</html>

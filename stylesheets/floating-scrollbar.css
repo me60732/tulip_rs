@@ -1,0 +1,28 @@
+/* Floating scrollbar — positioned and shown/hidden entirely by JS.
+   Native scrollbar on the wrapper is hidden once the JS bar is attached
+   (the data-float-bar attribute is set by the script). */
+.md-typeset__scrollwrap[data-float-bar] {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+.md-typeset__scrollwrap[data-float-bar]::-webkit-scrollbar {
+    display: none;
+}
+
+.table-float-scrollbar {
+    position: fixed;
+    bottom: 0;
+    overflow-x: scroll;
+    overflow-y: hidden;
+    height: 14px;
+    z-index: 200;
+    background-color: var(--md-default-bg-color);
+    border-top: 1px solid var(--md-default-fg-color--lightest);
+    /* hidden by default; JS sets display:block when needed */
+    display: none;
+}
+
+.table-float-scrollbar > div {
+    /* height 1px gives the scrollbar something to overflow against */
+    height: 1px;
+}
