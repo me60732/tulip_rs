@@ -9,6 +9,7 @@ pub use crate::indicator_types::{TSimdState, TState};
 use crate::indicators::simd_indicators::{
     medprice_simd::calc_simd as calc_medprice_simd, simd_types::F64Constants,
 };
+use crate::math_simd::ln_unchecked;
 use crate::types::Warm;
 use std::simd::{cmp::SimdPartialOrd, num::SimdFloat, Select, Simd, StdFloat};
 //use crate::math_simd::ln;
@@ -38,8 +39,7 @@ pub mod assets {
         calc_fisher, calc_medprice_simd, FisherState, Simd, State, TSimdState, TState, Warm,
     };
     use crate::indicators::simd_indicators::{
-        max_simd::assets::SimdState as MaxSimdState,
-        min_simd::assets::SimdState as MinSimdState,
+        max_simd::assets::SimdState as MaxSimdState, min_simd::assets::SimdState as MinSimdState,
     };
     use crate::ring_buffer::multi_buffer::multi_mirror_buffer::MultiMirrorBuffer;
     /// SIMD-parallel state for computing the Fisher Transform across `N` assets simultaneously.
@@ -99,8 +99,7 @@ pub mod options {
         calc_fisher, calc_medprice_simd, FisherState, Simd, State, TSimdState, TState, Warm,
     };
     use crate::indicators::simd_indicators::{
-        max_simd::options::SimdState as MaxSimdState,
-        min_simd::options::SimdState as MinSimdState,
+        max_simd::options::SimdState as MaxSimdState, min_simd::options::SimdState as MinSimdState,
     };
     use crate::ring_buffer::unsync_multi_buffer::unsync_mirror_buffer::UnsyncMirrorBuffer;
     /// SIMD-parallel state for computing the Fisher Transform across `N` option lanes simultaneously.
@@ -152,7 +151,6 @@ pub mod options {
     }
 }
 
-use crate::math_simd::ln_unchecked;
 /// Core Fisher Transform computation shared by both the `assets` and `options` SIMD states.
 ///
 /// Given the current rolling `min` and `max` over the lookback window and the current

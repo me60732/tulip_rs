@@ -60,15 +60,17 @@ pub mod imports {
     //! Shared imports, constants and helpers for the Mesa Sine Wave (MSW) indicator.
     pub(crate) use crate::indicators::msw::MSWConstants;
     pub(crate) use crate::indicators::simd_indicators::simd_types::F64Constants;
-    pub(crate) use crate::math_simd::trig::{simd_atan, simd_sin};
+    pub(crate) use crate::math_simd::trig::{simd_atan, simd_sin_cos};
     use std::f64::consts::PI;
     pub(crate) use std::simd::{cmp::SimdPartialOrd, num::SimdFloat, Select, Simd, StdFloat};
     /// Trait exposing SIMD-splat constants for MSW angle calculations.
     pub(crate) trait Constants<const N: usize> {
         const HPI: Simd<f64, N> = Simd::splat(PI * 0.5);
-        const QPI: Simd<f64, N> = Simd::splat(PI * 0.25);
+        //const QPI: Simd<f64, N> = Simd::splat(PI * 0.25);
         const THRESHOLD: Simd<f64, N> = Simd::splat(0.001);
         const PI: Simd<f64, N> = Simd::splat(PI);
+        /// 1/√2 — used in the angle-addition identity for sin(phase + π/4).
+        const INV_SQRT2: Simd<f64, N> = Simd::splat(std::f64::consts::FRAC_1_SQRT_2);
     }
     impl<const N: usize> Constants<N> for MSWConstants<N> {}
 
@@ -100,7 +102,10 @@ pub mod imports {
             .simd_gt(MSWConstants::TPI)
             .select(phase - MSWConstants::TPI, phase);
 
-        (simd_sin(phase), simd_sin(phase + MSWConstants::QPI))
+        let (sin_phase, cos_phase) = simd_sin_cos(phase);
+        let sine = sin_phase;
+        let lead = sin_phase.mul_add(MSWConstants::INV_SQRT2, cos_phase * MSWConstants::INV_SQRT2);
+        (sine, lead)
     }
 }
 

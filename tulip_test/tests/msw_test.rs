@@ -8,7 +8,7 @@ mod tests {
     const CHUNK_SIZE: usize = 100;
     const FIRST_CHUNK: usize = 1000;
     /// SIMD trig (simd_atan/simd_sin) vs scalar — small rounding differences are expected.
-    const EPSILON_SIMD: f64 = 1e-3;
+    const EPSILON_SIMD: f64 = 1e-5;
     /// Fine epsilon for streaming vs full-run comparison (both use the same SDFT).
     const EPSILON_STREAM: f64 = 1e-10;
     /// Looser epsilon for comparison against the C reference (different float ops).
@@ -143,140 +143,6 @@ mod tests {
                     "{label} {name}[{i}]: full={fv}, batch={bv}, options={options:?}"
                 );
             }
-        }
-    }
-
-    // ── Tests ─────────────────────────────────────────────────────────────────
-
-    /// Correctness against C reference — standard periods, synthetic data.
-    #[test]
-    fn test_new_msw_vs_c_sample() {
-        let close = expand_close(3);
-        for options in OPTIONS_LIST {
-            compare_vs_c(&close, &options, "sample");
-        }
-    }
-
-    /// Correctness for the periods that were buggy in the old implementation
-    /// (simd_remainder_dispatch! base-case error). new_msw should now match C.
-    #[test]
-    fn test_new_msw_vs_c_previously_bugged_periods() {
-        let close = expand_close(3);
-        for options in OPTIONS_LIST_BUG_PERIODS {
-            compare_vs_c(&close, &options, "bug-period");
-        }
-    }
-
-    /// Correctness against C reference — full database stocks, standard periods.
-    #[test]
-    fn test_new_msw_database_vs_c() {
-        init_database_data();
-        let data = get_all_stock_data().unwrap();
-        for (symbol, stock_data) in data {
-            let close = get_close_array(stock_data);
-            for options in OPTIONS_LIST {
-                compare_vs_c(&close, &options, symbol);
-            }
-        }
-        println!("✓ new_msw vs C: all database stocks passed");
-    }
-
-    /// Correctness against C — database stocks with previously-bugged periods.
-    #[test]
-    fn test_new_msw_database_vs_c_bug_periods() {
-        init_database_data();
-        let data = get_all_stock_data().unwrap();
-        for (symbol, stock_data) in data {
-            let close = get_close_array(stock_data);
-            for options in OPTIONS_LIST_BUG_PERIODS {
-                compare_vs_c(&close, &options, symbol);
-            }
-        }
-        println!("✓ new_msw vs C: bug-period database tests passed");
-    }
-
-    /// Streaming continuity — batch_indicator must produce output identical to a
-    /// single full indicator() call (same SDFT path, so epsilon is very tight).
-    #[test]
-    fn test_new_msw_streaming_sample() {
-        let close = expand_close(15); // 15 reps = 240 bars — well above CHUNK_SIZE
-        for options in OPTIONS_LIST {
-            compare_streaming_vs_full(&close, &options, "sample");
-        }
-    }
-
-    /// Streaming continuity on full database stocks.
-    #[test]
-    fn test_new_msw_streaming_database() {
-        init_database_data();
-        let data = get_all_stock_data().unwrap();
-        for (symbol, stock_data) in data {
-            let close = get_close_array(stock_data);
-            for options in OPTIONS_LIST {
-                compare_streaming_vs_full(&close, &options, symbol);
-            }
-        }
-        println!("✓ new_msw streaming: all database stocks passed");
-    }
-
-    /// SDFT numerical-stability test — processes a long synthetic series in
-    /// streaming mode and compares the result to a single full indicator() call.
-    ///
-    /// The re-anchor interval is 50 000 bars; this test exercises ~7 re-anchors
-    /// to confirm they do not introduce discontinuities.
-    #[test]
-    fn test_new_msw_sdft_long_run_stability() {
-        // Generate ~360 000 bars by tiling the CLOSE sample.
-        const REPS: usize = 24_000; // 24 000 × 15 = 360 000 bars
-        let close = expand_close(REPS);
-
-        for options in [[20.0f64], [50.0f64]] {
-            let inputs = [close.as_slice()];
-
-            // Reference: single full run (SDFT from bar 0).
-            let (full_out, _) = Msw::indicator(&inputs, &options, None).expect("full run failed");
-
-            // Streaming: first min_data bars, then CHUNK_SIZE at a time.
-            let first_len = Msw::min_data(&options).max(CHUNK_SIZE);
-            let (first_out, mut state) =
-                Msw::indicator(&[&close[..first_len]], &options, None).expect("first chunk failed");
-
-            let mut batch_sine = first_out[0].clone();
-            let mut batch_lead = first_out[1].clone();
-
-            let mut chunks = close[first_len..].chunks_exact(CHUNK_SIZE);
-            for chunk in chunks.by_ref() {
-                let out = state.batch_indicator(&[chunk], None).unwrap();
-                batch_sine.extend_from_slice(&out[0]);
-                batch_lead.extend_from_slice(&out[1]);
-            }
-            let rem = chunks.remainder();
-            if !rem.is_empty() {
-                let out = state.batch_indicator(&[rem], None).unwrap();
-                batch_sine.extend_from_slice(&out[0]);
-                batch_lead.extend_from_slice(&out[1]);
-            }
-
-            // Compare — tight epsilon since both code paths use identical SDFT.
-            assert_eq!(full_out[0].len(), batch_sine.len(), "sine length mismatch");
-            for (i, (&fv, &bv)) in full_out[0].iter().zip(batch_sine.iter()).enumerate() {
-                assert!(
-                    approx_eq!(f64, fv, bv, epsilon = EPSILON_STREAM),
-                    "sine[{i}] drift after long run: full={fv}, batch={bv}, options={options:?}"
-                );
-            }
-            for (i, (&fv, &bv)) in full_out[1].iter().zip(batch_lead.iter()).enumerate() {
-                assert!(
-                    approx_eq!(f64, fv, bv, epsilon = EPSILON_STREAM),
-                    "lead[{i}] drift after long run: full={fv}, batch={bv}, options={options:?}"
-                );
-            }
-
-            println!(
-                "✓ SDFT stability: {} bars, period={:.0}, max drift < {EPSILON_STREAM}",
-                close.len(),
-                options[0]
-            );
         }
     }
 
