@@ -25,8 +25,8 @@ services:
             #- ./scripts/04_python_benchmark_views.sql:/docker-entrypoint-initdb.d/04_python_benchmark_views.sql:ro
             # Comment out the line below to exclude Node.js benchmark views.
             #- ./scripts/05_node_benchmark_views.sql:/docker-entrypoint-initdb.d/05_node_benchmark_views.sql:ro
-            # Comment out the line below to exclude C/Diplomat benchmark views.
-            #- ./scripts/06_c_diplomat_benchmark_views.sql:/docker-entrypoint-initdb.d/06_c_diplomat_benchmark_views.sql:ro
+            # Comment out the line below to exclude C/FFI benchmark views.
+            #- ./scripts/06_c_ffi_benchmark_views.sql:/docker-entrypoint-initdb.d/06_c_ffi_benchmark_views.sql:ro
             # Named volume so data survives container restarts.
             - pg_data:/var/lib/postgresql/data
         healthcheck:

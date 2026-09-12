@@ -23,7 +23,11 @@ pub struct SimdState<const N: usize> {
 }
 impl<const N: usize> TSimdState for SimdState<N> {
     type ScalarState = State<Warm>;
-    crate::simd_state_impl!(
+    crate::simd_state_write!(
+         sub: [],
+         scalar: [sum_y, sum_xy]
+    );
+    crate::simd_state_from_state!(
          sub: [],
          scalar: [sum_x, sum_y, sum_xy, per, n, inv_n]
     );
