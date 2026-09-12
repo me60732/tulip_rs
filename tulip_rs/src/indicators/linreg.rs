@@ -68,6 +68,7 @@ pub struct State<S = Cold> {
     pub sum_xy: f64,
     pub per: f64,
     pub n: f64,
+    pub inv_n: f64,
     pub(crate) state: std::marker::PhantomData<S>,
 }
 impl State<Cold> {
@@ -78,6 +79,7 @@ impl State<Cold> {
             sum_xy,
             per,
             n: period as f64,
+            inv_n: 1.0 / period as f64,
             state: std::marker::PhantomData,
         }
     }
@@ -102,6 +104,7 @@ impl State<Cold> {
             sum_xy,
             per,
             n: period as f64,
+            inv_n: 1.0 / period as f64,
             state: std::marker::PhantomData,
         }
     }
@@ -111,14 +114,14 @@ impl TState for State<Warm> {
     type Outputs = (f64, f64, f64);
     #[inline(always)]
     fn calc<'a>(&mut self, (prev_value, value): Self::Inputs<'a>) -> Self::Outputs {
-        let (sum_x, mut sum_y, mut sum_xy, per, n) =
-            (self.sum_x, self.sum_y, self.sum_xy, self.per, self.n);
+        let (sum_x, mut sum_y, mut sum_xy, per, n, inv_n) =
+            (self.sum_x, self.sum_y, self.sum_xy, self.per, self.n, self.inv_n);
 
         sum_xy += value * n;
         sum_y += value;
 
         let slope = (n * sum_xy - sum_x * sum_y) * per;
-        let intercept = (sum_y - slope * sum_x) / n;
+        let intercept = (sum_y - slope * sum_x) * inv_n;
         let linreg = intercept + slope * n;
 
         sum_xy -= sum_y;
