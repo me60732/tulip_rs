@@ -790,7 +790,7 @@ mod tests {
         let options: [f64; 1] = [14.0];
 
         // Run original state
-        let (outputs_first, mut original_state) =
+        let (_outputs_first, mut original_state) =
             Vortex::indicator(&inputs_first, &options, Some(&[true]))
                 .expect("Rust Vortex indicator failed");
 

@@ -546,7 +546,7 @@ mod tests {
         let options: [f64; 0] = [];
 
         // Run original state
-        let (outputs_first, mut original_state) =
+        let (_outputs_first, mut original_state) =
             Vwap::indicator(&inputs_first, &options, None).expect("Rust VWAP indicator failed");
 
         // Serialize and deserialize

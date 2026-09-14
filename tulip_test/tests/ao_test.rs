@@ -1115,7 +1115,7 @@ mod tests {
         use bincode::config::standard;
         use bincode::serde::{decode_from_slice, encode_to_vec};
 
-        let (mut high, mut low) = expand_inputs();
+        let (high, low) = expand_inputs();
         let mid = high.len() - 50;
         let options: [f64; 0] = [];
         let first: [&[f64]; INPUTS] = [&high[..mid], &low[..mid]];

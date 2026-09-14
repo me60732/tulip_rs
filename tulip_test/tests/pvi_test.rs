@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use bincode::config::standard;
-    use bincode::serde::{decode_from_slice, encode_to_vec};
+    
+    
     use float_cmp::approx_eq;
     use tulip_rs::indicators::pvi::{Indicator, IndicatorState as PviState, Pvi, TIndicatorState};
     use tulip_test::c_bindings::{ti_pvi, ti_pvi_start};
@@ -365,7 +365,7 @@ mod tests {
         // First part for initial indicator call
         let inputs_first = [&close[..mid], &volume[..mid]];
 
-        let (outputs_first, mut original_state) =
+        let (_outputs_first, mut original_state) =
             Pvi::indicator(&inputs_first, &[], None).expect("PVI indicator failed on first part");
 
         // Bincode 2.0 roundtrip

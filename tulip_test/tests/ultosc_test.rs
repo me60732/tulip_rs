@@ -966,7 +966,7 @@ mod tests {
         let options: [f64; 3] = [7.0, 14.0, 28.0];
 
         // Run original state
-        let (outputs_first, mut original_state) =
+        let (_outputs_first, mut original_state) =
             Ultosc::indicator(&inputs_first, &options, None).expect("Rust ULTOSC indicator failed");
 
         // Serialize and deserialize

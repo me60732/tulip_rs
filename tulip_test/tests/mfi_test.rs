@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use bincode::config::standard;
-    use bincode::serde::{decode_from_slice, encode_to_vec};
+    
+    
     use float_cmp::approx_eq;
     use tulip_rs::indicator_types::IndicatorByOptions;
     use tulip_rs::indicators::mfi::{Indicator, IndicatorState as MfiState, Mfi, TIndicatorState};
@@ -1110,7 +1110,7 @@ mod tests {
         let inputs_first = [&high[..mid], &low[..mid], &close[..mid], &volume[..mid]];
         let options: [f64; 1] = [14.0];
 
-        let (outputs_first, mut original_state) =
+        let (_outputs_first, mut original_state) =
             Mfi::indicator(&inputs_first, &options, Some(&[true]))
                 .expect("MFI indicator failed on first part");
 

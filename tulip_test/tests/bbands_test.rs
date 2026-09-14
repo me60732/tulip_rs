@@ -630,7 +630,7 @@ mod tests {
         use bincode::serde::{decode_from_slice, encode_to_vec};
 
         // Use options that need min_data=5 (5+1=6) to work with small data
-        let mut close = expand_close();
+        let close = expand_close();
         let mid = close.len() - 50;
         // Use first option set [5.0, 2.0] which needs 6 bars min_data
         let options: [f64; 2] = OPTIONS_LIST[0];

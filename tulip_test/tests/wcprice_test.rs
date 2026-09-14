@@ -422,7 +422,7 @@ mod tests {
         let options: [f64; 0] = [];
 
         // Run original state
-        let (outputs_first, mut original_state) = WcPrice::indicator(&inputs_first, &options, None)
+        let (_outputs_first, mut original_state) = WcPrice::indicator(&inputs_first, &options, None)
             .expect("Rust WCPRICE indicator failed");
 
         // Serialize and deserialize

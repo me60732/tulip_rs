@@ -1,7 +1,9 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::msw::{Indicator, IndicatorByOptions, Msw, TIndicatorState, IndicatorState, INPUTS, OPTIONS};
+    use tulip_rs::indicators::msw::{
+        Indicator, IndicatorByOptions, IndicatorState, Msw, TIndicatorState, INPUTS, OPTIONS,
+    };
     use tulip_test::c_bindings::{ti_msw, ti_msw_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -68,8 +70,47 @@ mod tests {
         stock_data.iter().map(|d| d.close).collect()
     }
 
-    // ── Helper: compare new_msw vs C reference ────────────────────────────────
+    #[test]
+    fn test_new_msw_vs_c_sample() {
+        let close = expand_close(3);
+        for options in OPTIONS_LIST {
+            compare_vs_c(&close, &options, "sample");
+        }
+    }
+    #[test]
+    fn test_new_msw_database_vs_c() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+        for (symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            for options in OPTIONS_LIST {
+                compare_vs_c(&close, &options, symbol);
+            }
+        }
+        println!("✓ new_msw vs C: all database stocks passed");
+    }
+    #[test]
+    fn test_new_msw_streaming_sample() {
+        let close = expand_close(15); // 15 reps = 240 bars — well above CHUNK_SIZE
+        for options in OPTIONS_LIST {
+            compare_streaming_vs_full(&close, &options, "sample");
+        }
+    }
 
+    /// Streaming continuity on full database stocks.
+    #[test]
+    fn test_new_msw_streaming_database() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+        for (symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            for options in OPTIONS_LIST {
+                compare_streaming_vs_full(&close, &options, symbol);
+            }
+        }
+        println!("✓ new_msw streaming: all database stocks passed");
+    }
+    // ── Helper: compare new_msw vs C reference ────────────────────────────────
     fn compare_vs_c(close: &[f64], options: &[f64; 1], label: &str) {
         // C reference
         let inputs_c: Vec<*const f64> = vec![close.as_ptr()];
@@ -124,7 +165,6 @@ mod tests {
     }
 
     // ── Helper: compare streaming vs full run ─────────────────────────────────
-
     fn compare_streaming_vs_full(close: &[f64], options: &[f64; 1], label: &str) {
         let inputs = [close];
         let (full_out, _) =

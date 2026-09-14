@@ -694,7 +694,7 @@ mod tests {
         use bincode::config::standard;
         use bincode::serde::{decode_from_slice, encode_to_vec};
 
-        let (mut high, mut low, mut volume) = expand_inputs();
+        let (high, low, volume) = expand_inputs();
         let len = high.len();
         let mid = len - 50;
         let options: [f64; EMV_OPTIONS] = []; // EMV has no options

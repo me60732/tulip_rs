@@ -592,7 +592,7 @@ mod tests {
         use bincode::config::standard;
         use bincode::serde::{decode_from_slice, encode_to_vec};
 
-        let (mut high, mut low, mut close, mut volume) = expand_inputs();
+        let (high, low, close, volume) = expand_inputs();
         let mid = close.len() - 50;
         // ChaikinMF needs min_data=10 bars (default period)
         let options: [f64; 1] = OPTIONS_LIST[2]; // [14.0]

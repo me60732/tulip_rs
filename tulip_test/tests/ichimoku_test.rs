@@ -682,7 +682,7 @@ mod tests {
     fn test_ichimoku_state_bincode_roundtrip() {
         use expand_inputs;
 
-        let (mut high, mut low, mut close) = expand_inputs();
+        let (high, low, close) = expand_inputs();
         let mid = high.len() - 50;
         let options = [9.0, 26.0]; // one of the option sets used in existing tests
         let first: [&[f64]; INPUTS] = [&high[..mid], &low[..mid], &close[..mid]];

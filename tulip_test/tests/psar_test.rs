@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use bincode::config::standard;
-    use bincode::serde::{decode_from_slice, encode_to_vec};
+    
+    
     use float_cmp::approx_eq;
     use tulip_rs::indicators::psar::{
         Indicator, IndicatorByOptions, IndicatorState as PsarState, Psar, TIndicatorState,
@@ -471,9 +471,9 @@ mod tests {
 
         // First part for initial indicator call
         let inputs_first = [&high[..mid], &low[..mid]];
-        let options = OPTIONS_LIST[1]; // Use [0.02, 0.2]
+        let _options = OPTIONS_LIST[1]; // Use [0.02, 0.2]
 
-        let (outputs_first, mut original_state) =
+        let (_outputs_first, mut original_state) =
             Psar::indicator(&inputs_first, &[0.02, 0.2], None)
                 .expect("PSAR indicator failed on first part");
 

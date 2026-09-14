@@ -872,7 +872,7 @@ mod tests {
         let options: [f64; 1] = [14.0];
 
         // Run original state
-        let (outputs_first, mut original_state) =
+        let (_outputs_first, mut original_state) =
             Willr::indicator(&inputs_first, &options, None).expect("Rust WILLR indicator failed");
 
         // Serialize and deserialize

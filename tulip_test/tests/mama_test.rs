@@ -2,7 +2,7 @@
 mod tests {
     use tulip_rs::indicators::homodynediscriminator::HomodyneDiscriminator;
     use tulip_rs::indicators::mama::{
-        Indicator, IndicatorByOptions, IndicatorState, Mama, TIndicatorState, INPUTS, OPTIONS,
+        Indicator, IndicatorByOptions, IndicatorState, Mama, TIndicatorState, INPUTS,
     };
     use tulip_rs::types::IndicatorError;
     use tulip_test::database::{get_all_stock_data, init_database_data};

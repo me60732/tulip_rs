@@ -472,7 +472,7 @@ mod tests {
         use bincode::config::standard;
         use bincode::serde::{decode_from_slice, encode_to_vec};
 
-        let (mut open, mut high, mut low, mut close) = expand_inputs();
+        let (open, high, low, close) = expand_inputs();
         let mid = close.len() - 50;
         let options: [f64; 0] = OPTIONS;
         let first: [&[f64]; INPUTS] = [&open[..mid], &high[..mid], &low[..mid], &close[..mid]];

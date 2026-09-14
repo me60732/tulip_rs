@@ -844,7 +844,7 @@ mod tests {
         use bincode::config::standard;
         use bincode::serde::{decode_from_slice, encode_to_vec};
 
-        let (mut high, mut low) = expand_high_low();
+        let (high, low) = expand_high_low();
         let len = high.len();
         let mid = len - 50;
         let options: [f64; OPTIONS] = [14.0]; // one of the option sets used in existing tests

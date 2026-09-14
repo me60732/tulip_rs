@@ -4,7 +4,7 @@ mod tests {
     use tulip_rs::indicator_types::IndicatorByOptions;
     use tulip_rs::indicators::{
         ema::Ema,
-        kvo::{Indicator, IndicatorState, Kvo, TIndicatorState, INPUTS, OPTIONS},
+        kvo::{Indicator, IndicatorState, Kvo, TIndicatorState, INPUTS},
     };
     use tulip_test::c_bindings::{ti_kvo, ti_kvo_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};

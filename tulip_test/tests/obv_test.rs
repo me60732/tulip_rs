@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use bincode::config::standard;
-    use bincode::serde::{decode_from_slice, encode_to_vec};
+    
+    
     use float_cmp::approx_eq;
     use tulip_rs::indicators::obv::{Indicator, IndicatorState as ObvState, Obv, TIndicatorState};
     use tulip_test::c_bindings::{ti_obv, ti_obv_start};
@@ -365,7 +365,7 @@ mod tests {
         // First part for initial indicator call
         let inputs_first = [&close[..mid], &volume[..mid]];
 
-        let (outputs_first, mut original_state) =
+        let (_outputs_first, mut original_state) =
             Obv::indicator(&inputs_first, &[], None).expect("OBV indicator failed on first part");
 
         // Bincode 2.0 roundtrip
