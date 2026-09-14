@@ -27,6 +27,38 @@ Measures the percentage difference between the current price and the linear regr
     println!("Continued FOSC: {:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[FOSC_OPTIONS] = {14.0};
+    const double *inputs[FOSC_INPUTS] = {close};
+
+    /* Full computation with all optional outputs */
+    bool optional_outputs[5] = {true, true, true, true, true};  /* fosc, tsf, linreg, linregslope, linregintercept */
+    CIndicatorResult r = fosc_indicator(inputs, 10, options, optional_outputs, 5);
+    /* r.outputs[0] -> fosc (primary) */
+    /* r.outputs[1] -> tsf (optional) */
+    /* r.outputs[2] -> linreg (optional) */
+    /* r.outputs[3] -> linregslope (optional) */
+    /* r.outputs[4] -> linregintercept (optional) */
+    tulip_ffi_result_free(r);
+    fosc_state_free(r.state);
+
+    /* Partial computation + state continuation (no optional outputs) */
+    CIndicatorResult p = fosc_indicator(inputs, 8, options, NULL, 0);
+    double new_close[] = {84.55, 84.36};
+    const double *new_inputs[FOSC_INPUTS] = {new_close};
+    CBatchResult b = fosc_batch(p.state, new_inputs, 2, NULL, 0);
+    /* b.outputs[0] -> FOSC values for just the two new bars */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    fosc_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -107,6 +139,26 @@ Measures the percentage difference between the current price and the linear regr
     // linregslope and linregintercept not requested
     ```
 
+=== "C"
+
+    `fosc` exposes 5 optional outputs: `fosc`, `tsf`, `linreg`, `linregslope`, `linregintercept`. Pass a boolean mask in header order.
+
+    ```c
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[FOSC_OPTIONS] = {14.0};
+    const double *inputs[FOSC_INPUTS] = {close};
+
+    bool mask[5] = {true, true, false, false, false};  /* one per optional output */
+    CIndicatorResult r = fosc_indicator(inputs, 10, options, mask, 5);
+    /* r.outputs[0] -> fosc (primary) */
+    /* r.outputs[1] -> tsf (optional — requested) */
+    /* r.outputs[2] -> linreg (optional — requested) */
+    /* r.outputs[3] and r.outputs[4] not requested */
+    tulip_ffi_result_free(r);
+    fosc_state_free(r.state);
+    ```
+
 === "Python"
 
     ```python
@@ -159,6 +211,7 @@ Measures the percentage difference between the current price and the linear regr
     // Request only tsf
     const [partial] = ti.fosc.indicator([close], [14], [true, false, false, false]);
     ```
+
 ### SIMD
 
 === "Rust"
@@ -200,6 +253,42 @@ Measures the percentage difference between the current price and the linear regr
     for (i, opt_outputs) in results.iter().enumerate() {
         println!("Period set {}: {:?}", i + 1, opt_outputs[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same period applied to 4 assets in one call (N must be 2/4/8/16):
+
+    ```c
+    double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a2[] = {72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50};
+    double a3[] = {55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40};
+    double a4[] = {100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8};
+
+    const double *const asset1[FOSC_INPUTS] = {a1};
+    const double *const asset2[FOSC_INPUTS] = {a2};
+    const double *const asset3[FOSC_INPUTS] = {a3};
+    const double *const asset4[FOSC_INPUTS] = {a4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = fosc_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's series */
+        fosc_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in one call:
+
+    ```c
+    double o5[] = {5.0}, o10[] = {10.0}, o14[] = {14.0}, o20[] = {20.0};
+    const double *const simd_opts[4] = {o5, o10, o14, o20};
+
+    CSimdResult r = fosc_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
+    /* r.outputs[i][0] -> results for option set i */
+    for (uintptr_t i = 0; i < r.num_results; i++) fosc_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

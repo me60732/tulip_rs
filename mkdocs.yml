@@ -151,7 +151,12 @@ nav:
     - Candlestick Patterns: candlestick_patterns.md
     - SIMD: simd.md
     - State Management: state_management.md
-    - Language Bindings: language_bindings.md
+    - Language Bindings:
+          - Overview: language_bindings.md
+          - C FFI: language_bindings/c.md
+          - Python: language_bindings/python.md
+          - Node.js: language_bindings/node.md
+          - Browser (WASM): language_bindings/wasm.md
     - Live Demo: demo.md
     - Benchmarks:
           - Overview: benchmarks/index.md

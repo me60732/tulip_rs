@@ -1,9 +1,9 @@
 //! Fixed-size, stack-allocated ring buffer (no mirroring).
 
 use crate::ring_buffer::buffer::{period_to_idx, BufferElement, SerdeElement};
-use crate::ring_buffer::single_buffer::generic_buffer::{Warm, Cold};
+use crate::ring_buffer::single_buffer::generic_buffer::{Cold, Warm};
 use serde::{
-    de::{self, MapAccess, Visitor},
+    de::{self, MapAccess, SeqAccess, Visitor},
     ser::SerializeStruct,
     Deserialize, Deserializer, Serialize, Serializer,
 };
@@ -329,6 +329,31 @@ where
             type Value = FixedRingBuffer<T, N, S>;
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str("struct FixedRingBuffer")
+            }
+            fn visit_seq<A: SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> Result<FixedRingBuffer<T, N, S>, A::Error> {
+                // Mirrors Serialize field order: vals, index, count.
+                let vals_repr: Vec<T::Repr> = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let index = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                let count = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(2, &self))?;
+                let vals_vec: Vec<T> = vals_repr.into_iter().map(T::from_repr).collect();
+                let vals_arr: [T; N] = vals_vec.try_into().map_err(|v: Vec<T>| {
+                    de::Error::invalid_length(v.len(), &"vals array of length N")
+                })?;
+                Ok(FixedRingBuffer {
+                    vals: vals_arr,
+                    index,
+                    count,
+                    state: PhantomData,
+                })
             }
             fn visit_map<V: MapAccess<'de>>(
                 self,

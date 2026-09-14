@@ -56,6 +56,35 @@ Removes low-frequency trend components from price by applying Ehlers' two-pole h
     print("Continued Highpass:", continued[0])
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                      88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+    double options[HIGHPASS_OPTIONS] = {20.0}; // period
+    const double *inputs[HIGHPASS_INPUTS] = {close};
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = highpass_indicator(inputs, 40, options, NULL, 0);
+    /* r.outputs[0] -> the highpass series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    highpass_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = highpass_indicator(inputs, 35, options, NULL, 0);
+    double new_close[] = {89.70, 90.10, 89.50, 90.20, 90.80};
+    const double *new_inputs[HIGHPASS_INPUTS] = {new_close};
+    CBatchResult b = highpass_batch(p.state, new_inputs, 5, NULL, 0);
+    /* b.outputs[0] -> highpass values for just the five new bars */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    highpass_state_free(p.state);
+    ```
+
 === "Node.js"
 
     ```javascript
@@ -186,8 +215,6 @@ Removes low-frequency trend components from price by applying Ehlers' two-pole h
 
 === "Node.js"
 
-    **By assets** — same period applied to 4 assets in parallel:
-
     ```javascript
     const simdInputs = [
         [close.slice()],
@@ -205,4 +232,41 @@ Removes low-frequency trend components from price by applying Ehlers' two-pole h
     const simdOptions = [[10], [20], [30], [40]];
     const [results] = ti.highpass.simdByOptions([close], simdOptions);
     results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]}:`, out[0]));
+    ```
+
+=== "C"
+
+    **By assets** — same period applied to 4 assets in one call (N must be 2/4/8/16):
+
+    ```c
+    double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a2[] = {86.59, 86.06, 87.87, 88.00, 88.61, 88.15, 87.84, 88.99, 89.55, 89.36};
+    double a3[] = {78.59, 78.06, 79.87, 80.00, 80.61, 80.15, 79.84, 80.99, 81.55, 81.36};
+    double a4[] = {83.22, 82.68, 84.53, 84.66, 85.28, 84.81, 84.50, 85.67, 86.24, 86.05};
+
+    /* one [INPUTS]-long pointer array per asset */
+    const double *asset1[HIGHPASS_INPUTS] = {a1};
+    const double *asset2[HIGHPASS_INPUTS] = {a2};
+    const double *asset3[HIGHPASS_INPUTS] = {a3};
+    const double *asset4[HIGHPASS_INPUTS] = {a4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = highpass_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's series, length r.output_lens[i][0] */
+        highpass_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in one call:
+
+    ```c
+    double o10[] = {10.0}, o20[] = {20.0}, o30[] = {30.0}, o40[] = {40.0};
+    const double *const simd_opts[4] = {o10, o20, o30, o40};
+
+    CSimdResult r = highpass_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
+    /* r.outputs[i] -> results for option set i (periods 10/20/30/40) */
+    for (uintptr_t i = 0; i < r.num_results; i++) highpass_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```

@@ -1,7 +1,9 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::qstick::{Indicator, IndicatorByOptions, QStick, TIndicatorState};
+    use tulip_rs::indicators::qstick::{
+        Indicator, IndicatorByOptions, IndicatorState, QStick, TIndicatorState, INPUTS,
+    };
     use tulip_test::c_bindings::{ti_qstick, ti_qstick_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -463,5 +465,34 @@ mod tests {
         }
 
         println!("✓ All SIMD by options vs Regular QSTICK database tests passed!");
+    }
+
+    #[test]
+    fn test_qstick_state_bincode_roundtrip() {
+        use bincode::config::standard;
+        use bincode::serde::{decode_from_slice, encode_to_vec};
+
+        let (open, close) = expand_inputs();
+        let mid = open.len() - 50;
+        let options = [5.0]; // one of the option sets used in existing tests
+        let first: [&[f64]; INPUTS] = [&open[..mid], &close[..mid]];
+        let second: [&[f64]; INPUTS] = [&open[mid..], &close[mid..]];
+
+        let (_rows, mut original) = QStick::indicator(&first, &options, None).unwrap();
+        let cfg = standard();
+        let bytes = encode_to_vec(&original, cfg).expect("serialize");
+        let (mut restored, consumed): (IndicatorState, usize) =
+            decode_from_slice(&bytes, cfg).expect("deserialize");
+        assert_eq!(consumed, bytes.len());
+
+        let a = original.batch_indicator(&second, None).unwrap();
+        let b = restored.batch_indicator(&second, None).unwrap();
+        assert_eq!(a.len(), b.len());
+        for (ra, rb) in a.iter().zip(b.iter()) {
+            assert_eq!(ra.len(), rb.len());
+            for (x, y) in ra.iter().zip(rb.iter()) {
+                assert_eq!(x.to_bits(), y.to_bits());
+            }
+        }
     }
 }

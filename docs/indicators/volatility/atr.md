@@ -39,6 +39,39 @@ Measures market volatility by averaging the true range (the greatest of: high-lo
     println!("{:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[] = {82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[] = {81.29, 80.64, 81.31, 82.65, 83.07,
+                    83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[ATR_OPTIONS] = {14.0}; // period
+    const double *inputs[ATR_INPUTS] = {high, low, close};
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = atr_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> the ATR series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    atr_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult pr = atr_indicator(inputs, 8, options, NULL, 0);
+    double new_high[] = {85.90};
+    double new_low[] = {84.03};
+    double new_close[] = {85.53};
+    const double *new_inputs[ATR_INPUTS] = {new_high, new_low, new_close};
+    CBatchResult br = atr_batch(pr.state, new_inputs, 1, NULL, 0);
+    /* br.outputs[0] -> ATR values for just the new bar */
+    tulip_ffi_batch_result_free(br);
+    tulip_ffi_result_free(pr);
+    atr_state_free(pr.state);
+    ```
+
 === "Python"
 
     ```python
@@ -153,6 +186,34 @@ Measures market volatility by averaging the true range (the greatest of: high-lo
     tr  = outputs[1]  # tr  (optional — requested)
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[] = {82.59, 82.06, 83.87, 84.00, 84.61,
+                     84.15, 83.84, 84.99, 85.55, 85.36};
+    double low[] = {80.59, 80.06, 81.87, 82.00, 82.61,
+                    82.15, 81.84, 82.99, 83.55, 83.36};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[ATR_OPTIONS] = {14.0}; // period
+    const double *inputs[ATR_INPUTS] = {high, low, close};
+
+    /* request the optional tr output */
+    bool optional_outputs[1] = {true};
+
+    CIndicatorResult r = atr_indicator(inputs, 10, options, optional_outputs, 1);
+    if (r.error != C_INDICATOR_ERROR_OK) {
+        fprintf(stderr, "atr_indicator failed: error=%d\n", r.error);
+        return 1;
+    }
+    /* r.outputs[0] -> atr (primary) */
+    /* r.outputs[1] -> tr (optional — requested) */
+    tulip_ffi_result_free(r);
+    atr_state_free(r.state);
+    ```
+
 === "Node.js"
 
     `atr` exposes 1 optional output: `tr`.
@@ -204,6 +265,54 @@ Measures market volatility by averaging the true range (the greatest of: high-lo
     for (i, out) in results.iter().enumerate() {
         println!("Period {}: {:?}", opts[i][0], out[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same options applied to 4 assets in one call (N must be 2/4/8/16):
+
+    ```c
+    double h1[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double l1[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double c1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double h2[] = {72.15, 71.89, 73.03, 73.30, 73.85, 73.90, 73.33, 74.30, 74.84, 75.00};
+    double l2[] = {71.29, 70.64, 71.31, 72.65, 73.07, 73.11, 72.49, 72.30, 74.15, 74.11};
+    double c2[] = {71.59, 71.06, 72.87, 73.00, 73.61, 73.15, 72.84, 73.99, 74.55, 74.36};
+    double h3[] = {52.15, 51.89, 53.03, 53.30, 53.85, 53.90, 53.33, 54.30, 54.84, 55.00};
+    double l3[] = {51.29, 50.64, 51.31, 52.65, 53.07, 53.11, 52.49, 52.30, 54.15, 54.11};
+    double c3[] = {51.59, 51.06, 52.87, 53.00, 53.61, 53.15, 52.84, 53.99, 54.55, 54.36};
+    double h4[] = {102.15, 101.89, 103.03, 103.30, 103.85, 103.90, 103.33, 104.30, 104.84, 105.00};
+    double l4[] = {101.29, 100.64, 101.31, 102.65, 103.07, 103.11, 102.49, 102.30, 104.15, 104.11};
+    double c4[] = {101.59, 101.06, 102.87, 103.00, 103.61, 103.15, 102.84, 103.99, 104.55, 104.36};
+
+    /* one [INPUTS]-long pointer array per asset */
+    const double *asset1[ATR_INPUTS] = {h1, l1, c1};
+    const double *asset2[ATR_INPUTS] = {h2, l2, c2};
+    const double *asset3[ATR_INPUTS] = {h3, l3, c3};
+    const double *asset4[ATR_INPUTS] = {h4, l4, c4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = atr_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's ATR series */
+        atr_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in one call:
+
+    ```c
+    double o7[] = {7.0};
+    double o14[] = {14.0};
+    double o21[] = {21.0};
+    double o28[] = {28.0};
+    const double *const simd_opts[4] = {o7, o14, o21, o28};
+
+    CSimdResult r = atr_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
+    /* r.outputs[i][0] -> ATR for period set i */
+    for (uintptr_t i = 0; i < r.num_results; i++) atr_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

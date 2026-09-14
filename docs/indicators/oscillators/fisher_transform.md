@@ -32,6 +32,38 @@ Converts prices into a Gaussian normal distribution. Sharp moves in the Fisher v
     println!("Continued Fisher Signal: {:?}", continued[1]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                     85.90, 86.58, 86.98, 88.00, 87.87};
+    double low[]  = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                     84.03, 85.39, 85.76, 87.17, 87.01};
+    const double *inputs[FISHER_INPUTS] = {high, low};  /* MUST supply both high AND low */
+    double options[FISHER_OPTIONS] = {10.0};
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = fisher_indicator(inputs, 15, options, NULL, 0);
+    /* r.outputs[0] -> the Fisher series, length r.output_lens[0] */
+    /* r.outputs[1] -> the Signal series, length r.output_lens[1] */
+    tulip_ffi_result_free(r);
+    fisher_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = fisher_indicator(inputs, 10, options, NULL, 0);
+    double new_high[] = {85.90, 86.58, 86.98, 88.00, 87.87};
+    double new_low[]  = {84.03, 85.39, 85.76, 87.17, 87.01};
+    const double *new_inputs[FISHER_INPUTS] = {new_high, new_low};
+    CBatchResult b = fisher_batch(p.state, new_inputs, 5, NULL, 0);
+    /* b.outputs[0] -> Fisher for just the five new bars */
+    /* b.outputs[1] -> Signal for just the five new bars */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    fisher_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -143,6 +175,53 @@ Converts prices into a Gaussian normal distribution. Sharp moves in the Fisher v
         println!("Option set {} Fisher:        {:?}", i + 1, opt_outputs[0]);
         println!("Option set {} Fisher Signal: {:?}", i + 1, opt_outputs[1]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same period applied to 4 assets in one call (N must be 2/4/8/16):
+
+    ```c
+    double h1[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                   85.90, 86.58, 86.98, 88.00, 87.87};
+    double l1[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                   84.03, 85.39, 85.76, 87.17, 87.01};
+
+    double h2[15], l2[15];
+    for (size_t i = 0; i < 15; i++) { h2[i] = h1[i] * 1.1; l2[i] = l1[i] * 1.1; }
+
+    double h3[15], l3[15];
+    for (size_t i = 0; i < 15; i++) { h3[i] = h1[i] - 0.5; l3[i] = l1[i] - 0.5; }
+
+    double h4[15], l4[15];
+    for (size_t i = 0; i < 15; i++) { h4[i] = h1[i] * 1.01; l4[i] = l1[i] * 1.01; }
+
+    const double *const asset1[FISHER_INPUTS] = {h1, l1};
+    const double *const asset2[FISHER_INPUTS] = {h2, l2};
+    const double *const asset3[FISHER_INPUTS] = {h3, l3};
+    const double *const asset4[FISHER_INPUTS] = {h4, l4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = fisher_simd_by_assets(simd_inputs, 4, 15, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> Fisher */
+        /* r.outputs[i][1] -> Signal */
+        fisher_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in one call:
+
+    ```c
+    double o5[] = {5.0}, o10[] = {10.0}, o14[] = {14.0}, o20[] = {20.0};
+    const double *const simd_opts[4] = {o5, o10, o14, o20};
+
+    CSimdResult r = fisher_simd_by_options(inputs, 15, simd_opts, 4, NULL, 0);
+    /* r.outputs[i][0] -> Fisher */
+    /* r.outputs[i][1] -> Signal */
+    for (uintptr_t i = 0; i < r.num_results; i++) fisher_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

@@ -30,6 +30,34 @@ Uses the high-low trading range to identify potential trend reversals via range 
     println!("{:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[]  = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    const double *inputs[MASS_INPUTS] = {high, low};
+    double options[MASS_OPTIONS] = {25.0}; // period
+
+    /* Full computation */
+    CIndicatorResult r = mass_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> the MASS(25) series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    mass_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = mass_indicator(inputs, 8, options, NULL, 0);
+    double new_high[] = {86.54};
+    double new_low[]  = {85.39};
+    const double *new_inputs[MASS_INPUTS] = {new_high, new_low};
+    CBatchResult b = mass_batch(p.state, new_inputs, 1, NULL, 0);
+    /* b.outputs[0] -> MASS values for just the one new bar */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    mass_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -100,13 +128,45 @@ Uses the high-low trading range to identify potential trend reversals via range 
     let results = Mass::indicator_by_assets::<4>(&inputs, &[25.0], None).unwrap();
     ```
 
-    **By options** — same asset, N option sets in parallel:
+=== "C"
 
-    ```rust
-    use tulip_rs::indicators::mass::{Mass, IndicatorByOptions};
+    **By assets** — same period applied to 4 assets in parallel (N must be 2/4/8/16):
 
-    let opts: [&[f64; 1]; 4] = [&[15.0], &[20.0], &[25.0], &[30.0]];
-    let results = Mass::indicator_by_options::<4>(&inputs_single, &opts, None).unwrap();
+    ```c
+    double h1[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double l1[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double h2[] = {82.15*1.2, 81.89*1.2, 83.03*1.2, 83.30*1.2, 83.85*1.2, 83.90*1.2, 83.33*1.2, 84.30*1.2, 84.84*1.2, 85.00*1.2};
+    double l2[] = {81.29*1.2, 80.64*1.2, 81.31*1.2, 82.65*1.2, 83.07*1.2, 83.11*1.2, 82.49*1.2, 82.30*1.2, 84.15*1.2, 84.11*1.2};
+    double h3[] = {90.0+0.5*0+82.15*0.1, 90.0+0.5*1+82.15*0.1, 90.0+0.5*2+83.03*0.1, 90.0+0.5*3+83.30*0.1, 90.0+0.5*4+83.85*0.1, 90.0+0.5*5+83.90*0.1, 90.0+0.5*6+83.33*0.1, 90.0+0.5*7+84.30*0.1, 90.0+0.5*8+84.84*0.1, 90.0+0.5*9+85.00*0.1};
+    double l3[] = {90.0+0.5*0+81.29*0.1, 90.0+0.5*1+80.64*0.1, 90.0+0.5*2+81.31*0.1, 90.0+0.5*3+82.65*0.1, 90.0+0.5*4+83.07*0.1, 90.0+0.5*5+83.11*0.1, 90.0+0.5*6+82.49*0.1, 90.0+0.5*7+82.30*0.1, 90.0+0.5*8+84.15*0.1, 90.0+0.5*9+84.11*0.1};
+    double h4[] = {100.0-0.3*0+82.15*0.05, 100.0-0.3*1+81.89*0.05, 100.0-0.3*2+83.03*0.05, 100.0-0.3*3+83.30*0.05, 100.0-0.3*4+83.85*0.05, 100.0-0.3*5+83.90*0.05, 100.0-0.3*6+83.33*0.05, 100.0-0.3*7+84.30*0.05, 100.0-0.3*8+84.84*0.05, 100.0-0.3*9+85.00*0.05};
+    double l4[] = {100.0-0.3*0+81.29*0.05, 100.0-0.3*1+80.64*0.05, 100.0-0.3*2+81.31*0.05, 100.0-0.3*3+82.65*0.05, 100.0-0.3*4+83.07*0.05, 100.0-0.3*5+83.11*0.05, 100.0-0.3*6+82.49*0.05, 100.0-0.3*7+82.30*0.05, 100.0-0.3*8+84.15*0.05, 100.0-0.3*9+84.11*0.05};
+
+    /* one [INPUTS]-long pointer array per asset */
+    const double *asset1[MASS_INPUTS] = {h1, l1};
+    const double *asset2[MASS_INPUTS] = {h2, l2};
+    const double *asset3[MASS_INPUTS] = {h3, l3};
+    const double *asset4[MASS_INPUTS] = {h4, l4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = mass_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's series, length r.output_lens[i][0] */
+        mass_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```c
+    double o15[] = {15.0}, o20[] = {20.0}, o25[] = {25.0}, o30[] = {30.0};
+    const double *const simd_opts[4] = {o15, o20, o25, o30};
+
+    CSimdResult r = mass_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
+    /* r.outputs[i] -> results for option set i (periods 15/20/25/30) */
+    for (uintptr_t i = 0; i < r.num_results; i++) mass_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

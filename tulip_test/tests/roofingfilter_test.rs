@@ -1,8 +1,10 @@
 #[cfg(test)]
 mod tests {
+    use bincode::config::standard;
+    use bincode::serde::{decode_from_slice, encode_to_vec};
     use tulip_rs::indicators::highpass::HighPass;
     use tulip_rs::indicators::roofingfilter::{
-        Indicator, IndicatorByOptions, RoofingFilter, TIndicatorState,
+        Indicator, IndicatorByOptions, IndicatorState, RoofingFilter, TIndicatorState, INPUTS,
     };
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -561,6 +563,38 @@ mod tests {
                          stock={stock_symbol}, options={options:?}"
                     );
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn test_roofingfilter_state_bincode_roundtrip() {
+        // Prefer the file's static helpers when non-DB tests use them; else
+        // build local series (never constant/linear):
+        let close: Vec<f64> = (0..600)
+            .map(|i| {
+                let t = i as f64;
+                100.0 + 10.0 * (t * 0.3).sin() + t * 0.05
+            })
+            .collect();
+        let mid = close.len() - 50;
+        let options = OPTIONS_LIST[0];
+        let first: [&[f64]; INPUTS] = [close.as_slice()];
+        let second: [&[f64]; INPUTS] = [&close[mid..]];
+
+        let (_rows, mut original) = RoofingFilter::indicator(&first, &options, None).unwrap();
+        let bytes = encode_to_vec(&original, standard()).expect("serialize");
+        let (mut restored, consumed): (IndicatorState, usize) =
+            decode_from_slice(&bytes, standard()).expect("deserialize");
+        assert_eq!(consumed, bytes.len());
+
+        let a = original.batch_indicator(&second, None).unwrap();
+        let b = restored.batch_indicator(&second, None).unwrap();
+        assert_eq!(a.len(), b.len());
+        for (ra, rb) in a.iter().zip(b.iter()) {
+            assert_eq!(ra.len(), rb.len());
+            for (x, y) in ra.iter().zip(rb.iter()) {
+                assert_eq!(x.to_bits(), y.to_bits());
             }
         }
     }

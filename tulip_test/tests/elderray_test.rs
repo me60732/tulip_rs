@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use tulip_rs::indicators::elderray::{
-        Elderray, Indicator, IndicatorByOptions, TIndicatorState,
+        Elderray, Indicator, IndicatorByOptions, IndicatorState, TIndicatorState, INPUTS, OPTIONS,
     };
     use tulip_rs::indicators::ema::Ema;
     use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -773,5 +773,44 @@ mod tests {
             }
         }
         println!("✓ All SIMD by-options Elder-ray optional output tests passed!");
+    }
+
+    #[test]
+    fn test_elderray_state_bincode_roundtrip() {
+        use bincode::config::standard;
+        use bincode::serde::{decode_from_slice, encode_to_vec};
+
+        // Generate enough data: Elderray min_data = period + 1 (default), so for period=14 we need at least 15
+        let high: Vec<f64> = (0..400)
+            .map(|i| 100.0 + 10.0 * ((i as f64) * 0.3).sin())
+            .collect();
+        let low: Vec<f64> = (0..400)
+            .map(|i| 95.0 + 8.0 * ((i as f64) * 0.3).sin())
+            .collect();
+        let close: Vec<f64> = (0..400)
+            .map(|i| 97.5 + 9.0 * ((i as f64) * 0.3).sin())
+            .collect();
+        let len = high.len();
+        let mid = len - 50;
+        let options: [f64; OPTIONS] = [14.0]; // one of the option sets used in existing tests
+        let first: [&[f64]; INPUTS] = [&high[..mid], &low[..mid], &close[..mid]];
+        let second: [&[f64]; INPUTS] = [&high[mid..], &low[mid..], &close[mid..]];
+
+        let (_rows, mut original) = Elderray::indicator(&first, &options, None).unwrap();
+        let cfg = standard();
+        let bytes = encode_to_vec(&original, cfg).expect("serialize");
+        let (mut restored, consumed): (IndicatorState, usize) =
+            decode_from_slice(&bytes, cfg).expect("deserialize");
+        assert_eq!(consumed, bytes.len());
+
+        let a = original.batch_indicator(&second, None).unwrap();
+        let b = restored.batch_indicator(&second, None).unwrap();
+        assert_eq!(a.len(), b.len());
+        for (ra, rb) in a.iter().zip(b.iter()) {
+            assert_eq!(ra.len(), rb.len());
+            for (x, y) in ra.iter().zip(rb.iter()) {
+                assert_eq!(x.to_bits(), y.to_bits());
+            }
+        }
     }
 }

@@ -39,6 +39,31 @@ The ratio of the difference to the sum of +DI and -DI, expressing directional mo
     println!("{:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    /* high, low, close arrays */
+    const double *inputs[DX_INPUTS] = {high, low, close};
+    double options[DX_OPTIONS] = {14.0};
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = dx_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> the DX series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    dx_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = dx_indicator(inputs, 8, options, NULL, 0);
+    const double *new_inputs[DX_INPUTS] = {new_high, new_low, new_close};
+    CBatchResult b = dx_batch(p.state, new_inputs, 1, NULL, 0);
+    /* b.outputs[0] -> DX value for the new bar */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    dx_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -129,6 +154,22 @@ The ratio of the difference to the sum of +DI and -DI, expressing directional mo
     // tr not requested — omitted from outputs
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    /* dx exposes 2 optional outputs, in fixed order: atr, tr */
+    const double *inputs[DX_INPUTS] = {high, low, close};
+    double options[DX_OPTIONS] = {14.0};
+    bool optional_outputs[2] = {true, false}; /* request atr, skip tr */
+
+    CIndicatorResult r = dx_indicator(inputs, 10, options, optional_outputs, 2);
+    /* r.outputs[0] -> dx, r.outputs[1] -> atr (only requested optionals append) */
+    tulip_ffi_result_free(r);
+    dx_state_free(r.state);
+    ```
+
 === "Python"
 
     ```python
@@ -202,6 +243,41 @@ The ratio of the difference to the sum of +DI and -DI, expressing directional mo
     for (i, out) in results.iter().enumerate() {
         println!("Period {}: {:?}", opts[i][0], out[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same option applied to 4 assets in parallel (N must be 2/4/8/16):
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    /* each asset supplies all DX_INPUTS series: high, low, close */
+    const double *asset1[DX_INPUTS] = {h1, l1, c1};
+    const double *asset2[DX_INPUTS] = {h2, l2, c2};
+    const double *asset3[DX_INPUTS] = {h3, l3, c3};
+    const double *asset4[DX_INPUTS] = {h4, l4, c4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+    double options[DX_OPTIONS] = {14.0};
+
+    CSimdResult r = dx_simd_by_assets(simd_inputs, 4, len, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's DX series, length r.output_lens[i][0] */
+        dx_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```c
+    double o7[] = {7.0}, o14[] = {14.0}, o21[] = {21.0}, o28[] = {28.0};
+    const double *const simd_opts[4] = {o7, o14, o21, o28};
+
+    CSimdResult r = dx_simd_by_options(inputs, len, simd_opts, 4, NULL, 0);
+    /* r.outputs[i] -> DX for period simd_opts[i] */
+    for (uintptr_t i = 0; i < r.num_results; i++) dx_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

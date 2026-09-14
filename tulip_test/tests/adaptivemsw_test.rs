@@ -1,7 +1,10 @@
 #[cfg(test)]
 mod tests {
+    use bincode;
     use tulip_rs::indicator_types::TIndicatorState;
-    use tulip_rs::indicators::adaptivemsw::{AdaptiveMSW, Indicator};
+    use tulip_rs::indicators::adaptivemsw::{
+        AdaptiveMSW, Indicator, IndicatorState as AdaptiveMSWState, INPUTS,
+    };
     use tulip_rs::indicators::homodynediscriminator::HomodyneDiscriminator;
     use tulip_rs::types::IndicatorError;
     use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -16,6 +19,31 @@ mod tests {
     // ─────────────────────────────────────────────────────────────────────────
     // Sanity checks — no database needed.
     // ─────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_adaptivemsw_state_bincode_roundtrip() {
+        let close: Vec<f64> = (0..2000).map(|i| 100.0 + i as f64 * 0.01).collect();
+        let mid = close.len() / 2;
+        let first: [&[f64]; INPUTS] = [&close[..mid]];
+        let second: [&[f64]; INPUTS] = [&close[mid..]];
+
+        let (_rows, mut original) = AdaptiveMSW::indicator(&first, &[], None).unwrap();
+        let cfg = bincode::config::standard();
+        let bytes = bincode::serde::encode_to_vec(&original, cfg).expect("serialize");
+        let (mut restored, consumed): (AdaptiveMSWState, usize) =
+            bincode::serde::decode_from_slice(&bytes, cfg).expect("deserialize");
+        assert_eq!(consumed, bytes.len());
+
+        let a = original.batch_indicator(&second, None).unwrap();
+        let b = restored.batch_indicator(&second, None).unwrap();
+        assert_eq!(a.len(), b.len());
+        for (ra, rb) in a.iter().zip(b.iter()) {
+            assert_eq!(ra.len(), rb.len());
+            for (x, y) in ra.iter().zip(rb.iter()) {
+                assert_eq!(x.to_bits(), y.to_bits());
+            }
+        }
+    }
 
     #[test]
     fn test_adaptivemsw_min_data_and_output_length() {

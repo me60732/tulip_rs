@@ -8,56 +8,74 @@
 
     ```toml
     [dependencies]
-    tulip_rs = "0.1.10"
+    tulip_rs = "0.2.8"
     ```
 
-    To get the very latest unreleased changes, use the Git source directly:
+    For a reproducible build, pin the source to the latest release tag (`{latest tag}` = the newest tag from the repository's [tags page](https://github.com/me60732/tulip_rs/tags), e.g. `v0.2.7`):
 
     ```toml
     [dependencies]
-    tulip_rs = { git = "https://github.com/me60732/tulip_rs" }
+    tulip_rs = { git = "https://github.com/me60732/tulip_rs", tag = "{latest tag}" }
     ```
+
+    Omit the `tag` to track the latest unreleased `main`.
 
     TulipRS uses the `portable_simd` nightly language feature internally and requires a **nightly** Rust toolchain. The correct nightly version is pinned automatically via the `rust-toolchain.toml` file at the root of the repository — no manual toolchain management is needed.
 
+=== "C"
+
+    ```bash
+    git clone https://github.com/me60732/tulip_rs_ffi
+    cd tulip_rs_ffi
+    cargo build --release
+    ```
+
+    Link your application:
+
+    ```bash
+    cc -O2 app.c -I include -L target/release -ltulip_rs_ffi -Wl,-rpath,target/release
+    ```
+
+    SIMD features are always compiled in — no feature flag selection is needed for the FFI library.
+
 === "Python"
 
-    **From PyPI (recommended):**
+    **From source (recommended)** — compiling on your machine with `-C target-cpu=native` lets LLVM generate code for every instruction set your CPU supports — this speeds up the scalar indicators as much as the SIMD ones, and is measurably faster than the generic prebuilt wheels:
+
+    ```bash
+    git clone https://github.com/me60732/tulip_rs_python
+    cd tulip_rs_python
+    git checkout {latest tag}   # or omit for the bleeding edge — see the repo's tags page
+    RUSTFLAGS="-C target-cpu=native" maturin develop --release
+    ```
+
+    Requirements: Python 3.8+, Rust nightly (pinned by the repo's `rust-toolchain.toml`).
+
+    **From PyPI** — use this only when the deployment target architecture is unknown or a Rust toolchain can't run there (prebuilt wheels must ship generic x86-64/ARM baselines):
 
     ```bash
     pip install tulip-rs
     ```
 
-    **From source (for development or to enable native CPU optimisations):**
-
-    ```bash
-    git clone https://github.com/me60732/tulip-rs-python
-    cd tulip_rs_python
-    RUSTFLAGS="-C target-cpu=native" maturin develop --release
-    ```
-
-    Requirements: Python 3.8+, Rust 1.70+
-
 === "Node.js"
 
-    **From npm (recommended):**
-
-    ```bash
-    npm install tulip-rs-node
-    ```
-
-    Prebuilt binaries are provided for Linux x64, macOS x64, and macOS arm64. No Rust toolchain required.
-
-    **From source (for development or native CPU optimisations):**
+    **From source (recommended)** — native CPU codegen (`-C target-cpu=native`) lets LLVM use every instruction set your CPU supports — a substantial speed-up across both the scalar and SIMD indicator paths, well beyond the prebuilt binaries:
 
     ```bash
     git clone https://github.com/me60732/tulip-rs-node
     cd tulip-rs-node
+    git checkout {latest tag}   # or omit for the bleeding edge — see the repo's tags page
     npm install
     RUSTFLAGS="-C target-cpu=native" npm run build
     ```
 
-    **Requirements:** Node.js 18+, Rust nightly (only needed when building from source)
+    Requirements: Node.js 18+, Rust nightly (pinned by the repo's `rust-toolchain.toml`).
+
+    **From npm** — use this only when the deployment target architecture is unknown or a Rust toolchain can't run there. Prebuilt binaries are provided for Linux x64, macOS x64, and macOS arm64:
+
+    ```bash
+    npm install tulip-rs-node
+    ```
 
 ---
 
@@ -81,6 +99,9 @@ To disable the SIMD multi-asset and multi-option variants (e.g. to reduce compil
 tulip_rs = { git = "https://github.com/me60732/tulip_rs", default-features = false }
 ```
 
+!!! note "FFI library always has SIMD"
+    The `tulip_rs_ffi` library builds the core with SIMD features enabled; feature flag choices only concern direct Rust consumers.
+
 ---
 
 ## Calling Convention
@@ -103,6 +124,54 @@ Every indicator in TulipRS follows the same universal signature. Once you unders
     - The return value is a tuple of `(outputs, state)`:
         - `outputs` is a `Vec<Vec<f64>>` — one inner `Vec` per output series, already trimmed to the valid output length.
         - `state` is an `IndicatorState` that can be used to continue computation on new bars without reprocessing history.
+
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+    ```
+
+    Every indicator follows the same pattern:
+
+    ```c
+    CIndicatorResult <ind>_indicator(
+        const double *inputs[INPUTS],
+        size_t data_len,
+        const double options[OPTIONS],
+        const bool optional_outputs[],
+        size_t num_optional
+    );
+    ```
+
+    - `inputs` — an array of pointers, one per input series (e.g. `[close]` for SMA; `[high, low, close]` for ADX).
+    - `options` — indicator parameters as `f64`, in the order documented for each indicator.
+    - `optional_outputs` — pass `NULL` and `0` unless you specifically want to suppress optional output series.
+    - The return value is a `CIndicatorResult`:
+        - `error` — check against `C_INDICATOR_ERROR_OK`; see [Error Handling](#error-handling).
+        - `outputs[i]` — pointer to the i-th output series.
+        - `output_lens[i]` — length of the i-th output series.
+        - `num_outputs` — number of output series returned.
+        - `state` — opaque state pointer for streaming via `<ind>_batch()`.
+    - Memory management:
+        - `tulip_ffi_result_free(result)` frees outputs and optional state from `indicator()` calls.
+        - `<ind>_state_free(state)` frees the state object (call once after your last batch).
+        - `tulip_ffi_batch_result_free(batch)` frees outputs from `batch()` calls.
+
+    Streaming pattern:
+
+    ```c
+    // Seed with initial data
+    CIndicatorResult r = <ind>_indicator(inputs, len, options, NULL, 0);
+    void *state = r.state;
+    tulip_ffi_result_free(r);  // outputs freed; state kept alive
+
+    // Append new bars
+    CBatchResult b = <ind>_batch(state, new_inputs, new_len, NULL, 0);
+    tulip_ffi_batch_result_free(b);
+
+    // Final cleanup (after last batch)
+    <ind>_state_free(state);
+    ```
 
 === "Python"
 
@@ -151,6 +220,34 @@ Every indicator in TulipRS follows the same universal signature. Once you unders
     println!("{:?}", outputs[0]); // SMA(5) — length is close.len() - period + 1
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+    #include "tulip_rs_ffi_counts.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[SMA_OPTIONS] = {5.0}; // period
+    const double *inputs[SMA_INPUTS] = {close};
+
+    CIndicatorResult r = sma_indicator(inputs, 10, options, NULL, 0);
+    if (r.error != C_INDICATOR_ERROR_OK) {
+        fprintf(stderr, "sma_indicator failed: error=%d\n", r.error);
+        return 1;
+    }
+
+    printf("SMA(5): [");
+    for (uintptr_t i = 0; i < r.output_lens[0]; i++) {
+        printf("%.4f", r.outputs[0][i]);
+        if (i + 1 < r.output_lens[0]) printf(", ");
+    }
+    printf("]\n");
+
+    tulip_ffi_result_free(r);
+    sma_state_free(r.state);
+    ```
+
 === "Python"
 
     ```python
@@ -193,6 +290,49 @@ Every indicator in TulipRS follows the same universal signature. Once you unders
     let macd_line  = &outputs[0]; // MACD line
     let signal     = &outputs[1]; // Signal line
     let histogram  = &outputs[2]; // Histogram
+    ```
+
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+    #include "tulip_rs_ffi_counts.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[MACD_OPTIONS] = {12.0, 26.0, 9.0}; // fast_period, slow_period, signal_period
+    const double *inputs[MACD_INPUTS] = {close};
+
+    CIndicatorResult r = macd_indicator(inputs, 10, options, NULL, 0);
+    if (r.error != C_INDICATOR_ERROR_OK) {
+        fprintf(stderr, "macd_indicator failed: error=%d\n", r.error);
+        return 1;
+    }
+
+    printf("MACD(12,26,9):\n");
+    printf("  macd_line:   [");
+    for (uintptr_t i = 0; i < r.output_lens[0]; i++) {
+        printf("%.4f", r.outputs[0][i]);
+        if (i + 1 < r.output_lens[0]) printf(", ");
+    }
+    printf("]\n");
+
+    printf("  signal:      [");
+    for (uintptr_t i = 0; i < r.output_lens[1]; i++) {
+        printf("%.4f", r.outputs[1][i]);
+        if (i + 1 < r.output_lens[1]) printf(", ");
+    }
+    printf("]\n");
+
+    printf("  histogram:   [");
+    for (uintptr_t i = 0; i < r.output_lens[2]; i++) {
+        printf("%.4f", r.outputs[2][i]);
+        if (i + 1 < r.output_lens[2]) printf(", ");
+    }
+    printf("]\n");
+
+    tulip_ffi_result_free(r);
+    macd_state_free(r.state);
     ```
 
 === "Python"
@@ -241,6 +381,36 @@ Every indicator in TulipRS follows the same universal signature. Once you unders
     println!("{:?}", outputs[0]); // ADX values
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+    #include "tulip_rs_ffi_counts.h"
+
+    double high[]  = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[]   = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+
+    double options[ADX_OPTIONS] = {14.0}; // period
+    const double *inputs[ADX_INPUTS] = {high, low, close};
+
+    CIndicatorResult r = adx_indicator(inputs, 10, options, NULL, 0);
+    if (r.error != C_INDICATOR_ERROR_OK) {
+        fprintf(stderr, "adx_indicator failed: error=%d\n", r.error);
+        return 1;
+    }
+
+    printf("ADX(14): [");
+    for (uintptr_t i = 0; i < r.output_lens[0]; i++) {
+        printf("%.4f", r.outputs[0][i]);
+        if (i + 1 < r.output_lens[0]) printf(", ");
+    }
+    printf("]\n");
+
+    tulip_ffi_result_free(r);
+    adx_state_free(r.state);
+    ```
+
 === "Python"
 
     ```python
@@ -287,6 +457,26 @@ Every indicator in TulipRS follows the same universal signature. Once you unders
         Err(e) => eprintln!("Indicator error: {e}"),
     }
     ```
+
+=== "C"
+
+    Every `CIndicatorResult` starts with an `error` field of type `CIndicatorError`. Check it against `C_INDICATOR_ERROR_OK`:
+
+    ```c
+    CIndicatorResult r = <ind>_indicator(inputs, len, options, NULL, 0);
+    if (r.error != C_INDICATOR_ERROR_OK) {
+        fprintf(stderr, "<ind> failed: error=%d\n", r.error);
+        return 1;
+    }
+    ```
+
+    | Variant | Cause |
+    |---|---|
+    | `C_INDICATOR_ERROR_OK` | Success |
+    | `C_INDICATOR_ERROR_INVALID_INPUTS` | NULL inputs or insufficient data pointers |
+    | `C_INDICATOR_ERROR_NOT_ENOUGH_DATA` | Input length shorter than minimum required |
+    | `C_INDICATOR_ERROR_INVALID_OPTIONS` | Invalid option values (e.g. period < 1) |
+    | `C_INDICATOR_ERROR_INVALID_INDICATOR_STATE` | State pointer is invalid or has been freed |
 
 === "Python"
 

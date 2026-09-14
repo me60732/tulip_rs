@@ -52,6 +52,31 @@ pub struct DisplayGroup {
     // Group ad: AD Line (Indicator)
     ```
 
+=== "C"
+
+    ```c
+    #include <tulip_rs_ffi.h>
+
+    CIndicatorInfo info = adosc_info();
+
+    printf("Name:             %s\n", info.name);              // adosc
+    printf("Full name:        %s\n", info.full_name);         // Accumulation/Distribution Oscillator
+    printf("Inputs:           %u\n", (unsigned)info.inputs.len);           // 4
+    printf("Options:          %u\n", (unsigned)info.options.len);          // 2
+    printf("Outputs:          %u\n", (unsigned)info.outputs.len);          // 1
+    printf("Optional outputs: %u\n", (unsigned)info.optional_outputs.len); // 3
+
+    for (uintptr_t i = 0; i < info.display_groups.len; i++) {
+        CDisplayGroup g = info.display_groups.ptr[i];
+        printf("  Group %s: %s (%d)\n", g.id, g.label, g.display_type);
+    }
+    // Group adosc: ADOSC (Indicator)
+    // Group emas: AD EMAs (Indicator)
+    // Group ad: AD Line (Indicator)
+
+    // Strings are leaked process-lifetime; read them, don't free
+    ```
+
 === "Python"
 
     `info()` returns a plain Python `dict`. Access fields with standard key lookup:
@@ -205,6 +230,30 @@ The third argument to `indicator()` is `optional_outputs: Option<&[bool]>`. Each
         Primary outputs come first (always populated), then optional outputs in declaration order
         (populated or empty depending on the mask).
 
+=== "C"
+
+    ```c
+    #include <tulip_rs_ffi.h>
+
+    const double *inputs[4] = {high, low, close, volume};
+    const double options[2] = {6.0, 20.0}; // short_period, long_period
+
+    // Adosc optional_outputs: ["short_ema", "long_ema", "ad"]
+    //                         index 0       index 1    index 2
+
+    bool optional_outputs[3] = {false, false, true}; // request AD line only (index 2)
+
+    CIndicatorResult r = adosc_indicator(inputs, data_len, options,
+                                         optional_outputs, 3);
+
+    double *adosc_line = r.outputs[0]; // primary output — always present
+    // outputs[1] and outputs[2] are empty (not requested)
+    double *ad_line    = r.outputs[3]; // optional output at index 2
+
+    tulip_ffi_result_free(r);
+    adosc_state_free(r.state);
+    ```
+
 === "Python"
 
     ```python
@@ -260,6 +309,23 @@ Pass a mask of all `true` to capture every intermediate series:
     let ad_line        = &outputs[3]; // ad        (optional 2)
     ```
 
+=== "C"
+
+    ```c
+    // adosc has 3 optional outputs
+    bool optional_outputs[3] = {true, true, true};
+    CIndicatorResult r = adosc_indicator(inputs, data_len, options,
+                                         optional_outputs, 3);
+
+    double *adosc_line     = r.outputs[0]; // adosc     (primary)
+    double *short_ema_line = r.outputs[1]; // short_ema (optional 0)
+    double *long_ema_line  = r.outputs[2]; // long_ema  (optional 1)
+    double *ad_line        = r.outputs[3]; // ad        (optional 2)
+
+    tulip_ffi_result_free(r);
+    adosc_state_free(r.state);
+    ```
+
 === "Python"
 
     ```python
@@ -304,6 +370,27 @@ Optional output masks work the same way with `batch_indicator()`. Pass the same 
 
     let new_adosc = &continued[0];
     let new_ad    = &continued[3];
+    ```
+
+=== "C"
+
+    ```c
+    // Initial batch — request AD line (index 2 of optional_outputs)
+    bool initial_optional[3] = {false, false, true};
+    CIndicatorResult r = adosc_indicator(inputs, data_len, options,
+                                         initial_optional, 3);
+    void *state = r.state;
+    tulip_ffi_result_free(r); // outputs freed; state kept alive
+
+    // Continue streaming — same mask (same as initial call)
+    CBatchResult br = adosc_batch(state, new_inputs, new_data_len,
+                                  initial_optional, 3);
+
+    double *new_adosc = br.outputs[0];
+    double *new_ad    = br.outputs[3];
+
+    tulip_ffi_batch_result_free(br);
+    adosc_state_free(state);
     ```
 
 === "Node.js"
@@ -354,6 +441,30 @@ The return type is `(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>)`. Index the outer 
 
     let adosc_set2 = &all_outputs[1][0]; // option set 1 primary output
     let ad_set2    = &all_outputs[1][3]; // option set 1 AD line
+    ```
+
+=== "C"
+
+    ```c
+    // SIMD by assets: 4 assets, same options, same optional-output mask
+    bool optional_outputs[3] = {false, false, true}; // request the AD line only
+
+    const double *const asset1[4] = {high_a, low_a, close_a, vol_a};
+    const double *const asset2[4] = {high_b, low_b, close_b, vol_b};
+    const double *const asset3[4] = {high_c, low_c, close_c, vol_c};
+    const double *const asset4[4] = {high_d, low_d, close_d, vol_d};
+
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = adosc_simd_by_assets(simd_inputs, 4, data_len,
+                                         options, optional_outputs, 3);
+
+    // all_outputs[0] is asset A — same layout as scalar indicator()
+    double *adosc_a = r.outputs[0][0]; // primary output
+    double *ad_a    = r.outputs[0][3]; // optional output at index 2 (AD line)
+
+    for (uintptr_t i = 0; i < r.num_results; i++) adosc_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"
@@ -449,6 +560,27 @@ The value depends on the indicator's options because period-based indicators req
         eprintln!("Not enough data: have {}, need {}", close.len(), minimum);
     } else {
         let (outputs, state) = Adx::indicator(&[high.as_slice(), low.as_slice(), close.as_slice()], &[14.0], None).unwrap();
+    }
+    ```
+
+=== "C"
+
+    ```c
+    #include <tulip_rs_ffi.h>
+
+    const double options[1] = {14.0}; // period
+
+    uintptr_t minimum = adx_min_data(options);
+    printf("Min data: %zu\n", minimum); // 28
+
+    if (data_len < minimum) {
+        fprintf(stderr, "Not enough data: have %zu, need %zu\n", data_len, minimum);
+    } else {
+        const double *inputs[3] = {high, low, close};
+        CIndicatorResult r = adx_indicator(inputs, data_len, options, NULL, 0);
+        // ... use outputs ...
+        tulip_ffi_result_free(r);
+        adx_state_free(r.state);
     }
     ```
 

@@ -35,6 +35,43 @@ Measures market momentum as the difference between a 5-period and 34-period simp
     println!("Continued AO: {:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                     85.90, 86.58, 86.98, 88.00, 87.87, 88.10, 88.50, 89.00, 89.40, 89.80,
+                     90.10, 90.50, 91.00, 91.50, 91.80, 92.00, 92.40, 92.80, 93.10, 93.50,
+                     93.80, 94.20, 94.60, 95.00, 95.30};
+    double low[]  = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                     84.03, 85.39, 85.76, 87.17, 87.01, 87.50, 87.90, 88.30, 88.70, 89.10,
+                     89.40, 89.80, 90.20, 90.60, 91.00, 91.30, 91.70, 92.10, 92.40, 92.80,
+                     93.10, 93.50, 93.90, 94.30, 94.60};
+    const double options[AO_OPTIONS] = {}; // no options (AO_OPTIONS == 0)
+
+    /* AO takes 2 inputs: high, low */
+    const double *inputs[AO_INPUTS] = {high, low};
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = ao_indicator(inputs, 35, options, NULL, 0);
+    /* r.outputs[0] -> the AO series, length r.output_lens[0];
+       r.outputs[1] -> short_sma (optional — not requested here) */
+    tulip_ffi_result_free(r);
+    ao_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = ao_indicator(inputs, 30, options, NULL, 0);
+    double new_high[] = {93.80, 94.20, 94.60, 95.00, 95.30};
+    double new_low[]  = {93.10, 93.50, 93.90, 94.30, 94.60};
+    const double *new_inputs[AO_INPUTS] = {new_high, new_low};
+    CBatchResult b = ao_batch(p.state, new_inputs, 5, NULL, 0);
+    /* b.outputs[0] -> AO values for just the five new bars */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    ao_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -138,6 +175,34 @@ Measures market momentum as the difference between a 5-period and 34-period simp
     // long_sma and medprice not requested
     ```
 
+=== "C"
+
+    AO has no options and does not provide SIMD by-options. SIMD is available via by-assets only.
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                     85.90, 86.58, 86.98, 88.00, 87.87, 88.10, 88.50, 89.00, 89.40, 89.80,
+                     90.10, 90.50, 91.00, 91.50, 91.80, 92.00, 92.40, 92.80, 93.10, 93.50,
+                     93.80, 94.20, 94.60, 95.00, 95.30};
+    double low[]  = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                     84.03, 85.39, 85.76, 87.17, 87.01, 87.50, 87.90, 88.30, 88.70, 89.10,
+                     89.40, 89.80, 90.20, 90.60, 91.00, 91.30, 91.70, 92.10, 92.40, 92.80,
+                     93.10, 93.50, 93.90, 94.30, 94.60};
+    const double options[AO_OPTIONS] = {}; // no options
+
+    /* AO takes 2 inputs: high, low */
+    const double *inputs[AO_INPUTS] = {high, low};
+    bool optional_outputs[3] = {true, false, false}; // short_sma=true, long_sma=false, medprice=false
+
+    CIndicatorResult r = ao_indicator(inputs, 35, options, optional_outputs, 3);
+    /* r.outputs[0] -> ao (primary)
+       r.outputs[1] -> short_sma (optional — requested) */
+    tulip_ffi_result_free(r);
+    ao_state_free(r.state);
+    ```
+
 === "Python"
 
     ```python
@@ -229,7 +294,40 @@ Measures market momentum as the difference between a 5-period and 34-period simp
     }
     ```
 
-    _This indicator has no options, so by-options SIMD does not apply._
+=== "C"
+
+    **By assets** — applied to 4 assets in parallel:
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double h1[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                   85.90, 86.58, 86.98, 88.00, 87.87, 88.10, 88.50, 89.00, 89.40, 89.80,
+                   90.10, 90.50, 91.00, 91.50, 91.80, 92.00, 92.40, 92.80, 93.10, 93.50,
+                   93.80, 94.20, 94.60, 95.00, 95.30};
+    double l1[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                   84.03, 85.39, 85.76, 87.17, 87.01, 87.50, 87.90, 88.30, 88.70, 89.10,
+                   89.40, 89.80, 90.20, 90.60, 91.00, 91.30, 91.70, 92.10, 92.40, 92.80,
+                   93.10, 93.50, 93.90, 94.30, 94.60};
+
+    /* AO has 2 inputs: high, low — fill ALL fields per asset! */
+    const double *const asset1[AO_INPUTS] = {h1, l1};
+    const double *const asset2[AO_INPUTS] = {h1, l1};
+    const double *const asset3[AO_INPUTS] = {h1, l1};
+    const double *const asset4[AO_INPUTS] = {h1, l1};
+
+    /* simd_inputs is indexed by asset (the N=4 SIMD lanes) */
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+    const double options[AO_OPTIONS] = {}; // no options
+
+    CSimdResult r = ao_simd_by_assets(simd_inputs, 4, 35, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's AO series, length r.output_lens[i][0];
+           r.outputs[i][1] -> short_sma (optional — not requested here) */
+        ao_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
 
 === "Python"
 

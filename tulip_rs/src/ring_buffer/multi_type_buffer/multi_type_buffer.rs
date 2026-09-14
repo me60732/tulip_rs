@@ -423,7 +423,7 @@ macro_rules! impl_layout {
         where $($T::Repr: Deserialize<'de>),+
         {
             fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-                use serde::de::{MapAccess, Visitor};
+                use serde::de::{MapAccess, SeqAccess, Visitor};
 
                 struct MtbVisitor<Stat, $($T),+>(std::marker::PhantomData<(Stat, $($T,)+)>);
 
@@ -434,6 +434,29 @@ macro_rules! impl_layout {
 
                     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                         f.write_str("a MultiTypeBuffer struct")
+                    }
+
+                    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                        // Mirrors Serialize field order: index, capacity, count, prev_idx, vecs.
+                        let index: usize = seq
+                            .next_element()?
+                            .ok_or_else(|| serde::de::Error::invalid_length(0, &self))?;
+                        let capacity = seq
+                            .next_element()?
+                            .ok_or_else(|| serde::de::Error::invalid_length(1, &self))?;
+                        let count = seq
+                            .next_element()?
+                            .ok_or_else(|| serde::de::Error::invalid_length(2, &self))?;
+                        let prev_idx = seq
+                            .next_element()?
+                            .ok_or_else(|| serde::de::Error::invalid_length(3, &self))?;
+                        let vecs_repr: ($( Vec<$T::Repr>, )+) = seq
+                            .next_element()?
+                            .ok_or_else(|| serde::de::Error::invalid_length(4, &self))?;
+                        let vecs: ($( Vec<$T>, )+) = (
+                            $( vecs_repr.$i.into_iter().map($T::from_repr).collect(), )+
+                        );
+                        Ok(MultiTypeBuffer { vecs, index, capacity, count, prev_idx, state: std::marker::PhantomData })
                     }
 
                     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {

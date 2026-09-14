@@ -25,6 +25,32 @@ The highest value in the input series over a rolling `period` window.
     println!("{:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    const double *inputs[MAX_INPUTS] = {close};
+    double options[MAX_OPTIONS] = {14.0}; // period
+
+    /* Full computation */
+    CIndicatorResult r = max_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> the MAX(14) series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    max_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = max_indicator(inputs, 8, options, NULL, 0);
+    double new_close[] = {85.53};
+    const double *new_inputs[MAX_INPUTS] = {new_close};
+    CBatchResult b = max_batch(p.state, new_inputs, 1, NULL, 0);
+    /* b.outputs[0] -> MAX values for just the one new bar */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    max_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -92,16 +118,41 @@ The highest value in the input series over a rolling `period` window.
     }
     ```
 
-    **By options** — same asset, N option sets in parallel:
+=== "C"
 
-    ```rust
-    use tulip_rs::indicators::max::{Max, IndicatorByOptions};
+    **By assets** — same period applied to 4 assets in parallel (N must be 2/4/8/16):
 
-    let opts: [&[f64; 1]; 4] = [&[5.0], &[10.0], &[20.0], &[50.0]];
-    let results = Max::indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
-    for (i, asset_outputs) in results.iter().enumerate() {
-        println!("Option {}: {:?}", i + 1, asset_outputs[0]);
+    ```c
+    double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a2[] = {81.59*1.2, 81.06*1.2, 82.87*1.2, 83.00*1.2, 83.61*1.2, 83.15*1.2, 82.84*1.2, 83.99*1.2, 84.55*1.2, 84.36*1.2};
+    double a3[] = {90.0+0.5*0+81.59*0.1, 90.0+0.5*1+81.06*0.1, 90.0+0.5*2+82.87*0.1, 90.0+0.5*3+83.00*0.1, 90.0+0.5*4+83.61*0.1, 90.0+0.5*5+83.15*0.1, 90.0+0.5*6+82.84*0.1, 90.0+0.5*7+83.99*0.1, 90.0+0.5*8+84.55*0.1, 90.0+0.5*9+84.36*0.1};
+    double a4[] = {100.0-0.3*0+81.59*0.05, 100.0-0.3*1+81.06*0.05, 100.0-0.3*2+82.87*0.05, 100.0-0.3*3+83.00*0.05, 100.0-0.3*4+83.61*0.05, 100.0-0.3*5+83.15*0.05, 100.0-0.3*6+82.84*0.05, 100.0-0.3*7+83.99*0.05, 100.0-0.3*8+84.55*0.05, 100.0-0.3*9+84.36*0.05};
+
+    /* one [INPUTS]-long pointer array per asset */
+    const double *asset1[MAX_INPUTS] = {a1};
+    const double *asset2[MAX_INPUTS] = {a2};
+    const double *asset3[MAX_INPUTS] = {a3};
+    const double *asset4[MAX_INPUTS] = {a4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = max_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's series, length r.output_lens[i][0] */
+        max_state_free(r.states[i]);
     }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```c
+    double o5[] = {5.0}, o10[] = {10.0}, o20[] = {20.0}, o50[] = {50.0};
+    const double *const simd_opts[4] = {o5, o10, o20, o50};
+
+    CSimdResult r = max_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
+    /* r.outputs[i] -> results for option set i (periods 5/10/20/50) */
+    for (uintptr_t i = 0; i < r.num_results; i++) max_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

@@ -27,6 +27,62 @@ Calculates momentum as the difference between the sum of gains and the sum of lo
     println!("Continued CMO: {:?}", continued[0]);
     ```
 
+=== "C"
+
+    **By assets**
+
+    ```c
+    #include <tulip_rs_ffi.h>
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    double options[CMO_OPTIONS] = {14.0};
+    const double *inputs[CMO_INPUTS] = {close};
+
+    // Full computation
+    CIndicatorResult r = cmo_indicator(inputs, 10, options, NULL, 0);
+    tulip_ffi_result_free(r);
+    cmo_state_free(r.state);
+
+    // Partial + continuation (8 bars, then remaining)
+    CIndicatorResult p = cmo_indicator(inputs, 8, options, NULL, 0);
+    const double *rest_inputs[CMO_INPUTS] = {close+8};
+    CBatchResult b = cmo_batch(p.state, rest_inputs, 2, NULL, 0);
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    cmo_state_free(p.state);
+    ```
+
+    **By options**
+
+    ```c
+    #include <tulip_rs_ffi.h>
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    double o14[] = {14.0}, o7[] = {7.0}, o21[] = {21.0}, o28[] = {28.0};
+    const double *const simd_opts[4] = {o14, o7, o21, o28};
+
+    // Tile data 20x for longer periods
+    #define EXPANDED_LEN (10 * 20)
+    double close_exp[EXPANDED_LEN];
+    for (int i = 0; i < 20; i++) {
+        for (int j = 0; j < 10; j++) {
+            close_exp[i*10+j] = close[j];
+        }
+    }
+    const double *expanded_inputs[CMO_INPUTS] = {close_exp};
+
+    CSimdResult r = cmo_simd_by_options(expanded_inputs, EXPANDED_LEN,
+                                        simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        cmo_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
 === "Python"
 
     ```python
@@ -127,6 +183,73 @@ Calculates momentum as the difference between the sum of gains and the sum of lo
     for (i, opt_outputs) in results.iter().enumerate() {
         println!("Period set {}: {:?}", i + 1, opt_outputs[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```c
+    #include <tulip_rs_ffi.h>
+
+    double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a2[] = {72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50};
+    double a3[] = {55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40};
+    double a4[] = {100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8};
+
+    const double *const asset1[CMO_INPUTS] = {a1};
+    const double *const asset2[CMO_INPUTS] = {a2};
+    const double *const asset3[CMO_INPUTS] = {a3};
+    const double *const asset4[CMO_INPUTS] = {a4};
+
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+    double options[CMO_OPTIONS] = {14.0};
+
+    CSimdResult r = cmo_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        printf("Asset %zu: [", i+1);
+        for (uintptr_t j = 0; j < r.output_lens[i][0]; j++) {
+            printf("%.4f", r.outputs[i][0][j]);
+            if (j+1 < r.output_lens[i][0]) printf(", ");
+        }
+        printf("]\n");
+        cmo_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```c
+    #include <tulip_rs_ffi.h>
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    double o7[] = {7.0}, o14[] = {14.0}, o21[] = {21.0}, o28[] = {28.0};
+    const double *const simd_opts[4] = {o7, o14, o21, o28};
+
+    #define EXPANDED_LEN (10 * 20)
+    double close_exp[EXPANDED_LEN];
+    for (int i = 0; i < 20; i++) {
+        for (int j = 0; j < 10; j++) {
+            close_exp[i*10+j] = close[j];
+        }
+    }
+    const double *expanded_inputs[CMO_INPUTS] = {close_exp};
+
+    CSimdResult r = cmo_simd_by_options(expanded_inputs, EXPANDED_LEN,
+                                        simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        printf("Period %zu: [", simd_opts[i][0]);
+        for (uintptr_t j = 0; j < r.output_lens[i][0]; j++) {
+            printf("%.4f", r.outputs[i][0][j]);
+            if (j+1 < r.output_lens[i][0]) printf(", ");
+        }
+        printf("]\n");
+        cmo_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

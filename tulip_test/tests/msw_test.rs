@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::msw::{Indicator, IndicatorByOptions, Msw, TIndicatorState};
+    use tulip_rs::indicators::msw::{Indicator, IndicatorByOptions, Msw, TIndicatorState, IndicatorState, INPUTS, OPTIONS};
     use tulip_test::c_bindings::{ti_msw, ti_msw_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -35,6 +35,35 @@ mod tests {
         v
     }
 
+    #[test]
+    fn test_state_bincode_roundtrip() {
+        use bincode::config::standard;
+        use bincode::serde::{decode_from_slice, encode_to_vec};
+
+        let close = expand_close(50);
+        let len = close.len();
+        let mid = len - 50;
+        let options: [f64; OPTIONS] = [5.0]; // EMV has no options
+        let first: [&[f64]; INPUTS] = [&close[..mid]];
+        let second: [&[f64]; INPUTS] = [&close[mid..]];
+
+        let (_rows, mut original) = Msw::indicator(&first, &options, None).unwrap();
+        let cfg = standard();
+        let bytes = encode_to_vec(&original, cfg).expect("serialize");
+        let (mut restored, consumed): (IndicatorState, usize) =
+            decode_from_slice(&bytes, cfg).expect("deserialize");
+        assert_eq!(consumed, bytes.len());
+
+        let a = original.batch_indicator(&second, None).unwrap();
+        let b = restored.batch_indicator(&second, None).unwrap();
+        assert_eq!(a.len(), b.len());
+        for (ra, rb) in a.iter().zip(b.iter()) {
+            assert_eq!(ra.len(), rb.len());
+            for (x, y) in ra.iter().zip(rb.iter()) {
+                assert_eq!(x.to_bits(), y.to_bits());
+            }
+        }
+    }
     fn get_close_array(stock_data: &[tulip_test::database::EodData]) -> Vec<f64> {
         stock_data.iter().map(|d| d.close).collect()
     }

@@ -33,6 +33,40 @@ Relates price change to volume, indicating how easily a price moves. High values
     println!("{:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[]   = {82.15, 81.89, 83.03, 83.30, 83.85,
+                       83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[]    = {81.29, 80.64, 81.31, 82.65, 83.07,
+                       83.11, 82.49, 82.30, 84.15, 84.11};
+    double volume[] = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+                       900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+
+    const double *inputs[EMV_INPUTS] = {high, low, volume};
+    const double options[EMV_OPTIONS] = {}; // no options
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = emv_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> the EMV series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    emv_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = emv_indicator(inputs, 8, options, NULL, 0);
+    double new_high[]   = {85.20};
+    double new_low[]    = {84.50};
+    double new_volume[] = {1550.0};
+    const double *new_inputs[EMV_INPUTS] = {new_high, new_low, new_volume};
+    CBatchResult b = emv_batch(p.state, new_inputs, 1, NULL, 0);
+    /* b.outputs[0] -> EMV value for the single new bar */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    emv_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -103,6 +137,31 @@ Relates price change to volume, indicating how easily a price moves. High values
 === "Rust"
 
     `emv` exposes 1 optional output: `medprice`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+=== "C"
+
+    The mask is an array of booleans (one per optional output) passed to `emv_indicator()`:
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[]  = {81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36};
+    double high[]   = {82.59, 82.06, 83.87, 84.00, 84.61,
+                       84.15, 83.84, 84.99, 85.55, 85.36};
+    double low[]    = {80.59, 80.06, 81.87, 82.00, 82.61,
+                       82.15, 81.84, 82.99, 83.55, 83.36};
+    double volume[] = {10000.0, 12000.0, 9500.0, 11000.0, 13000.0,
+                       9800.0, 10500.0, 12500.0, 11800.0, 10200.0};
+
+    bool optional_outputs[1] = {true}; // medprice
+
+    CIndicatorResult r = emv_indicator(inputs, 10, options, optional_outputs, 1);
+    /* r.outputs[0] -> emv (primary) */
+    /* r.outputs[1] -> medprice (requested) */
+    tulip_ffi_result_free(r);
+    emv_state_free(r.state);
+    ```
 
     ```rust
     use tulip_rs::indicators::emv::{Emv, Indicator, TIndicatorState};
@@ -185,6 +244,41 @@ Relates price change to volume, indicating how easily a price moves. High values
     ```
 
     _This indicator has no options, so by-options SIMD does not apply._
+
+=== "C"
+
+    **By assets** — same option applied to 4 assets in one call (N must be 2/4/8/16):
+
+    ```c
+    double a1_high[]   = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double a1_low[]    = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double a1_volume[] = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0, 900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+
+    double a2_high[]   = {98.58, 96.47, 99.63, 99.96, 100.62, 100.68, 99.99, 101.16, 102.31, 103.50};
+    double a2_low[]    = {97.95, 95.81, 98.94, 99.27, 100.01, 100.06, 99.33, 100.50, 101.65, 102.80};
+    double a2_volume[] = {1440.0, 1800.0, 1560.0, 1320.0, 1920.0, 1680.0, 1440.0, 2040.0, 2160.0, 1800.0};
+
+    double a3_high[]   = {75.00, 74.50, 76.00, 76.30, 76.85, 76.90, 76.33, 77.30, 77.84, 78.00};
+    double a3_low[]    = {74.29, 73.64, 75.31, 75.65, 76.07, 76.11, 75.49, 75.30, 77.15, 77.11};
+    double a3_volume[] = {600.0, 700.0, 550.0, 800.0, 650.0, 450.0, 750.0, 900.0, 500.0, 850.0};
+
+    double a4_high[]   = {102.00, 101.25, 103.50, 103.80, 104.30, 104.35, 103.75, 104.75, 105.25, 105.40};
+    double a4_low[]    = {100.65, 99.80, 102.00, 102.20, 103.00, 103.05, 102.40, 103.30, 104.10, 104.25};
+    double a4_volume[] = {1728.0, 2160.0, 1872.0, 1584.0, 2304.0, 2016.0, 1728.0, 2448.0, 2592.0, 2160.0};
+
+    const double *asset1[EMV_INPUTS] = {a1_high, a1_low, a1_volume};
+    const double *asset2[EMV_INPUTS] = {a2_high, a2_low, a2_volume};
+    const double *asset3[EMV_INPUTS] = {a3_high, a3_low, a3_volume};
+    const double *asset4[EMV_INPUTS] = {a4_high, a4_low, a4_volume};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = emv_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's series, length r.output_lens[i][0] */
+        emv_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
 
 === "Python"
 

@@ -1,7 +1,9 @@
 #[cfg(test)]
 mod tests {
+    use bincode::config::standard;
+    use bincode::serde::{decode_from_slice, encode_to_vec};
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::obv::{Indicator, Obv, TIndicatorState};
+    use tulip_rs::indicators::obv::{Indicator, IndicatorState as ObvState, Obv, TIndicatorState};
     use tulip_test::c_bindings::{ti_obv, ti_obv_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -343,6 +345,55 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn test_obv_state_bincode_roundtrip() {
+        // Generate 600-bar local data series
+        let close: Vec<f64> = (0..600)
+            .map(|i| {
+                let t = i as f64;
+                100.0 + 10.0 * (t * 0.3).sin() + t * 0.05
+            })
+            .collect();
+        let volume: Vec<f64> = (0..600).map(|i| 1_000_000.0 + (i as f64) * 137.0).collect();
+
+        // Split: mid = len-50
+        let mid = close.len() - 50;
+
+        // First part for initial indicator call
+        let inputs_first = [&close[..mid], &volume[..mid]];
+
+        let (outputs_first, mut original_state) =
+            Obv::indicator(&inputs_first, &[], None).expect("OBV indicator failed on first part");
+
+        // Bincode 2.0 roundtrip
+        use bincode::config::standard;
+        use bincode::serde::{decode_from_slice, encode_to_vec};
+        let bytes = encode_to_vec(&original_state, standard()).expect("serialize");
+        let (mut restored_state, consumed): (ObvState, usize) =
+            decode_from_slice(&bytes, standard()).expect("deserialize");
+        assert_eq!(consumed, bytes.len(), "bincode consumed mismatch");
+
+        // Second part for batch_indicator comparison
+        let inputs_second = [&close[mid..], &volume[mid..]];
+
+        let original_outputs = original_state
+            .batch_indicator(&inputs_second, None)
+            .expect("original batch indicator failed");
+        let restored_outputs = restored_state
+            .batch_indicator(&inputs_second, None)
+            .expect("restored batch indicator failed");
+
+        // Compare all values via to_bits()
+        for i in 0..original_outputs[0].len() {
+            assert_eq!(
+                original_outputs[0][i].to_bits(),
+                restored_outputs[0][i].to_bits(),
+                "OBV obv mismatch at index {}",
+                i
+            );
         }
     }
 }

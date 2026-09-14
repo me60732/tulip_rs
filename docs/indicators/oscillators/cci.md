@@ -32,6 +32,72 @@ Measures how far the typical price deviates from its simple moving average, norm
     println!("Continued CCI: {:?}", continued[0]);
     ```
 
+=== "C"
+
+    **By assets**
+
+    ```c
+    #include <tulip_rs_ffi.h>
+
+    double high[]  = {82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[]   = {81.29, 80.64, 81.31, 82.65, 83.07,
+                      83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    double options[CCI_OPTIONS] = {20.0};
+    const double *inputs[CCI_INPUTS] = {high, low, close};
+
+    // Full computation
+    CIndicatorResult r = cci_indicator(inputs, 10, options, NULL, 0);
+    tulip_ffi_result_free(r);
+    cci_state_free(r.state);
+
+    // Partial + continuation (8 bars, then remaining)
+    CIndicatorResult p = cci_indicator(inputs, 8, options, NULL, 0);
+    const double *rest_inputs[CCI_INPUTS] = {high+8, low+8, close+8};
+    CBatchResult b = cci_batch(p.state, rest_inputs, 2, NULL, 0);
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    cci_state_free(p.state);
+    ```
+
+    **By options**
+
+    ```c
+    #include <tulip_rs_ffi.h>
+
+    double high[]  = {82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[]   = {81.29, 80.64, 81.31, 82.65, 83.07,
+                      83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    double o20[] = {20.0}, o14[] = {14.0}, o10[] = {10.0}, o5[] = {5.0};
+    const double *const simd_opts[4] = {o20, o14, o10, o5};
+
+    // Tile data 20x for longer periods
+    #define EXPANDED_LEN (10 * 20)
+    double high_exp[EXPANDED_LEN], low_exp[EXPANDED_LEN], close_exp[EXPANDED_LEN];
+    for (int i = 0; i < 20; i++) {
+        for (int j = 0; j < 10; j++) {
+            high_exp[i*10+j]  = high[j];
+            low_exp[i*10+j]   = low[j];
+            close_exp[i*10+j] = close[j];
+        }
+    }
+    const double *expanded_inputs[CCI_INPUTS] = {high_exp, low_exp, close_exp};
+
+    CSimdResult r = cci_simd_by_options(expanded_inputs, EXPANDED_LEN,
+                                        simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        cci_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
 === "Python"
 
     ```python
@@ -119,6 +185,79 @@ Measures how far the typical price deviates from its simple moving average, norm
     let sma      = &outputs[1]; // sma (optional — requested)
     let md       = &outputs[2]; // md (optional — requested)
     let typprice = &outputs[3]; // typprice (optional — requested)
+    ```
+
+=== "C"
+
+    `cci` exposes 3 optional outputs: `sma`, `md`, `typprice`.
+
+    **By assets**
+
+    ```c
+    #include <tulip_rs_ffi.h>
+
+    double high[]  = {82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[]   = {81.29, 80.64, 81.31, 82.65, 83.07,
+                      83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    double options[CCI_OPTIONS] = {20.0};
+    const double *inputs[CCI_INPUTS] = {high, low, close};
+    bool optional_outputs[3] = {true, true, true}; // sma, md, typprice
+
+    CIndicatorResult r = cci_indicator(inputs, 10, options,
+                                       optional_outputs, 3);
+
+    double *cci      = r.outputs[0]; // primary
+    double *sma      = r.outputs[1]; // optional 0: sma
+    double *md       = r.outputs[2]; // optional 1: md
+    double *typprice = r.outputs[3]; // optional 2: typprice
+
+    tulip_ffi_result_free(r);
+    cci_state_free(r.state);
+    ```
+
+    **By options**
+
+    ```c
+    #include <tulip_rs_ffi.h>
+
+    double high[]  = {82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[]   = {81.29, 80.64, 81.31, 82.65, 83.07,
+                      83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    double o20[] = {20.0}, o14[] = {14.0}, o10[] = {10.0}, o5[] = {5.0};
+    const double *const simd_opts[4] = {o20, o14, o10, o5};
+
+    #define EXPANDED_LEN (10 * 20)
+    double high_exp[EXPANDED_LEN], low_exp[EXPANDED_LEN], close_exp[EXPANDED_LEN];
+    for (int i = 0; i < 20; i++) {
+        for (int j = 0; j < 10; j++) {
+            high_exp[i*10+j]  = high[j];
+            low_exp[i*10+j]   = low[j];
+            close_exp[i*10+j] = close[j];
+        }
+    }
+    const double *expanded_inputs[CCI_INPUTS] = {high_exp, low_exp, close_exp};
+
+    bool optional_outputs[3] = {true, true, true};
+
+    CSimdResult r = cci_simd_by_options(expanded_inputs, EXPANDED_LEN,
+                                        simd_opts, 4, optional_outputs, 3);
+
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        double *cci      = r.outputs[i][0];
+        double *sma      = r.outputs[i][1];
+        double *md       = r.outputs[i][2];
+        double *typprice = r.outputs[i][3];
+        cci_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"
@@ -222,6 +361,87 @@ Measures how far the typical price deviates from its simple moving average, norm
     for (i, opt_outputs) in results.iter().enumerate() {
         println!("Period set {}: {:?}", i + 1, opt_outputs[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```c
+    #include <tulip_rs_ffi.h>
+
+    double h1[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double l1[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double c1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+
+    double h2[10], l2[10], c2[10];
+    for (int i = 0; i < 10; i++) { h2[i] = h1[i]*1.1; l2[i] = l1[i]*1.1; c2[i] = c1[i]*1.1; }
+
+    double h3[10], l3[10], c3[10];
+    for (int i = 0; i < 10; i++) { h3[i] = 90+i*0.5+h1[i]*0.1; l3[i] = 90+i*0.5+l1[i]*0.1; c3[i] = 90+i*0.5+c1[i]*0.1; }
+
+    double h4[10], l4[10], c4[10];
+    for (int i = 0; i < 10; i++) { h4[i] = 100-i*0.3+h1[i]*0.05; l4[i] = 100-i*0.3+l1[i]*0.05; c4[i] = 100-i*0.3+c1[i]*0.05; }
+
+    const double *const asset1[CCI_INPUTS] = {h1, l1, c1};
+    const double *const asset2[CCI_INPUTS] = {h2, l2, c2};
+    const double *const asset3[CCI_INPUTS] = {h3, l3, c3};
+    const double *const asset4[CCI_INPUTS] = {h4, l4, c4};
+
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+    double options[CCI_OPTIONS] = {20.0};
+
+    CSimdResult r = cci_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        printf("Asset %zu: [", i+1);
+        for (uintptr_t j = 0; j < r.output_lens[i][0]; j++) {
+            printf("%.4f", r.outputs[i][0][j]);
+            if (j+1 < r.output_lens[i][0]) printf(", ");
+        }
+        printf("]\n");
+        cci_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```c
+    #include <tulip_rs_ffi.h>
+
+    double high[] = {82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[]  = {81.29, 80.64, 81.31, 82.65, 83.07,
+                     83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    double o10[] = {10.0}, o14[] = {14.0}, o20[] = {20.0}, o30[] = {30.0};
+    const double *const simd_opts[4] = {o10, o14, o20, o30};
+
+    #define EXPANDED_LEN (10 * 20)
+    double high_exp[EXPANDED_LEN], low_exp[EXPANDED_LEN], close_exp[EXPANDED_LEN];
+    for (int i = 0; i < 20; i++) {
+        for (int j = 0; j < 10; j++) {
+            high_exp[i*10+j] = high[j];
+            low_exp[i*10+j]  = low[j];
+            close_exp[i*10+j] = close[j];
+        }
+    }
+    const double *expanded_inputs[CCI_INPUTS] = {high_exp, low_exp, close_exp};
+
+    CSimdResult r = cci_simd_by_options(expanded_inputs, EXPANDED_LEN,
+                                        simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        printf("Period %zu: [", simd_opts[i][0]);
+        for (uintptr_t j = 0; j < r.output_lens[i][0]; j++) {
+            printf("%.4f", r.outputs[i][0][j]);
+            if (j+1 < r.output_lens[i][0]) printf(", ");
+        }
+        printf("]\n");
+        cci_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

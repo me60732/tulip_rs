@@ -44,6 +44,42 @@ A volatility-based envelope centred on an EMA of close. The middle band is EMA(c
     println!("{:?}", continued[1]); // continued middle band
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[] = {82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00,
+                     85.90, 86.58, 86.98, 88.00, 87.87};
+    double low[] = {81.29, 80.64, 81.31, 82.65, 83.07,
+                    83.11, 82.49, 82.30, 84.15, 84.11,
+                    84.03, 85.39, 85.76, 87.17, 87.01};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29};
+    double options[KELTNERCHANNEL_OPTIONS] = {14.0, 2.0}; // period, step
+    const double *inputs[KELTNERCHANNEL_INPUTS] = {high, low, close};
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = keltnerchannel_indicator(inputs, 15, options, NULL, 0);
+    /* r.outputs[0] -> lower, r.outputs[1] -> middle, r.outputs[2] -> upper */
+    tulip_ffi_result_free(r);
+    keltnerchannel_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = keltnerchannel_indicator(inputs, 8, options, NULL, 0);
+    double new_high[] = {86.54};
+    double new_low[] = {85.39};
+    double new_close[] = {86.53};
+    const double *new_inputs[KELTNERCHANNEL_INPUTS] = {new_high, new_low, new_close};
+    CBatchResult b = keltnerchannel_batch(p.state, new_inputs, 1, NULL, 0);
+    /* b.outputs[1] -> middle_band for the one new bar */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    keltnerchannel_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -175,6 +211,37 @@ A volatility-based envelope centred on an EMA of close. The middle band is EMA(c
     # tr not requested — omitted from outputs
     ```
 
+=== "C"
+
+    `keltnerchannel` exposes 2 optional outputs: `atr`, `tr`. The inputs are [high, low, close] and options is [period, step].
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[]  = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                      85.90, 86.58, 86.98, 88.00, 87.87};
+    double low[]   = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                      84.03, 85.39, 85.76, 87.17, 87.01};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29};
+    double options[KELTNERCHANNEL_OPTIONS] = {14.0, 2.0}; // period, step
+    const double *inputs[KELTNERCHANNEL_INPUTS] = {high, low, close};
+
+    /* Request both optional outputs (atr and tr) */
+    bool mask[] = {true, true};
+    CIndicatorResult r = keltnerchannel_indicator(inputs, 15, options, mask, 2);
+    /* r.outputs[0] -> lower, r.outputs[1] -> middle, r.outputs[2] -> upper,
+       r.outputs[3] -> atr (optional 0), r.outputs[4] -> tr (optional 1) */
+    tulip_ffi_result_free(r);
+    keltnerchannel_state_free(r.state);
+
+    // Request only atr
+    bool mask_atr_only[] = {true, false};
+    CIndicatorResult partial_r = keltnerchannel_indicator(inputs, 15, options, mask_atr_only, 2);
+    tulip_ffi_result_free(partial_r);
+    keltnerchannel_state_free(partial_r.state);
+    ```
+
 === "Node.js"
 
     `keltnerchannel` exposes 2 optional outputs: `atr`, `tr`.
@@ -211,8 +278,6 @@ A volatility-based envelope centred on an EMA of close. The middle band is EMA(c
 
 === "Rust"
 
-    **By assets** — same options, N assets in parallel:
-
     ```rust
     use tulip_rs::indicators::keltnerchannel::{KeltnerChannel, Indicator};
 
@@ -238,6 +303,60 @@ A volatility-based envelope centred on an EMA of close. The middle band is EMA(c
     for (i, out) in results.iter().enumerate() {
         println!("Period={} step={}: middle={:?}", opts[i][0], opts[i][1], out[1]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same options applied to 4 assets in one call (N must be 2/4/8/16):
+
+    ```c
+    double a1_high[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                        85.90, 86.58, 86.98, 88.00, 87.87};
+    double a1_low[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                       84.03, 85.39, 85.76, 87.17, 87.01};
+    double a1_close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                         85.53, 86.54, 86.89, 87.77, 87.29};
+    const double *const asset1[KELTNERCHANNEL_INPUTS] = {a1_high, a1_low, a1_close};
+
+    double a2_high[] = {90.0, 89.5, 91.0, 91.3, 91.9, 92.0, 91.5, 92.0, 92.5, 92.8};
+    double a2_low[] = {89.0, 88.5, 90.0, 90.3, 90.9, 91.0, 90.5, 91.0, 91.5, 91.8};
+    double a2_close[] = {89.5, 89.0, 90.5, 90.8, 91.4, 91.5, 91.0, 91.5, 92.0, 92.3};
+    const double *const asset2[KELTNERCHANNEL_INPUTS] = {a2_high, a2_low, a2_close};
+
+    double a3_high[] = {75.0 + (double)i * 0.2 for i in 0..15}; /* simplified */
+    double a3_low[] = {74.0 + (double)i * 0.2 for i in 0..15};
+    double a3_close[] = {74.5 + (double)i * 0.2 for i in 0..15};
+    const double *const asset3[KELTNERCHANNEL_INPUTS] = {a3_high, a3_low, a3_close};
+
+    double a4_high[] = {85.0 - (double)i * 0.1 for i in 0..15};
+    double a4_low[] = {84.0 - (double)i * 0.1 for i in 0..15};
+    double a4_close[] = {84.5 - (double)i * 0.1 for i in 0..15};
+    const double *const asset4[KELTNERCHANNEL_INPUTS] = {a4_high, a4_low, a4_close};
+
+    /* simd_inputs is indexed by asset (the N=4 SIMD lanes) */
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = keltnerchannel_simd_by_assets(simd_inputs, 4, 15, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][1] -> asset i's middle */
+        keltnerchannel_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different option sets in one call:
+
+    ```c
+    static const double options_1[KELTNERCHANNEL_OPTIONS] = {10.0, 1.5};
+    static const double options_2[KELTNERCHANNEL_OPTIONS] = {14.0, 2.0};
+    static const double options_3[KELTNERCHANNEL_OPTIONS] = {20.0, 2.0};
+    static const double options_4[KELTNERCHANNEL_OPTIONS] = {30.0, 2.5};
+    const double *const simd_opts[4] = {options_1, options_2, options_3, options_4};
+
+    CSimdResult r = keltnerchannel_simd_by_options(inputs, 15, simd_opts, 4, NULL, 0);
+    /* r.outputs[i] -> results for option set i */
+    for (uintptr_t i = 0; i < r.num_results; i++) keltnerchannel_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

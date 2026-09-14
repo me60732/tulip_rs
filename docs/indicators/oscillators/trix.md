@@ -27,6 +27,33 @@ The 1-period percentage rate of change of a triple-smoothed EMA. Useful as a mom
     println!("Continued TRIX: {:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[TRIX_OPTIONS] = {14.0};
+    const double *inputs[TRIX_INPUTS] = {close};
+
+    /* Full computation */
+    CIndicatorResult r = trix_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> the TRIX(14) series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    trix_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = trix_indicator(inputs, 8, options, NULL, 0);
+    double new_close[] = {84.55, 84.36};
+    const double *new_inputs[TRIX_INPUTS] = {new_close};
+    CBatchResult b = trix_batch(p.state, new_inputs, 2, NULL, 0);
+    /* b.outputs[0] -> TRIX values for just the two new bars */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    trix_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -91,6 +118,28 @@ The 1-period percentage rate of change of a triple-smoothed EMA. Useful as a mom
     let trix = &outputs[0]; // trix (primary)
     let ema  = &outputs[1]; // ema (optional — requested)
     // tema not requested, dema not requested
+    ```
+
+=== "C"
+
+    `trix` exposes 3 optional outputs: `tema`, `dema`, `ema`.
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[TRIX_OPTIONS] = {5.0};
+    const double *inputs[TRIX_INPUTS] = {close};
+
+    bool optional_outputs[3] = {false, false, true}; // tema, dema, ema
+    CIndicatorResult r = trix_indicator(inputs, 10, options, optional_outputs, 3);
+    /* r.outputs[0] -> trix (primary) */
+    /* r.outputs[1] -> tema (optional — not requested here) */
+    /* r.outputs[2] -> dema (optional — not requested here) */
+    /* r.outputs[3] -> ema (optional — requested) */
+    tulip_ffi_result_free(r);
+    trix_state_free(r.state);
     ```
 
 === "Python"
@@ -177,6 +226,41 @@ The 1-period percentage rate of change of a triple-smoothed EMA. Useful as a mom
     for (i, opt_outputs) in results.iter().enumerate() {
         println!("Period set {}: {:?}", i + 1, opt_outputs[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```c
+    double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a2[] = {72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50};
+    double a3[] = {55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40};
+    double a4[] = {100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8};
+
+    const double *asset1[TRIX_INPUTS] = {a1};
+    const double *asset2[TRIX_INPUTS] = {a2};
+    const double *asset3[TRIX_INPUTS] = {a3};
+    const double *asset4[TRIX_INPUTS] = {a4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = trix_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's TRIX series */
+        trix_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```c
+    double o9[] = {9.0}, o14[] = {14.0}, o21[] = {21.0}, o30[] = {30.0};
+    const double *const simd_opts[4] = {o9, o14, o21, o30};
+
+    CSimdResult r = trix_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) trix_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

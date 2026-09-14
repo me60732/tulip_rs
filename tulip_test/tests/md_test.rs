@@ -2,7 +2,7 @@
 mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicator_types::IndicatorByOptions;
-    use tulip_rs::indicators::md::{Indicator, Md, TIndicatorState};
+    use tulip_rs::indicators::md::{Indicator, Md, TIndicatorState, INPUTS, OPTIONS, IndicatorState};
     use tulip_test::c_bindings::{ti_md, ti_md_start, ti_sma, ti_sma_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -24,12 +24,41 @@ mod tests {
     /// Adjust the number of repetitions to give the test enough work.
     fn expand_close() -> Vec<f64> {
         let mut close_vec = CLOSE.to_vec();
-        for _ in 0..3 {
+        for _ in 0..100 {
             close_vec.extend_from_slice(&CLOSE);
         }
         close_vec
     }
 
+    #[test]
+    fn test_state_bincode_roundtrip() {
+        use bincode::config::standard;
+        use bincode::serde::{decode_from_slice, encode_to_vec};
+
+        let close = expand_close();
+        let len = close.len();
+        let mid = len - 50;
+        let options: [f64; OPTIONS] = [5.0]; // EMV has no options
+        let first: [&[f64]; INPUTS] = [&close[..mid]];
+        let second: [&[f64]; INPUTS] = [&close[mid..]];
+
+        let (_rows, mut original) = Md::indicator(&first, &options, None).unwrap();
+        let cfg = standard();
+        let bytes = encode_to_vec(&original, cfg).expect("serialize");
+        let (mut restored, consumed): (IndicatorState, usize) =
+            decode_from_slice(&bytes, cfg).expect("deserialize");
+        assert_eq!(consumed, bytes.len());
+
+        let a = original.batch_indicator(&second, None).unwrap();
+        let b = restored.batch_indicator(&second, None).unwrap();
+        assert_eq!(a.len(), b.len());
+        for (ra, rb) in a.iter().zip(b.iter()) {
+            assert_eq!(ra.len(), rb.len());
+            for (x, y) in ra.iter().zip(rb.iter()) {
+                assert_eq!(x.to_bits(), y.to_bits());
+            }
+        }
+    }
     #[test]
     fn test_md_indicator() {
         // Use the same input data as in the benchmarks

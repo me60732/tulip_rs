@@ -38,6 +38,38 @@ Measures how recently the highest high and lowest low occurred within the lookba
     println!("Aroon Up continued:   {:?}", continued[1]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+    #include "tulip_rs_ffi_counts.h"
+
+    double high[] = {82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[]  = {81.29, 80.64, 81.31, 82.65, 83.07,
+                     83.11, 82.49, 82.30, 84.15, 84.11};
+    double options[AROON_OPTIONS] = {25.0}; // period
+    const double *inputs[AROON_INPUTS] = {high, low};
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = aroon_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> aroon_down, length r.output_lens[0] */
+    /* r.outputs[1] -> aroon_up, length r.output_lens[1] */
+    tulip_ffi_result_free(r);
+    aroon_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = aroon_indicator(inputs, 8, options, NULL, 0);
+    double new_high[] = {85.90};
+    double new_low[]  = {84.03};
+    const double *new_inputs[AROON_INPUTS] = {new_high, new_low};
+    CBatchResult b = aroon_batch(p.state, new_inputs, 1, NULL, 0);
+    /* b.outputs[0] -> aroon_down for the one new bar */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    aroon_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -135,6 +167,69 @@ Measures how recently the highest high and lowest low occurred within the lookba
         println!("Period {} Aroon Down: {:?}", opts[i][0], out[0]);
         println!("Period {} Aroon Up:   {:?}", opts[i][0], out[1]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same option applied to 4 assets in one call (N must be 2/4/8/16):
+
+    ```c
+    #include "tulip_rs_ffi.h"
+    #include "tulip_rs_ffi_counts.h"
+
+    double a1[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double l1[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double a2[] = {72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50};
+    double l2[] = {71.10, 71.85, 72.40, 72.00, 73.20, 73.85, 74.10, 74.60, 75.00, 75.50};
+
+    /* one [INPUTS]-long pointer array per asset */
+    const double *asset1[AROON_INPUTS] = {a1, l1};
+    const double *asset2[AROON_INPUTS] = {a2, l2};
+    const double *const *const simd_inputs[4] = {asset1, asset2, NULL, NULL}; /* N=4 lanes */
+    double options[AROON_OPTIONS] = {25.0};
+
+    CSimdResult r = aroon_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's aroon_down, length r.output_lens[i][0] */
+        /* r.outputs[i][1] -> asset i's aroon_up,   length r.output_lens[i][1] */
+        aroon_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, N different periods in one call:
+
+    ```c
+    #include "tulip_rs_ffi.h"
+    #include "tulip_rs_ffi_counts.h"
+
+    double high[] = {82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[]  = {81.29, 80.64, 81.31, 82.65, 83.07,
+                     83.11, 82.49, 82.30, 84.15, 84.11};
+    const double *inputs[AROON_INPUTS] = {high, low};
+
+    /* Tile the series 20x so longer-period option sets have enough data */
+    #define EXPANDED_LEN (10 * 20)
+    static double high_expanded[EXPANDED_LEN];
+    static double low_expanded[EXPANDED_LEN];
+    for (size_t i = 0; i < 20; i++) {
+        for (size_t j = 0; j < 10; j++) {
+            high_expanded[i * 10 + j] = high[j];
+            low_expanded[i * 10 + j]  = low[j];
+        }
+    }
+    const double *expanded_inputs[AROON_INPUTS] = {high_expanded, low_expanded};
+
+    static const double o5[AROON_OPTIONS]   = {5.0};
+    static const double o10[AROON_OPTIONS]  = {10.0};
+    static const double o25[AROON_OPTIONS]  = {25.0};
+    static const double o50[AROON_OPTIONS]  = {50.0};
+    const double *const simd_opts[4] = {o5, o10, o25, o50};
+
+    CSimdResult r = aroon_simd_by_options(expanded_inputs, EXPANDED_LEN, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) aroon_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

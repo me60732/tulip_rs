@@ -2,7 +2,7 @@
 
 Classic floor-trader pivot points calculated from the previous bar's high, low, and close. Provides a central pivot level plus two support and two resistance levels.
 
-**Inputs:** `[high, low, close]` | **Options:** none | **Outputs:** `[pivot, r1, s1, r2, s2]`
+**Inputs:** `[high, low, close]` | **Options:** `[period]` | **Outputs:** `[s3, s2, s1, pivot, r1, r2, r3]`
 
 ### Basic
 
@@ -19,7 +19,8 @@ Classic floor-trader pivot points calculated from the previous bar's high, low, 
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-    let (outputs, mut state) = PivotPoint::indicator(&inputs, &[], None).unwrap();
+    // options: [period]
+    let (outputs, mut state) = PivotPoint::indicator(&inputs, &[5.0], None).unwrap();
 
     println!("Pivot: {:?}", outputs[0]);
     println!("R1:    {:?}", outputs[1]);
@@ -31,7 +32,7 @@ Classic floor-trader pivot points calculated from the previous bar's high, low, 
     let partial_high   = high[..8].to_vec();
     let partial_low    = low[..8].to_vec();
     let partial_close  = close[..8].to_vec();
-    let (outputs2, mut state) = PivotPoint::indicator(&[partial_high.as_slice(), partial_low.as_slice(), partial_close.as_slice()], &[], None).unwrap();
+    let (outputs2, mut state) = PivotPoint::indicator(&[partial_high.as_slice(), partial_low.as_slice(), partial_close.as_slice()], &[5.0], None).unwrap();
 
     println!("Pivot: {:?}", outputs2[0]);
     println!("R1:    {:?}", outputs2[1]);
@@ -44,6 +45,37 @@ Classic floor-trader pivot points calculated from the previous bar's high, low, 
     println!("Continued Pivot: {:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[]  = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[]   = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+
+    double options[PIVOTPOINT_OPTIONS] = {5.0}; // period
+    const double *inputs[PIVOTPOINT_INPUTS] = {high, low, close};
+
+    /* Full computation - one output row with 7 values: s3,s2,s1,pp,r1,r2,r3 */
+    CIndicatorResult r = pivotpoint_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0][i] -> the i-th value in the single output row */
+    tulip_ffi_result_free(r);
+    pivotpoint_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = pivotpoint_indicator(inputs, 8, options, NULL, 0);
+    double new_high[]   = {85.90};
+    double new_low[]    = {84.03};
+    double new_close[]  = {85.53};
+    const double *new_inputs[PIVOTPOINT_INPUTS] = {new_high, new_low, new_close};
+    CBatchResult b = pivotpoint_batch(p.state, new_inputs, 1, NULL, 0);
+    /* b.outputs[0][i] -> continued values for the one new bar */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    pivotpoint_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -54,7 +86,8 @@ Classic floor-trader pivot points calculated from the previous bar's high, low, 
     low   = np.array([81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11], dtype=np.float64)
     close = np.array([81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
 
-    outputs, state = tulip_rs.indicators.pivotpoint.indicator([high, low, close], [])
+    // options: [period]
+    outputs, state = tulip_rs.indicators.pivotpoint.indicator([high, low, close], [5.0])
 
     print(f"Pivot: {outputs[0]}")
     print(f"R1:    {outputs[1]}")

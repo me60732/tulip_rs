@@ -43,6 +43,43 @@ A trend-following overlay that plots above price in a downtrend and below price 
     println!("Continued Super Trend: {:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                     85.90, 86.58, 86.98, 88.00, 87.87, 88.20, 88.70, 89.10, 88.50, 89.00,
+                     89.60, 89.90, 89.30, 90.10, 90.50, 91.00, 90.30, 91.00, 91.60, 92.00,
+                     91.30, 92.00, 92.60, 93.00, 92.30, 93.00, 93.60, 94.00, 93.30, 94.10};
+    double low[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                    84.03, 85.39, 85.76, 87.17, 87.01, 87.20, 87.80, 88.20, 87.60, 88.00,
+                    88.60, 88.90, 88.30, 89.00, 89.40, 89.80, 89.20, 89.90, 90.50, 90.80,
+                    90.20, 90.90, 91.50, 91.80, 91.20, 91.90, 92.50, 92.80, 92.20, 93.00};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                      88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+    double options[SUPERTREND_OPTIONS] = {10.0, 3.0}; // period, step
+    const double *inputs[SUPERTREND_INPUTS] = {high, low, close};
+
+    /* Full computation */
+    CIndicatorResult r = supertrend_indicator(inputs, 40, options, NULL, 0);
+    printf("Super Trend[0]: %.4f\n", r.outputs[0][0]); // outputs[0] is the primary trend line
+    tulip_ffi_result_free(r);
+    supertrend_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = supertrend_indicator(inputs, 8, options, NULL, 0);
+    double new_high[] = {85.90}, new_low[] = {84.03}, new_close[] = {85.53};
+    const double *new_inputs[SUPERTREND_INPUTS] = {new_high, new_low, new_close};
+    CBatchResult b = supertrend_batch(p.state, new_inputs, 1, NULL, 0);
+    printf("Continued Super Trend[0]: %.4f\n", b.outputs[0][0]);
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    supertrend_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -160,6 +197,38 @@ A trend-following overlay that plots above price in a downtrend and below price 
     let medprice   = &outputs[3]; // medprice (optional — requested)
     ```
 
+=== "C"
+
+    `supertrend` exposes 3 optional outputs: `atr`, `tr`, `medprice`. Pass a boolean mask as the third argument.
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                     85.90, 86.58, 86.98, 88.00, 87.87, 88.20, 88.70, 89.10, 88.50, 89.00,
+                     89.60, 89.90, 89.30, 90.10, 90.50, 91.00, 90.30, 91.00, 91.60, 92.00,
+                     91.30, 92.00, 92.60, 93.00, 92.30, 93.00, 93.60, 94.00, 93.30, 94.10};
+    double low[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                    84.03, 85.39, 85.76, 87.17, 87.01, 87.20, 87.80, 88.20, 87.60, 88.00,
+                    88.60, 88.90, 88.30, 89.00, 89.40, 89.80, 89.20, 89.90, 90.50, 90.80,
+                    90.20, 90.90, 91.50, 91.80, 91.20, 91.90, 92.50, 92.80, 92.20, 93.00};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                      88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+    double options[SUPERTREND_OPTIONS] = {10.0, 3.0}; // period, step
+    const double *inputs[SUPERTREND_INPUTS] = {high, low, close};
+    bool optional_outputs[3] = {true, true, true}; // atr, tr, medprice
+
+    CIndicatorResult r = supertrend_indicator(inputs, 40, options, optional_outputs, 3);
+    printf("supertrend[0]: %.4f\n", r.outputs[0][0]); // primary
+    printf("atr[0]:      %.4f\n", r.outputs[1][0]);   // optional 0: atr
+    printf("tr[0]:       %.4f\n", r.outputs[2][0]);   // optional 1: tr
+    printf("medprice[0]: %.4f\n", r.outputs[3][0]);   // optional 2: medprice
+    tulip_ffi_result_free(r);
+    supertrend_state_free(r.state);
+    ```
+
 === "Python"
 
     ```python
@@ -240,6 +309,89 @@ A trend-following overlay that plots above price in a downtrend and below price 
     for (i, out) in results.iter().enumerate() {
         println!("Period/Step {}/{}: {:?}", opts[i][0], opts[i][1], out[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same options applied to 4 assets in parallel:
+
+    ```c
+    double h1[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                   85.90, 86.58, 86.98, 88.00, 87.87, 88.20, 88.70, 89.10, 88.50, 89.00,
+                   89.60, 89.90, 89.30, 90.10, 90.50, 91.00, 90.30, 91.00, 91.60, 92.00,
+                   91.30, 92.00, 92.60, 93.00, 92.30, 93.00, 93.60, 94.00, 93.30, 94.10};
+    double l1[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                   84.03, 85.39, 85.76, 87.17, 87.01, 87.20, 87.80, 88.20, 87.60, 88.00,
+                   88.60, 88.90, 88.30, 89.00, 89.40, 89.80, 89.20, 89.90, 90.50, 90.80,
+                   90.20, 90.90, 91.50, 91.80, 91.20, 91.90, 92.50, 92.80, 92.20, 93.00};
+    double c1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                   88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                   90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+
+    double h2[40], l2[40], c2[40];
+    for (uintptr_t i = 0; i < 40; i++) { h2[i] = h1[i] * 1.1; l2[i] = l1[i] * 1.1; c2[i] = c1[i] * 1.1; }
+    double h3[40], l3[40], c3[40];
+    for (uintptr_t i = 0; i < 40; i++) { h3[i] = 90.0 + (double)i * 0.5 + h1[i] * 0.1;
+                                          l3[i] = 90.0 + (double)i * 0.5 + l1[i] * 0.1;
+                                          c3[i] = 90.0 + (double)i * 0.5 + c1[i] * 0.1; }
+    double h4[40], l4[40], c4[40];
+    for (uintptr_t i = 0; i < 40; i++) { h4[i] = 100.0 - (double)i * 0.3 + h1[i] * 0.05;
+                                          l4[i] = 100.0 - (double)i * 0.3 + l1[i] * 0.05;
+                                          c4[i] = 100.0 - (double)i * 0.3 + c1[i] * 0.05; }
+
+    const double *asset1[SUPERTREND_INPUTS] = {h1, l1, c1};
+    const double *asset2[SUPERTREND_INPUTS] = {h2, l2, c2};
+    const double *asset3[SUPERTREND_INPUTS] = {h3, l3, c3};
+    const double *asset4[SUPERTREND_INPUTS] = {h4, l4, c4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+    double options[SUPERTREND_OPTIONS] = {10.0, 3.0}; // period, step
+
+    CSimdResult r = supertrend_simd_by_assets(simd_inputs, 4, 40, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        printf("Asset %zu supertrend[0]: %.4f\n", i + 1, r.outputs[i][0][0]);
+        supertrend_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```c
+    double h1[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                   85.90, 86.58, 86.98, 88.00, 87.87, 88.20, 88.70, 89.10, 88.50, 89.00,
+                   89.60, 89.90, 89.30, 90.10, 90.50, 91.00, 90.30, 91.00, 91.60, 92.00,
+                   91.30, 92.00, 92.60, 93.00, 92.30, 93.00, 93.60, 94.00, 93.30, 94.10};
+    double l1[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                   84.03, 85.39, 85.76, 87.17, 87.01, 87.20, 87.80, 88.20, 87.60, 88.00,
+                   88.60, 88.90, 88.30, 89.00, 89.40, 89.80, 89.20, 89.90, 90.50, 90.80,
+                   90.20, 90.90, 91.50, 91.80, 91.20, 91.90, 92.50, 92.80, 92.20, 93.00};
+    double c1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                   88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                   90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+
+    #define EXPANDED_LEN (40 * 20)
+    double h_exp[EXPANDED_LEN], l_exp[EXPANDED_LEN], c_exp[EXPANDED_LEN];
+    for (uintptr_t i = 0; i < 20; i++) {
+        for (uintptr_t j = 0; j < 40; j++) {
+            h_exp[i*40+j] = h1[j]; l_exp[i*40+j] = l1[j]; c_exp[i*40+j] = c1[j];
+        }
+    }
+    const double *inputs[SUPERTREND_INPUTS] = {h_exp, l_exp, c_exp};
+
+    double o1[SUPERTREND_OPTIONS] = {7.0, 2.0};
+    double o2[SUPERTREND_OPTIONS] = {10.0, 3.0};
+    double o3[SUPERTREND_OPTIONS] = {14.0, 3.5};
+    double o4[SUPERTREND_OPTIONS] = {20.0, 4.0};
+    const double *const simd_opts[4] = {o1, o2, o3, o4};
+
+    CSimdResult r = supertrend_simd_by_options(inputs, EXPANDED_LEN, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        printf("Period/Step %g/%g: %.4f\n", simd_opts[i][0], simd_opts[i][1], r.outputs[i][0][0]);
+        supertrend_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

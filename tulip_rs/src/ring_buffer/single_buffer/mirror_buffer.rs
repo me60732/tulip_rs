@@ -14,8 +14,8 @@ use crate::indicators::{
 use crate::ring_buffer::{
     buffer::{period_to_idx, SerdeElement},
     single_buffer::generic_buffer::{
-        buf_advance, buf_advance_unchecked, buf_get_by_period,
-        buf_to_ordered_by_period, buf_to_ordered_vec, BufferElement, Cold, Warm,
+        buf_advance, buf_advance_unchecked, buf_get_by_period, buf_to_ordered_by_period,
+        buf_to_ordered_vec, BufferElement, Cold, Warm,
     },
 };
 //use serde::{Deserialize, Serialize};
@@ -227,12 +227,7 @@ impl<T: BufferElement> MirrorBuffer<Cold, T> {
 
 impl MirrorBuffer<Warm, f64> {
     #[inline(always)]
-    pub fn max(
-        &self,
-        state: &mut MaxState<Warm>,
-        bar: f64,
-        period: usize,
-    ) -> (f64, usize) {
+    pub fn max(&self, state: &mut MaxState<Warm>, bar: f64, period: usize) -> (f64, usize) {
         self.max_chuncked::<4>(state, bar, period)
     }
     #[inline(always)]
@@ -262,12 +257,7 @@ impl MirrorBuffer<Warm, f64> {
     }
 
     #[inline(always)]
-    pub fn min(
-        &self,
-        state: &mut MinState<Warm>,
-        bar: f64,
-        period: usize,
-    ) -> (f64, usize) {
+    pub fn min(&self, state: &mut MinState<Warm>, bar: f64, period: usize) -> (f64, usize) {
         self.min_chuncked::<4>(state, bar, period)
     }
     #[inline(always)]
@@ -298,11 +288,7 @@ impl MirrorBuffer<Warm, f64> {
 }
 impl MirrorBuffer<Cold, f64> {
     #[inline(always)]
-    pub(crate) fn max(
-        &self,
-        state: &mut MaxState<Cold>,
-        bar: f64,
-    ) -> (f64, usize) {
+    pub(crate) fn max(&self, state: &mut MaxState<Cold>, bar: f64) -> (f64, usize) {
         let (mut max, mut trail) = (state.max, state.trail);
         if bar >= max {
             max = bar;
@@ -315,11 +301,7 @@ impl MirrorBuffer<Cold, f64> {
     }
 
     #[inline(always)]
-    pub fn min(
-        &self,
-        state: &mut MinState<Cold>,
-        bar: f64,
-    ) -> (f64, usize) {
+    pub fn min(&self, state: &mut MinState<Cold>, bar: f64) -> (f64, usize) {
         let (mut min, mut trail) = (state.min, state.trail);
 
         if bar <= min {
@@ -410,7 +392,6 @@ impl<T: BufferElement> MirrorBuffer<Warm, T> {
     pub fn window_index_to_bars_ago(&self, window_index: usize) -> usize {
         self.capacity - 1 - window_index
     }
-    
 }
 
 // ── Iterator ──────────────────────────────────────────────────────────────
@@ -483,7 +464,7 @@ where
     T::Repr: serde::Deserialize<'de>,
 {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        use serde::de::{MapAccess, Visitor};
+        use serde::de::{MapAccess, SeqAccess, Visitor};
         struct Vis<Stat, T>(std::marker::PhantomData<(Stat, T)>);
         impl<'de, Stat, T: BufferElement + SerdeElement> Visitor<'de> for Vis<Stat, T>
         where
@@ -492,6 +473,32 @@ where
             type Value = MirrorBuffer<Stat, T>;
             fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 f.write_str("a MirrorBuffer struct")
+            }
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                // Mirrors Serialize field order: vals, index, capacity, count, prev_idx.
+                let vals_repr: Vec<T::Repr> = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(0, &self))?;
+                let index = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(1, &self))?;
+                let capacity = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(2, &self))?;
+                let count = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(3, &self))?;
+                let prev_idx = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(4, &self))?;
+                Ok(MirrorBuffer {
+                    vals: vals_repr.into_iter().map(T::from_repr).collect(),
+                    index,
+                    capacity,
+                    count,
+                    prev_idx,
+                    state: std::marker::PhantomData,
+                })
             }
             fn visit_map<A: MapAccess<'de>>(
                 self,

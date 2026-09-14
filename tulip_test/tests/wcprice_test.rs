@@ -1,7 +1,9 @@
 #[cfg(test)]
 mod tests {
+    use bincode::config::standard;
+    use bincode::serde::{decode_from_slice, encode_to_vec};
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::wcprice::{Indicator, TIndicatorState, WcPrice};
+    use tulip_rs::indicators::wcprice::{Indicator, IndicatorState, TIndicatorState, WcPrice};
     use tulip_test::c_bindings::{ti_wcprice, ti_wcprice_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -401,5 +403,53 @@ mod tests {
         }
 
         println!("✓ All SIMD by assets vs Regular WCPRICE database tests passed!");
+    }
+
+    #[test]
+    fn test_wcprice_state_bincode_roundtrip() {
+        // Generate 600-bar local series (min_data=1, enough for state)
+        let close: Vec<f64> = (0..600)
+            .map(|i| {
+                let t = i as f64;
+                100.0 + 10.0 * (t * 0.3).sin() + t * 0.05
+            })
+            .collect();
+        let high: Vec<f64> = close.iter().map(|&c| c + 2.0).collect();
+        let low: Vec<f64> = close.iter().map(|&c| c - 2.0).collect();
+
+        let mid = close.len() - 50;
+        let inputs_first = [&high[..mid], &low[..mid], &close[..mid]];
+        let options: [f64; 0] = [];
+
+        // Run original state
+        let (outputs_first, mut original_state) = WcPrice::indicator(&inputs_first, &options, None)
+            .expect("Rust WCPRICE indicator failed");
+
+        // Serialize and deserialize
+        let bytes = encode_to_vec(&original_state, standard()).expect("serialize");
+        let (mut restored_state, consumed): (IndicatorState, usize) =
+            decode_from_slice(&bytes, standard()).expect("deserialize");
+        assert_eq!(consumed, bytes.len());
+
+        // Second slice for batch_indicator
+        let inputs_second = [&high[mid..], &low[mid..], &close[mid..]];
+
+        // Batch indicator on both states
+        let original_batch = original_state
+            .batch_indicator(&inputs_second, None)
+            .expect("original batch failed");
+        let restored_batch = restored_state
+            .batch_indicator(&inputs_second, None)
+            .expect("restored batch failed");
+
+        // Compare all values via to_bits()
+        for i in 0..original_batch[0].len() {
+            assert_eq!(
+                original_batch[0][i].to_bits(),
+                restored_batch[0][i].to_bits(),
+                "Value mismatch at index {} after bincode roundtrip",
+                i
+            );
+        }
     }
 }

@@ -2,7 +2,7 @@
 mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicator_types::TIndicatorState;
-    use tulip_rs::indicators::medprice::{Indicator, Medprice};
+    use tulip_rs::indicators::medprice::{Indicator, IndicatorState, Medprice, INPUTS, OPTIONS};
     use tulip_test::c_bindings::{ti_medprice, ti_medprice_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -276,5 +276,40 @@ mod tests {
         }
 
         println!("✓ All SIMD by assets vs Regular MEDPRICE database tests passed!");
+    }
+
+    #[test]
+    fn test_medprice_state_bincode_roundtrip() {
+        use bincode::config::standard;
+        use bincode::serde::{decode_from_slice, encode_to_vec};
+
+        let close: Vec<f64> = (0..600)
+            .map(|i| {
+                let t = i as f64;
+                100.0 + 10.0 * (t * 0.3).sin() + t * 0.05
+            })
+            .collect();
+        let high: Vec<f64> = close.iter().map(|&c| c + 2.0).collect();
+        let low: Vec<f64> = close.iter().map(|&c| c - 2.0).collect();
+        let mid = close.len() - 50;
+        let options: [f64; OPTIONS] = [];
+        let first: [&[f64]; INPUTS] = [&high[..mid], &low[..mid]];
+        let second: [&[f64]; INPUTS] = [&high[mid..], &low[mid..]];
+
+        let (_rows, mut original) = Medprice::indicator(&first, &options, None).unwrap();
+        let bytes = encode_to_vec(&original, standard()).expect("serialize");
+        let (mut restored, consumed): (IndicatorState, usize) =
+            decode_from_slice(&bytes, standard()).expect("deserialize");
+        assert_eq!(consumed, bytes.len());
+
+        let a = original.batch_indicator(&second, None).unwrap();
+        let b = restored.batch_indicator(&second, None).unwrap();
+        assert_eq!(a.len(), b.len());
+        for (ra, rb) in a.iter().zip(b.iter()) {
+            assert_eq!(ra.len(), rb.len());
+            for (x, y) in ra.iter().zip(rb.iter()) {
+                assert_eq!(x.to_bits(), y.to_bits());
+            }
+        }
     }
 }

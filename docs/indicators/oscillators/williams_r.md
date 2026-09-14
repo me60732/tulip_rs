@@ -32,6 +32,40 @@ Momentum indicator measuring the current close relative to the highest high over
     println!("Continued Williams %R: {:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[] = {82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[] = {81.29, 80.64, 81.31, 82.65, 83.07,
+                    83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[WILLR_OPTIONS] = {14.0}; // period
+    const double *inputs[WILLR_INPUTS] = {high, low, close};
+
+    /* Full computation */
+    CIndicatorResult r = willr_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> the Williams %R(14) series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    willr_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    const double *partial_inputs[WILLR_INPUTS] = {high, low, close};
+    CIndicatorResult p = willr_indicator(partial_inputs, 8, options, NULL, 0);
+    double new_high[] = {84.84, 85.00};
+    double new_low[] = {84.15, 84.11};
+    double new_close[] = {84.55, 84.36};
+    const double *new_inputs[WILLR_INPUTS] = {new_high, new_low, new_close};
+    CBatchResult b = willr_batch(p.state, new_inputs, 2, NULL, 0);
+    /* b.outputs[0] -> Williams %R values for just the two new bars */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    willr_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -121,6 +155,30 @@ Momentum indicator measuring the current close relative to the highest high over
     let willr = &outputs[0]; // willr (primary)
     let min   = &outputs[1]; // min (optional — requested)
     let max   = &outputs[2]; // max (optional — requested)
+    ```
+
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[] = {82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[] = {81.29, 80.64, 81.31, 82.65, 83.07,
+                    83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[WILLR_OPTIONS] = {14.0}; // period
+    const double *inputs[WILLR_INPUTS] = {high, low, close};
+
+    /* Request all optional outputs: min, max (2 optional) */
+    bool optional_outputs[2] = {true, true};
+    CIndicatorResult r = willr_indicator(inputs, 10, options, optional_outputs, 2);
+    /* r.outputs[0] -> willr (primary), length r.output_lens[0] */
+    /* r.outputs[1] -> min (optional — requested) */
+    /* r.outputs[2] -> max (optional — requested) */
+    tulip_ffi_result_free(r);
+    willr_state_free(r.state);
     ```
 
 === "Python"
@@ -215,6 +273,63 @@ Momentum indicator measuring the current close relative to the highest high over
     for (i, opt_outputs) in results.iter().enumerate() {
         println!("Period set {}: {:?}", i + 1, opt_outputs[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same period applied to 4 assets in one call (N must be 2/4/8/16):
+
+    ```c
+    double h1[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double l1[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double c1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+
+    double h2[] = {83.15, 82.89, 84.03, 84.30, 84.85, 84.90, 84.33, 85.30, 85.84, 86.00};
+    double l2[] = {82.29, 81.64, 82.31, 83.65, 84.07, 84.11, 83.49, 83.30, 85.15, 85.11};
+    double c2[] = {82.59, 82.06, 83.87, 84.00, 84.61, 84.15, 83.84, 84.99, 85.55, 85.36};
+
+    double h3[] = {84.15, 83.89, 85.03, 85.30, 85.85, 85.90, 85.33, 86.30, 86.84, 87.00};
+    double l3[] = {83.29, 82.64, 83.31, 84.65, 85.07, 85.11, 84.49, 84.30, 86.15, 86.11};
+    double c3[] = {83.59, 83.06, 84.87, 85.00, 85.61, 85.15, 84.84, 85.99, 86.55, 86.36};
+
+    double h4[] = {85.15, 84.89, 86.03, 86.30, 86.85, 86.90, 86.33, 87.30, 87.84, 88.00};
+    double l4[] = {84.29, 83.64, 84.31, 85.65, 86.07, 86.11, 85.49, 85.30, 87.15, 87.11};
+    double c4[] = {84.59, 84.06, 85.87, 86.00, 86.61, 86.15, 85.84, 86.99, 87.55, 87.36};
+
+    /* one [INPUTS]-long pointer array per asset */
+    const double *asset1[WILLR_INPUTS] = {h1, l1, c1};
+    const double *asset2[WILLR_INPUTS] = {h2, l2, c2};
+    const double *asset3[WILLR_INPUTS] = {h3, l3, c3};
+    const double *asset4[WILLR_INPUTS] = {h4, l4, c4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    double options[WILLR_OPTIONS] = {14.0}; // same period for all assets
+    CSimdResult r = willr_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's Williams %R series, length r.output_lens[i][0] */
+        willr_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in one call:
+
+    ```c
+    double h[] = {82.15, 81.89, 83.03, 83.30, 83.85,
+                  83.90, 83.33, 84.30, 84.84, 85.00};
+    double l[] = {81.29, 80.64, 81.31, 82.65, 83.07,
+                  83.11, 82.49, 82.30, 84.15, 84.11};
+    double c[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                  83.15, 82.84, 83.99, 84.55, 84.36};
+    const double *inputs[WILLR_INPUTS] = {h, l, c};
+
+    double o7[] = {7.0}, o14[] = {14.0}, o21[] = {21.0}, o28[] = {28.0};
+    const double *const simd_opts[4] = {o7, o14, o21, o28};
+
+    CSimdResult r = willr_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
+    /* r.outputs[i] -> results for period set i (periods 7/14/21/28) */
+    for (uintptr_t i = 0; i < r.num_results; i++) willr_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

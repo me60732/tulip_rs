@@ -1,7 +1,9 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::ef::{Ef, Indicator, IndicatorByOptions, TIndicatorState};
+    use tulip_rs::indicators::ef::{
+        Ef, Indicator, IndicatorByOptions, IndicatorState, TIndicatorState, INPUTS, OPTIONS,
+    };
     use tulip_rs::indicators::kama::Kama;
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -323,5 +325,38 @@ mod tests {
         }
 
         println!("✓ All SIMD by options vs Regular EF database tests passed!");
+    }
+
+    #[test]
+    fn test_ef_state_bincode_roundtrip() {
+        use bincode::config::standard;
+        use bincode::serde::{decode_from_slice, encode_to_vec};
+
+        // Generate enough data: EF min_data = period + 1, so for period=10 we need at least 11
+        let close: Vec<f64> = (0..400)
+            .map(|i| 100.0 + 10.0 * ((i as f64) * 0.3).sin())
+            .collect();
+        let len = close.len();
+        let mid = len - 50;
+        let options: [f64; OPTIONS] = [10.0]; // one of the option sets used in existing tests
+        let first: [&[f64]; INPUTS] = [&close[..mid]];
+        let second: [&[f64]; INPUTS] = [&close[mid..]];
+
+        let (_rows, mut original) = Ef::indicator(&first, &options, None).unwrap();
+        let cfg = standard();
+        let bytes = encode_to_vec(&original, cfg).expect("serialize");
+        let (mut restored, consumed): (IndicatorState, usize) =
+            decode_from_slice(&bytes, cfg).expect("deserialize");
+        assert_eq!(consumed, bytes.len());
+
+        let a = original.batch_indicator(&second, None).unwrap();
+        let b = restored.batch_indicator(&second, None).unwrap();
+        assert_eq!(a.len(), b.len());
+        for (ra, rb) in a.iter().zip(b.iter()) {
+            assert_eq!(ra.len(), rb.len());
+            for (x, y) in ra.iter().zip(rb.iter()) {
+                assert_eq!(x.to_bits(), y.to_bits());
+            }
+        }
     }
 }

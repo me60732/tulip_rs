@@ -19,7 +19,6 @@ Similar to CVI but uses True Range instead of high − low. Applies an EMA to TR
                      83.15, 82.84, 83.99, 84.55, 84.36_f64];
 
     let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
-    let inputs = [high.as_slice(), low.as_slice(), close.as_slice()];
     let (outputs, mut state) = Trvi::indicator(&inputs, &[14.0], None).unwrap();
     println!("{:?}", outputs[0]); // TRVI values
 
@@ -38,6 +37,39 @@ Similar to CVI but uses True Range instead of high − low. Applies an EMA to TR
         None,
     ).unwrap();
     println!("{:?}", continued[0]);
+    ```
+
+=== "C"
+
+    `trvi` exposes 2 optional outputs: `tr`, `ema`. Pass a boolean mask as the third argument.
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[] = {82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[] = {81.29, 80.64, 81.31, 82.65, 83.07,
+                    83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[TRVI_OPTIONS] = {14.0}; // period
+    const double *inputs[TRVI_INPUTS] = {high, low, close};
+
+    /* Full computation */
+    CIndicatorResult r = trvi_indicator(inputs, 10, options, NULL, 0);
+    printf("trvi[0]: %.4f\n", r.outputs[0][0]); // outputs[0] is the primary trvi series
+    tulip_ffi_result_free(r);
+    trvi_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = trvi_indicator(inputs, 8, options, NULL, 0);
+    double new_high[] = {85.20}, new_low[] = {84.50}, new_close[] = {85.00};
+    const double *new_inputs[TRVI_INPUTS] = {new_high, new_low, new_close};
+    CBatchResult b = trvi_batch(p.state, new_inputs, 1, NULL, 0);
+    printf("Continued trvi[0]: %.4f\n", b.outputs[0][0]);
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    trvi_state_free(p.state);
     ```
 
 === "Python"
@@ -130,6 +162,31 @@ Similar to CVI but uses True Range instead of high − low. Applies an EMA to TR
     let ema  = &outputs[2]; // ema (optional — requested)
     ```
 
+=== "C"
+
+    `trvi` exposes 2 optional outputs: `tr`, `ema`. Pass a boolean mask as the third argument.
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[] = {82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[] = {81.29, 80.64, 81.31, 82.65, 83.07,
+                    83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[TRVI_OPTIONS] = {14.0}; // period
+    const double *inputs[TRVI_INPUTS] = {high, low, close};
+    bool optional_outputs[2] = {true, true}; // tr, ema
+
+    CIndicatorResult r = trvi_indicator(inputs, 10, options, optional_outputs, 2);
+    printf("trvi[0]: %.4f\n", r.outputs[0][0]); // primary
+    printf("tr[0]:   %.4f\n", r.outputs[1][0]);   // optional 0: tr
+    printf("ema[0]:  %.4f\n", r.outputs[2][0]);   // optional 1: ema
+    tulip_ffi_result_free(r);
+    trvi_state_free(r.state);
+    ```
+
 === "Python"
 
     ```python
@@ -209,6 +266,74 @@ Similar to CVI but uses True Range instead of high − low. Applies an EMA to TR
     for (i, out) in results.iter().enumerate() {
         println!("Period {}: {:?}", opts[i][0], out[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```c
+    double h1[] = {82.15, 81.89, 83.03, 83.30, 83.85,
+                   83.90, 83.33, 84.30, 84.84, 85.00};
+    double l1[] = {81.29, 80.64, 81.31, 82.65, 83.07,
+                   83.11, 82.49, 82.30, 84.15, 84.11};
+    double c1[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                   83.15, 82.84, 83.99, 84.55, 84.36};
+
+    double h2[10], l2[10], c2[10];
+    for (uintptr_t i = 0; i < 10; i++) { h2[i] = h1[i] * 1.1; l2[i] = l1[i] * 1.1; c2[i] = c1[i] * 1.1; }
+    double h3[10], l3[10], c3[10];
+    for (uintptr_t i = 0; i < 10; i++) { h3[i] = 90.0 + (double)i * 0.5 + h1[i] * 0.1;
+                                          l3[i] = 90.0 + (double)i * 0.5 + l1[i] * 0.1;
+                                          c3[i] = 90.0 + (double)i * 0.5 + c1[i] * 0.1; }
+    double h4[10], l4[10], c4[10];
+    for (uintptr_t i = 0; i < 10; i++) { h4[i] = 100.0 - (double)i * 0.3 + h1[i] * 0.05;
+                                          l4[i] = 100.0 - (double)i * 0.3 + l1[i] * 0.05;
+                                          c4[i] = 100.0 - (double)i * 0.3 + c1[i] * 0.05; }
+
+    const double *asset1[TRVI_INPUTS] = {h1, l1, c1};
+    const double *asset2[TRVI_INPUTS] = {h2, l2, c2};
+    const double *asset3[TRVI_INPUTS] = {h3, l3, c3};
+    const double *asset4[TRVI_INPUTS] = {h4, l4, c4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+    double options[TRVI_OPTIONS] = {14.0}; // period
+
+    CSimdResult r = trvi_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        printf("Asset %zu trvi[0]: %.4f\n", i + 1, r.outputs[i][0][0]);
+        trvi_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```c
+    double high[] = {82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[] = {81.29, 80.64, 81.31, 82.65, 83.07,
+                    83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    #define EXPANDED_LEN (10 * 20)
+    double h_exp[EXPANDED_LEN], l_exp[EXPANDED_LEN], c_exp[EXPANDED_LEN];
+    for (uintptr_t i = 0; i < 20; i++) {
+        for (uintptr_t j = 0; j < 10; j++) {
+            h_exp[i*10+j] = high[j]; l_exp[i*10+j] = low[j]; c_exp[i*10+j] = close[j];
+        }
+    }
+    const double *inputs[TRVI_INPUTS] = {h_exp, l_exp, c_exp};
+
+    double o5[] = {5.0}, o10[] = {10.0}, o14[] = {14.0}, o20[] = {20.0};
+    const double *const simd_opts[4] = {o5, o10, o14, o20};
+
+    CSimdResult r = trvi_simd_by_options(inputs, EXPANDED_LEN, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        printf("Period %g: %.4f\n", simd_opts[i][0], r.outputs[i][0][0]);
+        trvi_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

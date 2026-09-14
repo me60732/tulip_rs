@@ -9,8 +9,8 @@
 TulipRS implements 100+ technical indicators and 77+ candlestick patterns with
 first-class SIMD acceleration. Process multiple assets or multiple parameter
 sets in a single CPU pass, stream live bars into stateful indicators without
-reprocessing history, and call everything from Rust or Python with the same
-universal API.
+reprocessing history, and call everything from Rust, Python, Node.js, or C with
+the same universal API.
 
 📖 **[Full documentation](https://me60732.github.io/tulip_rs)**
 
@@ -24,7 +24,7 @@ universal API.
 | **SIMD — multiple options** | ✅ N parameter sets in one pass | ❌ one parameter set at a time |
 | **Stateful streaming** | ✅ resume from `IndicatorState` | ❌ full recompute each tick |
 | **Optional outputs** | ✅ free in the same pass | ❌ separate call + full scan |
-| **Language bindings** | Rust + Python (more planned) | C, various wrappers |
+| **Language bindings** | Rust + Python + Node.js + C FFI (more planned) | C, various wrappers |
 
 When optional intermediate outputs are needed (sub-EMAs, TR, AD line, etc.)
 TulipRS is **1.3× – 8.7× faster** than running the equivalent TA-Lib calls.
@@ -39,14 +39,14 @@ Add TulipRS to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-tulip_rs = "0.1.6"
+tulip_rs = "0.2.8"
 ```
 
-To get the very latest unreleased changes, use the Git source directly:
+For a reproducible build, pin the source to the latest release tag (`{latest tag}` = the newest tag from the repository's [tags page](https://github.com/me60732/tulip_rs/tags), e.g. `v0.2.7`); omit the `tag` to track the latest unreleased `main`:
 
 ```toml
 [dependencies]
-tulip_rs = { git = "https://github.com/me60732/tulip_rs" }
+tulip_rs = { git = "https://github.com/me60732/tulip_rs", tag = "{latest tag}" }
 ```
 
 > **Nightly required.** TulipRS uses `portable_simd`. The correct nightly
@@ -56,21 +56,27 @@ tulip_rs = { git = "https://github.com/me60732/tulip_rs" }
 To disable the SIMD variants (reduces compile time):
 
 ```toml
-tulip_rs = { version = "0.1.6", default-features = false }
+tulip_rs = { version = "0.2.8", default-features = false }
 ```
 
 ### Python
 
-```bash
-pip install tulip-rs
-```
-
-Build from source with native CPU optimisations:
+Build from source (recommended) — compiling on your machine with
+`-C target-cpu=native` lets LLVM use every instruction set your CPU supports,
+speeding up the scalar indicators as much as the SIMD ones:
 
 ```bash
 git clone https://github.com/me60732/tulip_rs_python
 cd tulip_rs_python
+git checkout {latest tag}   # or omit for the bleeding edge — see the repo's tags page
 RUSTFLAGS="-C target-cpu=native" maturin develop --release
+```
+
+Install from PyPI only when the deployment target architecture is unknown or a
+Rust toolchain can't run there (prebuilt wheels ship generic baselines):
+
+```bash
+pip install tulip-rs
 ```
 
 ---
@@ -162,7 +168,7 @@ C implementation (Tulip Indicators) and TA-Lib across 8 real market symbols.
 | [SIMD](https://me60732.github.io/tulip_rs/simd/) | By-assets and by-options modes, lane counts, when to use each |
 | [State Management](https://me60732.github.io/tulip_rs/state_management/) | Streaming computation, chunked processing, JSON serialisation |
 | [Candlestick Patterns](https://me60732.github.io/tulip_rs/candlestick_patterns/) | 60+ patterns with bullish/bearish forecasting |
-| [Language Bindings](https://me60732.github.io/tulip_rs/language_bindings/) | Python (PyO3/maturin) details and planned bindings |
+| [Language Bindings](https://me60732.github.io/tulip_rs/language_bindings/) | Per-binding subpages: C FFI, Python (PyO3/maturin), Node.js (napi-rs), Browser (WASM) |
 
 ---
 
@@ -172,6 +178,7 @@ C implementation (Tulip Indicators) and TA-Lib across 8 real market symbols.
 |---|---|---|
 | **Rust** | ✅ Native | `tulip_rs` (this repo) |
 | **Python** | ✅ Supported | [`tulip_rs_python`](https://github.com/me60732/tulip_rs_python) · `pip install tulip-rs` |
+| **C** | ✅ Supported | [`tulip_rs_ffi`](https://github.com/me60732/tulip_rs_ffi) — hand-rolled `extern "C"` ABI, no wrapper library needed |
 | **Node.js** | ✅ Supported | [`tulip-rs-node`](https://github.com/me60732/tulip_rs_node) · `npm install tulip-rs-node` |
 | **WASM** | ✅ Supported | [`tulip-rs-wasm`](https://github.com/me60732/tulip_rs_wasm) |
 | R | 🔜 Planned | — |

@@ -39,6 +39,39 @@ ATR expressed as a percentage of the closing price, making it comparable across 
     println!("{:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[] = {82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[] = {81.29, 80.64, 81.31, 82.65, 83.07,
+                    83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[NATR_OPTIONS] = {14.0}; // period
+    const double *inputs[NATR_INPUTS] = {high, low, close};
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = natr_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> natr */
+    tulip_ffi_result_free(r);
+    natr_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = natr_indicator(inputs, 8, options, NULL, 0);
+    double new_high[] = {85.90};
+    double new_low[] = {84.03};
+    double new_close[] = {85.53};
+    const double *new_inputs[NATR_INPUTS] = {new_high, new_low, new_close};
+    CBatchResult b = natr_batch(p.state, new_inputs, 1, NULL, 0);
+    /* b.outputs[0] -> natr for the one new bar */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    natr_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -155,6 +188,30 @@ ATR expressed as a percentage of the closing price, making it comparable across 
     tr   = outputs[2]  # tr   (optional — requested)
     ```
 
+=== "C"
+
+    `natr` exposes 2 optional outputs: `atr`, `tr`. The inputs are [high, low, close] and options is [period].
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[]  = {82.59, 82.06, 83.87, 84.00, 84.61,
+                      84.15, 83.84, 84.99, 85.55, 85.36};
+    double low[]   = {80.59, 80.06, 81.87, 82.00, 82.61,
+                      82.15, 81.84, 82.99, 83.55, 83.36};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[NATR_OPTIONS] = {14.0}; // period
+    const double *inputs[NATR_INPUTS] = {high, low, close};
+
+    /* Request both optional outputs (atr and tr) */
+    bool mask[] = {true, true};
+    CIndicatorResult r = natr_indicator(inputs, 10, options, mask, 2);
+    /* r.outputs[0] -> natr (primary), r.outputs[1] -> atr (optional 0), r.outputs[2] -> tr (optional 1) */
+    tulip_ffi_result_free(r);
+    natr_state_free(r.state);
+    ```
+
 === "Node.js"
 
     `natr` exposes 2 optional outputs: `atr`, `tr`.
@@ -181,8 +238,6 @@ ATR expressed as a percentage of the closing price, making it comparable across 
 
 === "Rust"
 
-    **By assets** — same options, N assets in parallel:
-
     ```rust
     use tulip_rs::indicators::natr::{Natr, Indicator};
 
@@ -208,6 +263,54 @@ ATR expressed as a percentage of the closing price, making it comparable across 
     for (i, out) in results.iter().enumerate() {
         println!("Period {}: {:?}", opts[i][0], out[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same options applied to 4 assets in one call (N must be 2/4/8/16):
+
+    ```c
+    double a1_high[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double a1_low[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double a1_close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    const double *const asset1[NATR_INPUTS] = {a1_high, a1_low, a1_close};
+
+    double a2_high[] = {90.0, 89.5, 91.0, 91.3, 91.9, 92.0, 91.5, 92.0, 92.5, 92.8};
+    double a2_low[] = {89.0, 88.5, 90.0, 90.3, 90.9, 91.0, 90.5, 91.0, 91.5, 91.8};
+    double a2_close[] = {89.5, 89.0, 90.5, 90.8, 91.4, 91.5, 91.0, 91.5, 92.0, 92.3};
+    const double *const asset2[NATR_INPUTS] = {a2_high, a2_low, a2_close};
+
+    double a3_high[] = {75.0 + (double)i * 0.2 for i in 0..10}; /* simplified */
+    double a3_low[] = {74.0 + (double)i * 0.2 for i in 0..10};
+    double a3_close[] = {74.5 + (double)i * 0.2 for i in 0..10};
+    const double *const asset3[NATR_INPUTS] = {a3_high, a3_low, a3_close};
+
+    double a4_high[] = {85.0 - (double)i * 0.1 for i in 0..10};
+    double a4_low[] = {84.0 - (double)i * 0.1 for i in 0..10};
+    double a4_close[] = {84.5 - (double)i * 0.1 for i in 0..10};
+    const double *const asset4[NATR_INPUTS] = {a4_high, a4_low, a4_close};
+
+    /* simd_inputs is indexed by asset (the N=4 SIMD lanes) */
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = natr_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's natr */
+        natr_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in one call:
+
+    ```c
+    double o7[] = {7.0}, o14[] = {14.0}, o21[] = {21.0}, o28[] = {28.0};
+    const double *const simd_opts[4] = {o7, o14, o21, o28};
+
+    CSimdResult r = natr_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
+    /* r.outputs[i] -> results for option set i */
+    for (uintptr_t i = 0; i < r.num_results; i++) natr_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

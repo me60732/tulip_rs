@@ -32,6 +32,36 @@
     println!("{:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[] = {82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[]  = {81.29, 80.64, 81.31, 82.65, 83.07,
+                     83.11, 82.49, 82.30, 84.15, 84.11};
+    const double *inputs[MEDPRICE_INPUTS] = {high, low};
+    /* MEDPRICE has 0 options (MEDPRICE_OPTIONS == 0) */
+
+    /* Full computation */
+    CIndicatorResult r = medprice_indicator(inputs, 10, NULL, NULL, 0);
+    /* r.outputs[0] -> the MEDPRICE series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    medprice_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = medprice_indicator(inputs, 8, NULL, NULL, 0);
+    double new_high[] = {85.90};
+    double new_low[]  = {84.03};
+    const double *new_inputs[MEDPRICE_INPUTS] = {new_high, new_low};
+    CBatchResult b = medprice_batch(p.state, new_inputs, 1, NULL, 0);
+    /* b.outputs[0] -> MEDPRICE values for just the one new bar */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    medprice_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -99,7 +129,37 @@
     }
     ```
 
-    _This indicator has no options, so by-options SIMD does not apply._
+=== "C"
+
+    **By assets** — same no-options applied to 4 assets in parallel (N must be 2/4/8/16):
+
+    ```c
+    double h1[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double l1[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double h2[] = {82.15*1.2, 81.89*1.2, 83.03*1.2, 83.30*1.2, 83.85*1.2, 83.90*1.2, 83.33*1.2, 84.30*1.2, 84.84*1.2, 85.00*1.2};
+    double l2[] = {81.29*1.2, 80.64*1.2, 81.31*1.2, 82.65*1.2, 83.07*1.2, 83.11*1.2, 82.49*1.2, 82.30*1.2, 84.15*1.2, 84.11*1.2};
+    double h3[] = {90.0+0.5*0+82.15*0.1, 90.0+0.5*1+81.89*0.1, 90.0+0.5*2+83.03*0.1, 90.0+0.5*3+83.30*0.1, 90.0+0.5*4+83.85*0.1, 90.0+0.5*5+83.90*0.1, 90.0+0.5*6+83.33*0.1, 90.0+0.5*7+84.30*0.1, 90.0+0.5*8+84.84*0.1, 90.0+0.5*9+85.00*0.1};
+    double l3[] = {90.0+0.5*0+81.29*0.1, 90.0+0.5*1+80.64*0.1, 90.0+0.5*2+81.31*0.1, 90.0+0.5*3+82.65*0.1, 90.0+0.5*4+83.07*0.1, 90.0+0.5*5+83.11*0.1, 90.0+0.5*6+82.49*0.1, 90.0+0.5*7+82.30*0.1, 90.0+0.5*8+84.15*0.1, 90.0+0.5*9+84.11*0.1};
+    double h4[] = {100.0-0.3*0+82.15*0.05, 100.0-0.3*1+81.89*0.05, 100.0-0.3*2+83.03*0.05, 100.0-0.3*3+83.30*0.05, 100.0-0.3*4+83.85*0.05, 100.0-0.3*5+83.90*0.05, 100.0-0.3*6+83.33*0.05, 100.0-0.3*7+84.30*0.05, 100.0-0.3*8+84.84*0.05, 100.0-0.3*9+85.00*0.05};
+    double l4[] = {100.0-0.3*0+81.29*0.05, 100.0-0.3*1+80.64*0.05, 100.0-0.3*2+81.31*0.05, 100.0-0.3*3+82.65*0.05, 100.0-0.3*4+83.07*0.05, 100.0-0.3*5+83.11*0.05, 100.0-0.3*6+82.49*0.05, 100.0-0.3*7+82.30*0.05, 100.0-0.3*8+84.15*0.05, 100.0-0.3*9+84.11*0.05};
+
+    /* one [INPUTS]-long pointer array per asset */
+    const double *asset1[MEDPRICE_INPUTS] = {h1, l1};
+    const double *asset2[MEDPRICE_INPUTS] = {h2, l2};
+    const double *asset3[MEDPRICE_INPUTS] = {h3, l3};
+    const double *asset4[MEDPRICE_INPUTS] = {h4, l4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    /* MEDPRICE has no options (MEDPRICE_OPTIONS == 0), so pass NULL */
+    CSimdResult r = medprice_simd_by_assets(simd_inputs, 4, 10, NULL, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's series, length r.output_lens[i][0] */
+        medprice_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    _This indicator has no options (MEDPRICE_OPTIONS == 0), so simd_by_options is not available._
 
 === "Python"
 

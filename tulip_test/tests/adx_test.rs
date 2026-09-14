@@ -1,7 +1,9 @@
 #[cfg(test)]
 mod tests {
+    use bincode;
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::adx::{Adx, Indicator, IndicatorByOptions, TIndicatorState};
+    use tulip_rs::indicator_types::{Indicator, TIndicatorState};
+    use tulip_rs::indicators::adx::{Adx, IndicatorByOptions, INPUTS, OPTIONS};
     use tulip_test::c_bindings::{
         ti_adx, ti_adx_start, ti_atr, ti_atr_start, ti_dx, ti_dx_start, ti_tr, ti_tr_start,
     };
@@ -48,6 +50,32 @@ mod tests {
             low_vec.extend_from_slice(&LOW);
         }
         (high_vec, low_vec, close_vec)
+    }
+
+    #[test]
+    fn test_adx_state_bincode_roundtrip() {
+        let (high, low, close) = expand_inputs();
+        let mid = high.len() / 2;
+        let options: [f64; OPTIONS] = [14.0];
+        let first: [&[f64]; INPUTS] = [&high[..mid], &low[..mid], &close[..mid]];
+        let second: [&[f64]; INPUTS] = [&high[mid..], &low[mid..], &close[mid..]];
+
+        let (_rows, mut original) = Adx::indicator(&first, &options, None).unwrap();
+        let cfg = bincode::config::standard();
+        let bytes = bincode::serde::encode_to_vec(&original, cfg).expect("serialize");
+        let (mut restored, consumed): (<Adx as Indicator<INPUTS, OPTIONS>>::IndicatorState, usize) =
+            bincode::serde::decode_from_slice(&bytes, cfg).expect("deserialize");
+        assert_eq!(consumed, bytes.len());
+
+        let a = original.batch_indicator(&second, None).unwrap();
+        let b = restored.batch_indicator(&second, None).unwrap();
+        assert_eq!(a.len(), b.len());
+        for (ra, rb) in a.iter().zip(b.iter()) {
+            assert_eq!(ra.len(), rb.len());
+            for (x, y) in ra.iter().zip(rb.iter()) {
+                assert_eq!(x.to_bits(), y.to_bits());
+            }
+        }
     }
 
     #[test]

@@ -38,6 +38,42 @@ Measures the strength of buyers vs sellers: `(Close - Open) / (High - Low)`.
     println!("Continued BOP: {:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double open[] = {81.85, 81.20, 81.55, 82.91, 83.10,
+                     83.41, 82.71, 82.70, 84.20, 84.25};
+    double high[] = {82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[] = {81.29, 80.64, 81.31, 82.65, 83.07,
+                    83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    const double *inputs[BOP_INPUTS] = {open, high, low, close};
+
+    /* Full computation (no options for bop) */
+    CIndicatorResult r = bop_indicator(inputs, 10, NULL, NULL, 0);
+    /* r.outputs[0] -> the BOP series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    bop_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    const double *partial_inputs[BOP_INPUTS] = {open, high, low, close};
+    CIndicatorResult p = bop_indicator(partial_inputs, 8, NULL, NULL, 0);
+    double new_open[] = {84.20, 84.25};
+    double new_high[] = {84.84, 85.00};
+    double new_low[] = {84.15, 84.11};
+    double new_close[] = {84.55, 84.36};
+    const double *new_inputs[BOP_INPUTS] = {new_open, new_high, new_low, new_close};
+    CBatchResult b = bop_batch(p.state, new_inputs, 2, NULL, 0);
+    /* b.outputs[0] -> BOP values for just the two new bars */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    bop_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -119,6 +155,65 @@ Measures the strength of buyers vs sellers: `(Close - Open) / (High - Low)`.
     ```
 
     _This indicator has no options, so by-options SIMD does not apply._
+
+=== "C"
+
+    **By assets** — same options (none), N assets in one call:
+
+    ```c
+    double o1[] = {81.85, 81.20, 81.55, 82.91, 83.10,
+                   83.41, 82.71, 82.70, 84.20, 84.25};
+    double h1[] = {82.15, 81.89, 83.03, 83.30, 83.85,
+                   83.90, 83.33, 84.30, 84.84, 85.00};
+    double l1[] = {81.29, 80.64, 81.31, 82.65, 83.07,
+                   83.11, 82.49, 82.30, 84.15, 84.11};
+    double c1[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                   83.15, 82.84, 83.99, 84.55, 84.36};
+
+    double o2[] = {82.85, 82.20, 82.55, 83.91, 84.10,
+                   84.41, 83.71, 83.70, 85.20, 85.25};
+    double h2[] = {83.15, 82.89, 84.03, 84.30, 84.85,
+                   84.90, 84.33, 84.30, 85.84, 86.00};
+    double l2[] = {82.29, 81.64, 82.31, 83.65, 84.07,
+                   84.11, 83.49, 83.30, 85.15, 85.11};
+    double c2[] = {82.59, 82.06, 83.87, 84.00, 84.61,
+                   84.15, 83.84, 84.99, 85.55, 85.36};
+
+    double o3[] = {83.85, 83.20, 83.55, 84.91, 85.10,
+                   85.41, 84.71, 84.70, 86.20, 86.25};
+    double h3[] = {84.15, 83.89, 85.03, 85.30, 85.85,
+                   85.90, 85.33, 85.30, 86.84, 87.00};
+    double l3[] = {83.29, 82.64, 83.31, 84.65, 85.07,
+                   85.11, 84.49, 84.30, 86.15, 86.11};
+    double c3[] = {83.59, 83.06, 84.87, 85.00, 85.61,
+                   85.15, 84.84, 85.99, 86.55, 86.36};
+
+    double o4[] = {84.85, 84.20, 84.55, 85.91, 86.10,
+                   86.41, 85.71, 85.70, 87.20, 87.25};
+    double h4[] = {85.15, 84.89, 86.03, 86.30, 86.85,
+                   86.90, 86.33, 86.30, 87.84, 88.00};
+    double l4[] = {84.29, 83.64, 84.31, 85.65, 86.07,
+                   86.11, 85.49, 85.30, 87.15, 87.11};
+    double c4[] = {84.59, 84.06, 85.87, 86.00, 86.61,
+                   86.15, 85.84, 86.99, 87.55, 87.36};
+
+    /* one [INPUTS]-long pointer array per asset */
+    const double *asset1[BOP_INPUTS] = {o1, h1, l1, c1};
+    const double *asset2[BOP_INPUTS] = {o2, h2, l2, c2};
+    const double *asset3[BOP_INPUTS] = {o3, h3, l3, c3};
+    const double *asset4[BOP_INPUTS] = {o4, h4, l4, c4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    /* bop has 0 options (BOP_OPTIONS = 0) */
+    CSimdResult r = bop_simd_by_assets(simd_inputs, 4, 10, NULL, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's BOP series, length r.output_lens[i][0] */
+        bop_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    _This indicator has 0 options (BOP_OPTIONS = 0), so simd_by_options does not exist._
 
 === "Python"
 

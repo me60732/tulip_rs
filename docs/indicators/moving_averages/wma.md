@@ -27,6 +27,33 @@ Moving average where each bar is weighted linearly, the most recent bar receivin
     println!("Continued WMA: {:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[WMA_OPTIONS] = {14.0}; // period
+    const double *inputs[WMA_INPUTS] = {close};
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = wma_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> the WMA(14) series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    wma_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = wma_indicator(inputs, 8, options, NULL, 0);
+    double new_close[] = {85.53};
+    const double *new_inputs[WMA_INPUTS] = {new_close};
+    CBatchResult b = wma_batch(p.state, new_inputs, 1, NULL, 0);
+    /* b.outputs[0] -> WMA values for just the one new bar */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    wma_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -104,6 +131,26 @@ Moving average where each bar is weighted linearly, the most recent bar receivin
 
     let wma = &outputs[0]; // wma (primary)
     let sma = &outputs[1]; // "sma" (optional — requested)
+    ```
+
+=== "C"
+
+    `wma` exposes 1 optional output: `sma`. Pass a boolean mask as the third argument.
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[WMA_OPTIONS] = {5.0}; // period
+    const double *inputs[WMA_INPUTS] = {close};
+    bool optional_outputs[1] = {true}; // sma
+
+    CIndicatorResult r = wma_indicator(inputs, 10, options, optional_outputs, 1);
+    /* r.outputs[0] -> wma (primary) */
+    /* r.outputs[1] -> "sma" (optional — requested) */
+    tulip_ffi_result_free(r);
+    wma_state_free(r.state);
     ```
 
 === "Python"
@@ -188,6 +235,55 @@ Moving average where each bar is weighted linearly, the most recent bar receivin
     for (i, opt_outputs) in results.iter().enumerate() {
         println!("Period set {}: {:?}", i + 1, opt_outputs[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a2[] = {72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50};
+    double a3[] = {55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40};
+    double a4[] = {100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8};
+
+    const double *asset1[WMA_INPUTS] = {a1};
+    const double *asset2[WMA_INPUTS] = {a2};
+    const double *asset3[WMA_INPUTS] = {a3};
+    const double *asset4[WMA_INPUTS] = {a4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = wma_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's WMA series, length r.output_lens[i][0] */
+        wma_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    const double *inputs[WMA_INPUTS] = {close};
+
+    static const double opt5[WMA_OPTIONS] = {5.0};
+    static const double opt10[WMA_OPTIONS] = {10.0};
+    static const double opt14[WMA_OPTIONS] = {14.0};
+    static const double opt20[WMA_OPTIONS] = {20.0};
+    const double *const simd_opts[4] = {opt5, opt10, opt14, opt20};
+
+    CSimdResult r = wma_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset with period set i */
+        wma_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

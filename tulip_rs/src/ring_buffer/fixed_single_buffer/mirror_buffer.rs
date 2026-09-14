@@ -13,7 +13,7 @@ use crate::ring_buffer::buffer::{period_to_idx, BufferElement, SerdeElement};
 use crate::ring_buffer::single_buffer::generic_buffer::{Cold, Warm};
 //use crate::ring_buffer::single_buffer::mirror_buffer::{mirror_max, mirror_min};
 use serde::{
-    de::{self, MapAccess, Visitor},
+    de::{self, MapAccess, SeqAccess, Visitor},
     ser::SerializeStruct,
     Deserialize, Deserializer, Serialize, Serializer,
 };
@@ -475,6 +475,37 @@ where
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str("struct FixedMirrorBuffer")
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                // Mirrors Serialize field order: ring, view, index, count.
+                let ring_repr: Vec<T::Repr> = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let view_repr: Vec<T::Repr> = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                let index = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(2, &self))?;
+                let count = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(3, &self))?;
+                let ring_vec: Vec<T> = ring_repr.into_iter().map(T::from_repr).collect();
+                let view_vec: Vec<T> = view_repr.into_iter().map(T::from_repr).collect();
+                let ring_arr: [T; N] = ring_vec.try_into().map_err(|v: Vec<T>| {
+                    de::Error::invalid_length(v.len(), &"ring array of length N")
+                })?;
+                let view_arr: [T; N] = view_vec.try_into().map_err(|v: Vec<T>| {
+                    de::Error::invalid_length(v.len(), &"view array of length N")
+                })?;
+                Ok(FixedMirrorBuffer {
+                    ring: ring_arr,
+                    view: view_arr,
+                    index,
+                    count,
+                    state: PhantomData,
+                })
             }
 
             fn visit_map<V: MapAccess<'de>>(

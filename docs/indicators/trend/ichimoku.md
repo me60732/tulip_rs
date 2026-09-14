@@ -46,6 +46,40 @@ A comprehensive trend-following system that defines support/resistance, trend di
     println!("Continued Conversion: {:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                     85.90, 86.58, 86.98, 88.00, 87.87, 88.20, 88.70, 89.10, 88.50, 89.00,
+                     89.60, 89.90, 89.30, 90.10, 90.50, 91.00, 90.30, 91.00, 91.60, 92.00,
+                     91.30, 92.00, 92.60, 93.00, 92.30, 93.00, 93.60, 94.00, 93.30, 94.10};
+    double low[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                    84.03, 85.39, 85.76, 87.17, 87.01, 87.20, 87.80, 88.20, 87.60, 88.00,
+                    88.60, 88.90, 88.30, 89.00, 89.40, 89.80, 89.20, 89.90, 90.50, 90.80,
+                    90.20, 90.90, 91.50, 91.80, 91.20, 91.90, 92.50, 92.80, 92.20, 92.90};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                      88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+    double options[ICHIMOKU_OPTIONS] = {9.0, 26.0}; // short_period, long_period
+    const double *inputs[ICHIMOKU_INPUTS] = {high, low, close};
+
+    /* Full computation */
+    CIndicatorResult r = ichimoku_indicator(inputs, 40, options, NULL, 0);
+    tulip_ffi_result_free(r);
+    ichimoku_state_free(r.state);
+
+    /* Partial + continuation */
+    CIndicatorResult p = ichimoku_indicator(inputs, 35, options, NULL, 0);
+    const double *rest_inputs[ICHIMOKU_INPUTS] = {high + 35, low + 35, close + 35};
+    CBatchResult b = ichimoku_batch(p.state, rest_inputs, 5, NULL, 0);
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    ichimoku_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -173,6 +207,23 @@ A comprehensive trend-following system that defines support/resistance, trend di
     let lagging_span = &outputs[4]; // lagging_span (optional — requested)
     ```
 
+=== "C"
+
+    `ichimoku` exposes 1 optional output: `lagging_span`. Pass a boolean mask as the third argument.
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    // ... (same high, low, close data as above)
+    bool optional_outputs[1] = {true}; // lagging_span
+
+    CIndicatorResult r = ichimoku_indicator(inputs, 40, options, optional_outputs, 1);
+    /* r.outputs[0..3] -> primary outputs (conversion, base, leading_a, leading_b) */
+    /* r.outputs[4]     -> lagging_span (optional — requested) */
+    tulip_ffi_result_free(r);
+    ichimoku_state_free(r.state);
+    ```
+
 === "Python"
 
     ```python
@@ -257,6 +308,67 @@ A comprehensive trend-following system that defines support/resistance, trend di
     for (i, out) in results.iter().enumerate() {
         println!("Short/Long {}/{}: Conversion={:?}", opts[i][0], opts[i][1], out[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same options applied to 4 assets in parallel:
+
+    ```c
+    double h1[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                   85.90, 86.58, 86.98, 88.00, 87.87, 88.20, 88.70, 89.10, 88.50, 89.00,
+                   89.60, 89.90, 89.30, 90.10, 90.50, 91.00, 90.30, 91.00, 91.60, 92.00,
+                   91.30, 92.00, 92.60, 93.00, 92.30, 93.00, 93.60, 94.00, 93.30, 94.10};
+    double l1[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                   84.03, 85.39, 85.76, 87.17, 87.01, 87.20, 87.80, 88.20, 87.60, 88.00,
+                   88.60, 88.90, 88.30, 89.00, 89.40, 89.80, 89.20, 89.90, 90.50, 90.80,
+                   90.20, 90.90, 91.50, 91.80, 91.20, 91.90, 92.50, 92.80, 92.20, 92.90};
+    double c1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                   88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                   90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+
+    double h2[40], l2[40], c2[40];
+    for (int i = 0; i < 40; i++) { h2[i] = h1[i] * 1.2; l2[i] = l1[i] * 1.2; c2[i] = c1[i] * 1.2; }
+    double h3[40], l3[40], c3[40];
+    for (int i = 0; i < 40; i++) { h3[i] = 90.0 + i * 0.5 + h1[i] * 0.1; l3[i] = 90.0 + i * 0.5 + l1[i] * 0.1; c3[i] = 90.0 + i * 0.5 + c1[i] * 0.1; }
+    double h4[40], l4[40], c4[40];
+    for (int i = 0; i < 40; i++) { h4[i] = 100.0 - i * 0.3 + h1[i] * 0.05; l4[i] = 100.0 - i * 0.3 + l1[i] * 0.05; c4[i] = 100.0 - i * 0.3 + c1[i] * 0.05; }
+
+    const double *asset1[ICHIMOKU_INPUTS] = {h1, l1, c1};
+    const double *asset2[ICHIMOKU_INPUTS] = {h2, l2, c2};
+    const double *asset3[ICHIMOKU_INPUTS] = {h3, l3, c3};
+    const double *asset4[ICHIMOKU_INPUTS] = {h4, l4, c4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = ichimoku_simd_by_assets(simd_inputs, 4, 40, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        ichimoku_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```c
+    double high_expanded[400], low_expanded[400], close_expanded[400];
+    for (int i = 0; i < 10; i++) {
+        for (int j = 0; j < 40; j++) {
+            high_expanded[i * 40 + j] = h1[j];
+            low_expanded[i * 40 + j] = l1[j];
+            close_expanded[i * 40 + j] = c1[j];
+        }
+    }
+    const double *expanded_inputs[ICHIMOKU_INPUTS] = {high_expanded, low_expanded, close_expanded};
+
+    double o5_10[] = {5.0, 10.0}, o7_14[] = {7.0, 14.0}, o9_18[] = {9.0, 18.0}, o9_26[] = {9.0, 26.0};
+    const double *const simd_opts[4] = {o5_10, o7_14, o9_18, o9_26};
+
+    CSimdResult r = ichimoku_simd_by_options(expanded_inputs, 400, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        ichimoku_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

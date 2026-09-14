@@ -111,6 +111,39 @@ An adaptive moving average that adjusts its smoothing factor in proportion to th
     console.log('Continued FAMA:', continued[1]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                      88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+    double options[MAMA_OPTIONS] = {0.5, 0.05}; // fast_limit, slow_limit
+    const double *inputs[MAMA_INPUTS] = {close};
+
+    /* Full computation with optional outputs */
+    bool optional_outputs[2] = {true, true}; // dc_period, alpha
+    CIndicatorResult r = mama_indicator(inputs, 40, options, optional_outputs, 2);
+    /* r.outputs[0] -> mama (primary) */
+    /* r.outputs[1] -> fama (primary) */
+    /* r.outputs[2] -> dc_period (optional) */
+    /* r.outputs[3] -> alpha (optional) */
+    tulip_ffi_result_free(r);
+    mama_state_free(r.state);
+
+    /* Partial computation without optional outputs + state continuation */
+    CIndicatorResult p = mama_indicator(inputs, 35, options, NULL, 0);
+    double new_close[] = {89.70, 90.10, 89.50, 90.20, 90.80};
+    const double *new_inputs[MAMA_INPUTS] = {new_close};
+    CBatchResult b = mama_batch(p.state, new_inputs, 5, NULL, 0);
+    /* b.outputs[0] -> mama for new bars */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    mama_state_free(p.state);
+    ```
+
 ### Optional Outputs
 
 === "Rust"
@@ -182,6 +215,32 @@ An adaptive moving average that adjusts its smoothing factor in proportion to th
     const fama     = allOut[1]; // primary
     const dcPeriod = allOut[2]; // optional 0: dc_period
     const alpha    = allOut[3]; // optional 1: alpha
+    ```
+
+=== "C"
+
+    `mama` exposes 2 optional outputs: `dc_period`, `alpha`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                      88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+    double options[MAMA_OPTIONS] = {0.5, 0.05}; // fast_limit, slow_limit
+    const double *inputs[MAMA_INPUTS] = {close};
+
+    bool mask[2] = {true, true}; // one per optional output
+    CIndicatorResult r = mama_indicator(inputs, 40, options, mask, 2);
+
+    /* r.outputs[0] -> mama (primary) */
+    /* r.outputs[1] -> fama (primary) */
+    /* r.outputs[2] -> dc_period (optional — requested) */
+    /* r.outputs[3] -> alpha (optional — requested) */
+
+    tulip_ffi_result_free(r);
+    mama_state_free(r.state);
     ```
 
 ### SIMD
@@ -302,4 +361,53 @@ An adaptive moving average that adjusts its smoothing factor in proportion to th
     const simdOptions = [[0.3, 0.03], [0.4, 0.04], [0.5, 0.05], [0.6, 0.06]];
     const [results] = ti.mama.simdByOptions([close], simdOptions);
     results.forEach((out, i) => console.log(`Option set ${i + 1} MAMA:`, out[0]));
+    ```
+
+=== "C"
+
+    **By assets** — same options applied to 4 assets in one call (N must be 2/4/8/16):
+
+    ```c
+    double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a2[] = {86.59, 86.06, 87.87, 88.00, 88.61, 88.15, 87.84, 88.99, 89.55, 89.36};
+    double a3[] = {78.59, 78.06, 79.87, 80.00, 80.61, 80.15, 79.84, 80.99, 81.55, 81.36};
+    double a4[] = {83.22, 82.68, 84.53, 84.66, 85.28, 84.81, 84.50, 85.67, 86.24, 86.05};
+
+    /* one [INPUTS]-long pointer array per asset */
+    const double *asset1[MAMA_INPUTS] = {a1};
+    const double *asset2[MAMA_INPUTS] = {a2};
+    const double *asset3[MAMA_INPUTS] = {a3};
+    const double *asset4[MAMA_INPUTS] = {a4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    bool optional_outputs[2] = {true, true}; // dc_period, alpha
+    CSimdResult r = mama_simd_by_assets(simd_inputs, 4, 10, options, optional_outputs, 2);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's mama series, length r.output_lens[i][0] */
+        /* r.outputs[i][1] -> asset i's fama */
+        mama_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different option sets in one call:
+
+    ```c
+    double o03[] = {0.3}, o003[] = {0.03};
+    double o04[] = {0.4}, o004[] = {0.04};
+    double o05[] = {0.5}, o005[] = {0.05};
+    double o06[] = {0.6}, o006[] = {0.06};
+
+    const double *const simd_opts[4] = {
+        (double[]){0.3, 0.03},
+        (double[]){0.4, 0.04},
+        (double[]){0.5, 0.05},
+        (double[]){0.6, 0.06}
+    };
+
+    bool optional_outputs[2] = {true, true};
+    CSimdResult r = mama_simd_by_options(inputs, 10, simd_opts, 4, optional_outputs, 2);
+    /* r.outputs[i][0] -> asset i's mama for option set */
+    for (uintptr_t i = 0; i < r.num_results; i++) mama_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```

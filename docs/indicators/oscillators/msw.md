@@ -30,6 +30,35 @@ Fits a sine wave to the recent price data over `period` bars. The crossover of t
     println!("Continued MSW Lead: {:?}", continued[1]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    const double *inputs[MSW_INPUTS] = {close};
+    double options[MSW_OPTIONS] = {10.0};
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = msw_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> MSW Sine, length r.output_lens[0] */
+    /* r.outputs[1] -> MSW Lead, length r.output_lens[1] */
+    tulip_ffi_result_free(r);
+    msw_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = msw_indicator(inputs, 8, options, NULL, 0);
+    double new_close[] = {84.55, 84.36};
+    const double *new_inputs[MSW_INPUTS] = {new_close};
+    CBatchResult b = msw_batch(p.state, new_inputs, 2, NULL, 0);
+    /* b.outputs[0] -> MSW Sine for just the two new bars */
+    /* b.outputs[1] -> MSW Lead for just the two new bars */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    msw_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -136,6 +165,44 @@ Fits a sine wave to the recent price data over `period` bars. The crossover of t
         println!("Option set {} Sine: {:?}", i + 1, opt_outputs[0]);
         println!("Option set {} Lead: {:?}", i + 1, opt_outputs[1]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same period applied to 4 assets in one call (N must be 2/4/8/16):
+
+    ```c
+    double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a2[] = {72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50};
+    double a3[] = {55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40};
+    double a4[] = {100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8};
+
+    const double *const asset1[MSW_INPUTS] = {a1};
+    const double *const asset2[MSW_INPUTS] = {a2};
+    const double *const asset3[MSW_INPUTS] = {a3};
+    const double *const asset4[MSW_INPUTS] = {a4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = msw_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> Sine */
+        /* r.outputs[i][1] -> Lead */
+        msw_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in one call:
+
+    ```c
+    double o5[] = {5.0}, o10[] = {10.0}, o14[] = {14.0}, o20[] = {20.0};
+    const double *const simd_opts[4] = {o5, o10, o14, o20};
+
+    CSimdResult r = msw_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
+    /* r.outputs[i][0] -> Sine */
+    /* r.outputs[i][1] -> Lead */
+    for (uintptr_t i = 0; i < r.num_results; i++) msw_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

@@ -37,6 +37,43 @@ A cumulative indicator that uses price and volume to assess whether a security i
     println!("{:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[]   = {82.15, 81.89, 83.03, 83.30, 83.85,
+                       83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[]    = {81.29, 80.64, 81.31, 82.65, 83.07,
+                       83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[]  = {81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36};
+    double volume[] = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+                       900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+
+    const double *inputs[AD_INPUTS] = {high, low, close, volume};
+    const double options[AD_OPTIONS] = {}; // no options
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = ad_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> the AD series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    ad_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = ad_indicator(inputs, 8, options, NULL, 0);
+    double new_high[]   = {85.20};
+    double new_low[]    = {84.50};
+    double new_close[]  = {85.00};
+    double new_volume[] = {1550.0};
+    const double *new_inputs[AD_INPUTS] = {new_high, new_low, new_close, new_volume};
+    CBatchResult b = ad_batch(p.state, new_inputs, 1, NULL, 0);
+    /* b.outputs[0] -> AD value for the single new bar */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    ad_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -129,6 +166,45 @@ A cumulative indicator that uses price and volume to assess whether a security i
     ```
 
     _This indicator has no options, so by-options SIMD does not apply._
+
+=== "C"
+
+    **By assets** — same option applied to 4 assets in one call (N must be 2/4/8/16):
+
+    ```c
+    double a1_high[]   = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double a1_low[]    = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double a1_close[]  = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a1_volume[] = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0, 900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+
+    double a2_high[]   = {84.30, 83.78, 86.06, 86.60, 87.70, 87.80, 86.66, 88.60, 89.68, 90.00};
+    double a2_low[]    = {82.58, 81.28, 83.62, 84.30, 85.14, 85.22, 83.48, 85.70, 87.30, 87.22};
+    double a2_close[]  = {83.18, 82.12, 85.74, 86.00, 87.22, 86.30, 85.68, 87.98, 89.10, 88.72};
+    double a2_volume[] = {2400.0, 2800.0, 2200.0, 3200.0, 2600.0, 1800.0, 3000.0, 3600.0, 2000.0, 3400.0};
+
+    double a3_high[]   = {75.00, 74.50, 76.00, 76.30, 76.85, 76.90, 76.33, 77.30, 77.84, 78.00};
+    double a3_low[]    = {74.29, 73.64, 75.31, 75.65, 76.07, 76.11, 75.49, 75.30, 77.15, 77.11};
+    double a3_close[]  = {74.59, 74.06, 76.87, 76.00, 76.61, 76.15, 75.84, 76.99, 77.55, 77.36};
+    double a3_volume[] = {600.0, 700.0, 550.0, 800.0, 650.0, 450.0, 750.0, 900.0, 500.0, 850.0};
+
+    double a4_high[]   = {90.00, 89.25, 91.50, 91.80, 92.30, 92.35, 91.75, 92.75, 93.25, 93.40};
+    double a4_low[]    = {88.65, 88.00, 90.00, 90.20, 91.00, 91.05, 90.40, 91.30, 92.10, 92.25};
+    double a4_close[]  = {89.30, 88.60, 91.00, 91.20, 91.75, 91.70, 91.10, 92.20, 92.65, 92.80};
+    double a4_volume[] = {3600.0, 4200.0, 3300.0, 4800.0, 3900.0, 2700.0, 4500.0, 5400.0, 3000.0, 5100.0};
+
+    const double *asset1[AD_INPUTS] = {a1_high, a1_low, a1_close, a1_volume};
+    const double *asset2[AD_INPUTS] = {a2_high, a2_low, a2_close, a2_volume};
+    const double *asset3[AD_INPUTS] = {a3_high, a3_low, a3_close, a3_volume};
+    const double *asset4[AD_INPUTS] = {a4_high, a4_low, a4_close, a4_volume};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = ad_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's series, length r.output_lens[i][0] */
+        ad_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
 
 === "Python"
 

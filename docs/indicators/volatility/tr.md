@@ -39,6 +39,39 @@ The single-bar true range: the greatest of (high-low), |high-prev_close|, |low-p
     println!("{:?}", continued[0]);
     ```
 
+=== "C"
+
+    TR has no options (`TR_OPTIONS=0`); pass `NULL` for the options array.
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[] = {82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[] = {81.29, 80.64, 81.31, 82.65, 83.07,
+                    83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    const double *inputs[TR_INPUTS] = {high, low, close};
+    const double *options = NULL; // TR has no options
+
+    /* Full computation */
+    CIndicatorResult r = tr_indicator(inputs, 10, options, NULL, 0);
+    printf("TR[0]: %.4f\n", r.outputs[0][0]); // outputs[0] is the true range series
+    tulip_ffi_result_free(r);
+    tr_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = tr_indicator(inputs, 8, options, NULL, 0);
+    double new_high[] = {85.90}, new_low[] = {84.03}, new_close[] = {85.53};
+    const double *new_inputs[TR_INPUTS] = {new_high, new_low, new_close};
+    CBatchResult b = tr_batch(p.state, new_inputs, 1, NULL, 0);
+    printf("Continued TR[0]: %.4f\n", b.outputs[0][0]);
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    tr_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -126,6 +159,44 @@ The single-bar true range: the greatest of (high-low), |high-prev_close|, |low-p
     ```
 
     _This indicator has no options, so by-options SIMD does not apply._
+
+=== "C"
+
+    **By assets** — TR has no options; by-options SIMD is not provided.
+
+    ```c
+    double h1[] = {82.15, 81.89, 83.03, 83.30, 83.85,
+                   83.90, 83.33, 84.30, 84.84, 85.00};
+    double l1[] = {81.29, 80.64, 81.31, 82.65, 83.07,
+                   83.11, 82.49, 82.30, 84.15, 84.11};
+    double c1[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                   83.15, 82.84, 83.99, 84.55, 84.36};
+
+    double h2[10], l2[10], c2[10];
+    for (uintptr_t i = 0; i < 10; i++) { h2[i] = h1[i] * 1.1; l2[i] = l1[i] * 1.1; c2[i] = c1[i] * 1.1; }
+    double h3[10], l3[10], c3[10];
+    for (uintptr_t i = 0; i < 10; i++) { h3[i] = 90.0 + (double)i * 0.5 + h1[i] * 0.1;
+                                          l3[i] = 90.0 + (double)i * 0.5 + l1[i] * 0.1;
+                                          c3[i] = 90.0 + (double)i * 0.5 + c1[i] * 0.1; }
+    double h4[10], l4[10], c4[10];
+    for (uintptr_t i = 0; i < 10; i++) { h4[i] = 100.0 - (double)i * 0.3 + h1[i] * 0.05;
+                                          l4[i] = 100.0 - (double)i * 0.3 + l1[i] * 0.05;
+                                          c4[i] = 100.0 - (double)i * 0.3 + c1[i] * 0.05; }
+
+    const double *asset1[TR_INPUTS] = {h1, l1, c1};
+    const double *asset2[TR_INPUTS] = {h2, l2, c2};
+    const double *asset3[TR_INPUTS] = {h3, l3, c3};
+    const double *asset4[TR_INPUTS] = {h4, l4, c4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+    const double *options = NULL; // TR has no options
+
+    CSimdResult r = tr_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        printf("Asset %zu TR[0]: %.4f\n", i + 1, r.outputs[i][0][0]);
+        tr_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
 
 === "Python"
 

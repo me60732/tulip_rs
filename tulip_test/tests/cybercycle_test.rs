@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use tulip_rs::indicator_types::{Indicator, IndicatorByOptions, TIndicatorState};
-    use tulip_rs::indicators::cybercycle::{multiplier, Cybercycle};
+    use tulip_rs::indicators::cybercycle::{multiplier, Cybercycle, IndicatorState, INPUTS};
     use tulip_rs::types::IndicatorError;
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -587,6 +587,40 @@ mod tests {
                 }
             }
             println!("✓ SIMD by_options state continuity passed for {stock_symbol}");
+        }
+    }
+
+    #[test]
+    fn test_cybercycle_state_bincode_roundtrip() {
+        use bincode::config::standard;
+        use bincode::serde::{decode_from_slice, encode_to_vec};
+
+        let options: [f64; 1] = [0.07]; // one of the option sets used in existing tests
+        let min_data_needed = Cybercycle::min_data(&options);
+
+        // Ensure we have enough data for first chunk + second chunk
+        let total_needed = min_data_needed + 50;
+        let close_tiled: Vec<f64> = (0..total_needed).map(|i| 100.0 + i as f64 * 0.1).collect();
+
+        let mid = min_data_needed; // first chunk = min_data bars, second = 50 bars
+        let first: [&[f64]; INPUTS] = [&close_tiled[..mid]];
+        let second: [&[f64]; INPUTS] = [&close_tiled[mid..mid + 50]];
+
+        let (_rows, mut original) = Cybercycle::indicator(&first, &options, None).unwrap();
+        let cfg = standard();
+        let bytes = encode_to_vec(&original, cfg).expect("serialize");
+        let (mut restored, consumed): (IndicatorState, usize) =
+            decode_from_slice(&bytes, cfg).expect("deserialize");
+        assert_eq!(consumed, bytes.len());
+
+        let a = original.batch_indicator(&second, None).unwrap();
+        let b = restored.batch_indicator(&second, None).unwrap();
+        assert_eq!(a.len(), b.len());
+        for (ra, rb) in a.iter().zip(b.iter()) {
+            assert_eq!(ra.len(), rb.len());
+            for (x, y) in ra.iter().zip(rb.iter()) {
+                assert_eq!(x.to_bits(), y.to_bits());
+            }
         }
     }
 }

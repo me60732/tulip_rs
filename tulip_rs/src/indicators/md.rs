@@ -64,7 +64,17 @@ impl TState for State<Warm> {
         (mean_deviation, sma)
     }
 }
+impl State<Warm> {
+    pub unsafe fn calc_chuncked_unchecked<const N: usize>(
+        &mut self,
+        (value, prev_value, slice): (f64, f64, &[f64]),
+    ) -> (f64, f64) {
+        let sma = self.0.calc((value, prev_value));
 
+        let mean_deviation = calc_md_simd::<N>(slice, sma, self.multiplier);
+        (mean_deviation, sma)
+    }
+}
 impl IndicatorState {
     pub fn new(real: &[f64], state: State<Warm>, period: usize) -> Self {
         Self {

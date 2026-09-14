@@ -28,6 +28,34 @@ The raw difference between two EMAs (short minus long). Positive values indicate
     println!("{:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+    #include "tulip_rs_ffi_counts.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[APO_OPTIONS] = {12.0, 26.0}; // short_period, long_period
+    const double *inputs[APO_INPUTS] = {close};
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = apo_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> the APO series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    apo_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = apo_indicator(inputs, 8, options, NULL, 0);
+    double new_close[] = {85.53};
+    const double *new_inputs[APO_INPUTS] = {new_close};
+    CBatchResult b = apo_batch(p.state, new_inputs, 1, NULL, 0);
+    /* b.outputs[0] -> APO values for the one new bar */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    apo_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -105,6 +133,27 @@ The raw difference between two EMAs (short minus long). Positive values indicate
     let long_ema  = &outputs[2]; // long_ema (optional — requested)
     ```
 
+=== "C"
+
+    `apo` exposes 2 optional outputs: `short_ema`, `long_ema`. Pass a boolean mask — one `bool` per optional output, in header order.
+
+    ```c
+    #include "tulip_rs_ffi.h"
+    #include "tulip_rs_ffi_counts.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[APO_OPTIONS] = {5.0, 20.0}; // short_period, long_period
+    const double *inputs[APO_INPUTS] = {close};
+    bool optional_outputs[2] = {true, true}; // short_ema, long_ema
+
+    CIndicatorResult r = apo_indicator(inputs, 10, options, optional_outputs, 2);
+    /* r.outputs[0] -> apo (primary), length r.output_lens[0] */
+    /* r.outputs[1] -> short_ema (optional), length r.output_lens[1] */
+    /* r.outputs[2] -> long_ema (optional), length r.output_lens[2] */
+    tulip_ffi_result_free(r);
+    apo_state_free(r.state);
+    ```
+
 === "Python"
 
     ```python
@@ -134,7 +183,6 @@ The raw difference between two EMAs (short minus long). Positive values indicate
     const longEma  = allOut[2]; // optional 1: long_ema
     ```
 
-
 === "WASM"
 
     The WASM API is identical to Node.js — pass the boolean mask as the third argument.
@@ -145,6 +193,7 @@ The raw difference between two EMAs (short minus long). Positive values indicate
     const shortEma = allOut[1]; // optional 0: short_ema
     const longEma  = allOut[2]; // optional 1: long_ema
     ```
+
 ### SIMD
 
 === "Rust"
@@ -176,6 +225,64 @@ The raw difference between two EMAs (short minus long). Positive values indicate
     for (i, out) in results.iter().enumerate() {
         println!("Option set {}: {:?}", i + 1, out[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same options applied to N assets in one call (N must be 2/4/8/16):
+
+    ```c
+    #include "tulip_rs_ffi.h"
+    #include "tulip_rs_ffi_counts.h"
+
+    double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a2[] = {72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50};
+    double a3[] = {55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40};
+    double a4[] = {100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8};
+
+    /* one [INPUTS]-long pointer array per asset */
+    const double *asset1[APO_INPUTS] = {a1};
+    const double *asset2[APO_INPUTS] = {a2};
+    const double *asset3[APO_INPUTS] = {a3};
+    const double *asset4[APO_INPUTS] = {a4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+    double options[APO_OPTIONS] = {12.0, 26.0}; // short_period, long_period
+    bool optional_outputs[2] = {true, true};
+
+    CSimdResult r = apo_simd_by_assets(simd_inputs, 4, 10, options, optional_outputs, 2);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's series, length r.output_lens[i][0] */
+        apo_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, N different option sets in one call:
+
+    ```c
+    #include "tulip_rs_ffi.h"
+    #include "tulip_rs_ffi_counts.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    const double *inputs[APO_INPUTS] = {close};
+
+    /* Tile the series 20x so longer-period option sets have enough data */
+    #define EXPANDED_LEN (10 * 20)
+    static double close_expanded[EXPANDED_LEN];
+    for (size_t i = 0; i < 20; i++)
+        for (size_t j = 0; j < 10; j++) close_expanded[i * 10 + j] = close[j];
+    const double *expanded_inputs[APO_INPUTS] = {close_expanded};
+
+    static const double o6_13[APO_OPTIONS] = {6.0, 13.0};
+    static const double o12_26[APO_OPTIONS] = {12.0, 26.0};
+    static const double o19_39[APO_OPTIONS] = {19.0, 39.0};
+    static const double o24_52[APO_OPTIONS] = {24.0, 52.0};
+    const double *const simd_opts[4] = {o6_13, o12_26, o19_39, o24_52};
+
+    CSimdResult r = apo_simd_by_options(expanded_inputs, EXPANDED_LEN, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) apo_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

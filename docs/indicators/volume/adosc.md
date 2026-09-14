@@ -45,6 +45,41 @@ The difference between a short and long EMA of the A/D line, used to confirm pri
     println!("{:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[]   = {82.15, 81.89, 83.03, 83.30, 83.85,
+                       83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[]    = {81.29, 80.64, 81.31, 82.65, 83.07,
+                       83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[]  = {81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36};
+    double volume[] = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+                       900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+    const double options[ADOSC_OPTIONS] = {3.0, 10.0}; // short_period, long_period
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = adosc_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> the ADOSC series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    adosc_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = adosc_indicator(inputs, 8, options, NULL, 0);
+    double new_high[]   = {85.90};
+    double new_low[]    = {84.03};
+    double new_close[]  = {85.53};
+    double new_volume[] = {1520.0};
+    const double *new_inputs[ADOSC_INPUTS] = {new_high, new_low, new_close, new_volume};
+    CBatchResult b = adosc_batch(p.state, new_inputs, 1, NULL, 0);
+    /* b.outputs[0] -> ADOSC value for the single new bar */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    adosc_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -123,6 +158,34 @@ The difference between a short and long EMA of the A/D line, used to confirm pri
 === "Rust"
 
     `adosc` exposes 3 optional outputs: `short_ema`, `long_ema`, `ad`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+=== "C"
+
+    The mask is an array of booleans (one per optional output) passed to `adosc_indicator()`:
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[]  = {81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36};
+    double high[]   = {82.59, 82.06, 83.87, 84.00, 84.61,
+                       84.15, 83.84, 84.99, 85.55, 85.36};
+    double low[]    = {80.59, 80.06, 81.87, 82.00, 82.61,
+                       82.15, 81.84, 82.99, 83.55, 83.36};
+    double volume[] = {10000.0, 12000.0, 9500.0, 11000.0, 13000.0,
+                       9800.0, 10500.0, 12500.0, 11800.0, 10200.0};
+    const double options[ADOSC_OPTIONS] = {6.0, 20.0};
+
+    bool optional_outputs[3] = {true, false, true}; // short_ema, long_ema, ad
+
+    CIndicatorResult r = adosc_indicator(inputs, 10, options, optional_outputs, 3);
+    /* r.outputs[0] -> adosc (primary) */
+    /* r.outputs[1] -> short_ema (requested) */
+    /* r.outputs[2] -> long_ema (not requested) */
+    /* r.outputs[3] -> ad (requested) */
+    tulip_ffi_result_free(r);
+    adosc_state_free(r.state);
+    ```
 
     ```rust
     use tulip_rs::indicators::adosc::{Adosc, Indicator, TIndicatorState};
@@ -222,6 +285,102 @@ The difference between a short and long EMA of the A/D line, used to confirm pri
     for (i, out) in results.iter().enumerate() {
         println!("Option set {}: {:?}", i + 1, out[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same options applied to 4 assets in one call:
+
+    ```c
+    double a1_high[]   = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double a1_low[]    = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double a1_close[]  = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a1_volume[] = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0, 900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+
+    double a2_high[]   = {84.30, 83.78, 86.06, 86.60, 87.70, 87.80, 86.66, 88.60, 89.68, 90.00};
+    double a2_low[]    = {82.58, 81.28, 83.62, 84.30, 85.14, 85.22, 83.48, 85.70, 87.30, 87.22};
+    double a2_close[]  = {83.18, 82.12, 85.74, 86.00, 87.22, 86.30, 85.68, 87.98, 89.10, 88.72};
+    double a2_volume[] = {2400.0, 2800.0, 2200.0, 3200.0, 2600.0, 1800.0, 3000.0, 3600.0, 2000.0, 3400.0};
+
+    double a3_high[]   = {75.00, 74.50, 76.00, 76.30, 76.85, 76.90, 76.33, 77.30, 77.84, 78.00};
+    double a3_low[]    = {74.29, 73.64, 75.31, 75.65, 76.07, 76.11, 75.49, 75.30, 77.15, 77.11};
+    double a3_close[]  = {74.59, 74.06, 76.87, 76.00, 76.61, 76.15, 75.84, 76.99, 77.55, 77.36};
+    double a3_volume[] = {600.0, 700.0, 550.0, 800.0, 650.0, 450.0, 750.0, 900.0, 500.0, 850.0};
+
+    double a4_high[]   = {90.00, 89.25, 91.50, 91.80, 92.30, 92.35, 91.75, 92.75, 93.25, 93.40};
+    double a4_low[]    = {88.65, 88.00, 90.00, 90.20, 91.00, 91.05, 90.40, 91.30, 92.10, 92.25};
+    double a4_close[]  = {89.30, 88.60, 91.00, 91.20, 91.75, 91.70, 91.10, 92.20, 92.65, 92.80};
+    double a4_volume[] = {3600.0, 4200.0, 3300.0, 4800.0, 3900.0, 2700.0, 4500.0, 5400.0, 3000.0, 5100.0};
+
+    const double *asset1[ADOSC_INPUTS] = {a1_high, a1_low, a1_close, a1_volume};
+    const double *asset2[ADOSC_INPUTS] = {a2_high, a2_low, a2_close, a2_volume};
+    const double *asset3[ADOSC_INPUTS] = {a3_high, a3_low, a3_close, a3_volume};
+    const double *asset4[ADOSC_INPUTS] = {a4_high, a4_low, a4_close, a4_volume};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = adosc_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's series, length r.output_lens[i][0] */
+        adosc_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different option sets in one call:
+
+    ```c
+    static const double high_expanded[200] = {82.15, 81.89, 83.03, 83.30, 83.85,
+        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
+        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
+        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
+        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
+        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
+        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
+        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
+        83.90, 83.33, 84.30, 84.84, 85.00};
+    static const double low_expanded[200] = {81.29, 80.64, 81.31, 82.65, 83.07,
+        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
+        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
+        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
+        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
+        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
+        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
+        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
+        83.11, 82.49, 82.30, 84.15, 84.11};
+    static const double close_expanded[200] = {81.59, 81.06, 82.87, 83.00, 83.61,
+        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
+        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
+        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
+        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
+        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
+        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
+        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
+        83.15, 82.84, 83.99, 84.55, 84.36};
+    static const double volume_expanded[200] = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+        900.0, 1500.0, 1800.0, 1000.0, 1700.0, 1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+        900.0, 1500.0, 1800.0, 1000.0, 1700.0, 1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+        900.0, 1500.0, 1800.0, 1000.0, 1700.0, 1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+        900.0, 1500.0, 1800.0, 1000.0, 1700.0, 1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+        900.0, 1500.0, 1800.0, 1000.0, 1700.0, 1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+        900.0, 1500.0, 1800.0, 1000.0, 1700.0, 1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+        900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+
+    const double *const expanded_inputs[ADOSC_INPUTS] = {high_expanded, low_expanded,
+        close_expanded, volume_expanded};
+
+    static const double options_1[ADOSC_OPTIONS] = {2.0, 5.0};
+    static const double options_2[ADOSC_OPTIONS] = {3.0, 10.0};
+    static const double options_3[ADOSC_OPTIONS] = {5.0, 20.0};
+    static const double options_4[ADOSC_OPTIONS] = {7.0, 28.0};
+
+    const double *const simd_options[4] = {options_1, options_2, options_3, options_4};
+
+    CSimdResult r = adosc_simd_by_options(expanded_inputs, 200, simd_options, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> option set i's series */
+        adosc_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

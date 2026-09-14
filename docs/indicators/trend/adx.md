@@ -39,6 +39,40 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
     println!("{:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[]  = {82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[]   = {81.29, 80.64, 81.31, 82.65, 83.07,
+                      83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[ADX_OPTIONS] = {14.0}; // period
+
+    const double *inputs[ADX_INPUTS] = {high, low, close};
+
+    /* Full computation */
+    CIndicatorResult r = adx_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> ADX(14) series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    adx_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = adx_indicator(inputs, 8, options, NULL, 0);
+    double new_high[]  = {85.90};
+    double new_low[]   = {84.03};
+    double new_close[] = {85.53};
+    const double *new_inputs[ADX_INPUTS] = {new_high, new_low, new_close};
+    CBatchResult b = adx_batch(p.state, new_inputs, 1, NULL, 0);
+    /* b.outputs[0] -> ADX for the new bar */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    adx_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -126,8 +160,34 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
 
     let adx = &outputs[0]; // adx (primary)
     let dx  = &outputs[1]; // dx (optional — requested)
-    let atr = &outputs[2]; // atr (optional — requested)
+    let atr = &outputs[2]; // atr (optional — requested);
     // tr not requested — omitted from outputs
+    ```
+
+=== "C"
+
+    `adx` exposes 3 optional outputs: `dx`, `atr`, `tr`. Pass a boolean mask as the third argument.
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[]  = {82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[]   = {81.29, 80.64, 81.31, 82.65, 83.07,
+                      83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[ADX_OPTIONS] = {14.0}; // period
+    bool optional_outputs[3] = {true, true, false}; // dx, atr, tr
+
+    const double *inputs[ADX_INPUTS] = {high, low, close};
+
+    CIndicatorResult r = adx_indicator(inputs, 10, options, optional_outputs, 3);
+    /* r.outputs[0] -> adx (primary) */
+    /* r.outputs[1] -> dx (optional — requested) */
+    /* r.outputs[2] -> atr (optional — requested) */
+    tulip_ffi_result_free(r);
+    adx_state_free(r.state);
     ```
 
 === "Python"
@@ -212,6 +272,56 @@ Measures the strength of a trend regardless of direction. Values above 25 indica
     for (i, out) in results.iter().enumerate() {
         println!("Period {}: {:?}", opts[i][0], out[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same options applied to 4 assets in one call (N must be 2/4/8/16):
+
+    ```c
+    double a1_high[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double a1_low[]  = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double a1_close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+
+    double a2_high[] = {85.00, 85.50, 86.00, 86.50, 87.00, 87.50, 88.00, 88.50, 89.00, 89.50};
+    double a2_low[]  = {83.00, 83.50, 84.00, 84.50, 85.00, 85.50, 86.00, 86.50, 87.00, 87.50};
+    double a2_close[] = {84.00, 84.50, 85.00, 85.50, 86.00, 86.50, 87.00, 87.50, 88.00, 88.50};
+
+    double a3_high[] = {90.00, 91.00, 92.00, 93.00, 94.00, 95.00, 96.00, 97.00, 98.00, 99.00};
+    double a3_low[]  = {88.00, 89.00, 90.00, 91.00, 92.00, 93.00, 94.00, 95.00, 96.00, 97.00};
+    double a3_close[] = {89.00, 90.00, 91.00, 92.00, 93.00, 94.00, 95.00, 96.00, 97.00, 98.00};
+
+    double a4_high[] = {100.00, 99.00, 98.00, 97.00, 96.00, 95.00, 94.00, 93.00, 92.00, 91.00};
+    double a4_low[]  = {98.00, 97.00, 96.00, 95.00, 94.00, 93.00, 92.00, 91.00, 90.00, 89.00};
+    double a4_close[] = {99.00, 98.00, 97.00, 96.00, 95.00, 94.00, 93.00, 92.00, 91.00, 90.00};
+
+    const double *asset1[ADX_INPUTS] = {a1_high, a1_low, a1_close};
+    const double *asset2[ADX_INPUTS] = {a2_high, a2_low, a2_close};
+    const double *asset3[ADX_INPUTS] = {a3_high, a3_low, a3_close};
+    const double *asset4[ADX_INPUTS] = {a4_high, a4_low, a4_close};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+    double options[ADX_OPTIONS] = {14.0};
+
+    CSimdResult r = adx_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's ADX series */
+        adx_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in one call:
+
+    ```c
+    double o7[] = {7.0}, o14[] = {14.0}, o21[] = {21.0}, o28[] = {28.0};
+    const double *const simd_opts[4] = {o7, o14, o21, o28};
+
+    CSimdResult r = adx_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> period set i results */
+        adx_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

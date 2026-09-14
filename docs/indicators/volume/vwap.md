@@ -43,6 +43,51 @@ The average price weighted by trading volume over the entire input window; commo
     println!("Continued VWAP: {:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[]   = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                       85.90, 86.58, 86.98, 88.00, 87.87, 88.20, 88.70, 89.10, 88.50, 89.00,
+                       89.60, 89.90, 89.30, 90.10, 90.50, 91.00, 90.30, 91.00, 91.60, 92.00,
+                       91.30, 92.00, 92.60, 93.00, 92.30, 93.00, 93.60, 94.00, 93.30, 94.10};
+    double low[]    = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                       84.03, 85.39, 85.76, 87.17, 87.01, 87.20, 87.80, 88.20, 87.60, 88.00,
+                       88.60, 88.90, 88.30, 89.00, 89.40, 89.80, 89.20, 89.90, 90.50, 90.80,
+                       90.20, 90.90, 91.50, 91.80, 91.20, 91.90, 92.50, 92.80, 92.20, 93.00};
+    double close[]  = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                       88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                       90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+    double volume[] = {1500, 2000, 1800, 2200, 1700, 2500, 2100, 1900, 2300, 1600,
+                       2800, 2400, 2100, 1800, 2600, 2200, 1900, 2400, 2000, 2100,
+                       2300, 1700, 2500, 1800, 2000, 2100, 1600, 2200, 2400, 1900,
+                       2300, 1800, 2100, 2500, 1700, 2000, 2200, 1900, 2400, 2100};
+
+    /* VWAP has no options (VWAP_OPTIONS=0); the inputs are [high, low, close, volume] */
+    const double *inputs[VWAP_INPUTS] = {high, low, close, volume};
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = vwap_indicator(inputs, 40, NULL, NULL, 0);
+    /* r.outputs[0] -> the VWAP series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    vwap_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = vwap_indicator(inputs, 35, NULL, NULL, 0);
+    double new_high[]   = {91.30, 92.00, 92.60, 93.00, 92.30};
+    double new_low[]    = {90.20, 90.90, 91.50, 91.80, 91.20};
+    double new_close[]  = {90.50, 91.20, 91.80, 92.10, 91.50};
+    double new_volume[] = {2300, 1800, 2100, 2500, 1700};
+    const double *new_inputs[VWAP_INPUTS] = {new_high, new_low, new_close, new_volume};
+    CBatchResult b = vwap_batch(p.state, new_inputs, 5, NULL, 0);
+    /* b.outputs[0] -> VWAP values for just the five new bars */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    vwap_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -184,6 +229,24 @@ The average price weighted by trading volume over the entire input window; commo
     typprice = outputs[1]  # typprice (optional — requested)
     ```
 
+=== "C"
+
+    `vwap` exposes 1 optional output: `typprice`. This indicator has no options, so the options array is NULL (or empty).
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    /* ... (same high, low, close, volume data as above) */
+    const double *inputs[VWAP_INPUTS] = {high, low, close, volume};
+
+    /* Request the typprice optional output (mask has one bool per optional output) */
+    bool mask[] = {true};
+    CIndicatorResult r = vwap_indicator(inputs, 40, NULL, mask, 1);
+    /* r.outputs[0] -> vwap (primary), r.outputs[1] -> typprice (optional) */
+    tulip_ffi_result_free(r);
+    vwap_state_free(r.state);
+    ```
+
 === "Node.js"
 
     `vwap` exposes 1 optional output: `typprice`.
@@ -258,6 +321,71 @@ The average price weighted by trading volume over the entire input window; commo
 
     _This indicator has no options, so by-options SIMD does not apply._
 
+=== "C"
+
+    **By assets** — same option applied to 4 assets in one call (N must be 2/4/8/16). This indicator has no options.
+
+    ```c
+    double h1[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                   85.90, 86.58, 86.98, 88.00, 87.87};
+    double l1[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                   84.03, 85.39, 85.76, 87.17, 87.01};
+    double c1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29};
+    double v1[] = {1500, 2000, 1800, 2200, 1700, 2500, 2100, 1900, 2300, 1600,
+                   2800, 2400, 2100, 1800, 2600};
+
+    const double *const asset1[VWAP_INPUTS] = {h1, l1, c1, v1};
+
+    /* Asset 2 with slightly different prices */
+    double h2[] = {82.25, 81.99, 83.13, 83.40, 83.95, 84.00, 83.43, 84.40, 84.94, 85.10,
+                   86.00, 86.68, 87.08, 88.10, 87.97};
+    double l2[] = {81.39, 80.74, 81.41, 82.75, 83.17, 83.21, 82.59, 82.40, 84.25, 84.21,
+                   84.13, 85.49, 85.86, 87.27, 87.11};
+    double c2[] = {81.69, 81.16, 82.97, 83.10, 83.71, 83.25, 82.94, 84.09, 84.65, 84.46,
+                   85.63, 86.64, 86.99, 87.87, 87.39};
+    double v2[] = {1600, 2100, 1900, 2300, 1800, 2600, 2200, 2000, 2400, 1700,
+                   2900, 2500, 2200, 1900, 2700};
+
+    const double *const asset2[VWAP_INPUTS] = {h2, l2, c2, v2};
+
+    /* Asset 3 */
+    double h3[] = {81.95, 81.69, 82.83, 83.10, 83.65, 83.70, 83.13, 84.10, 84.64, 84.80,
+                   85.70, 86.38, 86.78, 87.80, 87.67};
+    double l3[] = {81.09, 80.44, 81.11, 82.45, 82.87, 82.91, 82.29, 82.10, 83.95, 83.91,
+                   83.83, 85.19, 85.56, 86.87, 86.71};
+    double c3[] = {81.39, 80.86, 82.67, 82.80, 83.41, 83.05, 82.64, 83.79, 84.35, 84.16,
+                   85.33, 86.34, 86.69, 87.57, 87.09};
+    double v3[] = {1400, 1900, 1700, 2100, 1600, 2400, 2000, 1800, 2200, 1500,
+                   2700, 2300, 2000, 1700, 2500};
+
+    const double *const asset3[VWAP_INPUTS] = {h3, l3, c3, v3};
+
+    /* Asset 4 */
+    double h4[] = {82.35, 82.09, 83.23, 83.50, 84.05, 84.10, 83.53, 84.50, 85.04, 85.20,
+                   86.10, 86.78, 87.18, 88.20, 88.07};
+    double l4[] = {81.49, 80.84, 81.51, 82.85, 83.27, 83.31, 82.69, 82.50, 84.35, 84.31,
+                   84.23, 85.59, 85.96, 87.37, 87.21};
+    double c4[] = {81.79, 81.26, 83.07, 83.20, 83.81, 83.35, 83.04, 84.19, 84.75, 84.56,
+                   85.73, 86.74, 87.09, 87.97, 87.49};
+    double v4[] = {1700, 2200, 2000, 2400, 1900, 2700, 2300, 2100, 2500, 1800,
+                   3000, 2600, 2300, 2000, 2800};
+
+    const double *const asset4[VWAP_INPUTS] = {h4, l4, c4, v4};
+
+    /* simd_inputs is indexed by asset (the N=4 SIMD lanes) */
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = vwap_simd_by_assets(simd_inputs, 4, 15, NULL, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's VWAP series */
+        vwap_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    _This indicator has no options, so by-options SIMD does not apply._
+
 === "Node.js"
 
     **By assets** — applied to 4 assets in parallel:
@@ -273,4 +401,4 @@ The average price weighted by trading volume over the entire input window; commo
     results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
     ```
 
-    _This indicator has no options, so by-options SIMD does not apply._
+    _This indicator has no options, so by-options SIMD does not apply.

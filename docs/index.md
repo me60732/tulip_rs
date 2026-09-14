@@ -2,7 +2,7 @@
 
 **High-performance technical analysis in Rust.**
 
-TulipRS is a production-ready Rust library implementing 100+ technical indicators and 60+ candlestick patterns with first-class SIMD acceleration. Indicators run on scalar data or on multiple assets / multiple option sets simultaneously using portable SIMD intrinsics. Every indicator returns a serialisable `IndicatorState` alongside its outputs, enabling incremental streaming computation without reprocessing historical data. Native Rust, Python, and Node.js are all fully supported; additional language bindings are planned.
+TulipRS is a production-ready Rust library implementing 100+ technical indicators and 60+ candlestick patterns with first-class SIMD acceleration. Indicators run on scalar data or on multiple assets / multiple option sets simultaneously using portable SIMD intrinsics. Every indicator returns a serialisable `IndicatorState` alongside its outputs, enabling incremental streaming computation without reprocessing historical data. Native Rust, C (`tulip_rs_ffi`), Python, and Node.js are all fully supported; additional language bindings are planned.
 
 ---
 
@@ -31,7 +31,7 @@ Most technical analysis libraries are wrappers around the same scalar C code wri
 | **SIMD — by options** | N option sets applied to one asset in one CPU pass (`indicator_by_options::<N>`) |
 | **State management** | Every indicator returns a serialisable `IndicatorState` for streaming / incremental use |
 | **Browser / WASM** | Full indicator set compiled to WebAssembly — runs in any modern browser, no server needed ([`tulip-rs-wasm`](https://www.npmjs.com/package/tulip-rs-wasm)) |
-| **Languages** | Rust (native), Python (`tulip_rs_python` via PyO3), Node.js (`tulip-rs-node` via napi-rs), Browser (WASM) |
+| **Languages** | Rust (native), C (`tulip_rs_ffi` — hand-rolled `extern "C"` FFI), Python (`tulip_rs_python` via PyO3), Node.js (`tulip-rs-node` via napi-rs), Browser (WASM) |
 
 ---
 
@@ -107,10 +107,10 @@ Most technical analysis libraries are wrappers around the same scalar C code wri
 | [Volatility](indicators/volatility/bbands.md) | BBands, ATR, NATR, TR, StdDev, Volatility, VHF, CVI |
 | [Volume](indicators/volume/ad.md) | AD, ADOSC, OBV, MFI, NVI, PVI, VOSC, KVO, EMV, WAD |
 | [Price & Statistical](indicators/price_statistical/avgprice.md) | AvgPrice, MedPrice, TypPrice, WCPrice, Max, Min, MOM, ROC, ROCR, BOP, LinReg, TSF, TRIX, DPO, Mass, MD, MarketFi, QStick, PivotPoint |
-| [Candlestick Patterns](candlestick_patterns.md) | 60+ patterns, forecast types, Rust and Python usage |
+| [Candlestick Patterns](candlestick_patterns.md) | 60+ patterns, forecast types, Rust, C, Python, and Node.js usage |
 | [SIMD](simd.md) | Conceptual overview: by-assets and by-options modes, lane counts, when to use each |
 | [State Management](state_management.md) | Streaming computation, chunked processing, JSON serialisation |
-| [Language Bindings](language_bindings.md) | Python (PyO3/maturin) details, result object API, planned bindings |
+| [Language Bindings](language_bindings.md) | Per-binding subpages: C FFI, Python (PyO3/maturin), Node.js (napi-rs), Browser (WASM) |
 | [Benchmarks](benchmarks/index.md) | Comparison against Tulip Indicators (C) and TA-Lib, methodology, how to run |
 
 ---
@@ -120,6 +120,7 @@ Most technical analysis libraries are wrappers around the same scalar C code wri
 | Language | Status | Package |
 |---|---|---|
 | **Rust** | ✅ Native | `tulip_rs` (this crate) |
+| **C** | ✅ Supported | [`tulip_rs_ffi`](https://github.com/me60732/tulip_rs_ffi) — hand-rolled `extern "C"` FFI, usable from C, C++/any C ABI |
 | **Python** | ✅ Supported | [`tulip_rs_python`](https://github.com/me60732/tulip_rs_python) |
 | **Node.js** | ✅ Supported | [`tulip-rs-node`](https://github.com/me60732/tulip-rs-node) |
 | **Browser (WASM)** | ✅ Supported | [`tulip-rs-wasm`](https://www.npmjs.com/package/tulip-rs-wasm) · [`tulip-rs-lwc`](https://www.npmjs.com/package/tulip-rs-lwc) |

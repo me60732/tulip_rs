@@ -33,6 +33,39 @@ Combines momentum from three different time periods (short, medium, and long) to
     println!("Continued Ultimate Oscillator: {:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[]  = {82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[]   = {81.29, 80.64, 81.31, 82.65, 83.07,
+                      83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[ULTOSC_OPTIONS] = {7.0, 14.0, 28.0}; // short_period, medium_period, long_period
+    const double *inputs[ULTOSC_INPUTS] = {high, low, close};
+
+    /* Full computation */
+    CIndicatorResult r = ultosc_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> the Ultimate Oscillator series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    ultosc_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = ultosc_indicator(inputs, 8, options, NULL, 0);
+    double new_high[]  = {84.55, 85.00};
+    double new_low[]   = {84.15, 84.11};
+    double new_close[] = {84.55, 84.36};
+    const double *new_inputs[ULTOSC_INPUTS] = {new_high, new_low, new_close};
+    CBatchResult b = ultosc_batch(p.state, new_inputs, 2, NULL, 0);
+    /* b.outputs[0] -> Ultimate Oscillator values for just the two new bars */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    ultosc_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -150,6 +183,65 @@ Combines momentum from three different time periods (short, medium, and long) to
     for (i, opt_outputs) in results.iter().enumerate() {
         println!("Option set {}: {:?}", i + 1, opt_outputs[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same options applied to 4 assets in parallel:
+
+    ```c
+    double h1[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double l1[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double c1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double h2[] = {h1[0]*1.1, h1[1]*1.1, h1[2]*1.1, h1[3]*1.1, h1[4]*1.1,
+                   h1[5]*1.1, h1[6]*1.1, h1[7]*1.1, h1[8]*1.1, h1[9]*1.1};
+    double l2[] = {l1[0]*1.1, l1[1]*1.1, l1[2]*1.1, l1[3]*1.1, l1[4]*1.1,
+                   l1[5]*1.1, l1[6]*1.1, l1[7]*1.1, l1[8]*1.1, l1[9]*1.1};
+    double c2[] = {c1[0]*1.1, c1[1]*1.1, c1[2]*1.1, c1[3]*1.1, c1[4]*1.1,
+                   c1[5]*1.1, c1[6]*1.1, c1[7]*1.1, c1[8]*1.1, c1[9]*1.1};
+    double h3[] = {h1[0]*0.9, h1[1]*0.9, h1[2]*0.9, h1[3]*0.9, h1[4]*0.9,
+                   h1[5]*0.9, h1[6]*0.9, h1[7]*0.9, h1[8]*0.9, h1[9]*0.9};
+    double l3[] = {l1[0]*0.9, l1[1]*0.9, l1[2]*0.9, l1[3]*0.9, l1[4]*0.9,
+                   l1[5]*0.9, l1[6]*0.9, l1[7]*0.9, l1[8]*0.9, l1[9]*0.9};
+    double c3[] = {c1[0]*0.9, c1[1]*0.9, c1[2]*0.9, c1[3]*0.9, c1[4]*0.9,
+                   c1[5]*0.9, c1[6]*0.9, c1[7]*0.9, c1[8]*0.9, c1[9]*0.9};
+    double h4[] = {h1[0]*1.02, h1[1]*1.02, h1[2]*1.02, h1[3]*1.02, h1[4]*1.02,
+                   h1[5]*1.02, h1[6]*1.02, h1[7]*1.02, h1[8]*1.02, h1[9]*1.02};
+    double l4[] = {l1[0]*1.02, l1[1]*1.02, l1[2]*1.02, l1[3]*1.02, l1[4]*1.02,
+                   l1[5]*1.02, l1[6]*1.02, l1[7]*1.02, l1[8]*1.02, l1[9]*1.02};
+    double c4[] = {c1[0]*1.02, c1[1]*1.02, c1[2]*1.02, c1[3]*1.02, c1[4]*1.02,
+                   c1[5]*1.02, c1[6]*1.02, c1[7]*1.02, c1[8]*1.02, c1[9]*1.02};
+
+    const double *const asset1[ULTOSC_INPUTS] = {h1, l1, c1};
+    const double *const asset2[ULTOSC_INPUTS] = {h2, l2, c2};
+    const double *const asset3[ULTOSC_INPUTS] = {h3, l3, c3};
+    const double *const asset4[ULTOSC_INPUTS] = {h4, l4, c4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = ultosc_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's ultosc series */
+        ultosc_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```c
+    double o7[] = {7.0, 14.0, 28.0};
+    double o5[] = {5.0, 10.0, 20.0};
+    double o10[] = {10.0, 20.0, 40.0};
+    double o4[] = {4.0, 8.0, 16.0};
+
+    const double *const simd_opts[4] = {o7, o5, o10, o4};
+
+    CSimdResult r = ultosc_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset's ultosc for option set i */
+        ultosc_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

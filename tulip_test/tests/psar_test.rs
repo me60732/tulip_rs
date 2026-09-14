@@ -1,7 +1,11 @@
 #[cfg(test)]
 mod tests {
+    use bincode::config::standard;
+    use bincode::serde::{decode_from_slice, encode_to_vec};
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::psar::{Indicator, IndicatorByOptions, Psar, TIndicatorState};
+    use tulip_rs::indicators::psar::{
+        Indicator, IndicatorByOptions, IndicatorState as PsarState, Psar, TIndicatorState,
+    };
     use tulip_test::c_bindings::{ti_psar, ti_psar_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
     const EPSILON: f64 = 1e-12;
@@ -449,5 +453,56 @@ mod tests {
         }
 
         println!("✓ All SIMD by options vs Regular PSAR database tests passed!");
+    }
+
+    #[test]
+    fn test_psar_state_bincode_roundtrip() {
+        // Generate 600-bar local data series
+        let high: Vec<f64> = (0..600)
+            .map(|i| {
+                let t = i as f64;
+                100.0 + 10.0 * (t * 0.3).sin() + t * 0.05
+            })
+            .collect();
+        let low: Vec<f64> = high.iter().map(|c| *c - 2.0).collect();
+
+        // Split: mid = len-50
+        let mid = high.len() - 50;
+
+        // First part for initial indicator call
+        let inputs_first = [&high[..mid], &low[..mid]];
+        let options = OPTIONS_LIST[1]; // Use [0.02, 0.2]
+
+        let (outputs_first, mut original_state) =
+            Psar::indicator(&inputs_first, &[0.02, 0.2], None)
+                .expect("PSAR indicator failed on first part");
+
+        // Bincode 2.0 roundtrip
+        use bincode::config::standard;
+        use bincode::serde::{decode_from_slice, encode_to_vec};
+        let bytes = encode_to_vec(&original_state, standard()).expect("serialize");
+        let (mut restored_state, consumed): (PsarState, usize) =
+            decode_from_slice(&bytes, standard()).expect("deserialize");
+        assert_eq!(consumed, bytes.len(), "bincode consumed mismatch");
+
+        // Second part for batch_indicator comparison
+        let inputs_second = [&high[mid..], &low[mid..]];
+
+        let original_outputs = original_state
+            .batch_indicator(&inputs_second, None)
+            .expect("original batch indicator failed");
+        let restored_outputs = restored_state
+            .batch_indicator(&inputs_second, None)
+            .expect("restored batch indicator failed");
+
+        // Compare all values via to_bits()
+        for i in 0..original_outputs[0].len() {
+            assert_eq!(
+                original_outputs[0][i].to_bits(),
+                restored_outputs[0][i].to_bits(),
+                "PSAR psar mismatch at index {}",
+                i
+            );
+        }
     }
 }

@@ -33,6 +33,38 @@ Band-pass filters price by first applying a high-pass filter to remove trend and
     println!("Continued Roofing Filter: {:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {
+        81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+        85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+        88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+        90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20
+    };
+    double options[ROOFINGFILTER_OPTIONS] = {10.0, 40.0}; // ss_period, hp_period
+    const double *inputs[ROOFINGFILTER_INPUTS] = {close};
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = roofingfilter_indicator(inputs, 40, options, NULL, 0);
+    /* r.outputs[0] -> the roofing filter series, length r.output_lens[0];
+       r.outputs[1] -> highpass (optional — not requested here) */
+    tulip_ffi_result_free(r);
+    roofingfilter_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = roofingfilter_indicator(inputs, 35, options, NULL, 0);
+    double new_close[] = {92.80, 93.10, 92.50, 93.20};
+    const double *new_inputs[ROOFINGFILTER_INPUTS] = {new_close};
+    CBatchResult b = roofingfilter_batch(p.state, new_inputs, 4, NULL, 0);
+    /* b.outputs[0] -> roofing filter values for just the four new bars */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    roofingfilter_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -126,6 +158,30 @@ Band-pass filters price by first applying a high-pass filter to remove trend and
     let highpass = &outputs[1]; // highpass (optional — requested)
     ```
 
+=== "C"
+
+    `roofingfilter` exposes 1 optional output: `highpass`. Pass a boolean mask as the third argument.
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {
+        81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+        85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+        88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+        90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20
+    };
+    double options[ROOFINGFILTER_OPTIONS] = {10.0, 40.0}; // ss_period, hp_period
+    const double *inputs[ROOFINGFILTER_INPUTS] = {close};
+    bool optional_outputs[1] = {true}; // highpass=true
+
+    CIndicatorResult r = roofingfilter_indicator(inputs, 40, options, optional_outputs, 1);
+    /* r.outputs[0] -> roofing (primary)
+       r.outputs[1] -> highpass (optional — requested) */
+    tulip_ffi_result_free(r);
+    roofingfilter_state_free(r.state);
+    ```
+
 === "Python"
 
     ```python
@@ -214,6 +270,50 @@ Band-pass filters price by first applying a high-pass filter to remove trend and
     for (i, opt_outputs) in results.iter().enumerate() {
         println!("Option set {}: {:?}", i + 1, opt_outputs[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same options applied to N assets in parallel (N must be 2/4/8/16):
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a2[] = {86.59, 86.06, 87.87, 88.00, 88.61, 88.15, 87.84, 88.99, 89.55, 89.36};
+    double a3[] = {78.59, 78.06, 79.87, 80.00, 80.61, 80.15, 79.84, 80.99, 81.55, 81.36};
+    double a4[] = {83.22, 82.68, 84.53, 84.66, 85.28, 84.81, 84.50, 85.67, 86.24, 86.05};
+
+    const double *asset1[ROOFINGFILTER_INPUTS] = {a1};
+    const double *asset2[ROOFINGFILTER_INPUTS] = {a2};
+    const double *asset3[ROOFINGFILTER_INPUTS] = {a3};
+    const double *asset4[ROOFINGFILTER_INPUTS] = {a4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+    double options[ROOFINGFILTER_OPTIONS] = {10.0, 40.0};
+
+    CSimdResult r = roofingfilter_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's series, length r.output_lens[i][0] */
+        roofingfilter_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, N different option sets in parallel:
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    const double *inputs[ROOFINGFILTER_INPUTS] = {close};
+
+    double o5_20[] = {5.0, 20.0}, o10_40[] = {10.0, 40.0}, o14_50[] = {14.0, 50.0}, o20_60[] = {20.0, 60.0};
+    const double *const simd_opts[4] = {o5_20, o10_40, o14_50, o20_60};
+
+    CSimdResult r = roofingfilter_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) roofingfilter_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

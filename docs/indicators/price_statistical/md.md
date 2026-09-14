@@ -26,6 +26,33 @@ The mean of the absolute deviations of each bar from the rolling mean over `peri
     println!("{:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    const double *inputs[MD_INPUTS] = {close};
+    double options[MD_OPTIONS] = {14.0}; // period
+
+    /* Full computation */
+    CIndicatorResult r = md_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> the MD(14) series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    md_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = md_indicator(inputs, 8, options, NULL, 0);
+    double new_close[] = {85.53};
+    const double *new_inputs[MD_INPUTS] = {new_close};
+    CBatchResult b = md_batch(p.state, new_inputs, 1, NULL, 0);
+    /* b.outputs[0] -> MD values for just the one new bar */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    md_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -91,6 +118,25 @@ The mean of the absolute deviations of each bar from the rolling mean over `peri
     let sma = &outputs[1]; // sma (optional — requested)
     ```
 
+=== "C"
+
+    `md` exposes 1 optional output: `sma`. Pass a boolean mask as the third argument.
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    const double *inputs[MD_INPUTS] = {close};
+    double options[MD_OPTIONS] = {10.0}; // period
+    bool optional_outputs[1] = {true}; // sma
+
+    CIndicatorResult r = md_indicator(inputs, 10, options, optional_outputs, 1);
+    /* r.outputs[0] -> MD(10), r.outputs[1] -> SMA (optional) */
+    tulip_ffi_result_free(r);
+    md_state_free(r.state);
+    ```
+
 === "Python"
 
     ```python
@@ -145,16 +191,41 @@ The mean of the absolute deviations of each bar from the rolling mean over `peri
     }
     ```
 
-    **By options** — same asset, N option sets in parallel:
+=== "C"
 
-    ```rust
-    use tulip_rs::indicators::md::{Md, IndicatorByOptions};
+    **By assets** — same period applied to 4 assets in parallel (N must be 2/4/8/16):
 
-    let opts: [&[f64; 1]; 4] = [&[7.0], &[14.0], &[21.0], &[28.0]];
-    let results = Md::indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
-    for (i, asset_outputs) in results.iter().enumerate() {
-        println!("Option {}: {:?}", i + 1, asset_outputs[0]);
+    ```c
+    double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a2[] = {81.59*1.2, 81.06*1.2, 82.87*1.2, 83.00*1.2, 83.61*1.2, 83.15*1.2, 82.84*1.2, 83.99*1.2, 84.55*1.2, 84.36*1.2};
+    double a3[] = {90.0+0.5*0+81.59*0.1, 90.0+0.5*1+81.06*0.1, 90.0+0.5*2+82.87*0.1, 90.0+0.5*3+83.00*0.1, 90.0+0.5*4+83.61*0.1, 90.0+0.5*5+83.15*0.1, 90.0+0.5*6+82.84*0.1, 90.0+0.5*7+83.99*0.1, 90.0+0.5*8+84.55*0.1, 90.0+0.5*9+84.36*0.1};
+    double a4[] = {100.0-0.3*0+81.59*0.05, 100.0-0.3*1+81.06*0.05, 100.0-0.3*2+82.87*0.05, 100.0-0.3*3+83.00*0.05, 100.0-0.3*4+83.61*0.05, 100.0-0.3*5+83.15*0.05, 100.0-0.3*6+82.84*0.05, 100.0-0.3*7+83.99*0.05, 100.0-0.3*8+84.55*0.05, 100.0-0.3*9+84.36*0.05};
+
+    /* one [INPUTS]-long pointer array per asset */
+    const double *asset1[MD_INPUTS] = {a1};
+    const double *asset2[MD_INPUTS] = {a2};
+    const double *asset3[MD_INPUTS] = {a3};
+    const double *asset4[MD_INPUTS] = {a4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = md_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's series, length r.output_lens[i][0] */
+        md_state_free(r.states[i]);
     }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```c
+    double o7[] = {7.0}, o14[] = {14.0}, o21[] = {21.0}, o28[] = {28.0};
+    const double *const simd_opts[4] = {o7, o14, o21, o28};
+
+    CSimdResult r = md_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
+    /* r.outputs[i] -> results for option set i (periods 7/14/21/28) */
+    for (uintptr_t i = 0; i < r.num_results; i++) md_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

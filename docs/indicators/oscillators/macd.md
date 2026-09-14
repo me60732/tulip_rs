@@ -2,7 +2,7 @@
 
 Shows the relationship between two EMAs of different periods. The histogram visualises the difference between the MACD line and its signal line, highlighting momentum shifts.
 
-**Inputs:** `[real]` &nbsp;|&nbsp; **Options:** `[fast_period, slow_period, signal_period]` &nbsp;|&nbsp; **Outputs:** `[macd, signal, histogram]`
+**Inputs:** `[real]` &nbsp;|&nbsp; **Options:** `[fast_period, slow_period, signal_period]` &nbsp;|&nbsp; **Outputs:** `[macd_line, signal_line, histogram]`
 
 ### Basic
 
@@ -30,6 +30,40 @@ Shows the relationship between two EMAs of different periods. The histogram visu
     println!("Continued MACD:      {:?}", continued[0]);
     println!("Continued Signal:    {:?}", continued[1]);
     println!("Continued Histogram: {:?}", continued[2]);
+    ```
+
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    const double *inputs[MACD_INPUTS] = {close};
+    double options[MACD_OPTIONS] = {12.0, 26.0, 9.0};
+
+    /* Full computation with all optional outputs */
+    bool optional_outputs[2] = {true, true};  /* short_ema, long_ema */
+    CIndicatorResult r = macd_indicator(inputs, 10, options, optional_outputs, 2);
+    /* r.outputs[0] -> macd_line (primary) */
+    /* r.outputs[1] -> signal_line (primary) */
+    /* r.outputs[2] -> histogram (primary) */
+    /* r.outputs[3] -> short_ema (optional) */
+    /* r.outputs[4] -> long_ema (optional) */
+    tulip_ffi_result_free(r);
+    macd_state_free(r.state);
+
+    /* Partial computation + state continuation (no optional outputs) */
+    CIndicatorResult p = macd_indicator(inputs, 8, options, NULL, 0);
+    double new_close[] = {84.55, 84.36};
+    const double *new_inputs[MACD_INPUTS] = {new_close};
+    CBatchResult b = macd_batch(p.state, new_inputs, 2, NULL, 0);
+    /* b.outputs[0] -> MACD line */
+    /* b.outputs[1] -> Signal */
+    /* b.outputs[2] -> Histogram */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    macd_state_free(p.state);
     ```
 
 === "Python"
@@ -122,6 +156,27 @@ Shows the relationship between two EMAs of different periods. The histogram visu
     let long_ema    = &outputs[4]; // long_ema (optional — requested)
     ```
 
+=== "C"
+
+    `macd` exposes 2 optional outputs: `short_ema`, `long_ema`. Pass a boolean mask in header order.
+
+    ```c
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    const double *inputs[MACD_INPUTS] = {close};
+    double options[MACD_OPTIONS] = {12.0, 26.0, 9.0};
+
+    bool mask[2] = {true, true};  /* one per optional output */
+    CIndicatorResult r = macd_indicator(inputs, 10, options, mask, 2);
+    /* r.outputs[0] -> macd_line (primary) */
+    /* r.outputs[1] -> signal_line (primary) */
+    /* r.outputs[2] -> histogram (primary) */
+    /* r.outputs[3] -> short_ema (optional — requested) */
+    /* r.outputs[4] -> long_ema (optional — requested) */
+    tulip_ffi_result_free(r);
+    macd_state_free(r.state);
+    ```
+
 === "Python"
 
     ```python
@@ -169,6 +224,7 @@ Shows the relationship between two EMAs of different periods. The histogram visu
     const shortEma = allOut[3]; // optional 0: short_ema
     const longEma  = allOut[4]; // optional 1: long_ema
     ```
+
 ### SIMD
 
 === "Rust"
@@ -219,6 +275,47 @@ Shows the relationship between two EMAs of different periods. The histogram visu
         println!("Option set {} Signal:    {:?}", i + 1, opt_outputs[1]);
         println!("Option set {} Histogram: {:?}", i + 1, opt_outputs[2]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same options applied to 4 assets in one call (N must be 2/4/8/16):
+
+    ```c
+    double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a2[] = {72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50};
+    double a3[] = {55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40};
+    double a4[] = {100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8};
+
+    const double *const asset1[MACD_INPUTS] = {a1};
+    const double *const asset2[MACD_INPUTS] = {a2};
+    const double *const asset3[MACD_INPUTS] = {a3};
+    const double *const asset4[MACD_INPUTS] = {a4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = macd_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> MACD line */
+        /* r.outputs[i][1] -> Signal */
+        /* r.outputs[i][2] -> Histogram */
+        macd_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different option sets in one call:
+
+    ```c
+    double o12[] = {12.0, 26.0, 9.0}, o19[] = {19.0, 39.0, 14.0};
+    double o24[] = {24.0, 52.0, 18.0}, o6[] = {6.0, 13.0, 5.0};
+    const double *const simd_opts[4] = {o12, o19, o24, o6};
+
+    CSimdResult r = macd_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
+    /* r.outputs[i][0] -> MACD line */
+    /* r.outputs[i][1] -> Signal */
+    /* r.outputs[i][2] -> Histogram */
+    for (uintptr_t i = 0; i < r.num_results; i++) macd_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

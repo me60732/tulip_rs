@@ -3,7 +3,7 @@ mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicator_types::IndicatorByOptions;
     use tulip_rs::indicators::smaenvelope::{
-        Indicator, IndicatorState, SmaEnvelope, TIndicatorState,
+        Indicator, IndicatorState, SmaEnvelope, TIndicatorState, OPTIONS, INPUTS
     };
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -35,6 +35,35 @@ mod tests {
         stock_data.iter().map(|d| d.close).collect()
     }
 
+    #[test]
+    fn test_state_bincode_roundtrip() {
+        use bincode::config::standard;
+        use bincode::serde::{decode_from_slice, encode_to_vec};
+
+        let close = expand_close();
+        let len = close.len();
+        let mid = len - 50;
+        let options: [f64; OPTIONS] = [5.0, 2.5]; // EMV has no options
+        let first: [&[f64]; INPUTS] = [&close[..mid]];
+        let second: [&[f64]; INPUTS] = [&close[mid..]];
+
+        let (_rows, mut original) = SmaEnvelope::indicator(&first, &options, None).unwrap();
+        let cfg = standard();
+        let bytes = encode_to_vec(&original, cfg).expect("serialize");
+        let (mut restored, consumed): (IndicatorState, usize) =
+            decode_from_slice(&bytes, cfg).expect("deserialize");
+        assert_eq!(consumed, bytes.len());
+
+        let a = original.batch_indicator(&second, None).unwrap();
+        let b = restored.batch_indicator(&second, None).unwrap();
+        assert_eq!(a.len(), b.len());
+        for (ra, rb) in a.iter().zip(b.iter()) {
+            assert_eq!(ra.len(), rb.len());
+            for (x, y) in ra.iter().zip(rb.iter()) {
+                assert_eq!(x.to_bits(), y.to_bits());
+            }
+        }
+    }
     // -------------------------------------------------------------------------
     // Sanity checks on the full indicator
     // -------------------------------------------------------------------------

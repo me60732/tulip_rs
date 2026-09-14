@@ -6,12 +6,12 @@ pub(crate) use crate::indicators::simd_indicators::by_option::wma::indicator_by_
 
 pub use crate::indicator_types::{TSimdState, TState};
 use crate::indicators::{simd_indicators::sma_simd::SimdState as SmaSimdState, wma::State};
+use crate::types::Warm;
 use serde::{
-    de::{self, MapAccess, Visitor},
+    de::{self, MapAccess, SeqAccess, Visitor},
     ser::SerializeStruct,
     Deserialize, Deserializer, Serialize, Serializer,
 };
-use crate::types::Warm;
 
 use std::fmt;
 use std::marker::PhantomData;
@@ -95,6 +95,28 @@ where
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str("struct SimdState")
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<SimdState<N>, A::Error> {
+                // Mirrors Serialize field order: sma_state, weighted_sum, period, weights.
+                let sma_state: SmaSimdState<N> = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let weighted_sum: [f64; N] = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                let period: [f64; N] = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(2, &self))?;
+                let weights: [f64; N] = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(3, &self))?;
+                Ok(SimdState {
+                    sma_state,
+                    weighted_sum: Simd::from_array(weighted_sum),
+                    period: Simd::from_array(period),
+                    weights: Simd::from_array(weights),
+                })
             }
 
             fn visit_map<V: MapAccess<'de>>(self, mut map: V) -> Result<SimdState<N>, V::Error> {

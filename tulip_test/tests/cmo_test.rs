@@ -2,7 +2,7 @@
 mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicator_types::IndicatorByOptions;
-    use tulip_rs::indicators::cmo::{Cmo, Indicator, TIndicatorState};
+    use tulip_rs::indicators::cmo::{Cmo, Indicator, IndicatorState, TIndicatorState, INPUTS};
     use tulip_test::c_bindings::{ti_cmo, ti_cmo_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -500,5 +500,48 @@ mod tests {
 
     fn get_close_array(stock_data: &[tulip_test::database::EodData]) -> Vec<f64> {
         stock_data.iter().map(|d| d.close).collect()
+    }
+
+    #[test]
+    fn test_cmo_state_bincode_roundtrip() {
+        use bincode::config::standard;
+        use bincode::serde::{decode_from_slice, encode_to_vec};
+
+        let close = expand_close();
+        let options: [f64; 1] = [14.0]; // one of the option sets used in existing tests
+        let min_data_needed = Cmo::min_data(&options);
+
+        // Ensure we have enough data for first chunk + second chunk
+        let total_needed = min_data_needed + 50;
+        let close_tiled = if close.len() < total_needed {
+            let mut c = close.clone();
+            while c.len() < total_needed {
+                c.extend_from_slice(&CLOSE);
+            }
+            c
+        } else {
+            close.clone()
+        };
+
+        let mid = min_data_needed; // first chunk = min_data bars, second = 50 bars
+        let first: [&[f64]; INPUTS] = [&close_tiled[..mid]];
+        let second: [&[f64]; INPUTS] = [&close_tiled[mid..mid + 50]];
+
+        let (_rows, mut original) = Cmo::indicator(&first, &options, None).unwrap();
+        let cfg = standard();
+        let bytes = encode_to_vec(&original, cfg).expect("serialize");
+        let (mut restored, consumed): (IndicatorState, usize) =
+            decode_from_slice(&bytes, cfg).expect("deserialize");
+        assert_eq!(consumed, bytes.len());
+
+        let a = original.batch_indicator(&second, None).unwrap();
+        let b = restored.batch_indicator(&second, None).unwrap();
+        assert_eq!(a.len(), b.len());
+        for (ra, rb) in a.iter().zip(b.iter()) {
+            assert_eq!(ra.len(), rb.len());
+            for (x, y) in ra.iter().zip(rb.iter()) {
+                assert_eq!(x.to_bits(), y.to_bits());
+            }
+        }
     }
 }

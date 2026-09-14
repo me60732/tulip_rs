@@ -139,7 +139,7 @@ impl Serialize for EmaState {
 
 impl<'de> Deserialize<'de> for EmaState {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        use serde::de::{self, MapAccess, Visitor};
+        use serde::de::{self, MapAccess, SeqAccess, Visitor};
         use std::fmt;
 
         #[derive(Deserialize)]
@@ -158,6 +158,30 @@ impl<'de> Deserialize<'de> for EmaState {
             type Value = EmaState;
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str("struct EmaState")
+            }
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<EmaState, A::Error> {
+                // Mirrors Serialize field order: ema, multipliers, ema_line, ema_body.
+                let ema: [f64; 4] = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let multipliers: [[f64; 4]; 2] = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                let ema_line = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(2, &self))?;
+                let ema_body = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(3, &self))?;
+                Ok(EmaState {
+                    ema: Simd::from_array(ema),
+                    multipliers: (
+                        Simd::from_array(multipliers[0]),
+                        Simd::from_array(multipliers[1]),
+                    ),
+                    ema_line,
+                    ema_body,
+                })
             }
             fn visit_map<V: MapAccess<'de>>(self, mut map: V) -> Result<EmaState, V::Error> {
                 let mut ema = None;
@@ -252,7 +276,7 @@ impl EmaState {
             Simd::from_array([high - low, (open - close).abs(), close, close]),
             self.ema,
             self.multipliers.0,
-            self.multipliers.1
+            self.multipliers.1,
         );
     }
 }

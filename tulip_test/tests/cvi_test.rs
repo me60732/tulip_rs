@@ -2,7 +2,7 @@
 mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicator_types::IndicatorByOptions;
-    use tulip_rs::indicators::cvi::{Cvi, Indicator, TIndicatorState};
+    use tulip_rs::indicators::cvi::{Cvi, Indicator, IndicatorState, TIndicatorState, INPUTS};
     use tulip_test::c_bindings::{ti_cvi, ti_cvi_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -515,5 +515,57 @@ mod tests {
         }
 
         println!("✓ All CVI SIMD state handover by options tests passed!");
+    }
+
+    #[test]
+    fn test_cvi_state_bincode_roundtrip() {
+        use bincode::config::standard;
+        use bincode::serde::{decode_from_slice, encode_to_vec};
+
+        let (high, low) = expand_inputs();
+        let options: [f64; 1] = [14.0]; // one of the option sets used in existing tests
+        let min_data_needed = Cvi::min_data(&options);
+
+        // Ensure we have enough data for first chunk + second chunk
+        let total_needed = min_data_needed + 50;
+        let high_tiled = if high.len() < total_needed {
+            let mut h = high.clone();
+            while h.len() < total_needed {
+                h.extend_from_slice(&HIGH);
+            }
+            h
+        } else {
+            high.clone()
+        };
+        let low_tiled = if low.len() < total_needed {
+            let mut l = low.clone();
+            while l.len() < total_needed {
+                l.extend_from_slice(&LOW);
+            }
+            l
+        } else {
+            low.clone()
+        };
+
+        let mid = min_data_needed; // first chunk = min_data bars, second = 50 bars
+        let first: [&[f64]; INPUTS] = [&high_tiled[..mid], &low_tiled[..mid]];
+        let second: [&[f64]; INPUTS] = [&high_tiled[mid..mid + 50], &low_tiled[mid..mid + 50]];
+
+        let (_rows, mut original) = Cvi::indicator(&first, &options, None).unwrap();
+        let cfg = standard();
+        let bytes = encode_to_vec(&original, cfg).expect("serialize");
+        let (mut restored, consumed): (IndicatorState, usize) =
+            decode_from_slice(&bytes, cfg).expect("deserialize");
+        assert_eq!(consumed, bytes.len());
+
+        let a = original.batch_indicator(&second, None).unwrap();
+        let b = restored.batch_indicator(&second, None).unwrap();
+        assert_eq!(a.len(), b.len());
+        for (ra, rb) in a.iter().zip(b.iter()) {
+            assert_eq!(ra.len(), rb.len());
+            for (x, y) in ra.iter().zip(rb.iter()) {
+                assert_eq!(x.to_bits(), y.to_bits());
+            }
+        }
     }
 }

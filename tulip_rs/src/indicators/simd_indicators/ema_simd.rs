@@ -1,19 +1,19 @@
 #[cfg(feature = "simd_assets")]
 pub(crate) use crate::indicators::simd_indicators::by_asset::ema::indicator_by_assets;
 
+pub use crate::indicator_types::{TSimdState, TState};
+use crate::indicators::ema::State;
 #[cfg(feature = "simd_options")]
 pub(crate) use crate::indicators::simd_indicators::by_option::ema::indicator_by_options;
+use crate::types::Warm;
 use serde::{
-    de::{self, MapAccess, Visitor},
+    de::{self, MapAccess, SeqAccess, Visitor},
     ser::SerializeStruct,
     Deserialize, Deserializer, Serialize, Serializer,
 };
-pub use crate::indicator_types::{TState, TSimdState};
 use std::fmt;
 use std::marker::PhantomData;
 use std::simd::{Simd, StdFloat};
-use crate::indicators::ema::State;
-use crate::types::Warm;
 /// Computes the EMA multiplier pair for `N` lanes with potentially different periods.
 ///
 /// Returns `(per, 1 - per)` where `per = 2.0 / (period + 1.0)` for each lane,
@@ -71,7 +71,7 @@ impl<const N: usize> SimdState<N> {
             multiplier: multipliers.0,
         }
     }
-    
+
     pub fn extract<const S: usize, const L: usize>(&self) -> SimdState<L> {
         let multiplier = self.multiplier.extract::<S, L>();
         let inv_multiplier = self.inv_multiplier.extract::<S, L>();
@@ -162,6 +162,24 @@ where
                 f.write_str("struct SimdState")
             }
 
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<SimdState<N>, A::Error> {
+                // Mirrors Serialize field order: ema, inv_multiplier, multiplier.
+                let ema: [f64; N] = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let inv_multiplier: [f64; N] = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                let multiplier: [f64; N] = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(2, &self))?;
+                Ok(SimdState {
+                    ema: Simd::from_array(ema),
+                    inv_multiplier: Simd::from_array(inv_multiplier),
+                    multiplier: Simd::from_array(multiplier),
+                })
+            }
+
             fn visit_map<V: MapAccess<'de>>(self, mut map: V) -> Result<SimdState<N>, V::Error> {
                 let mut ema: Option<[f64; N]> = None;
                 let mut inv_multiplier: Option<[f64; N]> = None;
@@ -226,7 +244,7 @@ where
 pub fn calc_simd<const N: usize>(
     value: Simd<f64, N>,
     prev_ema: Simd<f64, N>,
-    multiplier: Simd<f64, N>, 
+    multiplier: Simd<f64, N>,
     inv_multiplier: Simd<f64, N>,
 ) -> Simd<f64, N> {
     prev_ema.mul_add(inv_multiplier, value * multiplier)

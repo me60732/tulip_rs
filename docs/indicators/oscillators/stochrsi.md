@@ -34,6 +34,33 @@ Applies the Stochastic Oscillator formula to RSI values rather than price, produ
     println!("Continued StochRSI: {:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[STOCHRSI_OPTIONS] = {14.0};
+    const double *inputs[STOCHRSI_INPUTS] = {close};
+
+    /* Full computation */
+    CIndicatorResult r = stochrsi_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> the StochRSI(14) series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    stochrsi_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = stochrsi_indicator(inputs, 8, options, NULL, 0);
+    double new_close[] = {84.55, 84.36};
+    const double *new_inputs[STOCHRSI_INPUTS] = {new_close};
+    CBatchResult b = stochrsi_batch(p.state, new_inputs, 2, NULL, 0);
+    /* b.outputs[0] -> StochRSI values for just the two new bars */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    stochrsi_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -110,6 +137,26 @@ Applies the Stochastic Oscillator formula to RSI values rather than price, produ
 
     let stochrsi = &outputs[0]; // stochrsi (primary)
     let rsi      = &outputs[1]; // rsi (optional — requested)
+    ```
+
+=== "C"
+
+    `stochrsi` exposes 1 optional output: `rsi`.
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[STOCHRSI_OPTIONS] = {14.0};
+    const double *inputs[STOCHRSI_INPUTS] = {close};
+
+    bool optional_outputs[1] = {true}; // request rsi
+    CIndicatorResult r = stochrsi_indicator(inputs, 10, options, optional_outputs, 1);
+    /* r.outputs[0] -> stochrsi (primary) */
+    /* r.outputs[1] -> rsi (optional — requested) */
+    tulip_ffi_result_free(r);
+    stochrsi_state_free(r.state);
     ```
 
 === "Python"
@@ -191,6 +238,41 @@ Applies the Stochastic Oscillator formula to RSI values rather than price, produ
     for (i, opt_outputs) in results.iter().enumerate() {
         println!("Period set {}: {:?}", i + 1, opt_outputs[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```c
+    double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a2[] = {72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50};
+    double a3[] = {55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40};
+    double a4[] = {100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8};
+
+    const double *asset1[STOCHRSI_INPUTS] = {a1};
+    const double *asset2[STOCHRSI_INPUTS] = {a2};
+    const double *asset3[STOCHRSI_INPUTS] = {a3};
+    const double *asset4[STOCHRSI_INPUTS] = {a4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = stochrsi_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's StochRSI series */
+        stochrsi_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```c
+    double o7[] = {7.0}, o14[] = {14.0}, o21[] = {21.0}, o28[] = {28.0};
+    const double *const simd_opts[4] = {o7, o14, o21, o28};
+
+    CSimdResult r = stochrsi_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) stochrsi_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

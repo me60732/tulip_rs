@@ -26,6 +26,31 @@ The percentage change between the current price and the price `period` bars ago.
     println!("{:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    const double *inputs[ROC_INPUTS] = {close};
+    double options[ROC_OPTIONS] = {10.0};
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = roc_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> the ROC series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    roc_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = roc_indicator(inputs, 8, options, NULL, 0);
+    double new_close[] = {85.53};
+    const double *new_inputs[ROC_INPUTS] = {new_close};
+    CBatchResult b = roc_batch(p.state, new_inputs, 1, NULL, 0);
+    /* b.outputs[0] -> ROC value for the new bar */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    roc_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -91,6 +116,22 @@ The percentage change between the current price and the price `period` bars ago.
     let mom = &outputs[1]; // mom (optional — requested)
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    /* roc exposes 1 optional output: mom */
+    const double *inputs[ROC_INPUTS] = {close};
+    double options[ROC_OPTIONS] = {10.0};
+    bool optional_outputs[1] = {true}; /* request mom */
+
+    CIndicatorResult r = roc_indicator(inputs, 10, options, optional_outputs, 1);
+    /* r.outputs[0] -> roc, r.outputs[1] -> mom */
+    tulip_ffi_result_free(r);
+    roc_state_free(r.state);
+    ```
+
 === "Python"
 
     ```python
@@ -152,9 +193,43 @@ The percentage change between the current price and the price `period` bars ago.
 
     let opts: [&[f64; 1]; 4] = [&[5.0], &[10.0], &[20.0], &[50.0]];
     let results = Roc::indicator_by_options::<4>(&[close.as_slice()], &opts, None).unwrap();
-    for (i, asset_outputs) in results.iter().enumerate() {
-        println!("Option {}: {:?}", i + 1, asset_outputs[0]);
+    for (i, out) in results.iter().enumerate() {
+        println!("Period {}: {:?}", opts[i][0], out[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same option applied to 4 assets in parallel (N must be 2/4/8/16):
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    const double *asset1[ROC_INPUTS] = {a1};
+    const double *asset2[ROC_INPUTS] = {a2};
+    const double *asset3[ROC_INPUTS] = {a3};
+    const double *asset4[ROC_INPUTS] = {a4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+    double options[ROC_OPTIONS] = {10.0};
+
+    CSimdResult r = roc_simd_by_assets(simd_inputs, 4, len, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's ROC series, length r.output_lens[i][0] */
+        roc_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```c
+    double o5[] = {5.0}, o10[] = {10.0}, o20[] = {20.0}, o50[] = {50.0};
+    const double *const simd_opts[4] = {o5, o10, o20, o50};
+
+    CSimdResult r = roc_simd_by_options(inputs, len, simd_opts, 4, NULL, 0);
+    /* r.outputs[i] -> ROC for period simd_opts[i] */
+    for (uintptr_t i = 0; i < r.num_results; i++) roc_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

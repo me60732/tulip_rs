@@ -1,7 +1,9 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::fisher::{Fisher, Indicator, IndicatorByOptions, TIndicatorState};
+    use tulip_rs::indicators::fisher::{
+        Fisher, Indicator, IndicatorByOptions, IndicatorState, TIndicatorState, INPUTS, OPTIONS,
+    };
     use tulip_test::c_bindings::{ti_fisher, ti_fisher_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
     const EPSILION: f64 = 1e-12;
@@ -835,6 +837,36 @@ mod tests {
         }
 
         println!("✓ All SIMD by options state handover tests passed!");
+    }
+
+    #[test]
+    fn test_fisher_state_bincode_roundtrip() {
+        use bincode::config::standard;
+        use bincode::serde::{decode_from_slice, encode_to_vec};
+
+        let (mut high, mut low) = expand_high_low();
+        let len = high.len();
+        let mid = len - 50;
+        let options: [f64; OPTIONS] = [14.0]; // one of the option sets used in existing tests
+        let first: [&[f64]; INPUTS] = [&high[..mid], &low[..mid]];
+        let second: [&[f64]; INPUTS] = [&high[mid..], &low[mid..]];
+
+        let (_rows, mut original) = Fisher::indicator(&first, &options, None).unwrap();
+        let cfg = standard();
+        let bytes = encode_to_vec(&original, cfg).expect("serialize");
+        let (mut restored, consumed): (IndicatorState, usize) =
+            decode_from_slice(&bytes, cfg).expect("deserialize");
+        assert_eq!(consumed, bytes.len());
+
+        let a = original.batch_indicator(&second, None).unwrap();
+        let b = restored.batch_indicator(&second, None).unwrap();
+        assert_eq!(a.len(), b.len());
+        for (ra, rb) in a.iter().zip(b.iter()) {
+            assert_eq!(ra.len(), rb.len());
+            for (x, y) in ra.iter().zip(rb.iter()) {
+                assert_eq!(x.to_bits(), y.to_bits());
+            }
+        }
     }
 
     //add test code here

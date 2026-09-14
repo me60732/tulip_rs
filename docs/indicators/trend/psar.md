@@ -36,6 +36,36 @@ A trailing stop-and-reverse indicator. The SAR dot flips below or above price to
     println!("{:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[] = {82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[] = {81.29, 80.64, 81.31, 82.65, 83.07,
+                    83.11, 82.49, 82.30, 84.15, 84.11};
+    double options[PSAR_OPTIONS] = {0.02, 0.2}; // acceleration_factor_step, acceleration_factor_maximum
+    const double *inputs[PSAR_INPUTS] = {high, low};
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = psar_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> the PSAR series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    psar_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult pr = psar_indicator(inputs, 8, options, NULL, 0);
+    double new_high[] = {85.90};
+    double new_low[] = {84.03};
+    const double *new_inputs[PSAR_INPUTS] = {new_high, new_low};
+    CBatchResult br = psar_batch(pr.state, new_inputs, 1, NULL, 0);
+    /* br.outputs[0] -> PSAR values for just the new bar */
+    tulip_ffi_batch_result_free(br);
+    tulip_ffi_result_free(pr);
+    psar_state_free(pr.state);
+    ```
+
 === "Python"
 
     ```python
@@ -128,6 +158,63 @@ A trailing stop-and-reverse indicator. The SAR dot flips below or above price to
     for (i, out) in results.iter().enumerate() {
         println!("Step/Max {}/{}: {:?}", opts[i][0], opts[i][1], out[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same options applied to 4 assets in one call (N must be 2/4/8/16):
+
+    ```c
+    double h1[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double l1[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double h2[] = {72.15, 71.89, 73.03, 73.30, 73.85, 73.90, 73.33, 74.30, 74.84, 75.00};
+    double l2[] = {71.29, 70.64, 71.31, 72.65, 73.07, 73.11, 72.49, 72.30, 74.15, 74.11};
+    double h3[] = {52.15, 51.89, 53.03, 53.30, 53.85, 53.90, 53.33, 54.30, 54.84, 55.00};
+    double l3[] = {51.29, 50.64, 51.31, 52.65, 53.07, 53.11, 52.49, 52.30, 54.15, 54.11};
+    double h4[] = {102.15, 101.89, 103.03, 103.30, 103.85, 103.90, 103.33, 104.30, 104.84, 105.00};
+    double l4[] = {101.29, 100.64, 101.31, 102.65, 103.07, 103.11, 102.49, 102.30, 104.15, 104.11};
+
+    /* one [INPUTS]-long pointer array per asset */
+    const double *asset1[PSAR_INPUTS] = {h1, l1};
+    const double *asset2[PSAR_INPUTS] = {h2, l2};
+    const double *asset3[PSAR_INPUTS] = {h3, l3};
+    const double *asset4[PSAR_INPUTS] = {h4, l4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = psar_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's PSAR series */
+        psar_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 option sets in parallel:
+
+    ```c
+    #define EXPANDED_LEN (15 * 20)
+    static double high_expanded[EXPANDED_LEN];
+    static double low_expanded[EXPANDED_LEN];
+    for (size_t i = 0; i < 20; i++) {
+        for (size_t j = 0; j < 15; j++) {
+            high_expanded[i * 15 + j] = h1[j];
+            low_expanded[i * 15 + j] = l1[j];
+        }
+    }
+    const double *expanded_inputs[PSAR_INPUTS] = {high_expanded, low_expanded};
+
+    static const double opts_1[PSAR_OPTIONS] = {0.1, 1.0};
+    static const double opts_2[PSAR_OPTIONS] = {0.2, 2.0};
+    static const double opts_3[PSAR_OPTIONS] = {0.3, 3.0};
+    static const double opts_4[PSAR_OPTIONS] = {0.4, 4.0};
+    const double *const simd_opts[4] = {opts_1, opts_2, opts_3, opts_4};
+
+    CSimdResult r = psar_simd_by_options(expanded_inputs, EXPANDED_LEN, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> option set i's PSAR series */
+        psar_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

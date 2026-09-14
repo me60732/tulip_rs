@@ -27,6 +27,33 @@ Reduces EMA lag by applying a second EMA and combining the results: `2 * EMA - E
     println!("Continued DEMA: {:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[DEMA_OPTIONS] = {14.0}; // period
+    const double *inputs[DEMA_INPUTS] = {close};
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = dema_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> the DEMA(14) series, length r.output_lens[0]; r.outputs[1] -> EMA */
+    tulip_ffi_result_free(r);
+    dema_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = dema_indicator(inputs, 8, options, NULL, 0);
+    double new_close[] = {84.55, 84.36};
+    const double *new_inputs[DEMA_INPUTS] = {new_close};
+    CBatchResult b = dema_batch(p.state, new_inputs, 2, NULL, 0);
+    /* b.outputs[0] -> DEMA values for just the two new bars */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    dema_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -104,6 +131,23 @@ Reduces EMA lag by applying a second EMA and combining the results: `2 * EMA - E
 
     let dema = &outputs[0]; // dema (primary)
     let ema  = &outputs[1]; // "ema" (optional — requested)
+    ```
+
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[DEMA_OPTIONS] = {5.0}; // period
+    const double *inputs[DEMA_INPUTS] = {close};
+    bool optional_outputs[1] = {true}; // request ema
+
+    CIndicatorResult r = dema_indicator(inputs, 10, options, optional_outputs, 1);
+    /* r.outputs[0] -> DEMA (primary), r.outputs[1] -> EMA (optional) */
+    tulip_ffi_result_free(r);
+    dema_state_free(r.state);
     ```
 
 === "Python"
@@ -191,6 +235,43 @@ Reduces EMA lag by applying a second EMA and combining the results: `2 * EMA - E
     for (i, opt_outputs) in results.iter().enumerate() {
         println!("Period set {}: {:?}", i + 1, opt_outputs[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same period applied to 4 assets in one call (N must be 2/4/8/16):
+
+    ```c
+    double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a2[] = {72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50};
+    double a3[] = {55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40};
+    double a4[] = {100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8};
+
+    /* one [INPUTS]-long pointer array per asset */
+    const double *asset1[DEMA_INPUTS] = {a1};
+    const double *asset2[DEMA_INPUTS] = {a2};
+    const double *asset3[DEMA_INPUTS] = {a3};
+    const double *asset4[DEMA_INPUTS] = {a4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = dema_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's DEMA series, length r.output_lens[i][0] */
+        dema_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in one call:
+
+    ```c
+    double o5[] = {5.0}, o10[] = {10.0}, o14[] = {14.0}, o20[] = {20.0};
+    const double *const simd_opts[4] = {o5, o10, o14, o20};
+
+    CSimdResult r = dema_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
+    /* r.outputs[i] -> DEMA results for option set i (periods 5/10/14/20) */
+    for (uintptr_t i = 0; i < r.num_results; i++) dema_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

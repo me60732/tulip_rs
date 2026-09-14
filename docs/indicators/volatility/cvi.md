@@ -35,6 +35,36 @@ Measures the rate of change of the trading range (high minus low) EMA. Rising va
     println!("{:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[] = {82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[] = {81.29, 80.64, 81.31, 82.65, 83.07,
+                    83.11, 82.49, 82.30, 84.15, 84.11};
+    double options[CVI_OPTIONS] = {10.0}; // period
+    const double *inputs[CVI_INPUTS] = {high, low};
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = cvi_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> cvi_line */
+    tulip_ffi_result_free(r);
+    cvi_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = cvi_indicator(inputs, 8, options, NULL, 0);
+    double new_high[] = {85.90};
+    double new_low[] = {84.03};
+    const double *new_inputs[CVI_INPUTS] = {new_high, new_low};
+    CBatchResult b = cvi_batch(p.state, new_inputs, 1, NULL, 0);
+    /* b.outputs[0] -> cvi_line for the one new bar */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    cvi_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -99,8 +129,6 @@ Measures the rate of change of the trading range (high minus low) EMA. Rising va
 
 === "Rust"
 
-    **By assets** — same options, N assets in parallel:
-
     ```rust
     use tulip_rs::indicators::cvi::{Cvi, Indicator};
 
@@ -126,6 +154,50 @@ Measures the rate of change of the trading range (high minus low) EMA. Rising va
     for (i, out) in results.iter().enumerate() {
         println!("Period {}: {:?}", opts[i][0], out[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same options applied to 4 assets in one call (N must be 2/4/8/16):
+
+    ```c
+    double a1_high[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double a1_low[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    const double *const asset1[CVI_INPUTS] = {a1_high, a1_low};
+
+    double a2_high[] = {90.0, 89.5, 91.0, 91.3, 91.9, 92.0, 91.5, 92.0, 92.5, 92.8};
+    double a2_low[] = {89.0, 88.5, 90.0, 90.3, 90.9, 91.0, 90.5, 91.0, 91.5, 91.8};
+    const double *const asset2[CVI_INPUTS] = {a2_high, a2_low};
+
+    double a3_high[] = {75.0 + (double)i * 0.2 for i in 0..10}; /* simplified */
+    double a3_low[] = {74.0 + (double)i * 0.2 for i in 0..10};
+    const double *const asset3[CVI_INPUTS] = {a3_high, a3_low};
+
+    double a4_high[] = {85.0 - (double)i * 0.1 for i in 0..10};
+    double a4_low[] = {84.0 - (double)i * 0.1 for i in 0..10};
+    const double *const asset4[CVI_INPUTS] = {a4_high, a4_low};
+
+    /* simd_inputs is indexed by asset (the N=4 SIMD lanes) */
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = cvi_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's cvi_line */
+        cvi_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in one call:
+
+    ```c
+    double o5[] = {5.0}, o10[] = {10.0}, o14[] = {14.0}, o20[] = {20.0};
+    const double *const simd_opts[4] = {o5, o10, o14, o20};
+
+    CSimdResult r = cvi_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
+    /* r.outputs[i] -> results for option set i */
+    for (uintptr_t i = 0; i < r.num_results; i++) cvi_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

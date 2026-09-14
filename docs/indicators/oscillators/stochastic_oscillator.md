@@ -35,6 +35,41 @@ Compares a security's closing price to its price range over a given period. %K i
     println!("Continued %D: {:?}", continued[1]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[]  = {82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[]   = {81.29, 80.64, 81.31, 82.65, 83.07,
+                      83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[STOCH_OPTIONS] = {14.0, 3.0, 3.0}; // k_period, k_slowing_period, d_period
+    const double *inputs[STOCH_INPUTS] = {high, low, close};
+
+    /* Full computation */
+    CIndicatorResult r = stoch_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> slowk (stoch_k), length r.output_lens[0] */
+    /* r.outputs[1] -> slowd (stoch_d), length r.output_lens[1] */
+    tulip_ffi_result_free(r);
+    stoch_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = stoch_indicator(inputs, 8, options, NULL, 0);
+    double new_high[]  = {84.55, 85.00};
+    double new_low[]   = {84.15, 84.11};
+    double new_close[] = {84.55, 84.36};
+    const double *new_inputs[STOCH_INPUTS] = {new_high, new_low, new_close};
+    CBatchResult b = stoch_batch(p.state, new_inputs, 2, NULL, 0);
+    /* b.outputs[0] -> slowk for just the two new bars */
+    /* b.outputs[1] -> slowd for just the two new bars */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    stoch_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -159,6 +194,67 @@ Compares a security's closing price to its price range over a given period. %K i
         println!("Option set {} %K: {:?}", i + 1, opt_outputs[0]);
         println!("Option set {} %D: {:?}", i + 1, opt_outputs[1]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```c
+    double h1[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double l1[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double c1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double h2[] = {h1[0]*1.1, h1[1]*1.1, h1[2]*1.1, h1[3]*1.1, h1[4]*1.1,
+                   h1[5]*1.1, h1[6]*1.1, h1[7]*1.1, h1[8]*1.1, h1[9]*1.1};
+    double l2[] = {l1[0]*1.1, l1[1]*1.1, l1[2]*1.1, l1[3]*1.1, l1[4]*1.1,
+                   l1[5]*1.1, l1[6]*1.1, l1[7]*1.1, l1[8]*1.1, l1[9]*1.1};
+    double c2[] = {c1[0]*1.1, c1[1]*1.1, c1[2]*1.1, c1[3]*1.1, c1[4]*1.1,
+                   c1[5]*1.1, c1[6]*1.1, c1[7]*1.1, c1[8]*1.1, c1[9]*1.1};
+    double h3[] = {h1[0]*0.9, h1[1]*0.9, h1[2]*0.9, h1[3]*0.9, h1[4]*0.9,
+                   h1[5]*0.9, h1[6]*0.9, h1[7]*0.9, h1[8]*0.9, h1[9]*0.9};
+    double l3[] = {l1[0]*0.9, l1[1]*0.9, l1[2]*0.9, l1[3]*0.9, l1[4]*0.9,
+                   l1[5]*0.9, l1[6]*0.9, l1[7]*0.9, l1[8]*0.9, l1[9]*0.9};
+    double c3[] = {c1[0]*0.9, c1[1]*0.9, c1[2]*0.9, c1[3]*0.9, c1[4]*0.9,
+                   c1[5]*0.9, c1[6]*0.9, c1[7]*0.9, c1[8]*0.9, c1[9]*0.9};
+    double h4[] = {h1[0]*1.02, h1[1]*1.02, h1[2]*1.02, h1[3]*1.02, h1[4]*1.02,
+                   h1[5]*1.02, h1[6]*1.02, h1[7]*1.02, h1[8]*1.02, h1[9]*1.02};
+    double l4[] = {l1[0]*1.02, l1[1]*1.02, l1[2]*1.02, l1[3]*1.02, l1[4]*1.02,
+                   l1[5]*1.02, l1[6]*1.02, l1[7]*1.02, l1[8]*1.02, l1[9]*1.02};
+    double c4[] = {c1[0]*1.02, c1[1]*1.02, c1[2]*1.02, c1[3]*1.02, c1[4]*1.02,
+                   c1[5]*1.02, c1[6]*1.02, c1[7]*1.02, c1[8]*1.02, c1[9]*1.02};
+
+    const double *const asset1[STOCH_INPUTS] = {h1, l1, c1};
+    const double *const asset2[STOCH_INPUTS] = {h2, l2, c2};
+    const double *const asset3[STOCH_INPUTS] = {h3, l3, c3};
+    const double *const asset4[STOCH_INPUTS] = {h4, l4, c4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = stoch_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's slowk, length r.output_lens[i][0] */
+        /* r.outputs[i][1] -> asset i's slowd, length r.output_lens[i][1] */
+        stoch_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```c
+    double o5[] = {5.0, 3.0, 3.0};
+    double o9[] = {9.0, 3.0, 3.0};
+    double o14[] = {14.0, 3.0, 3.0};
+    double o21[] = {21.0, 3.0, 3.0};
+
+    const double *const simd_opts[4] = {o5, o9, o14, o21};
+
+    CSimdResult r = stoch_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset's slowk for option set i */
+        /* r.outputs[i][1] -> asset's slowd for option set i */
+        stoch_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

@@ -38,6 +38,32 @@ Three-band channel based on the rolling highest high and lowest low over `period
     println!("Continued Upper:  {:?}", continued[2]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[] = {82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[]  = {81.29, 80.64, 81.31, 82.65, 83.07,
+                     83.11, 82.49, 82.30, 84.15, 84.11};
+    double options[DONCHIANCHANNEL_OPTIONS] = {14.0};
+    const double *inputs[DONCHIANCHANNEL_INPUTS] = {high, low};
+
+    CIndicatorResult r = donchianchannel_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> lower, r.outputs[1] -> middle, r.outputs[2] -> upper */
+    tulip_ffi_result_free(r);
+    donchianchannel_state_free(r.state);
+
+    /* Partial + continuation */
+    CIndicatorResult p = donchianchannel_indicator(inputs, 8, options, NULL, 0);
+    const double *rest_inputs[DONCHIANCHANNEL_INPUTS] = {high + 8, low + 8};
+    CBatchResult b = donchianchannel_batch(p.state, rest_inputs, 2, NULL, 0);
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    donchianchannel_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -161,6 +187,61 @@ Three-band channel based on the rolling highest high and lowest low over `period
         println!("Period {} Middle: {:?}", opts[i][0], opt_outputs[1]);
         println!("Period {} Upper:  {:?}", opts[i][0], opt_outputs[2]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```c
+    double h1[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double l1[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double h2[] = {h1[0]*1.1, h1[1]*1.1, h1[2]*1.1, h1[3]*1.1, h1[4]*1.1,
+                   h1[5]*1.1, h1[6]*1.1, h1[7]*1.1, h1[8]*1.1, h1[9]*1.1};
+    double l2[] = {l1[0]*1.1, l1[1]*1.1, l1[2]*1.1, l1[3]*1.1, l1[4]*1.1,
+                   l1[5]*1.1, l1[6]*1.1, l1[7]*1.1, l1[8]*1.1, l1[9]*1.1};
+    double h3[] = {h1[0]*0.9, h1[1]*0.9, h1[2]*0.9, h1[3]*0.9, h1[4]*0.9,
+                   h1[5]*0.9, h1[6]*0.9, h1[7]*0.9, h1[8]*0.9, h1[9]*0.9};
+    double l3[] = {l1[0]*0.9, l1[1]*0.9, l1[2]*0.9, l1[3]*0.9, l1[4]*0.9,
+                   l1[5]*0.9, l1[6]*0.9, l1[7]*0.9, l1[8]*0.9, l1[9]*0.9};
+    double h4[] = {h1[0]*1.01, h1[1]*1.01, h1[2]*1.01, h1[3]*1.01, h1[4]*1.01,
+                   h1[5]*1.01, h1[6]*1.01, h1[7]*1.01, h1[8]*1.01, h1[9]*1.01};
+    double l4[] = {l1[0]*1.01, l1[1]*1.01, l1[2]*1.01, l1[3]*1.01, l1[4]*1.01,
+                   l1[5]*1.01, l1[6]*1.01, l1[7]*1.01, l1[8]*1.01, l1[9]*1.01};
+
+    const double *asset1[DONCHIANCHANNEL_INPUTS] = {h1, l1};
+    const double *asset2[DONCHIANCHANNEL_INPUTS] = {h2, l2};
+    const double *asset3[DONCHIANCHANNEL_INPUTS] = {h3, l3};
+    const double *asset4[DONCHIANCHANNEL_INPUTS] = {h4, l4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = donchianchannel_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        donchianchannel_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```c
+    double high_expanded[40], low_expanded[40];
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 10; j++) {
+            high_expanded[i * 10 + j] = h1[j];
+            low_expanded[i * 10 + j] = l1[j];
+        }
+    }
+    const double *expanded_inputs[DONCHIANCHANNEL_INPUTS] = {high_expanded, low_expanded};
+
+    double o7[] = {7.0}, o14[] = {14.0}, o21[] = {21.0}, o28[] = {28.0};
+    const double *const simd_opts[4] = {o7, o14, o21, o28};
+
+    CSimdResult r = donchianchannel_simd_by_options(expanded_inputs, 40, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        donchianchannel_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

@@ -16,6 +16,38 @@
     println!("{:?}", outputs[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    const double high[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                           85.90, 86.58, 86.98, 88.00, 87.87};
+    const double low[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                          84.03, 85.39, 85.76, 87.17, 87.01};
+    const double volume[] = {5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0, 3798000.0,
+                             3936200.0, 4732000.0, 4841300.0, 3915300.0, 6830800.0, 6694100.0,
+                             5293600.0, 7985800.0, 4807900.0};
+
+    const double *inputs[MARKETFI_INPUTS] = {high, low, volume};
+    const double *options = NULL; // MARKETFI has no options
+
+    /* Full computation */
+    CIndicatorResult r = marketfi_indicator(inputs, 15, options, NULL, 0);
+    /* r.outputs[0] -> the MARKETFI series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    marketfi_state_free(r.state);
+
+    /* Partial computation + batch continuation */
+    CIndicatorResult pr = marketfi_indicator(inputs, 10, options, NULL, 0);
+    const double *rest_inputs[MARKETFI_INPUTS] = {high + 10, low + 10, volume + 10};
+    CBatchResult br = marketfi_batch(pr.state, rest_inputs, 5, NULL, 0);
+    /* br.outputs[0] -> MARKETFI values for the last 5 bars */
+    tulip_ffi_batch_result_free(br);
+    tulip_ffi_result_free(pr);
+    marketfi_state_free(pr.state);
+    ```
+
 === "Python"
 
     ```python
@@ -90,6 +122,47 @@
     ```
 
     _This indicator has no options, so by-options SIMD does not apply._
+
+=== "C"
+
+    **By assets** — same option applied to 4 assets in one call (N must be 2/4/8/16):
+
+    ```c
+    const double h1[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    const double l1[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    const double v1[] = {5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0, 3798000.0,
+                         3936200.0, 4732000.0, 4841300.0, 3915300.0};
+
+    const double h2[] = {85.00, 85.50, 86.00, 86.50, 87.00, 87.50, 88.00, 88.50, 89.00, 89.50};
+    const double l2[] = {84.00, 84.50, 85.00, 85.50, 86.00, 86.50, 87.00, 87.50, 88.00, 88.50};
+    const double v2[] = {4500000.0, 5500000.0, 6500000.0, 4000000.0, 4500000.0, 3800000.0,
+                         4200000.0, 5000000.0, 5100000.0, 4100000.0};
+
+    const double h3[] = {78.00, 79.00, 80.00, 81.00, 82.00, 83.00, 84.00, 85.00, 86.00, 87.00};
+    const double l3[] = {77.00, 78.00, 79.00, 80.00, 81.00, 82.00, 83.00, 84.00, 85.00, 86.00};
+    const double v3[] = {3500000.0, 4500000.0, 5500000.0, 3000000.0, 3500000.0, 2800000.0,
+                         3200000.0, 4000000.0, 4100000.0, 3100000.0};
+
+    const double h4[] = {95.00, 96.00, 97.00, 98.00, 99.00, 100.00, 101.00, 102.00, 103.00, 104.00};
+    const double l4[] = {94.00, 95.00, 96.00, 97.00, 98.00, 99.00, 100.00, 101.00, 102.00, 103.00};
+    const double v4[] = {6500000.0, 7500000.0, 8500000.0, 6000000.0, 6500000.0, 5800000.0,
+                         6200000.0, 7000000.0, 7100000.0, 6100000.0};
+
+    const double *const asset1[MARKETFI_INPUTS] = {h1, l1, v1};
+    const double *const asset2[MARKETFI_INPUTS] = {h2, l2, v2};
+    const double *const asset3[MARKETFI_INPUTS] = {h3, l3, v3};
+    const double *const asset4[MARKETFI_INPUTS] = {h4, l4, v4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = marketfi_simd_by_assets(simd_inputs, 4, 10, NULL, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's series, length r.output_lens[i][0] */
+        marketfi_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    _C FFI offers only by-assets for this indicator (no options)._
 
 === "Python"
 

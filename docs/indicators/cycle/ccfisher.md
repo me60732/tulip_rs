@@ -42,6 +42,39 @@ Applies the Fisher Transform to the normalised Cyber Cycle oscillator, convertin
     println!("Continued Signal:  {:?}", continued[1]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                      88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20,
+                      93.50, 94.10, 94.80, 95.20, 95.70, 96.30, 96.80, 97.10, 97.60, 98.20,
+                      98.70, 99.10, 99.80, 100.20, 100.70, 101.30, 101.80, 102.10, 102.60, 103.20,
+                      103.70, 104.10, 104.80, 105.20, 105.70, 106.30, 106.80, 107.10, 107.60, 108.20,
+                      108.70, 109.10, 109.80, 110.20, 110.70, 111.30, 111.80, 112.10, 112.60, 113.00};
+    double options[CCFISHER_OPTIONS] = {0.0}; // alpha
+    const double *inputs[CCFISHER_INPUTS] = {close};
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = ccfisher_indicator(inputs, 70, options, NULL, 0);
+    /* r.outputs[0] -> fisher, r.outputs[1] -> signal */
+    tulip_ffi_result_free(r);
+    ccfisher_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = ccfisher_indicator(inputs, 65, options, NULL, 0);
+    double new_close[] = {92.80, 93.10, 92.50, 93.20, 93.50};
+    const double *new_inputs[CCFISHER_INPUTS] = {new_close};
+    CBatchResult b = ccfisher_batch(p.state, new_inputs, 5, NULL, 0);
+    /* b.outputs[0] -> fisher for the 5 new bars */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    ccfisher_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -162,6 +195,35 @@ Applies the Fisher Transform to the normalised Cyber Cycle oscillator, convertin
     let peak      = &outputs[4]; // peak (optional — requested)
     ```
 
+=== "C"
+
+    `ccfisher` exposes 3 optional outputs: `trendmode`, `cycle`, `peak`. Pass a boolean mask as the third argument.
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                      88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20,
+                      93.50, 94.10, 94.80, 95.20, 95.70, 96.30, 96.80, 97.10, 97.60, 98.20,
+                      98.70, 99.10, 99.80, 100.20, 100.70, 101.30, 101.80, 102.10, 102.60, 103.20,
+                      103.70, 104.10, 104.80, 105.20, 105.70, 106.30, 106.80, 107.10, 107.60, 108.20,
+                      108.70, 109.10, 109.80, 110.20, 110.70, 111.30, 111.80, 112.10, 112.60, 113.00};
+    double options[CCFISHER_OPTIONS] = {0.0}; // alpha
+    const double *inputs[CCFISHER_INPUTS] = {close};
+    bool optional_outputs[3] = {true, true, true}; // trendmode, cycle, peak
+
+    CIndicatorResult r = ccfisher_indicator(inputs, 70, options, optional_outputs, 3);
+    /* r.outputs[0] -> fisher (primary) */
+    /* r.outputs[1] -> signal (primary) */
+    /* r.outputs[2] -> trendmode (optional — requested) */
+    /* r.outputs[3] -> cycle (optional — requested) */
+    /* r.outputs[4] -> peak (optional — requested) */
+    tulip_ffi_result_free(r);
+    ccfisher_state_free(r.state);
+    ```
+
 === "Python"
 
     ```python
@@ -260,6 +322,55 @@ Applies the Fisher Transform to the normalised Cyber Cycle oscillator, convertin
         println!("Alpha set {} Fisher: {:?}", i + 1, opt_outputs[0]);
         println!("Alpha set {} Signal: {:?}", i + 1, opt_outputs[1]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same alpha applied to 4 assets in parallel:
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a2[] = {86.59, 86.06, 87.87, 88.00, 88.61, 88.15, 87.84, 88.99, 89.55, 89.36};
+    double a3[] = {78.59, 78.06, 79.87, 80.00, 80.61, 80.15, 79.84, 80.99, 81.55, 81.36};
+    double a4[] = {83.22, 82.68, 84.53, 84.66, 85.28, 84.81, 84.50, 85.67, 86.24, 86.05};
+
+    const double *asset1[CCFISHER_INPUTS] = {a1};
+    const double *asset2[CCFISHER_INPUTS] = {a2};
+    const double *asset3[CCFISHER_INPUTS] = {a3};
+    const double *asset4[CCFISHER_INPUTS] = {a4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = ccfisher_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's fisher series */
+        ccfisher_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different alpha values in parallel:
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    const double *inputs[CCFISHER_INPUTS] = {close};
+
+    static const double opt0[CCFISHER_OPTIONS] = {0.0};
+    static const double opt1[CCFISHER_OPTIONS] = {0.1};
+    static const double opt2[CCFISHER_OPTIONS] = {0.2};
+    static const double opt3[CCFISHER_OPTIONS] = {0.3};
+    const double *const simd_opts[4] = {opt0, opt1, opt2, opt3};
+
+    CSimdResult r = ccfisher_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset with alpha set i */
+        ccfisher_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

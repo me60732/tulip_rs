@@ -42,11 +42,45 @@ The candlestick engine accepts three options in the following order:
         if let Some(patterns) = bar.as_ref() {
             for pattern in patterns {
                 let info = pattern.get_info();
-                println!("Bar {i}: {} ({}), bars: {}",
-                    info.full_name, info.japanese_name, info.bars);
+                println!("Bar {i}: {} ({})",
+                    info.full_name, info.japanese_name);
             }
         }
     }
+    ```
+
+=== "C"
+
+    ```c
+    #include <tulip_rs_ffi.h>
+
+    const double open[]  = {81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25};
+    const double high[]  = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    const double low[]   = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    const double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+
+    const double *inputs[4] = {open, high, low, close}; // open, high, low, close order
+    const double options[3] = {5.0, 1.0, 1.0};          // candle_period, trend_period, trend_signal_period
+
+    CCandleStickResult result = candlestick_indicator(inputs, 10, options, -1); // -1 = no filter
+
+    for (uintptr_t i = 0; i < result.num_bars; i++) {
+        uint32_t start = result.bar_offsets[i];
+        uint32_t end   = result.bar_offsets[i + 1];
+        printf("Bar %zu: ", i);
+        if (start == end) {
+            printf("None\n");
+        } else {
+            for (uint32_t k = start; k < end; k++) {
+                CCandlePatternInfo info = candlestick_pattern_info(result.pattern_ids[k]);
+                printf("%s (%s), bars: %u ", info.full_name, info.japanese_name, info.bars);
+            }
+            printf("\n");
+        }
+    }
+
+    candlestick_result_free(result);  // frees CSR buffers only
+    candlestick_state_free(result.state); // frees state when done streaming
     ```
 
 === "Python"
@@ -114,6 +148,8 @@ Each matched pattern is returned as a dict (Python) or a struct (Rust) with the 
 | `bars` | `int` | Number of bars the pattern spans (1–4) |
 | `forecast` | `str` / enum | One of `BullishReversal`, `BearishReversal`, `BullishContinuation`, `BearishContinuation` |
 
+The C API exposes these same fields via `CCandlePatternInfo` — call `candlestick_pattern_info(id)` for each pattern ID to retrieve metadata.
+
 ---
 
 ## Filtering by Forecast Type
@@ -144,6 +180,39 @@ Pass a `forecast_type` argument to return only patterns with a specific forecast
     // ForecastType::BearishReversal
     // ForecastType::BullishContinuation
     // ForecastType::BearishContinuation
+    ```
+
+=== "C"
+
+    ```c
+    const double *inputs[4] = {open, high, low, close};
+    const double options[3] = {5.0, 1.0, 1.0};
+
+    // Only bullish reversal patterns (enum value from header)
+    CCandleStickResult result = candlestick_indicator(inputs, 10, options,
+        C_FORECAST_TYPE_BULLISH_REVERSAL);
+
+    // Inspect the last bar for matches
+    uint32_t last_start = result.bar_offsets[result.num_bars - 1];
+    uint32_t last_end   = result.bar_offsets[result.num_bars];
+    if (last_start != last_end) {
+        printf("BullishReversal patterns:\n");
+        for (uint32_t k = last_start; k < last_end; k++) {
+            CCandlePatternInfo info = candlestick_pattern_info(result.pattern_ids[k]);
+            printf("  - %s (%s), bars: %u\n", info.full_name, info.japanese_name, info.bars);
+        }
+    }
+
+    // Enum values available:
+    // C_FORECAST_TYPE_BEARISH_REVERSAL
+    // C_FORECAST_TYPE_BULLISH_REVERSAL
+    // C_FORECAST_TYPE_BEARISH_CONTINUATION
+    // C_FORECAST_TYPE_BULLISH_CONTINUATION
+    // C_FORECAST_TYPE_BEARISH_REVERSAL_OR_CONTINUATION
+    // C_FORECAST_TYPE_BULLISH_REVERSAL_OR_CONTINUATION
+
+    candlestick_result_free(result);
+    candlestick_state_free(result.state);
     ```
 
 === "Python"
@@ -238,6 +307,44 @@ Like every other indicator in TulipRS, the candlestick engine returns a `state` 
                 info.full_name, info.japanese_name, info.bars);
         }
     }
+    ```
+
+=== "C"
+
+    ```c
+    const double open[]  = {81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25};
+    const double high[]  = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    const double low[]   = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    const double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+
+    const double *inputs[4] = {open, high, low, close};
+    const double options[3] = {5.0, 1.0, 1.0};
+
+    // Step 1: run on historical data and capture state
+    CCandleStickResult seed = candlestick_indicator(inputs, 10, options, -1);
+    void *state = seed.state;
+    candlestick_result_free(seed);  // frees CSR only; state stays alive
+
+    // Step 2: feed only the new bars
+    const double new_open[]  = {84.00};
+    const double new_high[]  = {84.50};
+    const double new_low[]   = {83.20};
+    const double new_close[] = {83.50};
+    const double *new_inputs[4] = {new_open, new_high, new_low, new_close};
+
+    CCandleStickBatchResult result = candlestick_batch(state, new_inputs, 1, -1);
+
+    uint32_t start = result.bar_offsets[0];
+    uint32_t end   = result.bar_offsets[1];
+    if (start != end) {
+        for (uint32_t k = start; k < end; k++) {
+            CCandlePatternInfo info = candlestick_pattern_info(result.pattern_ids[k]);
+            printf("  - %s (%s), bars: %u\n", info.full_name, info.japanese_name, info.bars);
+        }
+    }
+
+    candlestick_batch_result_free(result); // frees CSR buffers
+    candlestick_state_free(state);         // free state when done streaming
     ```
 
 === "Python"

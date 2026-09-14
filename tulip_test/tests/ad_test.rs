@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
+    use bincode;
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::ad::{Ad, Indicator, TIndicatorState};
+    use tulip_rs::indicators::ad::{Ad, Indicator, IndicatorState, TIndicatorState, INPUTS};
     use tulip_test::c_bindings::{ti_ad, ti_ad_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
     const EPSILON: f64 = 1e-2;
@@ -319,6 +320,32 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn test_ad_state_bincode_roundtrip() {
+        let (high, low, close, volume) = expand_inputs();
+        let mid = high.len() / 2;
+        let options: [f64; 0] = [];
+        let first: [&[f64]; INPUTS] = [&high[..mid], &low[..mid], &close[..mid], &volume[..mid]];
+        let second: [&[f64]; INPUTS] = [&high[mid..], &low[mid..], &close[mid..], &volume[mid..]];
+
+        let (_rows, mut original) = Ad::indicator(&first, &options, None).unwrap();
+        let cfg = bincode::config::standard();
+        let bytes = bincode::serde::encode_to_vec(&original, cfg).expect("serialize");
+        let (mut restored, consumed): (IndicatorState, usize) =
+            bincode::serde::decode_from_slice(&bytes, cfg).expect("deserialize");
+        assert_eq!(consumed, bytes.len());
+
+        let a = original.batch_indicator(&second, None).unwrap();
+        let b = restored.batch_indicator(&second, None).unwrap();
+        assert_eq!(a.len(), b.len());
+        for (ra, rb) in a.iter().zip(b.iter()) {
+            assert_eq!(ra.len(), rb.len());
+            for (x, y) in ra.iter().zip(rb.iter()) {
+                assert_eq!(x.to_bits(), y.to_bits());
+            }
+        }
+    }
+
     #[test]
     fn test_ad_simd_vs_regular_database() {
         init_database_data();

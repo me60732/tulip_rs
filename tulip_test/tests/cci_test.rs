@@ -1,7 +1,9 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::cci::{Cci, Indicator, IndicatorByOptions, TIndicatorState};
+    use tulip_rs::indicators::cci::{
+        Cci, Indicator, IndicatorByOptions, IndicatorState, TIndicatorState, INPUTS
+    };
     use tulip_test::c_bindings::{
         ti_cci, ti_cci_start, ti_md, ti_md_start, ti_sma, ti_sma_start, ti_typprice,
         ti_typprice_start,
@@ -1638,5 +1640,35 @@ mod tests {
         }
 
         println!("✓ All CCI SIMD state handover by options tests passed!");
+    }
+
+    #[test]
+    fn test_cci_state_bincode_roundtrip() {
+        use bincode::config::standard;
+        use bincode::serde::{decode_from_slice, encode_to_vec};
+
+        let (high, low, close) = expand_inputs();
+        let mid = close.len() - 50;
+        // CCI needs min_data=period+1 bars (e.g., 50+1=51 for period=50)
+        let options: [f64; 1] = OPTIONS_LIST[5]; // [50.0]
+        let first: [&[f64]; INPUTS] = [&high[..mid], &low[..mid], &close[..mid]];
+        let second: [&[f64]; INPUTS] = [&high[mid..], &low[mid..], &close[mid..]];
+
+        let (_rows, mut original) = Cci::indicator(&first, &options, None).unwrap();
+        let cfg = standard();
+        let bytes = encode_to_vec(&original, cfg).expect("serialize");
+        let (mut restored, consumed): (IndicatorState, usize) =
+            decode_from_slice(&bytes, cfg).expect("deserialize");
+        assert_eq!(consumed, bytes.len());
+
+        let a = original.batch_indicator(&second, None).unwrap();
+        let b = restored.batch_indicator(&second, None).unwrap();
+        assert_eq!(a.len(), b.len());
+        for (ra, rb) in a.iter().zip(b.iter()) {
+            assert_eq!(ra.len(), rb.len());
+            for (x, y) in ra.iter().zip(rb.iter()) {
+                assert_eq!(x.to_bits(), y.to_bits());
+            }
+        }
     }
 }

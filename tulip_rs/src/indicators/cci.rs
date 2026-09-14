@@ -23,10 +23,26 @@ pub struct State<S = Cold> {
     pub buffer: Buffer<S>,
     pub md_state: MdState<S>,
 }
+impl TState for State<Warm> {
+    type Inputs<'a> = (f64, f64, f64);
+    type Outputs = (f64, f64, f64, f64);
+    #[inline(always)]
+    fn calc<'a>(&mut self, (high, low, close): Self::Inputs<'a>) -> Self::Outputs {
+        let typprice = typprice_calc(high, low, close);
+        //let (mut mean_deviation, mut sma, mut cci) = (0.0, 0.0, 0.0);
+        let old = self.buffer.push_with_info(typprice);
 
+        let (md, sma) = self.md_state.calc((typprice, old, self.buffer.get_slice()));
+        if md == 0.0 {
+            return (0.0, sma, md, typprice);
+        }
+        let cci = (typprice - sma) / (0.015 * md);
+        (cci, sma, md, typprice)
+    }
+}
 impl State<Warm> {
     #[inline(always)]
-    fn calc<const N: usize>(
+    pub fn calc_chunked_unchecked<const N: usize>(
         &mut self,
         (high, low, close): (f64, f64, f64),
     ) -> (f64, f64, f64, f64) {
@@ -109,21 +125,12 @@ impl TIndicatorState<3> for IndicatorState {
             );
             cci_line = crate::uninit_vec!(f64, capacity);
         };
-
-        match self.period {
-            1..=49 => cycle::<1>(
-                (inputs[0], inputs[1], inputs[2]),
-                &mut self.state,
-                &mut cci_line,
-                (&mut sma_line, &mut md_line, &mut typprice_line),
-            ),
-            _ => cycle::<8>(
-                (inputs[0], inputs[1], inputs[2]),
-                &mut self.state,
-                &mut cci_line,
-                (&mut sma_line, &mut md_line, &mut typprice_line),
-            ),
-        }
+        cycle(
+            (inputs[0], inputs[1], inputs[2]),
+            &mut self.state,
+            &mut cci_line,
+            (&mut sma_line, &mut md_line, &mut typprice_line),
+        );
 
         Ok(vec![cci_line, sma_line, md_line, typprice_line])
     }
@@ -138,7 +145,7 @@ impl TIndicatorState<3> for IndicatorState {
 /// * `buffer` - Mutable reference to the indicator state (ring buffer and running sum).
 /// * `cci_line` - Mutable slice to write the CCI output values into.
 /// * `out_vecs` - A tuple of `(sma_line, md_line, typprice_line)` for optional outputs.
-fn cycle<const N: usize>(
+fn cycle(
     (high, low, close): (&[f64], &[f64], &[f64]),
     state: &mut State<Warm>,
     cci_line: &mut [f64],
@@ -156,7 +163,7 @@ fn cycle<const N: usize>(
                 *close.get_unchecked(i),
             )
         };
-        let (cci, sma, md, typprice) = state.calc::<N>(inputs);
+        let (cci, sma, md, typprice) = state.calc(inputs);
 
         unsafe { *cci_line.get_unchecked_mut(i) = cci };
         if has_optional {
@@ -255,10 +262,7 @@ impl Indicator<INPUTS, OPTIONS> for Cci {
             let from = period * 2 - 2;
             (&high[from..], &low[from..], &close[from..])
         };
-        match period {
-            1..=49 => cycle::<1>(inputs, &mut state, &mut cci_line, optional_outputs),
-            _ => cycle::<8>(inputs, &mut state, &mut cci_line, optional_outputs),
-        }
+        cycle(inputs, &mut state, &mut cci_line, optional_outputs);
 
         Ok((
             vec![cci_line, sma_line, md_line, typprice_line],

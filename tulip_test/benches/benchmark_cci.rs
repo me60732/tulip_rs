@@ -863,8 +863,8 @@ criterion_group!(
 #[cfg(not(feature = "talib"))]
 criterion_group!(
     benches,
-    bench_rust_cci_simd_by_assets,
-    bench_rust_cci_simd_by_options,
+    //bench_rust_cci_simd_by_assets,
+    //bench_rust_cci_simd_by_options,
     bench_rust_cci,
     bench_rust_ta_cci,
     bench_c_cci,

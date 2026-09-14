@@ -32,6 +32,33 @@ Three bands around a Simple Moving Average. `middle = SMA(real, period)`, `upper
     println!("Continued Upper:  {:?}", continued[2]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[SMAENVELOPE_OPTIONS] = {14.0, 2.5}; // period, percentage
+    const double *inputs[SMAENVELOPE_INPUTS] = {close};
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = smaenvelope_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> lower, r.outputs[1] -> middle, r.outputs[2] -> upper */
+    tulip_ffi_result_free(r);
+    smaenvelope_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = smaenvelope_indicator(inputs, 8, options, NULL, 0);
+    double new_close[] = {84.55, 84.36};
+    const double *new_inputs[SMAENVELOPE_INPUTS] = {new_close};
+    CBatchResult b = smaenvelope_batch(p.state, new_inputs, 2, NULL, 0);
+    /* b.outputs[0/1/2] -> lower/middle/upper for just the two new bars */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    smaenvelope_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -158,6 +185,46 @@ Three bands around a Simple Moving Average. `middle = SMA(real, period)`, `upper
         println!("Option set {} Middle: {:?}", i + 1, opt_outputs[1]);
         println!("Option set {} Upper:  {:?}", i + 1, opt_outputs[2]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same options applied to 4 assets in one call (N must be 2/4/8/16):
+
+    ```c
+    double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a2[] = {86.59, 86.06, 87.87, 88.00, 88.61, 88.15, 87.84, 88.99, 89.55, 89.36};
+    double a3[] = {76.59, 76.06, 77.87, 78.00, 78.61, 78.15, 77.84, 78.99, 79.55, 79.36};
+    double a4[] = {83.22, 82.68, 83.43, 83.66, 83.68, 83.01, 82.80, 83.77, 84.44, 84.05};
+
+    /* one [INPUTS]-long pointer array per asset */
+    const double *asset1[SMAENVELOPE_INPUTS] = {a1};
+    const double *asset2[SMAENVELOPE_INPUTS] = {a2};
+    const double *asset3[SMAENVELOPE_INPUTS] = {a3};
+    const double *asset4[SMAENVELOPE_INPUTS] = {a4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = smaenvelope_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> lower, r.outputs[i][1] -> middle, r.outputs[i][2] -> upper */
+        smaenvelope_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different option sets in one call:
+
+    ```c
+    double o10p2[] = {10.0, 2.0};
+    double o14p25[] = {14.0, 2.5};
+    double o20p3[] = {20.0, 3.0};
+    double o50p5[] = {50.0, 5.0};
+    const double *const simd_opts[4] = {o10p2, o14p25, o20p3, o50p5};
+
+    CSimdResult r = smaenvelope_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
+    /* r.outputs[i][0] -> lower, r.outputs[i][1] -> middle, r.outputs[i][2] -> upper */
+    for (uintptr_t i = 0; i < r.num_results; i++) smaenvelope_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

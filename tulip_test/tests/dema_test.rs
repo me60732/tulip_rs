@@ -1,7 +1,9 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::dema::{Dema, Indicator, IndicatorByOptions, TIndicatorState};
+    use tulip_rs::indicators::dema::{
+        Dema, Indicator, IndicatorByOptions, IndicatorState, TIndicatorState, INPUTS,
+    };
     use tulip_test::c_bindings::{ti_dema, ti_dema_start, ti_ema, ti_ema_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -993,5 +995,47 @@ mod tests {
         println!(
             "✓ All SIMD by options vs Regular DEMA database tests with optional outputs passed!"
         );
+    }
+
+    #[test]
+    fn test_dema_state_bincode_roundtrip() {
+        use bincode::config::standard;
+        use bincode::serde::{decode_from_slice, encode_to_vec};
+
+        let options: [f64; 1] = [14.0]; // one of the option sets used in existing tests
+        let min_data_needed = Dema::min_data(&options);
+
+        // Ensure we have enough data for first chunk + second chunk
+        let total_needed = min_data_needed + 50;
+        let close_tiled = if expand_close().len() < total_needed {
+            let mut c = expand_close();
+            while c.len() < total_needed {
+                c.extend_from_slice(&CLOSE);
+            }
+            c
+        } else {
+            expand_close()
+        };
+
+        let mid = min_data_needed; // first chunk = min_data bars, second = 50 bars
+        let first: [&[f64]; INPUTS] = [&close_tiled[..mid]];
+        let second: [&[f64]; INPUTS] = [&close_tiled[mid..mid + 50]];
+
+        let (_rows, mut original) = Dema::indicator(&first, &options, None).unwrap();
+        let cfg = standard();
+        let bytes = encode_to_vec(&original, cfg).expect("serialize");
+        let (mut restored, consumed): (IndicatorState, usize) =
+            decode_from_slice(&bytes, cfg).expect("deserialize");
+        assert_eq!(consumed, bytes.len());
+
+        let a = original.batch_indicator(&second, None).unwrap();
+        let b = restored.batch_indicator(&second, None).unwrap();
+        assert_eq!(a.len(), b.len());
+        for (ra, rb) in a.iter().zip(b.iter()) {
+            assert_eq!(ra.len(), rb.len());
+            for (x, y) in ra.iter().zip(rb.iter()) {
+                assert_eq!(x.to_bits(), y.to_bits());
+            }
+        }
     }
 }

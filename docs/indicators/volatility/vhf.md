@@ -27,6 +27,33 @@ Identifies whether the market is trending or ranging. Higher values indicate a t
     println!("{:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[VHF_OPTIONS] = {28.0}; // period
+    const double *inputs[VHF_INPUTS] = {close};
+
+    /* Full computation */
+    CIndicatorResult r = vhf_indicator(inputs, 10, options, NULL, 0);
+    printf("VHF[0]: %.4f\n", r.outputs[0][0]); // outputs[0] is the VHF series
+    tulip_ffi_result_free(r);
+    vhf_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = vhf_indicator(inputs, 8, options, NULL, 0);
+    double new_close[] = {85.53};
+    const double *new_inputs[VHF_INPUTS] = {new_close};
+    CBatchResult b = vhf_batch(p.state, new_inputs, 1, NULL, 0);
+    printf("Continued VHF[0]: %.4f\n", b.outputs[0][0]);
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    vhf_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -115,6 +142,57 @@ Identifies whether the market is trending or ranging. Higher values indicate a t
     for (i, out) in results.iter().enumerate() {
         println!("Period {}: {:?}", opts[i][0], out[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```c
+    double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a2[] = {72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50};
+    double a3[] = {55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40};
+    double a4[] = {100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8};
+
+    const double *asset1[VHF_INPUTS] = {a1};
+    const double *asset2[VHF_INPUTS] = {a2};
+    const double *asset3[VHF_INPUTS] = {a3};
+    const double *asset4[VHF_INPUTS] = {a4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+    double options[VHF_OPTIONS] = {28.0}; // period
+
+    CSimdResult r = vhf_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        printf("Asset %zu VHF[0]: %.4f\n", i + 1, r.outputs[i][0][0]);
+        vhf_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```c
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    #define EXPANDED_LEN (10 * 20)
+    double close_exp[EXPANDED_LEN];
+    for (uintptr_t i = 0; i < 20; i++) {
+        for (uintptr_t j = 0; j < 10; j++) {
+            close_exp[i*10+j] = close[j];
+        }
+    }
+    const double *inputs[VHF_INPUTS] = {close_exp};
+
+    double o14[] = {14.0}, o21[] = {21.0}, o28[] = {28.0}, o55[] = {55.0};
+    const double *const simd_opts[4] = {o14, o21, o28, o55};
+
+    CSimdResult r = vhf_simd_by_options(inputs, EXPANDED_LEN, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        printf("Period %g: %.4f\n", simd_opts[i][0], r.outputs[i][0][0]);
+        vhf_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

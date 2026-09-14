@@ -37,6 +37,40 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
     println!("{:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    const double high[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                           85.90, 86.58, 86.98, 88.00, 87.87};
+    const double low[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                          84.03, 85.39, 85.76, 87.17, 87.01};
+    const double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                            85.53, 86.54, 86.89, 87.77, 87.29};
+    const double volume[] = {5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0, 3798000.0,
+                             3936200.0, 4732000.0, 4841300.0, 3915300.0, 6830800.0, 6694100.0,
+                             5293600.0, 7985800.0, 4807900.0};
+
+    const double *inputs[MFI_INPUTS] = {high, low, close, volume};
+    const double options[MFI_OPTIONS] = {14.0}; // period
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = mfi_indicator(inputs, 15, options, NULL, 0);
+    /* r.outputs[0] -> the MFI series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    mfi_state_free(r.state);
+
+    /* Partial computation + batch continuation */
+    CIndicatorResult pr = mfi_indicator(inputs, 10, options, NULL, 0);
+    const double *rest_inputs[MFI_INPUTS] = {high + 10, low + 10, close + 10, volume + 10};
+    CBatchResult br = mfi_batch(pr.state, rest_inputs, 5, NULL, 0);
+    /* br.outputs[0] -> MFI values for just the last 5 bars */
+    tulip_ffi_batch_result_free(br);
+    tulip_ffi_result_free(pr);
+    mfi_state_free(pr.state);
+    ```
+
 === "Python"
 
     ```python
@@ -132,6 +166,27 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
     let typprice = &outputs[1]; // typprice (optional — requested)
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    const double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    const double high[] = {82.59, 82.06, 83.87, 84.00, 84.61, 84.15, 83.84, 84.99, 85.55, 85.36};
+    const double low[] = {80.59, 80.06, 81.87, 82.00, 82.61, 82.15, 81.84, 82.99, 83.55, 83.36};
+    const double volume[] = {10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0,
+                             11800.0, 10200.0};
+
+    const double *inputs[MFI_INPUTS] = {high, low, close, volume};
+    const double options[MFI_OPTIONS] = {14.0}; // period
+    bool optional_outputs[1] = {true}; // typprice
+
+    CIndicatorResult r = mfi_indicator(inputs, 10, options, optional_outputs, 1);
+    /* r.outputs[0] -> MFI (primary), r.outputs[1] -> typprice (optional) */
+    tulip_ffi_result_free(r);
+    mfi_state_free(r.state);
+    ```
+
 === "Python"
 
     ```python
@@ -203,6 +258,78 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
     for (i, out) in results.iter().enumerate() {
         println!("Period {}: {:?}", opts[i][0], out[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same option applied to 4 assets in one call (N must be 2/4/8/16):
+
+    ```c
+    const double h1[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    const double l1[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    const double c1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    const double v1[] = {5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0, 3798000.0,
+                         3936200.0, 4732000.0, 4841300.0, 3915300.0};
+
+    const double h2[] = {85.00, 85.50, 86.00, 86.50, 87.00, 87.50, 88.00, 88.50, 89.00, 89.50};
+    const double l2[] = {84.00, 84.50, 85.00, 85.50, 86.00, 86.50, 87.00, 87.50, 88.00, 88.50};
+    const double c2[] = {84.50, 85.00, 85.50, 86.00, 86.50, 87.00, 87.50, 88.00, 88.50, 89.00};
+    const double v2[] = {4500000.0, 5500000.0, 6500000.0, 4000000.0, 4500000.0, 3800000.0,
+                         4200000.0, 5000000.0, 5100000.0, 4100000.0};
+
+    const double h3[] = {78.00, 79.00, 80.00, 81.00, 82.00, 83.00, 84.00, 85.00, 86.00, 87.00};
+    const double l3[] = {77.00, 78.00, 79.00, 80.00, 81.00, 82.00, 83.00, 84.00, 85.00, 86.00};
+    const double c3[] = {77.50, 78.50, 79.50, 80.50, 81.50, 82.50, 83.50, 84.50, 85.50, 86.50};
+    const double v3[] = {3500000.0, 4500000.0, 5500000.0, 3000000.0, 3500000.0, 2800000.0,
+                         3200000.0, 4000000.0, 4100000.0, 3100000.0};
+
+    const double h4[] = {95.00, 96.00, 97.00, 98.00, 99.00, 100.00, 101.00, 102.00, 103.00, 104.00};
+    const double l4[] = {94.00, 95.00, 96.00, 97.00, 98.00, 99.00, 100.00, 101.00, 102.00, 103.00};
+    const double c4[] = {94.50, 95.50, 96.50, 97.50, 98.50, 99.50, 100.50, 101.50, 102.50, 103.50};
+    const double v4[] = {6500000.0, 7500000.0, 8500000.0, 6000000.0, 6500000.0, 5800000.0,
+                         6200000.0, 7000000.0, 7100000.0, 6100000.0};
+
+    const double *const asset1[MFI_INPUTS] = {h1, l1, c1, v1};
+    const double *const asset2[MFI_INPUTS] = {h2, l2, c2, v2};
+    const double *const asset3[MFI_INPUTS] = {h3, l3, c3, v3};
+    const double *const asset4[MFI_INPUTS] = {h4, l4, c4, v4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = mfi_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's MFI series, length r.output_lens[i][0] */
+        mfi_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in one call:
+
+    ```c
+    const double h[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                        85.90, 86.58, 86.98, 88.00, 87.87};
+    const double l[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                        84.03, 85.39, 85.76, 87.17, 87.01};
+    const double c[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                        85.53, 86.54, 86.89, 87.77, 87.29};
+    const double v[] = {5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0, 3798000.0,
+                        3936200.0, 4732000.0, 4841300.0, 3915300.0, 6830800.0, 6694100.0,
+                        5293600.0, 7985800.0, 4807900.0};
+
+    const double *inputs[MFI_INPUTS] = {h, l, c, v};
+
+    static const double o7[MFI_OPTIONS] = {7.0};
+    static const double o14[MFI_OPTIONS] = {14.0};
+    static const double o21[MFI_OPTIONS] = {21.0};
+    static const double o28[MFI_OPTIONS] = {28.0};
+    const double *const simd_opts[4] = {o7, o14, o21, o28};
+
+    CSimdResult r = mfi_simd_by_options(inputs, 15, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> results for option set i */
+        mfi_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

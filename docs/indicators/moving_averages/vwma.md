@@ -34,6 +34,36 @@ Moving average weighted by trading volume so that high-volume bars have more inf
     println!("Continued VWMA: {:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double volume[] = {5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0,
+                       3798000.0, 3936200.0, 4732000.0, 4841300.0, 3915300.0};
+    double options[VWMA_OPTIONS] = {14.0}; // period
+    const double *inputs[VWMA_INPUTS] = {close, volume};
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = vwma_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> the VWMA(14) series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    vwma_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = vwma_indicator(inputs, 8, options, NULL, 0);
+    double new_close[] = {84.55, 84.36};
+    double new_volume[] = {4841300.0, 3915300.0};
+    const double *new_inputs[VWMA_INPUTS] = {new_close, new_volume};
+    CBatchResult b = vwma_batch(p.state, new_inputs, 2, NULL, 0);
+    /* b.outputs[0] -> VWMA values for just the two new bars */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    vwma_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -153,6 +183,66 @@ Moving average weighted by trading volume so that high-volume bars have more inf
     for (i, opt_outputs) in results.iter().enumerate() {
         println!("Period set {}: {:?}", i + 1, opt_outputs[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same period applied to 4 assets (each with close + volume) in one call (N must be 2/4/8/16):
+
+    ```c
+    double a1_close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a1_vol[]   = {5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0,
+                         3798000.0, 3936200.0, 4732000.0, 4841300.0, 3915300.0};
+    double a2_close[] = {a1_close[0]*1.1, a1_close[1]*1.1, a1_close[2]*1.1,
+                         a1_close[3]*1.1, a1_close[4]*1.1, a1_close[5]*1.1,
+                         a1_close[6]*1.1, a1_close[7]*1.1, a1_close[8]*1.1,
+                         a1_close[9]*1.1};
+    double a2_vol[]   = {a1_vol[0]*1.1, a1_vol[1]*1.1, a1_vol[2]*1.1,
+                         a1_vol[3]*1.1, a1_vol[4]*1.1, a1_vol[5]*1.1,
+                         a1_vol[6]*1.1, a1_vol[7]*1.1, a1_vol[8]*1.1,
+                         a1_vol[9]*1.1};
+    double a3_close[] = {a1_close[0]*0.9, a1_close[1]*0.9, a1_close[2]*0.9,
+                         a1_close[3]*0.9, a1_close[4]*0.9, a1_close[5]*0.9,
+                         a1_close[6]*0.9, a1_close[7]*0.9, a1_close[8]*0.9,
+                         a1_close[9]*0.9};
+    double a3_vol[]   = {a1_vol[0]*0.9, a1_vol[1]*0.9, a1_vol[2]*0.9,
+                         a1_vol[3]*0.9, a1_vol[4]*0.9, a1_vol[5]*0.9,
+                         a1_vol[6]*0.9, a1_vol[7]*0.9, a1_vol[8]*0.9,
+                         a1_vol[9]*0.9};
+    double a4_close[] = {a1_close[0]*1.02, a1_close[1]*1.02, a1_close[2]*1.02,
+                         a1_close[3]*1.02, a1_close[4]*1.02, a1_close[5]*1.02,
+                         a1_close[6]*1.02, a1_close[7]*1.02, a1_close[8]*1.02,
+                         a1_close[9]*1.02};
+    double a4_vol[]   = {a1_vol[0]*1.02, a1_vol[1]*1.02, a1_vol[2]*1.02,
+                         a1_vol[3]*1.02, a1_vol[4]*1.02, a1_vol[5]*1.02,
+                         a1_vol[6]*1.02, a1_vol[7]*1.02, a1_vol[8]*1.02,
+                         a1_vol[9]*1.02};
+
+    /* one [INPUTS]-long pointer array per asset */
+    const double *asset1[VWMA_INPUTS] = {a1_close, a1_vol};
+    const double *asset2[VWMA_INPUTS] = {a2_close, a2_vol};
+    const double *asset3[VWMA_INPUTS] = {a3_close, a3_vol};
+    const double *asset4[VWMA_INPUTS] = {a4_close, a4_vol};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = vwma_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's series, length r.output_lens[i][0] */
+        vwma_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in one call:
+
+    ```c
+    double o5[] = {5.0}, o10[] = {10.0}, o14[] = {14.0}, o20[] = {20.0};
+    const double *const simd_opts[4] = {o5, o10, o14, o20};
+
+    CSimdResult r = vwma_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
+    /* r.outputs[i] -> results for option set i (periods 5/10/14/20) */
+    for (uintptr_t i = 0; i < r.num_results; i++) vwma_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

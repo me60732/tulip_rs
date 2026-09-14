@@ -1,8 +1,10 @@
 #[cfg(test)]
 mod tests {
+    use bincode::config::standard;
+    use bincode::serde::{decode_from_slice, encode_to_vec};
     use float_cmp::approx_eq;
     use tulip_rs::indicator_types::IndicatorByOptions;
-    use tulip_rs::indicators::di::{Di, Indicator, TIndicatorState};
+    use tulip_rs::indicators::di::{Di, Indicator, IndicatorState, TIndicatorState, INPUTS};
     //use tulip_test::c_bindings::{ti_di, ti_di_start};
     use tulip_test::c_bindings::{ti_atr, ti_atr_start, ti_tr, ti_tr_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
@@ -58,6 +60,50 @@ mod tests {
     ];
 
     const OPTIONS_LIST: [[f64; 1]; 4] = [[5.0], [14.0], [20.0], [30.0]];
+
+    /// Expand the sample input data by repeating it.
+    fn expand_inputs() -> (Vec<f64>, Vec<f64>) {
+        let mut high_vec = HIGH.to_vec();
+        let mut low_vec = LOW.to_vec();
+        for _ in 0..20 {
+            high_vec.extend_from_slice(&HIGH);
+            low_vec.extend_from_slice(&LOW);
+        }
+        (high_vec, low_vec)
+    }
+
+    #[test]
+    fn test_di_state_bincode_roundtrip() {
+        use bincode::config::standard;
+        use bincode::serde::{decode_from_slice, encode_to_vec};
+
+        let (high, low) = expand_inputs();
+        let mut close_vec = CLOSE.to_vec();
+        for _ in 0..20 {
+            close_vec.extend_from_slice(&CLOSE);
+        }
+        let mid = high.len() - 50;
+        let options = [14.0]; // one of the option sets used in existing tests
+        let first: [&[f64]; INPUTS] = [&high[..mid], &low[..mid], &close_vec[..mid]];
+        let second: [&[f64]; INPUTS] = [&high[mid..], &low[mid..], &close_vec[mid..]];
+
+        let (_rows, mut original) = Di::indicator(&first, &options, None).unwrap();
+        let cfg = standard();
+        let bytes = encode_to_vec(&original, cfg).expect("serialize");
+        let (mut restored, consumed): (IndicatorState, usize) =
+            decode_from_slice(&bytes, cfg).expect("deserialize");
+        assert_eq!(consumed, bytes.len());
+
+        let a = original.batch_indicator(&second, None).unwrap();
+        let b = restored.batch_indicator(&second, None).unwrap();
+        assert_eq!(a.len(), b.len());
+        for (ra, rb) in a.iter().zip(b.iter()) {
+            assert_eq!(ra.len(), rb.len());
+            for (x, y) in ra.iter().zip(rb.iter()) {
+                assert_eq!(x.to_bits(), y.to_bits());
+            }
+        }
+    }
 
     fn get_hlc_arrays(
         stock_data: &[tulip_test::database::EodData],

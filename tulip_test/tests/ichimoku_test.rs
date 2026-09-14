@@ -1,8 +1,10 @@
 #[cfg(test)]
 mod tests {
+    use bincode::config::standard;
+    use bincode::serde::{decode_from_slice, encode_to_vec};
     use tulip_rs::indicators::donchianchannel::DonchianChannel;
     use tulip_rs::indicators::ichimoku::{
-        Ichimoku, Indicator, IndicatorByOptions, TIndicatorState,
+        Ichimoku, Indicator, IndicatorByOptions, IndicatorState, TIndicatorState, INPUTS,
     };
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -667,6 +669,39 @@ mod tests {
                         );
                     }
                 }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Bincode state round-trip: serialize/deserialize state and verify
+    // batch_indicator produces identical results.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_ichimoku_state_bincode_roundtrip() {
+        use expand_inputs;
+
+        let (mut high, mut low, mut close) = expand_inputs();
+        let mid = high.len() - 50;
+        let options = [9.0, 26.0]; // one of the option sets used in existing tests
+        let first: [&[f64]; INPUTS] = [&high[..mid], &low[..mid], &close[..mid]];
+        let second: [&[f64]; INPUTS] = [&high[mid..], &low[mid..], &close[mid..]];
+
+        let (_rows, mut original) = Ichimoku::indicator(&first, &options, None).unwrap();
+        let cfg = standard();
+        let bytes = encode_to_vec(&original, cfg).expect("serialize");
+        let (mut restored, consumed): (IndicatorState, usize) =
+            decode_from_slice(&bytes, cfg).expect("deserialize");
+        assert_eq!(consumed, bytes.len());
+
+        let a = original.batch_indicator(&second, None).unwrap();
+        let b = restored.batch_indicator(&second, None).unwrap();
+        assert_eq!(a.len(), b.len());
+        for (ra, rb) in a.iter().zip(b.iter()) {
+            assert_eq!(ra.len(), rb.len());
+            for (x, y) in ra.iter().zip(rb.iter()) {
+                assert_eq!(x.to_bits(), y.to_bits());
             }
         }
     }

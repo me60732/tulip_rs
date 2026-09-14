@@ -24,6 +24,35 @@ The percentage difference between two volume moving averages. Expanding volume o
     println!("{:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double volume[] = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+                       900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+    double options[VOSC_OPTIONS] = {5.0, 10.0}; // short_period, long_period
+    const double *inputs[VOSC_INPUTS] = {volume};
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = vosc_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> the VOSC series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    vosc_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = vosc_indicator(inputs, 8, options, NULL, 0);
+    double new_volume[] = {1600.0, 1250.0};
+    const double *new_inputs[VOSC_INPUTS] = {new_volume};
+    CBatchResult b = vosc_batch(p.state, new_inputs, 2, NULL, 0);
+    /* b.outputs[0] -> VOSC values for just the two new bars */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    vosc_state_free(p.state);
+    ```
+
+
+
 === "Python"
 
     ```python
@@ -99,6 +128,23 @@ The percentage difference between two volume moving averages. Expanding volume o
     let long_sma  = &outputs[2]; // long_sma (optional — requested)
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double volume[] = {10000.0, 12000.0, 9500.0, 11000.0, 13000.0,
+                       9800.0, 10500.0, 12500.0, 11800.0, 10200.0};
+    double options[VOSC_OPTIONS] = {5.0, 20.0};
+    const double *inputs[VOSC_INPUTS] = {volume};
+    bool optional_outputs[2] = {true, true}; // short_sma, long_sma
+
+    CIndicatorResult r = vosc_indicator(inputs, 10, options, optional_outputs, 2);
+    /* r.outputs[0] -> vosc, r.outputs[1] -> short_sma, r.outputs[2] -> long_sma */
+    tulip_ffi_result_free(r);
+    vosc_state_free(r.state);
+    ```
+
 === "Python"
 
     ```python
@@ -143,8 +189,6 @@ The percentage difference between two volume moving averages. Expanding volume o
 
 === "Rust"
 
-    **By assets** — same options, N assets in parallel:
-
     ```rust
     use tulip_rs::indicators::vosc::{Vosc, Indicator};
 
@@ -171,6 +215,61 @@ The percentage difference between two volume moving averages. Expanding volume o
         println!("Option set {}: {:?}", i + 1, out[0]);
     }
     ```
+
+=== "C"
+
+    **By assets** — same options applied to 4 assets in one call (N must be 2/4/8/16):
+
+    ```c
+    double v1[] = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0, 900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+    double v2[] = {1100.0, 1300.0, 1000.0, 1500.0, 1200.0, 800.0, 1400.0, 1700.0, 900.0, 1600.0};
+    double v3[] = {1300.0, 1500.0, 1200.0, 1700.0, 1400.0, 1000.0, 1600.0, 1900.0, 1100.0, 1800.0};
+    double v4[] = {1400.0, 1600.0, 1300.0, 1800.0, 1500.0, 1100.0, 1700.0, 2000.0, 1200.0, 1900.0};
+
+    /* one [INPUTS]-long pointer array per asset */
+    const double *asset1[VOSC_INPUTS] = {v1};
+    const double *asset2[VOSC_INPUTS] = {v2};
+    const double *asset3[VOSC_INPUTS] = {v3};
+    const double *asset4[VOSC_INPUTS] = {v4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = vosc_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's series */
+        vosc_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, N option sets in parallel:
+
+    ```c
+    #define EXPANDED_LEN (10 * 20)
+    static double volume_expanded[EXPANDED_LEN];
+    for (size_t i = 0; i < 20; i++) {
+        for (size_t j = 0; j < 10; j++) {
+            volume_expanded[i * 10 + j] = v1[j];
+        }
+    }
+    const double *expanded_inputs[VOSC_INPUTS] = {volume_expanded};
+
+    static const double options_1[VOSC_OPTIONS] = {3.0, 6.0};
+    static const double options_2[VOSC_OPTIONS] = {5.0, 10.0};
+    static const double options_3[VOSC_OPTIONS] = {8.0, 16.0};
+    static const double options_4[VOSC_OPTIONS] = {12.0, 24.0};
+    /* simd_options is indexed by option set (the N=4 lanes), each lane
+       pointing at VOSC_OPTIONS values. */
+    const double *const simd_opts[4] = {options_1, options_2, options_3, options_4};
+
+    CSimdResult r = vosc_simd_by_options(expanded_inputs, EXPANDED_LEN, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> option set i's series */
+        vosc_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+
 
 === "Python"
 

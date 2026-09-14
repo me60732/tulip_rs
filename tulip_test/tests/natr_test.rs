@@ -1,8 +1,12 @@
 #[cfg(test)]
 mod tests {
+    use bincode::config::standard;
+    use bincode::serde::{decode_from_slice, encode_to_vec};
     use float_cmp::approx_eq;
     use tulip_rs::indicator_types::IndicatorByOptions;
-    use tulip_rs::indicators::natr::{Indicator, Natr, TIndicatorState};
+    use tulip_rs::indicators::natr::{
+        Indicator, IndicatorState as NatrState, Natr, TIndicatorState,
+    };
     use tulip_test::c_bindings::{
         ti_atr, ti_atr_start, ti_natr, ti_natr_start, ti_tr, ti_tr_start,
     };
@@ -984,5 +988,73 @@ mod tests {
             println!("✓ SIMD by-options optional outputs match scalar for stock={stock_symbol}");
         }
         println!("✓ All SIMD by-options NATR optional output tests passed!");
+    }
+
+    #[test]
+    fn test_natr_state_bincode_roundtrip() {
+        // Generate 600-bar local data series
+        let high: Vec<f64> = (0..600)
+            .map(|i| {
+                let t = i as f64;
+                100.0 + 10.0 * (t * 0.3).sin() + t * 0.05
+            })
+            .collect();
+        let low: Vec<f64> = high.iter().map(|c| *c - 2.0).collect();
+        let close: Vec<f64> = high.iter().map(|c| *c).collect();
+
+        // Split: mid = len-50
+        let mid = close.len() - 50;
+
+        // First part for initial indicator call
+        let inputs_first = [&high[..mid], &low[..mid], &close[..mid]];
+        let options: [f64; 1] = [14.0];
+
+        let (outputs_first, mut original_state) =
+            Natr::indicator(&inputs_first, &options, Some(&[true, true]))
+                .expect("NATR indicator failed on first part");
+
+        // Bincode 2.0 roundtrip
+        use bincode::config::standard;
+        use bincode::serde::{decode_from_slice, encode_to_vec};
+        let bytes = encode_to_vec(&original_state, standard()).expect("serialize");
+        let (mut restored_state, consumed): (NatrState, usize) =
+            decode_from_slice(&bytes, standard()).expect("deserialize");
+        assert_eq!(consumed, bytes.len(), "bincode consumed mismatch");
+
+        // Second part for batch_indicator comparison
+        let inputs_second = [&high[mid..], &low[mid..], &close[mid..]];
+
+        let original_outputs = original_state
+            .batch_indicator(&inputs_second, Some(&[true, true]))
+            .expect("original batch indicator failed");
+        let restored_outputs = restored_state
+            .batch_indicator(&inputs_second, Some(&[true, true]))
+            .expect("restored batch indicator failed");
+
+        // Compare all values via to_bits()
+        for i in 0..original_outputs[0].len() {
+            assert_eq!(
+                original_outputs[0][i].to_bits(),
+                restored_outputs[0][i].to_bits(),
+                "NATR natr mismatch at index {}",
+                i
+            );
+            if original_outputs.len() > 1 && restored_outputs.len() > 1 {
+                assert_eq!(
+                    original_outputs[1][i].to_bits(),
+                    restored_outputs[1][i].to_bits(),
+                    "NATR atr mismatch at index {}",
+                    i
+                );
+            }
+            if original_outputs.len() > 2 && restored_outputs.len() > 2 {
+                assert_eq!(
+                    original_outputs[2][i].to_bits(),
+                    restored_outputs[2][i].to_bits(),
+                    "NATR tr mismatch at index {}",
+                    i
+                );
+            }
+        }
     }
 }

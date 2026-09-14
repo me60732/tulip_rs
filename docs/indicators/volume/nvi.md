@@ -30,6 +30,36 @@ Tracks price changes on days when volume decreases, based on the theory that sma
     println!("{:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    const double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                            85.53, 86.54, 86.89, 87.77, 87.29};
+    const double volume[] = {5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0, 3798000.0,
+                             3936200.0, 4732000.0, 4841300.0, 3915300.0, 6830800.0, 6694100.0,
+                             5293600.0, 7985800.0, 4807900.0};
+
+    const double *inputs[NVI_INPUTS] = {close, volume};
+    const double options[NVI_OPTIONS] = {}; // NVI has no options (OPTIONS=0)
+
+    /* Full computation */
+    CIndicatorResult r = nvi_indicator(inputs, 15, options, NULL, 0);
+    /* r.outputs[0] -> the NVI series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    nvi_state_free(r.state);
+
+    /* Partial computation + batch continuation */
+    CIndicatorResult pr = nvi_indicator(inputs, 10, options, NULL, 0);
+    const double *rest_inputs[NVI_INPUTS] = {close + 10, volume + 10};
+    CBatchResult br = nvi_batch(pr.state, rest_inputs, 5, NULL, 0);
+    /* br.outputs[0] -> NVI values for the last 5 bars */
+    tulip_ffi_batch_result_free(br);
+    tulip_ffi_result_free(pr);
+    nvi_state_free(pr.state);
+    ```
+
 === "Python"
 
     ```python
@@ -112,6 +142,43 @@ Tracks price changes on days when volume decreases, based on the theory that sma
     ```
 
     _This indicator has no options, so by-options SIMD does not apply._
+
+=== "C"
+
+    **By assets** — same option applied to 4 assets in one call (N must be 2/4/8/16):
+
+    ```c
+    const double c1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    const double v1[] = {5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0, 3798000.0,
+                         3936200.0, 4732000.0, 4841300.0, 3915300.0};
+
+    const double c2[] = {85.00, 85.50, 86.00, 86.50, 87.00, 87.50, 88.00, 88.50, 89.00, 89.50};
+    const double v2[] = {4500000.0, 5500000.0, 6500000.0, 4000000.0, 4500000.0, 3800000.0,
+                         4200000.0, 5000000.0, 5100000.0, 4100000.0};
+
+    const double c3[] = {78.00, 79.00, 80.00, 81.00, 82.00, 83.00, 84.00, 85.00, 86.00, 87.00};
+    const double v3[] = {3500000.0, 4500000.0, 5500000.0, 3000000.0, 3500000.0, 2800000.0,
+                         3200000.0, 4000000.0, 4100000.0, 3100000.0};
+
+    const double c4[] = {95.00, 96.00, 97.00, 98.00, 99.00, 100.00, 101.00, 102.00, 103.00, 104.00};
+    const double v4[] = {6500000.0, 7500000.0, 8500000.0, 6000000.0, 6500000.0, 5800000.0,
+                         6200000.0, 7000000.0, 7100000.0, 6100000.0};
+
+    const double *const asset1[NVI_INPUTS] = {c1, v1};
+    const double *const asset2[NVI_INPUTS] = {c2, v2};
+    const double *const asset3[NVI_INPUTS] = {c3, v3};
+    const double *const asset4[NVI_INPUTS] = {c4, v4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = nvi_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's NVI series, length r.output_lens[i][0] */
+        nvi_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    _C FFI offers only by-assets for this indicator (no options)._
 
 === "Python"
 

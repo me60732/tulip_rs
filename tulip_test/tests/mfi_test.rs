@@ -1,8 +1,10 @@
 #[cfg(test)]
 mod tests {
+    use bincode::config::standard;
+    use bincode::serde::{decode_from_slice, encode_to_vec};
     use float_cmp::approx_eq;
     use tulip_rs::indicator_types::IndicatorByOptions;
-    use tulip_rs::indicators::mfi::{Indicator, Mfi, TIndicatorState};
+    use tulip_rs::indicators::mfi::{Indicator, IndicatorState as MfiState, Mfi, TIndicatorState};
     use tulip_test::c_bindings::{ti_mfi, ti_mfi_start, ti_typprice, ti_typprice_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 
@@ -1086,5 +1088,66 @@ mod tests {
         }
 
         println!("✓ All MFI SIMD state handover by options tests passed!");
+    }
+
+    #[test]
+    fn test_mfi_state_bincode_roundtrip() {
+        // Generate 600-bar local data series (tiled from static for min_data compatibility)
+        let high: Vec<f64> = (0..600)
+            .map(|i| {
+                let t = i as f64;
+                100.0 + 10.0 * (t * 0.3).sin() + t * 0.05
+            })
+            .collect();
+        let low: Vec<f64> = high.iter().map(|c| *c - 2.0).collect();
+        let close: Vec<f64> = high.iter().map(|c| *c).collect();
+        let volume: Vec<f64> = (0..600).map(|i| 1_000_000.0 + (i as f64) * 137.0).collect();
+
+        // Split: mid = len-50
+        let mid = close.len() - 50;
+
+        // First part for initial indicator call
+        let inputs_first = [&high[..mid], &low[..mid], &close[..mid], &volume[..mid]];
+        let options: [f64; 1] = [14.0];
+
+        let (outputs_first, mut original_state) =
+            Mfi::indicator(&inputs_first, &options, Some(&[true]))
+                .expect("MFI indicator failed on first part");
+
+        // Bincode 2.0 roundtrip
+        use bincode::config::standard;
+        use bincode::serde::{decode_from_slice, encode_to_vec};
+        let bytes = encode_to_vec(&original_state, standard()).expect("serialize");
+        let (mut restored_state, consumed): (MfiState, usize) =
+            decode_from_slice(&bytes, standard()).expect("deserialize");
+        assert_eq!(consumed, bytes.len(), "bincode consumed mismatch");
+
+        // Second part for batch_indicator comparison
+        let inputs_second = [&high[mid..], &low[mid..], &close[mid..], &volume[mid..]];
+
+        let original_outputs = original_state
+            .batch_indicator(&inputs_second, Some(&[true]))
+            .expect("original batch indicator failed");
+        let restored_outputs = restored_state
+            .batch_indicator(&inputs_second, Some(&[true]))
+            .expect("restored batch indicator failed");
+
+        // Compare all values via to_bits()
+        for i in 0..original_outputs[0].len() {
+            assert_eq!(
+                original_outputs[0][i].to_bits(),
+                restored_outputs[0][i].to_bits(),
+                "MFI mfi mismatch at index {}",
+                i
+            );
+            if original_outputs.len() > 1 && restored_outputs.len() > 1 {
+                assert_eq!(
+                    original_outputs[1][i].to_bits(),
+                    restored_outputs[1][i].to_bits(),
+                    "MFI typprice mismatch at index {}",
+                    i
+                );
+            }
+        }
     }
 }

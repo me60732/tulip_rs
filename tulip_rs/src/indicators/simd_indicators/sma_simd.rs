@@ -7,7 +7,7 @@ pub(crate) use crate::indicators::simd_indicators::by_option::sma::indicator_by_
 use crate::indicators::sma::State;
 use crate::types::Warm;
 use serde::{
-    de::{self, MapAccess, Visitor},
+    de::{self, MapAccess, SeqAccess, Visitor},
     ser::SerializeStruct,
     Deserialize, Deserializer, Serialize, Serializer,
 };
@@ -104,6 +104,20 @@ where
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str("struct SimdState")
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<SimdState<N>, A::Error> {
+                // Mirrors Serialize field order: sum, multiplier.
+                let sum: [f64; N] = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let multiplier: [f64; N] = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                Ok(SimdState {
+                    sum: Simd::from_array(sum),
+                    multiplier: Simd::from_array(multiplier),
+                })
             }
 
             fn visit_map<V: MapAccess<'de>>(self, mut map: V) -> Result<SimdState<N>, V::Error> {

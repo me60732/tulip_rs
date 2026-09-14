@@ -2,7 +2,9 @@
 mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicator_types::IndicatorByOptions;
-    use tulip_rs::indicators::bbands::{BBands, Indicator, TIndicatorState};
+    use tulip_rs::indicators::bbands::{
+        BBands, Indicator, IndicatorState, TIndicatorState, INPUTS,
+    };
     use tulip_test::c_bindings::{ti_bbands, ti_bbands_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
     const MARGIN: f64 = 1e-4;
@@ -618,6 +620,37 @@ mod tests {
                                         );
                     }
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn test_bbands_state_bincode_roundtrip() {
+        use bincode::config::standard;
+        use bincode::serde::{decode_from_slice, encode_to_vec};
+
+        // Use options that need min_data=5 (5+1=6) to work with small data
+        let mut close = expand_close();
+        let mid = close.len() - 50;
+        // Use first option set [5.0, 2.0] which needs 6 bars min_data
+        let options: [f64; 2] = OPTIONS_LIST[0];
+        let first: [&[f64]; INPUTS] = [&close[..mid]];
+        let second: [&[f64]; INPUTS] = [&close[mid..]];
+
+        let (_rows, mut original) = BBands::indicator(&first, &options, None).unwrap();
+        let cfg = standard();
+        let bytes = encode_to_vec(&original, cfg).expect("serialize");
+        let (mut restored, consumed): (IndicatorState, usize) =
+            decode_from_slice(&bytes, cfg).expect("deserialize");
+        assert_eq!(consumed, bytes.len());
+
+        let a = original.batch_indicator(&second, None).unwrap();
+        let b = restored.batch_indicator(&second, None).unwrap();
+        assert_eq!(a.len(), b.len());
+        for (ra, rb) in a.iter().zip(b.iter()) {
+            assert_eq!(ra.len(), rb.len());
+            for (x, y) in ra.iter().zip(rb.iter()) {
+                assert_eq!(x.to_bits(), y.to_bits());
             }
         }
     }

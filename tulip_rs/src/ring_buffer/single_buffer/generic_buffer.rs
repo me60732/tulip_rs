@@ -1,4 +1,4 @@
-use serde::de::{MapAccess, Visitor};
+use serde::de::{MapAccess, SeqAccess, Visitor};
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 
@@ -489,6 +489,33 @@ where
 
             fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
                 f.write_str("a Buffer struct")
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Buffer<Stat, T>, A::Error> {
+                // Mirrors Serialize field order: vals, index, capacity, count, prev_idx.
+                let vals_repr: Vec<T::Repr> = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(0, &self))?;
+                let index = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(1, &self))?;
+                let capacity = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(2, &self))?;
+                let count = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(3, &self))?;
+                let prev_idx = seq
+                    .next_element()?
+                    .ok_or_else(|| serde::de::Error::invalid_length(4, &self))?;
+                Ok(Buffer {
+                    vals: vals_repr.into_iter().map(T::from_repr).collect(),
+                    index,
+                    capacity,
+                    count,
+                    prev_idx,
+                    state: std::marker::PhantomData,
+                })
             }
 
             fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Buffer<Stat, T>, A::Error> {

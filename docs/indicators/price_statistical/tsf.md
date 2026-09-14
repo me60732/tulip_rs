@@ -26,6 +26,33 @@ Projects the linear regression line one bar forward, giving a one-period-ahead p
     println!("{:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[TSF_OPTIONS] = {14.0}; // period
+    const double *inputs[TSF_INPUTS] = {close};
+
+    /* Full computation */
+    CIndicatorResult r = tsf_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> TSF(14) series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    tsf_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = tsf_indicator(inputs, 8, options, NULL, 0);
+    double new_close[] = {85.53};
+    const double *new_inputs[TSF_INPUTS] = {new_close};
+    CBatchResult b = tsf_batch(p.state, new_inputs, 1, NULL, 0);
+    /* b.outputs[0] -> TSF for the new bar */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    tsf_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -91,6 +118,27 @@ Projects the linear regression line one bar forward, giving a one-period-ahead p
     let linreg      = &outputs[1]; // linreg (optional — requested)
     let linregslope = &outputs[2]; // linregslope (optional — requested)
     // linregintercept not requested
+    ```
+
+=== "C"
+
+    `tsf` exposes 3 optional outputs: `linreg`, `linregslope`, `linregintercept`. Pass a boolean mask as the third argument.
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[TSF_OPTIONS] = {14.0}; // period
+    const double *inputs[TSF_INPUTS] = {close};
+    bool optional_outputs[3] = {true, true, false}; // linreg, linregslope, linregintercept
+
+    CIndicatorResult r = tsf_indicator(inputs, 10, options, optional_outputs, 3);
+    /* r.outputs[0] -> tsf (primary) */
+    /* r.outputs[1] -> linreg (optional — requested) */
+    /* r.outputs[2] -> linregslope (optional — requested) */
+    tulip_ffi_result_free(r);
+    tsf_state_free(r.state);
     ```
 
 === "Python"
@@ -163,6 +211,45 @@ Projects the linear regression line one bar forward, giving a one-period-ahead p
     for (i, asset_outputs) in results.iter().enumerate() {
         println!("Option {}: {:?}", i + 1, asset_outputs[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same options applied to 4 assets in one call (N must be 2/4/8/16):
+
+    ```c
+    double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a2[] = {72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50};
+    double a3[] = {55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40};
+    double a4[] = {100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8};
+
+    const double *asset1[TSF_INPUTS] = {a1};
+    const double *asset2[TSF_INPUTS] = {a2};
+    const double *asset3[TSF_INPUTS] = {a3};
+    const double *asset4[TSF_INPUTS] = {a4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+    double options[TSF_OPTIONS] = {14.0};
+
+    CSimdResult r = tsf_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's TSF series */
+        tsf_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in one call:
+
+    ```c
+    double o7[] = {7.0}, o14[] = {14.0}, o21[] = {21.0}, o28[] = {28.0};
+    const double *const simd_opts[4] = {o7, o14, o21, o28};
+
+    CSimdResult r = tsf_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> period set i results */
+        tsf_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

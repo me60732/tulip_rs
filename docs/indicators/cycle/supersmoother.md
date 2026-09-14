@@ -32,6 +32,32 @@ A two-pole Butterworth filter with no phase lag that provides smoother output th
     println!("Continued Super Smoother: {:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                      88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+    double options[SUPERSMOOTHER_OPTIONS] = {10.0};
+    const double *inputs[SUPERSMOOTHER_INPUTS] = {close};
+
+    /* Full computation */
+    CIndicatorResult r = supersmoother_indicator(inputs, 40, options, NULL, 0);
+    tulip_ffi_result_free(r);
+    supersmoother_state_free(r.state);
+
+    /* Partial + continuation */
+    CIndicatorResult p = supersmoother_indicator(inputs, 35, options, NULL, 0);
+    const double *rest_inputs[SUPERSMOOTHER_INPUTS] = {close + 35};
+    CBatchResult b = supersmoother_batch(p.state, rest_inputs, 5, NULL, 0);
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    supersmoother_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -142,6 +168,48 @@ A two-pole Butterworth filter with no phase lag that provides smoother output th
     for (i, opt_outputs) in results.iter().enumerate() {
         println!("Period set {}: {:?}", i + 1, opt_outputs[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same period applied to 4 assets in parallel:
+
+    ```c
+    double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a2[] = {86.59, 86.06, 87.87, 88.00, 88.61, 88.15, 87.84, 88.99, 89.55, 89.36};
+    double a3[] = {78.59, 78.06, 79.87, 80.00, 80.61, 80.15, 79.84, 80.99, 81.55, 81.36};
+    double a4[] = {83.22, 82.68, 84.53, 84.66, 85.28, 84.81, 84.50, 85.67, 86.24, 86.05};
+
+    const double *asset1[SUPERSMOOTHER_INPUTS] = {a1};
+    const double *asset2[SUPERSMOOTHER_INPUTS] = {a2};
+    const double *asset3[SUPERSMOOTHER_INPUTS] = {a3};
+    const double *asset4[SUPERSMOOTHER_INPUTS] = {a4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = supersmoother_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        supersmoother_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```c
+    double close_expanded[40];
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 10; j++) close_expanded[i * 10 + j] = a1[j];
+    }
+    const double *expanded_inputs[SUPERSMOOTHER_INPUTS] = {close_expanded};
+
+    double o5[] = {5.0}, o10[] = {10.0}, o14[] = {14.0}, o20[] = {20.0};
+    const double *const simd_opts[4] = {o5, o10, o14, o20};
+
+    CSimdResult r = supersmoother_simd_by_options(expanded_inputs, 40, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        supersmoother_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

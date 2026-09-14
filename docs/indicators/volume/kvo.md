@@ -38,6 +38,41 @@ Identifies long-term money flow trends while remaining sensitive enough to detec
     println!("{:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[]   = {82.15, 81.89, 83.03, 83.30, 83.85,
+                       83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[]    = {81.29, 80.64, 81.31, 82.65, 83.07,
+                       83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[]  = {81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36};
+    double volume[] = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+                       900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+    const double options[KVO_OPTIONS] = {34.0, 55.0}; // short_period, long_period
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = kvo_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> the KVO series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    kvo_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = kvo_indicator(inputs, 8, options, NULL, 0);
+    double new_high[]   = {85.20};
+    double new_low[]    = {84.50};
+    double new_close[]  = {85.00};
+    double new_volume[] = {1550.0};
+    const double *new_inputs[KVO_INPUTS] = {new_high, new_low, new_close, new_volume};
+    CBatchResult b = kvo_batch(p.state, new_inputs, 1, NULL, 0);
+    /* b.outputs[0] -> KVO value for the single new bar */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    kvo_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -116,6 +151,33 @@ Identifies long-term money flow trends while remaining sensitive enough to detec
 === "Rust"
 
     `kvo` exposes 2 optional outputs: `short_ema`, `long_ema`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
+
+=== "C"
+
+    The mask is an array of booleans (one per optional output) passed to `kvo_indicator()`:
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[]  = {81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36};
+    double high[]   = {82.59, 82.06, 83.87, 84.00, 84.61,
+                       84.15, 83.84, 84.99, 85.55, 85.36};
+    double low[]    = {80.59, 80.06, 81.87, 82.00, 82.61,
+                       82.15, 81.84, 82.99, 83.55, 83.36};
+    double volume[] = {10000.0, 12000.0, 9500.0, 11000.0, 13000.0,
+                       9800.0, 10500.0, 12500.0, 11800.0, 10200.0};
+    const double options[KVO_OPTIONS] = {9.0, 26.0};
+
+    bool optional_outputs[2] = {true, false}; // short_ema, long_ema
+
+    CIndicatorResult r = kvo_indicator(inputs, 10, options, optional_outputs, 2);
+    /* r.outputs[0] -> kvo (primary) */
+    /* r.outputs[1] -> short_ema (requested) */
+    /* r.outputs[2] -> long_ema (not requested) */
+    tulip_ffi_result_free(r);
+    kvo_state_free(r.state);
+    ```
 
     ```rust
     use tulip_rs::indicators::kvo::{Kvo, Indicator, TIndicatorState};
@@ -211,6 +273,97 @@ Identifies long-term money flow trends while remaining sensitive enough to detec
     for (i, out) in results.iter().enumerate() {
         println!("Option set {}: {:?}", i + 1, out[0]);
     }
+    ```
+
+=== "C"
+
+    **By assets** — same options applied to 4 assets in one call:
+
+    ```c
+    double a1_high[]   = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double a1_low[]    = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double a1_close[]  = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a1_volume[] = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0, 900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+
+    double a2_high[]   = {98.58, 96.47, 99.63, 99.96, 100.62, 100.68, 99.99, 101.16, 102.31, 103.50};
+    double a2_low[]    = {97.95, 95.81, 98.94, 99.27, 100.01, 100.06, 99.33, 100.50, 101.65, 102.80};
+    double a2_close[]  = {83.18, 82.12, 85.74, 86.00, 87.22, 86.30, 85.68, 87.98, 89.10, 88.72};
+    double a2_volume[] = {2400.0, 2800.0, 2200.0, 3200.0, 2600.0, 1800.0, 3000.0, 3600.0, 2000.0, 3400.0};
+
+    double a3_high[]   = {75.00, 74.50, 76.00, 76.30, 76.85, 76.90, 76.33, 77.30, 77.84, 78.00};
+    double a3_low[]    = {74.29, 73.64, 75.31, 75.65, 76.07, 76.11, 75.49, 75.30, 77.15, 77.11};
+    double a3_close[]  = {74.59, 74.06, 76.87, 76.00, 76.61, 76.15, 75.84, 76.99, 77.55, 77.36};
+    double a3_volume[] = {600.0, 700.0, 550.0, 800.0, 650.0, 450.0, 750.0, 900.0, 500.0, 850.0};
+
+    double a4_high[]   = {102.00, 101.25, 103.50, 103.80, 104.30, 104.35, 103.75, 104.75, 105.25, 105.40};
+    double a4_low[]    = {100.65, 99.80, 102.00, 102.20, 103.00, 103.05, 102.40, 103.30, 104.10, 104.25};
+    double a4_close[]  = {91.30, 90.60, 93.00, 93.20, 93.75, 93.70, 93.10, 94.20, 94.65, 94.80};
+    double a4_volume[] = {3600.0, 4200.0, 3300.0, 4800.0, 3900.0, 2700.0, 4500.0, 5400.0, 3000.0, 5100.0};
+
+    const double *asset1[KVO_INPUTS] = {a1_high, a1_low, a1_close, a1_volume};
+    const double *asset2[KVO_INPUTS] = {a2_high, a2_low, a2_close, a2_volume};
+    const double *asset3[KVO_INPUTS] = {a3_high, a3_low, a3_close, a3_volume};
+    const double *asset4[KVO_INPUTS] = {a4_high, a4_low, a4_close, a4_volume};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = kvo_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's series, length r.output_lens[i][0] */
+        kvo_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, 4 different option sets in one call:
+
+    ```c
+    static const double high_expanded[200] = {82.15, 81.89, 83.03, 83.30, 83.85,
+        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
+        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
+        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
+        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
+        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
+        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
+        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
+        83.90, 83.33, 84.30, 84.84, 85.00};
+    static const double low_expanded[200] = {81.29, 80.64, 81.31, 82.65, 83.07,
+        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
+        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
+        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
+        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
+        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
+        83.11, 82.49, 82.30, 84.15, 84.11};
+    static const double close_expanded[200] = {81.59, 81.06, 82.87, 83.00, 83.61,
+        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
+        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
+        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
+        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
+        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
+        83.15, 82.84, 83.99, 84.55, 84.36};
+    static const double volume_expanded[200] = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+        900.0, 1500.0, 1800.0, 1000.0, 1700.0, 1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+        900.0, 1500.0, 1800.0, 1000.0, 1700.0, 1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+        900.0, 1500.0, 1800.0, 1000.0, 1700.0, 1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+        900.0, 1500.0, 1800.0, 1000.0, 1700.0, 1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+        900.0, 1500.0, 1800.0, 1000.0, 1700.0, 1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+        900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+
+    const double *const expanded_inputs[KVO_INPUTS] = {high_expanded, low_expanded,
+        close_expanded, volume_expanded};
+
+    static const double options_1[KVO_OPTIONS] = {13.0, 21.0};
+    static const double options_2[KVO_OPTIONS] = {21.0, 34.0};
+    static const double options_3[KVO_OPTIONS] = {34.0, 55.0};
+    static const double options_4[KVO_OPTIONS] = {55.0, 89.0};
+
+    const double *const simd_options[4] = {options_1, options_2, options_3, options_4};
+
+    CSimdResult r = kvo_simd_by_options(expanded_inputs, 200, simd_options, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> option set i's series */
+        kvo_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
     ```
 
 === "Python"

@@ -29,6 +29,52 @@ This design makes TulipRS well-suited for **streaming** and **incremental** pipe
     println!("Continued outputs: {:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+    #include "tulip_rs_ffi_counts.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[SMA_OPTIONS] = {5.0}; // period
+    const double *inputs[SMA_INPUTS] = {close};
+
+    /* Step 1: seed on historical data */
+    CIndicatorResult r = sma_indicator(inputs, 8, options, NULL, 0);
+    if (r.error != C_INDICATOR_ERROR_OK) {
+        fprintf(stderr, "sma_indicator failed: error=%d\n", r.error);
+        return 1;
+    }
+    printf("History outputs[0]: [");
+    for (uintptr_t i = 0; i < r.output_lens[0]; i++) {
+        printf("%.4f", r.outputs[0][i]);
+        if (i + 1 < r.output_lens[0]) printf(", ");
+    }
+    printf("]\n");
+
+    void *state = r.state;
+    tulip_ffi_result_free(r); /* outputs freed; state kept alive */
+
+    /* Step 2: append new bars */
+    double new_close[] = {85.53, 86.54};
+    const double *new_inputs[SMA_INPUTS] = {new_close};
+    CBatchResult b = sma_batch(state, new_inputs, 2, NULL, 0);
+    if (b.error != C_INDICATOR_ERROR_OK) {
+        fprintf(stderr, "sma_batch failed: error=%d\n", b.error);
+        return 1;
+    }
+    printf("Continued outputs[0]: [");
+    for (uintptr_t i = 0; i < b.output_lens[0]; i++) {
+        printf("%.4f", b.outputs[0][i]);
+        if (i + 1 < b.output_lens[0]) printf(", ");
+    }
+    printf("]\n");
+
+    tulip_ffi_batch_result_free(b);
+    sma_state_free(state); /* final cleanup after last batch */
+    ```
+
 === "Python"
 
     ```python
@@ -97,6 +143,47 @@ For very long historical series, chunked processing lets you control memory usag
     }
 
     println!("Total output bars: {}", all_outputs[0].len());
+    ```
+
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+    #include "tulip_rs_ffi_counts.h"
+
+    /* Assume close[] is a very long series */
+    size_t chunk_size = 500;
+    double options[SMA_OPTIONS] = {5.0}; // period
+
+    /* Seed on the first chunk */
+    CIndicatorResult r = sma_indicator(inputs, chunk_size, options, NULL, 0);
+    if (r.error != C_INDICATOR_ERROR_OK) {
+        fprintf(stderr, "sma_indicator failed: error=%d\n", r.error);
+        return 1;
+    }
+
+    void *state = r.state;
+    uintptr_t first_len = r.output_lens[0]; /* read before freeing the result */
+    tulip_ffi_result_free(r);
+
+    /* Continue chunk by chunk */
+    for (size_t start = chunk_size; start < total_len; start += chunk_size) {
+        size_t this_chunk = (start + chunk_size <= total_len) ? chunk_size : total_len - start;
+        const double *chunk_inputs[SMA_INPUTS] = {close + start};
+        CBatchResult b = sma_batch(state, chunk_inputs, this_chunk, NULL, 0);
+        if (b.error != C_INDICATOR_ERROR_OK) {
+            fprintf(stderr, "sma_batch failed: error=%d\n", b.error);
+            return 1;
+        }
+
+        /* Copy or process outputs[0] — it will be freed by tulip_ffi_batch_result_free */
+        memcpy(all_outputs + (start - chunk_size + first_len),
+               b.outputs[0], b.output_lens[0] * sizeof(double));
+
+        tulip_ffi_batch_result_free(b);
+    }
+
+    sma_state_free(state); /* final cleanup after last batch */
     ```
 
 === "Python"
@@ -174,6 +261,29 @@ State can be serialised to JSON for persistence and restored later. This is usef
     serde_json = "1"
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"   /* also pulls in tulip_rs_ffi_state_ids.h */
+
+    /* Serialise — the live state handle is read, not consumed */
+    CBytes blob = tulip_state_serialize(C_INDICATOR_ID_ADX, C_STATE_FORMAT_BINCODE, state);
+    if (blob.ptr == NULL) { /* handle error */ }
+
+    /* Persist blob.ptr / blob.len to disk or a database ... */
+
+    /* Restore — the blob is self-describing (it embeds the indicator name
+       and format), so deserialisation takes no other arguments */
+    void *restored = tulip_state_deserialize(blob.ptr, blob.len);
+    tulip_ffi_bytes_free(blob);
+
+    /* The restored handle behaves exactly like a fresh one */
+    CBatchResult b = adx_batch(restored, new_inputs, n_new, NULL, 0);
+    /* ... use b.outputs ... */
+    tulip_ffi_batch_result_free(b);
+    adx_state_free(restored);   /* each handle is freed exactly once */
+    ```
+
 === "Python"
 
     ```python
@@ -206,10 +316,8 @@ State can be serialised to JSON for persistence and restored later. This is usef
     const result = restored.batchIndicator([newBars]);
     ```
 
-!!! warning "State is indicator-, option-, and asset-specific"
-    - **Indicator-specific** — a serialised state from `sma` cannot be loaded as a state for `ema` or any other indicator. Always restore into the same indicator type that produced the JSON.
-    - **Option-specific** — the options used when the state was created are baked into the state. An EMA state created with `period=10` will always compute as a period-10 EMA. If you need a different period, run a fresh `indicator` call.
-    - **Asset-specific** — a state captures the internal buffers for one particular price series. You cannot reuse the same state object to continue computation on a different asset.
+!!! tip "Bincode vs JSON, and in-process clone"
+    `C_STATE_FORMAT_BINCODE` (0) round-trips every `f64` including NaN/Inf and is the recommended persistence format. `C_STATE_FORMAT_JSON` (1) emits human-readable `serde_json` but fails (null `CBytes`) if the state holds non-finite values. Corrupted or wrong-schema blobs are rejected with `NULL` from `tulip_state_deserialize` — never a mistyped handle. For an in-process deep copy without serde, use `tulip_state_clone(C_INDICATOR_ID_ADX, state)`; the clone is owned like a deserialised state and freed with `adx_state_free`.
 
 ---
 
@@ -234,6 +342,83 @@ State works identically for indicators with multiple output series. Bollinger Ba
     let new_lower  = &continued[0];
     let new_middle = &continued[1];
     let new_upper  = &continued[2];
+    ```
+
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+    #include "tulip_rs_ffi_counts.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[BBANDS_OPTIONS] = {20.0, 2.0}; // period, std_dev
+    const double *inputs[BBANDS_INPUTS] = {close};
+
+    /* Seed on historical data */
+    CIndicatorResult r = bbands_indicator(inputs, n, options, NULL, 0);
+    if (r.error != C_INDICATOR_ERROR_OK) {
+        fprintf(stderr, "bbands_indicator failed: error=%d\n", r.error);
+        return 1;
+    }
+
+    /* outputs[0] = lower_band, outputs[1] = middle_band, outputs[2] = upper_band */
+    printf("lower_band:  [");
+    for (uintptr_t i = 0; i < r.output_lens[0]; i++) {
+        printf("%.4f", r.outputs[0][i]);
+        if (i + 1 < r.output_lens[0]) printf(", ");
+    }
+    printf("]\n");
+
+    printf("middle_band: [");
+    for (uintptr_t i = 0; i < r.output_lens[1]; i++) {
+        printf("%.4f", r.outputs[1][i]);
+        if (i + 1 < r.output_lens[1]) printf(", ");
+    }
+    printf("]\n");
+
+    printf("upper_band:  [");
+    for (uintptr_t i = 0; i < r.output_lens[2]; i++) {
+        printf("%.4f", r.outputs[2][i]);
+        if (i + 1 < r.output_lens[2]) printf(", ");
+    }
+    printf("]\n");
+
+    void *state = r.state;
+    tulip_ffi_result_free(r);
+
+    /* Append new bars — all three outputs are extended together */
+    double new_close[] = {85.53, 86.54};
+    const double *new_inputs[BBANDS_INPUTS] = {new_close};
+    CBatchResult b = bbands_batch(state, new_inputs, 2, NULL, 0);
+    if (b.error != C_INDICATOR_ERROR_OK) {
+        fprintf(stderr, "bbands_batch failed: error=%d\n", b.error);
+        return 1;
+    }
+
+    printf("lower_band continued:  [");
+    for (uintptr_t i = 0; i < b.output_lens[0]; i++) {
+        printf("%.4f", b.outputs[0][i]);
+        if (i + 1 < b.output_lens[0]) printf(", ");
+    }
+    printf("]\n");
+
+    printf("middle_band continued: [");
+    for (uintptr_t i = 0; i < b.output_lens[1]; i++) {
+        printf("%.4f", b.outputs[1][i]);
+        if (i + 1 < b.output_lens[1]) printf(", ");
+    }
+    printf("]\n");
+
+    printf("upper_band continued:  [");
+    for (uintptr_t i = 0; i < b.output_lens[2]; i++) {
+        printf("%.4f", b.outputs[2][i]);
+        if (i + 1 < b.output_lens[2]) printf(", ");
+    }
+    printf("]\n");
+
+    tulip_ffi_batch_result_free(b);
+    bbands_state_free(state); /* final cleanup */
     ```
 
 === "Python"

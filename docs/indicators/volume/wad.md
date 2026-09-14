@@ -33,6 +33,40 @@ A cumulative indicator that compares each close to the previous close to assess 
     println!("{:?}", continued[0]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double high[]  = {82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[]   = {81.29, 80.64, 81.31, 82.65, 83.07,
+                      83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    /* WAD has no options (WAD_OPTIONS=0); the inputs are [high, low, close] */
+    const double *inputs[WAD_INPUTS] = {high, low, close};
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = wad_indicator(inputs, 10, NULL, NULL, 0);
+    /* r.outputs[0] -> the WAD series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    wad_state_free(r.state);
+
+    /* State continuation — feed new bars without reprocessing history */
+    CIndicatorResult p = wad_indicator(inputs, 8, NULL, NULL, 0);
+    double new_high[]  = {85.20};
+    double new_low[]   = {84.50};
+    double new_close[] = {85.00};
+    const double *new_inputs[WAD_INPUTS] = {new_high, new_low, new_close};
+    CBatchResult b = wad_batch(p.state, new_inputs, 1, NULL, 0);
+    /* b.outputs[0] -> WAD for the one new bar */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    wad_state_free(p.state);
+    ```
+
 === "Python"
 
     ```python
@@ -135,6 +169,51 @@ A cumulative indicator that compares each close to the previous close to assess 
     outputs_list, states = tulip_rs.indicators.wad.simd_by_assets(simd_inputs, [])
     for i, asset_outputs in enumerate(outputs_list):
         print(f"Asset {i+1}: {asset_outputs[0]}")
+    ```
+
+    _This indicator has no options, so by-options SIMD does not apply._
+
+=== "C"
+
+    **By assets** — same option applied to 4 assets in one call (N must be 2/4/8/16). This indicator has no options.
+
+    ```c
+    double h1[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double l1[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double c1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+
+    const double *const asset1[WAD_INPUTS] = {h1, l1, c1};
+
+    /* Asset 2 */
+    double h2[] = {82.25, 81.99, 83.13, 83.40, 83.95, 84.00, 83.43, 84.40, 84.94, 85.10};
+    double l2[] = {81.39, 80.74, 81.41, 82.75, 83.17, 83.21, 82.59, 82.40, 84.25, 84.21};
+    double c2[] = {81.69, 81.16, 82.97, 83.10, 83.71, 83.25, 82.94, 84.09, 84.65, 84.46};
+
+    const double *const asset2[WAD_INPUTS] = {h2, l2, c2};
+
+    /* Asset 3 */
+    double h3[] = {81.95, 81.69, 82.83, 83.10, 83.65, 83.70, 83.13, 84.10, 84.64, 84.80};
+    double l3[] = {81.09, 80.44, 81.11, 82.45, 82.87, 82.91, 82.29, 82.10, 83.95, 83.91};
+    double c3[] = {81.39, 80.86, 82.67, 82.80, 83.41, 83.05, 82.64, 83.79, 84.35, 84.16};
+
+    const double *const asset3[WAD_INPUTS] = {h3, l3, c3};
+
+    /* Asset 4 */
+    double h4[] = {82.35, 82.09, 83.23, 83.50, 84.05, 84.10, 83.53, 84.50, 85.04, 85.20};
+    double l4[] = {81.49, 80.84, 81.51, 82.85, 83.27, 83.31, 82.69, 82.50, 84.35, 84.31};
+    double c4[] = {81.79, 81.26, 83.07, 83.20, 83.81, 83.35, 83.04, 84.19, 84.75, 84.56};
+
+    const double *const asset4[WAD_INPUTS] = {h4, l4, c4};
+
+    /* simd_inputs is indexed by asset (the N=4 SIMD lanes) */
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+
+    CSimdResult r = wad_simd_by_assets(simd_inputs, 4, 10, NULL, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's WAD series */
+        wad_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
     ```
 
     _This indicator has no options, so by-options SIMD does not apply._

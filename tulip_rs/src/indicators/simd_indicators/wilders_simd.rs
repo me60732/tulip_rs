@@ -8,7 +8,7 @@ pub use crate::indicator_types::{TSimdState, TState};
 use crate::indicators::wilders::State;
 use crate::types::Warm;
 use serde::{
-    de::{self, MapAccess, Visitor},
+    de::{self, MapAccess, SeqAccess, Visitor},
     ser::SerializeStruct,
     Deserialize, Deserializer, Serialize, Serializer,
 };
@@ -120,6 +120,24 @@ where
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str("struct SimdState")
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<SimdState<N>, A::Error> {
+                // Mirrors Serialize field order: wilders, multiplier, inv_multiplier.
+                let wilders: [f64; N] = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let multiplier: [f64; N] = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                let inv_multiplier: [f64; N] = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(2, &self))?;
+                Ok(SimdState {
+                    wilders: Simd::from_array(wilders),
+                    multiplier: Simd::from_array(multiplier),
+                    inv_multiplier: Simd::from_array(inv_multiplier),
+                })
             }
 
             fn visit_map<V: MapAccess<'de>>(self, mut map: V) -> Result<SimdState<N>, V::Error> {
