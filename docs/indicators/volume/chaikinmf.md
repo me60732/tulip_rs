@@ -51,6 +51,7 @@ Measures buying and selling pressure. For each bar: MFV = ((close − low) − (
     double volume[] = {1200.0, 1500.0, 1300.0, 1100.0, 1600.0,
                        1400.0, 1200.0, 1700.0, 1800.0, 1500.0};
     const double options[CHAIKINMF_OPTIONS] = {14.0}; // period
+    const double *inputs[CHAIKINMF_INPUTS] = {high, low, close, volume};
 
     /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
     CIndicatorResult r = chaikinmf_indicator(inputs, 10, options, NULL, 0);
@@ -70,7 +71,7 @@ Measures buying and selling pressure. For each bar: MFV = ((close − low) − (
     tulip_ffi_batch_result_free(b);
     tulip_ffi_result_free(p);
     chaikinmf_state_free(p.state);
-
+    ```
 
 === "Go"
 
@@ -241,6 +242,45 @@ Measures buying and selling pressure. For each bar: MFV = ((close − low) − (
         /* r.outputs[i][0] -> asset i's series, length r.output_lens[i][0] */
         chaikinmf_state_free(r.states[i]);
     }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, N different periods in one call:
+
+    ```c
+    #include "tulip_rs_ffi.h"
+    #include "tulip_rs_ffi_counts.h"
+
+    double high[]   = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[]    = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[]  = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double volume[] = {1200.0, 1500.0, 1300.0, 1100.0, 1600.0, 1400.0, 1200.0, 1700.0, 1800.0, 1500.0};
+    const double *inputs[CHAIKINMF_INPUTS] = {high, low, close, volume};
+
+    /* Tile the series 20x so longer-period option sets have enough data */
+    #define EXPANDED_LEN (10 * 20)
+    static double high_expanded[EXPANDED_LEN];
+    static double low_expanded[EXPANDED_LEN];
+    static double close_expanded[EXPANDED_LEN];
+    static double volume_expanded[EXPANDED_LEN];
+    for (size_t i = 0; i < 20; i++) {
+        for (size_t j = 0; j < 10; j++) {
+            high_expanded[i * 10 + j]   = high[j];
+            low_expanded[i * 10 + j]    = low[j];
+            close_expanded[i * 10 + j]  = close[j];
+            volume_expanded[i * 10 + j] = volume[j];
+        }
+    }
+    const double *expanded_inputs[CHAIKINMF_INPUTS] = {high_expanded, low_expanded, close_expanded, volume_expanded};
+
+    static const double o7[CHAIKINMF_OPTIONS]  = {7.0};
+    static const double o14[CHAIKINMF_OPTIONS] = {14.0};
+    static const double o21[CHAIKINMF_OPTIONS] = {21.0};
+    static const double o28[CHAIKINMF_OPTIONS] = {28.0};
+    const double *const simd_opts[4] = {o7, o14, o21, o28};
+
+    CSimdResult r = chaikinmf_simd_by_options(expanded_inputs, EXPANDED_LEN, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) chaikinmf_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
     ```
 

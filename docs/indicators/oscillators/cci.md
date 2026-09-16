@@ -34,10 +34,8 @@ Measures how far the typical price deviates from its simple moving average, norm
 
 === "C"
 
-    **By assets**
-
     ```c
-    #include <tulip_rs_ffi.h>
+    #include "tulip_rs_ffi.h"
 
     double high[]  = {82.15, 81.89, 83.03, 83.30, 83.85,
                       83.90, 83.33, 84.30, 84.84, 85.00};
@@ -45,57 +43,21 @@ Measures how far the typical price deviates from its simple moving average, norm
                       83.11, 82.49, 82.30, 84.15, 84.11};
     double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
                       83.15, 82.84, 83.99, 84.55, 84.36};
-
-    double options[CCI_OPTIONS] = {20.0};
+    double options[CCI_OPTIONS] = {20.0}; // period
     const double *inputs[CCI_INPUTS] = {high, low, close};
 
-    // Full computation
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
     CIndicatorResult r = cci_indicator(inputs, 10, options, NULL, 0);
     tulip_ffi_result_free(r);
     cci_state_free(r.state);
 
-    // Partial + continuation (8 bars, then remaining)
+    /* Partial computation + state continuation */
     CIndicatorResult p = cci_indicator(inputs, 8, options, NULL, 0);
     const double *rest_inputs[CCI_INPUTS] = {high+8, low+8, close+8};
     CBatchResult b = cci_batch(p.state, rest_inputs, 2, NULL, 0);
     tulip_ffi_batch_result_free(b);
     tulip_ffi_result_free(p);
     cci_state_free(p.state);
-    ```
-
-    **By options**
-
-    ```c
-    #include <tulip_rs_ffi.h>
-
-    double high[]  = {82.15, 81.89, 83.03, 83.30, 83.85,
-                      83.90, 83.33, 84.30, 84.84, 85.00};
-    double low[]   = {81.29, 80.64, 81.31, 82.65, 83.07,
-                      83.11, 82.49, 82.30, 84.15, 84.11};
-    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
-                      83.15, 82.84, 83.99, 84.55, 84.36};
-
-    double o20[] = {20.0}, o14[] = {14.0}, o10[] = {10.0}, o5[] = {5.0};
-    const double *const simd_opts[4] = {o20, o14, o10, o5};
-
-    // Tile data 20x for longer periods
-    #define EXPANDED_LEN (10 * 20)
-    double high_exp[EXPANDED_LEN], low_exp[EXPANDED_LEN], close_exp[EXPANDED_LEN];
-    for (int i = 0; i < 20; i++) {
-        for (int j = 0; j < 10; j++) {
-            high_exp[i*10+j]  = high[j];
-            low_exp[i*10+j]   = low[j];
-            close_exp[i*10+j] = close[j];
-        }
-    }
-    const double *expanded_inputs[CCI_INPUTS] = {high_exp, low_exp, close_exp};
-
-    CSimdResult r = cci_simd_by_options(expanded_inputs, EXPANDED_LEN,
-                                        simd_opts, 4, NULL, 0);
-    for (uintptr_t i = 0; i < r.num_results; i++) {
-        cci_state_free(r.states[i]);
-    }
-    tulip_ffi_simd_result_free(r);
     ```
 
 === "Go"

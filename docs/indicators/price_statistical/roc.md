@@ -28,36 +28,27 @@ The percentage change between the current price and the price `period` bars ago.
 
 === "C"
 
-    **By assets** — same option applied to 4 assets in parallel (N must be 2/4/8/16):
-
     ```c
     #include "tulip_rs_ffi.h"
 
-    const double *asset1[ROC_INPUTS] = {a1};
-    const double *asset2[ROC_INPUTS] = {a2};
-    const double *asset3[ROC_INPUTS] = {a3};
-    const double *asset4[ROC_INPUTS] = {a4};
-    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
-    double options[ROC_OPTIONS] = {10.0};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[ROC_OPTIONS] = {10.0}; // period
+    const double *inputs[ROC_INPUTS] = {close};
 
-    CSimdResult r = roc_simd_by_assets(simd_inputs, 4, len, options, NULL, 0);
-    for (uintptr_t i = 0; i < r.num_results; i++) {
-        /* r.outputs[i][0] -> asset i's ROC series, length r.output_lens[i][0] */
-        roc_state_free(r.states[i]);
-    }
-    tulip_ffi_simd_result_free(r);
-    ```
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    CIndicatorResult r = roc_indicator(inputs, 10, options, NULL, 0);
+    tulip_ffi_result_free(r);
+    roc_state_free(r.state);
 
-    **By options** — same asset, 4 different periods in parallel:
-
-    ```c
-    double o5[] = {5.0}, o10[] = {10.0}, o20[] = {20.0}, o50[] = {50.0};
-    const double *const simd_opts[4] = {o5, o10, o20, o50};
-
-    CSimdResult r = roc_simd_by_options(inputs, len, simd_opts, 4, NULL, 0);
-    /* r.outputs[i] -> ROC for period simd_opts[i] */
-    for (uintptr_t i = 0; i < r.num_results; i++) roc_state_free(r.states[i]);
-    tulip_ffi_simd_result_free(r);
+    /* Partial computation + state continuation */
+    CIndicatorResult p = roc_indicator(inputs, 8, options, NULL, 0);
+    double new_close[] = {85.53};
+    const double *new_inputs[ROC_INPUTS] = {new_close};
+    CBatchResult b = roc_batch(p.state, new_inputs, 1, NULL, 0);
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    roc_state_free(p.state);
     ```
 
 === "Go"
@@ -78,10 +69,10 @@ The percentage change between the current price and the price `period` bars ago.
     // Partial computation + state continuation.
     res2, st2, _ := indicators.Roc.Indicator(close[:8], options, nil)
     res2.Close() // outputs consumed or closed; state stays live
-    batch, _ := st2.Batch(close[8:], nil)
+    batch, _ := st2.Batch(close[8:], nil);
     fmt.Println(batch.Rows[0]) // continued ROC values
     batch.Close()
-    st2.Close()
+    st2.Close();
     ```
 
 === "Python"

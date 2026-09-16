@@ -353,6 +353,45 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
     tulip_ffi_simd_result_free(r);
     ```
 
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```c
+    const double h[] = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    const double l[] = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    const double c[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    const double v[] = {5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0, 3798000.0,
+                        3936200.0, 4732000.0, 4841300.0, 3915300.0};
+
+    /* Tile the series 20x so longer-period option sets have enough data */
+    #define EXPANDED_LEN (10 * 20)
+    static double high_expanded[EXPANDED_LEN];
+    static double low_expanded[EXPANDED_LEN];
+    static double close_expanded[EXPANDED_LEN];
+    static double volume_expanded[EXPANDED_LEN];
+    for (size_t i = 0; i < 20; i++) {
+        for (size_t j = 0; j < 10; j++) {
+            high_expanded[i * 10 + j] = h[j];
+            low_expanded[i * 10 + j]  = l[j];
+            close_expanded[i * 10 + j] = c[j];
+            volume_expanded[i * 10 + j] = v[j];
+        }
+    }
+    const double *inputs[MFI_INPUTS] = {high_expanded, low_expanded, close_expanded, volume_expanded};
+
+    static const double o7[MFI_OPTIONS]   = {7.0};
+    static const double o14[MFI_OPTIONS]  = {14.0};
+    static const double o21[MFI_OPTIONS]  = {21.0};
+    static const double o28[MFI_OPTIONS]  = {28.0};
+    const double *const simd_opts[4] = {o7, o14, o21, o28};
+
+    CSimdResult r = mfi_simd_by_options(inputs, EXPANDED_LEN, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's MFI series, length r.output_lens[i][0] */
+        mfi_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
 === "Go"
 
     **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):

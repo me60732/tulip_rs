@@ -308,6 +308,64 @@ Applies the Stochastic Oscillator formula to RSI values rather than price, produ
     tulip_ffi_simd_result_free(r);
     ```
 
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```c
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    /* Tile the series 20x so longer-period option sets have enough data */
+    #define EXPANDED_LEN (10 * 20)
+    static double close_expanded[EXPANDED_LEN];
+    for (size_t i = 0; i < 20; i++) {
+        for (size_t j = 0; j < 10; j++) {
+            close_expanded[i * 10 + j] = close[j];
+        }
+    }
+    const double *expanded_inputs[STOCHRSI_INPUTS] = {close_expanded};
+
+    static const double o7[STOCHRSI_OPTIONS]  = {7.0};
+    static const double o14[STOCHRSI_OPTIONS] = {14.0};
+    static const double o21[STOCHRSI_OPTIONS] = {21.0};
+    static const double o28[STOCHRSI_OPTIONS] = {28.0};
+    const double *const simd_opts[4] = {o7, o14, o21, o28};
+
+    CSimdResult r2 = stochrsi_simd_by_options(expanded_inputs, EXPANDED_LEN, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r2.num_results; i++) {
+        /* r2.outputs[i][0] -> StochRSI for period simd_opts[i] */
+        stochrsi_state_free(r2.states[i]);
+    }
+    tulip_ffi_simd_result_free(r2);
+    ```
+
+=== "Go"
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```c
+    static const double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
+                                   83.15, 82.84, 83.99, 84.55, 84.36};
+    #define EXPANDED_LEN (sizeof(close) / sizeof(double) * 20)
+    static double close_expanded[EXPANDED_LEN];
+    for (size_t i = 0; i < 20; i++) {
+        for (size_t j = 0; j < sizeof(close) / sizeof(double); j++) {
+            close_expanded[i * (sizeof(close) / sizeof(double)) + j] = close[j];
+        }
+    }
+    const double *inputs[STOCHRSI_INPUTS] = {close_expanded};
+
+    static const double o1[STOCHRSI_OPTIONS] = {7.0};
+    static const double o2[STOCHRSI_OPTIONS] = {14.0};
+    static const double o3[STOCHRSI_OPTIONS] = {21.0};
+    static const double o4[STOCHRSI_OPTIONS] = {28.0};
+    const double *const simd_opts[4] = {o1, o2, o3, o4};
+
+    CSimdResult r = stochrsi_simd_by_options(inputs, EXPANDED_LEN, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        stochrsi_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
 === "Go"
 
     **By assets** — same period applied to 4 assets in parallel (lane counts 2/4/8/16):

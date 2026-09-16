@@ -59,6 +59,7 @@ The difference between a short and long EMA of the A/D line, used to confirm pri
     double volume[] = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
                        900.0, 1500.0, 1800.0, 1000.0, 1700.0};
     const double options[ADOSC_OPTIONS] = {3.0, 10.0}; // short_period, long_period
+    const double *inputs[ADOSC_INPUTS] = {high, low, close, volume};
 
     /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
     CIndicatorResult r = adosc_indicator(inputs, 10, options, NULL, 0);
@@ -193,6 +194,27 @@ The difference between a short and long EMA of the A/D line, used to confirm pri
 
     `adosc` exposes 3 optional outputs: `short_ema`, `long_ema`, `ad`. Pass a boolean mask as the third argument — one `bool` per optional output, in order.
 
+    ```rust
+    use tulip_rs::indicators::adosc::{Adosc, Indicator, TIndicatorState};
+
+    let close  = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
+    let high   = close.iter().map(|x| x + 1.0).collect::<Vec<_>>();
+    let low    = close.iter().map(|x| x - 1.0).collect::<Vec<_>>();
+    let volume = vec![10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0, 11800.0, 10200.0_f64];
+
+    let mask = [true, false, true];
+    let (outputs, _state) = Adosc::indicator(
+        &[high.as_slice(), low.as_slice(), close.as_slice(), volume.as_slice()],
+        &[6.0, 20.0],
+        Some(&mask),
+    ).unwrap();
+
+    let adosc     = &outputs[0]; // adosc (primary)
+    let short_ema = &outputs[1]; // short_ema (optional — requested)
+    // long_ema not requested
+    let ad        = &outputs[2]; // ad (optional — requested)
+    ```
+
 === "C"
 
     The mask is an array of booleans (one per optional output) passed to `adosc_indicator()`:
@@ -209,6 +231,7 @@ The difference between a short and long EMA of the A/D line, used to confirm pri
     double volume[] = {10000.0, 12000.0, 9500.0, 11000.0, 13000.0,
                        9800.0, 10500.0, 12500.0, 11800.0, 10200.0};
     const double options[ADOSC_OPTIONS] = {6.0, 20.0};
+    const double *inputs[ADOSC_INPUTS] = {high, low, close, volume};
 
     bool optional_outputs[3] = {true, false, true}; // short_ema, long_ema, ad
 
@@ -220,21 +243,6 @@ The difference between a short and long EMA of the A/D line, used to confirm pri
     tulip_ffi_result_free(r);
     adosc_state_free(r.state);
     ```
-
-    ```rust
-    use tulip_rs::indicators::adosc::{Adosc, Indicator, TIndicatorState};
-
-    let close  = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
-    let high   = close.iter().map(|x| x + 1.0).collect::<Vec<_>>();
-    let low    = close.iter().map(|x| x - 1.0).collect::<Vec<_>>();
-    let volume = vec![10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0, 11800.0, 10200.0_f64];
-
-    let mask = [true, false, true];
-    let (outputs, _state) = Adosc::indicator(
-        &[high.as_slice(), low.as_slice(), close.as_slice(), volume.as_slice()],
-        &[6.0, 20.0],
-        Some(&mask),
-    ).unwrap();
 
 === "Go"
 
@@ -367,6 +375,7 @@ The difference between a short and long EMA of the A/D line, used to confirm pri
     const double *asset3[ADOSC_INPUTS] = {a3_high, a3_low, a3_close, a3_volume};
     const double *asset4[ADOSC_INPUTS] = {a4_high, a4_low, a4_close, a4_volume};
     const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
+    const double options[ADOSC_OPTIONS] = {3.0, 10.0}; // short_period, long_period
 
     CSimdResult r = adosc_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
     for (uintptr_t i = 0; i < r.num_results; i++) {
@@ -374,7 +383,46 @@ The difference between a short and long EMA of the A/D line, used to confirm pri
         adosc_state_free(r.states[i]);
     }
     tulip_ffi_simd_result_free(r);
+    ```
 
+    **By options** — same asset, N different option sets in one call:
+
+    ```c
+    #include "tulip_rs_ffi.h"
+    #include "tulip_rs_ffi_counts.h"
+
+    double high[]   = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double low[]    = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double close[]  = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double volume[] = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0, 900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+    const double *inputs[ADOSC_INPUTS] = {high, low, close, volume};
+
+    /* Tile the series 20x so longer-period option sets have enough data */
+    #define EXPANDED_LEN (10 * 20)
+    static double high_expanded[EXPANDED_LEN];
+    static double low_expanded[EXPANDED_LEN];
+    static double close_expanded[EXPANDED_LEN];
+    static double volume_expanded[EXPANDED_LEN];
+    for (size_t i = 0; i < 20; i++) {
+        for (size_t j = 0; j < 10; j++) {
+            high_expanded[i * 10 + j]   = high[j];
+            low_expanded[i * 10 + j]    = low[j];
+            close_expanded[i * 10 + j]  = close[j];
+            volume_expanded[i * 10 + j] = volume[j];
+        }
+    }
+    const double *expanded_inputs[ADOSC_INPUTS] = {high_expanded, low_expanded, close_expanded, volume_expanded};
+
+    static const double o1[ADOSC_OPTIONS] = {2.0, 5.0};
+    static const double o2[ADOSC_OPTIONS] = {3.0, 10.0};
+    static const double o3[ADOSC_OPTIONS] = {5.0, 20.0};
+    static const double o4[ADOSC_OPTIONS] = {7.0, 28.0};
+    const double *const simd_opts[4] = {o1, o2, o3, o4};
+
+    CSimdResult r = adosc_simd_by_options(expanded_inputs, EXPANDED_LEN, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) adosc_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
+    ```
 
 === "Go"
 

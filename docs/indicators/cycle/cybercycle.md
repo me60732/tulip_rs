@@ -351,6 +351,40 @@ Isolates the dominant market cycle from price data using a high-pass filter foll
     tulip_ffi_simd_result_free(r);
     ```
 
+    **By options** — same asset, 4 different alpha values in parallel:
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                      88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+
+    /* Tile the series 10x so longer-period option sets have enough data */
+    #define EXPANDED_LEN (40 * 10)
+    static double close_expanded[EXPANDED_LEN];
+    for (size_t i = 0; i < 10; i++) {
+        for (size_t j = 0; j < 40; j++) {
+            close_expanded[i * 40 + j] = close[j];
+        }
+    }
+    const double *inputs[CYBERCYCLE_INPUTS] = {close_expanded};
+
+    static const double o05[CYBERCYCLE_OPTIONS] = {0.05};
+    static const double o07[CYBERCYCLE_OPTIONS] = {0.07};
+    static const double o10[CYBERCYCLE_OPTIONS] = {0.10};
+    static const double o15[CYBERCYCLE_OPTIONS] = {0.15};
+    const double *const simd_opts[4] = {o05, o07, o10, o15};
+
+    CSimdResult r = cybercycle_simd_by_options(inputs, EXPANDED_LEN, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's cybercycle_line series */
+        cybercycle_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
 === "Go"
 
     **By assets** — same alpha applied to 4 assets in parallel (lane counts 2/4/8/16):

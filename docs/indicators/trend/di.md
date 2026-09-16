@@ -405,6 +405,33 @@ Smoothed directional movement expressed as a percentage of ATR. +DI and -DI cros
 
 === "Go"
 
+    **By assets** — same period applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    assets := [][indicators.DiInputs][]float64{
+        {h1, l1, c1},
+        {h2, l2, c2},
+        {h3, l3, c3},
+        {h4, l4, c4},
+    }
+    sim, _ := indicators.Di.SimdByAssets(assets, []float64{14.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d +DI: %v\n", i+1, lanes[0])
+        fmt.Printf("Asset %d -DI: %v\n", i+1, lanes[1])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```go
+    sim2, _ := indicators.Di.SimdByOptions(high, low, close, [][]float64{{7.0}, {14.0}, {21.0}, {28.0}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Period set %d +DI: %v\n", i+1, lanes[0])
+    }
+    sim2.Close()
+    ```
+
 === "Python"
 
     **By assets** — same options, N assets in parallel (must be 2, 4, 8, or 16):

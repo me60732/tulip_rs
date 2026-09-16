@@ -417,6 +417,36 @@ Applies the Fisher Transform to the normalised Cyber Cycle oscillator, convertin
     tulip_ffi_simd_result_free(r);
     ```
 
+    **By options** — same asset, N different alpha values in one call:
+
+    ```c
+    #include "tulip_rs_ffi.h"
+    #include "tulip_rs_ffi_counts.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    const double *inputs[CCFISHER_INPUTS] = {close};
+
+    /* Tile the series 20x so longer-period option sets have enough data */
+    #define EXPANDED_LEN (10 * 20)
+    static double close_expanded[EXPANDED_LEN];
+    for (size_t i = 0; i < 20; i++) {
+        for (size_t j = 0; j < 10; j++) {
+            close_expanded[i * 10 + j] = close[j];
+        }
+    }
+    const double *expanded_inputs[CCFISHER_INPUTS] = {close_expanded};
+
+    static const double o1[CCFISHER_OPTIONS] = {0.0};
+    static const double o2[CCFISHER_OPTIONS] = {0.1};
+    static const double o3[CCFISHER_OPTIONS] = {0.2};
+    static const double o4[CCFISHER_OPTIONS] = {0.3};
+    const double *const simd_opts[4] = {o1, o2, o3, o4};
+
+    CSimdResult r = ccfisher_simd_by_options(expanded_inputs, EXPANDED_LEN, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) ccfisher_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
+    ```
+
 === "Go"
 
     **By assets** — same alpha applied to 4 assets in parallel (lane counts 2/4/8/16):

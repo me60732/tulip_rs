@@ -282,6 +282,33 @@ The percentage difference between two volume moving averages. Expanding volume o
     tulip_ffi_simd_result_free(r);
     ```
 
+    **By options** — same asset, N different option sets in parallel:
+
+    ```c
+    static const double volume[] = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+                                    900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+    #define EXPANDED_LEN (sizeof(volume) / sizeof(double) * 20)
+    static double volume_expanded[EXPANDED_LEN];
+    for (size_t i = 0; i < 20; i++) {
+        for (size_t j = 0; j < sizeof(volume) / sizeof(double); j++) {
+            volume_expanded[i * (sizeof(volume) / sizeof(double)) + j] = volume[j];
+        }
+    }
+    const double *inputs[VOSC_INPUTS] = {volume_expanded};
+
+    static const double o1[VOSC_OPTIONS] = {3.0, 6.0};
+    static const double o2[VOSC_OPTIONS] = {5.0, 10.0};
+    static const double o3[VOSC_OPTIONS] = {8.0, 16.0};
+    static const double o4[VOSC_OPTIONS] = {12.0, 24.0};
+    const double *const simd_opts[4] = {o1, o2, o3, o4};
+
+    CSimdResult r = vosc_simd_by_options(inputs, EXPANDED_LEN, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        vosc_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
 === "Go"
 
     **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
