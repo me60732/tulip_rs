@@ -59,6 +59,32 @@ Isolates the dominant market cycle from price data using a high-pass filter foll
     cybercycle_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                       88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                       90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20}
+    options := []float64{0.07} // alpha
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Cybercycle.Indicator(close, options, nil)
+    fmt.Println(res.Rows[0]) // cybercycle_line values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Cybercycle.Indicator(close[:35], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(close[35:], nil)
+    fmt.Println(batch.Rows[0]) // continued cybercycle_line values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -163,6 +189,31 @@ Isolates the dominant market cycle from price data using a high-pass filter foll
     /* r.outputs[1] -> trigger (optional — requested) */
     tulip_ffi_result_free(r);
     cybercycle_state_free(r.state);
+    ```
+
+=== "Go"
+
+    `cybercycle` exposes 1 optional output: `trigger`. Pass a boolean mask as the third argument.
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                       88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                       90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20}
+    options := []float64{0.07} // alpha
+    mask := []bool{true} // trigger
+
+    res, st, _ := indicators.Cybercycle.Indicator(close, options, mask)
+    cybercycle := res.Rows[0]  // cybercycle (primary)
+    trigger    := res.Rows[1]  // trigger (optional — requested)
+
+    fmt.Println(cybercycle)
+    fmt.Println(trigger)
+
+    res.Close()
+    st.Close()
     ```
 
 === "Python"
@@ -300,27 +351,53 @@ Isolates the dominant market cycle from price data using a high-pass filter foll
     tulip_ffi_simd_result_free(r);
     ```
 
+=== "Go"
+
+    **By assets** — same alpha applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    a1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                    85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                    88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                    90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20}
+    a2 := []float64{72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50,
+                    77.00, 77.50, 78.00, 78.50, 79.00, 79.50, 80.00, 80.50, 81.00, 81.50,
+                    82.00, 82.50, 83.00, 83.50, 84.00, 84.50, 85.00, 85.50, 86.00, 86.50,
+                    87.00, 87.50, 88.00, 88.50, 89.00, 89.50, 90.00, 90.50, 91.00, 91.50}
+    a3 := []float64{55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40,
+                    58.70, 59.00, 59.30, 59.60, 59.90, 60.20, 60.50, 60.80, 61.10, 61.40,
+                    61.70, 62.00, 62.30, 62.60, 62.90, 63.20, 63.50, 63.80, 64.10, 64.40,
+                    64.70, 65.00, 65.30, 65.60, 65.90, 66.20, 66.50, 66.80, 67.10, 67.40}
+    a4 := []float64{100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8,
+                    104.1, 104.5, 105.0, 105.3, 105.8, 106.0, 106.5, 107.0, 107.3, 107.8,
+                    108.1, 108.5, 109.0, 109.3, 109.8, 110.0, 110.5, 111.0, 111.3, 111.8,
+                    112.1, 112.5, 113.0, 113.3, 113.8, 114.0, 114.5, 115.0, 115.3, 115.8}
+    options := []float64{0.07} // alpha
+
+    assets := [][indicators.CybercycleInputs][]float64{{a1}, {a2}, {a3}, {a4}}
+    sim, _ := indicators.Cybercycle.SimdByAssets(assets, options, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
     **By options** — same asset, 4 different alpha values in parallel:
 
-    ```c
-    #include "tulip_rs_ffi.h"
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
 
-    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
-                      83.15, 82.84, 83.99, 84.55, 84.36};
-    const double *inputs[CYBERCYCLE_INPUTS] = {close};
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := [][]float64{{0.05}, {0.07}, {0.10}, {0.15}}
 
-    static const double opt05[CYBERCYCLE_OPTIONS] = {0.05};
-    static const double opt07[CYBERCYCLE_OPTIONS] = {0.07};
-    static const double opt10[CYBERCYCLE_OPTIONS] = {0.10};
-    static const double opt15[CYBERCYCLE_OPTIONS] = {0.15};
-    const double *const simd_opts[4] = {opt05, opt07, opt10, opt15};
-
-    CSimdResult r = cybercycle_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
-    for (uintptr_t i = 0; i < r.num_results; i++) {
-        /* r.outputs[i][0] -> asset with alpha set i */
-        cybercycle_state_free(r.states[i]);
+    sim, _ := indicators.Cybercycle.SimdByOptions(close, options, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Alpha set %d: %v\n", i+1, lanes[0])
     }
-    tulip_ffi_simd_result_free(r);
+    sim.Close()
     ```
 
 === "Python"

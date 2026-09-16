@@ -72,6 +72,36 @@ Measures market momentum as the difference between a 5-period and 34-period simp
     ao_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    high := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                      85.90, 86.58, 86.98, 88.00, 87.87, 88.10, 88.50, 89.00, 89.40, 89.80,
+                      90.10, 90.50, 91.00, 91.50, 91.80, 92.00, 92.40, 92.80, 93.10, 93.50,
+                      93.80, 94.20, 94.60, 95.00, 95.30}
+    low := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                     84.03, 85.39, 85.76, 87.17, 87.01, 87.50, 87.90, 88.30, 88.70, 89.10,
+                     89.40, 89.80, 90.20, 90.60, 91.00, 91.30, 91.70, 92.10, 92.40, 92.80,
+                     93.10, 93.50, 93.90, 94.30, 94.60}
+    options := []float64{} // no options
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Ao.Indicator(high, low, options, nil)
+    fmt.Println(res.Rows[0]) // AO values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Ao.Indicator(high[:30], low[:30], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(high[30:], low[30:], nil)
+    fmt.Println(batch.Rows[0]) // continued AO values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -203,6 +233,31 @@ Measures market momentum as the difference between a 5-period and 34-period simp
     ao_state_free(r.state);
     ```
 
+=== "Go"
+
+    AO has no options and does not provide SIMD by-options. SIMD is available via by-assets only.
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    high := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                      85.90, 86.58, 86.98, 88.00, 87.87, 88.10, 88.50, 89.00, 89.40, 89.80,
+                      90.10, 90.50, 91.00, 91.50, 91.80, 92.00, 92.40, 92.80, 93.10, 93.50,
+                      93.80, 94.20, 94.60, 95.00, 95.30}
+    low := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                     84.03, 85.39, 85.76, 87.17, 87.01, 87.50, 87.90, 88.30, 88.70, 89.10,
+                     89.40, 89.80, 90.20, 90.60, 91.00, 91.30, 91.70, 92.10, 92.40, 92.80,
+                     93.10, 93.50, 93.90, 94.30, 94.60}
+    options := []float64{} // no options
+
+    // Request only short_sma (optional outputs: short_sma, long_sma, medprice)
+    res, st, _ := indicators.Ao.Indicator(high, low, options, []bool{true, false, false})
+    fmt.Println(res.Rows[0]) // ao (primary)
+    fmt.Println(res.Rows[1]) // "short_sma" (optional — requested)
+    res.Close()
+    st.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -328,6 +383,21 @@ Measures market momentum as the difference between a 5-period and 34-period simp
     }
     tulip_ffi_simd_result_free(r);
     ```
+
+=== "Go"
+
+    **By assets** — applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    assets := [][indicators.AoInputs][]float64{{h1, l1}, {h2, l2}, {h3, l3}, {h4, l4}}
+    sim, _ := indicators.Ao.SimdByAssets(assets, []float64{}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    *This indicator has no options, so by-options SIMD does not apply.*
 
 === "Python"
 

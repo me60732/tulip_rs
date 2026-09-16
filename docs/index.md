@@ -2,7 +2,7 @@
 
 **High-performance technical analysis in Rust.**
 
-TulipRS is a production-ready Rust library implementing 100+ technical indicators and 60+ candlestick patterns with first-class SIMD acceleration. Indicators run on scalar data or on multiple assets / multiple option sets simultaneously using portable SIMD intrinsics. Every indicator returns a serialisable `IndicatorState` alongside its outputs, enabling incremental streaming computation without reprocessing historical data. Native Rust, C (`tulip_rs_ffi`), Python, and Node.js are all fully supported; additional language bindings are planned.
+TulipRS is a production-ready Rust library implementing 100+ technical indicators and 60+ candlestick patterns with first-class SIMD acceleration. Indicators run on scalar data or on multiple assets / multiple option sets simultaneously using portable SIMD intrinsics. Every indicator returns a serialisable `IndicatorState` alongside its outputs, enabling incremental streaming computation without reprocessing historical data. Native Rust, C (`tulip_rs_ffi`), Python, Node.js, and Go are all fully supported; additional language bindings are planned.
 
 ---
 
@@ -31,7 +31,7 @@ Most technical analysis libraries are wrappers around the same scalar C code wri
 | **SIMD — by options** | N option sets applied to one asset in one CPU pass (`indicator_by_options::<N>`) |
 | **State management** | Every indicator returns a serialisable `IndicatorState` for streaming / incremental use |
 | **Browser / WASM** | Full indicator set compiled to WebAssembly — runs in any modern browser, no server needed ([`tulip-rs-wasm`](https://www.npmjs.com/package/tulip-rs-wasm)) |
-| **Languages** | Rust (native), C (`tulip_rs_ffi` — hand-rolled `extern "C"` FFI), Python (`tulip_rs_python` via PyO3), Node.js (`tulip-rs-node` via napi-rs), Browser (WASM) |
+| **Languages** | Rust (native), C (`tulip_rs_ffi` — hand-rolled `extern "C"` FFI), Python (`tulip_rs_python` via PyO3), Node.js (`tulip-rs-node` via napi-rs), Go (`tulip_rs_go` via cgo), Browser (WASM) |
 
 ---
 
@@ -48,6 +48,21 @@ Most technical analysis libraries are wrappers around the same scalar C code wri
     let (outputs, state) = Sma::indicator(&[close.as_slice()], &[5.0], None).unwrap();
 
     println!("{:?}", outputs[0]); // SMA(5) values
+    ```
+
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+
+    res, st, _ := indicators.Sma.Indicator(close, []float64{5.0}, nil)
+    defer res.Close()
+    defer st.Close()
+
+    fmt.Println(res.Rows[0]) // SMA(5) values — zero-copy views
     ```
 
 === "Python"
@@ -110,7 +125,7 @@ Most technical analysis libraries are wrappers around the same scalar C code wri
 | [Candlestick Patterns](candlestick_patterns.md) | 60+ patterns, forecast types, Rust, C, Python, and Node.js usage |
 | [SIMD](simd.md) | Conceptual overview: by-assets and by-options modes, lane counts, when to use each |
 | [State Management](state_management.md) | Streaming computation, chunked processing, JSON serialisation |
-| [Language Bindings](language_bindings.md) | Per-binding subpages: C FFI, Python (PyO3/maturin), Node.js (napi-rs), Browser (WASM) |
+| [Language Bindings](language_bindings.md) | Per-binding subpages: C FFI, Python (PyO3/maturin), Node.js (napi-rs), Go (cgo), Browser (WASM) |
 | [Benchmarks](benchmarks/index.md) | Comparison against Tulip Indicators (C) and TA-Lib, methodology, how to run |
 
 ---
@@ -121,6 +136,7 @@ Most technical analysis libraries are wrappers around the same scalar C code wri
 |---|---|---|
 | **Rust** | ✅ Native | `tulip_rs` (this crate) |
 | **C** | ✅ Supported | [`tulip_rs_ffi`](https://github.com/me60732/tulip_rs_ffi) — hand-rolled `extern "C"` FFI, usable from C, C++/any C ABI |
+| **Go** | ✅ Supported | [`tulip_rs_go`](https://github.com/me60732/tulip_rs_go) — cgo bindings over the `extern "C"` FFI, zero-copy outputs |
 | **Python** | ✅ Supported | [`tulip_rs_python`](https://github.com/me60732/tulip_rs_python) |
 | **Node.js** | ✅ Supported | [`tulip-rs-node`](https://github.com/me60732/tulip-rs-node) |
 | **Browser (WASM)** | ✅ Supported | [`tulip-rs-wasm`](https://www.npmjs.com/package/tulip-rs-wasm) · [`tulip-rs-lwc`](https://www.npmjs.com/package/tulip-rs-lwc) |

@@ -66,6 +66,34 @@ Combines momentum from three different time periods (short, medium, and long) to
     ultosc_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    high  := []float64{82.15, 81.89, 83.03, 83.30, 83.85,
+                       83.90, 83.33, 84.30, 84.84, 85.00}
+    low   := []float64{81.29, 80.64, 81.31, 82.65, 83.07,
+                       83.11, 82.49, 82.30, 84.15, 84.11}
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{7.0, 14.0, 28.0} // short_period, medium_period, long_period
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Ultosc.Indicator(high, low, close, options, nil)
+    fmt.Println(res.Rows[0]) // Ultimate Oscillator values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Ultosc.Indicator(high[:8], low[:8], close[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(high[8:], low[8:], close[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued Ultimate Oscillator values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -226,22 +254,43 @@ Combines momentum from three different time periods (short, medium, and long) to
     tulip_ffi_simd_result_free(r);
     ```
 
+=== "Go"
+
+    **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    h1 := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00}
+    l1 := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11}
+    c1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+
+    // Reuse the same data for assets 2–4 in this example
+    h2, l2, c2 := h1, l1, c1
+    h3, l3, c3 := h1, l1, c1
+    h4, l4, c4 := h1, l1, c1
+
+    assets := [][indicators.UltoscInputs][]float64{{h1, l1, c1}, {h2, l2, c2}, {h3, l3, c3}, {h4, l4, c4}}
+    sim, _ := indicators.Ultosc.SimdByAssets(assets, []float64{7.0, 14.0, 28.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
     **By options** — same asset, 4 different option sets in parallel:
 
-    ```c
-    double o7[] = {7.0, 14.0, 28.0};
-    double o5[] = {5.0, 10.0, 20.0};
-    double o10[] = {10.0, 20.0, 40.0};
-    double o4[] = {4.0, 8.0, 16.0};
+    ```go
+    high  := []float64{82.15, 81.89, 83.03, 83.30, 83.85,
+                       83.90, 83.33, 84.30, 84.84, 85.00}
+    low   := []float64{81.29, 80.64, 81.31, 82.65, 83.07,
+                       83.11, 82.49, 82.30, 84.15, 84.11}
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
 
-    const double *const simd_opts[4] = {o7, o5, o10, o4};
-
-    CSimdResult r = ultosc_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
-    for (uintptr_t i = 0; i < r.num_results; i++) {
-        /* r.outputs[i][0] -> asset's ultosc for option set i */
-        ultosc_state_free(r.states[i]);
+    sim2, _ := indicators.Ultosc.SimdByOptions(high, low, close, [][]float64{{7, 14, 28}, {5, 10, 20}, {10, 20, 40}, {4, 8, 16}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Option set %d: %v\n", i+1, lanes[0])
     }
-    tulip_ffi_simd_result_free(r);
+    sim2.Close()
     ```
 
 === "Python"

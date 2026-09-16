@@ -77,6 +77,36 @@ Smoothed directional movement expressed as a percentage of ATR. +DI and -DI cros
     di_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    high := []float64{82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00}
+    low := []float64{81.29, 80.64, 81.31, 82.65, 83.07,
+                     83.11, 82.49, 82.30, 84.15, 84.11}
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{14.0} // period
+
+    // Full computation — Rows is [+di, -di], valid until Close.
+    res, st, _ := indicators.Di.Indicator(high, low, close, options, nil)
+    fmt.Println("+DI:", res.Rows[0])
+    fmt.Println("-DI:", res.Rows[1])
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Di.Indicator(high[:8], low[:8], close[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(high[8:], low[8:], close[8:], nil)
+    fmt.Println("+DI continued:", batch.Rows[0])
+    fmt.Println("-DI continued:", batch.Rows[1])
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -197,6 +227,30 @@ Smoothed directional movement expressed as a percentage of ATR. +DI and -DI cros
     /* r.outputs[3] -> tr (optional),      length r.output_lens[3] */
     tulip_ffi_result_free(r);
     di_state_free(r.state);
+    ```
+
+=== "Go"
+
+    `di` exposes 2 optional outputs: `atr`, `tr`. By-options isn't offered.
+
+    ```go
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    high := make([]float64, len(close))
+    low := make([]float64, len(close))
+    for i := range close {
+        high[i] = close[i] + 1.0
+        low[i] = close[i] - 1.0
+    }
+    options := []float64{14.0} // period
+    mask := []bool{true, true} // atr, tr
+
+    res, _st, _ := indicators.Di.Indicator(high, low, close, options, mask)
+
+    plusDI  := res.Rows[0]  // plus_di (primary)
+    minusDI := res.Rows[1]  // minus_di (primary)
+    atr     := res.Rows[2]  // atr (optional — requested)
+    tr      := res.Rows[3]  // tr (optional — requested)
+    res.Close()
     ```
 
 === "Python"
@@ -348,6 +402,8 @@ Smoothed directional movement expressed as a percentage of ATR. +DI and -DI cros
     for (uintptr_t i = 0; i < r.num_results; i++) di_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
     ```
+
+=== "Go"
 
 === "Python"
 

@@ -66,6 +66,32 @@ A trailing stop-and-reverse indicator. The SAR dot flips below or above price to
     psar_state_free(pr.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    high := []float64{82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00}
+    low := []float64{81.29, 80.64, 81.31, 82.65, 83.07,
+                     83.11, 82.49, 82.30, 84.15, 84.11}
+    options := []float64{0.02, 0.2} // acceleration_factor_step, acceleration_factor_maximum
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Psar.Indicator(high, low, options, nil)
+    fmt.Println(res.Rows[0]) // PSAR values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Psar.Indicator(high[:8], low[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(high[8:], low[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued PSAR values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -215,6 +241,41 @@ A trailing stop-and-reverse indicator. The SAR dot flips below or above price to
         psar_state_free(r.states[i]);
     }
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    h1 := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00}
+    l1 := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11}
+    h2 := []float64{72.15, 71.89, 73.03, 73.30, 73.85, 73.90, 73.33, 74.30, 74.84, 75.00}
+    l2 := []float64{71.29, 70.64, 71.31, 72.65, 73.07, 73.11, 72.49, 72.30, 74.15, 74.11}
+    h3 := []float64{52.15, 51.89, 53.03, 53.30, 53.85, 53.90, 53.33, 54.30, 54.84, 55.00}
+    l3 := []float64{51.29, 50.64, 51.31, 52.65, 53.07, 53.11, 52.49, 52.30, 54.15, 54.11}
+    h4 := []float64{102.15, 101.89, 103.03, 103.30, 103.85, 103.90, 103.33, 104.30, 104.84, 105.00}
+    l4 := []float64{101.29, 100.64, 101.31, 102.65, 103.07, 103.11, 102.49, 102.30, 104.15, 104.11}
+
+    assets := [][indicators.PsarInputs][]float64{{h1, l1}, {h2, l2}, {h3, l3}, {h4, l4}}
+    sim, _ := indicators.Psar.SimdByAssets(assets, []float64{0.02, 0.2}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```go
+    high := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00}
+    low := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11}
+
+    sim2, _ := indicators.Psar.SimdByOptions(high, low, [][]float64{{0.01, 0.2}, {0.02, 0.2}, {0.03, 0.2}, {0.05, 0.2}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Step/Max %.2f/%.1f: %v\n", lanes[0])
+    }
+    sim2.Close()
     ```
 
 === "Python"

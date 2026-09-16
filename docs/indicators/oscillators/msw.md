@@ -59,6 +59,32 @@ Fits a sine wave to the recent price data over `period` bars. The crossover of t
     msw_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{10.0} // period
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Msw.Indicator(close, options, nil)
+    fmt.Println(res.Rows[0]) // MSW Sine values
+    fmt.Println(res.Rows[1]) // MSW Lead values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Msw.Indicator(close[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(close[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued MSW Sine values
+    fmt.Println(batch.Rows[1]) // continued MSW Lead values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -203,6 +229,31 @@ Fits a sine wave to the recent price data over `period` bars. The crossover of t
     /* r.outputs[i][1] -> Lead */
     for (uintptr_t i = 0; i < r.num_results; i++) msw_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same period applied to 2 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    assets := [][indicators.MswInputs][]float64{{a1}, {a2}}
+    sim, _ := indicators.Msw.SimdByAssets(assets, []float64{10.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d Sine: %v\n", i+1, lanes[0])
+        fmt.Printf("Asset %d Lead: %v\n", i+1, lanes[1])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```go
+    sim2, _ := indicators.Msw.SimdByOptions(close, [][]float64{{5}, {10}, {14}, {20}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Option set %d Sine: %v\n", i+1, lanes[0])
+        fmt.Printf("Option set %d Lead: %v\n", i+1, lanes[1])
+    }
+    sim2.Close()
     ```
 
 === "Python"

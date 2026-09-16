@@ -72,6 +72,34 @@ ATR expressed as a percentage of the closing price, making it comparable across 
     natr_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    high  := []float64{82.15, 81.89, 83.03, 83.30, 83.85,
+                       83.90, 83.33, 84.30, 84.84, 85.00}
+    low   := []float64{81.29, 80.64, 81.31, 82.65, 83.07,
+                       83.11, 82.49, 82.30, 84.15, 84.11}
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{14.0} // period
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Natr.Indicator(high, low, close, options, nil)
+    fmt.Println(res.Rows[0]) // NATR values (as percentage)
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Natr.Indicator(high[:8], low[:8], close[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(high[8:], low[8:], close[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued NATR
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -212,6 +240,39 @@ ATR expressed as a percentage of the closing price, making it comparable across 
     natr_state_free(r.state);
     ```
 
+=== "Go"
+
+    `natr` exposes 2 optional outputs: `atr`, `tr`. Pass a boolean mask as the fourth argument — one `bool` per optional output, in order.
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    high  := []float64{82.59, 82.06, 83.87, 84.00, 84.61,
+                       84.15, 83.84, 84.99, 85.55, 85.36}
+    low   := []float64{80.59, 80.06, 81.87, 82.00, 82.61,
+                       82.15, 81.84, 82.99, 83.55, 83.36}
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{14.0} // period
+
+    // Request both optional outputs (atr and tr)
+    mask := []bool{true, true}
+    res, st, _ := indicators.Natr.Indicator(high, low, close, options, mask)
+
+    natr := res.Rows[0] // natr (primary)
+    atr  := res.Rows[1] // atr  (optional 0 — requested)
+    tr   := res.Rows[2] // tr   (optional 1 — requested)
+    res.Close()
+    st.Close()
+
+    // Request only atr
+    mask_atr_only := []bool{true, false}
+    partialRes, partialSt, _ := indicators.Natr.Indicator(high, low, close, options, mask_atr_only)
+    fmt.Println(partialRes.Rows[1]) // atr (optional 0)
+    partialRes.Close()
+    partialSt.Close()
+    ```
+
 === "Node.js"
 
     `natr` exposes 2 optional outputs: `atr`, `tr`.
@@ -223,7 +284,6 @@ ATR expressed as a percentage of the closing price, making it comparable across 
     const tr   = allOut[2]; // optional 1: tr
     ```
 
-
 === "WASM"
 
     The WASM API is identical to Node.js — pass the boolean mask as the third argument.
@@ -234,6 +294,7 @@ ATR expressed as a percentage of the closing price, making it comparable across 
     const atr  = allOut[1]; // optional 0: atr
     const tr   = allOut[2]; // optional 1: tr
     ```
+
 ### SIMD
 
 === "Rust"
@@ -311,6 +372,30 @@ ATR expressed as a percentage of the closing price, making it comparable across 
     /* r.outputs[i] -> results for option set i */
     for (uintptr_t i = 0; i < r.num_results; i++) natr_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    assets := [][indicators.NatrInputs][]float64{{a1_high, a1_low, a1_close}, {a2_high, a2_low, a2_close}, {a3_high, a3_low, a3_close}, {a4_high, a4_low, a4_close}}
+    sim, _ := indicators.Natr.SimdByAssets(assets, []float64{14.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, N option sets in parallel:
+
+    ```go
+    assets2 := [][indicators.NatrInputs][]float64{{high, low, close}}
+    sim2, _ := indicators.Natr.SimdByOptions(high, low, close, [][]float64{{7.0}, {14.0}, {21.0}, {28.0}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Period %d: %v\n", i+1, lanes[0])
+    }
+    sim2.Close()
     ```
 
 === "Python"

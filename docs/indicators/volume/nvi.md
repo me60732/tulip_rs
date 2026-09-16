@@ -60,6 +60,33 @@ Tracks price changes on days when volume decreases, based on the theory that sma
     nvi_state_free(pr.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close  := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                        85.53, 86.54, 86.89, 87.77, 87.29}
+    volume := []float64{5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0, 3798000.0,
+                        3936200.0, 4732000.0, 4841300.0, 3915300.0, 6830800.0, 6694100.0,
+                        5293600.0, 7985800.0, 4807900.0}
+    options := []float64{} // no options (NVI has zero options)
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Nvi.Indicator(close, volume, options, nil)
+    fmt.Println(res.Rows[0]) // NVI values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Nvi.Indicator(close[:10], volume[:10], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(close[10:], volume[10:], nil)
+    fmt.Println(batch.Rows[0]) // continued NVI values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -179,6 +206,26 @@ Tracks price changes on days when volume decreases, based on the theory that sma
     ```
 
     _C FFI offers only by-assets for this indicator (no options)._
+
+=== "Go"
+
+    **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    assets := [][indicators.NviInputs][]float64{
+        {a1_close, a1_volume},
+        {a2_close, a2_volume},
+        {a3_close, a3_volume},
+        {a4_close, a4_volume},
+    }
+    sim, _ := indicators.Nvi.SimdByAssets(assets, []float64{}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    _This indicator has no options, so by-options SIMD does not offer (nil options arg)._
 
 === "Python"
 

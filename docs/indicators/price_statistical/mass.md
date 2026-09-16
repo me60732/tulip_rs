@@ -58,6 +58,30 @@ Uses the high-low trading range to identify potential trend reversals via range 
     mass_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    high := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00}
+    low  := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11}
+    options := []float64{25.0}
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Mass.Indicator(high, low, options, nil)
+    fmt.Println(res.Rows[0]) // Mass(25) values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Mass.Indicator(high[:8], low[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(high[8:], low[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued Mass values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -167,6 +191,41 @@ Uses the high-low trading range to identify potential trend reversals via range 
     /* r.outputs[i] -> results for option set i (periods 15/20/25/30) */
     for (uintptr_t i = 0; i < r.num_results; i++) mass_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same period applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    h1 := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00}
+    l1 := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11}
+    h2 := []float64{82.15*1.2, 81.89*1.2, 83.03*1.2, 83.30*1.2, 83.85*1.2, 83.90*1.2, 83.33*1.2, 84.30*1.2, 84.84*1.2, 85.00*1.2}
+    l2 := []float64{81.29*1.2, 80.64*1.2, 81.31*1.2, 82.65*1.2, 83.07*1.2, 83.11*1.2, 82.49*1.2, 82.30*1.2, 84.15*1.2, 84.11*1.2}
+    h3 := []float64{90.0 + 0.5*0 + 82.15*0.1, 90.0 + 0.5*1 + 82.15*0.1, 90.0 + 0.5*2 + 83.03*0.1, 90.0 + 0.5*3 + 83.30*0.1, 90.0 + 0.5*4 + 83.85*0.1, 90.0 + 0.5*5 + 83.90*0.1, 90.0 + 0.5*6 + 83.33*0.1, 90.0 + 0.5*7 + 84.30*0.1, 90.0 + 0.5*8 + 84.84*0.1, 90.0 + 0.5*9 + 85.00*0.1}
+    l3 := []float64{90.0 + 0.5*0 + 81.29*0.1, 90.0 + 0.5*1 + 80.64*0.1, 90.0 + 0.5*2 + 81.31*0.1, 90.0 + 0.5*3 + 82.65*0.1, 90.0 + 0.5*4 + 83.07*0.1, 90.0 + 0.5*5 + 83.11*0.1, 90.0 + 0.5*6 + 82.49*0.1, 90.0 + 0.5*7 + 82.30*0.1, 90.0 + 0.5*8 + 84.15*0.1, 90.0 + 0.5*9 + 84.11*0.1}
+    h4 := []float64{100.0 - 0.3*0 + 82.15*0.05, 100.0 - 0.3*1 + 81.89*0.05, 100.0 - 0.3*2 + 83.03*0.05, 100.0 - 0.3*3 + 83.30*0.05, 100.0 - 0.3*4 + 83.85*0.05, 100.0 - 0.3*5 + 83.90*0.05, 100.0 - 0.3*6 + 83.33*0.05, 100.0 - 0.3*7 + 84.30*0.05, 100.0 - 0.3*8 + 84.84*0.05, 100.0 - 0.3*9 + 85.00*0.05}
+    l4 := []float64{100.0 - 0.3*0 + 81.29*0.05, 100.0 - 0.3*1 + 80.64*0.05, 100.0 - 0.3*2 + 81.31*0.05, 100.0 - 0.3*3 + 82.65*0.05, 100.0 - 0.3*4 + 83.07*0.05, 100.0 - 0.3*5 + 83.11*0.05, 100.0 - 0.3*6 + 82.49*0.05, 100.0 - 0.3*7 + 82.30*0.05, 100.0 - 0.3*8 + 84.15*0.05, 100.0 - 0.3*9 + 84.11*0.05}
+
+    assets := [][indicators.MassInputs][]float64{{h1, l1}, {h2, l2}, {h3, l3}, {h4, l4}}
+    sim, _ := indicators.Mass.SimdByAssets(assets, []float64{25.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```go
+    high := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00}
+    low := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11}
+
+    sim2, _ := indicators.Mass.SimdByOptions(high, low, [][]float64{{15}, {20}, {25}, {30}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Period set %d: %v\n", i+1, lanes[0])
+    }
+    sim2.Close()
     ```
 
 === "Python"

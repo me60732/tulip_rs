@@ -38,6 +38,28 @@
 
     SIMD features are always compiled in — no feature flag selection is needed for the FFI library.
 
+=== "Go"
+
+    **From source (recommended)** — compiling the FFI on your machine applies `-C target-cpu=native` (from the FFI repo's `.cargo/config.toml`), so LLVM uses every instruction set your CPU supports. This is the path the benchmarks measure:
+
+    ```bash
+    git clone https://github.com/me60732/tulip_rs_go
+    cd tulip_rs_go
+    ./bootstrap.sh --source    # clones ../tulip_rs_ffi if missing, then cargo build --release
+    go build ./...
+    ```
+
+    Requirements: Go 1.22+, Rust nightly (pinned by the FFI repo's `rust-toolchain.toml`), and a C toolchain for cgo.
+
+    **Prebuilt (no Rust required)** — downloads the GitHub-release cdylib for your GOOS/GOARCH into `ffi/lib/` (portable `x86-64-v3` / aarch64 baseline; Windows ships the staticlib so cgo links with no DLL to carry):
+
+    ```bash
+    ./bootstrap.sh --prebuilt
+    go build ./...
+    ```
+
+    The module path is `github.com/me60732/tulip_rs_go` (import `github.com/me60732/tulip_rs_go/indicators`). cgo builds can't run download hooks, so `go install` is not a supported entry point — clone and bootstrap instead. The linker searches `ffi/lib/` (prebuilt) first, then `../tulip_rs_ffi/target/{release,debug}` (source build), with matching rpaths; binaries are not relocatable outside the checkout (dev-mode caveat). Everything under `ffi/` is generated and gitignored.
+
 === "Python"
 
     **From source (recommended)** — compiling on your machine with `-C target-cpu=native` lets LLVM generate code for every instruction set your CPU supports — this speeds up the scalar indicators as much as the SIMD ones, and is measurably faster than the generic prebuilt wheels:
@@ -173,6 +195,49 @@ Every indicator in TulipRS follows the same universal signature. Once you unders
     <ind>_state_free(state);
     ```
 
+=== "Go"
+
+    ```go
+    import (
+        "github.com/me60732/tulip_rs_go/indicators"
+        "github.com/me60732/tulip_rs_go/tulip"
+    )
+    ```
+
+    Every indicator follows the same pattern:
+
+    ```go
+    res, st, err := indicators.<name>.Indicator(
+        inputs...,                    // one []float64 per input series
+        options []float64,            // indicator parameters
+        optionalOutputs []bool,       // which optional outputs to compute (or nil)
+    )
+    ```
+
+    - `inputs` — one `[]float64` per input series (e.g. `[close]` for SMA; `[high, low, close]` for ADX).
+    - `options` — indicator parameters as `[]float64`, in the order documented for each indicator.
+    - `optionalOutputs` — pass `nil` unless you specifically want to suppress optional output series.
+    - The return value is `(res *tulip.Result, st *tulip.State, err error)`:
+        - `res.Rows[i]` — zero-copy read-only view of the i-th output series (valid until `Close`).
+        - `st` — streaming state for appending new bars via `Batch()`.
+        - `err` — Go error mirroring the C enum; see [Error Handling](#error-handling).
+    - Memory management:
+        - `res.Close()` frees outputs (idempotent).
+        - `st.Close()` frees the state object (call once after your last batch).
+
+    Streaming pattern:
+
+    ```go
+    // Seed with initial data
+    res, st, err := indicators.<name>.Indicator(inputs, options, nil)
+    defer res.Close()
+    defer st.Close()
+
+    // Append new bars
+    br, err := st.Batch(newInputs..., nil)
+    defer br.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -246,6 +311,31 @@ Every indicator in TulipRS follows the same universal signature. Once you unders
 
     tulip_ffi_result_free(r);
     sma_state_free(r.state);
+    ```
+
+=== "Go"
+
+    ```go
+    import (
+        "fmt"
+        "github.com/me60732/tulip_rs_go/indicators"
+        "github.com/me60732/tulip_rs_go/tulip"
+    )
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36}
+
+    options := []float64{5.0} // period
+    res, st, err := indicators.Sma.Indicator(close, options, nil)
+    if err != nil {
+        fmt.Printf("SMA failed: %v\n", err)
+        return
+    }
+    defer res.Close()
+    defer st.Close()
+
+    smaValues := tulip.AsFloat64(res.Rows[0]) // zero-copy view → plain float64
+    fmt.Println(smaValues)                     // SMA(5) values
     ```
 
 === "Python"
@@ -335,6 +425,36 @@ Every indicator in TulipRS follows the same universal signature. Once you unders
     macd_state_free(r.state);
     ```
 
+=== "Go"
+
+    ```go
+    import (
+        "fmt"
+        "github.com/me60732/tulip_rs_go/indicators"
+        "github.com/me60732/tulip_rs_go/tulip"
+    )
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36}
+
+    options := []float64{12.0, 26.0, 9.0} // fast_period, slow_period, signal_period
+    res, st, err := indicators.Macd.Indicator(close, options, nil)
+    if err != nil {
+        fmt.Printf("MACD failed: %v\n", err)
+        return
+    }
+    defer res.Close()
+    defer st.Close()
+
+    macdLine  := tulip.AsFloat64(res.Rows[0]) // MACD line (3 rows total)
+    signal    := tulip.AsFloat64(res.Rows[1]) // Signal line
+    histogram := tulip.AsFloat64(res.Rows[2]) // Histogram
+    fmt.Println("MACD(12,26,9):")
+    fmt.Println("  macd_line:", macdLine)
+    fmt.Println("  signal:", signal)
+    fmt.Println("  histogram:", histogram)
+    ```
+
 === "Python"
 
     ```python
@@ -411,6 +531,49 @@ Every indicator in TulipRS follows the same universal signature. Once you unders
     adx_state_free(r.state);
     ```
 
+=== "Go"
+
+    ```go
+    import (
+        "fmt"
+        "github.com/me60732/tulip_rs_go/indicators"
+        "github.com/me60732/tulip_rs_go/tulip"
+    )
+
+    high := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00}
+    low := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11}
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+
+    options := []float64{14.0} // period
+    res, st, err := indicators.Adx.Indicator(high, low, close, options, nil)
+    if err != nil {
+        fmt.Printf("ADX failed: %v\n", err)
+        return
+    }
+    defer res.Close()
+    defer st.Close()
+
+    adxValues := tulip.AsFloat64(res.Rows[0]) // ADX values (1 primary output)
+    fmt.Println("ADX(14):", adxValues)
+
+    // Optional outputs example (Rust/C tabs demo optional_outputs mask):
+    res2, st2, err := indicators.Adx.Indicator(high[:5], low[:5], close[:5], options, []bool{true, true, true})
+    if err != nil {
+        fmt.Printf("ADX with optional outputs failed: %v\n", err)
+        return
+    }
+    defer res2.Close()
+    defer st2.Close()
+
+    dx := tulip.AsFloat64(res2.Rows[1]) // optional 0: dx
+    atr := tulip.AsFloat64(res2.Rows[2]) // optional 1: atr
+    tr := tulip.AsFloat64(res2.Rows[3]) // optional 2: tr
+    fmt.Println("ADX with optional outputs (5 bars):")
+    fmt.Println("  dx:", dx)
+    fmt.Println("  atr:", atr)
+    fmt.Println("  tr:", tr)
+    ```
+
 === "Python"
 
     ```python
@@ -477,6 +640,29 @@ Every indicator in TulipRS follows the same universal signature. Once you unders
     | `C_INDICATOR_ERROR_NOT_ENOUGH_DATA` | Input length shorter than minimum required |
     | `C_INDICATOR_ERROR_INVALID_OPTIONS` | Invalid option values (e.g. period < 1) |
     | `C_INDICATOR_ERROR_INVALID_INDICATOR_STATE` | State pointer is invalid or has been freed |
+
+=== "Go"
+
+    Go returns an `error` from every call:
+
+    ```go
+    res, st, err := indicators.Sma.Indicator(close, options, nil)
+    if err != nil {
+        fmt.Printf("Indicator error: %v\n", err)
+        return
+    }
+    defer res.Close()
+    defer st.Close()
+    ```
+
+    Errors mirror the C enum mapped to Go errors (check `tulip/result.go` for exact strings):
+
+    | Variant | Cause |
+    |---|---|
+    | `ErrInvalidInputs` | NULL/empty series or mismatched lengths |
+    | `ErrNotEnoughData` | Input length shorter than minimum required |
+    | `ErrInvalidOptions` | Invalid option values (e.g. period < 1) |
+    | `ErrInvalidIndicatorState` | State pointer is invalid or has been freed |
 
 === "Python"
 

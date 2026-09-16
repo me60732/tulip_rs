@@ -80,6 +80,40 @@ The difference between a short and long EMA of the A/D line, used to confirm pri
     adosc_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    high   := []float64{82.15, 81.89, 83.03, 83.30, 83.85,
+                       83.90, 83.33, 84.30, 84.84, 85.00}
+    low    := []float64{81.29, 80.64, 81.31, 82.65, 83.07,
+                       83.11, 82.49, 82.30, 84.15, 84.11}
+    close  := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    volume := []float64{1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+                        900.0, 1500.0, 1800.0, 1000.0, 1700.0}
+    options := []float64{3.0, 10.0} // short_period, long_period
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Adosc.Indicator(high, low, close, volume, options, nil)
+    fmt.Println(res.Rows[0]) // ADOSC values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    partialHigh   := high[:8]
+    partialLow    := low[:8]
+    partialClose  := close[:8]
+    partialVolume := volume[:8]
+    res2, st2, _ := indicators.Adosc.Indicator(partialHigh, partialLow, partialClose, partialVolume, options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(high[8:], low[8:], close[8:], volume[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued ADOSC values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -202,10 +236,26 @@ The difference between a short and long EMA of the A/D line, used to confirm pri
         Some(&mask),
     ).unwrap();
 
-    let adosc     = &outputs[0]; // adosc (primary)
-    let short_ema = &outputs[1]; // short_ema (optional — requested)
-    let long_ema  = &outputs[2]; // long_ema (optional — not requested)
-    let ad        = &outputs[3]; // ad (optional — requested)
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close  := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    high   := close + 1.0
+    low    := close - 1.0
+    volume := []float64{10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0, 11800.0, 10200.0}
+    options := []float64{6.0, 20.0} // short_period, long_period
+    mask := []bool{true, false, true} // short_ema, long_ema, ad
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Adosc.Indicator(high, low, close, volume, options, mask)
+    fmt.Println(res.Rows[0]) // adosc (primary)
+    fmt.Println(res.Rows[1]) // short_ema (optional — requested)
+    fmt.Println(res.Rows[2]) // long_ema (optional — not requested)
+    fmt.Println(res.Rows[3]) // ad (optional — requested)
+    res.Close()
+    st.Close()
     ```
 
 === "Python"
@@ -324,63 +374,36 @@ The difference between a short and long EMA of the A/D line, used to confirm pri
         adosc_state_free(r.states[i]);
     }
     tulip_ffi_simd_result_free(r);
+
+
+=== "Go"
+
+    **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    assets := [][indicators.AdoscInputs][]float64{
+        {a1_high, a1_low, a1_close, a1_volume},
+        {a2_high, a2_low, a2_close, a2_volume},
+        {a3_high, a3_low, a3_close, a3_volume},
+        {a4_high, a4_low, a4_close, a4_volume},
+    }
+    sim, _ := indicators.Adosc.SimdByAssets(assets, []float64{3.0, 10.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
     ```
 
-    **By options** — same asset, 4 different option sets in one call:
+    **By options** — same asset, 4 different option sets in parallel:
 
-    ```c
-    static const double high_expanded[200] = {82.15, 81.89, 83.03, 83.30, 83.85,
-        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
-        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
-        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
-        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
-        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
-        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
-        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
-        83.90, 83.33, 84.30, 84.84, 85.00};
-    static const double low_expanded[200] = {81.29, 80.64, 81.31, 82.65, 83.07,
-        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
-        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
-        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
-        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
-        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
-        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
-        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
-        83.11, 82.49, 82.30, 84.15, 84.11};
-    static const double close_expanded[200] = {81.59, 81.06, 82.87, 83.00, 83.61,
-        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
-        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
-        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
-        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
-        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
-        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
-        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
-        83.15, 82.84, 83.99, 84.55, 84.36};
-    static const double volume_expanded[200] = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
-        900.0, 1500.0, 1800.0, 1000.0, 1700.0, 1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
-        900.0, 1500.0, 1800.0, 1000.0, 1700.0, 1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
-        900.0, 1500.0, 1800.0, 1000.0, 1700.0, 1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
-        900.0, 1500.0, 1800.0, 1000.0, 1700.0, 1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
-        900.0, 1500.0, 1800.0, 1000.0, 1700.0, 1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
-        900.0, 1500.0, 1800.0, 1000.0, 1700.0, 1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
-        900.0, 1500.0, 1800.0, 1000.0, 1700.0};
-
-    const double *const expanded_inputs[ADOSC_INPUTS] = {high_expanded, low_expanded,
-        close_expanded, volume_expanded};
-
-    static const double options_1[ADOSC_OPTIONS] = {2.0, 5.0};
-    static const double options_2[ADOSC_OPTIONS] = {3.0, 10.0};
-    static const double options_3[ADOSC_OPTIONS] = {5.0, 20.0};
-    static const double options_4[ADOSC_OPTIONS] = {7.0, 28.0};
-
-    const double *const simd_options[4] = {options_1, options_2, options_3, options_4};
-
-    CSimdResult r = adosc_simd_by_options(expanded_inputs, 200, simd_options, 4, NULL, 0);
-    for (uintptr_t i = 0; i < r.num_results; i++) {
-        /* r.outputs[i][0] -> option set i's series */
-        adosc_state_free(r.states[i]);
+    ```go
+    sim2, _ := indicators.Adosc.SimdByOptions(
+        high, low, close, volume,
+        [][]float64{{3.0, 10.0}, {5.0, 15.0}, {7.0, 20.0}, {10.0, 25.0}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Option set %d: %v\n", i+1, lanes[0])
     }
-    tulip_ffi_simd_result_free(r);
+    sim2.Close()
     ```
 
 === "Python"

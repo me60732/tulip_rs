@@ -55,6 +55,30 @@ Similar to KAMA but uses the Chande Momentum Oscillator as its efficiency measur
     vidya_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{2.0, 5.0, 0.2} // short_period, long_period, alpha
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Vidya.Indicator(close, options, nil)
+    fmt.Println(res.Rows[0]) // VIDYA values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Vidya.Indicator(close[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(close[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued VIDYA values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -157,6 +181,30 @@ Similar to KAMA but uses the Chande Momentum Oscillator as its efficiency measur
     /* r.outputs[2] -> long_sma (optional — requested) */
     tulip_ffi_result_free(r);
     vidya_state_free(r.state);
+    ```
+
+=== "Go"
+
+    `vidya` exposes 4 optional outputs: `short_sma`, `long_sma`, `short_stddev`, `long_stddev`. Pass a boolean mask — one bool per optional output.
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{5.0, 20.0, 0.2} // short_period, long_period, alpha
+
+    // Request short_sma and long_sma but not the stddev outputs
+    mask := []bool{true, true, false, false} // one per optional output
+    res, st, _ := indicators.Vidya.Indicator(close, options, mask)
+
+    vidya     := res.Rows[0]  // vidya (primary)
+    short_sma := res.Rows[1]  // "short_sma" (optional — requested)
+    long_sma  := res.Rows[2]  // "long_sma" (optional — requested)
+                             // "short_stddev" not requested
+                             // "long_stddev" not requested
+    res.Close()
+    st.Close()
     ```
 
 === "Python"
@@ -301,6 +349,36 @@ Similar to KAMA but uses the Chande Momentum Oscillator as its efficiency measur
     /* r.outputs[i] -> results for option set i */
     for (uintptr_t i = 0; i < r.num_results; i++) vidya_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    a1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    a2 := []float64{72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50}
+    a3 := []float64{55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40}
+    a4 := []float64{100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8}
+
+    assets := [][indicators.VidyaInputs][]float64{{a1}, {a2}, {a3}, {a4}}
+    sim, _ := indicators.Vidya.SimdByAssets(assets, []float64{2.0, 5.0, 0.2}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel (3-option indicator):
+
+    ```go
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    sim2, _ := indicators.Vidya.SimdByOptions(close, [][]float64{{1.0, 2.5, 0.1}, {2.0, 5.0, 0.2}, {3.0, 7.5, 0.3}, {4.0, 10.0, 0.4}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Option set %d: %v\n", i+1, lanes[0])
+    }
+    sim2.Close()
     ```
 
 === "Python"

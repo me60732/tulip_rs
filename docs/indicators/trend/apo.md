@@ -56,6 +56,30 @@ The raw difference between two EMAs (short minus long). Positive values indicate
     apo_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{12.0, 26.0} // short_period, long_period
+
+    // Full computation — Rows is just [apo], valid until Close.
+    res, st, _ := indicators.Apo.Indicator(close, options, nil)
+    fmt.Println(res.Rows[0]) // APO values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Apo.Indicator(close[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(close[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued APO values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -154,6 +178,23 @@ The raw difference between two EMAs (short minus long). Positive values indicate
     apo_state_free(r.state);
     ```
 
+=== "Go"
+
+    `apo` exposes 2 optional outputs: `short_ema`, `long_ema`.
+
+    ```go
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{5.0, 20.0} // short_period, long_period
+    mask := []bool{true, true} // short_ema, long_ema
+
+    res, _st, _ := indicators.Apo.Indicator(close, options, mask)
+
+    apo       := res.Rows[0] // APO values (primary)
+    shortEma  := res.Rows[1] // short_ema (optional — requested)
+    longEma   := res.Rows[2] // long_ema (optional — requested)
+    res.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -229,16 +270,16 @@ The raw difference between two EMAs (short minus long). Positive values indicate
 
 === "C"
 
-    **By assets** — same options applied to N assets in one call (N must be 2/4/8/16):
+    **By assets** — same options applied to 4 assets in one call (N must be 2/4/8/16):
 
     ```c
     #include "tulip_rs_ffi.h"
     #include "tulip_rs_ffi_counts.h"
 
-    double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
-    double a2[] = {72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50};
-    double a3[] = {55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40};
-    double a4[] = {100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8};
+    double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    double a2[] = {72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50}
+    double a3[] = {55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40}
+    double a4[] = {100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8}
 
     /* one [INPUTS]-long pointer array per asset */
     const double *asset1[APO_INPUTS] = {a1};
@@ -257,7 +298,7 @@ The raw difference between two EMAs (short minus long). Positive values indicate
     tulip_ffi_simd_result_free(r);
     ```
 
-    **By options** — same asset, N different option sets in one call:
+    **By options** — same asset, 4 different option sets in one call:
 
     ```c
     #include "tulip_rs_ffi.h"
@@ -283,6 +324,43 @@ The raw difference between two EMAs (short minus long). Positive values indicate
     CSimdResult r = apo_simd_by_options(expanded_inputs, EXPANDED_LEN, simd_opts, 4, NULL, 0);
     for (uintptr_t i = 0; i < r.num_results; i++) apo_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    a1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    a2 := []float64{72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50}
+    a3 := []float64{55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40}
+    a4 := []float64{100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8}
+
+    assets := [][indicators.ApoInputs][]float64{{a1}, {a2}, {a3}, {a4}}
+    sim, _ := indicators.Apo.SimdByAssets(assets, []float64{12.0, 26.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```go
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+
+    // Tile the series so longer-period option sets have enough data
+    expanded := make([]float64, len(close)*20)
+    for i := 0; i < 20; i++ {
+        copy(expanded[i*len(close):], close)
+    }
+
+    sim2, _ := indicators.Apo.SimdByOptions(expanded, [][]float64{{6.0, 13.0}, {12.0, 26.0}, {19.0, 39.0}, {24.0, 52.0}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Option set %d: %v\n", i+1, lanes[0])
+    }
+    sim2.Close()
     ```
 
 === "Python"

@@ -83,6 +83,41 @@ The candlestick engine accepts three options in the following order:
     candlestick_state_free(result.state); // frees state when done streaming
     ```
 
+=== "Go"
+
+    ```go
+    import (
+        "fmt"
+        "github.com/me60732/tulip_rs_go/indicators"
+        "github.com/me60732/tulip_rs_go/tulip"
+    )
+
+    open  := []float64{81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25}
+    high  := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00}
+    low   := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11}
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+
+    options := []float64{5.0, 1.0, 1.0} // candle_period, trend_period, trend_signal_period
+
+    res, st, _ := indicators.Candlestick.Indicator(open, high, low, close, options, indicators.ForecastNone)
+    defer res.Close()
+    defer st.Close()
+
+    for i := 0; i < res.NumBars; i++ {
+        pats := res.Patterns(i) // pattern ids detected on bar i
+        if len(pats) == 0 {
+            fmt.Printf("Bar %d: None\n", i)
+        } else {
+            names := res.Names(i) // short names for the patterns
+            fmt.Printf("Bar %d:", i)
+            for _, name := range names {
+                fmt.Printf(" %s", name)
+            }
+            fmt.Println()
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -266,6 +301,32 @@ Pass a `forecast_type` argument to return only patterns with a specific forecast
 
     Omit the third argument (or pass `undefined`) to return all trend-matching patterns.
 
+=== "Go"
+
+    ```go
+    import (
+        "fmt"
+        "github.com/me60732/tulip_rs_go/indicators"
+    )
+
+    options := []float64{5.0, 1.0, 1.0}
+
+    // Only bullish reversal patterns — pass the filter enum
+    fres, fst, _ := indicators.Candlestick.Indicator(open, high, low, close, options, indicators.ForecastBullishReversal)
+    defer fres.Close()
+    defer fst.Close()
+
+    fmt.Printf("Bullish-reversal-filtered detections: %d ids across %d bars\n",
+        fres.TotalPatterns, fres.NumBars)
+
+    // Other available filter values:
+    // indicators.ForecastBearishReversal
+    // indicators.ForecastBullishContinuation
+    // indicators.ForecastBearishContinuation
+    // indicators.ForecastBearishReversalOrContinuation
+    // indicators.ForecastBullishReversalOrContinuation
+    ```
+
 When `forecast_type` is omitted (or `None`), all matched patterns are returned regardless of their forecast direction.
 
 ---
@@ -402,6 +463,40 @@ Like every other indicator in TulipRS, the candlestick engine returns a `state` 
         });
     } else {
         console.log('No patterns on new bar.');
+    }
+    ```
+
+=== "Go"
+
+    ```go
+    import (
+        "fmt"
+        "github.com/me60732/tulip_rs_go/indicators"
+    )
+
+    options := []float64{5.0, 1.0, 1.0}
+
+    // Step 1: run on historical data and capture state
+    res, st, _ := indicators.Candlestick.Indicator(open, high, low, close, options, indicators.ForecastNone)
+    defer res.Close()
+
+    // Step 2: feed only the new bars
+    newOpen  := []float64{84.00}
+    newHigh  := []float64{84.50}
+    newLow   := []float64{83.20}
+    newClose := []float64{83.50}
+
+    continued, _ := st.Batch(newOpen, newHigh, newLow, newClose, indicators.ForecastNone)
+    defer continued.Close()
+
+    entry := continued.Patterns(continued.NumBars - 1) // patterns on last bar
+    if len(entry) > 0 {
+        names := continued.Names(continued.NumBars - 1)
+        for _, name := range names {
+            fmt.Printf("%s\n", name)
+        }
+    } else {
+        fmt.Println("No patterns on new bar.")
     }
     ```
 

@@ -85,6 +85,32 @@ Removes low-frequency trend components from price by applying Ehlers' two-pole h
     highpass_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                       88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                       90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20}
+    options := []float64{20.0} // period
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Highpass.Indicator(close, options, nil)
+    fmt.Println(res.Rows[0]) // highpass values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Highpass.Indicator(close[:35], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(close[35:], nil)
+    fmt.Println(batch.Rows[0]) // continued highpass values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Node.js"
 
     ```javascript
@@ -259,14 +285,39 @@ Removes low-frequency trend components from price by applying Ehlers' two-pole h
     tulip_ffi_simd_result_free(r);
     ```
 
-    **By options** — same asset, 4 different periods in one call:
+=== "Go"
 
-    ```c
-    double o10[] = {10.0}, o20[] = {20.0}, o30[] = {30.0}, o40[] = {40.0};
-    const double *const simd_opts[4] = {o10, o20, o30, o40};
+    **By assets** — same period applied to 4 assets in parallel (lane counts 2/4/8/16):
 
-    CSimdResult r = highpass_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
-    /* r.outputs[i] -> results for option set i (periods 10/20/30/40) */
-    for (uintptr_t i = 0; i < r.num_results; i++) highpass_state_free(r.states[i]);
-    tulip_ffi_simd_result_free(r);
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    a1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    a2 := []float64{86.59, 86.06, 87.87, 88.00, 88.61, 88.15, 87.84, 88.99, 89.55, 89.36}
+    a3 := []float64{78.59, 78.06, 79.87, 80.00, 80.61, 80.15, 79.84, 80.99, 81.55, 81.36}
+    a4 := []float64{83.22, 82.68, 84.53, 84.66, 85.28, 84.81, 84.50, 85.67, 86.24, 86.05}
+    options := []float64{20.0} // period
+
+    assets := [][indicators.HighpassInputs][]float64{{a1}, {a2}, {a3}, {a4}}
+    sim, _ := indicators.Highpass.SimdByAssets(assets, options, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := [][]float64{{10}, {20}, {30}, {40}}
+
+    sim, _ := indicators.Highpass.SimdByOptions(close, options, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Period set %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close()
     ```

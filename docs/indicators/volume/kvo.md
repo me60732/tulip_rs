@@ -73,6 +73,36 @@ Identifies long-term money flow trends while remaining sensitive enough to detec
     kvo_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    high   := []float64{82.15, 81.89, 83.03, 83.30, 83.85,
+                       83.90, 83.33, 84.30, 84.84, 85.00}
+    low    := []float64{81.29, 80.64, 81.31, 82.65, 83.07,
+                       83.11, 82.49, 82.30, 84.15, 84.11}
+    close  := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    volume := []float64{1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+                        900.0, 1500.0, 1800.0, 1000.0, 1700.0}
+    options := []float64{34.0, 55.0} // short_period, long_period
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Kvo.Indicator(high, low, close, volume, options, nil)
+    fmt.Println(res.Rows[0]) // KVO values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Kvo.Indicator(high[:8], low[:8], close[:8], volume[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(high[8:], low[8:], close[8:], volume[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued KVO values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -179,24 +209,25 @@ Identifies long-term money flow trends while remaining sensitive enough to detec
     kvo_state_free(r.state);
     ```
 
-    ```rust
-    use tulip_rs::indicators::kvo::{Kvo, Indicator, TIndicatorState};
+=== "Go"
 
-    let close  = vec![81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36_f64];
-    let high   = close.iter().map(|x| x + 1.0).collect::<Vec<_>>();
-    let low    = close.iter().map(|x| x - 1.0).collect::<Vec<_>>();
-    let volume = vec![10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0, 11800.0, 10200.0_f64];
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
 
-    let mask = [true, false];
-    let (outputs, _state) = Kvo::indicator(
-        &[high.as_slice(), low.as_slice(), close.as_slice(), volume.as_slice()],
-        &[9.0, 26.0],
-        Some(&mask),
-    ).unwrap();
+    close  := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    high   := close + 1.0
+    low    := close - 1.0
+    volume := []float64{10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0, 11800.0, 10200.0}
+    options := []float64{9.0, 26.0} // short_period, long_period
+    mask := []bool{true, false} // short_ema, long_ema
 
-    let kvo       = &outputs[0]; // kvo (primary)
-    let short_ema = &outputs[1]; // short_ema (optional — requested)
-    let long_ema  = &outputs[2]; // long_ema (optional — not requested)
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Kvo.Indicator(high, low, close, volume, options, mask)
+    fmt.Println(res.Rows[0]) // kvo (primary)
+    fmt.Println(res.Rows[1]) // short_ema (optional — requested)
+    fmt.Println(res.Rows[2]) // long_ema (optional — not requested)
+    res.Close()
+    st.Close()
     ```
 
 === "Python"
@@ -297,9 +328,6 @@ Identifies long-term money flow trends while remaining sensitive enough to detec
 
     double a4_high[]   = {102.00, 101.25, 103.50, 103.80, 104.30, 104.35, 103.75, 104.75, 105.25, 105.40};
     double a4_low[]    = {100.65, 99.80, 102.00, 102.20, 103.00, 103.05, 102.40, 103.30, 104.10, 104.25};
-    double a4_close[]  = {91.30, 90.60, 93.00, 93.20, 93.75, 93.70, 93.10, 94.20, 94.65, 94.80};
-    double a4_volume[] = {3600.0, 4200.0, 3300.0, 4800.0, 3900.0, 2700.0, 4500.0, 5400.0, 3000.0, 5100.0};
-
     const double *asset1[KVO_INPUTS] = {a1_high, a1_low, a1_close, a1_volume};
     const double *asset2[KVO_INPUTS] = {a2_high, a2_low, a2_close, a2_volume};
     const double *asset3[KVO_INPUTS] = {a3_high, a3_low, a3_close, a3_volume};
@@ -314,56 +342,45 @@ Identifies long-term money flow trends while remaining sensitive enough to detec
     tulip_ffi_simd_result_free(r);
     ```
 
-    **By options** — same asset, 4 different option sets in one call:
+=== "Go"
 
-    ```c
-    static const double high_expanded[200] = {82.15, 81.89, 83.03, 83.30, 83.85,
-        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
-        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
-        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
-        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
-        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
-        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
-        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
-        83.90, 83.33, 84.30, 84.84, 85.00};
-    static const double low_expanded[200] = {81.29, 80.64, 81.31, 82.65, 83.07,
-        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
-        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
-        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
-        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
-        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
-        83.11, 82.49, 82.30, 84.15, 84.11};
-    static const double close_expanded[200] = {81.59, 81.06, 82.87, 83.00, 83.61,
-        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
-        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
-        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
-        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
-        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
-        83.15, 82.84, 83.99, 84.55, 84.36};
-    static const double volume_expanded[200] = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
-        900.0, 1500.0, 1800.0, 1000.0, 1700.0, 1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
-        900.0, 1500.0, 1800.0, 1000.0, 1700.0, 1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
-        900.0, 1500.0, 1800.0, 1000.0, 1700.0, 1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
-        900.0, 1500.0, 1800.0, 1000.0, 1700.0, 1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
-        900.0, 1500.0, 1800.0, 1000.0, 1700.0, 1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
-        900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+    **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
 
-    const double *const expanded_inputs[KVO_INPUTS] = {high_expanded, low_expanded,
-        close_expanded, volume_expanded};
-
-    static const double options_1[KVO_OPTIONS] = {13.0, 21.0};
-    static const double options_2[KVO_OPTIONS] = {21.0, 34.0};
-    static const double options_3[KVO_OPTIONS] = {34.0, 55.0};
-    static const double options_4[KVO_OPTIONS] = {55.0, 89.0};
-
-    const double *const simd_options[4] = {options_1, options_2, options_3, options_4};
-
-    CSimdResult r = kvo_simd_by_options(expanded_inputs, 200, simd_options, 4, NULL, 0);
-    for (uintptr_t i = 0; i < r.num_results; i++) {
-        /* r.outputs[i][0] -> option set i's series */
-        kvo_state_free(r.states[i]);
+    ```go
+    assets := [][indicators.KvoInputs][]float64{
+        {a1_high, a1_low, a1_close, a1_volume},
+        {a2_high, a2_low, a2_close, a2_volume},
+        {a3_high, a3_low, a3_close, a3_volume},
+        {a4_high, a4_low, a4_close, a4_volume},
     }
-    tulip_ffi_simd_result_free(r);
+    sim, _ := indicators.Kvo.SimdByAssets(assets, []float64{34.0, 55.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```go
+    tiledLen := len(high) * 3
+    highTiled := make([]float64, tiledLen)
+    lowTiled := make([]float64, tiledLen)
+    closeTiled := make([]float64, tiledLen)
+    volumeTiled := make([]float64, tiledLen)
+    for i := 0; i < 3; i++ {
+        copy(highTiled[i*len(high):(i+1)*len(high)], high)
+        copy(lowTiled[i*len(high):(i+1)*len(high)], low)
+        copy(closeTiled[i*len(high):(i+1)*len(high)], close)
+        copy(volumeTiled[i*len(high):(i+1)*len(high)], volume)
+    }
+    sim2, _ := indicators.Kvo.SimdByOptions(
+        highTiled, lowTiled, closeTiled, volumeTiled,
+        [][]float64{{2.0, 5.0}, {3.0, 7.0}, {4.0, 10.0}, {5.0, 13.0}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Option set %d: %v\n", i+1, lanes[0])
+    }
+    sim2.Close()
     ```
 
 === "Python"

@@ -70,6 +70,34 @@ Measures how recently the highest high and lowest low occurred within the lookba
     aroon_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    high := []float64{82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00}
+    low := []float64{81.29, 80.64, 81.31, 82.65, 83.07,
+                     83.11, 82.49, 82.30, 84.15, 84.11}
+    options := []float64{25.0} // period
+
+    // Full computation — Rows is [aroon_down, aroon_up], valid until Close.
+    res, st, _ := indicators.Aroon.Indicator(high, low, options, nil)
+    fmt.Println("Aroon Down:", res.Rows[0])
+    fmt.Println("Aroon Up:  ", res.Rows[1])
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Aroon.Indicator(high[:8], low[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(high[8:], low[8:], nil)
+    fmt.Println("Aroon Down continued:", batch.Rows[0])
+    fmt.Println("Aroon Up continued:  ", batch.Rows[1])
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -230,6 +258,30 @@ Measures how recently the highest high and lowest low occurred within the lookba
     CSimdResult r = aroon_simd_by_options(expanded_inputs, EXPANDED_LEN, simd_opts, 4, NULL, 0);
     for (uintptr_t i = 0; i < r.num_results; i++) aroon_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same period applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    assets := [][indicators.AroonInputs][]float64{{h1, l1}, {h2, l2}, {h3, l3}, {h4, l4}}
+    sim, _ := indicators.Aroon.SimdByAssets(assets, []float64{25.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d Up: %v\n", i+1, lanes[0])   // aroon_up
+        fmt.Printf("Asset %d Down: %v\n", i+1, lanes[1]) // aroon_down
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```go
+    sim2, _ := indicators.Aroon.SimdByOptions(high, low, [][]float64{{5.0}, {10.0}, {25.0}, {50.0}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Period set %d: %v\n", i+1, lanes[0])
+    }
+    sim2.Close()
     ```
 
 === "Python"

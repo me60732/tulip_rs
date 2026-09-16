@@ -28,27 +28,60 @@ The percentage change between the current price and the price `period` bars ago.
 
 === "C"
 
+    **By assets** — same option applied to 4 assets in parallel (N must be 2/4/8/16):
+
     ```c
     #include "tulip_rs_ffi.h"
 
-    const double *inputs[ROC_INPUTS] = {close};
+    const double *asset1[ROC_INPUTS] = {a1};
+    const double *asset2[ROC_INPUTS] = {a2};
+    const double *asset3[ROC_INPUTS] = {a3};
+    const double *asset4[ROC_INPUTS] = {a4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
     double options[ROC_OPTIONS] = {10.0};
 
-    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
-    CIndicatorResult r = roc_indicator(inputs, 10, options, NULL, 0);
-    /* r.outputs[0] -> the ROC series, length r.output_lens[0] */
-    tulip_ffi_result_free(r);
-    roc_state_free(r.state);
+    CSimdResult r = roc_simd_by_assets(simd_inputs, 4, len, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's ROC series, length r.output_lens[i][0] */
+        roc_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
 
-    /* Partial computation + state continuation */
-    CIndicatorResult p = roc_indicator(inputs, 8, options, NULL, 0);
-    double new_close[] = {85.53};
-    const double *new_inputs[ROC_INPUTS] = {new_close};
-    CBatchResult b = roc_batch(p.state, new_inputs, 1, NULL, 0);
-    /* b.outputs[0] -> ROC value for the new bar */
-    tulip_ffi_batch_result_free(b);
-    tulip_ffi_result_free(p);
-    roc_state_free(p.state);
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```c
+    double o5[] = {5.0}, o10[] = {10.0}, o20[] = {20.0}, o50[] = {50.0};
+    const double *const simd_opts[4] = {o5, o10, o20, o50};
+
+    CSimdResult r = roc_simd_by_options(inputs, len, simd_opts, 4, NULL, 0);
+    /* r.outputs[i] -> ROC for period simd_opts[i] */
+    for (uintptr_t i = 0; i < r.num_results; i++) roc_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{10.0}
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Roc.Indicator(close, options, nil)
+    fmt.Println(res.Rows[0]) // ROC(10) values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Roc.Indicator(close[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(close[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued ROC values
+    batch.Close()
+    st2.Close()
     ```
 
 === "Python"
@@ -130,6 +163,22 @@ The percentage change between the current price and the price `period` bars ago.
     /* r.outputs[0] -> roc, r.outputs[1] -> mom */
     tulip_ffi_result_free(r);
     roc_state_free(r.state);
+    ```
+
+=== "Go"
+
+    ```go
+    // roc exposes 1 optional output: mom — pass one bool per optional.
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+
+    res, st, _ := indicators.Roc.Indicator(close, []float64{10.0}, []bool{true})
+    defer res.Close()
+    defer st.Close()
+
+    roc := res.Rows[0] // roc (primary)
+    mom := res.Rows[1] // mom (optional — requested)
+    fmt.Println(roc, mom)
     ```
 
 === "Python"
@@ -230,6 +279,36 @@ The percentage change between the current price and the price `period` bars ago.
     /* r.outputs[i] -> ROC for period simd_opts[i] */
     for (uintptr_t i = 0; i < r.num_results; i++) roc_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same period applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    a1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    a2 := []float64{72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50}
+    a3 := []float64{55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40}
+    a4 := []float64{100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8}
+
+    assets := [][indicators.RocInputs][]float64{{a1}, {a2}, {a3}, {a4}}
+    sim, _ := indicators.Roc.SimdByAssets(assets, []float64{10.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```go
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    sim2, _ := indicators.Roc.SimdByOptions(close, [][]float64{{5}, {10}, {20}, {50}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Period set %d: %v\n", i+1, lanes[0])
+    }
+    sim2.Close()
     ```
 
 === "Python"

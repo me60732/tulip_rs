@@ -65,6 +65,37 @@ Band-pass filters price by first applying a high-pass filter to remove trend and
     roofingfilter_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import (
+        "fmt"
+        "github.com/me60732/tulip_rs_go/indicators"
+        "github.com/me60732/tulip_rs_go/tulip"
+    )
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                       88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                       90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20}
+
+    options := []float64{10.0, 40.0} // ss_period, hp_period
+
+    res, st, _ := indicators.Roofingfilter.Indicator(close, options, nil)
+    fmt.Printf("Roofing Filter: %v\n", tulip.AsFloat64(res.Rows[0]))
+    res.Close()
+    st.Close()
+
+    partial := close[:35]
+    res2, state2, _ := indicators.Roofingfilter.Indicator(partial, options, nil)
+    fmt.Printf("Partial Roofing Filter: %v\n", tulip.AsFloat64(res2.Rows[0]))
+
+    continued, _ := state2.Batch(close[35:], nil)
+    fmt.Printf("Continued Roofing Filter: %v\n", tulip.AsFloat64(continued.Rows[0]))
+    continued.Close()
+    state2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -180,6 +211,31 @@ Band-pass filters price by first applying a high-pass filter to remove trend and
        r.outputs[1] -> highpass (optional — requested) */
     tulip_ffi_result_free(r);
     roofingfilter_state_free(r.state);
+    ```
+
+=== "Go"
+
+    ```go
+    import (
+        "fmt"
+        "github.com/me60732/tulip_rs_go/indicators"
+        "github.com/me60732/tulip_rs_go/tulip"
+    )
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                       88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                       90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20}
+
+    options := []float64{10.0, 40.0} // ss_period, hp_period
+
+    mask := []bool{true} // highpass=true
+
+    res, st, _ := indicators.Roofingfilter.Indicator(close, options, mask)
+    fmt.Printf("Roofing: %v\n", tulip.AsFloat64(res.Rows[0]))
+    fmt.Printf("Highpass: %v\n", tulip.AsFloat64(res.Rows[1]))
+    res.Close()
+    st.Close()
     ```
 
 === "Python"
@@ -314,6 +370,44 @@ Band-pass filters price by first applying a high-pass filter to remove trend and
     CSimdResult r = roofingfilter_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
     for (uintptr_t i = 0; i < r.num_results; i++) roofingfilter_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{10.0, 40.0} // ss_period, hp_period
+
+    assets := [][indicators.RoofingfilterInputs][]float64{
+        {close},
+        {close + 5.0},
+        {close - 3.0},
+        {close * 1.02},
+    }
+    sim, _ := indicators.Roofingfilter.SimdByAssets(assets, options, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close()
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61}
+    options := [][]float64{{5, 20}, {10, 40}, {14, 50}, {20, 60}}
+
+    sim, _ := indicators.Roofingfilter.SimdByOptions(close, options, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Option set %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close()
     ```
 
 === "Python"

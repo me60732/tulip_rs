@@ -64,6 +64,32 @@ Moving average weighted by trading volume so that high-volume bars have more inf
     vwma_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    volume := []float64{5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0,
+                        3798000.0, 3936200.0, 4732000.0, 4841300.0, 3915300.0}
+    options := []float64{14.0} // period
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Vwma.Indicator(close, volume, options, nil)
+    fmt.Println(res.Rows[0]) // VWMA(14) values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Vwma.Indicator(close[:8], volume[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(close[8:], volume[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued VWMA values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -243,6 +269,61 @@ Moving average weighted by trading volume so that high-volume bars have more inf
     /* r.outputs[i] -> results for option set i (periods 5/10/14/20) */
     for (uintptr_t i = 0; i < r.num_results; i++) vwma_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same period applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    a1_close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    a1_vol := []float64{5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0,
+                        3798000.0, 3936200.0, 4732000.0, 4841300.0, 3915300.0}
+    a2_close := []float64{a1_close[0]*1.1, a1_close[1]*1.1, a1_close[2]*1.1,
+                          a1_close[3]*1.1, a1_close[4]*1.1, a1_close[5]*1.1,
+                          a1_close[6]*1.1, a1_close[7]*1.1, a1_close[8]*1.1,
+                          a1_close[9]*1.1}
+    a2_vol := []float64{a1_vol[0]*1.1, a1_vol[1]*1.1, a1_vol[2]*1.1,
+                        a1_vol[3]*1.1, a1_vol[4]*1.1, a1_vol[5]*1.1,
+                        a1_vol[6]*1.1, a1_vol[7]*1.1, a1_vol[8]*1.1,
+                        a1_vol[9]*1.1}
+    a3_close := []float64{a1_close[0]*0.9, a1_close[1]*0.9, a1_close[2]*0.9,
+                          a1_close[3]*0.9, a1_close[4]*0.9, a1_close[5]*0.9,
+                          a1_close[6]*0.9, a1_close[7]*0.9, a1_close[8]*0.9,
+                          a1_close[9]*0.9}
+    a3_vol := []float64{a1_vol[0]*0.9, a1_vol[1]*0.9, a1_vol[2]*0.9,
+                        a1_vol[3]*0.9, a1_vol[4]*0.9, a1_vol[5]*0.9,
+                        a1_vol[6]*0.9, a1_vol[7]*0.9, a1_vol[8]*0.9,
+                        a1_vol[9]*0.9}
+    a4_close := []float64{a1_close[0]*1.02, a1_close[1]*1.02, a1_close[2]*1.02,
+                          a1_close[3]*1.02, a1_close[4]*1.02, a1_close[5]*1.02,
+                          a1_close[6]*1.02, a1_close[7]*1.02, a1_close[8]*1.02,
+                          a1_close[9]*1.02}
+    a4_vol := []float64{a1_vol[0]*1.02, a1_vol[1]*1.02, a1_vol[2]*1.02,
+                        a1_vol[3]*1.02, a1_vol[4]*1.02, a1_vol[5]*1.02,
+                        a1_vol[6]*1.02, a1_vol[7]*1.02, a1_vol[8]*1.02,
+                        a1_vol[9]*1.02}
+
+    assets := [][indicators.VwmaInputs][]float64{{a1_close, a1_vol}, {a2_close, a2_vol}, {a3_close, a3_vol}, {a4_close, a4_vol}}
+    sim, _ := indicators.Vwma.SimdByAssets(assets, []float64{14.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```go
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    volume := []float64{5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0,
+                        3798000.0, 3936200.0, 4732000.0, 4841300.0, 3915300.0}
+    sim2, _ := indicators.Vwma.SimdByOptions(close, volume, [][]float64{{5}, {10}, {14}, {20}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Period set %d: %v\n", i+1, lanes[0])
+    }
+    sim2.Close()
     ```
 
 === "Python"

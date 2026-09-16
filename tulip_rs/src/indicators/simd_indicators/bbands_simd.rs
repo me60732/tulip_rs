@@ -8,7 +8,7 @@ use crate::indicators::bbands::State;
 #[cfg(feature = "simd_options")]
 pub(crate) use crate::indicators::simd_indicators::by_option::bbands::indicator_by_options;
 use crate::types::Warm;
-use std::simd::{Simd, StdFloat};
+use std::simd::Simd;
 pub struct SimdState<const N: usize> {
     pub stddev_state: StddevSimdState<N>,
     pub std_dev: Simd<f64, N>
@@ -23,11 +23,12 @@ impl<const N: usize> TState for SimdState<N> {
         inputs: Self::Inputs<'a>
     ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
         let (sd, sma) = self.stddev_state.calc(inputs);
-    
+
+        let per = self.std_dev * sd;
         //let upper_band = sma + std_dev * sd;
-        let upper_band = self.std_dev.mul_add(sd, sma);
+        let upper_band = sma + per;
         //let lower_band = sma - std_dev * sd;
-        let lower_band = (-self.std_dev).mul_add(sd, sma);
+        let lower_band = sma - per;
         (lower_band, sma, upper_band)
     }
 }   

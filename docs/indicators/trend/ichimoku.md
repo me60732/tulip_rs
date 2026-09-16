@@ -80,6 +80,43 @@ A comprehensive trend-following system that defines support/resistance, trend di
     ichimoku_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    high  := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                      85.90, 86.58, 86.98, 88.00, 87.87, 88.20, 88.70, 89.10, 88.50, 89.00,
+                      89.60, 89.90, 89.30, 90.10, 90.50, 91.00, 90.30, 91.00, 91.60, 92.00,
+                      91.30, 92.00, 92.60, 93.00, 92.30, 93.00, 93.60, 94.00, 93.30, 94.10}
+    low   := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                      84.03, 85.39, 85.76, 87.17, 87.01, 87.20, 87.80, 88.20, 87.60, 88.00,
+                      88.60, 88.90, 88.30, 89.00, 89.40, 89.80, 89.20, 89.90, 90.50, 90.80,
+                      90.20, 90.90, 91.50, 91.80, 91.20, 91.90, 92.50, 92.80, 92.20, 93.00}
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                       88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                       90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20}
+    options := []float64{9.0, 26.0} // short_period, long_period
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Ichimoku.Indicator(high, low, close, options, nil)
+    fmt.Println(res.Rows[0]) // conversion
+    fmt.Println(res.Rows[1]) // base
+    fmt.Println(res.Rows[2]) // leading_span_a
+    fmt.Println(res.Rows[3]) // leading_span_b
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Ichimoku.Indicator(high[:8], low[:8], close[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(high[8:], low[8:], close[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued conversion
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -222,6 +259,26 @@ A comprehensive trend-following system that defines support/resistance, trend di
     /* r.outputs[4]     -> lagging_span (optional — requested) */
     tulip_ffi_result_free(r);
     ichimoku_state_free(r.state);
+    ```
+
+=== "Go"
+
+    `ichimoku` exposes 1 optional output: `lagging_span`. Pass a boolean mask as the third argument.
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    // ... (same high, low, close data as above)
+    mask := []bool{true} // lagging_span
+
+    res, st, _ := indicators.Ichimoku.Indicator(high, low, close, options, mask)
+    conversion   := res.Rows[0] // conversion (primary)
+    base         := res.Rows[1] // base (primary)
+    leadingA     := res.Rows[2] // leading_span_a (primary)
+    leadingB     := res.Rows[3] // leading_span_b (primary)
+    laggingSpan  := res.Rows[4] // lagging_span (optional — requested)
+    res.Close()
+    st.Close()
     ```
 
 === "Python"
@@ -369,6 +426,50 @@ A comprehensive trend-following system that defines support/resistance, trend di
         ichimoku_state_free(r.states[i]);
     }
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    assets := [][indicators.IchimokuInputs][]float64{
+        {high, low, close},
+        {demo.Scale(high, 1.2), demo.Scale(low, 1.2), demo.Scale(close, 1.2)},
+        {demo.Scale(high, 0.9), demo.Scale(low, 0.9), demo.Scale(close, 0.9)},
+        {demo.Scale(high, 1.05), demo.Scale(low, 1.05), demo.Scale(close, 1.05)},
+    }
+    sim, _ := indicators.Ichimoku.SimdByAssets(assets, options, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d Conversion: %v
+", i+1, lanes[0])
+        fmt.Printf("Asset %d Base:       %v
+", i+1, lanes[1])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```go
+    // Tile to ensure longer-period option sets have enough data.
+    tiledLen := len(high) * 3
+    highTiled := make([]float64, tiledLen)
+    lowTiled := make([]float64, tiledLen)
+    closeTiled := make([]float64, tiledLen)
+    for i := 0; i < 3; i++ {
+        copy(highTiled[i*len(high):(i+1)*len(high)], high)
+        copy(lowTiled[i*len(high):(i+1)*len(high)], low)
+        copy(closeTiled[i*len(high):(i+1)*len(high)], close)
+    }
+    sim2, _ := indicators.Ichimoku.SimdByOptions(highTiled, lowTiled, closeTiled,
+        [][]float64{{5.0, 10.0}, {7.0, 14.0}, {9.0, 18.0}, {9.0, 26.0}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Short/Long %v/%v: Conversion=%v
+", []float64{5.0, 7.0, 9.0, 9.0}[i],
+            []float64{10.0, 14.0, 18.0, 26.0}[i], lanes[0])
+    }
+    sim2.Close()
     ```
 
 === "Python"

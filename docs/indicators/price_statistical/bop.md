@@ -74,6 +74,32 @@ Measures the strength of buyers vs sellers: `(Close - Open) / (High - Low)`.
     bop_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    open  := []float64{81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25}
+    high  := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00}
+    low   := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11}
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{} // no options for bop
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Bop.Indicator(open, high, low, close, options, nil)
+    fmt.Println(res.Rows[0]) // BOP values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Bop.Indicator(open[:8], high[:8], low[:8], close[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(open[8:], high[8:], low[8:], close[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued BOP values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -214,6 +240,21 @@ Measures the strength of buyers vs sellers: `(Close - Open) / (High - Low)`.
     ```
 
     _This indicator has 0 options (BOP_OPTIONS = 0), so simd_by_options does not exist._
+
+=== "Go"
+
+    **By assets** — same options (none), N assets in parallel:
+
+    ```go
+    assets := [][indicators.BopInputs][]float64{{a1, a2, a3, a4}, {b1, b2, b3, b4}, {c1, c2, c3, c4}, {d1, d2, d3, d4}}
+    sim, _ := indicators.Bop.SimdByAssets(assets, nil, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    _This indicator has no options, so by-options SIMD does not offer a by-options block._
 
 === "Python"
 

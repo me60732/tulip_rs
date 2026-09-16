@@ -64,6 +64,34 @@ Converts prices into a Gaussian normal distribution. Sharp moves in the Fisher v
     fisher_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    high := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                      85.90, 86.58, 86.98, 88.00, 87.87}
+    low := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                     84.03, 85.39, 85.76, 87.17, 87.01}
+    options := []float64{10.0}
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Fisher.Indicator(high, low, options, nil)
+    fmt.Println(res.Rows[0]) // Fisher values
+    fmt.Println(res.Rows[1]) // Signal values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Fisher.Indicator(high[:10], low[:10], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(high[10:], low[10:], nil)
+    fmt.Println(batch.Rows[0]) // continued Fisher values
+    fmt.Println(batch.Rows[1]) // continued Signal values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -222,6 +250,31 @@ Converts prices into a Gaussian normal distribution. Sharp moves in the Fisher v
     /* r.outputs[i][1] -> Signal */
     for (uintptr_t i = 0; i < r.num_results; i++) fisher_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same period applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    assets := [][indicators.FisherInputs][]float64{{a1high, a1low}, {a2high, a2low}, {a3high, a3low}, {a4high, a4low}}
+    sim, _ := indicators.Fisher.SimdByAssets(assets, []float64{10.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d Fisher: %v\n", i+1, lanes[0])
+        fmt.Printf("Asset %d Signal: %v\n", i+1, lanes[1])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```go
+    sim2, _ := indicators.Fisher.SimdByOptions(high, low, [][]float64{{5}, {10}, {14}, {20}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Option set %d Fisher: %v\n", i+1, lanes[0])
+        fmt.Printf("Option set %d Signal: %v\n", i+1, lanes[1])
+    }
+    sim2.Close()
     ```
 
 === "Python"

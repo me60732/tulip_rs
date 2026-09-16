@@ -54,6 +54,30 @@ Annualised historical volatility based on log returns over `period` bars.
     volatility_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{14.0} // period
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Volatility.Indicator(close, options, nil)
+    fmt.Println(res.Rows[0]) // Annualised volatility values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Volatility.Indicator(close[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(close[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued volatility values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -179,6 +203,29 @@ Annualised historical volatility based on log returns over `period` bars.
     /* r.outputs[i] -> results for option set i (periods 7/14/21/30) */
     for (uintptr_t i = 0; i < r.num_results; i++) volatility_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same period applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    assets := [][indicators.VolatilityInputs][]float64{{a1}, {a2}, {a3}, {a4}}
+    sim, _ := indicators.Volatility.SimdByAssets(assets, []float64{14.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```go
+    sim2, _ := indicators.Volatility.SimdByOptions(close, [][]float64{{7}, {14}, {21}, {28}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Period set %d: %v\n", i+1, lanes[0])
+    }
+    sim2.Close()
     ```
 
 === "Python"

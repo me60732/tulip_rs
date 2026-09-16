@@ -74,6 +74,36 @@ A cumulative indicator that uses price and volume to assess whether a security i
     ad_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    high   := []float64{82.15, 81.89, 83.03, 83.30, 83.85,
+                       83.90, 83.33, 84.30, 84.84, 85.00}
+    low    := []float64{81.29, 80.64, 81.31, 82.65, 83.07,
+                       83.11, 82.49, 82.30, 84.15, 84.11}
+    close  := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    volume := []float64{1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+                        900.0, 1500.0, 1800.0, 1000.0, 1700.0}
+    options := []float64{} // no options
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Ad.Indicator(high, low, close, volume, options, nil)
+    fmt.Println(res.Rows[0]) // AD values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Ad.Indicator(high[:8], low[:8], close[:8], volume[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(high[8:], low[8:], close[8:], volume[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued AD values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -206,9 +236,27 @@ A cumulative indicator that uses price and volume to assess whether a security i
     tulip_ffi_simd_result_free(r);
     ```
 
-=== "Python"
+=== "Go"
 
-    **By assets** — same options, N assets in parallel (must be 2, 4, 8, or 16):
+    **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    assets := [][indicators.AdInputs][]float64{
+        {a1_high, a1_low, a1_close, a1_volume},
+        {a2_high, a2_low, a2_close, a2_volume},
+        {a3_high, a3_low, a3_close, a3_volume},
+        {a4_high, a4_low, a4_close, a4_volume},
+    }
+    sim, _ := indicators.Ad.SimdByAssets(assets, []float64{}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    _This indicator has no options, so by-options SIMD does not offer._
+
+=== "Python"
 
     ```python
     simd_inputs = [
@@ -221,8 +269,6 @@ A cumulative indicator that uses price and volume to assess whether a security i
     for i, asset_outputs in enumerate(outputs_list):
         print(f"Asset {i+1}: {asset_outputs[0]}")
     ```
-
-    _This indicator has no options, so by-options SIMD does not apply._
 
 === "Node.js"
 

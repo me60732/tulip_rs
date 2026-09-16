@@ -48,6 +48,35 @@
     marketfi_state_free(pr.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    high   := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                       85.90, 86.58, 86.98, 88.00, 87.87}
+    low    := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                       84.03, 85.39, 85.76, 87.17, 87.01}
+    volume := []float64{5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0, 3798000.0,
+                        3936200.0, 4732000.0, 4841300.0, 3915300.0, 6830800.0, 6694100.0,
+                        5293600.0, 7985800.0, 4807900.0}
+    options := []float64{} // no options (MARKETFI has zero options)
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Marketfi.Indicator(high, low, volume, options, nil)
+    fmt.Println(res.Rows[0]) // MarketFi values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Marketfi.Indicator(high[:10], low[:10], volume[:10], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(high[10:], low[10:], volume[10:], nil)
+    fmt.Println(batch.Rows[0]) // continued MarketFi values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -162,7 +191,25 @@
     tulip_ffi_simd_result_free(r);
     ```
 
-    _C FFI offers only by-assets for this indicator (no options)._
+=== "Go"
+
+    **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    assets := [][indicators.MarketfiInputs][]float64{
+        {a1_high, a1_low, a1_volume},
+        {a2_high, a2_low, a2_volume},
+        {a3_high, a3_low, a3_volume},
+        {a4_high, a4_low, a4_volume},
+    }
+    sim, _ := indicators.Marketfi.SimdByAssets(assets, []float64{}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    _This indicator has no options, so by-options SIMD does not offer._
 
 === "Python"
 

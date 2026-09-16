@@ -39,7 +39,8 @@ Moving average where each bar is weighted linearly, the most recent bar receivin
 
     /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
     CIndicatorResult r = wma_indicator(inputs, 10, options, NULL, 0);
-    /* r.outputs[0] -> the WMA(14) series, length r.output_lens[0] */
+    /* r.outputs[0] -> the WMA(14) series, length r.output_lens[0];
+       r.outputs[1] -> sma (optional — not requested here) */
     tulip_ffi_result_free(r);
     wma_state_free(r.state);
 
@@ -52,6 +53,30 @@ Moving average where each bar is weighted linearly, the most recent bar receivin
     tulip_ffi_batch_result_free(b);
     tulip_ffi_result_free(p);
     wma_state_free(p.state);
+    ```
+
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{14.0} // period
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Wma.Indicator(close, options, nil)
+    fmt.Println(res.Rows[0]) // WMA(14) values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Wma.Indicator(close[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(close[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued WMA values
+    batch.Close()
+    st2.Close()
     ```
 
 === "Python"
@@ -135,8 +160,6 @@ Moving average where each bar is weighted linearly, the most recent bar receivin
 
 === "C"
 
-    `wma` exposes 1 optional output: `sma`. Pass a boolean mask as the third argument.
-
     ```c
     #include "tulip_rs_ffi.h"
 
@@ -151,6 +174,23 @@ Moving average where each bar is weighted linearly, the most recent bar receivin
     /* r.outputs[1] -> "sma" (optional — requested) */
     tulip_ffi_result_free(r);
     wma_state_free(r.state);
+    ```
+
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{5.0} // period
+
+    // Request the SMA alongside the WMA
+    res, st, _ := indicators.Wma.Indicator(close, options, []bool{true})
+    fmt.Println(res.Rows[0]) // wma (primary)
+    fmt.Println(res.Rows[1]) // "sma" (optional — requested)
+    res.Close()
+    st.Close()
     ```
 
 === "Python"
@@ -257,7 +297,8 @@ Moving average where each bar is weighted linearly, the most recent bar receivin
 
     CSimdResult r = wma_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
     for (uintptr_t i = 0; i < r.num_results; i++) {
-        /* r.outputs[i][0] -> asset i's WMA series, length r.output_lens[i][0] */
+        /* r.outputs[i][0] -> asset i's WMA series, length r.output_lens[i][0];
+           r.outputs[i][1] -> sma (optional — not requested here) */
         wma_state_free(r.states[i]);
     }
     tulip_ffi_simd_result_free(r);
@@ -284,6 +325,29 @@ Moving average where each bar is weighted linearly, the most recent bar receivin
         wma_state_free(r.states[i]);
     }
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same period applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    assets := [][indicators.WmaInputs][]float64{{a1}, {a2}, {a3}, {a4}}
+    sim, _ := indicators.Wma.SimdByAssets(assets, []float64{14.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```go
+    sim2, _ := indicators.Wma.SimdByOptions(close, [][]float64{{5}, {10}, {14}, {20}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Period set %d: %v\n", i+1, lanes[0])
+    }
+    sim2.Close()
     ```
 
 === "Python"

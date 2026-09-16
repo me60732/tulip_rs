@@ -126,6 +126,37 @@ Extracts the underlying trend from price by suppressing cycle-mode components us
     instantaneoustrendline_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import (
+        "fmt"
+        "github.com/me60732/tulip_rs_go/indicators"
+        "github.com/me60732/tulip_rs_go/tulip"
+    )
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                       88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                       90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20}
+
+    // instantaneoustrendline takes no options — pass an empty slice
+    res, st, _ := indicators.Instantaneoustrendline.Indicator(close, []float64{}, nil)
+    fmt.Printf("Trendline: %v\n", tulip.AsFloat64(res.Rows[0]))
+    res.Close()
+    st.Close()
+
+    // State continuation
+    partial := close[:35]
+    res2, state2, _ := indicators.Instantaneoustrendline.Indicator(partial, []float64{}, nil)
+    fmt.Printf("Partial Trendline: %v\n", tulip.AsFloat64(res2.Rows[0]))
+
+    continued, _ := state2.Batch(close[35:], nil)
+    fmt.Printf("Continued Trendline: %v\n", tulip.AsFloat64(continued.Rows[0]))
+    continued.Close()
+    state2.Close()
+    ```
+
 ### Optional Outputs
 
 === "Rust"
@@ -225,6 +256,33 @@ Extracts the underlying trend from price by suppressing cycle-mode components us
 
     tulip_ffi_result_free(r);
     instantaneoustrendline_state_free(r.state);
+    ```
+
+=== "Go"
+
+    ```go
+    import (
+        "fmt"
+        "github.com/me60732/tulip_rs_go/indicators"
+        "github.com/me60732/tulip_rs_go/tulip"
+    )
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                       88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                       90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20}
+
+    options := []float64{} // no options
+
+    mask := []bool{true, true, true} // trigger, dc_period, alpha
+
+    res, st, _ := indicators.Instantaneoustrendline.Indicator(close, options, mask)
+    fmt.Printf("Trendline: %v\n", tulip.AsFloat64(res.Rows[0]))
+    fmt.Printf("Trigger: %v\n", tulip.AsFloat64(res.Rows[1]))
+    fmt.Printf("dc_period: %v\n", tulip.AsFloat64(res.Rows[2]))
+    fmt.Printf("alpha: %v\n", tulip.AsFloat64(res.Rows[3]))
+    res.Close()
+    st.Close()
     ```
 
 ### SIMD
@@ -342,4 +400,29 @@ Extracts the underlying trend from price by suppressing cycle-mode components us
         instantaneoustrendline_state_free(r.states[i]);
     }
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                       88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                       90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20}
+
+    assets := [][indicators.InstantaneoustrendlineInputs][]float64{
+        {close},
+        {close + 5.0},
+        {close - 5.0},
+        {close * 1.02},
+    }
+    sim, _ := indicators.Instantaneoustrendline.SimdByAssets(assets, []float64{}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close()
     ```

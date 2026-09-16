@@ -29,8 +29,6 @@ Calculates momentum as the difference between the sum of gains and the sum of lo
 
 === "C"
 
-    **By assets**
-
     ```c
     #include <tulip_rs_ffi.h>
 
@@ -54,33 +52,28 @@ Calculates momentum as the difference between the sum of gains and the sum of lo
     cmo_state_free(p.state);
     ```
 
-    **By options**
+=== "Go"
 
-    ```c
-    #include <tulip_rs_ffi.h>
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
 
-    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
-                      83.15, 82.84, 83.99, 84.55, 84.36};
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{14.0}
 
-    double o14[] = {14.0}, o7[] = {7.0}, o21[] = {21.0}, o28[] = {28.0};
-    const double *const simd_opts[4] = {o14, o7, o21, o28};
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Cmo.Indicator(close, options, nil)
+    fmt.Println(res.Rows[0]) // CMO(14) values
+    res.Close()
+    st.Close()
 
-    // Tile data 20x for longer periods
-    #define EXPANDED_LEN (10 * 20)
-    double close_exp[EXPANDED_LEN];
-    for (int i = 0; i < 20; i++) {
-        for (int j = 0; j < 10; j++) {
-            close_exp[i*10+j] = close[j];
-        }
-    }
-    const double *expanded_inputs[CMO_INPUTS] = {close_exp};
-
-    CSimdResult r = cmo_simd_by_options(expanded_inputs, EXPANDED_LEN,
-                                        simd_opts, 4, NULL, 0);
-    for (uintptr_t i = 0; i < r.num_results; i++) {
-        cmo_state_free(r.states[i]);
-    }
-    tulip_ffi_simd_result_free(r);
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Cmo.Indicator(close[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(close[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued CMO values
+    batch.Close()
+    st2.Close()
     ```
 
 === "Python"
@@ -250,6 +243,29 @@ Calculates momentum as the difference between the sum of gains and the sum of lo
         cmo_state_free(r.states[i]);
     }
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same period applied to 2 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    assets := [][indicators.CmoInputs][]float64{{a1}, {a2}}
+    sim, _ := indicators.Cmo.SimdByAssets(assets, []float64{14.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```go
+    sim2, _ := indicators.Cmo.SimdByOptions(close, [][]float64{{7}, {14}, {21}, {28}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Period set %d: %v\n", i+1, lanes[0])
+    }
+    sim2.Close()
     ```
 
 === "Python"

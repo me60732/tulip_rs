@@ -53,6 +53,30 @@ The mean of the absolute deviations of each bar from the rolling mean over `peri
     md_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{14.0}
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Md.Indicator(close, options, nil)
+    fmt.Println(res.Rows[0]) // MD(14) values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Md.Indicator(close[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(close[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued MD values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -137,6 +161,24 @@ The mean of the absolute deviations of each bar from the rolling mean over `peri
     md_state_free(r.state);
     ```
 
+=== "Go"
+
+    `md` exposes 1 optional output: `sma`. Pass a boolean mask as the third argument.
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+
+    mask := []bool{true} // one per optional output (sma)
+    res, _st, _ := indicators.Md.Indicator(close, []float64{10.0}, mask)
+
+    md := res.Rows[0] // md (primary)
+    sma := res.Rows[1] // sma (optional — requested)
+    res.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -154,8 +196,6 @@ The mean of the absolute deviations of each bar from the rolling mean over `peri
     md  = outputs[0]  # md (primary)
     sma = outputs[1]  # sma (optional — requested)
     ```
-
-=== "Node.js"
 
     `md` exposes 1 optional output: `sma`.
 
@@ -226,6 +266,37 @@ The mean of the absolute deviations of each bar from the rolling mean over `peri
     /* r.outputs[i] -> results for option set i (periods 7/14/21/28) */
     for (uintptr_t i = 0; i < r.num_results; i++) md_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same period applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    a1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    a2 := []float64{81.59*1.2, 81.06*1.2, 82.87*1.2, 83.00*1.2, 83.61*1.2, 83.15*1.2, 82.84*1.2, 83.99*1.2, 84.55*1.2, 84.36*1.2}
+    a3 := []float64{90.0 + 0.5*0 + 81.59*0.1, 90.0 + 0.5*1 + 81.06*0.1, 90.0 + 0.5*2 + 82.87*0.1, 90.0 + 0.5*3 + 83.00*0.1, 90.0 + 0.5*4 + 83.61*0.1, 90.0 + 0.5*5 + 83.15*0.1, 90.0 + 0.5*6 + 82.84*0.1, 90.0 + 0.5*7 + 83.99*0.1, 90.0 + 0.5*8 + 84.55*0.1, 90.0 + 0.5*9 + 84.36*0.1}
+    a4 := []float64{100.0 - 0.3*0 + 81.59*0.05, 100.0 - 0.3*1 + 81.06*0.05, 100.0 - 0.3*2 + 82.87*0.05, 100.0 - 0.3*3 + 83.00*0.05, 100.0 - 0.3*4 + 83.61*0.05, 100.0 - 0.3*5 + 83.15*0.05, 100.0 - 0.3*6 + 82.84*0.05, 100.0 - 0.3*7 + 83.99*0.05, 100.0 - 0.3*8 + 84.55*0.05, 100.0 - 0.3*9 + 84.36*0.05}
+
+    assets := [][indicators.MdInputs][]float64{{a1}, {a2}, {a3}, {a4}}
+    sim, _ := indicators.Md.SimdByAssets(assets, []float64{14.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```go
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+
+    sim2, _ := indicators.Md.SimdByOptions(close, [][]float64{{7}, {14}, {21}, {28}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Period set %d: %v\n", i+1, lanes[0])
+    }
+    sim2.Close()
     ```
 
 === "Python"

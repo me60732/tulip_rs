@@ -35,113 +35,85 @@ An adaptive moving average that adjusts its smoothing factor in proportion to th
     println!("Continued FAMA: {:?}", continued[1]);
     ```
 
-=== "Python"
-
-    ```python
-    import numpy as np
-    import tulip_rs
-
-    close = np.array([
-        81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
-        85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
-        88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
-        90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20,
-    ], dtype=np.float64)
-
-    # Options: [fast_limit, slow_limit]
-    outputs, state = tulip_rs.indicators.mama.indicator([close], [0.5, 0.05])
-    print("MAMA: ", outputs[0])
-    print("FAMA: ", outputs[1])
-
-    # State continuation
-    partial = close[:-5]
-    outputs2, state = tulip_rs.indicators.mama.indicator([partial], [0.5, 0.05])
-    rest = close[-5:]
-    continued = state.batch_indicator([rest])
-    print("Continued MAMA: ", continued[0])
-    print("Continued FAMA: ", continued[1])
-    ```
-
-=== "Node.js"
-
-    ```javascript
-    import * as ti from 'tulip-rs-node';
-
-    const close = Float64Array.from([
-        81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
-        85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
-        88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
-        90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20,
-    ]);
-
-    const [outputs, state] = ti.mama.indicator([close], [0.5, 0.05]);
-    console.log('MAMA:', outputs[0]);
-    console.log('FAMA:', outputs[1]);
-
-    // State continuation
-    const [, state2] = ti.mama.indicator([close.slice(0, -5)], [0.5, 0.05]);
-    const continued = state2.batchIndicator([close.slice(-5)]);
-    console.log('Continued MAMA:', continued[0]);
-    console.log('Continued FAMA:', continued[1]);
-    ```
-
-=== "WASM"
-
-    ```javascript
-    import { init } from 'tulip-rs-wasm';
-    import * as ti from 'tulip-rs-wasm';
-
-    await init(); // bundler resolves the WASM asset automatically
-
-    const close = [
-        81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
-        85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
-        88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
-        90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20,
-    ];
-
-    const [outputs, state] = ti.mama.indicator([close], [0.5, 0.05]);
-    console.log('MAMA:', outputs[0]);
-    console.log('FAMA:', outputs[1]);
-
-    // State continuation
-    const [, state2] = ti.mama.indicator([close.slice(0, -5)], [0.5, 0.05]);
-    const continued = state2.batchIndicator([close.slice(-5)]);
-    console.log('Continued MAMA:', continued[0]);
-    console.log('Continued FAMA:', continued[1]);
-    ```
-
 === "C"
 
+    **By assets** — same options applied to 4 assets in one call (N must be 2/4/8/16):
+
     ```c
-    #include "tulip_rs_ffi.h"
+    double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a2[] = {86.59, 86.06, 87.87, 88.00, 88.61, 88.15, 87.84, 88.99, 89.55, 89.36};
+    double a3[] = {78.59, 78.06, 79.87, 80.00, 80.61, 80.15, 79.84, 80.99, 81.55, 81.36};
+    double a4[] = {83.22, 82.68, 84.53, 84.66, 85.28, 84.81, 84.50, 85.67, 86.24, 86.05};
 
-    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
-                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
-                      88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
-                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
-    double options[MAMA_OPTIONS] = {0.5, 0.05}; // fast_limit, slow_limit
-    const double *inputs[MAMA_INPUTS] = {close};
+    /* one [INPUTS]-long pointer array per asset */
+    const double *asset1[MAMA_INPUTS] = {a1};
+    const double *asset2[MAMA_INPUTS] = {a2};
+    const double *asset3[MAMA_INPUTS] = {a3};
+    const double *asset4[MAMA_INPUTS] = {a4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
 
-    /* Full computation with optional outputs */
     bool optional_outputs[2] = {true, true}; // dc_period, alpha
-    CIndicatorResult r = mama_indicator(inputs, 40, options, optional_outputs, 2);
-    /* r.outputs[0] -> mama (primary) */
-    /* r.outputs[1] -> fama (primary) */
-    /* r.outputs[2] -> dc_period (optional) */
-    /* r.outputs[3] -> alpha (optional) */
-    tulip_ffi_result_free(r);
-    mama_state_free(r.state);
+    CSimdResult r = mama_simd_by_assets(simd_inputs, 4, 10, options, optional_outputs, 2);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        /* r.outputs[i][0] -> asset i's mama series, length r.output_lens[i][0] */
+        /* r.outputs[i][1] -> asset i's fama */
+        mama_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
 
-    /* Partial computation without optional outputs + state continuation */
-    CIndicatorResult p = mama_indicator(inputs, 35, options, NULL, 0);
-    double new_close[] = {89.70, 90.10, 89.50, 90.20, 90.80};
-    const double *new_inputs[MAMA_INPUTS] = {new_close};
-    CBatchResult b = mama_batch(p.state, new_inputs, 5, NULL, 0);
-    /* b.outputs[0] -> mama for new bars */
-    tulip_ffi_batch_result_free(b);
-    tulip_ffi_result_free(p);
-    mama_state_free(p.state);
+    **By options** — same asset, 4 different option sets in one call:
+
+    ```c
+    double o03[] = {0.3}, o003[] = {0.03};
+    double o04[] = {0.4}, o004[] = {0.04};
+    double o05[] = {0.5}, o005[] = {0.05};
+    double o06[] = {0.6}, o006[] = {0.06};
+
+    const double *const simd_opts[4] = {
+        (double[]){0.3, 0.03},
+        (double[]){0.4, 0.04},
+        (double[]){0.5, 0.05},
+        (double[]){0.6, 0.06}
+    };
+
+    bool optional_outputs[2] = {true, true};
+    CSimdResult r = mama_simd_by_options(inputs, 10, simd_opts, 4, optional_outputs, 2);
+    /* r.outputs[i][0] -> asset i's mama for option set */
+    for (uintptr_t i = 0; i < r.num_results; i++) mama_state_free(r.states[i]);
+    tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    ```go
+    import (
+        "fmt"
+        "github.com/me60732/tulip_rs_go/indicators"
+        "github.com/me60732/tulip_rs_go/tulip"
+    )
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                       88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                       90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20}
+
+    options := []float64{0.5, 0.05} // fast_limit, slow_limit
+
+    res, st, _ := indicators.Mama.Indicator(close, options, nil)
+    fmt.Printf("MAMA: %v\n", tulip.AsFloat64(res.Rows[0]))
+    fmt.Printf("FAMA: %v\n", tulip.AsFloat64(res.Rows[1]))
+    res.Close()
+    st.Close()
+
+    partial := close[:35]
+    res2, state2, _ := indicators.Mama.Indicator(partial, options, nil)
+    fmt.Printf("Partial MAMA: %v\n", tulip.AsFloat64(res2.Rows[0]))
+
+    continued, _ := state2.Batch(close[35:], nil)
+    fmt.Printf("Continued MAMA: %v\n", tulip.AsFloat64(continued.Rows[0]))
+    continued.Close()
+    state2.Close()
     ```
 
 ### Optional Outputs
@@ -241,6 +213,33 @@ An adaptive moving average that adjusts its smoothing factor in proportion to th
 
     tulip_ffi_result_free(r);
     mama_state_free(r.state);
+    ```
+
+=== "Go"
+
+    ```go
+    import (
+        "fmt"
+        "github.com/me60732/tulip_rs_go/indicators"
+        "github.com/me60732/tulip_rs_go/tulip"
+    )
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                       88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                       90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20}
+
+    options := []float64{0.5, 0.05} // fast_limit, slow_limit
+
+    mask := []bool{true, true} // dc_period, alpha
+
+    res, st, _ := indicators.Mama.Indicator(close, options, mask)
+    fmt.Printf("MAMA: %v\n", tulip.AsFloat64(res.Rows[0]))
+    fmt.Printf("FAMA: %v\n", tulip.AsFloat64(res.Rows[1]))
+    fmt.Printf("dc_period: %v\n", tulip.AsFloat64(res.Rows[2]))
+    fmt.Printf("alpha: %v\n", tulip.AsFloat64(res.Rows[3]))
+    res.Close()
+    st.Close()
     ```
 
 ### SIMD
@@ -410,4 +409,44 @@ An adaptive moving average that adjusts its smoothing factor in proportion to th
     /* r.outputs[i][0] -> asset i's mama for option set */
     for (uintptr_t i = 0; i < r.num_results; i++) mama_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{0.5, 0.05} // fast_limit, slow_limit
+
+    assets := [][indicators.MamaInputs][]float64{
+        {close},
+        {close + 5.0},
+        {close - 3.0},
+        {close * 1.02},
+    }
+    sim, _ := indicators.Mama.SimdByAssets(assets, options, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d MAMA: %v\n", i+1, lanes[0])
+        fmt.Printf("Asset %d FAMA: %v\n", i+1, lanes[1])
+    }
+    sim.Close()
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61}
+    options := [][]float64{{0.3, 0.03}, {0.4, 0.04}, {0.5, 0.05}, {0.6, 0.06}}
+
+    sim, _ := indicators.Mama.SimdByOptions(close, options, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Option set %d MAMA: %v\n", i+1, lanes[0])
+        fmt.Printf("Option set %d FAMA: %v\n", i+1, lanes[1])
+    }
+    sim.Close()
     ```

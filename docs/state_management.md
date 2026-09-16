@@ -75,6 +75,42 @@ This design makes TulipRS well-suited for **streaming** and **incremental** pipe
     sma_state_free(state); /* final cleanup after last batch */
     ```
 
+=== "Go"
+
+    ```go
+    import (
+        "fmt"
+        "github.com/me60732/tulip_rs_go/indicators"
+        "github.com/me60732/tulip_rs_go/tulip"
+    )
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36}
+
+    // --- Step 1: compute on historical data, capture state ---
+    n := 8 // process first 8 bars
+    res, st, err := indicators.Sma.Indicator(close[:n], []float64{5.0}, nil)
+    if err != nil {
+        fmt.Printf("sma_indicator failed: %v\n", err)
+        return
+    }
+    defer res.Close()
+    defer st.Close()
+
+    fmt.Println("History outputs[0]:", tulip.AsFloat64(res.Rows[0]))
+
+    // --- Step 2: feed new bars via state.Batch ---
+    newClose := []float64{85.53, 86.54}
+    continued, err := st.Batch(newClose, nil)
+    if err != nil {
+        fmt.Printf("sma_batch failed: %v\n", err)
+        return
+    }
+    defer continued.Close()
+
+    fmt.Println("Continued outputs[0]:", tulip.AsFloat64(continued.Rows[0]))
+    ```
+
 === "Python"
 
     ```python
@@ -186,6 +222,50 @@ For very long historical series, chunked processing lets you control memory usag
     sma_state_free(state); /* final cleanup after last batch */
     ```
 
+=== "Go"
+
+    ```go
+    import (
+        "fmt"
+        "github.com/me60732/tulip_rs_go/indicators"
+        "github.com/me60732/tulip_rs_go/tulip"
+    )
+
+    close := /* ... very long series ... */ []float64{}
+    chunkSize := 500
+    period := 5.0
+
+    // Seed on the first chunk
+    res, st, err := indicators.Sma.Indicator(close[:chunkSize], []float64{period}, nil)
+    if err != nil {
+        fmt.Printf("sma_indicator failed: %v\n", err)
+        return
+    }
+    defer res.Close()
+    defer st.Close()
+
+    allSMA := append([]float64(nil), tulip.AsFloat64(res.Rows[0])...)
+
+    // Continue chunk by chunk
+    for start := chunkSize; start < len(close); start += chunkSize {
+        thisChunk := start + chunkSize
+        if thisChunk > len(close) {
+            thisChunk = len(close)
+        }
+        br, err := st.Batch(close[start:thisChunk], nil)
+        if err != nil {
+            fmt.Printf("sma_batch failed: %v\n", err)
+            return
+        }
+        defer br.Close()
+
+        // Copy rows out via tulip.AsFloat64 before Close (rows invalid after Close)
+        allSMA = append(allSMA, tulip.AsFloat64(br.Rows[0])...)
+    }
+
+    fmt.Printf("Total output bars: %d\n", len(allSMA))
+    ```
+
 === "Python"
 
     ```python
@@ -282,6 +362,50 @@ State can be serialised to JSON for persistence and restored later. This is usef
     /* ... use b.outputs ... */
     tulip_ffi_batch_result_free(b);
     adx_state_free(restored);   /* each handle is freed exactly once */
+    ```
+
+=== "Go"
+
+    ```go
+    import (
+        "fmt"
+        "github.com/me60732/tulip_rs_go/indicators"
+        "github.com/me60732/tulip_rs_go/tulip"
+    )
+
+    // Serialise — Go genuinely supports both formats (C tab's limitation-warning does NOT apply)
+    blob, err := st.Serialize(tulip.FormatBincode) // recommended: compact, handles NaN/Inf
+    if err != nil {
+        fmt.Printf("serialize failed: %v\n", err)
+        return
+    }
+    fmt.Printf("bincode blob: %d bytes (indicator id 0x%08x)\n", len(blob), indicators.AdxID)
+
+    // Persist blob to disk / database ...
+
+    // Restore — use the indicator's DeserializeState function
+    rs, err := indicators.Adx.DeserializeState(blob)
+    if err != nil {
+        fmt.Printf("deserialize failed: %v\n", err)
+        return
+    }
+    defer rs.Close()
+
+    // Continue from restored state
+    br, err := rs.Batch(newClose, nil)
+    if err != nil {
+        fmt.Printf("batch failed: %v\n", err)
+        return
+    }
+    defer br.Close()
+
+    // FormatJSON too (human-readable; FFI rejects non-finite f64s)
+    jsonBlob, err := st.Serialize(tulip.FormatJSON)
+    if err != nil {
+        fmt.Printf("json serialize failed: %v\n", err)
+    } else {
+        fmt.Printf("json blob: %d bytes\n", len(jsonBlob))
+    }
     ```
 
 === "Python"
@@ -419,6 +543,52 @@ State works identically for indicators with multiple output series. Bollinger Ba
 
     tulip_ffi_batch_result_free(b);
     bbands_state_free(state); /* final cleanup */
+    ```
+
+=== "Go"
+
+    ```go
+    import (
+        "fmt"
+        "github.com/me60732/tulip_rs_go/indicators"
+        "github.com/me60732/tulip_rs_go/tulip"
+    )
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36}
+
+    options := []float64{20.0, 2.0} // period, std_dev
+    res, st, err := indicators.Bbands.Indicator(close[:n], options, nil)
+    if err != nil {
+        fmt.Printf("bbands_indicator failed: %v\n", err)
+        return
+    }
+    defer res.Close()
+    defer st.Close()
+
+    lower  := tulip.AsFloat64(res.Rows[0]) // lower band (3 rows total)
+    middle := tulip.AsFloat64(res.Rows[1]) // middle band
+    upper  := tulip.AsFloat64(res.Rows[2]) // upper band
+
+    fmt.Println("lower_band:", lower)
+    fmt.Println("middle_band:", middle)
+    fmt.Println("upper_band:", upper)
+
+    // Continue — all three output series are extended together
+    continued, err := st.Batch(newClose, nil)
+    if err != nil {
+        fmt.Printf("bbands_batch failed: %v\n", err)
+        return
+    }
+    defer continued.Close()
+
+    newLower  := tulip.AsFloat64(continued.Rows[0])
+    newMiddle := tulip.AsFloat64(continued.Rows[1])
+    newUpper  := tulip.AsFloat64(continued.Rows[2])
+
+    fmt.Println("lower_band continued:", newLower)
+    fmt.Println("middle_band continued:", newMiddle)
+    fmt.Println("upper_band continued:", newUpper)
     ```
 
 === "Python"

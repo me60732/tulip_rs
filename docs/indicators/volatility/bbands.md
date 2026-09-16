@@ -58,6 +58,32 @@ Three bands plotted around a moving average. The width expands and contracts wit
     bbands_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{20.0, 2.0} // period, std_dev
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Bbands.Indicator(close, options, nil)
+    fmt.Println(res.Rows[0]) // Lower band
+    fmt.Println(res.Rows[1]) // Middle band
+    fmt.Println(res.Rows[2]) // Upper band
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Bbands.Indicator(close[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(close[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued lower band
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -194,6 +220,33 @@ Three bands plotted around a moving average. The width expands and contracts wit
     /* r.outputs[i] -> results for option set i */
     for (uintptr_t i = 0; i < r.num_results; i++) bbands_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    assets := [][indicators.BbandsInputs][]float64{{a1}, {a2}, {a3}, {a4}}
+    sim, _ := indicators.Bbands.SimdByAssets(assets, []float64{20.0, 2.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d Lower:  %v\n", i+1, lanes[0])
+        fmt.Printf("Asset %d Middle: %v\n", i+1, lanes[1])
+        fmt.Printf("Asset %d Upper:  %v\n", i+1, lanes[2])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, N option sets in parallel:
+
+    ```go
+    sim2, _ := indicators.Bbands.SimdByOptions(close, [][]float64{{10.0, 1.5}, {20.0, 2.0}, {30.0, 2.0}, {50.0, 2.5}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Option set %d Lower:  %v\n", i+1, lanes[0])
+        fmt.Printf("Option set %d Middle: %v\n", i+1, lanes[1])
+        fmt.Printf("Option set %d Upper:  %v\n", i+1, lanes[2])
+    }
+    sim2.Close()
     ```
 
 === "Python"

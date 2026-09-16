@@ -75,6 +75,38 @@ Splits market force into two components relative to an EMA of close. Bull power 
     elderray_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    high  := []float64{82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00,
+                      85.90, 86.58, 86.98, 88.00, 87.87}
+    low   := []float64{81.29, 80.64, 81.31, 82.65, 83.07,
+                      83.11, 82.49, 82.30, 84.15, 84.11,
+                      84.03, 85.39, 85.76, 87.17, 87.01}
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29}
+    options := []float64{14.0} // period
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Elderray.Indicator(high, low, close, options, nil)
+    fmt.Println(res.Rows[0]) // bull power
+    fmt.Println(res.Rows[1]) // bear power
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Elderray.Indicator(high[:8], low[:8], close[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(high[8:], low[8:], close[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued bull power
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -192,6 +224,24 @@ Splits market force into two components relative to an EMA of close. Bull power 
     /* r.outputs[2] -> ema (optional — requested) */
     tulip_ffi_result_free(r);
     elderray_state_free(r.state);
+    ```
+
+=== "Go"
+
+    `elderray` exposes 1 optional output: `ema`. Pass a boolean mask as the third argument.
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    // ... (same high, low, close data as above)
+    mask := []bool{true} // ema
+
+    res, st, _ := indicators.Elderray.Indicator(high, low, close, options, mask)
+    bull := res.Rows[0] // bull (primary)
+    bear := res.Rows[1] // bear (primary)
+    ema  := res.Rows[2] // ema (optional — requested)
+    res.Close()
+    st.Close()
     ```
 
 === "Python"
@@ -352,6 +402,37 @@ Splits market force into two components relative to an EMA of close. Bull power 
         elderray_state_free(r.states[i]);
     }
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same period applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    assets := [][indicators.ElderrayInputs][]float64{
+        {high, low, close},
+        {demo.Scale(high, 1.2), demo.Scale(low, 1.2), demo.Scale(close, 1.2)},
+        {demo.Scale(high, 0.9), demo.Scale(low, 0.9), demo.Scale(close, 0.9)},
+        {demo.Scale(high, 1.05), demo.Scale(low, 1.05), demo.Scale(close, 1.05)},
+    }
+    sim, _ := indicators.Elderray.SimdByAssets(assets, options, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d bull: %v
+", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```go
+    sim2, _ := indicators.Elderray.SimdByOptions(high, low, close,
+        [][]float64{{7.0}, {14.0}, {21.0}, {28.0}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Period %d bull: %v
+", []float64{7.0, 14.0, 21.0, 28.0}[i][0], lanes[0])
+    }
+    sim2.Close()
     ```
 
 === "Node.js"

@@ -67,6 +67,26 @@ Relates price change to volume, indicating how easily a price moves. High values
     emv_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    // emv takes high, low, volume — and no options.
+    res, st, _ := indicators.Emv.Indicator(high, low, volume, nil, nil)
+    fmt.Println(res.Rows[0]) // EMV values
+    res.Close()
+    st.Close()
+
+    // State continuation — feed new bars without reprocessing history.
+    res2, st2, _ := indicators.Emv.Indicator(high[:8], low[:8], volume[:8], nil, nil)
+    res2.Close()
+    batch, _ := st2.Batch(newHigh, newLow, newVolume, nil)
+    fmt.Println(batch.Rows[0]) // EMV for the new bar
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -161,6 +181,19 @@ Relates price change to volume, indicating how easily a price moves. High values
     /* r.outputs[1] -> medprice (requested) */
     tulip_ffi_result_free(r);
     emv_state_free(r.state);
+    ```
+
+=== "Go"
+
+    ```go
+    // emv exposes 1 optional output: medprice — one bool per optional.
+    res, st, _ := indicators.Emv.Indicator(high, low, volume, nil, []bool{true})
+    defer res.Close()
+    defer st.Close()
+
+    emv      := res.Rows[0] // emv (primary)
+    medprice := res.Rows[1] // medprice (optional — requested)
+    fmt.Println(emv, medprice)
     ```
 
     ```rust
@@ -279,6 +312,26 @@ Relates price change to volume, indicating how easily a price moves. High values
     }
     tulip_ffi_simd_result_free(r);
     ```
+
+=== "Go"
+
+    **By assets** — applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    assets := [][indicators.EmvInputs][]float64{
+        {a1_high, a1_low, a1_volume},
+        {a2_high, a2_low, a2_volume},
+        {a3_high, a3_low, a3_volume},
+        {a4_high, a4_low, a4_volume},
+    }
+    sim, _ := indicators.Emv.SimdByAssets(assets, nil, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    _This indicator has no options, so by-options SIMD does not apply._
 
 === "Python"
 

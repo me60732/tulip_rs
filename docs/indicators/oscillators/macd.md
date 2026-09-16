@@ -66,6 +66,34 @@ Shows the relationship between two EMAs of different periods. The histogram visu
     macd_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{12.0, 26.0, 9.0} // fastperiod,slowperiod,signalperiod
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Macd.Indicator(close, options, nil)
+    fmt.Println(res.Rows[0]) // MACD line values
+    fmt.Println(res.Rows[1]) // Signal line values
+    fmt.Println(res.Rows[2]) // Histogram values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Macd.Indicator(close[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(close[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued MACD line values
+    fmt.Println(batch.Rows[1]) // continued Signal line values
+    fmt.Println(batch.Rows[2]) // continued Histogram values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -177,6 +205,26 @@ Shows the relationship between two EMAs of different periods. The histogram visu
     macd_state_free(r.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{12.0, 26.0, 9.0} // fastperiod,slowperiod,signalperiod
+
+    // Full computation with optional outputs — Rows are zero-copy views.
+    res, st, _ := indicators.Macd.Indicator(close, options, []bool{true, true})
+    fmt.Println(res.Rows[0]) // macd_line (primary)
+    fmt.Println(res.Rows[1]) // signal_line (primary)
+    fmt.Println(res.Rows[2]) // histogram (primary)
+    fmt.Println(res.Rows[3]) // short_ema (optional — requested)
+    fmt.Println(res.Rows[4]) // long_ema (optional — requested)
+    res.Close()
+    st.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -210,7 +258,6 @@ Shows the relationship between two EMAs of different periods. The histogram visu
     const shortEma = allOut[3]; // optional 0: short_ema
     const longEma  = allOut[4]; // optional 1: long_ema
     ```
-
 
 === "WASM"
 
@@ -316,6 +363,33 @@ Shows the relationship between two EMAs of different periods. The histogram visu
     /* r.outputs[i][2] -> Histogram */
     for (uintptr_t i = 0; i < r.num_results; i++) macd_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same options applied to 2 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    assets := [][indicators.MacdInputs][]float64{{a1}, {a2}}
+    sim, _ := indicators.Macd.SimdByAssets(assets, []float64{12.0, 26.0, 9.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d MACD: %v\n", i+1, lanes[0])
+        fmt.Printf("Asset %d Signal: %v\n", i+1, lanes[1])
+        fmt.Printf("Asset %d Histogram: %v\n", i+1, lanes[2])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```go
+    sim2, _ := indicators.Macd.SimdByOptions(close, [][]float64{{10, 20, 5}, {12, 26, 9}, {15, 30, 8}, {20, 40, 10}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Option set %d MACD: %v\n", i+1, lanes[0])
+        fmt.Printf("Option set %d Signal: %v\n", i+1, lanes[1])
+        fmt.Printf("Option set %d Histogram: %v\n", i+1, lanes[2])
+    }
+    sim2.Close()
     ```
 
 === "Python"

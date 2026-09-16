@@ -75,6 +75,38 @@ Applies the Fisher Transform to the normalised Cyber Cycle oscillator, convertin
     ccfisher_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                       88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                       90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20,
+                       93.50, 94.10, 94.80, 95.20, 95.70, 96.30, 96.80, 97.10, 97.60, 98.20,
+                       98.70, 99.10, 99.80, 100.20, 100.70, 101.30, 101.80, 102.10, 102.60, 103.20,
+                       103.70, 104.10, 104.80, 105.20, 105.70, 106.30, 106.80, 107.10, 107.60, 108.20,
+                       108.70, 109.10, 109.80, 110.20, 110.70, 111.30, 111.80, 112.10, 112.60, 113.00}
+    options := []float64{0.0} // alpha
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Ccfisher.Indicator(close, options, nil)
+    fmt.Println(res.Rows[0]) // fisher values
+    fmt.Println(res.Rows[1]) // signal values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Ccfisher.Indicator(close[:65], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(close[65:], nil)
+    fmt.Println(batch.Rows[0]) // continued fisher values
+    fmt.Println(batch.Rows[1]) // continued signal values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -224,6 +256,41 @@ Applies the Fisher Transform to the normalised Cyber Cycle oscillator, convertin
     ccfisher_state_free(r.state);
     ```
 
+=== "Go"
+
+    `ccfisher` exposes 3 optional outputs: `trendmode`, `cycle`, `peak`. Pass a boolean mask as the third argument.
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                       88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                       90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20,
+                       93.50, 94.10, 94.80, 95.20, 95.70, 96.30, 96.80, 97.10, 97.60, 98.20,
+                       98.70, 99.10, 99.80, 100.20, 100.70, 101.30, 101.80, 102.10, 102.60, 103.20,
+                       103.70, 104.10, 104.80, 105.20, 105.70, 106.30, 106.80, 107.10, 107.60, 108.20,
+                       108.70, 109.10, 109.80, 110.20, 110.70, 111.30, 111.80, 112.10, 112.60, 113.00}
+    options := []float64{0.0} // alpha
+    mask := []bool{true, true, true} // trendmode, cycle, peak
+
+    res, st, _ := indicators.Ccfisher.Indicator(close, options, mask)
+    fisher    := res.Rows[0]  // fisher (primary)
+    signal    := res.Rows[1]  // signal (primary)
+    trendmode := res.Rows[2]  // trendmode (optional — requested)
+    cycle     := res.Rows[3]  // cycle (optional — requested)
+    peak      := res.Rows[4]  // peak (optional — requested)
+
+    fmt.Println(fisher)
+    fmt.Println(signal)
+    fmt.Println(trendmode)
+    fmt.Println(cycle)
+    fmt.Println(peak)
+
+    res.Close()
+    st.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -350,27 +417,43 @@ Applies the Fisher Transform to the normalised Cyber Cycle oscillator, convertin
     tulip_ffi_simd_result_free(r);
     ```
 
+=== "Go"
+
+    **By assets** — same alpha applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    a1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    a2 := []float64{86.59, 86.06, 87.87, 88.00, 88.61, 88.15, 87.84, 88.99, 89.55, 89.36}
+    a3 := []float64{78.59, 78.06, 79.87, 80.00, 80.61, 80.15, 79.84, 80.99, 81.55, 81.36}
+    a4 := []float64{83.22, 82.68, 84.53, 84.66, 85.28, 84.81, 84.50, 85.67, 86.24, 86.05}
+    options := []float64{0.0} // alpha
+
+    assets := [][indicators.CcfisherInputs][]float64{{a1}, {a2}, {a3}, {a4}}
+    sim, _ := indicators.Ccfisher.SimdByAssets(assets, options, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d Fisher: %v\n", i+1, lanes[0])
+        fmt.Printf("Asset %d Signal: %v\n", i+1, lanes[1])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
     **By options** — same asset, 4 different alpha values in parallel:
 
-    ```c
-    #include "tulip_rs_ffi.h"
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
 
-    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
-                      83.15, 82.84, 83.99, 84.55, 84.36};
-    const double *inputs[CCFISHER_INPUTS] = {close};
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := [][]float64{{0.0}, {0.1}, {0.2}, {0.3}}
 
-    static const double opt0[CCFISHER_OPTIONS] = {0.0};
-    static const double opt1[CCFISHER_OPTIONS] = {0.1};
-    static const double opt2[CCFISHER_OPTIONS] = {0.2};
-    static const double opt3[CCFISHER_OPTIONS] = {0.3};
-    const double *const simd_opts[4] = {opt0, opt1, opt2, opt3};
-
-    CSimdResult r = ccfisher_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
-    for (uintptr_t i = 0; i < r.num_results; i++) {
-        /* r.outputs[i][0] -> asset with alpha set i */
-        ccfisher_state_free(r.states[i]);
+    sim, _ := indicators.Ccfisher.SimdByOptions(close, options, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Alpha set %d Fisher: %v\n", i+1, lanes[0])
+        fmt.Printf("Alpha set %d Signal: %v\n", i+1, lanes[1])
     }
-    tulip_ffi_simd_result_free(r);
+    sim.Close()
     ```
 
 === "Python"

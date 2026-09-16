@@ -59,6 +59,34 @@ Three bands around a Simple Moving Average. `middle = SMA(real, period)`, `upper
     smaenvelope_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{14.0, 2.5} // period, percentage
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Smaenvelope.Indicator(close, options, nil)
+    fmt.Println(res.Rows[0]) // lower
+    fmt.Println(res.Rows[1]) // middle
+    fmt.Println(res.Rows[2]) // upper
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Smaenvelope.Indicator(close[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(close[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued lower
+    fmt.Println(batch.Rows[1]) // continued middle
+    fmt.Println(batch.Rows[2]) // continued upper
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -225,6 +253,40 @@ Three bands around a Simple Moving Average. `middle = SMA(real, period)`, `upper
     /* r.outputs[i][0] -> lower, r.outputs[i][1] -> middle, r.outputs[i][2] -> upper */
     for (uintptr_t i = 0; i < r.num_results; i++) smaenvelope_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    a1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    a2 := []float64{86.59, 86.06, 87.87, 88.00, 88.61, 88.15, 87.84, 88.99, 89.55, 89.36}
+    a3 := []float64{76.59, 76.06, 77.87, 78.00, 78.61, 78.15, 77.84, 78.99, 79.55, 79.36}
+    a4 := []float64{83.22, 82.68, 83.43, 83.66, 83.68, 83.01, 82.80, 83.77, 84.44, 84.05}
+
+    assets := [][indicators.SmaenvelopeInputs][]float64{{a1}, {a2}, {a3}, {a4}}
+    sim, _ := indicators.Smaenvelope.SimdByAssets(assets, []float64{14.0, 2.5}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d Lower:  %v\n", i+1, lanes[0])
+        fmt.Printf("Asset %d Middle: %v\n", i+1, lanes[1])
+        fmt.Printf("Asset %d Upper:  %v\n", i+1, lanes[2])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```go
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    sim2, _ := indicators.Smaenvelope.SimdByOptions(close, [][]float64{{10.0, 2.0}, {14.0, 2.5}, {20.0, 3.0}, {50.0, 5.0}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Option set %d Lower:  %v\n", i+1, lanes[0])
+        fmt.Printf("Option set %d Middle: %v\n", i+1, lanes[1])
+        fmt.Printf("Option set %d Upper:  %v\n", i+1, lanes[2])
+    }
+    sim2.Close()
     ```
 
 === "Python"

@@ -142,6 +142,34 @@ Decomposes the roofing-filtered price series into in-phase and quadrature compon
     hilberttransform_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                       88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                       90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20}
+    options := []float64{10.0, 20.0} // ss_period, hp_period
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Hilberttransform.Indicator(close, options, nil)
+    fmt.Println(res.Rows[0]) // in_phase values
+    fmt.Println(res.Rows[1]) // quadrature values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Hilberttransform.Indicator(close[:35], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(close[35:], nil)
+    fmt.Println(batch.Rows[0]) // continued in_phase values
+    fmt.Println(batch.Rows[1]) // continued quadrature values
+    batch.Close()
+    st2.Close()
+    ```
+
 ### Optional Outputs
 
 === "Rust"
@@ -239,6 +267,35 @@ Decomposes the roofing-filtered price series into in-phase and quadrature compon
 
     tulip_ffi_result_free(r);
     hilberttransform_state_free(r.state);
+    ```
+
+=== "Go"
+
+    `hilberttransform` exposes 2 optional outputs: `roofing`, `highpass`. Pass a boolean mask as the third argument.
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                       88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                       90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20}
+    options := []float64{10.0, 20.0} // ss_period, hp_period
+    mask := []bool{true, true} // roofing, highpass
+
+    res, st, _ := indicators.Hilberttransform.Indicator(close, options, mask)
+    in_phase   := res.Rows[0]  // in_phase (primary)
+    quadrature := res.Rows[1]  // quadrature (primary)
+    roofing    := res.Rows[2]  // roofing (optional — requested)
+    highpass   := res.Rows[3]  // highpass (optional — requested)
+
+    fmt.Println(in_phase)
+    fmt.Println(quadrature)
+    fmt.Println(roofing)
+    fmt.Println(highpass)
+
+    res.Close()
+    st.Close()
     ```
 
 ### SIMD
@@ -409,4 +466,44 @@ Decomposes the roofing-filtered price series into in-phase and quadrature compon
     /* r.outputs[i][0] -> in_phase for option set i */
     for (uintptr_t i = 0; i < r.num_results; i++) hilberttransform_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{10.0, 20.0} // ss_period, hp_period
+
+    assets := [][indicators.HilberttransformInputs][]float64{
+        {close},
+        {close + 5.0},
+        {close - 3.0},
+        {close * 1.02},
+    }
+    sim, _ := indicators.Hilberttransform.SimdByAssets(assets, options, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d In-Phase:   %v\n", i+1, lanes[0])
+        fmt.Printf("Asset %d Quadrature: %v\n", i+1, lanes[1])
+    }
+    sim.Close()
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61}
+    options := [][]float64{{5, 10}, {10, 20}, {14, 30}, {20, 40}}
+
+    sim, _ := indicators.Hilberttransform.SimdByOptions(close, options, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Option set %d In-Phase:   %v\n", i+1, lanes[0])
+        fmt.Printf("Option set %d Quadrature: %v\n", i+1, lanes[1])
+    }
+    sim.Close()
     ```

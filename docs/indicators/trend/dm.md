@@ -70,6 +70,34 @@ Raw directional movement values before smoothing. +DM captures upward movement; 
     dm_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    high := []float64{82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00}
+    low := []float64{81.29, 80.64, 81.31, 82.65, 83.07,
+                     83.11, 82.49, 82.30, 84.15, 84.11}
+    options := []float64{14.0} // period
+
+    // Full computation — Rows is [+dm, -dm], valid until Close.
+    res, st, _ := indicators.Dm.Indicator(high, low, options, nil)
+    fmt.Println("+DM:", res.Rows[0])
+    fmt.Println("-DM:", res.Rows[1])
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Dm.Indicator(high[:8], low[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(high[8:], low[8:], nil)
+    fmt.Println("+DM continued:", batch.Rows[0])
+    fmt.Println("-DM continued:", batch.Rows[1])
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -230,6 +258,49 @@ Raw directional movement values before smoothing. +DM captures upward movement; 
     CSimdResult r = dm_simd_by_options(expanded_inputs, EXPANDED_LEN, simd_opts, 4, NULL, 0);
     for (uintptr_t i = 0; i < r.num_results; i++) dm_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    h1 := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00}
+    l1 := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11}
+    h2 := []float64{72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50}
+    l2 := []float64{71.10, 71.85, 72.40, 72.00, 73.20, 73.85, 74.10, 74.60, 75.00, 75.50}
+
+    assets := [][indicators.DmInputs][]float64{{h1, l1}, {h2, l2}}
+    sim, _ := indicators.Dm.SimdByAssets(assets, []float64{14.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d +DM: %v\n", i+1, lanes[0])
+        fmt.Printf("Asset %d -DM: %v\n", i+1, lanes[1])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```go
+    high := []float64{82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00}
+    low := []float64{81.29, 80.64, 81.31, 82.65, 83.07,
+                     83.11, 82.49, 82.30, 84.15, 84.11}
+
+    // Tile the series so longer-period option sets have enough data
+    expandedHigh := make([]float64, len(high)*20)
+    expandedLow := make([]float64, len(low)*20)
+    for i := 0; i < 20; i++ {
+        copy(expandedHigh[i*len(high):], high)
+        copy(expandedLow[i*len(low):], low)
+    }
+
+    sim2, _ := indicators.Dm.SimdByOptions(expandedHigh, expandedLow, [][]float64{{7.0}, {14.0}, {21.0}, {28.0}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Period %d +DM: %v\n", i+1, lanes[0])
+        fmt.Printf("Period %d -DM: %v\n", i+1, lanes[1])
+    }
+    sim2.Close()
     ```
 
 === "Python"

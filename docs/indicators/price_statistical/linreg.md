@@ -58,6 +58,30 @@ The end-point of a least-squares linear regression line fitted to the last `peri
     linreg_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{14.0} // period
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Linreg.Indicator(close, options, nil)
+    fmt.Println(res.Rows[0]) // LinReg(14) values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Linreg.Indicator(close[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(close[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued LinReg values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -142,6 +166,26 @@ The end-point of a least-squares linear regression line fitted to the last `peri
     /* r.outputs[2] -> linregintercept (optional — requested) */
     tulip_ffi_result_free(r);
     linreg_state_free(r.state);
+    ```
+
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{14.0} // period
+
+    mask := []bool{true, true} // one per optional output (linregslope, linregintercept)
+
+    // Full computation with optional outputs.
+    res, st, _ := indicators.Linreg.Indicator(close, options, mask)
+    fmt.Println(res.Rows[0]) // linreg (primary)
+    fmt.Println(res.Rows[1]) // linregslope (optional — requested)
+    fmt.Println(res.Rows[2]) // linregintercept (optional — requested)
+    res.Close()
+    st.Close()
     ```
 
 === "Python"
@@ -269,6 +313,29 @@ The end-point of a least-squares linear regression line fitted to the last `peri
     /* r.outputs[i] -> results for period set i (periods 7/14/21/28) */
     for (uintptr_t i = 0; i < r.num_results; i++) linreg_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same period applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    assets := [][indicators.LinregInputs][]float64{{a1}, {b1}, {c1}, {d1}}
+    sim, _ := indicators.Linreg.SimdByAssets(assets, []float64{14.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```go
+    sim2, _ := indicators.Linreg.SimdByOptions(a1, [][]float64{{7}, {14}, {21}, {28}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Period set %d: %v\n", i+1, lanes[0])
+    }
+    sim2.Close()
     ```
 
 === "Python"

@@ -20,7 +20,7 @@ TulipRS implements 100+ technical indicators organised into seven categories; ev
 
 ## Page Structure
 
-Every indicator has its own page with **Rust**, **Python**, and **Node.js** tabs. Each page contains:
+Every indicator has its own page with **Rust**, **Python**, **Node.js**, and **Go** tabs. Each page contains:
 
 - **Basic** — a full call followed by a state-continuation example.
 - **Optional Outputs** — shown only for indicators that expose intermediate series.
@@ -43,3 +43,9 @@ cargo run --example ti_stoch_example
 ```
 
 Example binaries live in `examples/indicators/` and are named `ti_<module>_example.rs`.
+
+---
+
+## Language Bindings
+
+For usage examples and installation instructions, see the **[Go binding](../language_bindings/go.md)** documentation.

@@ -122,6 +122,37 @@ Measures the instantaneous dominant cycle period by comparing successive bar pha
     homodynediscriminator_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import (
+        "fmt"
+        "github.com/me60732/tulip_rs_go/indicators"
+        "github.com/me60732/tulip_rs_go/tulip"
+    )
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                       88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                       90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20}
+
+    // homodynediscriminator takes no options — pass an empty slice
+    res, st, _ := indicators.Homodynediscriminator.Indicator(close, []float64{}, nil)
+    fmt.Printf("DC Period: %v\n", tulip.AsFloat64(res.Rows[0]))
+    res.Close()
+    st.Close()
+
+    // State continuation
+    partial := close[:35]
+    res2, state2, _ := indicators.Homodynediscriminator.Indicator(partial, []float64{}, nil)
+    fmt.Printf("Partial DC Period: %v\n", tulip.AsFloat64(res2.Rows[0]))
+
+    continued, _ := state2.Batch(close[35:], nil)
+    fmt.Printf("Continued DC Period: %v\n", tulip.AsFloat64(continued.Rows[0]))
+    continued.Close()
+    state2.Close()
+    ```
+
 ### SIMD
 
 === "Rust"
@@ -237,3 +268,20 @@ Measures the instantaneous dominant cycle period by comparing successive bar pha
     }
     tulip_ffi_simd_result_free(r);
     ```
+
+=== "Go"
+
+    **By assets** — applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    assets := [][indicators.HomodynediscriminatorInputs][]float64{{a1}, {a2}, {a3}, {a4}}
+    sim, _ := indicators.Homodynediscriminator.SimdByAssets(assets, nil, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    _This indicator has no options, so by-options SIMD does not apply._

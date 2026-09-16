@@ -58,6 +58,37 @@ A two-pole Butterworth filter with no phase lag that provides smoother output th
     supersmoother_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import (
+        "fmt"
+        "github.com/me60732/tulip_rs_go/indicators"
+        "github.com/me60732/tulip_rs_go/tulip"
+    )
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                       88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                       90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20}
+
+    options := []float64{10.0} // period
+
+    res, st, _ := indicators.Supersmoother.Indicator(close, options, nil)
+    fmt.Printf("Super Smoother: %v\n", tulip.AsFloat64(res.Rows[0]))
+    res.Close()
+    st.Close()
+
+    partial := close[:35]
+    res2, state2, _ := indicators.Supersmoother.Indicator(partial, options, nil)
+    fmt.Printf("Partial Super Smoother: %v\n", tulip.AsFloat64(res2.Rows[0]))
+
+    continued, _ := state2.Batch(close[35:], nil)
+    fmt.Printf("Continued Super Smoother: %v\n", tulip.AsFloat64(continued.Rows[0]))
+    continued.Close()
+    state2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -210,6 +241,44 @@ A two-pole Butterworth filter with no phase lag that provides smoother output th
         supersmoother_state_free(r.states[i]);
     }
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same period applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{10.0} // period
+
+    assets := [][indicators.SupersmootherInputs][]float64{
+        {close},
+        {close + 5.0},
+        {close - 3.0},
+        {close * 1.02},
+    }
+    sim, _ := indicators.Supersmoother.SimdByAssets(assets, options, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close()
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61}
+    options := [][]float64{{5}, {10}, {14}, {20}}
+
+    sim, _ := indicators.Supersmoother.SimdByOptions(close, options, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Period set %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close()
     ```
 
 === "Python"

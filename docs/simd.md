@@ -94,3 +94,37 @@ TulipRS's build script emits `-C target-cpu=native` when compiling with SIMD fea
 ## Code Examples
 
 Code examples for both SIMD modes are included on each indicator's own documentation page alongside the scalar example. See the [Moving Averages](indicators/moving_averages/sma.md), [Oscillators](indicators/oscillators/rsi.md), and other indicator pages for concrete usage patterns.
+
+### Go Binding Examples
+
+**By assets — same options applied to N assets:**
+
+```go
+// Each asset carries the same series (real) of equal length; all lanes share one options set
+assets := [][indicators.SmaInputs][]float64{
+    {real},
+    {scale(real, 1.2)},
+}
+sim, err := indicators.Sma.SimdByAssets(assets, []float64{14.0}, nil)
+defer sim.Close()
+
+for i := range sim.Results {
+    assetSMA := tulip.AsFloat64(sim.Results[i][0])
+    // ...
+}
+```
+
+**By options — N option sets applied to one shared series:**
+
+```go
+optionSets := [][]float64{{3}, {5}, {7}, {10}} // 4 period values
+sim, err := indicators.Sma.SimdByOptions(real, optionSets, nil)
+defer sim.Close()
+
+for i, o := range optionSets {
+    periodSMA := tulip.AsFloat64(sim.Results[i][0])
+    // ...
+}
+```
+
+Lane counts of 2, 4, 8, and 16 are all supported. Start with N = 4 (AVX2) for the best performance-to-portability tradeoff.

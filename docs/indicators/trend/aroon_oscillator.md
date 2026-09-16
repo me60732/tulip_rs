@@ -66,6 +66,32 @@ The difference between Aroon Up and Aroon Down. Positive values indicate bullish
     aroonosc_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    high := []float64{82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00}
+    low := []float64{81.29, 80.64, 81.31, 82.65, 83.07,
+                     83.11, 82.49, 82.30, 84.15, 84.11}
+    options := []float64{25.0} // period
+
+    // Full computation — Rows is just [aroonosc], valid until Close.
+    res, st, _ := indicators.Aroonosc.Indicator(high, low, options, nil)
+    fmt.Println(res.Rows[0]) // Aroon Oscillator values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Aroonosc.Indicator(high[:8], low[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(high[8:], low[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued Aroon Oscillator values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -173,6 +199,29 @@ The difference between Aroon Up and Aroon Down. Positive values indicate bullish
     /* r.outputs[2] -> aroon_up (optional),   length r.output_lens[2] */
     tulip_ffi_result_free(r);
     aroonosc_state_free(r.state);
+    ```
+
+=== "Go"
+
+    `aroonosc` exposes 2 optional outputs: `aroon_down`, `aroon_up`. By-options isn't offered.
+
+    ```go
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    high := make([]float64, len(close))
+    low := make([]float64, len(close))
+    for i := range close {
+        high[i] = close[i] + 1.0
+        low[i] = close[i] - 1.0
+    }
+    options := []float64{25.0} // period
+    mask := []bool{true, true} // aroon_down, aroon_up
+
+    res, _st, _ := indicators.Aroonosc.Indicator(high, low, options, mask)
+
+    aroonosc  := res.Rows[0]   // aroonosc (primary)
+    aroonDown := res.Rows[1]   // aroon_down (optional — requested)
+    aroonUp   := res.Rows[2]   // aroon_up (optional — requested)
+    res.Close()
     ```
 
 === "Python"
@@ -311,6 +360,29 @@ The difference between Aroon Up and Aroon Down. Positive values indicate bullish
     CSimdResult r = aroonosc_simd_by_options(expanded_inputs, EXPANDED_LEN, simd_opts, 4, NULL, 0);
     for (uintptr_t i = 0; i < r.num_results; i++) aroonosc_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same period applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    assets := [][indicators.AroonoscInputs][]float64{{h1, l1}, {h2, l2}, {h3, l3}, {h4, l4}}
+    sim, _ := indicators.Aroonosc.SimdByAssets(assets, []float64{25.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0]) // aroonosc
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```go
+    sim2, _ := indicators.Aroonosc.SimdByOptions(high, low, [][]float64{{5.0}, {10.0}, {25.0}, {50.0}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Period set %d: %v\n", i+1, lanes[0])
+    }
+    sim2.Close()
     ```
 
 === "Python"

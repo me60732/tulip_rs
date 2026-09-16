@@ -80,6 +80,39 @@ A volatility-based envelope centred on an EMA of close. The middle band is EMA(c
     keltnerchannel_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    high  := []float64{82.15, 81.89, 83.03, 83.30, 83.85,
+                       83.90, 83.33, 84.30, 84.84, 85.00,
+                       85.90, 86.58, 86.98, 88.00, 87.87}
+    low   := []float64{81.29, 80.64, 81.31, 82.65, 83.07,
+                       83.11, 82.49, 82.30, 84.15, 84.11,
+                       84.03, 85.39, 85.76, 87.17, 87.01}
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29}
+    options := []float64{14.0, 2.0} // period, step
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Keltnerchannel.Indicator(high, low, close, options, nil)
+    fmt.Println(res.Rows[0]) // lower band
+    fmt.Println(res.Rows[1]) // middle band (EMA)
+    fmt.Println(res.Rows[2]) // upper band
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Keltnerchannel.Indicator(high[:8], low[:8], close[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(high[8:], low[8:], close[8:], nil)
+    fmt.Println(batch.Rows[1]) // continued middle band
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -242,6 +275,40 @@ A volatility-based envelope centred on an EMA of close. The middle band is EMA(c
     keltnerchannel_state_free(partial_r.state);
     ```
 
+=== "Go"
+
+    `keltnerchannel` exposes 2 optional outputs: `atr`, `tr`. Pass a boolean mask as the fourth argument — one `bool` per optional output, in order.
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    high  := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                       85.90, 86.58, 86.98, 88.00, 87.87}
+    low   := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                       84.03, 85.39, 85.76, 87.17, 87.01}
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29}
+    options := []float64{14.0, 2.0} // period, step
+
+    // Request atr only (skip tr)
+    mask := []bool{true, false}
+    res, st, _ := indicators.Keltnerchannel.Indicator(high, low, close, options, mask)
+
+    lower  := res.Rows[0] // lower (primary)
+    middle := res.Rows[1] // middle (primary)
+    upper  := res.Rows[2] // upper (primary)
+    atr    := res.Rows[3] // atr (optional 0 — requested)
+    res.Close()
+    st.Close()
+
+    // Request both optional outputs
+    mask_both := []bool{true, true}
+    fullRes, fullSt, _ := indicators.Keltnerchannel.Indicator(high, low, close, options, mask_both)
+    fmt.Println(fullRes.Rows[4]) // tr (optional 1)
+    fullRes.Close()
+    fullSt.Close()
+    ```
+
 === "Node.js"
 
     `keltnerchannel` exposes 2 optional outputs: `atr`, `tr`.
@@ -258,7 +325,6 @@ A volatility-based envelope centred on an EMA of close. The middle band is EMA(c
     const [partial] = ti.keltnerchannel.indicator([high, low, close], [14, 2], [true, false]);
     ```
 
-
 === "WASM"
 
     The WASM API is identical to Node.js — pass the boolean mask as the third argument.
@@ -274,6 +340,7 @@ A volatility-based envelope centred on an EMA of close. The middle band is EMA(c
     // Request only atr
     const [partial] = ti.keltnerchannel.indicator([high, low, close], [14, 2], [true, false]);
     ```
+
 ### SIMD
 
 === "Rust"
@@ -357,6 +424,30 @@ A volatility-based envelope centred on an EMA of close. The middle band is EMA(c
     /* r.outputs[i] -> results for option set i */
     for (uintptr_t i = 0; i < r.num_results; i++) keltnerchannel_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    assets := [][indicators.KeltnerchannelInputs][]float64{{a1_high, a1_low, a1_close}, {a2_high, a2_low, a2_close}, {a3_high, a3_low, a3_close}, {a4_high, a4_low, a4_close}}
+    sim, _ := indicators.Keltnerchannel.SimdByAssets(assets, []float64{14.0, 2.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: middle=%v\n", i+1, lanes[1])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, N option sets in parallel:
+
+    ```go
+    assets2 := [][indicators.KeltnerchannelInputs][]float64{{high, low, close}}
+    sim2, _ := indicators.Keltnerchannel.SimdByOptions(high, low, close, [][]float64{{10.0, 1.5}, {14.0, 2.0}, {20.0, 2.0}, {30.0, 2.5}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Period=%d step=%d: middle=%v\n", i+1, lanes[0][1], lanes[0])
+    }
+    sim2.Close()
     ```
 
 === "Python"

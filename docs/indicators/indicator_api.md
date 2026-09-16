@@ -77,6 +77,40 @@ pub struct DisplayGroup {
     // Strings are leaked process-lifetime; read them, don't free
     ```
 
+=== "Go"
+
+    ```go
+    import (
+        "fmt"
+        "github.com/me60732/tulip_rs_go/indicators"
+        "github.com/me60732/tulip_rs_go/tulip"
+    )
+
+    info := indicators.Adx.Info()
+    // Info struct fields (all Go strings are copies; nothing to free):
+    // {
+    //   Name:            "adx",
+    //   FullName:        "Average Directional Index",
+    //   Type:            "Trend",       // from indicator_type
+    //   Inputs:          []string{"high", "low", "close"},
+    //   Options:         []string{"period"},
+    //   Outputs:         []string{"adx"},
+    //   OptionalOutputs: []string{"dx", "atr", "tr"},
+    //   DisplayGroups:   []tulip.DisplayGroup{...}
+    // }
+
+    fmt.Printf("Name:             %s\n", info.Name)
+    fmt.Printf("Full name:        %s\n", info.FullName)
+    fmt.Printf("Type:             %s\n", info.Type)     // Trend | Momentum | Volume | Volatility | Price | Cycle
+    fmt.Printf("Inputs:           %v\n", info.Inputs)
+    fmt.Printf("Options:          %v\n", info.Options)
+    fmt.Printf("Outputs:          %v\n", info.Outputs)
+    fmt.Printf("Optional outputs: %v\n", info.OptionalOutputs)
+    for _, g := range info.DisplayGroups {
+        fmt.Printf("  Group %s: %s (%s)\n", g.ID, g.Label, g.DisplayType)
+    }
+    ```
+
 === "Python"
 
     `info()` returns a plain Python `dict`. Access fields with standard key lookup:
@@ -254,6 +288,36 @@ The third argument to `indicator()` is `optional_outputs: Option<&[bool]>`. Each
     adosc_state_free(r.state);
     ```
 
+=== "Go"
+
+    ```go
+    import (
+        "fmt"
+        "github.com/me60732/tulip_rs_go/indicators"
+        "github.com/me60732/tulip_rs_go/tulip"
+    )
+
+    high  := []float64{/* ... */}
+    low   := []float64{/* ... */}
+    close := []float64{/* ... */}
+    vol   := []float64{/* ... */}
+    inputs := [][]float64{high, low, close, vol}
+
+    // indicators.Adx.Info().OptionalOutputs == ["dx", "atr", "tr"]
+    //                                         index 0  index 1  index 2
+
+    // Request only the AD line (index 2); skip dx and atr
+    mask := []bool{false, false, true}
+
+    res, st, _ := indicators.Adx.Indicator(high, low, close, []float64{14.0}, mask)
+    defer res.Close()
+    defer st.Close()
+
+    adxLine := tulip.AsFloat64(res.Rows[0]) // primary output — always present
+    // res.Rows[1] and res.Rows[2] are empty (not requested)
+    adLine  := tulip.AsFloat64(res.Rows[3]) // optional output at index 2
+    ```
+
 === "Python"
 
     ```python
@@ -326,6 +390,21 @@ Pass a mask of all `true` to capture every intermediate series:
     adosc_state_free(r.state);
     ```
 
+=== "Go"
+
+    ```go
+    // adosc has 3 optional outputs: short_ema, long_ema, ad
+    mask := []bool{true, true, true}
+    res, st, _ := indicators.Adosc.Indicator(high, low, close, volume, []float64{6.0, 20.0}, mask)
+    defer res.Close()
+    defer st.Close()
+
+    adoscLine    := res.Rows[0] // adosc     (primary)
+    shortEmaLine := res.Rows[1] // short_ema (optional 0)
+    longEmaLine  := res.Rows[2] // long_ema  (optional 1)
+    adLine       := res.Rows[3] // ad        (optional 2)
+    ```
+
 === "Python"
 
     ```python
@@ -391,6 +470,22 @@ Optional output masks work the same way with `batch_indicator()`. Pass the same 
 
     tulip_ffi_batch_result_free(br);
     adosc_state_free(state);
+    ```
+
+=== "Go"
+
+    ```go
+    // Initial call — request AD line (the third optional)
+    mask := []bool{false, false, true}
+    res, st, _ := indicators.Adosc.Indicator(high, low, close, volume, []float64{6.0, 20.0}, mask)
+    res.Close() // outputs consumed or copied; the state stays live
+
+    // Continue streaming — pass the same mask
+    continued, _ := st.Batch(newHigh, newLow, newClose, newVol, mask)
+    newAdosc := continued.Rows[0] // adosc (primary)
+    newAd    := continued.Rows[1] // ad (only requested optionals are appended)
+    continued.Close()
+    st.Close()
     ```
 
 === "Node.js"
@@ -465,6 +560,41 @@ The return type is `(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>)`. Index the outer 
 
     for (uintptr_t i = 0; i < r.num_results; i++) adosc_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    ```go
+    import (
+        "fmt"
+        "github.com/me60732/tulip_rs_go/indicators"
+        "github.com/me60732/tulip_rs_go/tulip"
+    )
+
+    // SIMD by assets: 4 assets, same options, same optional-output mask
+    mask := []bool{false, false, true} // request the AD line only
+
+    assets := [][indicators.AdxInputs][]float64{
+        {high_a, low_a, close_a},
+        {high_b, low_b, close_b},
+        {high_c, low_c, close_c},
+        {high_d, low_d, close_d},
+    }
+
+    sim, _ := indicators.Adx.SimdByAssets(assets, []float64{14.0}, mask)
+    defer sim.Close()
+
+    // sim.Results[0] is asset A — same layout as scalar indicator()
+    adx_a := tulip.AsFloat64(sim.Results[0][0]) // primary output
+    ad_a  := tulip.AsFloat64(sim.Results[0][3]) // optional output at index 2 (AD line)
+
+    // SIMD by options: 1 asset, 4 option sets, same mask
+    sim2, _ := indicators.Adx.SimdByOptions(high, low, close,
+        [][]float64{{3.0}, {6.0}, {12.0}, {20.0}}, mask)
+    defer sim2.Close()
+
+    adx_set1 := tulip.AsFloat64(sim2.Results[0][0]) // option set 0 primary output
+    ad_set1  := tulip.AsFloat64(sim2.Results[0][3]) // option set 0 AD line
     ```
 
 === "Python"
@@ -581,6 +711,26 @@ The value depends on the indicator's options because period-based indicators req
         // ... use outputs ...
         tulip_ffi_result_free(r);
         adx_state_free(r.state);
+    }
+    ```
+
+=== "Go"
+
+    ```go
+    import (
+        "fmt"
+        "github.com/me60732/tulip_rs_go/indicators"
+    )
+
+    minimum := indicators.Adx.MinData([]float64{14.0})
+    fmt.Printf("Min data: %d\n", minimum) // 28
+
+    if len(close) < int(minimum) {
+        fmt.Printf("Not enough data: have %d, need %d\n", len(close), minimum)
+    } else {
+        res, st, _ := indicators.Adx.Indicator(high, low, close, []float64{14.0}, nil)
+        defer res.Close()
+        defer st.Close()
     }
     ```
 

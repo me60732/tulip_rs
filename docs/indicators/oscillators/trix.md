@@ -54,6 +54,30 @@ The 1-period percentage rate of change of a triple-smoothed EMA. Useful as a mom
     trix_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{14.0}
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Trix.Indicator(close, options, nil)
+    fmt.Println(res.Rows[0]) // TRIX(14) values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Trix.Indicator(close[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(close[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued TRIX values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -140,6 +164,27 @@ The 1-period percentage rate of change of a triple-smoothed EMA. Useful as a mom
     /* r.outputs[3] -> ema (optional — requested) */
     tulip_ffi_result_free(r);
     trix_state_free(r.state);
+    ```
+
+=== "Go"
+
+    `trix` exposes 3 optional outputs: `tema`, `dema`, `ema`. Pass a boolean mask as the third argument.
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{5.0}
+
+    mask := []bool{false, false, true} // tema, dema, ema
+    res, st, _ := indicators.Trix.Indicator(close, options, mask)
+
+    trix := res.Rows[0] // trix (primary)
+    ema  := res.Rows[1] // ema (optional — requested)
+    // tema not requested, dema not requested
+    res.Close()
+    st.Close()
     ```
 
 === "Python"
@@ -252,15 +297,35 @@ The 1-period percentage rate of change of a triple-smoothed EMA. Useful as a mom
     tulip_ffi_simd_result_free(r);
     ```
 
+=== "Go"
+
+    **By assets** — same period applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    a1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    a2 := []float64{72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50}
+    a3 := []float64{55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40}
+    a4 := []float64{100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8}
+
+    assets := [][indicators.TrixInputs][]float64{{a1}, {a2}, {a3}, {a4}}
+    sim, _ := indicators.Trix.SimdByAssets(assets, []float64{14.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
     **By options** — same asset, 4 different periods in parallel:
 
-    ```c
-    double o9[] = {9.0}, o14[] = {14.0}, o21[] = {21.0}, o30[] = {30.0};
-    const double *const simd_opts[4] = {o9, o14, o21, o30};
+    ```go
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
 
-    CSimdResult r = trix_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
-    for (uintptr_t i = 0; i < r.num_results; i++) trix_state_free(r.states[i]);
-    tulip_ffi_simd_result_free(r);
+    sim2, _ := indicators.Trix.SimdByOptions(close, [][]float64{{9}, {14}, {21}, {30}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Period set %d: %v\n", i+1, lanes[0])
+    }
+    sim2.Close()
     ```
 
 === "Python"

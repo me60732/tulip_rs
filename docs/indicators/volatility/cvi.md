@@ -65,6 +65,32 @@ Measures the rate of change of the trading range (high minus low) EMA. Rising va
     cvi_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    high := []float64{82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00}
+    low  := []float64{81.29, 80.64, 81.31, 82.65, 83.07,
+                      83.11, 82.49, 82.30, 84.15, 84.11}
+    options := []float64{10.0} // period
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Cvi.Indicator(high, low, options, nil)
+    fmt.Println(res.Rows[0]) // CVI values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Cvi.Indicator(high[:8], low[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(high[8:], low[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued CVI
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -82,7 +108,7 @@ Measures the rate of change of the trading range (high minus low) EMA. Rising va
     # State continuation
     new_high = np.array([85.30], dtype=np.float64)
     new_low  = np.array([84.60], dtype=np.float64)
-    continued = state.batch_indicator([new_high, new_low])
+    continued = state.batch_indicator([new_high, low])
     print(continued[0])
     ```
 
@@ -198,6 +224,30 @@ Measures the rate of change of the trading range (high minus low) EMA. Rising va
     /* r.outputs[i] -> results for option set i */
     for (uintptr_t i = 0; i < r.num_results; i++) cvi_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    assets := [][indicators.CviInputs][]float64{{a1_high, a1_low}, {a2_high, a2_low}, {a3_high, a3_low}, {a4_high, a4_low}}
+    sim, _ := indicators.Cvi.SimdByAssets(assets, []float64{10.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, N option sets in parallel:
+
+    ```go
+    assets2 := [][indicators.CviInputs][]float64{{high, low}}
+    sim2, _ := indicators.Cvi.SimdByOptions(high, low, [][]float64{{5.0}, {10.0}, {14.0}, {20.0}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Period %d: %v\n", i+1, lanes[0])
+    }
+    sim2.Close()
     ```
 
 === "Python"

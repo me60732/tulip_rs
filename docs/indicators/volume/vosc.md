@@ -51,6 +51,30 @@ The percentage difference between two volume moving averages. Expanding volume o
     vosc_state_free(p.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    volume := []float64{1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+                        900.0, 1500.0, 1800.0, 1000.0, 1700.0}
+    options := []float64{5.0, 10.0} // short_period, long_period
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Vosc.Indicator(volume, options, nil)
+    fmt.Println(res.Rows[0]) // VOSC values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Vosc.Indicator(volume[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(volume[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued VOSC values
+    batch.Close()
+    st2.Close()
+    ```
+
 
 
 === "Python"
@@ -143,6 +167,23 @@ The percentage difference between two volume moving averages. Expanding volume o
     /* r.outputs[0] -> vosc, r.outputs[1] -> short_sma, r.outputs[2] -> long_sma */
     tulip_ffi_result_free(r);
     vosc_state_free(r.state);
+    ```
+
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    volume := []float64{10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0, 11800.0, 10200.0}
+    options := []float64{5.0, 20.0} // short_period, long_period
+    mask := []bool{true, true} // short_sma, long_sma
+
+    res, st, _ := indicators.Vosc.Indicator(volume, options, mask)
+    fmt.Println(res.Rows[0]) // vosc (primary)
+    fmt.Println(res.Rows[1]) // short_sma (optional — requested)
+    fmt.Println(res.Rows[2]) // long_sma (optional — requested)
+    res.Close()
+    st.Close()
     ```
 
 === "Python"
@@ -241,32 +282,34 @@ The percentage difference between two volume moving averages. Expanding volume o
     tulip_ffi_simd_result_free(r);
     ```
 
-    **By options** — same asset, N option sets in parallel:
+=== "Go"
 
-    ```c
-    #define EXPANDED_LEN (10 * 20)
-    static double volume_expanded[EXPANDED_LEN];
-    for (size_t i = 0; i < 20; i++) {
-        for (size_t j = 0; j < 10; j++) {
-            volume_expanded[i * 10 + j] = v1[j];
-        }
+    **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    assets := [][indicators.VoscInputs][]float64{
+        {v1},
+        {v2},
+        {v3},
+        {v4},
     }
-    const double *expanded_inputs[VOSC_INPUTS] = {volume_expanded};
-
-    static const double options_1[VOSC_OPTIONS] = {3.0, 6.0};
-    static const double options_2[VOSC_OPTIONS] = {5.0, 10.0};
-    static const double options_3[VOSC_OPTIONS] = {8.0, 16.0};
-    static const double options_4[VOSC_OPTIONS] = {12.0, 24.0};
-    /* simd_options is indexed by option set (the N=4 lanes), each lane
-       pointing at VOSC_OPTIONS values. */
-    const double *const simd_opts[4] = {options_1, options_2, options_3, options_4};
-
-    CSimdResult r = vosc_simd_by_options(expanded_inputs, EXPANDED_LEN, simd_opts, 4, NULL, 0);
-    for (uintptr_t i = 0; i < r.num_results; i++) {
-        /* r.outputs[i][0] -> option set i's series */
-        vosc_state_free(r.states[i]);
+    sim, _ := indicators.Vosc.SimdByAssets(assets, []float64{5.0, 10.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
     }
-    tulip_ffi_simd_result_free(r);
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```go
+    sim2, _ := indicators.Vosc.SimdByOptions(volume,
+        [][]float64{{3.0, 7.0}, {5.0, 10.0}, {8.0, 15.0}, {10.0, 20.0}},
+        nil)
+    for i := range sim2.Results {
+        fmt.Printf("Option set %d: %v\n", i+1, sim2.Results[i][0])
+    }
+    sim2.Close() // frees every lane state, then the SIMD buffers
     ```
 
 

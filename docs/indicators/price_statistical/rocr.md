@@ -28,17 +28,68 @@ The ratio of the current price to the price `period` bars ago (equivalent to `1 
 
 === "C"
 
+    **By assets** — same options applied to 4 assets in parallel:
+
     ```c
-    #include "tulip_rs_ffi.h"
+    double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double a2[] = {86.59, 86.06, 87.87, 88.00, 88.61, 88.15, 87.84, 88.99, 89.55, 89.36};
+    double a3[] = {78.59, 78.06, 79.87, 80.00, 80.61, 80.15, 79.84, 80.99, 81.55, 81.36};
+    double a4[] = {83.22, 82.68, 84.53, 84.66, 85.28, 84.81, 84.50, 85.67, 86.24, 86.05};
 
-    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
-                      83.15, 82.84, 83.99, 84.55, 84.36};
-    double options[ROCR_OPTIONS] = {10.0};
-    const double *inputs[ROCR_INPUTS] = {close};
+    const double *asset1[ROCR_INPUTS] = {a1};
+    const double *asset2[ROCR_INPUTS] = {a2};
+    const double *asset3[ROCR_INPUTS] = {a3};
+    const double *asset4[ROCR_INPUTS] = {a4};
+    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
 
-    CIndicatorResult r = rocr_indicator(inputs, 15, options, NULL, 0);
-    tulip_ffi_result_free(r);
-    rocr_state_free(r.state);
+    CSimdResult r = rocr_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        rocr_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+    **By options** — same asset, N option sets in parallel:
+
+    ```c
+    double close_expanded[40];
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 10; j++) close_expanded[i * 10 + j] = a1[j];
+    }
+    const double *expanded_inputs[ROCR_INPUTS] = {close_expanded};
+
+    double o5[] = {5.0}, o10[] = {10.0}, o20[] = {20.0}, o50[] = {50.0};
+    const double *const simd_opts[4] = {o5, o10, o20, o50};
+
+    CSimdResult r = rocr_simd_by_options(expanded_inputs, 40, simd_opts, 4, NULL, 0);
+    for (uintptr_t i = 0; i < r.num_results; i++) {
+        rocr_state_free(r.states[i]);
+    }
+    tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{10.0}
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Rocr.Indicator(close, options, nil)
+    fmt.Println(res.Rows[0]) // ROCR(10) values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Rocr.Indicator(close[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(close[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued ROCR values
+    batch.Close()
+    st2.Close()
     ```
 
 === "Python"
@@ -155,6 +206,36 @@ The ratio of the current price to the price `period` bars ago (equivalent to `1 
         rocr_state_free(r.states[i]);
     }
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same period applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    a1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    a2 := []float64{86.59, 86.06, 87.87, 88.00, 88.61, 88.15, 87.84, 88.99, 89.55, 89.36}
+    a3 := []float64{78.59, 78.06, 79.87, 80.00, 80.61, 80.15, 79.84, 80.99, 81.55, 81.36}
+    a4 := []float64{83.22, 82.68, 84.53, 84.66, 85.28, 84.81, 84.50, 85.67, 86.24, 86.05}
+
+    assets := [][indicators.RocrInputs][]float64{{a1}, {a2}, {a3}, {a4}}
+    sim, _ := indicators.Rocr.SimdByAssets(assets, []float64{10.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```go
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    sim2, _ := indicators.Rocr.SimdByOptions(close, [][]float64{{5}, {10}, {20}, {50}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Period set %d: %v\n", i+1, lanes[0])
+    }
+    sim2.Close()
     ```
 
 === "Python"

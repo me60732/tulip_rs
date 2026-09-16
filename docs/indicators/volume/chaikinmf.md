@@ -70,6 +70,36 @@ Measures buying and selling pressure. For each bar: MFV = ((close − low) − (
     tulip_ffi_batch_result_free(b);
     tulip_ffi_result_free(p);
     chaikinmf_state_free(p.state);
+
+
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    high   := []float64{82.15, 81.89, 83.03, 83.30, 83.85,
+                       83.90, 83.33, 84.30, 84.84, 85.00}
+    low    := []float64{81.29, 80.64, 81.31, 82.65, 83.07,
+                       83.11, 82.49, 82.30, 84.15, 84.11}
+    close  := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    volume := []float64{1200.0, 1500.0, 1300.0, 1100.0, 1600.0,
+                        1400.0, 1200.0, 1700.0, 1800.0, 1500.0}
+    options := []float64{14.0} // period
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Chaikinmf.Indicator(high, low, close, volume, options, nil)
+    fmt.Println(res.Rows[0]) // CMF values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Chaikinmf.Indicator(high[:8], low[:8], close[:8], volume[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(high[8:], low[8:], close[8:], volume[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued CMF values
+    batch.Close()
+    st2.Close()
     ```
 
 === "Python"
@@ -214,59 +244,36 @@ Measures buying and selling pressure. For each bar: MFV = ((close − low) − (
     tulip_ffi_simd_result_free(r);
     ```
 
-    **By options** — same asset, 4 different periods in one call:
+=== "Go"
 
-    ```c
-    static const double high_expanded[200] = {82.15, 81.89, 83.03, 83.30, 83.85,
-        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
-        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
-        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
-        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
-        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
-        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
-        83.90, 83.33, 84.30, 84.84, 85.00, 82.15, 81.89, 83.03, 83.30, 83.85,
-        83.90, 83.33, 84.30, 84.84, 85.00};
-    static const double low_expanded[200] = {81.29, 80.64, 81.31, 82.65, 83.07,
-        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
-        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
-        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
-        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
-        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
-        83.11, 82.49, 82.30, 84.15, 84.11, 81.29, 80.64, 81.31, 82.65, 83.07,
-        83.11, 82.49, 82.30, 84.15, 84.11};
-    static const double close_expanded[200] = {81.59, 81.06, 82.87, 83.00, 83.61,
-        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
-        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
-        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
-        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
-        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
-        83.15, 82.84, 83.99, 84.55, 84.36, 81.59, 81.06, 82.87, 83.00, 83.61,
-        83.15, 82.84, 83.99, 84.55, 84.36};
-    static const double volume_expanded[200] = {1200.0, 1500.0, 1300.0, 1100.0, 1600.0,
-        1400.0, 1200.0, 1700.0, 1800.0, 1500.0, 1200.0, 1500.0, 1300.0, 1100.0, 1600.0,
-        1400.0, 1200.0, 1700.0, 1800.0, 1500.0, 1200.0, 1500.0, 1300.0, 1100.0, 1600.0,
-        1400.0, 1200.0, 1700.0, 1800.0, 1500.0, 1200.0, 1500.0, 1300.0, 1100.0, 1600.0,
-        1400.0, 1200.0, 1700.0, 1800.0, 1500.0, 1200.0, 1500.0, 1300.0, 1100.0, 1600.0,
-        1400.0, 1200.0, 1700.0, 1800.0, 1500.0, 1200.0, 1500.0, 1300.0, 1100.0, 1600.0,
-        1400.0, 1200.0, 1700.0, 1800.0, 1500.0};
+    **By assets** — same option applied to 4 assets in parallel (lane counts 2/4/8/16):
 
-    const double *const expanded_inputs[CHAIKINMF_INPUTS] = {high_expanded, low_expanded,
-        close_expanded, volume_expanded};
-
-    static const double options_1[CHAIKINMF_OPTIONS] = {7.0};
-    static const double options_2[CHAIKINMF_OPTIONS] = {14.0};
-    static const double options_3[CHAIKINMF_OPTIONS] = {21.0};
-    static const double options_4[CHAIKINMF_OPTIONS] = {28.0};
-
-    const double *const simd_options[4] = {options_1, options_2, options_3, options_4};
-
-    CSimdResult r = chaikinmf_simd_by_options(expanded_inputs, 200, simd_options, 4, NULL, 0);
-    for (uintptr_t i = 0; i < r.num_results; i++) {
-        /* r.outputs[i][0] -> option set i's series */
-        chaikinmf_state_free(r.states[i]);
+    ```go
+    assets := [][indicators.ChaikinmfInputs][]float64{
+        {a1_high, a1_low, a1_close, a1_volume},
+        {a2_high, a2_low, a2_close, a2_volume},
+        {a3_high, a3_low, a3_close, a3_volume},
+        {a4_high, a4_low, a4_close, a4_volume},
     }
-    tulip_ffi_simd_result_free(r);
+    sim, _ := indicators.Chaikinmf.SimdByAssets(assets, []float64{14.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
     ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```go
+    sim2, _ := indicators.Chaikinmf.SimdByOptions(high, low, close, volume,
+        [][]float64{{7.0}, {14.0}, {21.0}, {28.0}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Period %d: %v\n", i+1, lanes[0])
+    }
+    sim2.Close()
+    ```
+
+
 
 === "Python"
 

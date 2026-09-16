@@ -72,6 +72,34 @@ Measures market volatility by averaging the true range (the greatest of: high-lo
     atr_state_free(pr.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    high := []float64{82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00}
+    low := []float64{81.29, 80.64, 81.31, 82.65, 83.07,
+                     83.11, 82.49, 82.30, 84.15, 84.11}
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{14.0} // period
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Atr.Indicator(high, low, close, options, nil)
+    fmt.Println(res.Rows[0]) // ATR values
+    res.Close()
+    st.Close()
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Atr.Indicator(high[:8], low[:8], close[:8], options, nil)
+    res2.Close() // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(high[8:], low[8:], close[8:], nil)
+    fmt.Println(batch.Rows[0]) // continued ATR values
+    batch.Close()
+    st2.Close()
+    ```
+
 === "Python"
 
     ```python
@@ -164,28 +192,6 @@ Measures market volatility by averaging the true range (the greatest of: high-lo
     let tr  = &outputs[1]; // tr  (optional — requested)
     ```
 
-=== "Python"
-
-    ```python
-    import numpy as np
-    import tulip_rs
-
-    high  = np.array([82.59, 82.06, 83.87, 84.00, 84.61,
-                      84.15, 83.84, 84.99, 85.55, 85.36], dtype=np.float64)
-    low   = np.array([80.59, 80.06, 81.87, 82.00, 82.61,
-                      82.15, 81.84, 82.99, 83.55, 83.36], dtype=np.float64)
-    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
-                      83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
-
-    outputs, state = tulip_rs.indicators.atr.indicator(
-        [high, low, close], [14.0],
-        optional_outputs=[True],
-    )
-
-    atr = outputs[0]  # atr (primary)
-    tr  = outputs[1]  # tr  (optional — requested)
-    ```
-
 === "C"
 
     ```c
@@ -214,6 +220,55 @@ Measures market volatility by averaging the true range (the greatest of: high-lo
     atr_state_free(r.state);
     ```
 
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    high := []float64{82.59, 82.06, 83.87, 84.00, 84.61,
+                      84.15, 83.84, 84.99, 85.55, 85.36}
+    low := []float64{80.59, 80.06, 81.87, 82.00, 82.61,
+                     82.15, 81.84, 82.99, 83.55, 83.36}
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+    options := []float64{14.0} // period
+
+    // request the optional tr output (mask order matches optional_outputs)
+    mask := []bool{true}
+    res, st, _ := indicators.Atr.Indicator(high, low, close, options, mask)
+
+    atr := res.Rows[0] // atr (primary)
+    tr  := res.Rows[1] // tr  (optional — requested)
+
+    fmt.Println("atr:", atr)
+    fmt.Println("tr:", tr)
+
+    res.Close()
+    st.Close()
+    ```
+
+=== "Python"
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    high  = np.array([82.59, 82.06, 83.87, 84.00, 84.61,
+                      84.15, 83.84, 84.99, 85.55, 85.36], dtype=np.float64)
+    low   = np.array([80.59, 80.06, 81.87, 82.00, 82.61,
+                      82.15, 81.84, 82.99, 83.55, 83.36], dtype=np.float64)
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.atr.indicator(
+        [high, low, close], [14.0],
+        optional_outputs=[True],
+    )
+
+    atr = outputs[0]  # atr (primary)
+    tr  = outputs[1]  # tr  (optional — requested)
+    ```
+
 === "Node.js"
 
     `atr` exposes 1 optional output: `tr`.
@@ -224,7 +279,6 @@ Measures market volatility by averaging the true range (the greatest of: high-lo
     const tr  = allOut[1]; // optional 0: tr
     ```
 
-
 === "WASM"
 
     The WASM API is identical to Node.js — pass the boolean mask as the third argument.
@@ -234,6 +288,7 @@ Measures market volatility by averaging the true range (the greatest of: high-lo
     const atr = allOut[0]; // primary
     const tr  = allOut[1]; // optional 0: tr
     ```
+
 ### SIMD
 
 === "Rust"
@@ -313,6 +368,46 @@ Measures market volatility by averaging the true range (the greatest of: high-lo
     /* r.outputs[i][0] -> ATR for period set i */
     for (uintptr_t i = 0; i < r.num_results; i++) atr_state_free(r.states[i]);
     tulip_ffi_simd_result_free(r);
+    ```
+
+=== "Go"
+
+    **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```go
+    h1 := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00}
+    l1 := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11}
+    c1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    h2 := []float64{72.15, 71.89, 73.03, 73.30, 73.85, 73.90, 73.33, 74.30, 74.84, 75.00}
+    l2 := []float64{71.29, 70.64, 71.31, 72.65, 73.07, 73.11, 72.49, 72.30, 74.15, 74.11}
+    c2 := []float64{71.59, 71.06, 72.87, 73.00, 73.61, 73.15, 72.84, 73.99, 74.55, 74.36}
+    h3 := []float64{52.15, 51.89, 53.03, 53.30, 53.85, 53.90, 53.33, 54.30, 54.84, 55.00}
+    l3 := []float64{51.29, 50.64, 51.31, 52.65, 53.07, 53.11, 52.49, 52.30, 54.15, 54.11}
+    c3 := []float64{51.59, 51.06, 52.87, 53.00, 53.61, 53.15, 52.84, 53.99, 54.55, 54.36}
+    h4 := []float64{102.15, 101.89, 103.03, 103.30, 103.85, 103.90, 103.33, 104.30, 104.84, 105.00}
+    l4 := []float64{101.29, 100.64, 101.31, 102.65, 103.07, 103.11, 102.49, 102.30, 104.15, 104.11}
+    c4 := []float64{101.59, 101.06, 102.87, 103.00, 103.61, 103.15, 102.84, 103.99, 104.55, 104.36}
+
+    assets := [][indicators.AtrInputs][]float64{{h1, l1, c1}, {h2, l2, c2}, {h3, l3, c3}, {h4, l4, c4}}
+    sim, _ := indicators.Atr.SimdByAssets(assets, []float64{14.0}, nil)
+    for i, lanes := range sim.Results {
+        fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
+    }
+    sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```go
+    high := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00}
+    low := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11}
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+
+    sim2, _ := indicators.Atr.SimdByOptions(high, low, close, [][]float64{{7.0}, {14.0}, {21.0}, {28.0}}, nil)
+    for i, lanes := range sim2.Results {
+        fmt.Printf("Period %d: %v\n", i+1, lanes[0])
+    }
+    sim2.Close()
     ```
 
 === "Python"
