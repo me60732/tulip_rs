@@ -1,5 +1,5 @@
 site_name: TulipRS
-site_description: High-performance technical analysis library in Rust — 100+ indicators, 60+ candlestick patterns, SIMD acceleration
+site_description: High-performance technical analysis library in Rust — 100+ indicators, 77+ candlestick patterns, SIMD acceleration
 site_url: https://me60732.github.io/tulip_rs
 repo_url: https://github.com/me60732/tulip_rs
 repo_name: me60732/tulip_rs

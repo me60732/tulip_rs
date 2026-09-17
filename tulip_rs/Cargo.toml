@@ -8,8 +8,8 @@ license = "MIT"
 repository = "https://github.com/me60732/tulip_rs"
 documentation = "https://me60732.github.io/tulip_rs"
 readme = "../README.md"
-keywords = ["technical-indicators", "finance", "technical-analysis", "trading", "indicators", "stocks", "ta-lib", "tulip", "quant", "simd", "Candle Stick", "rust", "streaming", "statefull", "signal-processing"]
-categories = ["mathematics", "concurrency", "external-ffi", "algorithms", "finance", "science", "mathematics"]
+keywords = ["technical-analysis", "trading", "finance", "simd", "ta-lib"]
+categories = ["algorithms", "finance", "mathematics", "science", "simulation"]
 
 [lints.clippy]
 get_first = "allow"
