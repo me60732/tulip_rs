@@ -16,8 +16,29 @@ Most technical analysis libraries are wrappers around the same scalar C code wri
 
 **Optional outputs at no extra cost** — many indicators compute intermediate series (sub-EMAs, TR, AD line, etc.) as a natural part of their calculation. TulipRS can return those alongside the primary output in the same pass. C Tulip and TA-Lib require a separate function call — and a full extra data scan — for each one. TulipRS is **1.3× – 8.7× faster** when you need those intermediate values. See [Indicator API](indicators/indicator_api.md).
 
+---
 
 **Browser-native via WebAssembly** — the full indicator library compiles to a WebAssembly module via `wasm-pack`, bringing the same computation to any modern browser with zero server round-trips and zero native dependencies. Pair it with [`tulip-rs-lwc`](https://www.npmjs.com/package/tulip-rs-lwc) for drop-in TradingView Lightweight Charts overlays and oscillators, or use [`tulip-rs-wasm`](https://www.npmjs.com/package/tulip-rs-wasm) directly for headless browser-side computation. See [Live Demo](demo.md).
+
+---
+
+## Performance
+
+TulipRS isn't just SIMD-accelerated in theory — it's measurably faster in
+practice, benchmarked against C Tulip, TA-Lib, pure-Rust libraries (kand,
+RustTa), pandas-based Python libraries, pure-Go libraries, and popular Node.js
+TA packages:
+
+- **~22× faster than Python's `ta` library**, up to 20,802× on select indicators
+- **~46× faster than Node's `technicalindicators`**, up to 403× on select indicators
+- **~2,283× faster than Go's `cinar/indicator`**, up to 7,491× on select indicators
+- **Up to 11.93× faster than TA-Lib**, the industry-standard C library
+- **Beats every pure-Rust TA-Lib-inspired competitor on 100% of compared
+  indicators** — up to **36.10× faster than `kand`** (`mfi`) and up to
+  **6.78× faster than `RustTa`** (`ef`)
+- **Up to 3.85× additional throughput** from SIMD batch processing
+
+📊 **[Full benchmark methodology and results](benchmarks/index.md)**
 
 ---
 
