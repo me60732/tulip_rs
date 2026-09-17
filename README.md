@@ -1,8 +1,10 @@
 # TulipRS
 
-[![Crates.io](https://img.shields.io/crates/v/tulip_rs.svg)](https://crates.io/crates/tulip_rs)
+[![Crates.io version](https://img.shields.io/crates/v/tulip_rs.svg)](https://crates.io/crates/tulip_rs)
 [![docs.rs](https://img.shields.io/docsrs/tulip_rs)](https://docs.rs/tulip_rs)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Downloads](https://img.shields.io/crates/d/tulip_rs.svg)](https://crates.io/crates/tulip_rs)
+[![License: MIT](https://img.shields.io/crates/l/tulip_rs.svg)](LICENSE)
+[![CI status](https://github.com/me60732/tulip_rs/actions/workflows/ci.yml/badge.svg)](https://github.com/me60732/tulip_rs/actions/workflows/ci.yml)
 
 **High-performance technical analysis in Rust.**
 
