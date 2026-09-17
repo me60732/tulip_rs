@@ -2,7 +2,7 @@
 
 **High-performance technical analysis in Rust.**
 
-TulipRS is a production-ready Rust library implementing 100+ technical indicators and 60+ candlestick patterns with first-class SIMD acceleration. Indicators run on scalar data or on multiple assets / multiple option sets simultaneously using portable SIMD intrinsics. Every indicator returns a serialisable `IndicatorState` alongside its outputs, enabling incremental streaming computation without reprocessing historical data. Native Rust, C (`tulip_rs_ffi`), Python, Node.js, and Go are all fully supported; additional language bindings are planned.
+TulipRS is a production-ready library implementing 100+ technical indicators and 77+ candlestick patterns, with first-class SIMD acceleration, stateful streaming, and native bindings for C, Python, Node.js, Go, and the browser (WASM).
 
 ---
 
