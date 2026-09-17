@@ -166,6 +166,8 @@ nav:
                 - Rust: benchmarks/standard/rust.md
                 - Python: benchmarks/standard/python.md
                 - Node: benchmarks/standard/node.md
+                - C: benchmarks/standard/c.md
+                - Go: benchmarks/standard/go.md
           - SIMD:
                 - Overview: benchmarks/simd.md
                 - by_assets: benchmarks/simd/by-assets.md

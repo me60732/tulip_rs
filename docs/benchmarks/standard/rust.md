@@ -18,7 +18,7 @@
     | aroonosc | 19,553 | 81,958 | 40,258 | 4.19x | 2.06x |
     | atr | 4,825 | 11,015 | 27,256 | 2.28x | 5.65x |
     | avgprice | 1,433 | 2,046 | 2,279 | 1.43x | 1.59x |
-    | bbands | 6,574 | 9,014 | 21,149 | 1.37x | 3.22x |
+    | bbands | 6,490 | N/A | N/A | --- | --- |
     | bop | 2,440 | 2,853 | 5,129 | 1.17x | 2.10x |
     | ccfisher | 227,893 | N/A | N/A | --- | --- |
     | cci | 78,669 | N/A | N/A | --- | --- |
@@ -103,8 +103,8 @@
 
     ??? success "Notable results"
 
-        Rust beats C Tulip on **65 of 70 indicators (93%)**.
-        Rust beats TA-Lib on **36 of 38 indicators (95%)**.
+        Rust beats C Tulip on **64 of 69 indicators (93%)**.
+        Rust beats TA-Lib on **35 of 37 indicators (95%)**.
 
         | Category | Indicator | Speedup vs C | Speedup vs TA-Lib |
         |----------|-----------|:------------:|:-------------------:|
@@ -129,7 +129,7 @@
 
 === "vs Rust"
 
-    Competitors: **RustTa** (19 indicators) and **kand** v0.2 (36 indicators) — both pure-Rust, TA-Lib–inspired libraries.
+    Competitors: **RustTa** (18 indicators) and **kand** v0.2 (35 indicators) — both pure-Rust, TA-Lib–inspired libraries.
 
     Note: kand uses NaN-padded full-length outputs (processing all n bars), while tulip_rs outputs only the valid computed bars. Both perform comparable per-call validation.
 
@@ -146,7 +146,7 @@
     | aroonosc | 19,553 | N/A | --- | 376,160 | 19.24x |
     | atr | 4,825 | 9,668 | 2.00x | 22,797 | 4.72x |
     | avgprice | 1,433 | N/A | --- | N/A | --- |
-    | bbands | 6,574 | 8,588 | 1.31x | 22,698 | 3.45x |
+    | bbands | 6,490 | N/A | --- | N/A | --- |
     | bop | 2,440 | N/A | --- | 2,868 | 1.18x |
     | ccfisher | 227,893 | N/A | --- | N/A | --- |
     | cci | 78,669 | N/A | --- | N/A | --- |
@@ -231,8 +231,8 @@
 
     ??? success "Notable results"
 
-        Rust beats RustTa on **19 of 19 compared indicators**.
-        Rust beats Kand on **36 of 36 compared indicators**.
+        Rust beats RustTa on **18 of 18 compared indicators**.
+        Rust beats Kand on **35 of 35 compared indicators**.
 
         | Category | Indicator | Speedup vs RustTa | Speedup vs Kand |
         |----------|-----------|:------------------:|:----------------:|

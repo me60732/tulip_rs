@@ -5,6 +5,108 @@ Processes 4 different assets with the same options in a single 256-bit AVX2 `f64
 - **Speedup vs Rust** - how many times faster SIMD is compared to 4x sequential native Rust calls
 - **Speedup vs [binding/library]** - how many times faster SIMD is compared to 4x sequential calls of that competitor
 
+=== "vs Rust"
+
+    Reference libraries: **RustTa** (bukosabino/ta) and **Kand** (kand-labs/kand),
+    each called once per asset and summed to give the equivalent 4-asset sequential cost.
+    Kand uses NaN-padding which may affect some indicators.
+
+    | Indicator | SIMD 4-Asset (ns) | Speedup vs Rust | Speedup vs RustTa | Speedup vs Kand |
+    |-----------|------------------:|-----------------:|-------------------:|----------------:|
+    | ad | 16,266 | 1.18x | --- | 1.26x |
+    | adaptivemsw | 1,785,341 | 1.18x | --- | --- |
+    | adosc | 18,352 | 1.23x | --- | 5.33x |
+    | adx | 21,309 | 2.01x | --- | 14.15x |
+    | adxr | 24,689 | 2.42x | --- | 12.50x |
+    | ao | 14,487 | 1.50x | --- | --- |
+    | apo | 10,305 | 1.89x | --- | --- |
+    | aroon | 76,294 | 0.98x | --- | 19.65x |
+    | aroonosc | 77,794 | 1.00x | --- | 19.34x |
+    | atr | 13,289 | 1.45x | 2.91x | 6.86x |
+    | avgprice | 5,677 | 1.01x | --- | --- |
+    | bbands | 23,726 | 0.88x | --- | --- |
+    | bop | 9,708 | 1.01x | --- | 1.18x |
+    | ccfisher | 275,801 | 3.31x | --- | --- |
+    | cci | 71,967 | 3.30x | --- | --- |
+    | chaikinmf | 20,817 | 1.38x | --- | --- |
+    | chandelierexit | 112,590 | 0.66x | 1.56x | --- |
+    | cmo | 11,736 | 2.14x | --- | --- |
+    | cvi | 13,168 | 1.58x | --- | --- |
+    | cybercycle | 56,695 | 1.18x | --- | --- |
+    | dema | 9,415 | 2.69x | --- | 10.08x |
+    | di | 23,032 | 2.97x | --- | 4.33x |
+    | dm | 18,078 | 2.20x | --- | 5.04x |
+    | donchianchannel | 116,011 | 0.45x | --- | --- |
+    | dpo | 14,045 | 0.77x | --- | --- |
+    | dx | 19,111 | 1.97x | --- | 10.96x |
+    | ef | 10,709 | 1.46x | 9.90x | --- |
+    | elderray | 18,261 | 1.33x | --- | --- |
+    | ema | 9,497 | 2.02x | 3.49x | 3.64x |
+    | emv | 9,728 | 1.01x | --- | --- |
+    | fisher | 178,104 | 1.09x | --- | --- |
+    | fosc | 11,510 | 0.81x | --- | --- |
+    | highpass | 10,395 | 1.85x | --- | --- |
+    | hilberttransform | 24,733 | 2.31x | --- | --- |
+    | hma | 17,334 | 2.16x | --- | --- |
+    | homodynediscriminator | 298,453 | 2.91x | --- | --- |
+    | ichimoku | 402,544 | 0.69x | --- | --- |
+    | instantaneoustrendline | 358,442 | 2.48x | --- | --- |
+    | kama | 12,728 | 2.34x | --- | --- |
+    | keltnerchannel | 26,530 | 1.03x | 1.95x | --- |
+    | kvo | 26,431 | 1.36x | --- | --- |
+    | linreg | 9,885 | 3.05x | --- | --- |
+    | macd | 23,917 | 1.06x | 1.39x | 4.93x |
+    | mama | 256,679 | 3.43x | --- | --- |
+    | marketfi | 12,414 | 0.79x | --- | --- |
+    | mass | 13,436 | 1.95x | --- | --- |
+    | max | 21,430 | 0.97x | 2.65x | --- |
+    | md | 31,794 | 1.80x | 4.64x | --- |
+    | medprice | 3,915 | 0.89x | --- | 1.53x |
+    | mfi | 21,861 | 1.46x | 4.36x | 52.76x |
+    | min | 33,635 | 0.82x | 3.02x | --- |
+    | mom | 3,415 | 1.05x | --- | 1.65x |
+    | msw | 298,731 | 1.73x | --- | --- |
+    | natr | 13,126 | 1.51x | --- | 7.84x |
+    | nvi | 11,288 | 0.95x | --- | --- |
+    | obv | 10,457 | 1.34x | 2.10x | 1.44x |
+    | ppo | 10,403 | 1.95x | 3.19x | --- |
+    | psar | 73,128 | 0.47x | --- | 1.00x |
+    | pvi | 10,631 | 0.96x | --- | --- |
+    | qstick | 10,432 | 0.99x | --- | --- |
+    | roc | 10,429 | 0.93x | 1.18x | 1.08x |
+    | rocr | 10,531 | 0.93x | --- | 1.04x |
+    | roofingfilter | 11,828 | 3.63x | --- | --- |
+    | rsi | 10,442 | 1.91x | 3.18x | 9.20x |
+    | sma | 9,516 | 1.08x | 2.01x | 2.13x |
+    | smaenvelope | 24,671 | 1.15x | --- | --- |
+    | stddev | 15,157 | 1.00x | 2.33x | --- |
+    | stoch | 90,638 | 0.90x | 2.16x | 17.96x |
+    | stochrsi | 134,154 | 0.57x | --- | --- |
+    | supersmoother | 12,154 | 3.53x | --- | --- |
+    | supertrend | 25,150 | 1.92x | --- | 7.16x |
+    | tema | 10,444 | 2.60x | --- | 10.75x |
+    | tr | 5,595 | 1.00x | 5.63x | 1.59x |
+    | trendmode | 251,480 | 3.49x | --- | --- |
+    | trima | 13,096 | 1.72x | --- | 3.22x |
+    | trix | 10,496 | 2.44x | --- | 11.14x |
+    | trvi | 17,567 | 1.25x | --- | --- |
+    | tsf | 10,981 | 2.41x | --- | --- |
+    | typprice | 4,619 | 0.94x | --- | 2.43x |
+    | ultosc | 32,730 | 1.90x | --- | --- |
+    | vhf | 77,292 | 0.70x | --- | --- |
+    | vidya | 38,448 | 1.27x | --- | --- |
+    | volatility | 24,966 | 1.09x | --- | --- |
+    | vortex | 25,523 | 1.26x | --- | --- |
+    | vosc | 14,743 | 0.98x | --- | --- |
+    | vwap | 16,274 | 0.78x | --- | 2.16x |
+    | vwma | 16,507 | 0.85x | --- | --- |
+    | wad | 13,998 | 1.13x | --- | --- |
+    | wcprice | 4,451 | 0.97x | --- | 1.54x |
+    | wilders | 9,255 | 2.06x | --- | --- |
+    | willr | 80,508 | 0.86x | --- | 17.85x |
+    | wma | 9,213 | 2.15x | --- | 23.93x |
+    | zlema | 9,193 | 2.60x | --- | --- |
+
 === "vs C"
 
     | Indicator | SIMD 4-Asset (ns) | Speedup vs Rust | Speedup vs C | Speedup vs TA-Lib |
@@ -20,7 +122,7 @@ Processes 4 different assets with the same options in a single 256-bit AVX2 `f64
     | aroonosc | 77,794 | 1.00x | 4.21x | 2.07x |
     | atr | 13,289 | 1.45x | 3.32x | 8.20x |
     | avgprice | 5,677 | 1.01x | 1.44x | 1.61x |
-    | bbands | 26,007 | 1.01x | 1.39x | 3.25x |
+    | bbands | 23,726 | 0.88x | --- | --- |
     | bop | 9,708 | 1.01x | 1.18x | 2.11x |
     | ccfisher | 275,801 | 3.31x | --- | --- |
     | cci | 71,967 | 3.30x | --- | --- |
@@ -223,7 +325,7 @@ Processes 4 different assets with the same options in a single 256-bit AVX2 `f64
     | aroonosc | 131,531 | 0.78x | --- | --- |
     | atr | 29,751 | 1.18x | 56.58x | 36.25x |
     | avgprice | 27,057 | 1.08x | --- | --- |
-    | bbands | 109,653 | 0.59x | 234.70x | 11.00x |
+    | bbands | 93,447 | 0.87x | 268.13x | 12.75x |
     | bop | 26,270 | 0.93x | --- | 2.71x |
     | ccfisher | 415,190 | 2.27x | --- | --- |
     | cci | 112,221 | 3.19x | 172.12x | 2.36x |
@@ -314,97 +416,97 @@ Processes 4 different assets with the same options in a single 256-bit AVX2 `f64
 
     | Indicator | SIMD 4-Asset (ns) | Speedup vs tulip_rs_ffi_c | Speedup vs C | Speedup vs TA-Lib |
     |-----------|------------------:|--------------------------:|-------------:|------------------:|
-    | ad | 106,851 | 4.51x | 4.22x | 4.30x |
-    | adaptivemsw | 1,788,600 | 7.99x | --- | --- |
-    | adosc | 19,430 | 1.38x | 1.91x | 1.82x |
-    | adx | 23,138 | 5.41x | 4.70x | 6.77x |
-    | adxr | 30,618 | 4.51x | 4.01x | 5.29x |
-    | ao | 17,631 | 5.39x | 4.15x | --- |
-    | apo | 10,986 | 1.81x | 3.15x | 3.85x |
-    | aroon | 116,153 | 1.15x | 3.19x | 1.59x |
-    | aroonosc | 115,410 | 1.26x | 3.12x | 1.50x |
-    | atr | 13,738 | 1.62x | 3.10x | 7.80x |
-    | avgprice | 14,078 | 2.92x | 1.75x | 2.09x |
-    | bbands | 25,355 | 1.21x | 1.13x | 3.08x |
-    | bop | 10,503 | 4.02x | 3.67x | 7.25x |
-    | ccfisher | 307,337 | 4.44x | --- | --- |
-    | cci | 74,065 | 4.25x | 3.99x | 6.04x |
-    | chaikinmf | 21,881 | 1.77x | --- | --- |
-    | chandelierexit | 146,756 | 1.02x | --- | --- |
-    | cmo | 12,465 | 2.22x | 10.97x | 8.36x |
-    | cvi | 12,797 | 1.55x | 4.43x | --- |
-    | cybercycle | 56,203 | 4.80x | --- | --- |
-    | dema | 9,744 | 2.41x | 2.64x | 9.31x |
-    | di | 23,563 | 5.13x | 4.15x | 9.63x |
-    | dm | 19,580 | 5.43x | 4.10x | --- |
-    | donchianchannel | 176,426 | 0.87x | 1.52x | --- |
-    | dpo | 13,058 | 0.84x | 0.74x | --- |
-    | dx | 25,302 | 5.51x | 3.86x | 6.14x |
-    | ef | 11,726 | 1.66x | --- | --- |
-    | elderray | 19,176 | 1.29x | 2.22x | --- |
-    | ema | 9,514 | 2.05x | 4.49x | 4.47x |
-    | emv | 10,317 | 1.28x | 1.85x | --- |
-    | fisher | 297,228 | 1.05x | 1.15x | --- |
-    | fosc | 12,250 | 2.74x | 3.09x | --- |
-    | highpass | 10,277 | 1.89x | --- | --- |
-    | hma | 18,017 | 1.97x | 2.09x | --- |
-    | ichimoku | 524,057 | 0.82x | --- | --- |
-    | kama | 13,488 | 2.11x | 2.49x | 3.21x |
-    | keltnerchannel | 48,925 | 0.56x | --- | --- |
-    | kvo | 27,637 | 2.35x | 2.35x | --- |
-    | linreg | 11,395 | 2.57x | 3.16x | 20.48x |
-    | macd | 46,627 | 0.54x | 1.07x | 2.94x |
-    | mama | 259,587 | 3.42x | --- | 3.74x |
-    | marketfi | 14,142 | 3.53x | 2.72x | --- |
-    | mass | 13,169 | 1.94x | 3.63x | --- |
-    | max | 62,967 | 1.06x | 1.87x | 1.19x |
-    | md | 46,174 | 1.26x | 1.38x | --- |
-    | medprice | 5,039 | 0.98x | 0.91x | 0.76x |
-    | mfi | 23,827 | 1.51x | 5.36x | 4.14x |
-    | min | 74,682 | 0.98x | 2.01x | 1.20x |
-    | mom | 3,922 | 0.99x | 0.92x | 0.82x |
-    | msw | 173,335 | 3.38x | 15.41x | --- |
-    | natr | 13,873 | 1.71x | 3.07x | 7.71x |
-    | nvi | 13,733 | 3.75x | 4.40x | --- |
-    | obv | 11,156 | 5.69x | 6.66x | 6.50x |
-    | pivotpoint | 855 | 0.68x | --- | --- |
-    | ppo | 11,614 | 1.93x | 3.21x | 4.90x |
-    | psar | 81,569 | 1.20x | 1.52x | 1.45x |
-    | pvi | 12,879 | 4.00x | 4.71x | --- |
-    | qstick | 11,060 | 0.97x | 0.99x | --- |
-    | roc | 10,780 | 0.92x | 0.88x | 1.76x |
-    | rocr | 10,555 | 0.94x | 0.90x | 1.82x |
-    | roofingfilter | 12,458 | 3.47x | --- | --- |
-    | rsi | 10,935 | 1.99x | 6.77x | 9.48x |
-    | sma | 9,783 | 1.06x | 0.98x | 1.93x |
-    | smaenvelope | 27,824 | 0.98x | --- | --- |
-    | stddev | 15,652 | 1.85x | 1.83x | 4.22x |
-    | stoch | 146,652 | 0.98x | 2.64x | 1.69x |
-    | stochrsi | 170,414 | 1.21x | 1.40x | 1.59x |
-    | supersmoother | 13,520 | 3.20x | --- | --- |
-    | supertrend | 25,996 | 2.33x | --- | --- |
-    | tema | 9,970 | 2.77x | 2.67x | 13.28x |
-    | tr | 6,790 | 1.12x | 1.01x | 1.23x |
-    | trendmode | 256,121 | 5.19x | --- | --- |
-    | trima | 14,156 | 1.56x | 2.01x | 2.01x |
-    | trix | 11,118 | 2.45x | 3.84x | 13.13x |
-    | trvi | 16,764 | 1.44x | --- | --- |
-    | tsf | 11,124 | 2.52x | 3.28x | 20.72x |
-    | typprice | 5,045 | 1.09x | 1.03x | 1.92x |
-    | ultosc | 36,667 | 1.70x | 1.69x | 5.07x |
-    | vhf | 133,674 | 1.02x | 1.96x | --- |
-    | vidya | 39,953 | 1.23x | 1.89x | --- |
-    | volatility | 25,984 | 1.88x | 2.75x | --- |
-    | vortex | 26,144 | 1.18x | --- | --- |
-    | vosc | 13,984 | 1.46x | 1.39x | --- |
-    | vwap | 18,104 | 4.33x | --- | --- |
-    | vwma | 16,712 | 1.18x | 1.14x | --- |
-    | wad | 16,314 | 14.68x | 16.62x | --- |
-    | wcprice | 5,571 | 3.41x | 3.75x | --- |
-    | wilders | 10,034 | 1.98x | 4.28x | --- |
-    | willr | 113,952 | 1.10x | 3.18x | 1.83x |
-    | wma | 10,777 | 1.81x | 3.09x | 1.80x |
-    | zlema | 9,754 | 2.47x | 3.39x | --- |
+    | ad | 16,128 | 4.77x | 4.71x | 4.72x |
+    | adaptivemsw | 1,744,942 | 4.86x | --- | --- |
+    | adosc | 17,159 | 1.32x | 2.09x | 1.99x |
+    | adx | 21,169 | 2.04x | 1.88x | 7.21x |
+    | adxr | 25,370 | 2.12x | 2.07x | 6.19x |
+    | ao | 13,256 | 6.79x | 5.46x | --- |
+    | apo | 9,706 | 2.01x | 3.58x | 4.27x |
+    | aroon | 75,769 | 0.90x | 4.24x | 2.04x |
+    | aroonosc | 83,020 | 0.96x | 3.95x | 1.74x |
+    | atr | 13,009 | 1.48x | 3.27x | 8.23x |
+    | avgprice | 5,859 | 3.87x | 3.76x | 4.59x |
+    | bbands | 39,222 | 0.74x | 0.73x | 1.99x |
+    | bop | 9,906 | 3.94x | 3.86x | 7.68x |
+    | ccfisher | 287,813 | 4.77x | --- | --- |
+    | cci | 72,282 | 4.38x | 4.09x | 6.19x |
+    | chaikinmf | 20,790 | 1.84x | --- | --- |
+    | chandelierexit | 104,451 | 0.66x | --- | --- |
+    | cmo | 11,896 | 2.29x | 2.22x | 8.71x |
+    | cvi | 12,476 | 1.56x | 4.52x | --- |
+    | cybercycle | 55,974 | 4.76x | --- | --- |
+    | dema | 9,212 | 2.52x | 2.79x | 9.68x |
+    | di | 23,427 | 3.02x | 1.68x | 9.73x |
+    | dm | 17,420 | 2.07x | 1.38x | --- |
+    | donchianchannel | 168,582 | 0.31x | 1.16x | --- |
+    | dpo | 10,864 | 0.92x | 0.89x | --- |
+    | dx | 19,403 | 2.02x | 1.55x | 7.81x |
+    | ef | 10,951 | 1.76x | --- | --- |
+    | elderray | 18,122 | 1.34x | 2.36x | --- |
+    | ema | 9,422 | 2.04x | 4.53x | 4.52x |
+    | emv | 10,004 | 0.98x | 1.92x | --- |
+    | fisher | 277,589 | 0.88x | 1.12x | --- |
+    | fosc | 11,586 | 2.84x | 3.23x | --- |
+    | highpass | 10,003 | 1.93x | --- | --- |
+    | hma | 17,538 | 1.97x | 2.15x | --- |
+    | ichimoku | 534,046 | 0.55x | --- | --- |
+    | kama | 12,703 | 2.20x | 2.64x | 3.37x |
+    | keltnerchannel | 77,000 | 0.35x | --- | --- |
+    | kvo | 26,378 | 1.38x | 1.35x | --- |
+    | linreg | 10,422 | 2.79x | 3.41x | 21.87x |
+    | macd | 74,099 | 0.34x | 0.67x | 1.86x |
+    | mama | 256,812 | 3.42x | --- | 3.49x |
+    | marketfi | 12,684 | 3.07x | 3.01x | --- |
+    | mass | 12,951 | 1.76x | 3.66x | --- |
+    | max | 29,255 | 0.82x | 2.75x | 1.44x |
+    | md | 35,023 | 1.79x | 1.81x | --- |
+    | medprice | 4,091 | 0.87x | 0.82x | 0.86x |
+    | mfi | 22,336 | 1.55x | 2.12x | 1.76x |
+    | min | 39,550 | 0.65x | 2.77x | 1.48x |
+    | mom | 3,537 | 0.90x | 0.84x | 0.87x |
+    | msw | 172,265 | 3.01x | 15.47x | --- |
+    | natr | 13,040 | 1.73x | 3.26x | 8.20x |
+    | nvi | 10,508 | 1.02x | 1.40x | --- |
+    | obv | 9,908 | 1.44x | 2.67x | 1.56x |
+    | pivotpoint | 457 | 0.77x | --- | --- |
+    | ppo | 10,470 | 2.11x | 3.55x | 5.43x |
+    | psar | 57,526 | 0.88x | 0.95x | 0.79x |
+    | pvi | 10,559 | 1.04x | 1.37x | --- |
+    | qstick | 10,703 | 0.98x | 0.95x | --- |
+    | roc | 10,406 | 0.93x | 0.91x | 1.82x |
+    | rocr | 10,294 | 0.94x | 0.92x | 1.83x |
+    | roofingfilter | 11,792 | 3.65x | --- | --- |
+    | rsi | 10,348 | 2.07x | 4.73x | 9.98x |
+    | sma | 9,982 | 0.99x | 0.94x | 1.88x |
+    | smaenvelope | 24,102 | 1.14x | --- | --- |
+    | stddev | 15,225 | 1.89x | 1.87x | 4.36x |
+    | stoch | 92,919 | 0.93x | 3.95x | 2.30x |
+    | stochrsi | 135,456 | 0.57x | 1.00x | 1.48x |
+    | supersmoother | 12,702 | 3.38x | --- | --- |
+    | supertrend | 25,209 | 1.89x | --- | --- |
+    | tema | 9,211 | 2.95x | 2.86x | 14.37x |
+    | tr | 5,785 | 0.96x | 0.99x | 1.32x |
+    | trendmode | 250,617 | 5.30x | --- | --- |
+    | trima | 13,051 | 1.65x | 2.18x | 2.18x |
+    | trix | 10,599 | 2.55x | 4.02x | 13.74x |
+    | trvi | 15,715 | 1.47x | --- | --- |
+    | tsf | 10,753 | 2.58x | 3.38x | 21.48x |
+    | typprice | 4,783 | 0.99x | 1.04x | 1.99x |
+    | ultosc | 30,845 | 2.01x | 2.00x | 5.92x |
+    | vhf | 93,624 | 0.57x | 2.12x | --- |
+    | vidya | 38,960 | 1.23x | 1.94x | --- |
+    | volatility | 24,990 | 1.94x | 2.86x | --- |
+    | vortex | 24,631 | 1.29x | --- | --- |
+    | vosc | 13,578 | 1.42x | 1.41x | --- |
+    | vwap | 16,158 | 4.76x | --- | --- |
+    | vwma | 16,298 | 1.18x | 1.16x | --- |
+    | wad | 14,165 | 4.29x | 5.22x | --- |
+    | wcprice | 4,775 | 4.01x | 4.19x | --- |
+    | wilders | 9,591 | 2.00x | 4.43x | --- |
+    | willr | 80,915 | 0.71x | 4.09x | 2.06x |
+    | wma | 9,338 | 2.06x | 3.56x | 2.04x |
+    | zlema | 9,466 | 2.53x | 3.50x | --- |
 
 === "Go Binding"
 
@@ -414,109 +516,224 @@ Processes 4 different assets with the same options in a single 256-bit AVX2 `f64
 
     | Indicator | SIMD 4-Asset (ns) | Speedup vs tulip_rs_go | Speedup vs cinar |
     |-----------|------------------:|-----------------------:|-----------------:|
-    | ad | 19,451 | 2.19x | 2005.10x |
-    | adaptivemsw | 1,783,527 | 1.20x | --- |
-    | adosc | 26,872 | 1.28x | 2261.69x |
-    | adx | 36,639 | 2.03x | --- |
-    | adxr | 38,204 | 1.77x | --- |
-    | ao | 19,704 | 1.36x | 3476.54x |
-    | apo | 27,803 | 1.21x | 499.68x |
-    | aroon | 136,184 | 0.97x | 408.60x |
-    | aroonosc | 93,395 | 0.92x | --- |
-    | atr | 23,594 | 1.47x | 2146.77x |
-    | avgprice | 21,142 | 0.39x | --- |
-    | bbands | 95,941 | 0.58x | 785.25x |
-    | bop | 75,831 | 0.43x | 487.75x |
-    | ccfisher | 323,048 | 2.90x | --- |
-    | cci | 94,578 | 4.14x | 1324.78x |
-    | chaikinmf | 54,101 | 1.59x | 1597.77x |
-    | chandelierexit | 138,245 | 1.43x | 684.27x |
-    | cmo | 26,054 | 2.05x | --- |
-    | cvi | 31,549 | 1.03x | --- |
-    | cybercycle | 77,454 | 1.12x | --- |
-    | dema | 24,432 | 2.62x | 1816.85x |
-    | di | 68,756 | 1.16x | --- |
-    | dm | 62,529 | 0.87x | --- |
-    | donchianchannel | 165,341 | 0.89x | 431.67x |
-    | dpo | 25,934 | 0.62x | 1948.95x |
-    | dx | 40,751 | 1.08x | --- |
-    | ef | 27,149 | 1.23x | --- |
-    | elderray | 69,274 | 0.50x | 629.66x |
-    | ema | 25,351 | 1.61x | 397.95x |
-    | emv | 27,928 | 1.33x | 3132.54x |
-    | fisher | 319,302 | 0.89x | 306.37x |
-    | fosc | 21,476 | 1.86x | --- |
-    | highpass | 11,385 | 1.91x | --- |
-    | hilberttransform | 70,559 | 0.95x | --- |
-    | hma | 40,408 | 1.31x | 1416.47x |
-    | homodynediscriminator | 326,869 | 2.82x | --- |
-    | ichimoku | 573,268 | 0.66x | --- |
-    | instantaneoustrendline | 376,069 | 2.38x | --- |
-    | kama | 27,052 | 2.12x | 3683.13x |
-    | keltnerchannel | 100,680 | 0.41x | --- |
-    | kvo | 38,679 | 1.28x | --- |
-    | linreg | 20,936 | 1.56x | --- |
-    | macd | 99,730 | 0.41x | --- |
-    | mama | 305,721 | 2.98x | --- |
-    | marketfi | 32,952 | 0.48x | --- |
-    | mass | 24,955 | 1.17x | --- |
-    | max | 58,458 | 0.57x | 420.26x |
-    | md | 37,722 | 1.77x | --- |
-    | medprice | 5,815 | 1.50x | --- |
-    | mfi | 45,012 | 1.51x | 2169.70x |
-    | min | 45,069 | 1.12x | 811.18x |
-    | mom | 5,669 | 1.62x | --- |
-    | msw | 237,598 | 2.33x | --- |
-    | natr | 37,972 | 1.02x | --- |
-    | nvi | 12,292 | 2.85x | 6315.80x |
-    | obv | 48,892 | 0.72x | 379.44x |
-    | pivotpoint | 2,869 | 1.60x | --- |
-    | ppo | 15,345 | 4.38x | 5391.91x |
-    | psar | 62,821 | 0.76x | --- |
-    | pvi | 14,044 | 1.04x | --- |
-    | qstick | 16,025 | 2.64x | 3190.39x |
-    | roc | 19,650 | 0.89x | 600.54x |
-    | rocr | 18,394 | 0.68x | --- |
-    | roofingfilter | 17,424 | 2.85x | --- |
-    | rsi | 21,223 | 2.22x | 2944.84x |
-    | sma | 14,354 | 1.61x | 2078.18x |
-    | smaenvelope | 105,527 | 0.36x | 473.44x |
-    | stddev | 18,007 | 3.36x | 1168.70x |
-    | stoch | 102,611 | 1.32x | 731.82x |
-    | stochrsi | 147,393 | 0.58x | --- |
-    | supersmoother | 17,254 | 3.74x | --- |
-    | supertrend | 39,293 | 2.78x | 3090.08x |
-    | tema | 16,590 | 2.24x | 4007.39x |
-    | tr | 8,239 | 1.32x | 3220.12x |
-    | trendmode | 252,551 | 3.58x | --- |
-    | trima | 17,300 | 2.69x | 2970.68x |
-    | trix | 16,107 | 3.79x | 3345.02x |
-    | trvi | 30,811 | 1.08x | --- |
-    | tsf | 13,608 | 2.53x | --- |
-    | typprice | 15,804 | 0.74x | 1825.04x |
+    | ad | 20,414 | 1.07x | 1782.15x |
+    | adaptivemsw | 1,774,221 | 1.19x | --- |
+    | adosc | 23,652 | 1.12x | 3917.51x |
+    | adx | 26,695 | 1.76x | --- |
+    | adxr | 30,170 | 1.92x | --- |
+    | ao | 16,109 | 1.58x | 5606.49x |
+    | apo | 13,540 | 1.61x | 1525.03x |
+    | aroon | 107,753 | 0.66x | 512.18x |
+    | aroonosc | 86,796 | 0.97x | --- |
+    | atr | 18,288 | 1.19x | 3677.33x |
+    | avgprice | 10,961 | 0.70x | --- |
+    | bbands | 85,958 | 0.46x | 923.22x |
+    | bop | 16,215 | 0.77x | 1835.70x |
+    | ccfisher | 305,619 | 3.00x | --- |
+    | cci | 79,060 | 4.05x | 1675.29x |
+    | chaikinmf | 30,183 | 1.35x | 2998.97x |
+    | chandelierexit | 146,298 | 0.50x | 648.17x |
+    | cmo | 17,931 | 1.66x | --- |
+    | cvi | 17,260 | 1.32x | --- |
+    | cybercycle | 64,409 | 1.08x | --- |
+    | dema | 14,599 | 1.76x | 4006.81x |
+    | di | 58,401 | 1.32x | --- |
+    | dm | 48,427 | 0.80x | --- |
+    | donchianchannel | 161,777 | 0.35x | 465.53x |
+    | dpo | 17,508 | 0.71x | 4333.38x |
+    | dx | 26,546 | 1.61x | --- |
+    | ef | 16,624 | 1.31x | --- |
+    | elderray | 54,514 | 0.55x | 1189.11x |
+    | ema | 13,895 | 1.56x | 941.41x |
+    | emv | 14,829 | 0.85x | 6331.26x |
+    | fisher | 322,807 | 0.80x | 418.10x |
+    | fosc | 17,533 | 2.02x | --- |
+    | highpass | 15,486 | 1.40x | --- |
+    | hilberttransform | 59,434 | 1.01x | --- |
+    | hma | 21,641 | 1.72x | 3412.25x |
+    | homodynediscriminator | 303,174 | 2.88x | --- |
+    | ichimoku | 556,878 | 0.55x | --- |
+    | instantaneoustrendline | 366,879 | 2.42x | --- |
+    | kama | 18,402 | 1.66x | 6341.97x |
+    | keltnerchannel | 85,889 | 0.39x | --- |
+    | kvo | 33,270 | 1.23x | --- |
+    | linreg | 16,469 | 1.91x | --- |
+    | macd | 85,076 | 0.38x | --- |
+    | mama | 287,729 | 3.07x | --- |
+    | marketfi | 19,793 | 0.62x | --- |
+    | mass | 16,877 | 1.57x | --- |
+    | max | 35,909 | 0.74x | 1409.87x |
+    | md | 40,005 | 1.63x | --- |
+    | medprice | 6,262 | 1.05x | --- |
+    | mfi | 28,463 | 1.37x | 3441.48x |
+    | min | 42,743 | 0.67x | 1038.06x |
+    | mom | 5,539 | 1.06x | --- |
+    | msw | 234,590 | 2.24x | --- |
+    | natr | 17,803 | 1.41x | --- |
+    | nvi | 14,911 | 0.90x | 5922.97x |
+    | obv | 16,308 | 1.03x | 1415.63x |
+    | pivotpoint | 3,371 | 0.87x | --- |
+    | ppo | 13,799 | 1.78x | 6590.74x |
+    | psar | 60,753 | 0.76x | --- |
+    | pvi | 15,030 | 0.89x | --- |
+    | qstick | 12,500 | 1.04x | 5006.63x |
+    | roc | 14,481 | 0.83x | 1008.60x |
+    | rocr | 13,421 | 0.91x | --- |
+    | roofingfilter | 15,110 | 3.01x | --- |
+    | rsi | 14,243 | 1.69x | 6263.51x |
+    | sma | 14,543 | 0.85x | 2998.84x |
+    | smaenvelope | 82,586 | 0.41x | 969.94x |
+    | stddev | 17,251 | 1.80x | 1966.87x |
+    | stoch | 100,611 | 0.90x | 728.38x |
+    | stochrsi | 142,194 | 0.57x | --- |
+    | supersmoother | 15,669 | 2.90x | --- |
+    | supertrend | 30,131 | 1.79x | 4661.85x |
+    | tema | 14,004 | 2.12x | 7501.81x |
+    | tr | 8,396 | 1.00x | 5119.43x |
+    | trendmode | 251,923 | 3.51x | --- |
+    | trima | 16,510 | 1.45x | 4172.96x |
+    | trix | 14,252 | 2.06x | 5906.43x |
+    | trvi | 20,149 | 1.31x | --- |
+    | tsf | 14,363 | 2.10x | --- |
+    | typprice | 6,899 | 1.00x | 5895.92x |
+    | ultosc | 33,283 | 1.93x | 4075.84x |
+    | vhf | 97,555 | 0.58x | --- |
+    | vidya | 41,077 | 1.24x | --- |
+    | volatility | 27,377 | 1.87x | --- |
+    | vortex | 32,092 | 1.12x | --- |
+    | vosc | 15,536 | 1.40x | --- |
+    | vwap | 19,428 | 1.12x | --- |
+    | vwma | 18,312 | 1.19x | 4303.34x |
+    | wad | 17,593 | 1.02x | --- |
+    | wcprice | 6,643 | 1.02x | 4864.15x |
+    | wilders | 13,165 | 1.65x | 583.24x |
+    | willr | 84,859 | 0.72x | 1159.09x |
+    | wma | 14,582 | 1.48x | 1260.15x |
+    | zlema | 13,727 | 1.93x | --- |
 
 ??? success "Notable results - by_assets"
 
-    **67 of 93 indicators (72%) show a SIMD speedup over 4x sequential Rust.**
-    Median speedup for benefiting indicators: **~1.80x**.
+    === "Rust"
 
-    | Category | Indicator | SIMD Speedup vs 4x Sequential Rust |
-    |----------|-----------|:-----------------------------------:|
-    | **Top performers** | `roofingfilter` | **3.63x** |
-    | **Top performers** | `supersmoother` | **3.53x** |
-    | **Top performers** | `trendmode` | **3.49x** |
-    | **Top performers** | `mama` | **3.43x** |
-    | **Top performers** | `ccfisher` | **3.31x** |
-    | **Top performers** | `cci` | **3.30x** |
-    | **Top performers** | `linreg` | **3.05x** |
-    | **Top performers** | `di` | **2.97x** |
-    | **Top performers** | `homodynediscriminator` | **2.91x** |
-    | **Top performers** | `dema` | **2.69x** |
-    | **Notable improvement** | `msw` | 1.73x (SDFT optimisation) |
-    | **SIMD slower than sequential** | `donchianchannel` | 0.45x |
-    | **SIMD slower than sequential** | `psar` | 0.47x |
-    | **SIMD slower than sequential** | `stochrsi` | 0.57x |
-    | **SIMD slower than sequential** | `chandelierexit` | 0.66x |
-    | **SIMD slower than sequential** | `ichimoku` | 0.69x |
+        **66 of 93 indicators (71%) show a SIMD speedup over 4x sequential calls.**
+        Median speedup for benefiting indicators: **~1.83x**.
 
-    Indicators where SIMD is slower typically involve highly sequential computation or irregular memory access patterns where SIMD setup overhead dominates.
+        | Category | Indicator | SIMD Speedup |
+        |----------|-----------|:------------:|
+        | **Top performers** | `roofingfilter` | **3.63x** |
+        | **Top performers** | `supersmoother` | **3.53x** |
+        | **Top performers** | `trendmode` | **3.49x** |
+        | **Top performers** | `mama` | **3.43x** |
+        | **Top performers** | `ccfisher` | **3.31x** |
+        | **Top performers** | `cci` | **3.30x** |
+        | **Top performers** | `linreg` | **3.05x** |
+        | **Top performers** | `di` | **2.97x** |
+        | **Top performers** | `homodynediscriminator` | **2.91x** |
+        | **Top performers** | `dema` | **2.69x** |
+        | **SIMD slower than sequential** | `donchianchannel` | 0.45x |
+        | **SIMD slower than sequential** | `psar` | 0.47x |
+        | **SIMD slower than sequential** | `stochrsi` | 0.57x |
+        | **SIMD slower than sequential** | `chandelierexit` | 0.66x |
+        | **SIMD slower than sequential** | `ichimoku` | 0.69x |
+
+        Indicators where SIMD is slower typically involve highly sequential computation or irregular memory access patterns where SIMD setup overhead dominates the batched competitor's own per-call cost.
+
+    === "Python"
+
+        **75 of 93 indicators (81%) show a SIMD speedup over 4x sequential calls.**
+        Median speedup for benefiting indicators: **~1.89x**.
+
+        | Category | Indicator | SIMD Speedup |
+        |----------|-----------|:------------:|
+        | **Top performers** | `cci` | **4.99x** |
+        | **Top performers** | `tsf` | **4.70x** |
+        | **Top performers** | `di` | **3.98x** |
+        | **Top performers** | `dx` | **3.57x** |
+        | **Top performers** | `trendmode` | **3.47x** |
+        | **Top performers** | `mama` | **3.44x** |
+        | **Top performers** | `linreg` | **3.30x** |
+        | **Top performers** | `supertrend` | **3.27x** |
+        | **Top performers** | `kama` | **3.18x** |
+        | **Top performers** | `md` | **3.16x** |
+        | **SIMD slower than sequential** | `sma` | 0.53x |
+        | **SIMD slower than sequential** | `marketfi` | 0.63x |
+        | **SIMD slower than sequential** | `vhf` | 0.64x |
+        | **SIMD slower than sequential** | `donchianchannel` | 0.65x |
+        | **SIMD slower than sequential** | `obv` | 0.65x |
+
+        Indicators where SIMD is slower typically involve highly sequential computation or irregular memory access patterns where SIMD setup overhead dominates the batched competitor's own per-call cost.
+
+    === "Node"
+
+        **59 of 93 indicators (63%) show a SIMD speedup over 4x sequential calls.**
+        Median speedup for benefiting indicators: **~1.29x**.
+
+        | Category | Indicator | SIMD Speedup |
+        |----------|-----------|:------------:|
+        | **Top performers** | `mama` | **3.31x** |
+        | **Top performers** | `trendmode` | **3.29x** |
+        | **Top performers** | `cci` | **3.19x** |
+        | **Top performers** | `homodynediscriminator` | **2.80x** |
+        | **Top performers** | `instantaneoustrendline` | **2.39x** |
+        | **Top performers** | `msw` | **2.36x** |
+        | **Top performers** | `ccfisher` | **2.27x** |
+        | **Top performers** | `supersmoother` | **2.11x** |
+        | **Top performers** | `adxr` | **1.80x** |
+        | **Top performers** | `ultosc` | **1.67x** |
+        | **SIMD slower than sequential** | `vhf` | 0.40x |
+        | **SIMD slower than sequential** | `ad` | 0.50x |
+        | **SIMD slower than sequential** | `stochrsi` | 0.62x |
+        | **SIMD slower than sequential** | `donchianchannel` | 0.63x |
+        | **SIMD slower than sequential** | `psar` | 0.63x |
+
+        Indicators where SIMD is slower typically involve highly sequential computation or irregular memory access patterns where SIMD setup overhead dominates the batched competitor's own per-call cost.
+
+    === "C"
+
+        **64 of 91 indicators (70%) show a SIMD speedup over 4x sequential calls.**
+        Median speedup for benefiting indicators: **~2.05x**.
+
+        | Category | Indicator | SIMD Speedup |
+        |----------|-----------|:------------:|
+        | **Top performers** | `ao` | **6.79x** |
+        | **Top performers** | `trendmode` | **5.30x** |
+        | **Top performers** | `adaptivemsw` | **4.86x** |
+        | **Top performers** | `ccfisher` | **4.77x** |
+        | **Top performers** | `ad` | **4.77x** |
+        | **Top performers** | `cybercycle` | **4.76x** |
+        | **Top performers** | `vwap` | **4.76x** |
+        | **Top performers** | `cci` | **4.38x** |
+        | **Top performers** | `wad` | **4.29x** |
+        | **Top performers** | `wcprice` | **4.01x** |
+        | **SIMD slower than sequential** | `donchianchannel` | 0.31x |
+        | **SIMD slower than sequential** | `macd` | 0.34x |
+        | **SIMD slower than sequential** | `keltnerchannel` | 0.35x |
+        | **SIMD slower than sequential** | `ichimoku` | 0.55x |
+        | **SIMD slower than sequential** | `stochrsi` | 0.57x |
+
+        Indicators where SIMD is slower typically involve highly sequential computation or irregular memory access patterns where SIMD setup overhead dominates the batched competitor's own per-call cost.
+
+    === "Go"
+
+        **62 of 94 indicators (66%) show a SIMD speedup over 4x sequential calls.**
+        Median speedup for benefiting indicators: **~1.60x**.
+
+        | Category | Indicator | SIMD Speedup |
+        |----------|-----------|:------------:|
+        | **Top performers** | `cci` | **4.05x** |
+        | **Top performers** | `trendmode` | **3.51x** |
+        | **Top performers** | `mama` | **3.07x** |
+        | **Top performers** | `roofingfilter` | **3.01x** |
+        | **Top performers** | `ccfisher` | **3.00x** |
+        | **Top performers** | `supersmoother` | **2.90x** |
+        | **Top performers** | `homodynediscriminator` | **2.88x** |
+        | **Top performers** | `instantaneoustrendline` | **2.42x** |
+        | **Top performers** | `msw` | **2.24x** |
+        | **Top performers** | `tema` | **2.12x** |
+        | **SIMD slower than sequential** | `donchianchannel` | 0.35x |
+        | **SIMD slower than sequential** | `macd` | 0.38x |
+        | **SIMD slower than sequential** | `keltnerchannel` | 0.39x |
+        | **SIMD slower than sequential** | `smaenvelope` | 0.41x |
+        | **SIMD slower than sequential** | `bbands` | 0.46x |
+
+        Indicators where SIMD is slower typically involve highly sequential computation or irregular memory access patterns where SIMD setup overhead dominates the batched competitor's own per-call cost.

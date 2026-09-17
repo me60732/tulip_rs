@@ -18,7 +18,7 @@ Only indicators where at least one reference library ran are shown; the remainin
 | `aroonosc` | 25,469 | N/A | N/A | --- | --- |
 | `atr` | 8,854 | 420,852 | 269,633 | 47.53x | 30.45x |
 | `avgprice` | 7,315 | N/A | N/A | --- | --- |
-| `bbands` | 15,872 | 6,433,936 | 301,511 | 405.37x | 19.00x |
+| `bbands` | 19,638 | 6,263,971 | 297,777 | 318.96x | 15.16x |
 | `bop` | 6,083 | N/A | 17,799 | --- | 2.93x |
 | `ccfisher` | 234,188 | N/A | N/A | --- | --- |
 | `cci` | 85,143 | 4,828,772 | 66,237 | 56.71x | 0.78x |
@@ -112,8 +112,8 @@ Only indicators where at least one reference library ran are shown; the remainin
 
     | Indicator | Speedup vs technicalindicators |
     |-----------|--------------------------------:|
-    | `bbands` | **405.37x** |
     | `wma` | **370.83x** |
+    | `bbands` | **318.96x** |
     | `mfi` | **154.82x** |
     | `stochrsi` | **154.66x** |
     | `ao` | **135.94x** |
@@ -136,7 +136,7 @@ Only indicators where at least one reference library ran are shown; the remainin
     | `atr` | **30.45x** |
     | `aroon` | **26.11x** |
     | `mfi` | **19.90x** |
-    | `bbands` | **19.00x** |
+    | `stoch` | **17.05x** |
 
     **nAPI boundary overhead** — the gap between Rust native and `tulip_rs_node` columns reflects the fixed per-call cost of the nAPI boundary (argument marshalling, `Float64Array` handoff), roughly **4–6 µs** for the fastest-running indicators:
 

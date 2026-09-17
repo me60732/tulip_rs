@@ -10,8 +10,8 @@ Full comparison tables (vs C / TA-Lib, RustTa, Kand): **[Standard Performance �
 
 ??? success "Notable results"
 
-    Rust beats C Tulip on **65 of 70 indicators (93%)**.
-    Rust beats TA-Lib on **36 of 38 indicators (95%)**.
+    Rust beats C Tulip on **64 of 69 indicators (93%)**.
+    Rust beats TA-Lib on **35 of 37 indicators (95%)**.
 
     | Category | Indicator | Speedup vs C | Speedup vs TA-Lib |
     |----------|-----------|:------------:|:-------------------:|
@@ -36,8 +36,8 @@ Full comparison tables (vs C / TA-Lib, RustTa, Kand): **[Standard Performance �
 
 ??? success "Notable results"
 
-    Rust beats RustTa on **19 of 19 compared indicators**.
-    Rust beats Kand on **36 of 36 compared indicators**.
+    Rust beats RustTa on **18 of 18 compared indicators**.
+    Rust beats Kand on **35 of 35 compared indicators**.
 
     | Category | Indicator | Speedup vs RustTa | Speedup vs Kand |
     |----------|-----------|:------------------:|:----------------:|
@@ -119,8 +119,8 @@ Full comparison table (tulip_rs_node vs technicalindicators / indicatorts): **[S
 
     | Indicator | Speedup vs technicalindicators |
     |-----------|--------------------------------:|
-    | `bbands` | **405.37x** |
     | `wma` | **370.83x** |
+    | `bbands` | **318.96x** |
     | `mfi` | **154.82x** |
     | `stochrsi` | **154.66x** |
     | `ao` | **135.94x** |
@@ -143,7 +143,7 @@ Full comparison table (tulip_rs_node vs technicalindicators / indicatorts): **[S
     | `atr` | **30.45x** |
     | `aroon` | **26.11x** |
     | `mfi` | **19.90x** |
-    | `bbands` | **19.00x** |
+    | `stoch` | **17.05x** |
 
     **nAPI boundary overhead** — the gap between Rust native and `tulip_rs_node` columns reflects the fixed per-call cost of the nAPI boundary (argument marshalling, `Float64Array` handoff), roughly **4–6 µs** for the fastest-running indicators:
 
@@ -164,45 +164,45 @@ Full comparison table (tulip_rs_ffi_c vs Tulip Indicators C / TA-Lib): **[Standa
 
 ??? success "Notable results"
 
-    `tulip_rs_ffi_c` beats `C_tulip` on **46 of 72 compared indicators** (of 91 indicators benchmarked via the FFI).
-    Median speedup vs C_tulip: **1.62x**.
+    `tulip_rs_ffi_c` beats `C_tulip` on **45 of 72 compared indicators** (of 91 indicators benchmarked via the FFI).
+    Median speedup vs C_tulip: **1.73x**.
 
     **Largest wins vs C_tulip:**
 
     | Indicator | Speedup vs C | Speedup vs TA-Lib |
     |-----------|-------------:|------------------:|
-    | `cmo` | **4.95x** | 3.77x |
-    | `msw` | **4.54x** | --- |
-    | `mfi` | **3.55x** | 2.75x |
-    | `rsi` | **3.40x** | 4.75x |
-    | `willr` | **2.91x** | 1.67x |
-    | `cvi` | **2.85x** | --- |
-    | `aroon` | **2.76x** | 1.38x |
-    | `stoch` | **2.70x** | 1.73x |
-    | `aroonosc` | **2.48x** | 1.19x |
-    | `ema` | **2.19x** | 2.18x |
+    | `willr` | **5.69x** | 2.86x |
+    | `msw` | **5.14x** | --- |
+    | `aroon` | **4.68x** | 2.25x |
+    | `stoch` | **4.22x** | 2.46x |
+    | `min` | **4.18x** | 2.23x |
+    | `aroonosc` | **4.10x** | 1.80x |
+    | `donchianchannel` | **3.74x** | --- |
+    | `vhf` | **3.71x** | --- |
+    | `max` | **3.39x** | 1.78x |
+    | `cvi` | **2.90x** | --- |
 
     Smallest margins (C_tulip's vectorised or state-light paths):
 
     | Indicator | Rust native (ns) | tulip_rs_ffi_c (ns) | C Tulip (ns) | Speedup vs C |
     |----------:|-----------------:|----------------------:|-------------:|-------------:|
-    | `qstick` | 2,571 | 2,693 | 2,729 | **1.01×** |
-    | `md` | 13,911 | 15,523 | 15,890 | **1.02×** |
-    | `hma` | 9,349 | 8,876 | 9,404 | **1.06×** |
-    | `dema` | 6,336 | 5,874 | 6,432 | **1.09×** |
-    | `fisher` | 48,681 | 77,711 | 85,314 | **1.10×** |
-    | `wcprice` | 1,075 | 1,187 | 1,304 | **1.10×** |
+    | `tr` | 1,393 | 1,395 | 1,439 | **1.03×** |
+    | `md` | 13,911 | 15,293 | 15,884 | **1.04×** |
+    | `typprice` | 1,086 | 1,185 | 1,247 | **1.05×** |
+    | `wcprice` | 1,075 | 1,197 | 1,252 | **1.05×** |
+    | `hma` | 9,349 | 8,626 | 9,416 | **1.09×** |
+    | `dema` | 6,336 | 5,807 | 6,416 | **1.10×** |
 
-    **FFI boundary overhead** — `tulip_rs_ffi_c` tracks native Rust closely: for the fastest-running indicators the call overhead is 1.1–1.8× Rust native (argument marshalling only, no runtime):
+    **FFI boundary overhead** — `tulip_rs_ffi_c` tracks native Rust closely: for the fastest-running indicators the call overhead is 0.9–1.1× Rust native (argument marshalling only, no runtime):
 
     | Indicator | Rust native (ns) | tulip_rs_ffi_c (ns) | Overhead |
     |-----------|----------------:|----------------------:|---------:|
-    | `mom` | 897 | 967 | ~1.1× |
-    | `wcprice` | 1,075 | 1,187 | ~1.1× |
-    | `typprice` | 1,086 | 1,376 | ~1.3× |
-    | `tr` | 1,393 | 1,900 | ~1.4× |
-    | `medprice` | 872 | 1,237 | ~1.4× |
-    | `avgprice` | 1,433 | 2,567 | ~1.8× |
+    | `mom` | 897 | 796 | ~0.9× |
+    | `avgprice` | 1,433 | 1,416 | ~1.0× |
+    | `tr` | 1,393 | 1,395 | ~1.0× |
+    | `medprice` | 872 | 894 | ~1.0× |
+    | `typprice` | 1,086 | 1,185 | ~1.1× |
+    | `wcprice` | 1,075 | 1,197 | ~1.1× |
 
 ---
 
@@ -212,42 +212,42 @@ Full comparison table (tulip_rs_go vs cinar/indicator/v2): **[Standard Performan
 
 ??? success "Notable results"
 
-    `tulip_rs_go` beats `cinar` on **40 of 40 compared indicators** (cinar is wired where it is param-compatible; the remaining indicators have no pure-Go competitor run).
-    Median speedup: **1,112×** — cinar v2's goroutine/channel stream API pays a per-bar scheduling cost the cgo path does not.
+    `tulip_rs_go` beats `cinar` on **45 of 45 compared indicators** (cinar is wired where it is param-compatible; the remaining indicators have no pure-Go competitor run).
+    Median speedup: **2,283×** — cinar v2's goroutine/channel stream API pays a per-bar scheduling cost the cgo path does not.
 
     **Largest wins vs cinar:**
 
     | Indicator | Speedup vs cinar |
     |-----------|-----------------:|
-    | `dpo` | **3,001×** |
-    | `ao` | **2,548×** |
-    | `typprice` | **2,476×** |
-    | `tr` | **2,430×** |
-    | `emv` | **2,357×** |
-    | `nvi` | **2,214×** |
-    | `kama` | **1,741×** |
-    | `adosc` | **1,736×** |
-    | `tema` | **1,660×** |
-    | `mfi` | **1,439×** |
+    | `emv` | **7,491×** |
+    | `nvi` | **6,601×** |
+    | `dpo` | **6,133×** |
+    | `typprice` | **5,910×** |
+    | `tr` | **5,126×** |
+    | `qstick` | **4,833×** |
+    | `wcprice` | **4,762×** |
+    | `kama` | **3,828×** |
+    | `rsi` | **3,714×** |
+    | `ppo` | **3,695×** |
 
     Smallest margins (where cinar's implementation is closest, or computes fewer output rows):
 
     | Indicator | Rust native (ns) | tulip_rs_go (ns) | cinar (ns) | Speedup vs cinar |
     |----------:|-----------------:|-----------------:|-----------:|-----------------:|
-    | `ema` | 4,784 | 11,431 | 2,522,108 | **221×** |
-    | `cci` | 78,669 | 97,465 | 31,323,732 | **321×** |
-    | `stddev` | 3,795 | 15,844 | 5,261,197 | **332×** |
-    | `fisher` | 48,681 | 72,406 | 24,455,999 | **338×** |
-    | `aroon` | 18,771 | 35,676 | 13,911,132 | **390×** |
-    | `apo` | 4,872 | 8,481 | 3,473,150 | **410×** |
+    | `wilders` | 4,777 | 5,413 | 1,919,589 | **355×** |
+    | `cci` | 78,669 | 79,522 | 33,112,153 | **416×** |
+    | `fisher` | 48,681 | 64,177 | 33,741,271 | **526×** |
+    | `ema` | 4,784 | 5,434 | 3,270,234 | **602×** |
+    | `aroon` | 18,771 | 17,936 | 13,797,216 | **769×** |
+    | `stoch` | 20,383 | 22,865 | 18,320,716 | **801×** |
 
-    **cgo boundary overhead** — the gap between Rust native and `tulip_rs_go` columns reflects the fixed per-call cost of the cgo boundary (argument marshalling, pointer handoff), 1.8–3.8× for the fastest-running indicators:
+    **cgo boundary overhead** — the gap between Rust native and `tulip_rs_go` columns reflects the fixed per-call cost of the cgo boundary (argument marshalling, pointer handoff), 1.2–1.6× for the fastest-running indicators:
 
     | Indicator | Rust native (ns) | tulip_rs_go (ns) | Overhead |
     |-----------|----------------:|-----------------:|---------:|
-    | `roc` | 2,437 | 4,450 | ~1.8× |
-    | `tr` | 1,393 | 2,729 | ~2.0× |
-    | `sma` | 2,558 | 6,001 | ~2.3× |
-    | `typprice` | 1,086 | 2,913 | ~2.7× |
-    | `bop` | 2,440 | 8,234 | ~3.4× |
-    | `emv` | 2,449 | 9,278 | ~3.8× |
+    | `roc` | 2,437 | 3,022 | ~1.2× |
+    | `emv` | 2,449 | 3,134 | ~1.3× |
+    | `bop` | 2,440 | 3,137 | ~1.3× |
+    | `tr` | 1,393 | 2,096 | ~1.5× |
+    | `wcprice` | 1,075 | 1,697 | ~1.6× |
+    | `typprice` | 1,086 | 1,721 | ~1.6× |
