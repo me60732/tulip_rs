@@ -212,11 +212,20 @@ Tracks price changes on days when volume decreases, based on the theory that sma
     **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
 
     ```go
+    c1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    v1 := []float64{5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0, 3798000.0,
+                    3936200.0, 4732000.0, 4841300.0, 3915300.0}
+
+    // Reuse the same data for assets 2–4 in this example
+    c2, v2 := c1, v1
+    c3, v3 := c1, v1
+    c4, v4 := c1, v1
+
     assets := [][indicators.NviInputs][]float64{
-        {a1_close, a1_volume},
-        {a2_close, a2_volume},
-        {a3_close, a3_volume},
-        {a4_close, a4_volume},
+        {c1, v1},
+        {c2, v2},
+        {c3, v3},
+        {c4, v4},
     }
     sim, _ := indicators.Nvi.SimdByAssets(assets, []float64{}, nil)
     for i, lanes := range sim.Results {

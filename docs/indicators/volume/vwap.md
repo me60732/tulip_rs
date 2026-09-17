@@ -459,6 +459,20 @@ The average price weighted by trading volume over the entire input window; commo
     **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
 
     ```go
+    h1 := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                    85.90, 86.58, 86.98, 88.00, 87.87}
+    l1 := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                    84.03, 85.39, 85.76, 87.17, 87.01}
+    c1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                    85.53, 86.54, 86.89, 87.77, 87.29}
+    v1 := []float64{1500, 2000, 1800, 2200, 1700, 2500, 2100, 1900, 2300, 1600,
+                    2800, 2400, 2100, 1800, 2600}
+
+    // Reuse the same data for assets 2–4 in this example
+    h2, l2, c2, v2 := h1, l1, c1, v1
+    h3, l3, c3, v3 := h1, l1, c1, v1
+    h4, l4, c4, v4 := h1, l1, c1, v1
+
     assets := [][indicators.VwapInputs][]float64{
         {h1, l1, c1, v1},
         {h2, l2, c2, v2},

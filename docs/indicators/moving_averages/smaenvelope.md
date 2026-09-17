@@ -261,9 +261,9 @@ Three bands around a Simple Moving Average. `middle = SMA(real, period)`, `upper
 
     ```go
     a1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
-    a2 := []float64{86.59, 86.06, 87.87, 88.00, 88.61, 88.15, 87.84, 88.99, 89.55, 89.36}
-    a3 := []float64{76.59, 76.06, 77.87, 78.00, 78.61, 78.15, 77.84, 78.99, 79.55, 79.36}
-    a4 := []float64{83.22, 82.68, 83.43, 83.66, 83.68, 83.01, 82.80, 83.77, 84.44, 84.05}
+
+    // Reuse the same data for assets 2–4 in this example
+    a2, a3, a4 := a1, a1, a1
 
     assets := [][indicators.SmaenvelopeInputs][]float64{{a1}, {a2}, {a3}, {a4}}
     sim, _ := indicators.Smaenvelope.SimdByAssets(assets, []float64{14.0, 2.5}, nil)

@@ -330,9 +330,9 @@ The 1-period percentage rate of change of a triple-smoothed EMA. Useful as a mom
 
     ```go
     a1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
-    a2 := []float64{72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50}
-    a3 := []float64{55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40}
-    a4 := []float64{100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8}
+
+    // Reuse the same data for assets 2–4 in this example
+    a2, a3, a4 := a1, a1, a1
 
     assets := [][indicators.TrixInputs][]float64{{a1}, {a2}, {a3}, {a4}}
     sim, _ := indicators.Trix.SimdByAssets(assets, []float64{14.0}, nil)

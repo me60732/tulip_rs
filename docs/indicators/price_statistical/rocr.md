@@ -197,9 +197,9 @@ The ratio of the current price to the price `period` bars ago (equivalent to `1 
 
     ```go
     a1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
-    a2 := []float64{86.59, 86.06, 87.87, 88.00, 88.61, 88.15, 87.84, 88.99, 89.55, 89.36}
-    a3 := []float64{78.59, 78.06, 79.87, 80.00, 80.61, 80.15, 79.84, 80.99, 81.55, 81.36}
-    a4 := []float64{83.22, 82.68, 84.53, 84.66, 85.28, 84.81, 84.50, 85.67, 86.24, 86.05}
+
+    // Reuse the same data for assets 2–4 in this example
+    a2, a3, a4 := a1, a1, a1
 
     assets := [][indicators.RocrInputs][]float64{{a1}, {a2}, {a3}, {a4}}
     sim, _ := indicators.Rocr.SimdByAssets(assets, []float64{10.0}, nil)

@@ -337,6 +337,11 @@ Measures the percentage difference between the current price and the linear regr
     **By assets** — same period applied to 2 assets in parallel (lane counts 2/4/8/16):
 
     ```go
+    a1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+
+    // Reuse the same data for asset 2 in this example
+    a2 := a1
+
     assets := [][indicators.FoscInputs][]float64{{a1}, {a2}}
     sim, _ := indicators.Fosc.SimdByAssets(assets, []float64{14.0}, nil)
     for i, lanes := range sim.Results {
@@ -348,6 +353,9 @@ Measures the percentage difference between the current price and the linear regr
     **By options** — same asset, 4 different periods in parallel:
 
     ```go
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+
     sim2, _ := indicators.Fosc.SimdByOptions(close, [][]float64{{5}, {10}, {14}, {20}}, nil)
     for i, lanes := range sim2.Results {
         fmt.Printf("Period set %d: %v\n", i+1, lanes[0])

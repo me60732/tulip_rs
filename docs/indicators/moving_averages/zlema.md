@@ -234,6 +234,11 @@ Adjusts the input data to compensate for EMA lag before applying the EMA, result
     **By assets** — same period applied to 4 assets in parallel (lane counts 2/4/8/16):
 
     ```go
+    a1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+
+    // Reuse the same data for assets 2–4 in this example
+    a2, a3, a4 := a1, a1, a1
+
     assets := [][indicators.ZlemaInputs][]float64{{a1}, {a2}, {a3}, {a4}}
     sim, _ := indicators.Zlema.SimdByAssets(assets, []float64{14.0}, nil)
     for i, lanes := range sim.Results {
@@ -245,6 +250,9 @@ Adjusts the input data to compensate for EMA lag before applying the EMA, result
     **By options** — same asset, 4 different periods in parallel:
 
     ```go
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+
     sim2, _ := indicators.Zlema.SimdByOptions(close, [][]float64{{5}, {10}, {14}, {20}}, nil)
     for i, lanes := range sim2.Results {
         fmt.Printf("Period set %d: %v\n", i+1, lanes[0])

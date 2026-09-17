@@ -224,7 +224,14 @@ Identifies whether the market is trending or ranging. Higher values indicate a t
     **By assets** — same period applied to 4 assets in parallel (lane counts 2/4/8/16):
 
     ```go
-    assets := [][indicators.VhfInputs][]float64{{a1}, {a2}, {a3}, {a4}}
+    real1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+
+    // Reuse the same data for assets 2–4 in this example
+    real2 := real1
+    real3 := real1
+    real4 := real1
+
+    assets := [][indicators.VhfInputs][]float64{{real1}, {real2}, {real3}, {real4}}
     sim, _ := indicators.Vhf.SimdByAssets(assets, []float64{28.0}, nil)
     for i, lanes := range sim.Results {
         fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
@@ -235,6 +242,9 @@ Identifies whether the market is trending or ranging. Higher values indicate a t
     **By options** — same asset, 4 different periods in parallel:
 
     ```go
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+
     sim2, _ := indicators.Vhf.SimdByOptions(close, [][]float64{{14}, {21}, {28}, {55}}, nil)
     for i, lanes := range sim2.Results {
         fmt.Printf("Period set %d: %v\n", i+1, lanes[0])

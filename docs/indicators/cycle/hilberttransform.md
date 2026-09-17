@@ -475,15 +475,13 @@ Decomposes the roofing-filtered price series into in-phase and quadrature compon
     ```go
     import "github.com/me60732/tulip_rs_go/indicators"
 
-    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    a1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+
+    // Reuse the same data for assets 2–4 in this example
+    a2, a3, a4 := a1, a1, a1
     options := []float64{10.0, 20.0} // ss_period, hp_period
 
-    assets := [][indicators.HilberttransformInputs][]float64{
-        {close},
-        {close + 5.0},
-        {close - 3.0},
-        {close * 1.02},
-    }
+    assets := [][indicators.HilberttransformInputs][]float64{{a1}, {a2}, {a3}, {a4}}
     sim, _ := indicators.Hilberttransform.SimdByAssets(assets, options, nil)
     for i, lanes := range sim.Results {
         fmt.Printf("Asset %d In-Phase:   %v\n", i+1, lanes[0])

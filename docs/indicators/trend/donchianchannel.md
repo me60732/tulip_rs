@@ -277,7 +277,17 @@ Three-band channel based on the rolling highest high and lowest low over `period
     **By assets** — same period applied to 4 assets in parallel (lane counts 2/4/8/16):
 
     ```go
-    assets := [][indicators.DonchianchannelInputs][]float64{{a1}, {a2}, {a3}, {a4}}
+    h1 := []float64{82.15, 81.89, 83.03, 83.30, 83.85,
+                    83.90, 83.33, 84.30, 84.84, 85.00}
+    l1 := []float64{81.29, 80.64, 81.31, 82.65, 83.07,
+                    83.11, 82.49, 82.30, 84.15, 84.11}
+
+    // Reuse the same data for assets 2–4 in this example
+    h2, l2 := h1, l1
+    h3, l3 := h1, l1
+    h4, l4 := h1, l1
+
+    assets := [][indicators.DonchianchannelInputs][]float64{{h1, l1}, {h2, l2}, {h3, l3}, {h4, l4}}
     sim, _ := indicators.Donchianchannel.SimdByAssets(assets, []float64{14.0}, nil)
     for i, lanes := range sim.Results {
         fmt.Printf("Asset %d Lower:  %v\n", i+1, lanes[0])

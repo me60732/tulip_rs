@@ -246,7 +246,19 @@ Measures the strength of buyers vs sellers: `(Close - Open) / (High - Low)`.
     **By assets** — same options (none), N assets in parallel:
 
     ```go
-    assets := [][indicators.BopInputs][]float64{{a1, a2, a3, a4}, {b1, b2, b3, b4}, {c1, c2, c3, c4}, {d1, d2, d3, d4}}
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    o1 := []float64{81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25}
+    h1 := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00}
+    l1 := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11}
+    c1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+
+    // Reuse the same data for assets 2–4 in this example
+    o2, h2, l2, c2 := o1, h1, l1, c1
+    o3, h3, l3, c3 := o1, h1, l1, c1
+    o4, h4, l4, c4 := o1, h1, l1, c1
+
+    assets := [][indicators.BopInputs][]float64{{o1, h1, l1, c1}, {o2, h2, l2, c2}, {o3, h3, l3, c3}, {o4, h4, l4, c4}}
     sim, _ := indicators.Bop.SimdByAssets(assets, nil, nil)
     for i, lanes := range sim.Results {
         fmt.Printf("Asset %d: %v\n", i+1, lanes[0])

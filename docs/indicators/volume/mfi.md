@@ -223,8 +223,12 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
     import "github.com/me60732/tulip_rs_go/indicators"
 
     close  := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
-    high   := close + 1.0
-    low    := close - 1.0
+    high   := make([]float64, len(close))
+    low    := make([]float64, len(close))
+    for i, v := range close {
+        high[i] = v + 1.0
+        low[i]  = v - 1.0
+    }
     volume := []float64{10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0, 11800.0, 10200.0}
     options := []float64{14.0} // period
     mask := []bool{true} // typprice
@@ -397,12 +401,18 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
     **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
 
     ```go
-    assets := [][indicators.MfiInputs][]float64{
-        {a1_high, a1_low, a1_close, a1_volume},
-        {a2_high, a2_low, a2_close, a2_volume},
-        {a3_high, a3_low, a3_close, a3_volume},
-        {a4_high, a4_low, a4_close, a4_volume},
-    }
+    h1 := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00}
+    l1 := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11}
+    c1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    v1 := []float64{5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0, 3798000.0,
+                    3936200.0, 4732000.0, 4841300.0, 3915300.0}
+
+    // Reuse the same data for assets 2–4 in this example
+    h2, l2, c2, v2 := h1, l1, c1, v1
+    h3, l3, c3, v3 := h1, l1, c1, v1
+    h4, l4, c4, v4 := h1, l1, c1, v1
+
+    assets := [][indicators.MfiInputs][]float64{{h1, l1, c1, v1}, {h2, l2, c2, v2}, {h3, l3, c3, v3}, {h4, l4, c4, v4}}
     sim, _ := indicators.Mfi.SimdByAssets(assets, []float64{14.0}, nil)
     for i, lanes := range sim.Results {
         fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
@@ -413,6 +423,12 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
     **By options** — same asset, N option sets in parallel:
 
     ```go
+    high := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00}
+    low := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11}
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    volume := []float64{5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0, 3798000.0,
+                        3936200.0, 4732000.0, 4841300.0, 3915300.0}
+
     assets := [][indicators.MfiInputs][]float64{
         {high, low, close, volume},
         {high, low, close, volume},

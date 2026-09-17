@@ -279,30 +279,11 @@ Moving average weighted by trading volume so that high-volume bars have more inf
     a1_close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
     a1_vol := []float64{5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0,
                         3798000.0, 3936200.0, 4732000.0, 4841300.0, 3915300.0}
-    a2_close := []float64{a1_close[0]*1.1, a1_close[1]*1.1, a1_close[2]*1.1,
-                          a1_close[3]*1.1, a1_close[4]*1.1, a1_close[5]*1.1,
-                          a1_close[6]*1.1, a1_close[7]*1.1, a1_close[8]*1.1,
-                          a1_close[9]*1.1}
-    a2_vol := []float64{a1_vol[0]*1.1, a1_vol[1]*1.1, a1_vol[2]*1.1,
-                        a1_vol[3]*1.1, a1_vol[4]*1.1, a1_vol[5]*1.1,
-                        a1_vol[6]*1.1, a1_vol[7]*1.1, a1_vol[8]*1.1,
-                        a1_vol[9]*1.1}
-    a3_close := []float64{a1_close[0]*0.9, a1_close[1]*0.9, a1_close[2]*0.9,
-                          a1_close[3]*0.9, a1_close[4]*0.9, a1_close[5]*0.9,
-                          a1_close[6]*0.9, a1_close[7]*0.9, a1_close[8]*0.9,
-                          a1_close[9]*0.9}
-    a3_vol := []float64{a1_vol[0]*0.9, a1_vol[1]*0.9, a1_vol[2]*0.9,
-                        a1_vol[3]*0.9, a1_vol[4]*0.9, a1_vol[5]*0.9,
-                        a1_vol[6]*0.9, a1_vol[7]*0.9, a1_vol[8]*0.9,
-                        a1_vol[9]*0.9}
-    a4_close := []float64{a1_close[0]*1.02, a1_close[1]*1.02, a1_close[2]*1.02,
-                          a1_close[3]*1.02, a1_close[4]*1.02, a1_close[5]*1.02,
-                          a1_close[6]*1.02, a1_close[7]*1.02, a1_close[8]*1.02,
-                          a1_close[9]*1.02}
-    a4_vol := []float64{a1_vol[0]*1.02, a1_vol[1]*1.02, a1_vol[2]*1.02,
-                        a1_vol[3]*1.02, a1_vol[4]*1.02, a1_vol[5]*1.02,
-                        a1_vol[6]*1.02, a1_vol[7]*1.02, a1_vol[8]*1.02,
-                        a1_vol[9]*1.02}
+
+    // Reuse the same data for assets 2–4 in this example
+    a2_close, a2_vol := a1_close, a1_vol
+    a3_close, a3_vol := a1_close, a1_vol
+    a4_close, a4_vol := a1_close, a1_vol
 
     assets := [][indicators.VwmaInputs][]float64{{a1_close, a1_vol}, {a2_close, a2_vol}, {a3_close, a3_vol}, {a4_close, a4_vol}}
     sim, _ := indicators.Vwma.SimdByAssets(assets, []float64{14.0}, nil)

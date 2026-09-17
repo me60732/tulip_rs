@@ -207,8 +207,6 @@ Measures market momentum as the difference between a 5-period and 34-period simp
 
 === "C"
 
-    AO has no options and does not provide SIMD by-options. SIMD is available via by-assets only.
-
     ```c
     #include "tulip_rs_ffi.h"
 
@@ -234,8 +232,6 @@ Measures market momentum as the difference between a 5-period and 34-period simp
     ```
 
 === "Go"
-
-    AO has no options and does not provide SIMD by-options. SIMD is available via by-assets only.
 
     ```go
     import "github.com/me60732/tulip_rs_go/indicators"
@@ -389,6 +385,20 @@ Measures market momentum as the difference between a 5-period and 34-period simp
     **By assets** — applied to 4 assets in parallel (lane counts 2/4/8/16):
 
     ```go
+    h1 := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                    85.90, 86.58, 86.98, 88.00, 87.87, 88.10, 88.50, 89.00, 89.40, 89.80,
+                    90.10, 90.50, 91.00, 91.50, 91.80, 92.00, 92.40, 92.80, 93.10, 93.50,
+                    93.80, 94.20, 94.60, 95.00, 95.30}
+    l1 := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                    84.03, 85.39, 85.76, 87.17, 87.01, 87.50, 87.90, 88.30, 88.70, 89.10,
+                    89.40, 89.80, 90.20, 90.60, 91.00, 91.30, 91.70, 92.10, 92.40, 92.80,
+                    93.10, 93.50, 93.90, 94.30, 94.60}
+
+    // Reuse the same data for assets 2–4 in this example
+    h2, l2 := h1, l1
+    h3, l3 := h1, l1
+    h4, l4 := h1, l1
+
     assets := [][indicators.AoInputs][]float64{{h1, l1}, {h2, l2}, {h3, l3}, {h4, l4}}
     sim, _ := indicators.Ao.SimdByAssets(assets, []float64{}, nil)
     for i, lanes := range sim.Results {
@@ -397,7 +407,7 @@ Measures market momentum as the difference between a 5-period and 34-period simp
     sim.Close() // frees every lane state, then the SIMD buffers
     ```
 
-    *This indicator has no options, so by-options SIMD does not apply.*
+    _This indicator has no options, so by-options SIMD does not apply._
 
 === "Python"
 

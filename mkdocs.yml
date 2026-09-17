@@ -156,6 +156,7 @@ nav:
           - C FFI: language_bindings/c.md
           - Python: language_bindings/python.md
           - Node.js: language_bindings/node.md
+          - Go: language_bindings/go.md
           - Browser (WASM): language_bindings/wasm.md
     - Live Demo: demo.md
     - Benchmarks:

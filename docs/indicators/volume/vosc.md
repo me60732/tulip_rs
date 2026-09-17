@@ -314,6 +314,13 @@ The percentage difference between two volume moving averages. Expanding volume o
     **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
 
     ```go
+    v1 := []float64{1200.0, 1400.0, 1100.0, 1600.0, 1300.0, 900.0, 1500.0, 1800.0, 1000.0, 1700.0}
+
+    // Reuse the same data for assets 2–4 in this example
+    v2 := v1
+    v3 := v1
+    v4 := v1
+
     assets := [][indicators.VoscInputs][]float64{
         {v1},
         {v2},
@@ -326,12 +333,15 @@ The percentage difference between two volume moving averages. Expanding volume o
     }
     sim.Close() // frees every lane state, then the SIMD buffers
     ```
+=== "Go"
 
     **By options** — same asset, 4 different option sets in parallel:
 
     ```go
+    volume := []float64{1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+                        900.0, 1500.0, 1800.0, 1000.0, 1700.0}
     sim2, _ := indicators.Vosc.SimdByOptions(volume,
-        [][]float64{{3.0, 7.0}, {5.0, 10.0}, {8.0, 15.0}, {10.0, 20.0}},
+        [][]float64{{3.0, 6.0}, {5.0, 10.0}, {8.0, 16.0}, {12.0, 24.0}},
         nil)
     for i := range sim2.Results {
         fmt.Printf("Option set %d: %v\n", i+1, sim2.Results[i][0])

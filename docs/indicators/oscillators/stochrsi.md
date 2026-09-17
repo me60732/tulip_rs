@@ -339,44 +339,18 @@ Applies the Stochastic Oscillator formula to RSI values rather than price, produ
     ```
 
 === "Go"
-    **By options** — same asset, 4 different periods in parallel:
-
-    ```c
-    static const double close[] = {81.59, 81.06, 82.87, 83.00, 83.61,
-                                   83.15, 82.84, 83.99, 84.55, 84.36};
-    #define EXPANDED_LEN (sizeof(close) / sizeof(double) * 20)
-    static double close_expanded[EXPANDED_LEN];
-    for (size_t i = 0; i < 20; i++) {
-        for (size_t j = 0; j < sizeof(close) / sizeof(double); j++) {
-            close_expanded[i * (sizeof(close) / sizeof(double)) + j] = close[j];
-        }
-    }
-    const double *inputs[STOCHRSI_INPUTS] = {close_expanded};
-
-    static const double o1[STOCHRSI_OPTIONS] = {7.0};
-    static const double o2[STOCHRSI_OPTIONS] = {14.0};
-    static const double o3[STOCHRSI_OPTIONS] = {21.0};
-    static const double o4[STOCHRSI_OPTIONS] = {28.0};
-    const double *const simd_opts[4] = {o1, o2, o3, o4};
-
-    CSimdResult r = stochrsi_simd_by_options(inputs, EXPANDED_LEN, simd_opts, 4, NULL, 0);
-    for (uintptr_t i = 0; i < r.num_results; i++) {
-        stochrsi_state_free(r.states[i]);
-    }
-    tulip_ffi_simd_result_free(r);
-    ```
-
-=== "Go"
 
     **By assets** — same period applied to 4 assets in parallel (lane counts 2/4/8/16):
 
     ```go
-    a1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
-    a2 := []float64{72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50}
-    a3 := []float64{55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40}
-    a4 := []float64{100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8}
+    c1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
 
-    assets := [][indicators.StochrsiInputs][]float64{{a1}, {a2}, {a3}, {a4}}
+    // Reuse the same data for assets 2–4 in this example
+    c2 := c1
+    c3 := c1
+    c4 := c1
+
+    assets := [][indicators.StochrsiInputs][]float64{{c1}, {c2}, {c3}, {c4}}
     sim, _ := indicators.Stochrsi.SimdByAssets(assets, []float64{14.0}, nil)
     for i, lanes := range sim.Results {
         fmt.Printf("Asset %d: %v\n", i+1, lanes[0])

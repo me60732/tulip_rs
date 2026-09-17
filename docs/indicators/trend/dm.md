@@ -267,10 +267,13 @@ Raw directional movement values before smoothing. +DM captures upward movement; 
     ```go
     h1 := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00}
     l1 := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11}
-    h2 := []float64{72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50}
-    l2 := []float64{71.10, 71.85, 72.40, 72.00, 73.20, 73.85, 74.10, 74.60, 75.00, 75.50}
 
-    assets := [][indicators.DmInputs][]float64{{h1, l1}, {h2, l2}}
+    // Reuse the same data for assets 2–4 in this example
+    h2, l2 := h1, l1
+    h3, l3 := h1, l1
+    h4, l4 := h1, l1
+
+    assets := [][indicators.DmInputs][]float64{{h1, l1}, {h2, l2}, {h3, l3}, {h4, l4}}
     sim, _ := indicators.Dm.SimdByAssets(assets, []float64{14.0}, nil)
     for i, lanes := range sim.Results {
         fmt.Printf("Asset %d +DM: %v\n", i+1, lanes[0])

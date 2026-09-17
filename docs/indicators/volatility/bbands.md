@@ -227,7 +227,13 @@ Three bands plotted around a moving average. The width expands and contracts wit
     **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
 
     ```go
-    assets := [][indicators.BbandsInputs][]float64{{a1}, {a2}, {a3}, {a4}}
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+
+    // Reuse the same data for assets 2–4 in this example
+    a2, a3, a4 := close, close, close
+
+    assets := [][indicators.BbandsInputs][]float64{{close}, {a2}, {a3}, {a4}}
     sim, _ := indicators.Bbands.SimdByAssets(assets, []float64{20.0, 2.0}, nil)
     for i, lanes := range sim.Results {
         fmt.Printf("Asset %d Lower:  %v\n", i+1, lanes[0])

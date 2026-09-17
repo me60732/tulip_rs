@@ -249,6 +249,15 @@ A cumulative indicator that compares each close to the previous close to assess 
     **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
 
     ```go
+    h1 := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00}
+    l1 := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11}
+    c1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+
+    // Reuse the same data for assets 2–4 in this example
+    h2, l2, c2 := h1, l1, c1
+    h3, l3, c3 := h1, l1, c1
+    h4, l4, c4 := h1, l1, c1
+
     assets := [][indicators.WadInputs][]float64{
         {h1, l1, c1},
         {h2, l2, c2},

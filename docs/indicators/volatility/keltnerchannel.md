@@ -431,6 +431,21 @@ A volatility-based envelope centred on an EMA of close. The middle band is EMA(c
     **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
 
     ```go
+    a1_high := []float64{82.15, 81.89, 83.03, 83.30, 83.85,
+                         83.90, 83.33, 84.30, 84.84, 85.00,
+                         85.90, 86.58, 86.98, 88.00, 87.87}
+    a1_low := []float64{81.29, 80.64, 81.31, 82.65, 83.07,
+                        83.11, 82.49, 82.30, 84.15, 84.11,
+                        84.03, 85.39, 85.76, 87.17, 87.01}
+    a1_close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                          83.15, 82.84, 83.99, 84.55, 84.36,
+                          85.53, 86.54, 86.89, 87.77, 87.29}
+
+    // Reuse the same data for assets 2–4 in this example
+    a2_high, a2_low, a2_close := a1_high, a1_low, a1_close
+    a3_high, a3_low, a3_close := a1_high, a1_low, a1_close
+    a4_high, a4_low, a4_close := a1_high, a1_low, a1_close
+
     assets := [][indicators.KeltnerchannelInputs][]float64{{a1_high, a1_low, a1_close}, {a2_high, a2_low, a2_close}, {a3_high, a3_low, a3_close}, {a4_high, a4_low, a4_close}}
     sim, _ := indicators.Keltnerchannel.SimdByAssets(assets, []float64{14.0, 2.0}, nil)
     for i, lanes := range sim.Results {
@@ -442,8 +457,30 @@ A volatility-based envelope centred on an EMA of close. The middle band is EMA(c
     **By options** — same asset, N option sets in parallel:
 
     ```go
-    assets2 := [][indicators.KeltnerchannelInputs][]float64{{high, low, close}}
-    sim2, _ := indicators.Keltnerchannel.SimdByOptions(high, low, close, [][]float64{{10.0, 1.5}, {14.0, 2.0}, {20.0, 2.0}, {30.0, 2.5}}, nil)
+    high := []float64{82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00,
+                      85.90, 86.58, 86.98, 88.00, 87.87}
+    low := []float64{81.29, 80.64, 81.31, 82.65, 83.07,
+                     83.11, 82.49, 82.30, 84.15, 84.11,
+                     84.03, 85.39, 85.76, 87.17, 87.01}
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29}
+
+    // Tile the series 20x so longer-period option sets have enough data
+    #define EXPANDED_LEN (15 * 20)
+    high_exp := make([]float64, EXPANDED_LEN)
+    low_exp := make([]float64, EXPANDED_LEN)
+    close_exp := make([]float64, EXPANDED_LEN)
+    for i := 0; i < 20; i++ {
+        for j := 0; j < 15; j++ {
+            high_exp[i*15+j] = high[j]
+            low_exp[i*15+j] = low[j]
+            close_exp[i*15+j] = close[j]
+        }
+    }
+
+    sim2, _ := indicators.Keltnerchannel.SimdByOptions(high_exp, low_exp, close_exp, [][]float64{{10.0, 1.5}, {14.0, 2.0}, {20.0, 2.0}, {30.0, 2.5}}, nil)
     for i, lanes := range sim2.Results {
         fmt.Printf("Period=%d step=%d: middle=%v\n", i+1, lanes[0][1], lanes[0])
     }

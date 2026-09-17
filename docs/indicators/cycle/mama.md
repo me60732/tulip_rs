@@ -418,15 +418,16 @@ An adaptive moving average that adjusts its smoothing factor in proportion to th
     ```go
     import "github.com/me60732/tulip_rs_go/indicators"
 
-    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                       88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                       90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20}
     options := []float64{0.5, 0.05} // fast_limit, slow_limit
 
-    assets := [][indicators.MamaInputs][]float64{
-        {close},
-        {close + 5.0},
-        {close - 3.0},
-        {close * 1.02},
-    }
+    // Reuse the same data for assets 2–4 in this example
+    a2, a3, a4 := close, close, close
+
+    assets := [][indicators.MamaInputs][]float64{{close}, {a2}, {a3}, {a4}}
     sim, _ := indicators.Mama.SimdByAssets(assets, options, nil)
     for i, lanes := range sim.Results {
         fmt.Printf("Asset %d MAMA: %v\n", i+1, lanes[0])

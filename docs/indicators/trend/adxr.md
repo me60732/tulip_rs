@@ -373,7 +373,16 @@ A smoothed version of ADX, calculated as the average of the current ADX and the 
     **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
 
     ```go
-    assets := [][indicators.AdxrInputs][]float64{{a1_high, a1_low, a1_close}, {a2_high, a2_low, a2_close}, {a3_high, a3_low, a3_close}, {a4_high, a4_low, a4_close}}
+    h1 := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00}
+    l1 := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11}
+    c1 := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
+
+    // Reuse the same data for assets 2–4 in this example
+    h2, l2, c2 := h1, l1, c1
+    h3, l3, c3 := h1, l1, c1
+    h4, l4, c4 := h1, l1, c1
+
+    assets := [][indicators.AdxrInputs][]float64{{h1, l1, c1}, {h2, l2, c2}, {h3, l3, c3}, {h4, l4, c4}}
     sim, _ := indicators.Adxr.SimdByAssets(assets, []float64{14.0}, nil)
     for i, lanes := range sim.Results {
         fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
@@ -384,7 +393,14 @@ A smoothed version of ADX, calculated as the average of the current ADX and the 
     **By options** — same asset, 4 different periods in parallel:
 
     ```go
-    sim2, _ := indicators.Adxr.SimdByOptions(high, low, close, [][]float64{{7.0}, {14.0}, {21.0}, {28.0}}, nil)
+    high := []float64{82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00}
+    low := []float64{81.29, 80.64, 81.31, 82.65, 83.07,
+                     83.11, 82.49, 82.30, 84.15, 84.11}
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36}
+
+    sim2, _ := indicators.Adxr.SimdByOptions(high, low, close, [][]float64{{7}, {14}, {21}, {28}}, nil)
     for i, lanes := range sim2.Results {
         fmt.Printf("Period set %d: %v\n", i+1, lanes[0])
     }

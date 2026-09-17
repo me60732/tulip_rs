@@ -483,6 +483,11 @@ A trend-following overlay that plots above price in a downtrend and below price 
                     88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
                     90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20}
 
+    // Reuse the same data for assets 2–4 in this example
+    h2, l2, c2 := h1, l1, c1
+    h3, l3, c3 := h1, l1, c1
+    h4, l4, c4 := h1, l1, c1
+
     assets := [][indicators.SupertrendInputs][]float64{{h1, l1, c1}, {h2, l2, c2}, {h3, l3, c3}, {h4, l4, c4}}
     sim, _ := indicators.Supertrend.SimdByAssets(assets, []float64{10.0, 3.0}, nil)
     for i, lanes := range sim.Results {
