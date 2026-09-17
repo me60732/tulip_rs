@@ -4,20 +4,20 @@
 
 ## TulipRS vs TA-Lib, C Tulip, pandas-ta, and more
 
-- **Up to 20,802× faster than pandas-based Python TA libraries** (`nvi`), with a
-  **~22× median speedup** across 35 commonly used indicators
-- **Up to 11.93× faster than TA-Lib** (`hilberttransform`), with wins on
-  **95%+ of directly comparable indicators**
-- **Beats every pure-Rust TA-Lib-inspired competitor on 100% of compared
-  indicators** — up to **36.10× faster than `kand`** (`mfi`) and up to
-  **6.78× faster than `RustTa`** (`ef`)
-- **~46× faster than `technicalindicators` (Node.js/TypeScript)**, median across
+- Up to **20,802×** faster than pandas-based Python TA libraries (`nvi`), with a
+  **~22×** median speedup across 35 commonly used indicators
+- Up to **11.93×** faster than TA-Lib (`hilberttransform`), with wins on
+  95%+ of directly comparable indicators
+- Beats every pure-Rust TA-Lib-inspired competitor on 100% of compared
+  indicators — up to **36.10×** faster than `kand` (`mfi`) and up to
+  **6.78×** faster than `RustTa` (`ef`)
+- **~46×** faster than `technicalindicators` (Node.js/TypeScript), median across
   41 indicators — up to **403×** for `wma`
-- **Up to 7,491× faster than pure-Go TA libraries** (`cinar/indicator`), with a
-  **~2,283× median speedup** across 45 compared indicators
-- **SIMD batch mode delivers up to 3.85× extra throughput** on top of already-fast
+- Up to **7,491×** faster than pure-Go TA libraries (`cinar/indicator`), with a
+  **~2,283×** median speedup across 45 compared indicators
+- SIMD batch mode delivers up to **3.85×** extra throughput on top of already-fast
   scalar Rust, when computing multiple assets or parameter sets at once
-- **~27 ns median per-bar streaming update** — 100–5,489× faster than recomputing
+- **~27 ns** median per-bar streaming update — **100–5,489×** faster than recomputing
   from scratch on every new bar
 
 *(All numbers below are reproducible — see [Methodology](#methodology).)*
