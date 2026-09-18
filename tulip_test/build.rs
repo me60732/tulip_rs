@@ -102,6 +102,16 @@ fn main() {
         .compile("tulip");
 
     // TA-Lib: only link when the `talib` feature is enabled.
+    //
+    // NOTE: the ta_lib_src submodule is pinned to the `reference-pre-cutover`
+    // tag (commit 0d6b0e64922fd5cde52b92ab7b5dd534a79de06f), NOT to a normal
+    // release tag. Upstream TA-Lib moved to a Rust-codegen-based build
+    // (ta_codegen/*) starting with v0.7.1's "cutover", and dropped the
+    // classic `src/ta_func/*.c` / `src/ta_common/*.c` layout this build.rs
+    // compiles directly. Do NOT run `git submodule update --remote` on this
+    // submodule — it will silently break this build by removing those
+    // directories. If TA-Lib is ever migrated to the new codegen output,
+    // this build.rs needs a rewrite to match.
     if std::env::var("CARGO_FEATURE_TALIB").is_ok() {
         ensure_submodule("ta_lib_src/include/ta_libc.h", "ta_lib_src");
 
