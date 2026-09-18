@@ -13,6 +13,8 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
             - uses: actions/setup-python@v5
               with:
                   python-version: "3.x"
@@ -26,3 +28,51 @@ jobs:
                   curl -sf "https://www.bing.com/ping?sitemap=https://me60732.github.io/tulip_rs/sitemap.xml" \
                     && echo "Bing ping accepted" \
                     || echo "Bing ping failed (non-fatal)"
+
+            - name: Determine changed doc pages
+              id: changed
+              run: |
+                  BASE="${{ github.event.before }}"
+                  SITE="https://me60732.github.io/tulip_rs"
+                  URLS="[]"
+
+                  if [ -n "$BASE" ] && [ "$BASE" != "0000000000000000000000000000000000000000" ] && git cat-file -e "$BASE" 2>/dev/null; then
+                      CHANGED_MD="$(git diff --name-only "$BASE" "${{ github.sha }}" -- docs/ | grep '\.md$' || true)"
+
+                      for f in $CHANGED_MD; do
+                          rel="${f#docs/}"
+                          if [ "$rel" = "index.md" ]; then
+                              path=""
+                          elif [[ "$rel" == */index.md ]]; then
+                              path="${rel%index.md}"
+                          else
+                              path="${rel%.md}/"
+                          fi
+                          URLS="$(echo "$URLS" | jq --arg u "$SITE/$path" '. + [$u]')"
+                      done
+                  else
+                      echo "No usable previous commit for diffing — falling back to homepage only."
+                      URLS='["'"$SITE"'/"]'
+                  fi
+
+                  # Always include the sitemap itself so crawlers can catch anything missed.
+                  URLS="$(echo "$URLS" | jq --arg u "$SITE/sitemap.xml" '. + [$u]')"
+
+                  echo "urls=$(echo "$URLS" | jq -c .)" >> "$GITHUB_OUTPUT"
+
+            - name: Submit changed pages to IndexNow (Bing, Yandex, Seznam, Naver)
+              run: |
+                  BODY="$(jq -n \
+                    --arg host "me60732.github.io" \
+                    --arg key "ca6374701e8a4cc3886f3e1dc7b86bcf" \
+                    --arg keyLoc "https://me60732.github.io/tulip_rs/ca6374701e8a4cc3886f3e1dc7b86bcf.txt" \
+                    --argjson urlList '${{ steps.changed.outputs.urls }}' \
+                    '{host: $host, key: $key, keyLocation: $keyLoc, urlList: $urlList}')"
+
+                  echo "Submitting URLs: ${{ steps.changed.outputs.urls }}"
+
+                  curl -sf -X POST "https://api.indexnow.org/indexnow" \
+                    -H "Content-Type: application/json; charset=utf-8" \
+                    -d "$BODY" \
+                    && echo "IndexNow submission accepted" \
+                    || echo "IndexNow submission failed (non-fatal)"
