@@ -31,5 +31,5 @@ An interactive browser demo — indicators computed in WebAssembly via [`tulip-r
 
 - The WASM engine is loaded on first visit from the jsDelivr CDN — subsequent loads are cached by the browser.
 - Data is MSFT daily OHLCV (static, bundled with the demo).
-- The demo is a **single self-contained HTML file** — no server required. Download `demo.html` and open it locally.
+- The demo is a single self-contained HTML file — no server required. Download `demo.html` and open it locally.
 - Built with [`tulip-rs-lwc`](https://github.com/me60732/tulip-rs-lwc) — the Lightweight Charts plugin for tulip-rs.
