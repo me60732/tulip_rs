@@ -6,7 +6,6 @@ pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
-
 /// Number of input price series required by this indicator.
 pub const INPUTS: usize = 2;
 
@@ -84,8 +83,11 @@ impl<S> State<S> {
     fn calc_dmup_dmdown(&mut self, dp: f64, dm: f64) -> (f64, f64) {
         //state.dmup = state.multiplier * state.dmup + dp;
         self.dmup = self.dmup.mul_add(self.multiplier, dp);
+        //self.dmup = self.multiplier.mul_add(self.dmup, self.dmup + dp);
         //state.dmdown = state.multiplier * state.dmdown + dm;
         self.dmdown = self.dmdown.mul_add(self.multiplier, dm);
+
+        //self.dmdown = self.multiplier.mul_add(self.dmdown, self.dmdown + dm);
         (self.dmup, self.dmdown)
     }
     /// Calculates the raw DM+ and DM- values for the current bar.
@@ -109,25 +111,21 @@ impl<S> State<S> {
         (self.prev_high, self.prev_low) = (high, low);
 
         if dp < 0.0 {
-            dp = 0.0;
-        } else if dp > dm {
-            dm = 0.0;
+            dp = 0.0; 
+        } else if dp > dm { 
+            dm = 0.0; 
         }
 
         if dm < 0.0 {
-            dm = 0.0;
+            dm = 0.0; 
         } else if dm > dp {
-            dp = 0.0;
+            dp = 0.0;        
         }
 
-        if dp > dm {
-            dm = 0.0;
-        } else if dm > dp {
-            dp = 0.0;
-        }
         (dp, dm)
     }
 }
+
 impl TIndicatorState<2> for IndicatorState {
     fn batch_indicator(
         &mut self,
@@ -176,7 +174,6 @@ fn cycle_calc(
     }
 }
 
-#[inline]
 pub fn multiplier(period: usize) -> f64 {
     ((period - 1) as f64) / period as f64
 }
