@@ -141,6 +141,45 @@ fn bench_rust_medprice(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_medprice(c: &mut Criterion) {
+    use vector_ta::indicators::medprice::{medprice, MedpriceInput, MedpriceParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("medprice");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let (high, low) = get_hl_arrays(stock_data);
+            let n = high.len();
+
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let input = MedpriceInput::from_slices(&high, &low, MedpriceParams);
+                    let output = medprice(&input).unwrap();
+                    black_box(output.values);
+                },
+                SAMPLE_SIZE,
+            );
+            log_timing_result("medprice", "VectorTa", &[], n, &timing, Some(stock_symbol));
+        }
+    } else {
+        let (high_vec, low_vec) = expand_inputs();
+
+        let mut group = c.benchmark_group("medprice_vector_ta");
+        group.sample_size(SAMPLE_SIZE);
+        group.bench_function("VectorTa MEDPRICE", |b| {
+            b.iter(|| {
+                let input = MedpriceInput::from_slices(&high_vec, &low_vec, MedpriceParams);
+                let output = medprice(&input).unwrap();
+                black_box(output.values);
+            });
+        });
+        group.finish();
+    }
+}
+
 fn bench_rust_medprice_from_state(c: &mut Criterion) {
     if should_log_to_db() {
         init_database_data();
@@ -514,6 +553,7 @@ fn bench_kand_medprice(c: &mut Criterion) {
 criterion_group!(
     medprice_benchmarks,
     bench_rust_medprice_simd_by_assets,
+    bench_vector_ta_medprice,
     bench_rust_medprice,
     bench_rust_medprice_from_state,
     bench_c_medprice,
@@ -525,6 +565,7 @@ criterion_group!(
 criterion_group!(
     medprice_benchmarks,
     bench_rust_medprice_simd_by_assets,
+    bench_vector_ta_medprice,
     bench_rust_medprice,
     bench_rust_medprice_from_state,
     bench_c_medprice,

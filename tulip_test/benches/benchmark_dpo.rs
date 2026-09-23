@@ -153,6 +153,58 @@ fn bench_rust_dpo(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_dpo(c: &mut Criterion) {
+    use vector_ta::indicators::dpo::{dpo, DpoInput, DpoParams};
+
+    if should_log_to_db() {
+        // Database logging mode - benchmark real market data
+        init_database_data();
+        init_logging("dpo");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = DpoParams {
+                            period: Some(period),
+                        };
+                        let input = DpoInput::from_slice(&close, params);
+                        let output = dpo(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("dpo", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        // Criterion profiling mode - benchmark synthetic data
+        let close_vec = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("dpo_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa DPO {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = DpoParams {
+                        period: Some(period),
+                    };
+                    let input = DpoInput::from_slice(&close_vec, params);
+                    let output = dpo(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 fn bench_rust_dpo_from_state(c: &mut Criterion) {
     if should_log_to_db() {
         // Database logging mode - benchmark real market data
@@ -514,6 +566,7 @@ criterion_group!(
     bench_rust_dpo_simd_by_assets,
     bench_rust_dpo_simd_by_options,
     bench_rust_dpo,
+    bench_vector_ta_dpo,
     bench_c_dpo,
     bench_rust_dpo_from_state,
     bench_rust_dpo_optional

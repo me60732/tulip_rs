@@ -7,7 +7,8 @@ mod tests {
     use tulip_rs::indicators::dm::{Dm, Indicator, IndicatorState, TIndicatorState, INPUTS};
     use tulip_test::c_bindings::{ti_dm, ti_dm_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
-
+    //use vector_ta::indicators::dm::{dm, DmInput, DmParams};
+    
     const CHUNK_SIZE: usize = 100;
     const EPSILON: f64 = 1e-10;
     const HIGH: [f64; 15] = [
@@ -178,10 +179,10 @@ mod tests {
                 }
 
                 if !approx_eq!(f64, c_val, rust_val, epsilon = EPSILON) {
-                    println!(
+                    /*println!(
                         "Test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}",
                         index, minus_dm_vec_c, outputs[1], options
-                    );
+                    );*/
                     panic!(
                         "Mismatch at index {}: C = {}, Rust = {}, Options = {:?}",
                         index, c_val, rust_val, options
@@ -227,7 +228,141 @@ mod tests {
                     Dm::indicator(&inputs_rust, &options, None).expect("Rust DM indicator failed");
 
                 let output_len_rust = outputs[0].len();
+                let c_vec = &plus_dm_vec_c[1..];
+                // Compare +DM results
+                for (i, (&c_val, &rust_val)) in c_vec
+                    .iter()
+                    //.rev()
+                    .take(output_len_rust)
+                    .zip(outputs[0].iter()/*.rev()*/)
+                    .enumerate()
+                {
+                    let index = i;//output_len_rust - i - 1;
 
+                    // Fail test if Rust has NaN
+                    if rust_val.is_nan() {
+                        panic!(
+                            "Rust DM_PLUS has NaN at index {}: Rust = {}, Options = {:?}, Stock: {}",
+                            index, rust_val, options, stock_symbol
+                        );
+                    }
+
+                    // Fail test if Rust has infinity
+                    if rust_val.is_infinite() {
+                        panic!(
+                            "Rust DM has infinity at index {}: Rust = {}",
+                            index, rust_val
+                        );
+                    }
+
+                    // Skip if only C has NaN (C bug)
+                    if c_val.is_nan() && !rust_val.is_nan() {
+                        continue;
+                    }
+
+                    // Skip if only C has infinity (C bug)
+                    if c_val.is_infinite() && !rust_val.is_infinite() {
+                        continue;
+                    }
+
+                    if !approx_eq!(f64, c_val, rust_val, epsilon = EPSILON) {
+                        let start = if index < 10 { 0 } else { index - 10 };
+                        let end = if index < output_len_rust - 10 { index + 10 } else { output_len_rust - 1 };
+                        let d_index = index - options[0] as usize;
+                        let d_start = if d_index > 1 { d_index - 1 } else { 0 };
+                        let d_end = d_index;
+                        println!(
+                            "DM +DM test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}, i: {:?}, Length: {:?}\n\nHigh = {:?}\nLow = {:?}",
+                            index, &plus_dm_vec_c[start..end], &outputs[0][start..end], options, stock_symbol, index, output_len_rust, &high[d_start..=d_end], &low[d_start..=d_end]
+                        );
+                        /*println!(
+                            "DM +DM test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}, i: {:?}",
+                            index, &plus_dm_vec_c, &outputs[0], options, stock_symbol, i
+                        );*/
+                        panic!(
+                            "DM +DM mismatch at index {}: C = {}, Rust = {}, Options = {:?}",
+                            index, c_val, rust_val, options
+                        );
+                    }
+                }
+
+                // Compare -DM results
+                for (i, (&c_val, &rust_val)) in minus_dm_vec_c
+                    .iter()
+                    .rev()
+                    .take(output_len_rust)
+                    .zip(outputs[1].iter().rev())
+                    .enumerate()
+                {
+                    let index = output_len_rust - i - 1;
+
+                    // Fail test if Rust has NaN
+                    if rust_val.is_nan() {
+                        panic!(
+                            "Rust DM_MINUS has NaN at index {}: Rust = {}, Options = {:?}, Stock: {}",
+                            index, rust_val, options, stock_symbol
+                        );
+                    }
+
+                    // Skip if only C has NaN (C bug)
+                    if c_val.is_nan() && !rust_val.is_nan() {
+                        continue;
+                    }
+
+                    if !approx_eq!(f64, c_val, rust_val, epsilon = EPSILON) {
+                        /*println!(
+                            "DM -DM test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}",
+                            index, minus_dm_vec_c, outputs[1], options, stock_symbol
+                        );*/
+                        panic!(
+                            "DM -DM mismatch at index {}: C = {}, Rust = {}, Options = {:?}",
+                            index, c_val, rust_val, options
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /*#[test]
+    fn test_dm_vectorta_database() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let (high, low) = get_hl_arrays(stock_data);
+
+            for options in OPTIONS_LIST {
+                // C implementation
+                let inputs_c: Vec<*const f64> = vec![high.as_ptr(), low.as_ptr()];
+
+                let start_index = unsafe { ti_dm_start(options.as_ptr()) };
+                assert!(start_index >= 0, "ti_dm_start returned a negative index");
+                let output_len_c = high.len() - (start_index as usize);
+
+                let mut plus_dm_vec_c = vec![0.0_f64; output_len_c];
+                let mut minus_dm_vec_c = vec![0.0_f64; output_len_c];
+                let plus_dm_ptr: *mut f64 = plus_dm_vec_c.as_mut_ptr();
+                let minus_dm_ptr: *mut f64 = minus_dm_vec_c.as_mut_ptr();
+                let mut outputs_c: Vec<*mut f64> = vec![plus_dm_ptr, minus_dm_ptr];
+                let ret = unsafe {
+                    ti_dm(
+                        high.len() as i32,
+                        inputs_c.as_ptr(),
+                        options.as_ptr(),
+                        outputs_c.as_mut_ptr(),
+                    )
+                };
+                assert_eq!(ret, 0, "ti_dm returned error code {}", ret);
+
+                let period = options[0] as usize;
+                let params = DmParams {
+                    period: Some(period),
+                };
+                let input = DmInput::from_slices(&high, &low, params);
+                let output = dm(&input).unwrap();
+                let outputs = vec![output.plus, output.minus];
+                let output_len_rust = outputs[0].len();
+                //let c_vec = &plus_dm_vec_c[1..];
                 // Compare +DM results
                 for (i, (&c_val, &rust_val)) in plus_dm_vec_c
                     .iter()
@@ -265,10 +400,16 @@ mod tests {
                     }
 
                     if !approx_eq!(f64, c_val, rust_val, epsilon = EPSILON) {
+                        let start = 22;//if index < 10 { 0 } else { index - 10 };
+                        let end = 100;//if index < output_len_rust - 10 { index + 10 } else { output_len_rust - 1 };
                         println!(
-                            "DM +DM test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}",
-                            index, plus_dm_vec_c, outputs[0], options, stock_symbol
+                            "DM +DM test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}, i: {:?}, Length: {:?}",
+                            index, &plus_dm_vec_c[start..end], &outputs[0][start..end], options, stock_symbol, index, output_len_rust
                         );
+                        /*println!(
+                            "DM +DM test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}, i: {:?}",
+                            index, &plus_dm_vec_c, &outputs[0], options, stock_symbol, i
+                        );*/
                         panic!(
                             "DM +DM mismatch at index {}: C = {}, Rust = {}, Options = {:?}",
                             index, c_val, rust_val, options
@@ -300,10 +441,10 @@ mod tests {
                     }
 
                     if !approx_eq!(f64, c_val, rust_val, epsilon = EPSILON) {
-                        println!(
+                        /*println!(
                             "DM -DM test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}",
                             index, minus_dm_vec_c, outputs[1], options, stock_symbol
-                        );
+                        );*/
                         panic!(
                             "DM -DM mismatch at index {}: C = {}, Rust = {}, Options = {:?}",
                             index, c_val, rust_val, options
@@ -312,7 +453,7 @@ mod tests {
                 }
             }
         }
-    }
+    }*/
 
     #[test]
     fn test_dm_database_state() {
@@ -597,7 +738,7 @@ mod tests {
 
                     // Compare values with tolerance
                     if !approx_eq!(f64, simd_val, regular_val, epsilon = EPSILON) {
-                        println!("SIMD: {:?}", simd_plus_dm_result);
+                        //println!("SIMD: {:?}", simd_plus_dm_result);
                         panic!(
                             "Plus DM mismatch at index {} for stock {} options {:?}: SIMD = {}, Regular = {}",
                             i, stock_symbol, options, simd_val, regular_val

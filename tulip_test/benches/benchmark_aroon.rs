@@ -631,6 +631,68 @@ fn bench_kand_aroon(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_aroon(c: &mut Criterion) {
+    use vector_ta::indicators::aroon::{aroon, AroonInput, AroonParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("aroon");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low) = get_hl_arrays(stock_data);
+            let n = high.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = AroonParams {
+                            length: Some(period),
+                        };
+                        let input = AroonInput::from_slices_hl(&high, &low, params);
+                        let output = aroon(&input).unwrap();
+                        black_box(output.aroon_up);
+                        black_box(output.aroon_down);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result(
+                    "aroon",
+                    "VectorTa",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let (high_vec, low_vec) = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("aroon_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa AROON {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = AroonParams {
+                        length: Some(period),
+                    };
+                    let input = AroonInput::from_slices_hl(&high_vec, &low_vec, params);
+                    let output = aroon(&input).unwrap();
+                    black_box(output.aroon_up);
+                    black_box(output.aroon_down);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -641,6 +703,7 @@ criterion_group!(
     bench_rust_aroon_from_state,
     bench_talib_aroon,
     bench_kand_aroon,
+    bench_vector_ta_aroon,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -652,5 +715,6 @@ criterion_group!(
     bench_c_aroon,
     bench_rust_aroon_from_state,
     bench_kand_aroon,
+    bench_vector_ta_aroon,
 );
 criterion_main!(benches);

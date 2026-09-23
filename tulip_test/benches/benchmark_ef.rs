@@ -411,6 +411,60 @@ fn bench_rust_ta_ef(c: &mut Criterion) {
     }
 }
 
+/// Benchmark the VectorTA implementation of the Efficiency Ratio.
+fn bench_vector_ta_ef(c: &mut Criterion) {
+    use vector_ta::indicators::er::{er, ErInput, ErParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("ef");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let close_vec = get_close_array(stock_data);
+            let n = close_vec.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let params = ErParams {
+                    period: Some(period),
+                };
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let input = ErInput::from_slice(&close_vec, params.clone());
+                        let output = er(&input).expect("VectorTA er failed");
+                        black_box(&output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result("ef", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let params = ErParams {
+                period: Some(period),
+            };
+            let mut group = c.benchmark_group("ef_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTA EF {{ {:.1} }}", options[0]), |b| {
+                b.iter(|| {
+                    let input = ErInput::from_slice(&close_vec, params.clone());
+                    let output = er(&input).expect("VectorTA er failed");
+                    black_box(&output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     ef_benchmarks,
     bench_rust_ef_simd_by_assets,
@@ -418,5 +472,6 @@ criterion_group!(
     bench_rust_ef,
     bench_rust_ta_ef,
     bench_rust_ef_from_state,
+    bench_vector_ta_ef,
 );
 criterion_main!(ef_benchmarks);

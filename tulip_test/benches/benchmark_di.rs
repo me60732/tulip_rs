@@ -819,12 +819,65 @@ fn bench_kand_minus_di(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_di(c: &mut Criterion) {
+    use vector_ta::indicators::di::{di, DiInput, DiParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("di");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_hlc_arrays(stock_data);
+            let n = high.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = DiParams {
+                            period: Some(period),
+                        };
+                        let input = DiInput::from_slices(&high, &low, &close, params);
+                        let output = di(&input).unwrap();
+                        black_box(output.plus);
+                        black_box(output.minus);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("di", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("di_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa DI {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = DiParams {
+                        period: Some(period),
+                    };
+                    let input = DiInput::from_slices(&high_vec, &low_vec, &close_vec, params);
+                    let output = di(&input).unwrap();
+                    black_box(output.plus);
+                    black_box(output.minus);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
     bench_rust_di_simd_by_options,
     bench_rust_di_simd_by_assets,
     bench_rust_di,
+    bench_vector_ta_di,
     bench_c_di,
     bench_talib_di,
     bench_rust_di_optional,
@@ -839,6 +892,7 @@ criterion_group!(
     bench_rust_di_simd_by_options,
     bench_rust_di_simd_by_assets,
     bench_rust_di,
+    bench_vector_ta_di,
     bench_c_di,
     bench_rust_di_optional,
     bench_rust_di_from_state,

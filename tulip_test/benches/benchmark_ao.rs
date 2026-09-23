@@ -155,6 +155,63 @@ fn bench_rust_ao(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_ao(c: &mut Criterion) {
+    use vector_ta::indicators::ao::{ao, compute_hl2, AoInput, AoParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("ao");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let high_vec: Vec<f64> = stock_data.iter().map(|d| d.high).collect();
+            let low_vec: Vec<f64> = stock_data.iter().map(|d| d.low).collect();
+            let n = high_vec.len();
+
+            // Compute median price (hl2) for AO
+            let hl2 = compute_hl2(&high_vec, &low_vec).unwrap();
+
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let params = AoParams {
+                        short_period: Some(5),
+                        long_period: Some(34),
+                    };
+                    let input = AoInput::from_slice(&hl2, params);
+                    let output = ao(&input).unwrap();
+                    black_box(output.values);
+                },
+                SAMPLE_SIZE,
+            );
+
+            log_timing_result("ao", "VectorTa", &OPTIONS, n, &timing, Some(stock_symbol));
+        }
+    } else {
+        // Run Criterion benchmark with synthetic data
+        let (high_vec, low_vec) = expand_inputs();
+
+        // Compute median price (hl2) for AO
+        let hl2 = compute_hl2(&high_vec, &low_vec).unwrap();
+
+        let mut group = c.benchmark_group("ao_vector_ta");
+        group.sample_size(SAMPLE_SIZE);
+        group.bench_function("VectorTa AO", |b| {
+            b.iter(|| {
+                let params = AoParams {
+                    short_period: Some(5),
+                    long_period: Some(34),
+                };
+                let input = AoInput::from_slice(&hl2, params);
+                let output = ao(&input).unwrap();
+                black_box(output.values);
+            });
+        });
+        group.finish();
+    }
+}
+
 /// Benchmark the Rust implementation of AO with optional outputs.
 fn bench_rust_ao_optional(c: &mut Criterion) {
     if should_log_to_db() {
@@ -439,6 +496,7 @@ criterion_group!(
     bench_rust_ao,
     bench_c_ao,
     bench_rust_ao_from_state,
-    bench_rust_ao_optional
+    bench_rust_ao_optional,
+    bench_vector_ta_ao
 );
 criterion_main!(benches);

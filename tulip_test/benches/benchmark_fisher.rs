@@ -42,6 +42,64 @@ fn get_high_low_arrays(stock_data: &[tulip_test::database::EodData]) -> (Vec<f64
     (high, low)
 }
 
+fn bench_vector_ta_fisher(c: &mut Criterion) {
+    use vector_ta::indicators::fisher::{fisher, FisherInput, FisherParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("fisher");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let (high, low) = get_high_low_arrays(stock_data);
+            let n = high.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = FisherParams {
+                            period: Some(period),
+                        };
+                        let input = FisherInput::from_slices(&high, &low, params);
+                        let output = fisher(&input).unwrap();
+                        black_box(output.fisher);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "fisher",
+                    "VectorTa",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let (high_vec, low_vec) = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("fisher_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa Fisher {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = FisherParams {
+                        period: Some(period),
+                    };
+                    let input = FisherInput::from_slices(&high_vec, &low_vec, params);
+                    let output = fisher(&input).unwrap();
+                    black_box(output.fisher);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 fn bench_c_fisher(c: &mut Criterion) {
     if should_log_to_db() {
         // Database logging mode - benchmark real market data
@@ -532,6 +590,7 @@ criterion_group!(
     bench_rust_fisher_simd_by_assets,
     bench_rust_fisher,
     bench_c_fisher,
+    bench_vector_ta_fisher,
     bench_rust_fisher_from_state,
 );
 criterion_main!(fisher_benchmarks);

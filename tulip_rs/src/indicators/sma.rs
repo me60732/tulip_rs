@@ -57,6 +57,7 @@ impl TState for State<Warm> {
         self.sum * self.multiplier
     }
 }
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct IndicatorState {
     real: Vec<f64>,

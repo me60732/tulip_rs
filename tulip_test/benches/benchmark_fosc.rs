@@ -34,6 +34,57 @@ fn get_close_array(stock_data: &[tulip_test::database::EodData]) -> Vec<f64> {
     stock_data.iter().map(|d| d.close).collect()
 }
 
+fn bench_vector_ta_fosc(c: &mut Criterion) {
+    use vector_ta::indicators::fosc::{fosc, FoscInput, FoscParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("fosc");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = FoscParams {
+                            period: Some(period),
+                        };
+                        let input = FoscInput::from_slice(&close, params);
+                        let output = fosc(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("fosc", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("fosc_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa FOSC {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = FoscParams {
+                        period: Some(period),
+                    };
+                    let input = FoscInput::from_slice(&close_vec, params);
+                    let output = fosc(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 fn bench_c_fosc(c: &mut Criterion) {
     if should_log_to_db() {
         // Database logging mode - benchmark real market data
@@ -511,6 +562,7 @@ criterion_group!(
     bench_rust_fosc_simd_by_options,
     bench_rust_fosc,
     bench_c_fosc,
+    bench_vector_ta_fosc,
     bench_rust_fosc_from_state,
     bench_rust_fosc_optional
 );

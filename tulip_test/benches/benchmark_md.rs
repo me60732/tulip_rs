@@ -15,9 +15,9 @@ const CLOSE: [f64; 15] = [
 ];
 
 // Options for MD (period)
-const OPTIONS_LIST: [[f64; 1]; 4] = [[5.0], [10.0], [14.0], [25.0]];
+//const OPTIONS_LIST: [[f64; 1]; 4] = [[5.0], [10.0], [14.0], [25.0]];
 //const OPTIONS_LIST: [[f64; 1]; 8] = [[5.0], [10.0], [14.0], [25.0], [30.0], [50.0], [100.0], [200.0]];
-
+const OPTIONS_LIST: [[f64; 1]; 4] = [[20.0], [25.0], [30.0], [50.0]];
 /// Chunk size for from-state benchmarks
 const CHUNK_SIZE: usize = 100;
 
@@ -606,8 +606,8 @@ fn bench_rust_ta_mad(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    bench_rust_md_simd_by_options,
-    bench_rust_md_simd_by_assets,
+    //bench_rust_md_simd_by_options,
+    //bench_rust_md_simd_by_assets,
     bench_rust_md,
     bench_rust_ta_mad,
     bench_c_md,

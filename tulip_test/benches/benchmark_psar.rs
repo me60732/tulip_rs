@@ -647,9 +647,70 @@ fn bench_kand_psar(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_psar(c: &mut Criterion) {
+    use vector_ta::indicators::sar::{sar, SarInput, SarParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("psar");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low) = get_hl_arrays(stock_data);
+            let n = high.len();
+
+            for options in OPTIONS_LIST {
+                let acceleration = options[0];
+                let maximum = options[1];
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = SarParams {
+                            acceleration: Some(acceleration),
+                            maximum: Some(maximum),
+                        };
+                        let input = SarInput::from_slices(&high, &low, params);
+                        let output = sar(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result("psar", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let (high_vec, low_vec) = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let acceleration = options[0];
+            let maximum = options[1];
+            let mut group = c.benchmark_group("psar_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!("VectorTa SAR {{ {}/{} }}", options[0], options[1]),
+                |b| {
+                    b.iter(|| {
+                        let params = SarParams {
+                            acceleration: Some(acceleration),
+                            maximum: Some(maximum),
+                        };
+                        let input = SarInput::from_slices(&high_vec, &low_vec, params);
+                        let output = sar(&input).unwrap();
+                        black_box(output.values);
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     psar_benchmarks,
+    bench_vector_ta_psar,
     bench_rust_psar_simd_by_assets,
     bench_rust_psar_simd_by_options,
     bench_rust_psar,
@@ -662,6 +723,7 @@ criterion_group!(
 #[cfg(not(feature = "talib"))]
 criterion_group!(
     psar_benchmarks,
+    bench_vector_ta_psar,
     bench_rust_psar_simd_by_assets,
     bench_rust_psar_simd_by_options,
     bench_rust_psar,

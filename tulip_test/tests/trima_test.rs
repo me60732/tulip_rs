@@ -2,9 +2,12 @@
 mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicator_types::IndicatorByOptions;
-    use tulip_rs::indicators::trima::{Indicator, TIndicatorState, Trima, OPTIONS, INPUTS, IndicatorState};
+    use tulip_rs::indicators::trima::{
+        Indicator, IndicatorState, TIndicatorState, Trima, INPUTS, OPTIONS,
+    };
     use tulip_test::c_bindings::{ti_trima, ti_trima_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
+    use vector_ta::indicators::moving_averages::trima::{trima, TrimaInput, TrimaParams};
     const EPSILON: f64 = 1e-8;
     const CHUNK_SIZE: usize = 100;
     const CLOSE: [f64; 15] = [
@@ -127,8 +130,8 @@ mod tests {
                 if !approx_eq!(f64, c_val, rust_val, epsilon = EPSILON) {
                     // Adjust epsilon if needed
                     println!(
-                        "Test failed at index {}: \nC = {:?}, \nRust = {:?}, Options = {:?}",
-                        index, trima_output_vec_c, outputs[0], options
+                        "Test failed at index {}: \nC = {}, \nRust = {}, Options = {:?}",
+                        index, c_val, rust_val, options
                     );
                     panic!(
                         "Mismatch at index {}: C = {}, Rust = {}, Options = {:?}",
@@ -172,6 +175,96 @@ mod tests {
                 let inputs_rust = [close.as_slice()];
                 let (outputs, _) = Trima::indicator(&inputs_rust, &options, None)
                     .expect("Rust TRIMA indicator failed");
+
+                let output_len_rust = outputs[0].len();
+
+                for (i, (&c_val, &rust_val)) in trima_output_vec_c
+                    .iter()
+                    .rev()
+                    .take(output_len_rust)
+                    .zip(outputs[0].iter().rev())
+                    .enumerate()
+                {
+                    let index = output_len_rust - i - 1;
+
+                    // Fail test if Rust has NaN
+                    if rust_val.is_nan() {
+                        panic!(
+                            "Rust TRIMA has NaN at index {}: Rust = {}, Options = {:?}, Stock: {}",
+                            index, rust_val, options, stock_symbol
+                        );
+                    }
+
+                    // Fail test if Rust has infinity
+                    if rust_val.is_infinite() {
+                        panic!(
+                            "Rust TRIMA has infinity at index {}: Rust = {}, Options = {:?}",
+                            index, rust_val, options
+                        );
+                    }
+
+                    // Skip if only C has NaN (C bug)
+                    if c_val.is_nan() && !rust_val.is_nan() {
+                        continue;
+                    }
+
+                    // Skip if only C has infinity (C bug)
+                    if c_val.is_infinite() && !rust_val.is_infinite() {
+                        continue;
+                    }
+
+                    if !approx_eq!(f64, c_val, rust_val, epsilon = EPSILON) {
+                        println!(
+                            "Test failed at index {}: \nC = {:?}, \n\nRust = {:?}, Options = {:?}, Stock: {}",
+                            index, trima_output_vec_c, outputs[0], options, stock_symbol
+                        );
+                        panic!(
+                            "Mismatch at index {}: C = {}, Rust = {}, Options = {:?}",
+                            index, c_val, rust_val, options
+                        );
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn test_trima_vector_ta_database() {
+        init_database_data();
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+
+            for options in OPTIONS_LIST {
+                // run c code
+                let inputs_c: Vec<*const f64> = vec![close.as_ptr()];
+
+                // Determine the offset required by the C TRIMA function
+                let start_index = unsafe { ti_trima_start(options.as_ptr()) };
+                assert!(start_index >= 0, "ti_trima_start returned a negative index");
+                let output_len_c = close.len() - (start_index as usize);
+
+                // Run the C implementation
+                let mut trima_output_vec_c = vec![0.0_f64; output_len_c];
+                let trima_ptr: *mut f64 = trima_output_vec_c.as_mut_ptr();
+                let mut outputs_c: Vec<*mut f64> = vec![trima_ptr];
+                let ret = unsafe {
+                    ti_trima(
+                        close.len() as i32,
+                        inputs_c.as_ptr(),
+                        options.as_ptr(),
+                        outputs_c.as_mut_ptr(),
+                    )
+                };
+                assert_eq!(ret, 0, "ti_trima returned error code {}", ret);
+                let period = options[0] as usize;
+                let params = TrimaParams {
+                    period: Some(period),
+                };
+
+                let input = TrimaInput::from_slice(&close, params);
+                let output = trima(&input).unwrap();
+
+                let outputs = vec![output.values];
 
                 let output_len_rust = outputs[0].len();
 

@@ -570,6 +570,9 @@ fn bench_kand_typprice(c: &mut Criterion) {
     }
 }
 
+// TYPPRICE not available in VectorTA (404 on docs page)
+// https://vectoralpha.dev/projects/ta/indicators/typprice/ returns 404
+
 criterion_group!(
     benches,
     bench_rust_typprice_simd_by_assets,

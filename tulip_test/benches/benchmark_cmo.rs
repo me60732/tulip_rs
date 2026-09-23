@@ -477,6 +477,59 @@ fn bench_rust_cmo_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_cmo(c: &mut Criterion) {
+    use vector_ta::indicators::cmo::{cmo, CmoInput, CmoParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("cmo");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = CmoParams {
+                            period: Some(period),
+                        };
+                        let input = CmoInput::from_slice(&close, params);
+                        let output = cmo(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result("cmo", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("cmo_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa CMO {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = CmoParams {
+                        period: Some(period),
+                    };
+                    let input = CmoInput::from_slice(&close_vec, params);
+                    let output = cmo(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     benches,
     bench_rust_cmo_simd_by_options,
@@ -484,5 +537,6 @@ criterion_group!(
     bench_rust_cmo,
     bench_c_cmo,
     bench_rust_cmo_from_state,
+    bench_vector_ta_cmo,
 );
 criterion_main!(benches);

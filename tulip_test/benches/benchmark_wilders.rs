@@ -466,11 +466,69 @@ fn bench_rust_wilders_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_wilders(c: &mut Criterion) {
+    use vector_ta::indicators::moving_averages::wilders::{wilders, WildersInput, WildersParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("wilders");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close_vec: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+            let n = close_vec.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = WildersParams {
+                            period: Some(period),
+                        };
+                        let input = WildersInput::from_slice(&close_vec, params);
+                        let output = wilders(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "wilders",
+                    "VectorTa",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("wilders_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa Wilders {{ {} }}", period), |b| {
+                b.iter(|| {
+                    let params = WildersParams {
+                        period: Some(period),
+                    };
+                    let input = WildersInput::from_slice(&close_vec, params);
+                    let output = wilders(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     benches,
-    bench_rust_wilders_simd_by_options,
     bench_rust_wilders_simd_by_assets,
+    bench_rust_wilders_simd_by_options,
     bench_rust_wilders,
+    bench_vector_ta_wilders,
     bench_c_wilders,
     bench_rust_wilders_from_state,
 );

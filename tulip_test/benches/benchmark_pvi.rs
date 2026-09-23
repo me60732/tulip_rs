@@ -414,8 +414,59 @@ fn bench_rust_pvi_simd_by_assets(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_pvi(c: &mut Criterion) {
+    use vector_ta::indicators::pvi::{pvi, PviInput, PviParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("pvi");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close_vec: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+            let volume_vec: Vec<f64> = stock_data.iter().map(|d| d.volume).collect();
+            let n = close_vec.len();
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let input = PviInput::from_slices(
+                        &close_vec,
+                        &volume_vec,
+                        PviParams {
+                            initial_value: None,
+                        },
+                    );
+                    let output = pvi(&input).unwrap();
+                    black_box(output.values);
+                },
+                SAMPLE_SIZE,
+            );
+            log_timing_result("pvi", "VectorTa", &[], n, &timing, Some(stock_symbol));
+        }
+    } else {
+        let (close_vec, volume_vec) = expand_inputs();
+        let _n = close_vec.len();
+        let mut group = c.benchmark_group("pvi_vector_ta");
+        group.sample_size(SAMPLE_SIZE);
+        group.bench_function("VectorTa PVI", |b| {
+            b.iter(|| {
+                let input = PviInput::from_slices(
+                    &close_vec,
+                    &volume_vec,
+                    PviParams {
+                        initial_value: None,
+                    },
+                );
+                let output = pvi(&input).unwrap();
+                black_box(output.values);
+            });
+        });
+        group.finish();
+    }
+}
+
 criterion_group!(
     benches,
+    bench_vector_ta_pvi,
     bench_rust_pvi_simd_by_assets,
     bench_rust_pvi,
     bench_rust_pvi_from_state,

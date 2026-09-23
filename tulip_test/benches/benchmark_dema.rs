@@ -669,12 +669,63 @@ fn bench_kand_dema(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_dema(c: &mut Criterion) {
+    use vector_ta::indicators::dema::{dema, DemaInput, DemaParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("dema");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = DemaParams {
+                            period: Some(period),
+                        };
+                        let input = DemaInput::from_slice(&close, params);
+                        let output = dema(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("dema", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("dema_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa DEMA {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = DemaParams {
+                        period: Some(period),
+                    };
+                    let input = DemaInput::from_slice(&close_vec, params);
+                    let output = dema(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
     bench_rust_dema_simd_by_options,
     bench_rust_dema_simd_by_assets,
     bench_rust_dema,
+    bench_vector_ta_dema,
     bench_c_dema,
     bench_talib_dema,
     bench_rust_dema_optional,
@@ -688,6 +739,7 @@ criterion_group!(
     bench_rust_dema_simd_by_options,
     bench_rust_dema_simd_by_assets,
     bench_rust_dema,
+    bench_vector_ta_dema,
     bench_c_dema,
     bench_rust_dema_optional,
     bench_rust_dema_from_state,

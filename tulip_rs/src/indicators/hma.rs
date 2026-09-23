@@ -111,10 +111,10 @@ impl State<Cold> {
             weighted_sumsqrt += diff * periodsqrt;
             sumsqrt += diff;
             prev_diff.push(diff);
-            weighted_sumsqrt -= sumsqrt; // ← missing in current code
+            weighted_sumsqrt -= sumsqrt;
             i += 1;
         }
-        sumsqrt -= first_diff; // ← missing: the sumsqrt -= front() that happens on fill
+        sumsqrt -= first_diff;
 
         (
             i,

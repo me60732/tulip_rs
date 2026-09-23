@@ -92,7 +92,7 @@ pub mod options {
             (value, real, look_back, i): Self::Inputs<'_>
         ) -> Self::Outputs {
             let new = (value - self.prev_real).abs();
-            self.sum += new - self.buffer.push_with_info(new).0;
+            self.sum += new - self.buffer.push_with_info(new);
             self.prev_real = value;
             let (min, _) = self
                 .min_state

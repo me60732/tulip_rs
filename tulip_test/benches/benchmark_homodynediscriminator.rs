@@ -342,8 +342,8 @@ fn bench_talib_ht_dcperiod(c: &mut Criterion) {
 criterion_group!(
     benches,
     bench_homodynediscriminator_simd_by_assets,
-    bench_talib_ht_dcperiod,
     bench_homodynediscriminator,
+    bench_talib_ht_dcperiod,
     bench_homodynediscriminator_from_state,
 );
 

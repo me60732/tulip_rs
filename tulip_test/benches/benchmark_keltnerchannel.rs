@@ -618,6 +618,71 @@ fn bench_rust_keltnerchannel_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_keltner(c: &mut Criterion) {
+    use vector_ta::indicators::keltner::{keltner, KeltnerInput, KeltnerParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("keltnerchannel");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let high: Vec<f64> = stock_data.iter().map(|d| d.high).collect();
+            let low: Vec<f64> = stock_data.iter().map(|d| d.low).collect();
+            let close: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+            // source defaults to "close" in KeltnerInput
+            let n = high.len();
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = KeltnerParams {
+                            period: Some(period),
+                            multiplier: Some(2.0),       // default
+                            ma_type: Some("ema".into()), // default
+                        };
+                        let input = KeltnerInput::from_slice(&high, &low, &close, &close, params);
+                        let output = keltner(&input).unwrap();
+                        black_box((output.upper_band, output.middle_band, output.lower_band));
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "keltnerchannel",
+                    "VectorTa",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("keltnerchannel_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa Keltner {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = KeltnerParams {
+                        period: Some(period),
+                        multiplier: Some(2.0),       // default
+                        ma_type: Some("ema".into()), // default
+                    };
+                    let input = KeltnerInput::from_slice(
+                        &high_vec, &low_vec, &close_vec, &close_vec, params,
+                    );
+                    let output = keltner(&input).unwrap();
+                    black_box((output.upper_band, output.middle_band, output.lower_band));
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     benches,
     bench_rust_keltnerchannel_simd_by_assets,
@@ -626,5 +691,6 @@ criterion_group!(
     bench_rust_ta_keltnerchannel,
     bench_rust_keltnerchannel_from_state,
     bench_rust_keltnerchannel_optional,
+    bench_vector_ta_keltner,
 );
 criterion_main!(benches);

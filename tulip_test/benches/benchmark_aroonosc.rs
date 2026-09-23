@@ -692,6 +692,65 @@ fn bench_kand_aroonosc(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_aroonosc(c: &mut Criterion) {
+    use vector_ta::indicators::aroonosc::{aroon_osc, AroonOscInput, AroonOscParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("aroonosc");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low) = get_hl_arrays(stock_data);
+            let n = high.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = AroonOscParams {
+                            length: Some(period),
+                        };
+                        let input = AroonOscInput::from_slices_hl(&high, &low, params);
+                        let output = aroon_osc(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result(
+                    "aroonosc",
+                    "VectorTa",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let (high_vec, low_vec) = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("aroonosc_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa AROONOSC {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = AroonOscParams {
+                        length: Some(period),
+                    };
+                    let input = AroonOscInput::from_slices_hl(&high_vec, &low_vec, params);
+                    let output = aroon_osc(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -703,6 +762,7 @@ criterion_group!(
     bench_rust_aroonosc_optional,
     bench_rust_aroonosc_from_state,
     bench_kand_aroonosc,
+    bench_vector_ta_aroonosc,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -715,5 +775,6 @@ criterion_group!(
     bench_rust_aroonosc_optional,
     bench_rust_aroonosc_from_state,
     bench_kand_aroonosc,
+    bench_vector_ta_aroonosc,
 );
 criterion_main!(benches);

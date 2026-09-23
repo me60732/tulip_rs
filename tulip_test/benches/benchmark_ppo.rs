@@ -657,9 +657,74 @@ fn bench_rust_ta_ppo(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_ppo(c: &mut Criterion) {
+    use vector_ta::indicators::ppo::{ppo, PpoInput, PpoParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("ppo");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let close_vec = get_close_array(stock_data);
+            let n = close_vec.len();
+
+            for options in OPTIONS_LIST {
+                let fast = options[0] as usize;
+                let slow = options[1] as usize;
+                let ma_type = "ema".to_string();
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = PpoParams {
+                            fast_period: Some(fast),
+                            slow_period: Some(slow),
+                            ma_type: Some(ma_type.clone()),
+                        };
+                        let input = PpoInput::from_slice(&close_vec, params);
+                        let output = ppo(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result("ppo", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let fast = options[0] as usize;
+            let slow = options[1] as usize;
+            let ma_type = "sma".to_string();
+            let mut group = c.benchmark_group("ppo_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!("VectorTa PPO {{ {}/{} }}", options[0], options[1]),
+                |b| {
+                    b.iter(|| {
+                        let params = PpoParams {
+                            fast_period: Some(fast),
+                            slow_period: Some(slow),
+                            ma_type: Some(ma_type.clone()),
+                        };
+                        let input = PpoInput::from_slice(&close_vec, params);
+                        let output = ppo(&input).unwrap();
+                        black_box(output.values);
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     ppo_benchmarks,
+    bench_vector_ta_ppo,
     bench_rust_ppo_simd_by_options,
     bench_rust_ppo_simd_by_assets,
     bench_rust_ppo,
@@ -673,6 +738,7 @@ criterion_group!(
 #[cfg(not(feature = "talib"))]
 criterion_group!(
     ppo_benchmarks,
+    bench_vector_ta_ppo,
     bench_rust_ppo_simd_by_options,
     bench_rust_ppo_simd_by_assets,
     bench_rust_ppo,

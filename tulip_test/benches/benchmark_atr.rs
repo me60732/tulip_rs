@@ -770,6 +770,59 @@ fn bench_kand_atr(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_atr(c: &mut Criterion) {
+    use vector_ta::indicators::atr::{atr, AtrInput, AtrParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("atr");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_hlc_arrays(stock_data);
+            let n = high.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = AtrParams {
+                            length: Some(period),
+                        };
+                        let input = AtrInput::from_slices(&high, &low, &close, params);
+                        let output = atr(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result("atr", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("atr_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa ATR {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = AtrParams {
+                        length: Some(period),
+                    };
+                    let input = AtrInput::from_slices(&high_vec, &low_vec, &close_vec, params);
+                    let output = atr(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -777,6 +830,7 @@ criterion_group!(
     bench_rust_atr_simd_by_assets,
     bench_rust_atr,
     bench_kand_atr,
+    bench_vector_ta_atr,
     bench_rust_ta_atr,
     bench_c_atr,
     bench_talib_atr,
@@ -790,6 +844,7 @@ criterion_group!(
     bench_rust_atr_simd_by_options,
     bench_rust_atr_simd_by_assets,
     bench_rust_atr,
+    bench_vector_ta_atr,
     bench_rust_ta_atr,
     bench_c_atr,
     bench_rust_atr_from_state,

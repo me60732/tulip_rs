@@ -52,6 +52,7 @@ use crate::ring_buffer::fixed_single_buffer::FixedRingBuffer;
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 use std::simd::Simd;
+use crate::math::atan_fast;
 
 /// Number of input price series required by this indicator.
 pub const INPUTS: usize = 1;
@@ -244,7 +245,7 @@ impl<S> State<S> {
 
         // ── Period from instantaneous phase-change per bar ────────────────────
         let mut period = if im != 0.0 && re != 0.0 {
-            std::f64::consts::TAU / (im / re).atan()
+            std::f64::consts::TAU / atan_fast(im / re)
         } else {
             self.period
         };

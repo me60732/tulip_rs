@@ -782,6 +782,63 @@ fn bench_kand_willr(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_willr(c: &mut Criterion) {
+    use vector_ta::indicators::willr::{willr, WillrInput, WillrParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("willr");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let high: Vec<f64> = stock_data.iter().map(|d| d.high).collect();
+            let low: Vec<f64> = stock_data.iter().map(|d| d.low).collect();
+            let close: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+            let n = high.len();
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = WillrParams {
+                            period: Some(period),
+                        };
+                        let input = WillrInput::from_slices(&high, &low, &close, params);
+                        let output = willr(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "willr",
+                    "VectorTa",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("willr_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa WILLR {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = WillrParams {
+                        period: Some(period),
+                    };
+                    let input = WillrInput::from_slices(&high_vec, &low_vec, &close_vec, params);
+                    let output = willr(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -793,6 +850,7 @@ criterion_group!(
     bench_talib_willr,
     bench_rust_willr_from_state,
     bench_kand_willr,
+    bench_vector_ta_willr,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -801,9 +859,10 @@ criterion_group!(
     bench_rust_willr_simd_by_options,
     bench_rust_willr_simd_by_assets,
     bench_rust_willr,
-    bench_rust_willr_optional,
     bench_c_willr,
     bench_rust_willr_from_state,
+    bench_rust_willr_optional,
     bench_kand_willr,
+    bench_vector_ta_willr,
 );
 criterion_main!(benches);

@@ -527,6 +527,63 @@ fn bench_rust_donchianchannel_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_donchian(c: &mut Criterion) {
+    use vector_ta::indicators::donchian::{donchian, DonchianInput, DonchianParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("donchianchannel");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let high: Vec<f64> = stock_data.iter().map(|d| d.high).collect();
+            let low: Vec<f64> = stock_data.iter().map(|d| d.low).collect();
+            let n = high.len();
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = DonchianParams {
+                            period: Some(period),
+                        };
+                        let input = DonchianInput::from_slices(&high, &low, params);
+                        let output = donchian(&input).unwrap();
+                        black_box((output.upperband, output.middleband, output.lowerband));
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "donchianchannel",
+                    "VectorTa",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let (high_vec, low_vec) = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("donchianchannel_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa Donchian {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = DonchianParams {
+                        period: Some(period),
+                    };
+                    let input = DonchianInput::from_slices(&high_vec, &low_vec, params);
+                    let output = donchian(&input).unwrap();
+                    black_box((output.upperband, output.middleband, output.lowerband));
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     benches,
     bench_rust_donchianchannel_simd_by_assets,
@@ -534,5 +591,6 @@ criterion_group!(
     bench_rust_donchianchannel,
     bench_c_donchianchannel,
     bench_rust_donchianchannel_from_state,
+    bench_vector_ta_donchian,
 );
 criterion_main!(benches);

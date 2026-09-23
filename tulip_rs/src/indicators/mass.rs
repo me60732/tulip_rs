@@ -113,7 +113,7 @@ impl TState for State<Warm> {
 
         let ema = self.ema_state.calc(hl_diff);
         self.ema_signal = calc_ema(ema, self.ema_signal, self.multiplier, self.inv_multiplier);
-        let mass = (ema / self.ema_signal).max(0.0);
+        let mass = ema / self.ema_signal;//.max(0.0);
         self.sum += mass - self.buffer.push_with_info(mass);
 
         self.sum

@@ -458,6 +458,44 @@ fn bench_rust_obv_simd_by_assets(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_obv(c: &mut Criterion) {
+    use vector_ta::indicators::obv::{obv, ObvInput, ObvParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("obv");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let (close_vec, volume_vec) = get_cv_arrays(stock_data);
+            let n = close_vec.len();
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let input =
+                        ObvInput::from_slices(&close_vec, &volume_vec, ObvParams::default());
+                    let output = obv(&input).unwrap();
+                    black_box(output.values);
+                },
+                SAMPLE_SIZE,
+            );
+            log_timing_result("obv", "VectorTa", &[], n, &timing, Some(stock_symbol));
+        }
+    } else {
+        let (close_vec, volume_vec) = expand_inputs();
+        let _n = close_vec.len();
+        let mut group = c.benchmark_group("obv_vector_ta");
+        group.sample_size(SAMPLE_SIZE);
+        group.bench_function("VectorTa OBV", |b| {
+            b.iter(|| {
+                let input = ObvInput::from_slices(&close_vec, &volume_vec, ObvParams::default());
+                let output = obv(&input).unwrap();
+                black_box(output.values);
+            });
+        });
+        group.finish();
+    }
+}
+
 fn bench_rust_ta_obv(c: &mut Criterion) {
     use ta::indicators::OnBalanceVolume;
     use ta::{DataItem, Next};
@@ -562,6 +600,7 @@ fn bench_kand_obv(c: &mut Criterion) {
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
+    bench_vector_ta_obv,
     bench_rust_obv_simd_by_assets,
     bench_rust_obv,
     bench_rust_ta_obv,
@@ -574,6 +613,7 @@ criterion_group!(
 #[cfg(not(feature = "talib"))]
 criterion_group!(
     benches,
+    bench_vector_ta_obv,
     bench_rust_obv_simd_by_assets,
     bench_rust_obv,
     bench_rust_obv_from_state,

@@ -510,8 +510,56 @@ fn bench_kand_wcprice(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_wcprice(c: &mut Criterion) {
+    use vector_ta::indicators::wclprice::{wclprice, WclpriceInput};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("wcprice");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_hlc_arrays(stock_data);
+            let n = high.len();
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let input = WclpriceInput::from_slices(&high, &low, &close);
+                    let output = wclprice(&input).unwrap();
+                    black_box(output.values);
+                },
+                SAMPLE_SIZE,
+            );
+
+            log_timing_result(
+                "wcprice",
+                "VectorTa",
+                &OPTIONS,
+                n,
+                &timing,
+                Some(stock_symbol),
+            );
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+
+        let mut group = c.benchmark_group("wcprice_vector_ta");
+        group.sample_size(SAMPLE_SIZE);
+        group.bench_function("VectorTa WCLPRICE", |b| {
+            b.iter(|| {
+                let input = WclpriceInput::from_slices(&high_vec, &low_vec, &close_vec);
+                let output = wclprice(&input).unwrap();
+                black_box(output.values);
+            });
+        });
+        group.finish();
+    }
+}
+
 criterion_group!(
     benches,
+    bench_vector_ta_wcprice,
     bench_rust_wcprice_simd_by_assets,
     bench_rust_wcprice,
     bench_c_wcprice,

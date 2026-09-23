@@ -415,7 +415,7 @@ fn bench_rust_linreg_optional(c: &mut Criterion) {
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
                     || {
-                        let result = Linreg::indicator(&inputs, &options, Some(&[true]))
+                        let result = Linreg::indicator(&inputs, &options, Some(&[true, true]))
                             .expect("Rust LINREG indicator failed");
                         black_box(&result);
                     },
@@ -442,7 +442,7 @@ fn bench_rust_linreg_optional(c: &mut Criterion) {
             group.sample_size(SAMPLE_SIZE);
             group.bench_function(format!("Rust LINREG {{ {} }}", options[0]), |b| {
                 b.iter(|| {
-                    let result = Linreg::indicator(&inputs, &options, Some(&[true]))
+                    let result = Linreg::indicator(&inputs, &options, Some(&[true, true]))
                         .expect("Rust LINREG indicator failed");
                     black_box(&result);
                 });
@@ -517,11 +517,69 @@ fn bench_rust_linreg_simd_by_options(c: &mut Criterion) {
 
 //REPLACE WITH TEST FUNCTIONS
 
+fn bench_vector_ta_linreg(c: &mut Criterion) {
+    use vector_ta::indicators::moving_averages::linreg::{linreg, LinRegInput, LinRegParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("linreg");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = LinRegParams {
+                            period: Some(period),
+                        };
+                        let input = LinRegInput::from_slice(&close, params);
+                        let output = linreg(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "linreg",
+                    "VectorTa",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("linreg_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa LINREG {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = LinRegParams {
+                        period: Some(period),
+                    };
+                    let input = LinRegInput::from_slice(&close_vec, params);
+                    let output = linreg(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     linreg_benchmarks,
     bench_rust_linreg_simd_by_options,
     bench_rust_linreg_simd_by_assets,
     bench_rust_linreg,
+    bench_vector_ta_linreg,
     bench_c_linreg,
     bench_rust_linreg_from_state,
     bench_rust_linreg_optional

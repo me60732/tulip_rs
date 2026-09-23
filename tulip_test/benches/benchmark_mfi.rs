@@ -195,6 +195,71 @@ fn bench_rust_mfi(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_mfi(c: &mut Criterion) {
+    use vector_ta::indicators::mfi::{mfi, MfiInput, MfiParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("mfi");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close, volume) = get_hlcv_arrays(stock_data);
+            let n = high.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let typical_price: Vec<f64> = high
+                            .iter()
+                            .zip(low.iter())
+                            .zip(close.iter())
+                            .map(|((h, l), c)| (h + l + c) / 3.0)
+                            .collect();
+                        let params = MfiParams {
+                            period: Some(period),
+                        };
+                        let input = MfiInput::from_slices(&typical_price, &volume, params);
+                        let output = mfi(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result("mfi", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec, volume_vec) = expand_inputs();
+        let typical_price: Vec<f64> = high_vec
+            .iter()
+            .zip(low_vec.iter())
+            .zip(close_vec.iter())
+            .map(|((h, l), c)| (h + l + c) / 3.0)
+            .collect();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("mfi_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa MFI {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = MfiParams {
+                        period: Some(period),
+                    };
+                    let input = MfiInput::from_slices(&typical_price, &volume_vec, params);
+                    let output = mfi(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 /// Benchmark the Rust from_state implementation of MFI.
 fn bench_rust_mfi_from_state(c: &mut Criterion) {
     if should_log_to_db() {
@@ -897,6 +962,7 @@ criterion_group!(
     bench_rust_mfi_simd_by_assets,
     bench_rust_mfi_simd_by_options,
     bench_rust_mfi,
+    bench_vector_ta_mfi,
     bench_rust_ta_mfi,
     bench_c_mfi,
     bench_talib_mfi,
@@ -910,6 +976,7 @@ criterion_group!(
     benches,
     bench_rust_mfi_simd_by_assets,
     bench_rust_mfi_simd_by_options,
+    bench_vector_ta_mfi,
     bench_rust_mfi,
     bench_rust_ta_mfi,
     bench_c_mfi,

@@ -483,6 +483,8 @@ fn bench_kand_vwap(c: &mut Criterion) {
     }
 }
 
+// VectorTa VWAP requires timestamps (i64) which are not available in the benchmark data
+// skipping: would need to generate synthetic timestamps, making comparison unfair
 criterion_group!(
     benches,
     bench_rust_vwap_simd_by_assets,

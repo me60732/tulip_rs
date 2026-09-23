@@ -665,6 +665,56 @@ fn bench_rust_ta_roc(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_roc(c: &mut Criterion) {
+    use vector_ta::indicators::roc::{roc, RocInput, RocParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("roc");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close_vec: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+            let n = close_vec.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = RocParams {
+                            period: Some(period),
+                        };
+                        let input = RocInput::from_slice(&close_vec, params);
+                        let output = roc(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("roc", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("roc_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa ROC {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = RocParams {
+                        period: Some(period),
+                    };
+                    let input = RocInput::from_slice(&close_vec, params);
+                    let output = roc(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 fn bench_kand_roc(c: &mut Criterion) {
     use kand::ohlcv::roc;
 
@@ -713,6 +763,7 @@ fn bench_kand_roc(c: &mut Criterion) {
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
+    bench_vector_ta_roc,
     bench_rust_roc_simd_by_assets,
     bench_rust_roc_simd_by_options,
     bench_rust_roc,
@@ -727,6 +778,7 @@ criterion_group!(
 #[cfg(not(feature = "talib"))]
 criterion_group!(
     benches,
+    bench_vector_ta_roc,
     bench_rust_roc_simd_by_assets,
     bench_rust_roc_simd_by_options,
     bench_rust_roc,

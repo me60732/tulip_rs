@@ -803,11 +803,76 @@ fn bench_kand_macd(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_macd(c: &mut Criterion) {
+    use vector_ta::indicators::macd::{macd, MacdInput, MacdParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("macd");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+            for options in OPTIONS_LIST {
+                let fast = options[0] as usize;
+                let slow = options[1] as usize;
+                let signal = options[2] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = MacdParams {
+                            fast_period: Some(fast),
+                            slow_period: Some(slow),
+                            signal_period: Some(signal),
+                            ma_type: Some("ema".to_string()),
+                        };
+                        let input = MacdInput::from_slice(&close, params);
+                        let output = macd(&input).unwrap();
+                        black_box(output.macd);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("macd", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        for options in OPTIONS_LIST {
+            let fast = options[0] as usize;
+            let slow = options[1] as usize;
+            let signal = options[2] as usize;
+            let mut group = c.benchmark_group("macd_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!(
+                    "VectorTa MACD {{ {}/{}/{} }}",
+                    options[0], options[1], options[2]
+                ),
+                |b| {
+                    b.iter(|| {
+                        let params = MacdParams {
+                            fast_period: Some(fast),
+                            slow_period: Some(slow),
+                            signal_period: Some(signal),
+                            ma_type: Some("ema".to_string()),
+                        };
+                        let input = MacdInput::from_slice(&close_vec, params);
+                        let output = macd(&input).unwrap();
+                        black_box(output.macd);
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
     bench_rust_macd_simd_by_assets,
     bench_rust_macd_simd_by_options,
+    bench_vector_ta_macd,
     bench_rust_macd,
     bench_rust_ta_macd,
     bench_c_macd,
@@ -822,6 +887,7 @@ criterion_group!(
     benches,
     bench_rust_macd_simd_by_assets,
     bench_rust_macd_simd_by_options,
+    bench_vector_ta_macd,
     bench_rust_macd,
     bench_rust_ta_macd,
     bench_c_macd,

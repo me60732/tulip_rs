@@ -50,7 +50,10 @@ impl State<Warm> {
         //let (mut mean_deviation, mut sma, mut cci) = (0.0, 0.0, 0.0);
         let old = self.buffer.push_with_info(typprice);
 
-        let (md, sma) = self.md_state.calc((typprice, old, self.buffer.get_slice()));
+        let (md, sma) = unsafe {
+            self.md_state
+                .calc_chuncked_unchecked::<N>((typprice, old, self.buffer.get_slice()))
+        };
         if md == 0.0 {
             return (0.0, sma, md, typprice);
         }
@@ -131,7 +134,7 @@ impl TIndicatorState<3> for IndicatorState {
             &mut cci_line,
             (&mut sma_line, &mut md_line, &mut typprice_line),
         );
-
+        
         Ok(vec![cci_line, sma_line, md_line, typprice_line])
     }
 }
@@ -154,7 +157,6 @@ fn cycle(
     let (has_optional, want_typ, want_sma, want_md) =
         crate::calc_want_flags!(typprice_line, sma_line, md_line);
 
-    //high.iter().zip(low.iter()).zip(close.iter()).skip(start).enumerate().for_each(|(i, ((h, l), c))| {
     for i in 0..high.len() {
         let inputs = unsafe {
             (

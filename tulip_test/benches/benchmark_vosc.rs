@@ -543,8 +543,66 @@ fn bench_rust_vosc_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_vosc(c: &mut Criterion) {
+    use vector_ta::indicators::vosc::{vosc, VoscInput, VoscParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("vosc");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let volume_vec: Vec<f64> = stock_data.iter().map(|d| d.volume).collect();
+            let n = volume_vec.len();
+
+            for options in OPTIONS_LIST {
+                let short_period = options[0] as usize;
+                let long_period = options[1] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = VoscParams {
+                            short_period: Some(short_period),
+                            long_period: Some(long_period),
+                        };
+                        let input = VoscInput::from_slice(&volume_vec, params);
+                        let output = vosc(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("vosc", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let volume_vec = expand_inputs();
+        for options in OPTIONS_LIST {
+            let short_period = options[0] as usize;
+            let long_period = options[1] as usize;
+            let mut group = c.benchmark_group("vosc_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!("VectorTa VOSC {{ {}, {} }}", short_period, long_period),
+                |b| {
+                    b.iter(|| {
+                        let params = VoscParams {
+                            short_period: Some(short_period),
+                            long_period: Some(long_period),
+                        };
+                        let input = VoscInput::from_slice(&volume_vec, params);
+                        let output = vosc(&input).unwrap();
+                        black_box(output.values);
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     benches,
+    bench_vector_ta_vosc,
     bench_rust_vosc_simd_by_options,
     bench_rust_vosc_simd_by_assets,
     bench_rust_vosc,

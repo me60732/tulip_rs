@@ -8,7 +8,7 @@ use crate::types::Warm;
 pub mod imports {
     pub(crate) use crate::indicators::{
         md::State,
-        simd_indicators::{simd_types::F64Constants, sma_simd::SimdState as SmaSimdState},
+        simd_indicators::sma_simd::SimdState as SmaSimdState,
     };
     pub use std::ops::{Deref, DerefMut};
     pub(crate) use std::simd::{num::SimdFloat, Simd};
@@ -59,8 +59,7 @@ pub mod assets {
     impl<const N: usize> SimdState<N> {
         #[inline(always)]
         pub fn calc_md_simd(&self, slice: &[Simd<f64, N>], sma: Simd<f64, N>) -> Simd<f64, N> {
-            (slice.iter().map(|&x| (x - sma).abs()).sum::<Simd<f64, N>>() * self.multiplier)
-                .simd_max(F64Constants::EPSILON)
+            slice.iter().map(|&x| (x - sma).abs()).sum::<Simd<f64, N>>() * self.multiplier
         }
     }
 }

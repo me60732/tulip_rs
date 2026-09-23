@@ -520,8 +520,60 @@ fn bench_rust_vwma_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_vwma(c: &mut Criterion) {
+    use vector_ta::indicators::vwma::{vwma, VwmaInput, VwmaParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("vwma");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close_vec: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+            let volume_vec: Vec<f64> = stock_data.iter().map(|d| d.volume).collect();
+            let n = close_vec.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = VwmaParams {
+                            period: Some(period),
+                        };
+                        let input = VwmaInput::from_slice(&close_vec, &volume_vec, params);
+                        let output = vwma(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("vwma", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let (close_vec, volume_vec) = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("vwma_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa VWMA {{ {} }}", period), |b| {
+                b.iter(|| {
+                    let params = VwmaParams {
+                        period: Some(period),
+                    };
+                    let input = VwmaInput::from_slice(&close_vec, &volume_vec, params);
+                    let output = vwma(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     benches,
+    bench_vector_ta_vwma,
     bench_rust_vwma_simd_by_options,
     bench_rust_vwma_simd_by_assets,
     bench_rust_vwma,

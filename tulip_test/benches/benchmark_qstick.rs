@@ -454,6 +454,64 @@ fn bench_rust_qstick_from_state(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_qstick(c: &mut Criterion) {
+    use vector_ta::indicators::qstick::{qstick, QstickInput, QstickParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("qstick");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let open_vec: Vec<f64> = stock_data.iter().map(|d| d.open).collect();
+            let close_vec: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+            let n = open_vec.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = QstickParams {
+                            period: Some(period),
+                        };
+                        let input = QstickInput::from_slices(&open_vec, &close_vec, params);
+                        let output = qstick(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "qstick",
+                    "VectorTa",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let (open_vec, close_vec) = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("qstick_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa QSTICK {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = QstickParams {
+                        period: Some(period),
+                    };
+                    let input = QstickInput::from_slices(&open_vec, &close_vec, params);
+                    let output = qstick(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 fn bench_rust_qstick_simd_by_options(c: &mut Criterion) {
     if should_log_to_db() {
         init_database_data();
@@ -520,6 +578,7 @@ fn bench_rust_qstick_simd_by_options(c: &mut Criterion) {
 
 criterion_group!(
     qstick_benchmarks,
+    bench_vector_ta_qstick,
     bench_rust_qstick_simd_by_options,
     bench_rust_qstick_simd_by_assets,
     bench_rust_qstick,

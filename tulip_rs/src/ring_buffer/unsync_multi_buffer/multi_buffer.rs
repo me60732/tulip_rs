@@ -235,13 +235,20 @@ impl<const B: usize, T: BufferElement + SimdElement> UnsyncBuffer<B, T, Warm> {
         self.update_internals_unchecked();
     }
 
-    #[inline(always)]
+    /*#[inline(always)]
     pub fn push_with_info(&mut self, values: Simd<T, B>) -> (Simd<T, B>, Mask<i64, B>) {
         let replaced = write_values_pop(self, values);
         self.update_internals_unchecked();
         (replaced, Mask::splat(true))
-    }
+    }*/
 
+    #[inline(always)]
+    pub fn push_with_info(&mut self, values: Simd<T, B>) -> Simd<T, B> {
+        let replaced = write_values_pop(self, values);
+        self.update_internals_unchecked();
+        replaced
+    }
+    
     #[inline(always)]
     pub fn get_slice(&self, lane: usize) -> &[T] {
         &self.vals[lane]

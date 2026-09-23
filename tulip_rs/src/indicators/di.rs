@@ -31,11 +31,13 @@ impl TState for State<Warm> {
     fn calc<'a>(&mut self, inputs: Self::Inputs<'a>) -> Self::Outputs {
         let (dmup, dmdown, atr, tr) = self.calc_diup_didown(inputs);
 
+        
         let atr_inv = 100.0 / atr;
-        let mut pdi = dmup * atr_inv; // multiplication
-        let mut mdi = dmdown * atr_inv;
-        pdi = if pdi.is_nan() { 0.0 } else { pdi };
-        mdi = if mdi.is_nan() { 0.0 } else { mdi };
+        //let atr_inv = if atr > 0.0 { 100.0 / atr } else { 0.0 };
+        let pdi = (dmup * atr_inv).max(0.0); // multiplication
+        let mdi = (dmdown * atr_inv).max(0.0);
+        //pdi = if pdi.is_nan() { 0.0 } else { pdi };
+        //mdi = if mdi.is_nan() { 0.0 } else { mdi };
         (pdi, mdi, atr, tr)
     }
 }

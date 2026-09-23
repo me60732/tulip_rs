@@ -163,6 +163,56 @@ fn bench_rust_cvi(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_cvi(c: &mut Criterion) {
+    use vector_ta::indicators::cvi::{cvi, CviInput, CviParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("cvi");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let (high, low) = get_hl_arrays(stock_data);
+            let n = high.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = CviParams {
+                            period: Some(period),
+                        };
+                        let input = CviInput::from_slices(&high, &low, params);
+                        let output = cvi(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("cvi", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let (high_vec, low_vec) = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("cvi_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa CVI {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = CviParams {
+                        period: Some(period),
+                    };
+                    let input = CviInput::from_slices(&high_vec, &low_vec, params);
+                    let output = cvi(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 /// Benchmark the Rust from_state implementation of CVI.
 fn bench_rust_cvi_from_state(c: &mut Criterion) {
     if should_log_to_db() {
@@ -513,6 +563,7 @@ criterion_group!(
     bench_rust_cvi_simd_by_assets,
     bench_rust_cvi_simd_by_options,
     bench_rust_cvi,
+    bench_vector_ta_cvi,
     bench_c_cvi,
     bench_rust_cvi_from_state,
 );

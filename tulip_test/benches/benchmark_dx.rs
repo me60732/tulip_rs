@@ -571,6 +571,56 @@ fn bench_rust_dx_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_dx(c: &mut Criterion) {
+    use vector_ta::indicators::dx::{dx, DxInput, DxParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("dx");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_hlc_arrays(stock_data);
+            let n = high.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = DxParams {
+                            period: Some(period),
+                        };
+                        let input = DxInput::from_hlc_slices(&high, &low, &close, params);
+                        let output = dx(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("dx", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("dx_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa DX {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = DxParams {
+                        period: Some(period),
+                    };
+                    let input = DxInput::from_hlc_slices(&high_vec, &low_vec, &close_vec, params);
+                    let output = dx(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 fn bench_kand_dx(c: &mut Criterion) {
     if should_log_to_db() {
         init_database_data();
@@ -646,6 +696,7 @@ criterion_group!(
     bench_c_dx,
     bench_rust_dx_from_state,
     bench_rust_dx_optional,
+    bench_vector_ta_dx,
     bench_kand_dx,
 );
 criterion_main!(dx_benchmarks);

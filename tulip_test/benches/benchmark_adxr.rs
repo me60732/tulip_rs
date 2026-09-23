@@ -729,6 +729,56 @@ fn bench_kand_adxr(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_adxr(c: &mut Criterion) {
+    use vector_ta::indicators::adxr::{adxr, AdxrInput, AdxrParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("adxr");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_hlc_arrays(stock_data);
+            let n = high.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = AdxrParams {
+                            period: Some(period),
+                        };
+                        let input = AdxrInput::from_slices(&high, &low, &close, params);
+                        let output = adxr(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("adxr", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("adxr_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa ADXR {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = AdxrParams {
+                        period: Some(period),
+                    };
+                    let input = AdxrInput::from_slices(&high_vec, &low_vec, &close_vec, params);
+                    let output = adxr(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -740,6 +790,7 @@ criterion_group!(
     bench_rust_adxr_from_state,
     bench_rust_adxr_optional,
     bench_kand_adxr,
+    bench_vector_ta_adxr,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -752,5 +803,6 @@ criterion_group!(
     bench_rust_adxr_from_state,
     bench_rust_adxr_optional,
     bench_kand_adxr,
+    bench_vector_ta_adxr,
 );
 criterion_main!(benches);

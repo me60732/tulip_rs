@@ -49,6 +49,70 @@ fn get_hlv_arrays(stock_data: &[tulip_test::database::EodData]) -> (Vec<f64>, Ve
     (high, low, volume)
 }
 
+/// Extract HLCV arrays from stock data for EMV
+fn get_hlcv_arrays(
+    stock_data: &[tulip_test::database::EodData],
+) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
+    let high: Vec<f64> = stock_data.iter().map(|d| d.high).collect();
+    let low: Vec<f64> = stock_data.iter().map(|d| d.low).collect();
+    let close: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+    let volume: Vec<f64> = stock_data.iter().map(|d| d.volume).collect();
+    (high, low, close, volume)
+}
+
+fn bench_vector_ta_emv(c: &mut Criterion) {
+    use vector_ta::indicators::emv::{emv, EmvInput};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("emv");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close, volume) = get_hlcv_arrays(stock_data);
+            let n = high.len();
+
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let input = EmvInput::from_slices(&high, &low, &close, &volume);
+                    let output = emv(&input).unwrap();
+                    black_box(output.values);
+                },
+                SAMPLE_SIZE,
+            );
+            log_timing_result(
+                "emv",
+                "VectorTa",
+                &OPTIONS_LIST,
+                n,
+                &timing,
+                Some(stock_symbol),
+            );
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+        // Get volume from VOLUME constant
+        let mut volume_vec = VOLUME.to_vec();
+        for _ in 0..499 {
+            volume_vec.extend_from_slice(&VOLUME);
+        }
+
+        for _ in OPTIONS_LIST.iter() {
+            let mut group = c.benchmark_group("emv_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa EMV {{ {} }}", "none"), |b| {
+                b.iter(|| {
+                    let input = EmvInput::from_slices(&high_vec, &low_vec, &close_vec, &volume_vec);
+                    let output = emv(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 /// Benchmark the C implementation of EMV.
 fn bench_c_emv(c: &mut Criterion) {
     if should_log_to_db() {
@@ -463,6 +527,7 @@ criterion_group!(
     bench_rust_emv,
     bench_rust_emv_from_state,
     bench_c_emv,
+    bench_vector_ta_emv,
     bench_rust_emv_optional
 );
 criterion_main!(emv_benchmarks);

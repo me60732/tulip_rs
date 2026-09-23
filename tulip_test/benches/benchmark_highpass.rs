@@ -335,11 +335,76 @@ fn bench_rust_highpass_simd_by_options(c: &mut Criterion) {
     }
 }
 
+/// Benchmark the VectorTA implementation of the High-Pass filter.
+fn bench_vector_ta_highpass(c: &mut Criterion) {
+    use vector_ta::indicators::moving_averages::highpass::{
+        highpass, HighPassInput, HighPassParams,
+    };
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("highpass");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let params = HighPassParams {
+                    period: Some(period),
+                };
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let input = HighPassInput::from_slice(&close, params.clone());
+                        let output = highpass(&input).expect("VectorTA highpass failed");
+                        black_box(&output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "highpass",
+                    "VectorTa",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let close = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let params = HighPassParams {
+                period: Some(period),
+            };
+            let mut group = c.benchmark_group("highpass_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!("VectorTA HighPass {{ period: {} }}", options[0]),
+                |b| {
+                    b.iter(|| {
+                        let input = HighPassInput::from_slice(&close, params.clone());
+                        let output = highpass(&input).expect("VectorTA highpass failed");
+                        black_box(&output.values);
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     benches,
     bench_rust_highpass_simd_by_assets,
     bench_rust_highpass_simd_by_options,
     bench_rust_highpass,
     bench_rust_highpass_from_state,
+    bench_vector_ta_highpass,
 );
 criterion_main!(benches);

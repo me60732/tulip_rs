@@ -167,6 +167,59 @@ fn bench_rust_mom(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_mom(c: &mut Criterion) {
+    use vector_ta::indicators::mom::{mom, MomInput, MomParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("mom");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = MomParams {
+                            period: Some(period),
+                        };
+                        let input = MomInput::from_slice(&close, params);
+                        let output = mom(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result("mom", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("mom_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa MOM {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = MomParams {
+                        period: Some(period),
+                    };
+                    let input = MomInput::from_slice(&close_vec, params);
+                    let output = mom(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 /// Benchmark the Rust from_state implementation of MOM.
 fn bench_rust_mom_from_state(c: &mut Criterion) {
     if should_log_to_db() {
@@ -586,6 +639,7 @@ criterion_group!(
     benches,
     bench_rust_mom_simd_by_assets,
     bench_rust_mom_simd_by_options,
+    bench_vector_ta_mom,
     bench_rust_mom,
     bench_c_mom,
     bench_talib_mom,
@@ -598,6 +652,7 @@ criterion_group!(
     benches,
     bench_rust_mom_simd_by_assets,
     bench_rust_mom_simd_by_options,
+    bench_vector_ta_mom,
     bench_rust_mom,
     bench_c_mom,
     bench_rust_mom_from_state,

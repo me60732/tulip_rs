@@ -566,6 +566,73 @@ fn bench_rust_elderray_simd_by_options(c: &mut Criterion) {
     }
 }
 
+/// Benchmark the VectorTA implementation of Elder Ray Index.
+fn bench_vector_ta_elderray(c: &mut Criterion) {
+    use vector_ta::indicators::eri::{eri, EriInput, EriParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("elderray");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_arrays(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let params = EriParams {
+                    period: Some(period),
+                    ma_type: None,
+                };
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let input = EriInput::from_slices(&high, &low, &close, params.clone());
+                        let output = eri(&input).expect("VectorTA eri failed");
+                        black_box((&output.bull, &output.bear));
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result(
+                    "elderray",
+                    "VectorTa",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let params = EriParams {
+                period: Some(period),
+                ma_type: None,
+            };
+            let mut group = c.benchmark_group("elderray_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!("VectorTA Elder-ray {{ period: {} }}", options[0]),
+                |b| {
+                    b.iter(|| {
+                        let input =
+                            EriInput::from_slices(&high_vec, &low_vec, &close_vec, params.clone());
+                        let output = eri(&input).expect("VectorTA eri failed");
+                        black_box((&output.bull, &output.bear));
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     benches,
     bench_rust_elderray_simd_by_assets,
@@ -574,5 +641,6 @@ criterion_group!(
     bench_c_elderray,
     bench_rust_elderray_optional,
     bench_rust_elderray_from_state,
+    bench_vector_ta_elderray,
 );
 criterion_main!(benches);

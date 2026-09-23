@@ -16,7 +16,7 @@ const CLOSE: [f64; 15] = [
 ];
 
 // Options for HMA (period)
-const OPTIONS_LIST: [[f64; 1]; 4] = [[5.0], [14.0], [20.0], [50.0]];
+const OPTIONS_LIST: [[f64; 1]; 4] = [[7.0], [14.0], [20.0], [50.0]];
 
 // Chunk size for batched processing
 const CHUNK_SIZE: usize = 100;
@@ -485,11 +485,63 @@ fn bench_rust_hma_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_hma(c: &mut Criterion) {
+    use vector_ta::indicators::moving_averages::hma::{hma, HmaInput, HmaParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("hma");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = HmaParams {
+                            period: Some(period),
+                        };
+                        let input = HmaInput::from_slice(&close, params);
+                        let output = hma(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("hma", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("hma_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa HMA {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = HmaParams {
+                        period: Some(period),
+                    };
+                    let input = HmaInput::from_slice(&close_vec, params);
+                    let output = hma(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     benches,
     bench_rust_hma_simd_by_assets,
     bench_rust_hma_simd_by_options,
     bench_rust_hma,
+    bench_vector_ta_hma,
     bench_c_hma,
     bench_rust_hma_from_state,
 );

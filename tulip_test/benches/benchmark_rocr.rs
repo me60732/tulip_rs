@@ -536,6 +536,56 @@ fn bench_rust_rocr_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_rocr(c: &mut Criterion) {
+    use vector_ta::indicators::rocr::{rocr, RocrInput, RocrParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("rocr");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close_vec: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+            let n = close_vec.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = RocrParams {
+                            period: Some(period),
+                        };
+                        let input = RocrInput::from_slice(&close_vec, params);
+                        let output = rocr(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("rocr", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("rocr_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa ROCR {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = RocrParams {
+                        period: Some(period),
+                    };
+                    let input = RocrInput::from_slice(&close_vec, params);
+                    let output = rocr(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 fn bench_kand_rocr(c: &mut Criterion) {
     use kand::ohlcv::rocr;
 
@@ -591,6 +641,7 @@ fn bench_kand_rocr(c: &mut Criterion) {
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
+    bench_vector_ta_rocr,
     bench_rust_rocr_simd_by_assets,
     bench_rust_rocr_simd_by_options,
     bench_rust_rocr,
@@ -603,6 +654,7 @@ criterion_group!(
 #[cfg(not(feature = "talib"))]
 criterion_group!(
     benches,
+    bench_vector_ta_rocr,
     bench_rust_rocr_simd_by_assets,
     bench_rust_rocr_simd_by_options,
     bench_rust_rocr,

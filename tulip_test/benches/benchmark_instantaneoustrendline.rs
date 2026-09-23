@@ -309,6 +309,57 @@ fn bench_talib_ht_trendline(c: &mut Criterion) {
     }
 }
 
+/// Benchmark the VectorTA implementation of Ehlers' Instantaneous Trendline.
+fn bench_vector_ta_it(c: &mut Criterion) {
+    use vector_ta::indicators::ehlers_itrend::{
+        ehlers_itrend, EhlersITrendInput, EhlersITrendParams,
+    };
+
+    let params = EhlersITrendParams {
+        warmup_bars: None,
+        max_dc_period: None,
+    };
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("instantaneoustrendline");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let input = EhlersITrendInput::from_slice(&close, params.clone());
+                    let output = ehlers_itrend(&input).expect("VectorTA ehlers_itrend failed");
+                    black_box(&output.values);
+                },
+                SAMPLE_SIZE,
+            );
+            log_timing_result(
+                "instantaneoustrendline",
+                "VectorTa",
+                &[],
+                n,
+                &timing,
+                Some(stock_symbol),
+            );
+        }
+    } else {
+        let close = expand_inputs();
+        let mut group = c.benchmark_group("instantaneoustrendline_vector_ta");
+        group.sample_size(SAMPLE_SIZE);
+        group.bench_function("VectorTA Ehlers Instantaneous Trendline", |b| {
+            b.iter(|| {
+                let input = EhlersITrendInput::from_slice(&close, params.clone());
+                let output = ehlers_itrend(&input).expect("VectorTA ehlers_itrend failed");
+                black_box(&output.values);
+            });
+        });
+        group.finish();
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -316,6 +367,7 @@ criterion_group!(
     bench_it,
     bench_talib_ht_trendline,
     bench_it_from_state,
+    bench_vector_ta_it,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -324,5 +376,6 @@ criterion_group!(
     bench_it_simd_by_assets,
     bench_it,
     bench_it_from_state,
+    bench_vector_ta_it,
 );
 criterion_main!(benches);

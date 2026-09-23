@@ -80,7 +80,7 @@ pub mod options {
         #[inline(always)]
         fn calc<'a>(&mut self, inputs: Self::Inputs<'a>) -> Self::Outputs {
             let (adx, dx, atr, tr) = self.adx_state.calc(inputs);
-            let (old_adx, _) = self.buffer.push_with_info(adx);
+            let old_adx = self.buffer.push_with_info(adx);
             let adxr = F64Constants::HALF * (adx + old_adx);
 
             (adxr, adx, dx, atr, tr)

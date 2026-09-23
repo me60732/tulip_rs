@@ -42,11 +42,10 @@ pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
 pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
-
 use crate::indicators::homodynediscriminator;
+use crate::math::atan_fast;
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
-
 /// Number of input price series required by this indicator.
 pub const INPUTS: usize = 1;
 
@@ -163,26 +162,33 @@ impl<S> State<S> {
         const RAD_TO_DEG: f64 = 180.0 / std::f64::consts::PI;
 
         // Instantaneous phase in degrees. Guard against I1 = 0 (undefined atan).
+        // algebraic_mul + algebraic_sub above let LLVM contract the
+        // `prev − (atan·RAD)` into one FMA — this sits on the prev_phase
+        // recursion's critical path.
         let phase = if i1 != 0.0 {
-            (q1 / i1).atan() * RAD_TO_DEG
+            atan_fast(q1 / i1).algebraic_mul(RAD_TO_DEG)
         } else {
             0.0
         };
 
         // Phase decreases (advances) as cycles progress, so DeltaPhase = prev − current.
         // Floor at 1° to prevent division by zero or absurdly large alpha.
-        let delta_phase = (self.prev_phase - phase).max(1.0);
+        let delta_phase = self.prev_phase.algebraic_sub(phase).max(1.0);
         self.prev_phase = phase;
 
         // Adaptive alpha: larger when phase barely moved (slow market), capped at FastLimit.
         self.alpha = (self.fast_limit / delta_phase).clamp(self.slow_limit, self.fast_limit);
 
-        // MAMA — standard EMA with adaptive alpha.
-        self.mama = self.alpha.mul_add(real, (1.0 - self.alpha) * self.mama);
+        // MAMA — standard EMA, in factored form:
+        //   α·price + (1−α)·prev  ≡  prev + α·(price − prev)
+        // One sub + one FMA instead of sub+mul+mul+fma — shorter alpha→mama
+        // recursion and one less round.
+        self.mama = self.alpha.mul_add(real - self.mama, self.mama);
 
-        // FAMA — slower EMA at half the alpha, tracking MAMA.
-        let half_alpha = 0.5 * self.alpha;
-        self.fama = half_alpha.mul_add(self.mama, (1.0 - half_alpha) * self.fama);
+        // FAMA — slower EMA at half the alpha, tracking MAMA (same factoring;
+        // reads the updated mama, matching the original expansion).
+        let half_alpha = self.alpha.algebraic_mul(0.5);
+        self.fama = half_alpha.mul_add(self.mama - self.fama, self.fama);
     }
 }
 impl TState for State<Cold> {

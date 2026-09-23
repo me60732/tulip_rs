@@ -637,6 +637,55 @@ fn bench_kand_wma(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_wma(c: &mut Criterion) {
+    use vector_ta::indicators::wma::{wma, WmaInput, WmaParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("wma");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = WmaParams {
+                            period: Some(period),
+                        };
+                        let input = WmaInput::from_slice(&close, params);
+                        let output = wma(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("wma", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("wma_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa WMA {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = WmaParams {
+                        period: Some(period),
+                    };
+                    let input = WmaInput::from_slice(&close_vec, params);
+                    let output = wma(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -648,6 +697,7 @@ criterion_group!(
     bench_rust_wma_from_state,
     bench_rust_wma_optional,
     bench_kand_wma,
+    bench_vector_ta_wma,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -660,5 +710,6 @@ criterion_group!(
     bench_rust_wma_from_state,
     bench_rust_wma_optional,
     bench_kand_wma,
+    bench_vector_ta_wma,
 );
 criterion_main!(benches);

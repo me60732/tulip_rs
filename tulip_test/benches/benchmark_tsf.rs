@@ -496,6 +496,56 @@ fn bench_rust_tsf_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_tsf(c: &mut Criterion) {
+    use vector_ta::indicators::tsf::{tsf, TsfInput, TsfParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("tsf");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = TsfParams {
+                            period: Some(period),
+                        };
+                        let input = TsfInput::from_slice(&close, params);
+                        let output = tsf(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("tsf", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("tsf_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa TSF {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = TsfParams {
+                        period: Some(period),
+                    };
+                    let input = TsfInput::from_slice(&close_vec, params);
+                    let output = tsf(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     tsf_benchmarks,
     bench_rust_tsf_simd_by_options,
@@ -504,5 +554,6 @@ criterion_group!(
     bench_c_tsf,
     bench_rust_tsf_from_state,
     bench_rust_tsf_optional,
+    bench_vector_ta_tsf,
 );
 criterion_main!(tsf_benchmarks);

@@ -616,6 +616,56 @@ fn bench_kand_trix(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_trix(c: &mut Criterion) {
+    use vector_ta::indicators::trix::{trix, TrixInput, TrixParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("trix");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = TrixParams {
+                            period: Some(period),
+                        };
+                        let input = TrixInput::from_slice(&close, params);
+                        let output = trix(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("trix", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("trix_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa TRIX {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = TrixParams {
+                        period: Some(period),
+                    };
+                    let input = TrixInput::from_slice(&close_vec, params);
+                    let output = trix(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     benches,
     bench_rust_trix_simd_by_options,
@@ -625,5 +675,6 @@ criterion_group!(
     bench_rust_trix_from_state,
     bench_rust_trix_optional,
     bench_kand_trix,
+    bench_vector_ta_trix,
 );
 criterion_main!(benches);

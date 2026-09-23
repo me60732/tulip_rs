@@ -413,8 +413,47 @@ fn bench_rust_nvi_simd_by_assets(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_nvi(c: &mut Criterion) {
+    use vector_ta::indicators::nvi::{nvi, NviInput, NviParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("nvi");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close_vec: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+            let volume_vec: Vec<f64> = stock_data.iter().map(|d| d.volume).collect();
+            let n = close_vec.len();
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let input = NviInput::from_slices(&close_vec, &volume_vec, NviParams);
+                    let output = nvi(&input).unwrap();
+                    black_box(output.values);
+                },
+                SAMPLE_SIZE,
+            );
+            log_timing_result("nvi", "VectorTa", &[], n, &timing, Some(stock_symbol));
+        }
+    } else {
+        let (close_vec, volume_vec) = expand_inputs();
+        let _n = close_vec.len();
+        let mut group = c.benchmark_group("nvi_vector_ta");
+        group.sample_size(SAMPLE_SIZE);
+        group.bench_function("VectorTa NVI", |b| {
+            b.iter(|| {
+                let input = NviInput::from_slices(&close_vec, &volume_vec, NviParams);
+                let output = nvi(&input).unwrap();
+                black_box(output.values);
+            });
+        });
+        group.finish();
+    }
+}
+
 criterion_group!(
     benches,
+    bench_vector_ta_nvi,
     bench_rust_nvi_simd_by_assets,
     bench_rust_nvi,
     bench_rust_nvi_from_state,

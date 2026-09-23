@@ -115,6 +115,8 @@ impl TState for State<Warm> {
         let price_change = self.typprice - prev_typprice;
         let money_flow = self.typprice * volume;
 
+        //let pos_flow = if price_change > 0.0 { money_flow } else { 0.0 };   // single cmov
+        //let neg_flow = if price_change < 0.0 { money_flow } else { 0.0 };    // independent cmov
         let (pos_flow, neg_flow) = if price_change > 0.0 {
             (money_flow, 0.0)
         } else if price_change < 0.0 {
@@ -127,7 +129,13 @@ impl TState for State<Warm> {
         self.pos_sum += pos_flow - pos_flow_old;
         self.neg_sum += neg_flow - neg_flow_old;
 
-        self.pos_sum / (self.pos_sum + self.neg_sum).max(f64::EPSILON) * 100.0
+        let total = self.pos_sum + self.neg_sum;
+        if total < 1e-14 {
+            0.0
+        } else {
+            self.pos_sum / total * 100.0
+        }
+        //self.pos_sum / (self.pos_sum + self.neg_sum).max(f64::EPSILON) * 100.0
     }
 }
 
@@ -156,6 +164,7 @@ fn cycle_mfi(
                 *volume.get_unchecked(i),
             ));
         }
+
         crate::store_optional_outputs!(i,
             want_typprice, typprice_line => state.typprice
         );

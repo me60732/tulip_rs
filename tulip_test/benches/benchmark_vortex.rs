@@ -466,8 +466,69 @@ fn bench_rust_vortex_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_vortex(c: &mut Criterion) {
+    use vector_ta::indicators::vi::{vi, ViInput, ViParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("vortex");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_arrays(stock_data);
+            let n = high.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = ViParams {
+                            period: Some(period),
+                        };
+                        let input = ViInput::from_slices(&high, &low, &close, params);
+                        let output = vi(&input).unwrap();
+                        black_box(output.plus);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result(
+                    "vortex",
+                    "VectorTa",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("vortex_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa VI {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = ViParams {
+                        period: Some(period),
+                    };
+                    let input = ViInput::from_slices(&high_vec, &low_vec, &close_vec, params);
+                    let output = vi(&input).unwrap();
+                    black_box(output.plus);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     benches,
+    bench_vector_ta_vortex,
     bench_rust_vortex_simd_by_assets,
     bench_rust_vortex_simd_by_options,
     bench_rust_vortex,

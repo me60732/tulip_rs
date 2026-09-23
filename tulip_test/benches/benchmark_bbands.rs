@@ -767,6 +767,80 @@ fn bench_kand_bbands(c: &mut Criterion) {
     }
 }
 
+/// Benchmark the VectorTA implementation of Bollinger Bands.
+///
+/// tulip_rs only exposes a single standard-deviation multiplier, so it is
+/// used for both `devup` and `devdn`.
+fn bench_vector_ta_bbands(c: &mut Criterion) {
+    use vector_ta::indicators::bollinger_bands::{
+        bollinger_bands, BollingerBandsInput, BollingerBandsParams,
+    };
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("bbands");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let dev = options[1];
+                let params = BollingerBandsParams {
+                    period: Some(period),
+                    devup: Some(dev),
+                    devdn: Some(dev),
+                    matype: None,
+                    devtype: None,
+                };
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let input = BollingerBandsInput::from_slice(&close, params.clone());
+                        let output = bollinger_bands(&input).expect("VectorTA BBands failed");
+                        black_box(&output.upper_band);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "bbands",
+                    "VectorTa",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let dev = options[1];
+            let params = BollingerBandsParams {
+                period: Some(period),
+                devup: Some(dev),
+                devdn: Some(dev),
+                matype: None,
+                devtype: None,
+            };
+            let mut group = c.benchmark_group("bbands_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!("VectorTA BBands {{ {}/{} }}", options[0], options[1]),
+                |b| {
+                    b.iter(|| {
+                        let input = BollingerBandsInput::from_slice(&close_vec, params.clone());
+                        let output = bollinger_bands(&input).expect("VectorTA BBands failed");
+                        black_box(&output.upper_band);
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -778,6 +852,7 @@ criterion_group!(
     bench_talib_bbands,
     bench_rust_bbands_from_state,
     bench_kand_bbands,
+    bench_vector_ta_bbands,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -790,5 +865,6 @@ criterion_group!(
     bench_c_bbands,
     bench_rust_bbands_from_state,
     bench_kand_bbands,
+    bench_vector_ta_bbands,
 );
 criterion_main!(benches);

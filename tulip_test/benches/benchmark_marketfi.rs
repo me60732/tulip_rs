@@ -423,8 +423,59 @@ fn bench_rust_marketfi_simd_by_assets(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_marketfi(c: &mut Criterion) {
+    use vector_ta::indicators::marketefi::{marketefi, MarketefiInput, MarketefiParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("marketfi");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, volume) = get_hlv_arrays(stock_data);
+            let n = high.len();
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let input = MarketefiInput::from_slices(
+                        &high,
+                        &low,
+                        &volume,
+                        MarketefiParams::default(),
+                    );
+                    let output = marketefi(&input).unwrap();
+                    black_box(output.values);
+                },
+                SAMPLE_SIZE,
+            );
+
+            log_timing_result("marketfi", "VectorTa", &[], n, &timing, Some(stock_symbol));
+        }
+    } else {
+        let (high_vec, low_vec, volume_vec) = expand_inputs();
+
+        let mut group = c.benchmark_group("marketfi_vector_ta");
+        group.sample_size(SAMPLE_SIZE);
+        group.bench_function("VectorTa MarketEFI", |b| {
+            b.iter(|| {
+                let input = MarketefiInput::from_slices(
+                    &high_vec,
+                    &low_vec,
+                    &volume_vec,
+                    MarketefiParams::default(),
+                );
+                let output = marketefi(&input).unwrap();
+                black_box(output.values);
+            });
+        });
+        group.finish();
+    }
+}
+
 criterion_group!(
     marketfi_benchmarks,
+    bench_vector_ta_marketfi,
     bench_rust_marketfi,
     bench_rust_marketfi_from_state,
     bench_rust_marketfi_simd_by_assets,

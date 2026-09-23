@@ -1,6 +1,5 @@
 use crate::common::validate_inputs;
-#[cfg(feature = "simd_options")]
-pub use crate::indicator_types::IndicatorByOptions;
+
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
 pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
@@ -9,7 +8,7 @@ use crate::indicators::{
     simd_indicators::sma_simd::SimdState as SmaSimdState,
     sma::{calc as sma_calc, multiplier as sma_multiplier, Sma},
 };
-use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
+use crate::ring_buffer::fixed_single_buffer::single_buffer::FixedRingBuffer as Buffer;
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 use std::simd::Simd;
@@ -25,7 +24,7 @@ pub type IndicatorState = State<Warm>;
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
 pub struct State<S = Cold> {
-    pub buffer: Buffer<S>,
+    pub buffer: Buffer<f64, LONG_PERIOD, S>,
     pub sma_state: SmaSimdState<2>,
 }
 
@@ -69,7 +68,7 @@ impl State<Cold> {
         };
         State {
             sma_state: SmaSimdState::new(Simd::from_array([short_sum, long_sum]), multiplier),
-            buffer: Buffer::new(LONG_PERIOD),
+            buffer: Buffer::new(),
         }
     }
     pub fn init_state(

@@ -288,6 +288,59 @@ fn bench_mama_simd_by_options(c: &mut Criterion) {
     }
 }
 
+/// VectorTA MAMA/FAMA — cycles through all four option sets.
+fn bench_vector_ta_mama(c: &mut Criterion) {
+    use vector_ta::indicators::moving_averages::mama::{mama, MamaInput, MamaParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("mama");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for opts in &OPTIONS_4 {
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = MamaParams {
+                            fast_limit: Some(opts[0]),
+                            slow_limit: Some(opts[1]),
+                        };
+                        let input = MamaInput::from_slice(&close, params);
+                        let result = mama(&input).unwrap();
+                        black_box(result.mama_values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("mama", "VectorTa", opts, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close = expand_inputs();
+        for opts in &OPTIONS_4 {
+            let mut group = c.benchmark_group("mama_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!("VectorTa MAMA/FAMA [fast={}, slow={}]", opts[0], opts[1]),
+                |b| {
+                    b.iter(|| {
+                        let params = MamaParams {
+                            fast_limit: Some(opts[0]),
+                            slow_limit: Some(opts[1]),
+                        };
+                        let input = MamaInput::from_slice(&close, params);
+                        let result = mama(&input).unwrap();
+                        black_box(result.mama_values);
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
+
 /// TA-Lib MAMA/FAMA — cycles through all four option sets.
 #[cfg(feature = "talib")]
 fn bench_talib_mama(c: &mut Criterion) {
@@ -364,6 +417,7 @@ criterion_group!(
     bench_mama_simd_by_assets,
     bench_mama_simd_by_options,
     bench_mama,
+    bench_vector_ta_mama,
     bench_talib_mama,
     bench_mama_from_state,
 );
@@ -373,6 +427,7 @@ criterion_group!(
     benches,
     bench_mama_simd_by_assets,
     bench_mama_simd_by_options,
+    bench_vector_ta_mama,
     bench_mama,
     bench_mama_from_state,
 );

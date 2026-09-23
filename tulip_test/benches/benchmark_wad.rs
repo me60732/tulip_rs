@@ -473,8 +473,49 @@ fn bench_rust_wad_simd_by_assets(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_wad(c: &mut Criterion) {
+    use vector_ta::indicators::wad::{wad, WadInput};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("wad");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let high_vec: Vec<f64> = stock_data.iter().map(|d| d.high).collect();
+            let low_vec: Vec<f64> = stock_data.iter().map(|d| d.low).collect();
+            let close_vec: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+            let n = high_vec.len();
+
+            let mut timing = TimingMeasurements::new();
+            timing.measure(
+                || {
+                    let input = WadInput::from_slices(&high_vec, &low_vec, &close_vec);
+                    let output = wad(&input).unwrap();
+                    black_box(output.values);
+                },
+                SAMPLE_SIZE,
+            );
+            log_timing_result("wad", "VectorTa", &OPTIONS, n, &timing, Some(stock_symbol));
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+        let mut group = c.benchmark_group("wad_vector_ta");
+        group.sample_size(SAMPLE_SIZE);
+        group.bench_function("VectorTa WAD", |b| {
+            b.iter(|| {
+                let input = WadInput::from_slices(&high_vec, &low_vec, &close_vec);
+                let output = wad(&input).unwrap();
+                black_box(output.values);
+            });
+        });
+        group.finish();
+    }
+}
+
 criterion_group!(
     benches,
+    bench_vector_ta_wad,
     bench_rust_wad_simd_by_assets,
     bench_rust_wad,
     bench_c_wad,

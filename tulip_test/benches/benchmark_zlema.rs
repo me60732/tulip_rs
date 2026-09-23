@@ -457,6 +457,62 @@ fn bench_rust_zlema_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_zlema(c: &mut Criterion) {
+    use vector_ta::indicators::zlema::{zlema, ZlemaInput, ZlemaParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("zlema");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = ZlemaParams {
+                            period: Some(period),
+                        };
+                        let input = ZlemaInput::from_slice(&close, params);
+                        let output = zlema(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "zlema",
+                    "VectorTa",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("zlema_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa ZLEMA {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = ZlemaParams {
+                        period: Some(period),
+                    };
+                    let input = ZlemaInput::from_slice(&close_vec, params);
+                    let output = zlema(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     benches,
     bench_rust_zlema_simd_by_options,
@@ -464,5 +520,6 @@ criterion_group!(
     bench_rust_zlema,
     bench_c_zlema,
     bench_rust_zlema_from_state,
+    bench_vector_ta_zlema,
 );
 criterion_main!(benches);

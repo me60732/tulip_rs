@@ -15,7 +15,9 @@ mod imports {
 }
 use crate::types::Warm;
 pub mod asset {
-    use super::imports::*;
+    use std::simd::{Select, cmp::SimdPartialEq};
+
+use super::imports::*;
     use super::*;
 
     use crate::ring_buffer::single_buffer::generic_buffer::{SimdBuffer, SimdRingBuffer};
@@ -48,14 +50,16 @@ pub mod asset {
             let old = self.buffer.push_with_info(typprice);
 
             let (md, sma) = self.md_state.calc((typprice, old, self.buffer.get_slice()));
-
-            let cci = (typprice - sma) / (F64Constants::ZERO15 * md);
+            
+            //let cci = (typprice - sma) / (F64Constants::ZERO15 * md);
+            let cci = md.simd_eq(F64Constants::ZERO).select(F64Constants::ZERO, (typprice - sma) / (F64Constants::ZERO15 * md));
             (cci, sma, md, typprice)
         }
     }
 }
 
 pub(crate) mod options {
+    use std::simd::{Select, cmp::SimdPartialEq};
     use super::imports::*;
     use super::*;
     use crate::indicators::{md::calc_md_simd, typprice::calc as typprice_calc};
@@ -95,7 +99,7 @@ pub(crate) mod options {
         fn calc<'a>(&mut self, (high, low, close): Self::Inputs<'a>) -> Self::Outputs {
             let typprice = typprice_calc(high, low, close);
             let typprice = Simd::splat(typprice);
-            let (old, _) = self.buffer.push_with_info(typprice);
+            let old = self.buffer.push_with_info(typprice);
 
             let sma = self.md_state.0.calc((typprice, old));
             let mut md = Simd::splat(0.0);
@@ -106,7 +110,8 @@ pub(crate) mod options {
                 md_ref[i] = calc_md_simd::<4>(&slices[i], sma_ref[i], multiplier);
             }
 
-            let cci = (typprice - sma) / (F64Constants::ZERO15 * md);
+            //let cci = (typprice - sma) / (F64Constants::ZERO15 * md);
+            let cci = md.simd_eq(F64Constants::<N>::ZERO).select(F64Constants::<N>::ZERO, (typprice - sma) / (F64Constants::ZERO15 * md));
             (cci, sma, md, typprice)
         }
     }

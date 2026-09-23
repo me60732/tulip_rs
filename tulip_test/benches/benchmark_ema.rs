@@ -640,12 +640,63 @@ fn bench_kand_ema(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_ema(c: &mut Criterion) {
+    use vector_ta::indicators::ema::{ema, EmaInput, EmaParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("ema");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = EmaParams {
+                            period: Some(period),
+                        };
+                        let input = EmaInput::from_slice(&close, params);
+                        let output = ema(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("ema", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("ema_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa EMA {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = EmaParams {
+                        period: Some(period),
+                    };
+                    let input = EmaInput::from_slice(&close_vec, params);
+                    let output = ema(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
     bench_rust_ema_simd_by_options,
     bench_rust_ema_simd_by_assets,
     bench_rust_ema,
+    bench_vector_ta_ema,
     bench_kand_ema,
     bench_rust_ta_ema,
     bench_c_ema,
@@ -659,10 +710,10 @@ criterion_group!(
     bench_rust_ema_simd_by_options,
     bench_rust_ema_simd_by_assets,
     bench_rust_ema,
+    bench_vector_ta_ema,
     bench_kand_ema,
     bench_rust_ta_ema,
     bench_c_ema,
     bench_rust_ema_from_state,
-    
 );
 criterion_main!(benches);

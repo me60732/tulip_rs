@@ -10,17 +10,14 @@ use std::simd::{Simd, StdFloat};
 /// SIMD-parallel state for computing Linear Regression across `N` assets/options simultaneously.
 /// Each field is a SIMD vector where lane `i` corresponds to asset/option `i`.
 pub struct SimdState<const N: usize> {
-    /// Running sum of x (time-index) values — precomputed and constant for a given period.
-    pub sum_x: Simd<f64, N>,
-    /// Running sum of y (price) values over the current window.
     pub sum_y: Simd<f64, N>,
-    /// Running sum of x*y cross-products over the current window.
     pub sum_xy: Simd<f64, N>,
-    /// Precomputed denominator `1 / (period * sum_x^2 - sum_x^2)` used each bar.
-    pub per: Simd<f64, N>,
     pub n: Simd<f64, N>,
+    pub sum_x: Simd<f64, N>,
+    pub per: Simd<f64, N>,
     pub inv_n: Simd<f64, N>,
 }
+
 impl<const N: usize> TSimdState for SimdState<N> {
     type ScalarState = State<Warm>;
     crate::simd_state_write!(
@@ -44,31 +41,22 @@ impl<const N: usize> TState for SimdState<N> {
     /// Returns `(linreg, slope, intercept)`.
     #[inline(always)]
     fn calc<'a>(&mut self, (prev_value, value): Self::Inputs<'a>) -> Self::Outputs {
-        let (sum_x, mut sum_y, mut sum_xy, per, period, inv_n) = (
-            self.sum_x,
-            self.sum_y,
-            self.sum_xy,
-            self.per,
-            self.n,
-            self.inv_n,
-        );
-
         // FMA: (value * period) + sum_xy
-        sum_xy = value.mul_add(period, sum_xy);
-        sum_y += value;
+        let (n, sum_x, per, inv_n) = (self.n, self.sum_x, self.per, self.inv_n);
+        self.sum_xy = value.mul_add(n, self.sum_xy);
+        
+        self.sum_y += value;
 
         // slope = (period * sum_xy - sum_x * sum_y) * per
-        let slope = sum_x.mul_add(-sum_y, period * sum_xy) * per;
-
-        let intercept = slope.mul_add(-sum_x, sum_y) * inv_n;
+        //let slope = sum_x.mul_add(-sum_y, period * sum_xy) * per;
+        let slope = n.mul_add(self.sum_xy, -(sum_x * self.sum_y)) * per;
+        let intercept = (-slope).mul_add(sum_x, self.sum_y) * inv_n;
 
         // linreg = intercept + slope * period
-        let linreg = slope.mul_add(period, intercept);
+        let linreg = n.mul_add(slope, intercept);
+        self.sum_xy -= self.sum_y;
+        self.sum_y -= prev_value;
 
-        sum_xy -= sum_y;
-        sum_y -= prev_value;
-
-        (self.sum_y, self.sum_xy) = (sum_y, sum_xy);
         (linreg, slope, intercept)
     }
 }

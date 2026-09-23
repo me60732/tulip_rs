@@ -1,4 +1,4 @@
-use crate::indicators::ao::{IndicatorState as State, SHORT_PERIOD};
+use crate::indicators::ao::{IndicatorState as State, LONG_PERIOD, SHORT_PERIOD};
 
 #[cfg(feature = "simd_assets")]
 pub(crate) use crate::indicators::simd_indicators::by_asset::ao::indicator_by_assets;
@@ -7,12 +7,13 @@ pub use crate::indicator_types::{TSimdState, TState};
 use crate::indicators::simd_indicators::{
     medprice_simd::calc_simd as calc_medprice_simd, sma_simd::SimdState as SmaSimdState,
 };
-use crate::ring_buffer::single_buffer::generic_buffer::{SimdBuffer, SimdRingBuffer};
+use crate::ring_buffer::fixed_single_buffer::{FixedRingBuffer, FixedSimdRingBuffer};
+use crate::types::Warm;
 use std::simd::Simd;
 /// SIMD-parallel state for computing the Awesome Oscillator (AO) across `N` assets
 /// simultaneously. Each field is a SIMD vector where lane `i` corresponds to asset `i`.
 pub struct SimdState<const N: usize> {
-    buffer: SimdBuffer<N>,
+    buffer: FixedRingBuffer<Simd<f64, N>, LONG_PERIOD, Warm>,
     pub short_sma_state: SmaSimdState<N>,
     pub long_sma_state: SmaSimdState<N>,
 }
@@ -29,7 +30,7 @@ impl<const N: usize> TSimdState for SimdState<N> {
         let mut short_multipliers = [0.0; N];
         let mut long_multipliers = [0.0; N];
 
-        let mut buffer_refs = Vec::with_capacity(N);
+        let mut buffer_refs: Vec<&FixedRingBuffer<f64, LONG_PERIOD, Warm>> = Vec::with_capacity(N);
         for (i, state) in states.iter_mut().enumerate() {
             let [short, long] = state.sma_state.sum.to_array();
             short_sum[i] = short;
@@ -39,7 +40,8 @@ impl<const N: usize> TSimdState for SimdState<N> {
             buffer_refs.push(&state.buffer)
         }
 
-        let buffer = SimdBuffer::from_f64_buffers(buffer_refs);
+        let buffer =
+            FixedRingBuffer::<Simd<f64, N>, LONG_PERIOD, Warm>::from_f64_buffers(&buffer_refs);
 
         Self {
             buffer,

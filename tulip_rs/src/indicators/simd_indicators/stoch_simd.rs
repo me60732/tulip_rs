@@ -129,11 +129,9 @@ pub mod options {
                 Simd::splat(100.0) * (close - min) / (max - min).simd_max(Simd::splat(f64::EPSILON))
             };
 
-            let (old_k, _) = self.prev_k.push_with_info(kfast);
-            self.k_sum += kfast - old_k;
+            self.k_sum += kfast - self.prev_k.push_with_info(kfast);
             let k = self.k_sum * self.k_multiplier;
-            let (old_d, _) = self.prev_d.push_with_info(k);
-            self.d_sum += k - old_d;
+            self.d_sum += k - self.prev_d.push_with_info(k);
 
             (k, self.d_sum * self.d_multiplier)
         }

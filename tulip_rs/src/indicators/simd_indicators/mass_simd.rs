@@ -13,6 +13,7 @@ pub mod imports {
     };
     pub(crate) use std::simd::{num::SimdFloat, Simd};
 }
+
 use crate::types::Warm;
 /// Asset-parallel SIMD computations for the Mass Index.
 ///

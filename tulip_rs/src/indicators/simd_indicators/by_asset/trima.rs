@@ -1,18 +1,14 @@
 //use crate::common::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::{Cold, IndicatorError, Warm};
-//use std::simd::cmp::SimdPartialOrd;
 use crate::indicators::simd_indicators::trima_simd::{SimdState, TSimdState, TState};
-use crate::indicators::trima::{
-    initialize_counters, Indicator, IndicatorState, State, Trima, INPUTS, OPTIONS,
-};
-use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
+use crate::indicators::trima::{Indicator, IndicatorState, State, Trima, INPUTS, OPTIONS};
+use crate::types::{IndicatorError, Warm};
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
+
 /// SIMD driver that advances the Triangular Moving Average (TRIMA) across `N` asset lanes per scheduling epoch.
 struct TrimaDriver {
-    counters: (usize, usize),
-    period: usize,
+    m1: usize,
 }
 
 impl Driver<State<Warm>> for TrimaDriver {
@@ -30,26 +26,18 @@ impl Driver<State<Warm>> for TrimaDriver {
         // Pre-compute pointers for maximum efficiency
         let input_ptrs = crate::extract_input_ptrs!(inputs, N, input_ptrs);
         let trima_line_ptr = crate::extract_output_ptrs!(outputs, N, trima_line_ptr);
-        let p = self.period - 1;
-        let periods = [p - self.counters.0, p - self.counters.1, p];
-        let mut buffer = {
-            let mut buf = Buffer::<Cold, Simd<f64, N>>::new(p);
-            for i in 0..p {
-                let real = crate::extract_simd_at_indices!(N, input_ptrs,
-                    new_vals @ i
-                );
-                buf.push(real);
-            }
-            buf.into_full() // → SimdBuffer<N> = Buffer<Warm, Simd<f64,N>>
-        };
-        // Optimized main loop with minimal overhead
-        for (j, i) in (p..len).enumerate() {
-            let real = crate::extract_simd_at_indices!(N, input_ptrs,
-                real @ i
-            );
-            let [lsi_val, tsi1_val, tsi2_val] = buffer.push_with_info_periods(real, periods);
 
-            let trima = state.calc((real, lsi_val, tsi1_val, tsi2_val));
+        // Main loop: compute TRIMA with 2-input formulation (x[i], x[i-m1])
+        // Main loop: pre-sliced index convention (mirrors scalar `cycle_trima`):
+        // `i` walks the current bar, `o = i - m1` the lookback bar — both maintained
+        // by increment, so there is no per-bar subtraction in the hot loop.
+        for (j, i) in (self.m1..len).enumerate() {
+            let (real, x_minus_m1) = crate::extract_simd_at_indices!(N, input_ptrs,
+                real @ i,
+                x_minus_m1 @ j
+            );
+
+            let trima = state.calc((real, x_minus_m1));
 
             // Direct SIMD store if possible, otherwise individual stores
             crate::write_simd_at_indices!(N, j,
@@ -86,6 +74,8 @@ pub(crate) fn indicator_by_assets<const N: usize>(
     validate_inputs::<INPUTS>(inputs, Trima::min_data(options))?;
     validate_options(options)?;
     let period = options[0] as usize;
+    let m1 = (period + 1) / 2;
+
     let mut output_buffers: Vec<Vec<Vec<f64>>> = (0..N)
         .map(|i| {
             vec![{
@@ -112,21 +102,19 @@ pub(crate) fn indicator_by_assets<const N: usize>(
                 asset_outputs,
                 i,
                 period - 1,
-                period - 1,
+                m1,
                 state,
                 None,
             ));
         }
     }
-    let mut driver = TrimaDriver {
-        period,
-        counters: initialize_counters(period),
-    };
+
+    let mut driver = TrimaDriver { m1 };
     let states_vec = road_train.drive(&mut driver);
 
     let mut states = Vec::with_capacity(N);
     for (i, state) in states_vec.into_iter().enumerate() {
-        states.push(IndicatorState::new(inputs[i][0], state, period));
+        states.push(IndicatorState::new(inputs[i][0], state));
     }
     Ok((output_buffers, states))
 }

@@ -44,19 +44,15 @@ impl<const N: usize> TSimdState for SimdState<N> {
 impl<const N: usize> TState for SimdState<N> {
     type Inputs<'a> = Simd<f64, N>;
     type Outputs = (Simd<f64, N>, Simd<f64, N>);
-    
+
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        real: Self::Inputs<'a>,
-    ) -> Self::Outputs {
+    fn calc<'a>(&mut self, real: Self::Inputs<'a>) -> Self::Outputs {
         let (_, i1, q1) = self.hd.calc_with_iq(real);
         self.apply_mama_simd(real, i1, q1);
         (self.mama, self.fama)
     }
 }
 impl<const N: usize> SimdState<N> {
-
     /// Applies the MAMA-specific stage for all `N` lanes.
     ///
     /// Mirrors [`mama::State::apply_mama`](crate::indicators::mama::State::apply_mama) exactly:
@@ -65,12 +61,7 @@ impl<const N: usize> SimdState<N> {
     /// - `f64::clamp(slow, fast)` → `.simd_min(fast_limits).simd_max(slow_limits)`
     /// - `f64::mul_add` → `Simd::mul_add` (via `StdFloat`)
     #[inline(always)]
-    fn apply_mama_simd(
-        &mut self,
-        real: Simd<f64, N>,
-        i1: Simd<f64, N>,
-        q1: Simd<f64, N>,
-    ) {
+    fn apply_mama_simd(&mut self, real: Simd<f64, N>, i1: Simd<f64, N>, q1: Simd<f64, N>) {
         let zero = Simd::splat(0.0_f64);
         let rad_to_deg = Simd::splat(180.0 / std::f64::consts::PI);
 
@@ -89,14 +80,13 @@ impl<const N: usize> SimdState<N> {
             .simd_min(self.fast_limit)
             .simd_max(self.slow_limit);
 
-        // MAMA — EMA with adaptive alpha.
-        self.mama = self
-            .alpha
-            .mul_add(real, (Simd::splat(1.0) - self.alpha) * self.mama);
+        // MAMA — EMA with adaptive alpha, factored:
+        //   α·price + (1−α)·prev  ≡  prev + α·(price − prev)
+        // sub + FMA instead of sub + mul + FMA (matches the scalar apply_mama).
+        self.mama = self.alpha.mul_add(real - self.mama, self.mama);
 
-        // FAMA — EMA at half the alpha.
+        // FAMA — EMA at half the alpha (same factoring; reads the updated mama).
         let half_alpha = Simd::splat(0.5) * self.alpha;
-        self.fama = half_alpha.mul_add(self.mama, (Simd::splat(1.0) - half_alpha) * self.fama);
+        self.fama = half_alpha.mul_add(self.mama - self.fama, self.fama);
     }
 }
-

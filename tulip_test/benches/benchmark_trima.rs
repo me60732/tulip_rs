@@ -535,6 +535,63 @@ fn bench_rust_trima_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_trima(c: &mut Criterion) {
+    use vector_ta::indicators::moving_averages::trima::{trima, TrimaInput, TrimaParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("trima");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = TrimaParams {
+                            period: Some(period),
+                        };
+                        let input = TrimaInput::from_slice(&close, params);
+                        let output = trima(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "trima",
+                    "VectorTa",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("trima_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa TRIMA {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = TrimaParams {
+                        period: Some(period),
+                    };
+                    let input = TrimaInput::from_slice(&close_vec, params);
+                    let output = trima(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 fn bench_kand_trima(c: &mut Criterion) {
     use kand::ohlcv::trima;
 
@@ -594,6 +651,7 @@ criterion_group!(
     benches,
     bench_rust_trima_simd_by_options,
     bench_rust_trima_simd_by_assets,
+    bench_vector_ta_trima,
     bench_rust_trima,
     bench_c_trima,
     bench_talib_trima,
@@ -604,6 +662,7 @@ criterion_group!(
 #[cfg(not(feature = "talib"))]
 criterion_group!(
     benches,
+    bench_vector_ta_trima,
     bench_rust_trima_simd_by_options,
     bench_rust_trima_simd_by_assets,
     bench_rust_trima,

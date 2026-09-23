@@ -565,11 +565,64 @@ fn bench_kand_minus_dm(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_dm(c: &mut Criterion) {
+    use vector_ta::indicators::dm::{dm, DmInput, DmParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("dm");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let (high, low) = get_hl_arrays(stock_data);
+            let n = high.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = DmParams {
+                            period: Some(period),
+                        };
+                        let input = DmInput::from_slices(&high, &low, params);
+                        let output = dm(&input).unwrap();
+                        black_box(output.plus);
+                        black_box(output.minus);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("dm", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let (high_vec, low_vec) = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("dm_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa DM {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = DmParams {
+                        period: Some(period),
+                    };
+                    let input = DmInput::from_slices(&high_vec, &low_vec, params);
+                    let output = dm(&input).unwrap();
+                    black_box(output.plus);
+                    black_box(output.minus);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     dm_benchmarks,
     bench_rust_dm_simd_by_options,
     bench_rust_dm_simd_by_assets,
     bench_rust_dm,
+    bench_vector_ta_dm,
     bench_c_dm,
     bench_rust_dm_from_state,
     bench_kand_plus_dm,

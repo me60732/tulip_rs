@@ -645,10 +645,77 @@ fn bench_rust_kvo_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_kvo(c: &mut Criterion) {
+    use vector_ta::indicators::kvo::{kvo, KvoInput, KvoParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("kvo");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let high: Vec<f64> = stock_data.iter().map(|d| d.high).collect();
+            let low: Vec<f64> = stock_data.iter().map(|d| d.low).collect();
+            let close: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+            let volume: Vec<f64> = stock_data.iter().map(|d| d.volume).collect();
+            let n = high.len();
+
+            for options in OPTIONS_LIST {
+                let short_period = options[0] as usize;
+                let long_period = options[1] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = KvoParams {
+                            short_period: Some(short_period),
+                            long_period: Some(long_period),
+                        };
+                        let input = KvoInput::from_slices(&high, &low, &close, &volume, params);
+                        let output = kvo(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("kvo", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec, volume_vec) = expand_inputs();
+        for options in OPTIONS_LIST {
+            let short_period = options[0] as usize;
+            let long_period = options[1] as usize;
+            let mut group = c.benchmark_group("kvo_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!("VectorTa KVO {{ {}, {} }}", options[0], options[1]),
+                |b| {
+                    b.iter(|| {
+                        let params = KvoParams {
+                            short_period: Some(short_period),
+                            long_period: Some(long_period),
+                        };
+                        let input = KvoInput::from_slices(
+                            &high_vec,
+                            &low_vec,
+                            &close_vec,
+                            &volume_vec,
+                            params,
+                        );
+                        let output = kvo(&input).unwrap();
+                        black_box(output.values);
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     benches,
     bench_rust_kvo_simd_by_assets,
     bench_rust_kvo_simd_by_options,
+    bench_vector_ta_kvo,
     bench_rust_kvo,
     bench_c_kvo,
     bench_rust_kvo_from_state,

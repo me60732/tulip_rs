@@ -576,6 +576,77 @@ fn bench_rust_vidya_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_vidya(c: &mut Criterion) {
+    use vector_ta::indicators::vidya::{vidya, VidyaInput, VidyaParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("vidya");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let short_period = options[0] as usize;
+                let long_period = options[1] as usize;
+                let alpha = options[2];
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = VidyaParams {
+                            short_period: Some(short_period),
+                            long_period: Some(long_period),
+                            alpha: Some(alpha),
+                        };
+                        let input = VidyaInput::from_slice(&close, params);
+                        let output = vidya(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "vidya",
+                    "VectorTa",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        for options in OPTIONS_LIST {
+            let short_period = options[0] as usize;
+            let long_period = options[1] as usize;
+            let alpha = options[2];
+            let mut group = c.benchmark_group("vidya_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!(
+                    "VectorTa VIDYA {{ {}, {}, {} }}",
+                    options[0], options[1], options[2]
+                ),
+                |b| {
+                    b.iter(|| {
+                        let params = VidyaParams {
+                            short_period: Some(short_period),
+                            long_period: Some(long_period),
+                            alpha: Some(alpha),
+                        };
+                        let input = VidyaInput::from_slice(&close_vec, params);
+                        let output = vidya(&input).unwrap();
+                        black_box(output.values);
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     benches,
     bench_rust_vidya_simd_by_options,
@@ -584,5 +655,6 @@ criterion_group!(
     bench_c_vidya,
     bench_rust_vidya_from_state,
     bench_rust_vidya_optional,
+    bench_vector_ta_vidya,
 );
 criterion_main!(benches);

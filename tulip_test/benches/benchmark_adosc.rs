@@ -1,5 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::indicators::adosc::{Adosc, Indicator, IndicatorState, TIndicatorState, IndicatorByOptions};
+use tulip_rs::indicators::adosc::{
+    Adosc, Indicator, IndicatorByOptions, IndicatorState, TIndicatorState,
+};
 use tulip_test::benchmark_logger::{init_logging, log_timing_result, should_log_to_db};
 use tulip_test::benchmark_utils::SAMPLE_SIZE;
 use tulip_test::c_bindings::{ti_adosc, ti_adosc_start};
@@ -368,8 +370,8 @@ fn bench_rust_adosc_from_state(c: &mut Criterion) {
                     Some(stock_symbol),
                 );
 
-                let (_, mut state) =
-                    Adosc::indicator(&new_inputs, &options, None).expect("Rust ADOSC indicator failed");
+                let (_, mut state) = Adosc::indicator(&new_inputs, &options, None)
+                    .expect("Rust ADOSC indicator failed");
 
                 let mut timing = TimingMeasurements::new();
                 timing.measure(
@@ -391,8 +393,8 @@ fn bench_rust_adosc_from_state(c: &mut Criterion) {
                     Some(stock_symbol),
                 );
 
-                let (_, state) =
-                    Adosc::indicator(&new_inputs, &options, None).expect("Rust ADOSC indicator failed");
+                let (_, state) = Adosc::indicator(&new_inputs, &options, None)
+                    .expect("Rust ADOSC indicator failed");
                 let json = serde_json::to_string(&state).expect("json failed");
 
                 let mut timing = TimingMeasurements::new();
@@ -573,10 +575,8 @@ fn bench_rust_adosc_simd_by_assets(c: &mut Criterion) {
                 ),
                 |b| {
                     b.iter(|| {
-                        let result = Adosc::indicator_by_assets::<4>(
-                            &inputs, &options, None,
-                        )
-                        .expect("Rust SIMD by assets ADOSC indicator failed");
+                        let result = Adosc::indicator_by_assets::<4>(&inputs, &options, None)
+                            .expect("Rust SIMD by assets ADOSC indicator failed");
                         black_box(&result);
                     });
                 },
@@ -699,10 +699,8 @@ fn bench_rust_adosc_simd_by_options(c: &mut Criterion) {
                         &OPTIONS_LIST[2],
                         &OPTIONS_LIST[3],
                     ];
-                    let result = Adosc::indicator_by_options::<4>(
-                        &inputs, &options_4, None,
-                    )
-                    .expect("Rust SIMD ADOSC indicator failed");
+                    let result = Adosc::indicator_by_options::<4>(&inputs, &options_4, None)
+                        .expect("Rust SIMD ADOSC indicator failed");
                     black_box(&result);
                 },
                 SAMPLE_SIZE,
@@ -738,10 +736,8 @@ fn bench_rust_adosc_simd_by_options(c: &mut Criterion) {
                     &OPTIONS_LIST[2],
                     &OPTIONS_LIST[3],
                 ];
-                let result = Adosc::indicator_by_options::<4>(
-                    &inputs, &options_4, None,
-                )
-                .expect("Rust SIMD ADOSC indicator failed");
+                let result = Adosc::indicator_by_options::<4>(&inputs, &options_4, None)
+                    .expect("Rust SIMD ADOSC indicator failed");
                 black_box(&result);
             });
         });
@@ -837,6 +833,79 @@ fn bench_kand_adosc(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_adosc(c: &mut Criterion) {
+    use vector_ta::indicators::adosc::{adosc, AdoscInput, AdoscParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("adosc");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let high: Vec<f64> = stock_data.iter().map(|d| d.high).collect();
+            let low: Vec<f64> = stock_data.iter().map(|d| d.low).collect();
+            let close: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+            let volume: Vec<f64> = stock_data.iter().map(|d| d.volume).collect();
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let short_period = options[0] as usize;
+                let long_period = options[1] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = AdoscParams {
+                            short_period: Some(short_period),
+                            long_period: Some(long_period),
+                        };
+                        let input = AdoscInput::from_slices(&high, &low, &close, &volume, params);
+                        let output = adosc(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "adosc",
+                    "VectorTa",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec, volume_vec) = expand_inputs();
+        for options in OPTIONS_LIST {
+            let short_period = options[0] as usize;
+            let long_period = options[1] as usize;
+            let mut group = c.benchmark_group("adosc_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!("VectorTa ADOSC {{ {}/{} }}", options[0], options[1]),
+                |b| {
+                    b.iter(|| {
+                        let params = AdoscParams {
+                            short_period: Some(short_period),
+                            long_period: Some(long_period),
+                        };
+                        let input = AdoscInput::from_slices(
+                            &high_vec,
+                            &low_vec,
+                            &close_vec,
+                            &volume_vec,
+                            params,
+                        );
+                        let output = adosc(&input).unwrap();
+                        black_box(output.values);
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
@@ -848,6 +917,7 @@ criterion_group!(
     bench_rust_adosc_from_state,
     bench_rust_adosc_optional,
     bench_kand_adosc,
+    bench_vector_ta_adosc,
 );
 
 #[cfg(not(feature = "talib"))]
@@ -860,5 +930,6 @@ criterion_group!(
     bench_rust_adosc_from_state,
     bench_rust_adosc_optional,
     bench_kand_adosc,
+    bench_vector_ta_adosc,
 );
 criterion_main!(benches);

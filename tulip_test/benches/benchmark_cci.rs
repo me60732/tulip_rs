@@ -27,6 +27,7 @@ const CLOSE: [f64; 15] = [
 
 // Options for CCI
 //const OPTIONS_LIST: [[f64; 1]; 10] = [[5.0], [14.0], [20.0], [25.0], [30.0], [40.0], [50.0], [80.0], [100.0], [200.0]];
+//const OPTIONS_LIST: [[f64; 1]; 4] = [[5.0], [14.0], [20.0], [25.0]];
 const OPTIONS_LIST: [[f64; 1]; 4] = [[20.0], [25.0], [30.0], [50.0]];
 // Chunk size for batched processing
 const CHUNK_SIZE: usize = 100;
@@ -846,30 +847,103 @@ fn bench_kand_cci(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_cci(c: &mut Criterion) {
+    use vector_ta::indicators::cci::{cci, CciInput, CciParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("cci");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let high: Vec<f64> = stock_data.iter().map(|d| d.high).collect();
+            let low: Vec<f64> = stock_data.iter().map(|d| d.low).collect();
+            let close: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        // CCI uses typical price (hlc3) by default when from_candles is used
+                        // Since we have separate arrays, we compute typical price first
+                        let typical_price: Vec<f64> = high
+                            .iter()
+                            .zip(low.iter())
+                            .zip(close.iter())
+                            .map(|((h, l), c)| (h + l + c) / 3.0)
+                            .collect();
+                        let params = CciParams {
+                            period: Some(period),
+                        };
+                        let input = CciInput::from_slice(&typical_price, params);
+                        let output = cci(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result("cci", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("cci_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa CCI {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    // CCI uses typical price (hlc3) by default when from_candles is used
+                    // Since we have separate arrays, we compute typical price first
+                    let typical_price: Vec<f64> = high_vec
+                        .iter()
+                        .zip(low_vec.iter())
+                        .zip(close_vec.iter())
+                        .map(|((h, l), c)| (h + l + c) / 3.0)
+                        .collect();
+                    let params = CciParams {
+                        period: Some(period),
+                    };
+                    let input = CciInput::from_slice(&typical_price, params);
+                    let output = cci(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
     bench_rust_cci_simd_by_assets,
     bench_rust_cci_simd_by_options,
     bench_rust_cci,
+    bench_vector_ta_cci,
     bench_rust_ta_cci,
     bench_c_cci,
     bench_talib_cci,
+    bench_kand_cci,
     bench_rust_cci_from_state,
     bench_rust_cci_optional,
-    bench_kand_cci,
 );
 
 #[cfg(not(feature = "talib"))]
 criterion_group!(
     benches,
-    bench_rust_cci_simd_by_assets,
-    bench_rust_cci_simd_by_options,
+    //bench_rust_cci_simd_by_assets,
+    //bench_rust_cci_simd_by_options,
     bench_rust_cci,
     bench_rust_ta_cci,
     bench_c_cci,
     bench_rust_cci_from_state,
     bench_rust_cci_optional,
     bench_kand_cci,
+    bench_vector_ta_cci,
 );
 criterion_main!(benches);

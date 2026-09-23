@@ -65,13 +65,18 @@ impl TState for State<Warm> {
     }
 }
 impl State<Warm> {
+    #[inline(always)]
     pub unsafe fn calc_chuncked_unchecked<const N: usize>(
         &mut self,
         (value, prev_value, slice): (f64, f64, &[f64]),
     ) -> (f64, f64) {
         let sma = self.0.calc((value, prev_value));
 
-        let mean_deviation = calc_md_simd::<N>(slice, sma, self.multiplier);
+        let mean_deviation = if N == 1 {
+            calc_md(slice, sma, self.multiplier)
+        } else {
+            calc_md_simd::<N>(slice, sma, self.multiplier)
+        };
         (mean_deviation, sma)
     }
 }
@@ -266,3 +271,4 @@ pub(crate) fn calc_md_simd<const N: usize>(slice: &[f64], sma: f64, multiplier: 
 pub fn calc_md(real: &[f64], sma: f64, multiplier: f64) -> f64 {
     real.iter().map(|&x| (x - sma).abs()).sum::<f64>() * multiplier
 }
+

@@ -594,6 +594,56 @@ fn bench_rust_ta_rsi(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_rsi(c: &mut Criterion) {
+    use vector_ta::indicators::rsi::{rsi, RsiInput, RsiParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("rsi");
+
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let close_vec: Vec<f64> = stock_data.iter().map(|d| d.close).collect();
+            let n = close_vec.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = RsiParams {
+                            period: Some(period),
+                        };
+                        let input = RsiInput::from_slice(&close_vec, params);
+                        let output = rsi(&input).unwrap();
+                        black_box(output.values);
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result("rsi", "VectorTa", &options, n, &timing, Some(stock_symbol));
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let mut group = c.benchmark_group("rsi_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(format!("VectorTa RSI {{ {} }}", options[0]), |b| {
+                b.iter(|| {
+                    let params = RsiParams {
+                        period: Some(period),
+                    };
+                    let input = RsiInput::from_slice(&close_vec, params);
+                    let output = rsi(&input).unwrap();
+                    black_box(output.values);
+                });
+            });
+            group.finish();
+        }
+    }
+}
+
 fn bench_kand_rsi(c: &mut Criterion) {
     use kand::ohlcv::rsi;
 
@@ -655,6 +705,7 @@ criterion_group!(
     bench_rust_rsi_simd_by_options,
     bench_rust_rsi_simd_by_assets,
     bench_rust_rsi,
+    bench_vector_ta_rsi,
     bench_rust_ta_rsi,
     bench_c_rsi,
     bench_talib_rsi,
@@ -668,6 +719,7 @@ criterion_group!(
     bench_rust_rsi_simd_by_options,
     bench_rust_rsi_simd_by_assets,
     bench_rust_rsi,
+    bench_vector_ta_rsi,
     bench_rust_ta_rsi,
     bench_c_rsi,
     bench_rust_rsi_from_state,

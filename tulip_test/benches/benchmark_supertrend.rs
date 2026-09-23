@@ -472,6 +472,74 @@ fn bench_rust_supertrend_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_supertrend(c: &mut Criterion) {
+    use vector_ta::indicators::supertrend::{supertrend, SuperTrendInput, SuperTrendParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("supertrend");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_arrays(stock_data);
+            let n = high.len();
+
+            for options in OPTIONS_LIST {
+                let period = options[0] as usize;
+                let factor = options[1] as f64;
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = SuperTrendParams {
+                            period: Some(period),
+                            factor: Some(factor),
+                        };
+                        let input = SuperTrendInput::from_slices(&high, &low, &close, params);
+                        let output = supertrend(&input).unwrap();
+                        black_box((output.trend, output.changed));
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result(
+                    "supertrend",
+                    "VectorTa",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let period = options[0] as usize;
+            let factor = options[1] as f64;
+            let mut group = c.benchmark_group("supertrend_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!("VectorTa Supertrend {{ {}/{} }}", options[0], options[1]),
+                |b| {
+                    b.iter(|| {
+                        let params = SuperTrendParams {
+                            period: Some(period),
+                            factor: Some(factor),
+                        };
+                        let input =
+                            SuperTrendInput::from_slices(&high_vec, &low_vec, &close_vec, params);
+                        let output = supertrend(&input).unwrap();
+                        black_box((output.trend, output.changed));
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
+
 fn bench_kand_supertrend(c: &mut Criterion) {
     if should_log_to_db() {
         init_database_data();
@@ -564,6 +632,7 @@ fn bench_kand_supertrend(c: &mut Criterion) {
 
 criterion_group!(
     benches,
+    bench_vector_ta_supertrend,
     bench_rust_supertrend_simd_by_assets,
     bench_rust_supertrend_simd_by_options,
     bench_rust_supertrend,

@@ -515,8 +515,90 @@ fn bench_rust_stochrsi_simd_by_options(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_stochrsi(c: &mut Criterion) {
+    use vector_ta::indicators::srsi::{srsi, SrsiInput, SrsiParams};
+
+    // Default parameters for stochrsi (same as VectorTA defaults)
+    //const DEFAULT_RSI_PERIOD: usize = 14;
+    const DEFAULT_STOCH_PERIOD: usize = 14;
+    const DEFAULT_K: usize = 3;
+    const DEFAULT_D: usize = 3;
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("stochrsi");
+
+        let data = get_all_stock_data().unwrap();
+
+        for (stock_symbol, stock_data) in data {
+            let close = get_close_array(stock_data);
+            let n = close.len();
+
+            for options in OPTIONS_LIST {
+                let rsi_period = options[0] as usize;
+                // Use defaults for other params since OPTIONS_LIST only has 1 element
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = SrsiParams {
+                            rsi_period: Some(rsi_period),
+                            stoch_period: Some(DEFAULT_STOCH_PERIOD),
+                            k: Some(DEFAULT_K),
+                            d: Some(DEFAULT_D),
+                            source: None,
+                        };
+                        let input = SrsiInput::from_slice(&close, params);
+                        let output = srsi(&input).unwrap();
+                        black_box(output.k);
+                    },
+                    SAMPLE_SIZE,
+                );
+
+                log_timing_result(
+                    "stochrsi",
+                    "VectorTa",
+                    &[rsi_period as f64],
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let close_vec = expand_inputs();
+
+        for options in OPTIONS_LIST {
+            let rsi_period = options[0] as usize;
+            let mut group = c.benchmark_group("stochrsi_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!(
+                    "VectorTa SRSI {{ {}/{}/{}/{} }}",
+                    rsi_period, DEFAULT_STOCH_PERIOD, DEFAULT_K, DEFAULT_D
+                ),
+                |b| {
+                    b.iter(|| {
+                        let params = SrsiParams {
+                            rsi_period: Some(rsi_period),
+                            stoch_period: Some(DEFAULT_STOCH_PERIOD),
+                            k: Some(DEFAULT_K),
+                            d: Some(DEFAULT_D),
+                            source: None,
+                        };
+                        let input = SrsiInput::from_slice(&close_vec, params);
+                        let output = srsi(&input).unwrap();
+                        black_box(output.k);
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
+
 criterion_group!(
     stochrsi_benchmarks,
+    bench_vector_ta_stochrsi,
     bench_rust_stochrsi_simd_by_assets,
     bench_rust_stochrsi_simd_by_options,
     bench_rust_stochrsi,

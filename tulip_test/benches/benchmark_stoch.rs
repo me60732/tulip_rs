@@ -723,6 +723,81 @@ fn bench_rust_ta_fast_stoch(c: &mut Criterion) {
     }
 }
 
+fn bench_vector_ta_stoch(c: &mut Criterion) {
+    use vector_ta::indicators::stoch::{stoch, StochInput, StochParams};
+
+    if should_log_to_db() {
+        init_database_data();
+        init_logging("stoch");
+        let data = get_all_stock_data().unwrap();
+        for (stock_symbol, stock_data) in data {
+            let (high, low, close) = get_hlc_arrays(stock_data);
+            let n = close.len();
+            for options in OPTIONS_LIST {
+                let fastk_period = options[0] as usize;
+                let slowk_period = options[1] as usize;
+                let slowd_period = options[2] as usize;
+                // VectorTA defaults to SMA for both smoothing types
+                let mut timing = TimingMeasurements::new();
+                timing.measure(
+                    || {
+                        let params = StochParams {
+                            fastk_period: Some(fastk_period),
+                            slowk_period: Some(slowk_period),
+                            slowk_ma_type: Some("sma".into()),
+                            slowd_period: Some(slowd_period),
+                            slowd_ma_type: Some("sma".into()),
+                        };
+                        let input = StochInput::from_slices(&high, &low, &close, params);
+                        let output = stoch(&input).unwrap();
+                        black_box((output.k, output.d));
+                    },
+                    SAMPLE_SIZE,
+                );
+                log_timing_result(
+                    "stoch",
+                    "VectorTa",
+                    &options,
+                    n,
+                    &timing,
+                    Some(stock_symbol),
+                );
+            }
+        }
+    } else {
+        let (high_vec, low_vec, close_vec) = expand_inputs();
+        for options in OPTIONS_LIST {
+            let fastk_period = options[0] as usize;
+            let slowk_period = options[1] as usize;
+            let slowd_period = options[2] as usize;
+            let mut group = c.benchmark_group("stoch_vector_ta");
+            group.sample_size(SAMPLE_SIZE);
+            group.bench_function(
+                format!(
+                    "VectorTa STOCH {{ {}/{}/{} }}",
+                    options[0], options[1], options[2]
+                ),
+                |b| {
+                    b.iter(|| {
+                        let params = StochParams {
+                            fastk_period: Some(fastk_period),
+                            slowk_period: Some(slowk_period),
+                            slowk_ma_type: Some("sma".into()),
+                            slowd_period: Some(slowd_period),
+                            slowd_ma_type: Some("sma".into()),
+                        };
+                        let input =
+                            StochInput::from_slices(&high_vec, &low_vec, &close_vec, params);
+                        let output = stoch(&input).unwrap();
+                        black_box((output.k, output.d));
+                    });
+                },
+            );
+            group.finish();
+        }
+    }
+}
+
 fn bench_kand_stoch(c: &mut Criterion) {
     use kand::ohlcv::stoch;
 
@@ -812,6 +887,7 @@ fn bench_kand_stoch(c: &mut Criterion) {
 #[cfg(feature = "talib")]
 criterion_group!(
     benches,
+    bench_vector_ta_stoch,
     bench_rust_stoch_simd_by_options,
     bench_rust_stoch_simd_by_assets,
     bench_rust_stoch,
@@ -825,6 +901,7 @@ criterion_group!(
 #[cfg(not(feature = "talib"))]
 criterion_group!(
     benches,
+    bench_vector_ta_stoch,
     bench_rust_stoch_simd_by_options,
     bench_rust_stoch_simd_by_assets,
     bench_rust_stoch,
