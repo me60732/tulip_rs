@@ -606,8 +606,8 @@ fn bench_rust_ta_mad(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    //bench_rust_md_simd_by_options,
-    //bench_rust_md_simd_by_assets,
+    bench_rust_md_simd_by_options,
+    bench_rust_md_simd_by_assets,
     bench_rust_md,
     bench_rust_ta_mad,
     bench_c_md,

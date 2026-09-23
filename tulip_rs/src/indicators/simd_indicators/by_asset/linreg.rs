@@ -15,7 +15,7 @@ struct LinregDriver {
     period: usize,
 }
 
-impl Driver<State<Warm>> for LinregDriver {
+impl Driver<State<Warm>, ((f64, f64, f64), (f64, f64))> for LinregDriver {
     /// Processes one epoch of bars for `N` assets simultaneously using SIMD.
     ///
     /// Reads from `inputs[asset][0]` (real), writes the LINREG to `outputs[asset][0]`,
@@ -26,12 +26,11 @@ impl Driver<State<Warm>> for LinregDriver {
         inputs: Vec<Vec<&[f64]>>,
         mut outputs: Vec<Vec<&mut [f64]>>,
         mut states: Vec<&mut State<Warm>>,
-        _options: Vec<Option<&()>>,
+        options: Vec<Option<&((f64, f64, f64), (f64, f64))>>,
     ) {
         let mut state = SimdState::<N>::from_states(&mut states);
         let len = inputs[0][0].len();
 
-        let (has_optional, want_slope, want_intercept) = self.want_optional_outputs;
         // Optimization 1: Direct array construction instead of collect+try_into
 
         //collect outputs
@@ -46,24 +45,72 @@ impl Driver<State<Warm>> for LinregDriver {
         // Optimization 2: Pre-compute all input and output pointers
         let real_ptrs = crate::extract_input_ptrs!(inputs, N, real_ptrs);
 
-        // Optimization 3: Simplified main loop with pre-computed offsets
-        for (j, i) in (self.period..len).enumerate() {
-            // Get inputs arrays for stocks
-            let inputs = crate::extract_simd_at_indices!(N, real_ptrs,
-                prev_real @ j+1,//i + 1 - self.period
-                real @ i
-            );
-
-            let (linreg, slope, intercept) = state.calc(inputs);
-
-            // Store results using pre-computed pointers
-            crate::write_simd_at_indices!(N, j,
-                linreg_line_ptr => linreg
-            );
-            if has_optional {
+        let (has_optional, want_slope, want_intercept) = self.want_optional_outputs;
+        if has_optional {
+            let f_params = {
+                let mut sum_x = [0.0; N];
+                let mut per = [0.0; N];
+                let mut inv_n = [0.0; N];
+                for (lane, option) in options.iter().enumerate() {
+                    if let Some(&(f_params, _)) = option {
+                        sum_x[lane] = f_params.0;
+                        per[lane] = f_params.1;
+                        inv_n[lane] = f_params.2;
+                    }
+                }
+                (
+                    Simd::from_array(sum_x),
+                    Simd::from_array(per),
+                    Simd::from_array(inv_n)
+                )
+            };
+            // Optimization 3: Simplified main loop with pre-computed offsets
+            for (j, i) in (self.period..len).enumerate() {
+                // Get inputs arrays for stocks
+                let (prev_val, value) = crate::extract_simd_at_indices!(N, real_ptrs,
+                    prev_real @ j+1,//i + 1 - self.period
+                    real @ i
+                );
+    
+                let (linreg, slope, intercept) = state.calc((prev_val, value, f_params));
+    
+                // Store results using pre-computed pointers
+                crate::write_simd_at_indices!(N, j,
+                    linreg_line_ptr => linreg
+                );
                 crate::store_simd_optional_outputs!(j, N,
                     want_slope, slope_line_ptr => slope,
                     want_intercept, intercept_line_ptr => intercept
+                );
+            }
+        } else {
+            let p_params = {
+                let mut xy_coef = [0.0; N];
+                let mut y_coef = [0.0; N];
+                for (lane, option) in options.iter().enumerate() {
+                    if let Some(&(_, p_params)) = option {
+                        xy_coef[lane] = p_params.0;
+                        y_coef[lane] = p_params.1;
+                    }
+                }
+                (
+                    Simd::from_array(xy_coef),
+                    Simd::from_array(y_coef)
+                )
+            };
+            // Optimization 3: Simplified main loop with pre-computed offsets
+            for (j, i) in (self.period..len).enumerate() {
+                // Get inputs arrays for stocks
+                let (prev_val, value) = crate::extract_simd_at_indices!(N, real_ptrs,
+                    prev_real @ j+1,//i + 1 - self.period
+                    real @ i
+                );
+    
+                let linreg = state.partial_calc((prev_val, value, p_params));
+    
+                // Store results using pre-computed pointers
+                crate::write_simd_at_indices!(N, j,
+                    linreg_line_ptr => linreg
                 );
             }
         }
@@ -98,11 +145,18 @@ pub(crate) fn indicator_by_assets<const N: usize>(
     validate_inputs::<INPUTS>(inputs, Linreg::min_data(options))?;
     validate_options(options)?;
     let period = options[0] as usize;
-
-    let mut road_train = PrimeMover::<N, State<Warm>>::new();
+    let mut params: [((f64, f64, f64), (f64, f64)); N] = std::array::from_fn(|_| ((0.0, 0.0, 0.0), (0.0, 0.0)));
+    let mut road_train = PrimeMover::<N, State<Warm>, ((f64, f64, f64), (f64, f64))>::new();
     let mut want_optional_outputs = (false, false, false);
     let mut output_buffers = Vec::with_capacity(N);
+    let mut states: Vec<State<Warm>> = Vec::with_capacity(N);
     for i in 0..N {
+        let (state, f_params, p_params) = State::init_state(&inputs[i][0][1..period], period);
+        params[i].0 = f_params;
+        params[i].1 = p_params;
+        states.push(state);
+    }
+    for (i, state) in states.into_iter().enumerate() {
         let asset_inputs = vec![
             inputs[i][0], // real
         ];
@@ -117,8 +171,6 @@ pub(crate) fn indicator_by_assets<const N: usize>(
             );
             linreg_line = crate::uninit_vec!(f64, capacity);
         }
-
-        let state = State::init_state(&inputs[i][0][1..period], period);
 
         if i == 0 {
             want_optional_outputs = crate::calc_want_flags!(slope_line, intercept_line);
@@ -148,7 +200,7 @@ pub(crate) fn indicator_by_assets<const N: usize>(
             period,
             period,
             state,
-            None,
+            Some(&params[i]),
         ));
         output_buffers.push(output_buffer);
     }
@@ -165,6 +217,8 @@ pub(crate) fn indicator_by_assets<const N: usize>(
             state,
             unsafe { inputs.get_unchecked(i).get_unchecked(0) },
             period,
+            params[i].0,
+            params[i].1
         ));
     }
     Ok((output_buffers, states))

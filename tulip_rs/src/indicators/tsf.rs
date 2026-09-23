@@ -7,7 +7,6 @@ pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TS
 use crate::indicators::linreg::State as LinregState;
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
-use std::ops::{Deref, DerefMut};
 /// Number of input price series required by this indicator.
 pub const INPUTS: usize = 1;
 
@@ -23,35 +22,32 @@ pub struct IndicatorState {
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(bound = "")]
-#[repr(transparent)]
-pub struct State<S = Cold>(pub LinregState<S>);
-impl<S> Deref for State<S> {
-    type Target = LinregState<S>;
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+pub struct State<S = Cold> {
+    pub linreg_state: LinregState<S>,
+    pub sum_x: f64,
+    pub per: f64, 
+    pub inv_n: f64
 }
-impl<S> DerefMut for State<S> {
-    #[inline(always)]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
+
 impl State<Cold> {
     pub fn init_state(data: &[f64], period: usize) -> State<Warm> {
-        State(LinregState::init_state(data, period))
+        let (linreg_state, (sum_x, per, inv_n), _) = LinregState::init_state(data, period);
+        State {
+            linreg_state,
+            sum_x,
+            per,
+            inv_n
+        }
     }
 }
 impl TState for State<Warm> {
     type Inputs<'a> = (f64, f64);
     type Outputs = (f64, f64, f64, f64);
     #[inline(always)]
-    fn calc<'a>(&mut self, inputs: Self::Inputs<'a>) -> Self::Outputs {
-        let (linreg, slope, intercept);
-        (linreg, slope, intercept) = self.0.calc(inputs);
+    fn calc<'a>(&mut self, (prev_value, value): Self::Inputs<'a>) -> Self::Outputs {
+        let (linreg, slope, intercept) = self.linreg_state.calc((prev_value, value, (self.sum_x, self.per, self.inv_n)));
         //let tsf = intercept + slope * (period + 1) as f64;
-        let tsf = slope.mul_add(self.n + 1.0, intercept);
+        let tsf = slope.mul_add(self.linreg_state.n + 1.0, intercept);
         (tsf, linreg, slope, intercept)
     }
 }

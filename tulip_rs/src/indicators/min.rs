@@ -205,9 +205,9 @@ pub(crate) fn find_min_simd<const N: usize>(window: &[f64]) -> (f64, usize) {
 
     let mut best_values = Simd::<f64, N>::splat(0.0);
     let mut best_start = usize::MAX;
-
-    for (chunk_idx, chunk) in search_window.chunks_exact(N).enumerate() {
-        let values = Simd::<f64, N>::from_slice(chunk);
+    let (chunks, remainder) = search_window.as_chunks::<N>();
+    for (chunk_idx, chunk) in chunks.iter().enumerate() {
+        let values = Simd::<f64, N>::from_array(*chunk);
         let mask = values.simd_le(global_min);
         if mask.any() {
             global_min = Simd::splat(values.reduce_min());
@@ -234,8 +234,7 @@ pub(crate) fn find_min_simd<const N: usize>(window: &[f64]) -> (f64, usize) {
     }
 
     let mut global_min = global_min[0];
-    let processed_len = (search_window.len() / N) * N;
-    let remainder = &search_window[processed_len..];
+    let processed_len = chunks.len() * N;
     if !remainder.is_empty() {
         let (rem_min, rem_idx) = find_min_scalar(remainder);
         if rem_min <= global_min {

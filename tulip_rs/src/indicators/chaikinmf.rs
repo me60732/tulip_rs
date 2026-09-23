@@ -104,8 +104,7 @@ impl TState for State<Warm> {
     fn calc<'a>(&mut self, inputs: Self::Inputs<'a>) -> Self::Outputs {
         let mfv = calc_mfv(inputs);
         let values = Simd::from_array([mfv, inputs.3]);
-        let old_vals = self.buffer.push_with_info(values);
-        self.sums += values - old_vals;
+        self.sums += values - self.buffer.push_with_info(values);
         //let [mfv_sum, vol_sum] = self.sums.as_array();
         self.sums[0] / self.sums[1]
     }

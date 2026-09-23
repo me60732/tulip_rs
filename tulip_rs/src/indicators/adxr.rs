@@ -36,7 +36,6 @@ impl TState for State<Warm> {
     fn calc<'a>(&mut self, inputs: Self::Inputs<'a>) -> (f64, f64, f64, f64, f64) {
         let (adx, dx, atr, tr) = self.adx_state.calc(inputs);
         let adxr = 0.5 * (adx + self.buffer.push_with_info(adx));
-
         (adxr, adx, dx, atr, tr)
     }
 }

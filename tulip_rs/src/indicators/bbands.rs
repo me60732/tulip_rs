@@ -38,9 +38,8 @@ impl TState for State<Warm> {
     fn calc<'a>(&mut self, inputs: Self::Inputs<'a>) -> Self::Outputs {
         let (sd, sma);
         (sd, sma) = self.stddev_state.calc(inputs);
-        let per = sd * self.std_dev;
-        let upper_band = sma + per;
-        let lower_band = sma - per;
+        let upper_band = self.std_dev.mul_add(sd, sma);
+        let lower_band = self.std_dev.mul_add(-(sd), sma);
 
         (lower_band, sma, upper_band)
     }

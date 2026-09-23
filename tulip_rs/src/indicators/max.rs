@@ -203,8 +203,9 @@ pub(crate) fn find_max_simd<const N: usize>(window: &[f64]) -> (f64, usize) {
     let mut best_values = Simd::<f64, N>::splat(0.0);
     let mut best_start = usize::MAX; // sentinel: no chunk has updated yet
                                      // Process chunks with SIMD - direct iteration
-    for (chunk_idx, chunk) in search_window.chunks_exact(N).enumerate() {
-        let values = Simd::<f64, N>::from_slice(chunk);
+    let (chunks, remainder) = search_window.as_chunks::<N>();
+    for (chunk_idx, chunk) in chunks.iter().enumerate() {
+        let values = Simd::<f64, N>::from_array(*chunk);
         let mask = values.simd_ge(global_max);
         if mask.any() {
             global_max = Simd::splat(values.reduce_max());
@@ -233,8 +234,8 @@ pub(crate) fn find_max_simd<const N: usize>(window: &[f64]) -> (f64, usize) {
 
     let mut global_max = global_max[0];
     // Handle remainder using find_max_scalar - calculate slice directly
-    let processed_len = (search_window.len() / N) * N;
-    let remainder = &search_window[processed_len..];
+    let processed_len = chunks.len() * N;
+    //let remainder = &search_window[processed_len..];
     if !remainder.is_empty() {
         let (rem_max, rem_idx) = find_max_scalar(remainder);
         if rem_max >= global_max {

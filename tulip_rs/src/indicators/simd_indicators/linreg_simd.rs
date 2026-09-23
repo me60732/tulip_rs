@@ -13,24 +13,21 @@ pub struct SimdState<const N: usize> {
     pub sum_y: Simd<f64, N>,
     pub sum_xy: Simd<f64, N>,
     pub n: Simd<f64, N>,
-    pub sum_x: Simd<f64, N>,
-    pub per: Simd<f64, N>,
-    pub inv_n: Simd<f64, N>,
 }
-
 impl<const N: usize> TSimdState for SimdState<N> {
     type ScalarState = State<Warm>;
     crate::simd_state_write!(
-         sub: [],
-         scalar: [sum_y, sum_xy]
+        sub: [],
+        scalar: [sum_y, sum_xy]
     );
     crate::simd_state_from_state!(
-         sub: [],
-         scalar: [sum_x, sum_y, sum_xy, per, n, inv_n]
+        sub: [],
+        scalar: [sum_y, sum_xy, n]
     );
+    
 }
 impl<const N: usize> TState for SimdState<N> {
-    type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>);
+    type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>, (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>));
     type Outputs = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
     /// Computes one linear regression step across `N` lanes using SIMD parallelism.
     ///
@@ -40,23 +37,34 @@ impl<const N: usize> TState for SimdState<N> {
     ///
     /// Returns `(linreg, slope, intercept)`.
     #[inline(always)]
-    fn calc<'a>(&mut self, (prev_value, value): Self::Inputs<'a>) -> Self::Outputs {
+    fn calc<'a>(&mut self, (prev_value, value, (sum_x, per, inv_n)): Self::Inputs<'a>) -> Self::Outputs {
         // FMA: (value * period) + sum_xy
-        let (n, sum_x, per, inv_n) = (self.n, self.sum_x, self.per, self.inv_n);
-        self.sum_xy = value.mul_add(n, self.sum_xy);
-        
+        self.sum_xy = value.mul_add(self.n, self.sum_xy);
         self.sum_y += value;
 
         // slope = (period * sum_xy - sum_x * sum_y) * per
-        //let slope = sum_x.mul_add(-sum_y, period * sum_xy) * per;
-        let slope = n.mul_add(self.sum_xy, -(sum_x * self.sum_y)) * per;
+        let slope = self.n.mul_add(self.sum_xy, -(sum_x * self.sum_y)) * per;
         let intercept = (-slope).mul_add(sum_x, self.sum_y) * inv_n;
-
         // linreg = intercept + slope * period
-        let linreg = n.mul_add(slope, intercept);
+        let linreg = self.n.mul_add(slope, intercept);
+
         self.sum_xy -= self.sum_y;
         self.sum_y -= prev_value;
 
         (linreg, slope, intercept)
+    }
+}
+impl<const N: usize> SimdState<N> {
+    #[inline(always)]
+    pub fn partial_calc(
+        &mut self,
+        (prev_value, value, (xy_coef, y_coef)): (Simd<f64, N>, Simd<f64, N>, (Simd<f64, N>, Simd<f64, N>)),
+    ) -> Simd<f64, N> {
+        self.sum_xy = value.mul_add(self.n, self.sum_xy);
+        self.sum_y += value;
+        let linreg = self.sum_xy.mul_add(xy_coef, self.sum_y * y_coef);
+        self.sum_xy -= self.sum_y;
+        self.sum_y -= prev_value;
+        linreg
     }
 }

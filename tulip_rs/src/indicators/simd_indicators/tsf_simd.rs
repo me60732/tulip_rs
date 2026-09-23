@@ -9,34 +9,26 @@ pub(crate) use crate::indicators::simd_indicators::by_option::tsf::indicator_by_
 pub use crate::indicator_types::{TSimdState, TState};
 use crate::indicators::simd_indicators::simd_types::F64Constants;
 use std::simd::{Simd, StdFloat};
-use std::ops::{Deref, DerefMut};
 use crate::indicators::tsf::State;
 use crate::types::Warm;
-#[repr(transparent)]
-pub struct SimdState<const N: usize>(pub LinregSimdState<N>);
-impl<const N: usize> Deref for SimdState<N> {
-    type Target = LinregSimdState<N>;
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl<const N: usize> DerefMut for SimdState<N> {
-    #[inline(always)]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
+
+pub struct SimdState<const N: usize> {
+    linreg_state: LinregSimdState<N>,
+    sum_x: Simd<f64, N>,
+    per: Simd<f64, N>, 
+    inv_n: Simd<f64, N>
+    
 }
 impl<const N: usize> TSimdState for SimdState<N> {
     type ScalarState = State<Warm>;
-    fn from_states(states: &mut [&mut Self::ScalarState]) -> Self {
-        let mut inner: Vec<&mut _> = states.iter_mut().map(|s| &mut s.0).collect();
-        Self(LinregSimdState::from_states(&mut inner))
-    }
-    fn write_states(&self, states: &mut [&mut Self::ScalarState]) {
-        let mut inner: Vec<&mut _> = states.iter_mut().map(|s| &mut s.0).collect();
-        self.0.write_states(&mut inner)
-    }
+    crate::simd_state_from_state!(
+        sub: [(linreg_state: LinregSimdState<N>)],
+        scalar: [sum_x, per, inv_n]
+    );
+    crate::simd_state_write!(
+        sub: [(linreg_state: LinregSimdState<N>)],
+        scalar: []
+    );
 }
 impl<const N: usize> TState for SimdState<N> {
     type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>);
@@ -45,12 +37,23 @@ impl<const N: usize> TState for SimdState<N> {
     #[inline(always)]
     fn calc<'a>(
         &mut self,
-        inputs: Self::Inputs<'a>,
+        (prev_value, value): Self::Inputs<'a>,
     ) -> Self::Outputs {
-        let (linreg, slope, intercept);
-        (linreg, slope, intercept) = self.0.calc(inputs);
+        let (linreg, slope, intercept) = self.linreg_state.calc((prev_value, value, (self.sum_x, self.per, self.inv_n)));
         //let tsf = intercept + slope * (period + F64Constants::ONE);
-        let tsf = slope.mul_add(self.n + F64Constants::ONE, intercept);
+        let tsf = slope.mul_add(self.linreg_state.n + F64Constants::ONE, intercept);
         (tsf, linreg, slope, intercept)
+    }
+}
+impl<const N: usize> SimdState<N> {
+    #[inline(always)]
+    pub fn partial_calc(
+        &mut self,
+        (prev_value, value): (Simd<f64, N>, Simd<f64, N>),
+    ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
+        let (_, slope, intercept) = self.linreg_state.calc((prev_value, value, (self.sum_x, self.per, self.inv_n)));
+        //let tsf = intercept + slope * (period + F64Constants::ONE);
+        let tsf = slope.mul_add(self.linreg_state.n + F64Constants::ONE, intercept);
+        (tsf, slope, intercept)
     }
 }

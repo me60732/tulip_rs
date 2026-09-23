@@ -17,6 +17,8 @@ pub const OPTIONS: usize = 1;
 pub struct IndicatorState {
     state: State<Warm>,
     real: Vec<f64>,
+    f_params: (f64, f64, f64),
+    p_params: (f64, f64),
     period: usize,
 }
 impl IndicatorState {
@@ -24,9 +26,13 @@ impl IndicatorState {
         state: State<Warm>,
         real: &[f64],
         period: usize,
+        f_params: (f64, f64, f64),
+        p_params: (f64, f64),
     ) -> Self {
         Self {
             state,
+            f_params,
+            p_params,
             real: real[real.len() - period + 1..].to_vec(),
             period,
         }
@@ -56,6 +62,7 @@ impl TIndicatorState<1> for IndicatorState {
         cycle_linreg(
             &self.real,
             &mut self.state,
+            (self.f_params, self.p_params),
             self.period,
             &mut linreg_line,
             (&mut slope_line, &mut intercept_line),
@@ -70,14 +77,11 @@ pub struct State<S = Cold> {
     pub sum_y: f64,
     pub sum_xy: f64,
     pub n: f64,
-    pub sum_x: f64,
-    pub per: f64,
-    pub inv_n: f64,
     pub(crate) state: std::marker::PhantomData<S>,
 }
 impl State<Cold> {
 
-    pub fn init_state(data: &[f64], period: usize) -> State<Warm> {
+    pub fn init_state(data: &[f64], period: usize) -> (State<Warm>, (f64, f64, f64), (f64, f64)) {
         let (mut sum_x, mut sum_xx, mut sum_y, mut sum_xy) = (0.0, 0.0, 0.0, 0.0);
         if data.len() >= period - 1 {
             for i in 0..period - 1 {
@@ -93,33 +97,37 @@ impl State<Cold> {
         let per = multiplier(period, sum_x, sum_xx);
         let n = period as f64;
         let inv_n = 1.0 / n;
-        State {
-            sum_y,
-            sum_xy,
-            n,
-            sum_x,
-            per,
-            inv_n,
-            state: std::marker::PhantomData,
-        }
+        let b_scale = period as f64 - sum_x * inv_n;
+        let xy_coef = n * per * b_scale;
+        let y_coef = inv_n - sum_x * per * b_scale;
+        (
+            State {
+                sum_y,
+                sum_xy,
+                n,
+                state: std::marker::PhantomData,
+            },
+            (sum_x, per, inv_n),
+            (xy_coef, y_coef),
+        )
     }
 }
 impl TState for State<Warm> {
-    type Inputs<'a> = (f64, f64);
+    type Inputs<'a> = (f64, f64, (f64, f64, f64));
     type Outputs = (f64, f64, f64);
     #[inline(always)]
     fn calc<'a>(
         &mut self,
-        (prev_value, value): Self::Inputs<'a>,
+        (prev_value, value, (sum_x, per, inv_n)): Self::Inputs<'a>,
     ) -> Self::Outputs {
         self.sum_xy += value * self.n;
         //self.sum_xy = value.mul_add(self.n, self.sum_xy);
         self.sum_y += value;
 
         //let slope = (self.n * self.sum_xy - sum_x * self.sum_y) * per;
-        let slope = self.n.mul_add(self.sum_xy, -(self.sum_x * self.sum_y)) * self.per;
+        let slope = self.n.mul_add(self.sum_xy, -(sum_x * self.sum_y)) * per;
         //let intercept = (self.sum_y - slope * sum_x) * inv_n;
-        let intercept = (-slope).mul_add(self.sum_x, self.sum_y) * self.inv_n;
+        let intercept = (-slope).mul_add(sum_x, self.sum_y) * inv_n;
         //let linreg = intercept + slope * self.n;
         let linreg = self.n.mul_add(slope, intercept);
         self.sum_xy -= self.sum_y;
@@ -155,6 +163,7 @@ impl State<Warm> {
 fn cycle_linreg(
     real: &[f64],
     state: &mut State<Warm>,
+    (f_params, p_params): ((f64, f64, f64), (f64, f64)),
     period: usize,
     linreg_line: &mut [f64],
     out_vecs: (&mut [f64], &mut [f64]),
@@ -163,18 +172,25 @@ fn cycle_linreg(
     let (has_optional, want_slope, want_intercept) =
         crate::calc_want_flags!(slope_line, intercept_line);
 
+    if has_optional {
         for (j, i) in (period - 1..real.len()).enumerate() {
-            let inputs = unsafe { (*real.get_unchecked(j), *real.get_unchecked(i)) };
-            //let linreg = state.partial_calc((prev_value, value, p_params));
-            let (linreg, slope, intercept) = state.calc(inputs);
+            let (prev_value, value) = unsafe { (*real.get_unchecked(j), *real.get_unchecked(i)) };
+            let (linreg, slope, intercept) = state.calc((prev_value, value, f_params));
+    
             unsafe { *linreg_line.get_unchecked_mut(j) = linreg };
-            if has_optional {
-                crate::store_optional_outputs!(j,
-                    want_slope, slope_line => slope,
-                    want_intercept, intercept_line => intercept
-                );
-            }
+            crate::store_optional_outputs!(j,
+                want_slope, slope_line => slope,
+                want_intercept, intercept_line => intercept
+            );
         }
+    } else {
+        for (j, i) in (period - 1..real.len()).enumerate() {
+            let (prev_value, value) = unsafe { (*real.get_unchecked(j), *real.get_unchecked(i)) };
+            let linreg = state.partial_calc((prev_value, value, p_params));
+    
+            unsafe { *linreg_line.get_unchecked_mut(j) = linreg };
+        }
+    }
 }
 
 /// Calculates the multiplier for the LINREG calculation.
@@ -234,11 +250,12 @@ impl Indicator<INPUTS, OPTIONS> for Linreg {
             );
             linreg_line = crate::uninit_vec!(f64, capacity);
         }
-        let mut state = State::init_state(&real[1..period], period);
+        let (mut state, f_params, p_params) = State::init_state(&real[1..period], period);
         // Perform the main LINREG calculation
         cycle_linreg(
             &real[1..],
             &mut state,
+            (f_params, p_params),
             period,
             &mut linreg_line,
             (&mut slope_line, &mut intercept_line),
@@ -246,7 +263,7 @@ impl Indicator<INPUTS, OPTIONS> for Linreg {
 
         Ok((
             vec![linreg_line, slope_line, intercept_line],
-            IndicatorState::new(state, real, period),
+            IndicatorState::new(state, real, period, f_params, p_params),
         ))
     }
 

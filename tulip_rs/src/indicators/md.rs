@@ -254,18 +254,17 @@ pub(crate) fn calc_md_simd<const N: usize>(slice: &[f64], sma: f64, multiplier: 
     let sma_vec = Simd::<f64, N>::splat(sma);
 
     let mut sum = Simd::splat(0.0);
-    for chunk in slice.chunks_exact(N) {
-        let vals = Simd::from_slice(chunk);
+    let (chunks, remainder) = slice.as_chunks::<N>();
+
+    for chunk in chunks {
+        let vals = Simd::from_array(*chunk);
         sum += (vals - sma_vec).abs();
     }
 
-    let mut abs_dev_sum = sum.reduce_sum();
-    // Handle remainder
-    let processed_len = (slice.len() / N) * N;
-    let remainder = &slice[processed_len..];
-    abs_dev_sum += remainder.iter().map(|&x| (x - sma).abs()).sum::<f64>();
+    let mut sum = sum.reduce_sum();
+    sum += remainder.iter().map(|&x| (x - sma).abs()).sum::<f64>();
 
-    abs_dev_sum * multiplier
+    sum * multiplier
 }
 #[inline(always)]
 pub fn calc_md(real: &[f64], sma: f64, multiplier: f64) -> f64 {

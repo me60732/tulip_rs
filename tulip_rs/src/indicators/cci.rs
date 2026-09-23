@@ -134,7 +134,7 @@ impl TIndicatorState<3> for IndicatorState {
             &mut cci_line,
             (&mut sma_line, &mut md_line, &mut typprice_line),
         );
-        
+
         Ok(vec![cci_line, sma_line, md_line, typprice_line])
     }
 }
