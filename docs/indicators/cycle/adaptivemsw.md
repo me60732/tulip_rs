@@ -89,6 +89,37 @@ Automatically adapts the Mesa Sine Wave to the dominant cycle period without req
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Adaptivemsw;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                      88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+    double[] options = {}; // adaptivemsw has no options
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Adaptivemsw.indicator(new double[][] {close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // sine values
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // lead_sine values
+    }
+
+    // Partial computation + state continuation.
+    Outcome p = Adaptivemsw.indicator(
+        new double[][] {java.util.Arrays.copyOfRange(close, 0, 35)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {java.util.Arrays.copyOfRange(close, 35, 40)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued sine values
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(1))); // continued lead_sine values
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -227,6 +258,31 @@ Automatically adapts the Mesa Sine Wave to the dominant cycle period without req
 
     res.Close()
     st.Close()
+    ```
+
+=== "Java"
+
+    `adaptivemsw` exposes 1 optional output: `dc_period`. Pass a boolean mask as the third argument.
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Adaptivemsw;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                      88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+    double[] options = {}; // adaptivemsw has no options
+    boolean[] mask = {true}; // one per optional output: dc_period
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Adaptivemsw.indicator(new double[][] {close}, options, mask);
+    try (Result res = oc.result()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // sine (primary)
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // lead_sine (primary)
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(2))); // dc_period (optional — requested)
+    }
+    oc.state().close();
     ```
 
 === "Python"
@@ -378,6 +434,39 @@ Automatically adapts the Mesa Sine Wave to the dominant cycle period without req
     ```
 
     _This indicator has 0 options, so the C FFI offers only `simd_by_assets` — no `simd_by_options` function exists._
+
+=== "Java"
+
+    **By assets** — applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Adaptivemsw;
+
+    double[] a1 = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                   88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                   90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+
+    // Reuse the same data for assets 2–4 in this example
+    double[] a2 = a1;
+    double[] a3 = a1;
+    double[] a4 = a1;
+    double[] options = {}; // adaptivemsw has no options
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{a1}, {a2}, {a3}, {a4}};
+    try (SimdResult sim = Adaptivemsw.simdByAssets(assets, options, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d Sine:      %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+            System.out.printf("Asset %d Lead Sine: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 1)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    _This indicator has no options, so by-options SIMD does not apply._
 
 === "Python"
 

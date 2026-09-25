@@ -113,6 +113,48 @@ A volatility-based envelope centred on an EMA of close. The middle band is EMA(c
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Keltnerchannel;
+
+    double[] high  = {82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00,
+                      85.90, 86.58, 86.98, 88.00, 87.87};
+    double[] low   = {81.29, 80.64, 81.31, 82.65, 83.07,
+                      83.11, 82.49, 82.30, 84.15, 84.11,
+                      84.03, 85.39, 85.76, 87.17, 87.01};
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29};
+    double[] options = {14.0, 2.0}; // period, step
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Keltnerchannel.indicator(new double[][] {high, low, close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // lower band
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // middle band (EMA)
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(2))); // upper band
+    }
+
+    // Partial computation + state continuation.
+    int n = 8;
+    Outcome p = Keltnerchannel.indicator(new double[][] {
+        java.util.Arrays.copyOfRange(high, 0, n),
+        java.util.Arrays.copyOfRange(low, 0, n),
+        java.util.Arrays.copyOfRange(close, 0, n)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(high, n, 15),
+            java.util.Arrays.copyOfRange(low, n, 15),
+            java.util.Arrays.copyOfRange(close, n, 15)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(1))); // continued middle band
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -219,33 +261,9 @@ A volatility-based envelope centred on an EMA of close. The middle band is EMA(c
     // tr not requested — omitted from outputs
     ```
 
-=== "Python"
-
-    ```python
-    import numpy as np
-    import tulip_rs
-
-    high  = np.array([82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
-                      85.90, 86.58, 86.98, 88.00, 87.87], dtype=np.float64)
-    low   = np.array([81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
-                      84.03, 85.39, 85.76, 87.17, 87.01], dtype=np.float64)
-    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
-                      85.53, 86.54, 86.89, 87.77, 87.29], dtype=np.float64)
-
-    outputs, state = tulip_rs.indicators.keltnerchannel.indicator(
-        [high, low, close], [14.0, 2.0],
-        optional_outputs=[True, False],
-    )
-
-    lower  = outputs[0]  # lower (primary)
-    middle = outputs[1]  # middle (primary)
-    upper  = outputs[2]  # upper (primary)
-    atr    = outputs[3]  # atr (optional — requested)
-    # tr not requested — omitted from outputs
-    ```
-
 === "C"
 
+    `keltnerchannel` exposes 2 optional outputs: `atr`, `tr`. Pass a boolean mask as the third argument.
     `keltnerchannel` exposes 2 optional outputs: `atr`, `tr`. The inputs are [high, low, close] and options is [period, step].
 
     ```c
@@ -307,6 +325,49 @@ A volatility-based envelope centred on an EMA of close. The middle band is EMA(c
     fmt.Println(fullRes.Rows[4]) // tr (optional 1)
     fullRes.Close()
     fullSt.Close()
+    ```
+
+=== "Java"
+
+    `keltnerchannel` exposes 2 optional outputs: `atr`, `tr`. Pass a boolean mask as the third argument — one `boolean` per optional output, in order.
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Keltnerchannel;
+
+    // (high/low/close series as in the Basic tab)
+    boolean[] mask = {true, false}; // atr, tr
+    Outcome oc = Keltnerchannel.indicator(new double[][] {high, low, close}, new double[] {14.0, 2.0}, mask);
+    try (Result res = oc.result()) {
+        // row 0 = lower, row 1 = middle, row 2 = upper, row 3 = atr; tr was not requested
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(3))); // atr
+    }
+    oc.state().close();
+    ```
+
+=== "Python"
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    high  = np.array([82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                      85.90, 86.58, 86.98, 88.00, 87.87], dtype=np.float64)
+    low   = np.array([81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                      84.03, 85.39, 85.76, 87.17, 87.01], dtype=np.float64)
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.keltnerchannel.indicator(
+        [high, low, close], [14.0, 2.0],
+        optional_outputs=[True, False],
+    )
+
+    lower  = outputs[0]  # lower (primary)
+    middle = outputs[1]  # middle (primary)
+    upper  = outputs[2]  # upper (primary)
+    atr    = outputs[3]  # atr (optional — requested)
+    # tr not requested — omitted from outputs
     ```
 
 === "Node.js"
@@ -485,6 +546,40 @@ A volatility-based envelope centred on an EMA of close. The middle band is EMA(c
         fmt.Printf("Period=%d step=%d: middle=%v\n", i+1, lanes[0][1], lanes[0])
     }
     sim2.Close()
+    ```
+
+=== "Java"
+
+    **By assets** — same options applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Keltnerchannel;
+
+    // Each entry lists one asset's input series (h1..c4 as in the C tab).
+    double[][][] assets = {{a1_high, a1_low, a1_close}, {a2_high, a2_low, a2_close}, {a3_high, a3_low, a3_close}, {a4_high, a4_low, a4_close}};
+    try (SimdResult sim = Keltnerchannel.simdByAssets(assets, new double[] {14.0, 2.0}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d: middle=%s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 1)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Keltnerchannel;
+
+    // (high/low/close series as in the Basic tab)
+    try (SimdResult sim = Keltnerchannel.simdByOptions(new double[][] {high, low, close},
+            new double[][] {{10.0, 1.5}, {14.0, 2.0}, {20.0, 2.0}, {30.0, 2.5}}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Period=%d step=%d: middle=%s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 1)));
+        }
+    }
     ```
 
 === "Python"

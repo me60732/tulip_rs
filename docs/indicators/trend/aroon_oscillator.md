@@ -92,6 +92,39 @@ The difference between Aroon Up and Aroon Down. Positive values indicate bullish
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Aroonosc;
+
+    double[] high = {82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] low  = {81.29, 80.64, 81.31, 82.65, 83.07,
+                     83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] options = {25.0}; // period
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Aroonosc.indicator(new double[][] {high, low}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // aroonosc
+    }
+
+    // Partial computation + state continuation.
+    int n = 8;
+    Outcome p = Aroonosc.indicator(new double[][] {
+        java.util.Arrays.copyOfRange(high, 0, n),
+        java.util.Arrays.copyOfRange(low, 0, n)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(high, n, 10),
+            java.util.Arrays.copyOfRange(low, n, 10)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued aroonosc
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -222,6 +255,24 @@ The difference between Aroon Up and Aroon Down. Positive values indicate bullish
     aroonDown := res.Rows[1]   // aroon_down (optional — requested)
     aroonUp   := res.Rows[2]   // aroon_up (optional — requested)
     res.Close()
+    ```
+
+=== "Java"
+
+    `aroonosc` exposes 2 optional outputs: `aroon_down`, `aroon_up`. Pass a boolean mask as the third argument.
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Aroonosc;
+
+    // (high/low series as in the Basic tab)
+    boolean[] mask = {true, true}; // aroon_down, aroon_up
+    Outcome oc = Aroonosc.indicator(new double[][] {high, low}, new double[] {25.0}, mask);
+    try (Result res = oc.result()) {
+        // row 0 = aroonosc (primary), row 1 = aroon_down, row 2 = aroon_up
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // aroonosc
+    }
+    oc.state().close();
     ```
 
 === "Python"
@@ -409,6 +460,67 @@ The difference between Aroon Up and Aroon Down. Positive values indicate bullish
         fmt.Printf("Period set %d: %v\n", i+1, lanes[0])
     }
     sim2.Close()
+    ```
+
+=== "Java"
+
+    **By assets** — same period applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Aroonosc;
+
+    double[] a1 = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] l1 = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] a2 = {72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50};
+    double[] l2 = {71.10, 71.85, 72.40, 72.00, 73.20, 73.85, 74.10, 74.60, 75.00, 75.50};
+    double[] a3 = {a1[0]*1.1, a1[1]*1.1, a1[2]*1.1, a1[3]*1.1, a1[4]*1.1,
+                   a1[5]*1.1, a1[6]*1.1, a1[7]*1.1, a1[8]*1.1, a1[9]*1.1};
+    double[] l3 = {l1[0]*1.1, l1[1]*1.1, l1[2]*1.1, l1[3]*1.1, l1[4]*1.1,
+                   l1[5]*1.1, l1[6]*1.1, l1[7]*1.1, l1[8]*1.1, l1[9]*1.1};
+    double[] a4 = {a1[0]*0.9, a1[1]*0.9, a1[2]*0.9, a1[3]*0.9, a1[4]*0.9,
+                   a1[5]*0.9, a1[6]*0.9, a1[7]*0.9, a1[8]*0.9, a1[9]*0.9};
+    double[] l4 = {l1[0]*0.9, l1[1]*0.9, l1[2]*0.9, l1[3]*0.9, l1[4]*0.9,
+                   l1[5]*0.9, l1[6]*0.9, l1[7]*0.9, l1[8]*0.9, l1[9]*0.9};
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{a1, l1}, {a2, l2}, {a3, l3}, {a4, l4}};
+    try (SimdResult sim = Aroonosc.simdByAssets(assets, new double[] {25.0}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0))); // aroonosc
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Aroonosc;
+
+    double[] high = {82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] low  = {81.29, 80.64, 81.31, 82.65, 83.07,
+                     83.11, 82.49, 82.30, 84.15, 84.11};
+
+    // Tile the series 20x so longer-period option sets have enough data
+    double[] high_exp = new double[200];
+    double[] low_exp  = new double[200];
+    for (int i = 0; i < 20; i++) {
+        for (int j = 0; j < 10; j++) {
+            high_exp[i * 10 + j] = high[j];
+            low_exp[i * 10 + j]  = low[j];
+        }
+    }
+
+    try (SimdResult sim = Aroonosc.simdByOptions(new double[][] {high_exp, low_exp},
+            new double[][] {{5.0}, {10.0}, {25.0}, {50.0}}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Period set %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0))); // aroonosc
+        }
+    }
     ```
 
 === "Python"

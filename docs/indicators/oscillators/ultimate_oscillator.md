@@ -94,6 +94,43 @@ Combines momentum from three different time periods (short, medium, and long) to
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Ultosc;
+
+    double[] high  = {82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] low   = {81.29, 80.64, 81.31, 82.65, 83.07,
+                      83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] options = {7.0, 14.0, 28.0}; // short_period, medium_period, long_period
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Ultosc.indicator(new double[][] {high, low, close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // Ultimate Oscillator values
+    }
+
+    // Partial computation + state continuation.
+    int n = 8;
+    Outcome p = Ultosc.indicator(new double[][] {
+        java.util.Arrays.copyOfRange(high, 0, n),
+        java.util.Arrays.copyOfRange(low, 0, n),
+        java.util.Arrays.copyOfRange(close, 0, n)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(high, n, 10),
+            java.util.Arrays.copyOfRange(low, n, 10),
+            java.util.Arrays.copyOfRange(close, n, 10)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued Ultimate Oscillator
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -256,8 +293,6 @@ Combines momentum from three different time periods (short, medium, and long) to
 
 === "Go"
 
-    **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
-
     ```go
     h1 := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00}
     l1 := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11}
@@ -291,6 +326,59 @@ Combines momentum from three different time periods (short, medium, and long) to
         fmt.Printf("Option set %d: %v\n", i+1, lanes[0])
     }
     sim2.Close()
+    ```
+
+=== "Java"
+
+    **By assets** — same options applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Ultosc;
+
+    double[] h1 = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] l1 = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] c1 = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] h2 = {83.15, 82.89, 84.03, 84.30, 84.85, 84.90, 84.33, 85.30, 85.84, 86.00};
+    double[] l2 = {82.29, 81.64, 82.31, 83.65, 84.07, 84.11, 83.49, 83.30, 85.15, 85.11};
+    double[] c2 = {82.59, 82.06, 83.87, 84.00, 84.61, 84.15, 83.84, 84.99, 85.55, 85.36};
+    double[] h3 = {84.15, 83.89, 85.03, 85.30, 85.85, 85.90, 85.33, 86.30, 86.84, 87.00};
+    double[] l3 = {83.29, 82.64, 83.31, 84.65, 85.07, 85.11, 84.49, 84.30, 86.15, 86.11};
+    double[] c3 = {83.59, 83.06, 84.87, 85.00, 85.61, 85.15, 84.84, 85.99, 86.55, 86.36};
+    double[] h4 = {85.15, 84.89, 86.03, 86.30, 86.85, 86.90, 86.33, 87.30, 87.84, 88.00};
+    double[] l4 = {84.29, 83.64, 84.31, 85.65, 86.07, 86.11, 85.49, 85.30, 87.15, 87.11};
+    double[] c4 = {84.59, 84.06, 85.87, 86.00, 86.61, 86.15, 85.84, 86.99, 87.55, 87.36};
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{h1, l1, c1}, {h2, l2, c2}, {h3, l3, c3}, {h4, l4, c4}};
+    try (SimdResult sim = Ultosc.simdByAssets(assets, new double[] {7.0, 14.0, 28.0}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Ultosc;
+
+    double[] high  = {82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] low   = {81.29, 80.64, 81.31, 82.65, 83.07,
+                      83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    try (SimdResult sim = Ultosc.simdByOptions(new double[][] {high, low, close},
+            new double[][] {{7, 14, 28}, {5, 10, 20}, {10, 20, 40}, {4, 8, 16}}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Option set %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }
     ```
 
 === "Python"

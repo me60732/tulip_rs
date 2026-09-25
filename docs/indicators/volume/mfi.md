@@ -101,6 +101,47 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Mfi;
+
+    double[] high   = {82.15, 81.89, 83.03, 83.30, 83.85,
+                       83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] low    = {81.29, 80.64, 81.31, 82.65, 83.07,
+                       83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] close  = {81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] volume = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+                       900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+    double[] options = {14.0}; // period
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Mfi.indicator(new double[][] {high, low, close, volume}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // MFI values
+    }
+
+    // Partial computation + state continuation.
+    int n = 8;
+    Outcome p = Mfi.indicator(new double[][] {
+        java.util.Arrays.copyOfRange(high, 0, n),
+        java.util.Arrays.copyOfRange(low, 0, n),
+        java.util.Arrays.copyOfRange(close, 0, n),
+        java.util.Arrays.copyOfRange(volume, 0, n)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(high, n, 10),
+            java.util.Arrays.copyOfRange(low, n, 10),
+            java.util.Arrays.copyOfRange(close, n, 10),
+            java.util.Arrays.copyOfRange(volume, n, 10)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued MFI
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -239,6 +280,31 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
     fmt.Println(res.Rows[1]) // typprice (optional — requested)
     res.Close()
     st.Close()
+    ```
+
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Mfi;
+
+    double[] close  = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] high   = {82.59, 82.06, 83.87, 84.00, 84.61,
+                       84.15, 83.84, 84.99, 85.55, 85.36};
+    double[] low    = {80.59, 80.06, 81.87, 82.00, 82.61,
+                       82.15, 81.84, 82.99, 83.55, 83.36};
+    double[] volume = {10000.0, 12000.0, 9500.0, 11000.0, 13000.0,
+                       9800.0, 10500.0, 12500.0, 11800.0, 10200.0};
+    double[] options = {14.0}; // period
+    boolean[] mask = {true}; // typprice
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Mfi.indicator(new double[][] {high, low, close, volume}, options, mask);
+    try (Result res = oc.result()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // mfi (primary)
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // typprice (optional — requested)
+    }
+    oc.state().close();
     ```
 
 === "Python"
@@ -441,6 +507,65 @@ A volume-weighted RSI. Values above 80 suggest overbought; below 20 oversold.
         fmt.Printf("Period %v: %v\n", opts[i][0], lanes[0])
     }
     sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+=== "Java"
+
+    **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Mfi;
+
+    double[] h1 = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] l1 = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] c1 = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] v1 = {5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0, 3798000.0,
+                   3936200.0, 4732000.0, 4841300.0, 3915300.0};
+
+    // Reuse the same data for assets 2–4 in this example
+    double[] h2 = h1;
+    double[] l2 = l1;
+    double[] c2 = c1;
+    double[] v2 = v1;
+    double[] h3 = h1;
+    double[] l3 = l1;
+    double[] c3 = c1;
+    double[] v3 = v1;
+    double[] h4 = h1;
+    double[] l4 = l1;
+    double[] c4 = c1;
+    double[] v4 = v1;
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{h1, l1, c1, v1}, {h2, l2, c2, v2}, {h3, l3, c3, v3}, {h4, l4, c4, v4}};
+    try (SimdResult sim = Mfi.simdByAssets(assets, new double[] {14.0}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    **By options** — same asset, N different option sets in parallel:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Mfi;
+
+    double[] high   = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] low    = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] close  = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] volume = {5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0, 3798000.0,
+                       3936200.0, 4732000.0, 4841300.0, 3915300.0};
+
+    try (SimdResult sim = Mfi.simdByOptions(new double[][] {high, low, close, volume},
+            new double[][] {{7.0}, {14.0}, {21.0}, {28.0}}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Period %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }
     ```
 
 === "Python"

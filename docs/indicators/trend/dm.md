@@ -98,6 +98,41 @@ Raw directional movement values before smoothing. +DM captures upward movement; 
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Dm;
+
+    double[] high = {82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] low = {81.29, 80.64, 81.31, 82.65, 83.07,
+                    83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] options = {14.0}; // period
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Dm.indicator(new double[][] {high, low}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // +DM
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // -DM
+    }
+
+    // Partial computation + state continuation.
+    int n = 8;
+    Outcome p = Dm.indicator(new double[][] {
+        java.util.Arrays.copyOfRange(high, 0, n),
+        java.util.Arrays.copyOfRange(low, 0, n)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(high, n, 10),
+            java.util.Arrays.copyOfRange(low, n, 10)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // +DM continued
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(1))); // -DM continued
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -304,6 +339,55 @@ Raw directional movement values before smoothing. +DM captures upward movement; 
         fmt.Printf("Period %d -DM: %v\n", i+1, lanes[1])
     }
     sim2.Close()
+    ```
+
+=== "Java"
+
+    **By assets** — same options applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Dm;
+
+    // (h1/l1 data as in the Go tab)
+    double[] h2 = h1, l2 = l1; // Reuse same data for assets 2-4 in this example
+    double[] h3 = h1, l3 = l1;
+    double[] h4 = h1, l4 = l1;
+
+    double[][][] assets = {{h1, l1}, {h2, l2}, {h3, l3}, {h4, l4}};
+    try (SimdResult sim = Dm.simdByAssets(assets, new double[] {14.0}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d +DM: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+            System.out.printf("Asset %d -DM: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 1)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Dm;
+
+    // (high/low series as in the Go tab)
+    double[] expandedHigh = new double[high.length * 20];
+    double[] expandedLow = new double[low.length * 20];
+    for (int i = 0; i < 20; i++) {
+        System.arraycopy(high, 0, expandedHigh, i * high.length, high.length);
+        System.arraycopy(low, 0, expandedLow, i * low.length, low.length);
+    }
+
+    try (SimdResult sim = Dm.simdByOptions(new double[][] {expandedHigh, expandedLow},
+            new double[][] {{7.0}, {14.0}, {21.0}, {28.0}}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Period %d +DM: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+            System.out.printf("Period %d -DM: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 1)));
+        }
+    }
     ```
 
 === "Python"

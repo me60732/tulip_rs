@@ -77,6 +77,33 @@ The difference between the current price and the price `period` bars ago: `close
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Mom;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] options = {5.0}; // period
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Mom.indicator(new double[][] {close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // MOM(5) values
+    }
+
+    // Partial computation + state continuation.
+    Outcome p = Mom.indicator(
+        new double[][] {java.util.Arrays.copyOfRange(close, 0, 8)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {java.util.Arrays.copyOfRange(close, 8, 10)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued MOM values
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -216,6 +243,49 @@ The difference between the current price and the price `period` bars ago: `close
         fmt.Printf("Period set %d: %v\n", i+1, lanes[0])
     }
     sim2.Close()
+    ```
+
+=== "Java"
+
+    **By assets** — same period applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Mom;
+
+    double[] a1 = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+
+    // Reuse the same data for assets 2–4 in this example
+    double[] a2 = a1;
+    double[] a3 = a1;
+    double[] a4 = a1;
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{a1}, {a2}, {a3}, {a4}};
+    try (SimdResult sim = Mom.simdByAssets(assets, new double[] {5.0}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0))); // MOM(5) values
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Mom;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    try (SimdResult sim = Mom.simdByOptions(new double[][] {close},
+            new double[][] {{5}, {10}, {20}, {50}}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Period set %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0))); // MOM values
+        }
+    }
     ```
 
 === "Python"

@@ -34,58 +34,30 @@ A moving average of `(Close - Open)` over `period` bars, summarising buying or s
 
 === "C"
 
-    **By assets** — same options applied to 4 assets in one call (N must be 2/4/8/16):
-
     ```c
-    double a1_open[] = {81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25};
-    double a1_close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    #include "tulip_rs_ffi.h"
 
-    const double *asset1[QSTICK_INPUTS] = {a1_open, a1_close};
+    double open_[] = {81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25};
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double options[QSTICK_OPTIONS] = {5.0}; // period
+    const double *inputs[QSTICK_INPUTS] = {open_, close};
 
-    // Asset 2: scaled up (+20%)
-    double a2_open[10], a2_close[10];
-    for (size_t i = 0; i < 10; i++) {
-        a2_open[i] = a1_open[i] * 1.2;
-        a2_close[i] = a1_close[i] * 1.2;
-    }
-    const double *asset2[QSTICK_INPUTS] = {a2_open, a2_close};
+    /* Full computation */
+    CIndicatorResult r = qstick_indicator(inputs, 10, options, NULL, 0);
+    /* r.outputs[0] -> QStick(5) series, length r.output_lens[0] */
+    tulip_ffi_result_free(r);
+    qstick_state_free(r.state);
 
-    // Asset 3: different upward trend
-    double a3_open[10], a3_close[10];
-    for (size_t i = 0; i < 10; i++) {
-        a3_open[i] = 90.0 + (double)i * 0.5 + a1_open[i] * 0.1;
-        a3_close[i] = 90.0 + (double)i * 0.5 + a1_close[i] * 0.1;
-    }
-    const double *asset3[QSTICK_INPUTS] = {a3_open, a3_close};
-
-    // Asset 4: downward trend
-    double a4_open[10], a4_close[10];
-    for (size_t i = 0; i < 10; i++) {
-        a4_open[i] = 100.0 - (double)i * 0.3 + a1_open[i] * 0.05;
-        a4_close[i] = 100.0 - (double)i * 0.3 + a1_close[i] * 0.05;
-    }
-    const double *asset4[QSTICK_INPUTS] = {a4_open, a4_close};
-
-    const double *const *const simd_inputs[4] = {asset1, asset2, asset3, asset4};
-
-    CSimdResult r = qstick_simd_by_assets(simd_inputs, 4, 10, options, NULL, 0);
-    for (uintptr_t i = 0; i < r.num_results; i++) {
-        /* r.outputs[i][0] -> asset i's series, length r.output_lens[i][0] */
-        qstick_state_free(r.states[i]);
-    }
-    tulip_ffi_simd_result_free(r);
-    ```
-
-    **By options** — same asset, 4 different periods in one call:
-
-    ```c
-    double o3[] = {3.0}, o5[] = {5.0}, o7[] = {7.0}, o10[] = {10.0};
-    const double *const simd_opts[4] = {o3, o5, o7, o10};
-
-    CSimdResult r = qstick_simd_by_options(inputs, 10, simd_opts, 4, NULL, 0);
-    /* r.outputs[i] -> results for option set i (periods 3/5/7/10) */
-    for (uintptr_t i = 0; i < r.num_results; i++) qstick_state_free(r.states[i]);
-    tulip_ffi_simd_result_free(r);
+    /* Partial computation + state continuation */
+    CIndicatorResult p = qstick_indicator(inputs, 8, options, NULL, 0);
+    double new_open[]  = {84.03};
+    double new_close[] = {85.53};
+    const double *new_inputs[QSTICK_INPUTS] = {new_open, new_close};
+    CBatchResult b = qstick_batch(p.state, new_inputs, 1, NULL, 0);
+    /* b.outputs[0] -> QStick for the new bar */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    qstick_state_free(p.state);
     ```
 
 === "Go"
@@ -112,6 +84,37 @@ A moving average of `(Close - Open)` over `period` bars, summarising buying or s
     fmt.Println(batch.Rows[0]) // continued QStick values
     batch.Close()
     st2.Close()
+    ```
+
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Qstick;
+
+    double[] open_ = {81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25};
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] options = {5.0};
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Qstick.indicator(new double[][] {open_, close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // QStick(5) values
+    }
+
+    // Partial computation + state continuation.
+    int n = 8;
+    Outcome p = Qstick.indicator(new double[][] {
+        java.util.Arrays.copyOfRange(open_, 0, n),
+        java.util.Arrays.copyOfRange(close, 0, n)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(open_, n, 10),
+            java.util.Arrays.copyOfRange(close, n, 10)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued QStick values
+        }
+    }
     ```
 
 === "Python"
@@ -288,6 +291,54 @@ A moving average of `(Close - Open)` over `period` bars, summarising buying or s
         fmt.Printf("Period set %d: %v\n", i+1, lanes[0])
     }
     sim2.Close()
+    ```
+
+=== "Java"
+
+    **By assets** — same period applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Qstick;
+
+    double[] a1_open = {81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25};
+    double[] a1_close = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+
+    // Reuse the same data for assets 2-4 in this example
+    double[] a2_open = a1_open;
+    double[] a2_close = a1_close;
+    double[] a3_open = a1_open;
+    double[] a3_close = a1_close;
+    double[] a4_open = a1_open;
+    double[] a4_close = a1_close;
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{a1_open, a1_close}, {a2_open, a2_close},
+                           {a3_open, a3_close}, {a4_open, a4_close}};
+    try (SimdResult sim = Qstick.simdByAssets(assets, new double[] {5.0}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Qstick;
+
+    double[] open_ = {81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25};
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+
+    try (SimdResult sim = Qstick.simdByOptions(new double[][] {open_, close},
+            new double[][] {{5}, {10}, {14}, {20}}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Period set %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }
     ```
 
 === "Python"

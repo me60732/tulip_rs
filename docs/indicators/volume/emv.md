@@ -87,6 +87,43 @@ Relates price change to volume, indicating how easily a price moves. High values
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Emv;
+
+    double[] high   = {82.15, 81.89, 83.03, 83.30, 83.85,
+                       83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] low    = {81.29, 80.64, 81.31, 82.65, 83.07,
+                       83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] volume = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+                       900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+    double[] options = {}; // no options
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Emv.indicator(new double[][] {high, low, volume}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // EMV values
+    }
+
+    // Partial computation + state continuation.
+    int n = 8;
+    Outcome p = Emv.indicator(new double[][] {
+        java.util.Arrays.copyOfRange(high, 0, n),
+        java.util.Arrays.copyOfRange(low, 0, n),
+        java.util.Arrays.copyOfRange(volume, 0, n)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(high, n, 10),
+            java.util.Arrays.copyOfRange(low, n, 10),
+            java.util.Arrays.copyOfRange(volume, n, 10)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued EMV
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -194,6 +231,29 @@ Relates price change to volume, indicating how easily a price moves. High values
     emv      := res.Rows[0] // emv (primary)
     medprice := res.Rows[1] // medprice (optional — requested)
     fmt.Println(emv, medprice)
+    ```
+
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Emv;
+
+    double[] high   = {82.15, 81.89, 83.03, 83.30, 83.85,
+                       83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] low    = {81.29, 80.64, 81.31, 82.65, 83.07,
+                       83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] volume = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+                       900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+    double[] options = {}; // no options
+
+    boolean[] mask = {true}; // medprice
+    Outcome oc = Emv.indicator(new double[][] {high, low, volume}, options, mask);
+    try (Result res = oc.result()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // emv (primary)
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // medprice (optional — requested)
+    }
+    oc.state().close();
     ```
 
     ```rust
@@ -333,6 +393,42 @@ Relates price change to volume, indicating how easily a price moves. High values
         fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
     }
     sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    _This indicator has no options, so by-options SIMD does not apply._
+
+=== "Java"
+
+    **By assets** — applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Emv;
+
+    double[] a1_high = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] a1_low  = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] a1_volume = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0, 900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+
+    double[] a2_high = {98.58, 96.47, 99.63, 99.96, 100.62, 100.68, 99.99, 101.16, 102.31, 103.50};
+    double[] a2_low  = {97.95, 95.81, 98.94, 99.27, 100.01, 100.06, 99.33, 100.50, 101.65, 102.80};
+    double[] a2_volume = {1440.0, 1800.0, 1560.0, 1320.0, 1920.0, 1680.0, 1440.0, 2040.0, 2160.0, 1800.0};
+
+    double[] a3_high = {75.00, 74.50, 76.00, 76.30, 76.85, 76.90, 76.33, 77.30, 77.84, 78.00};
+    double[] a3_low  = {74.29, 73.64, 75.31, 75.65, 76.07, 76.11, 75.49, 75.30, 77.15, 77.11};
+    double[] a3_volume = {600.0, 700.0, 550.0, 800.0, 650.0, 450.0, 750.0, 900.0, 500.0, 850.0};
+
+    double[] a4_high = {102.00, 101.25, 103.50, 103.80, 104.30, 104.35, 103.75, 104.75, 105.25, 105.40};
+    double[] a4_low  = {100.65, 99.80, 102.00, 102.20, 103.00, 103.05, 102.40, 103.30, 104.10, 104.25};
+    double[] a4_volume = {1728.0, 2160.0, 1872.0, 1584.0, 2304.0, 2016.0, 1728.0, 2448.0, 2592.0, 2160.0};
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{a1_high, a1_low, a1_volume}, {a2_high, a2_low, a2_volume}, {a3_high, a3_low, a3_volume}, {a4_high, a4_low, a4_volume}};
+    try (SimdResult sim = Emv.simdByAssets(assets, new double[] {}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
     ```
 
     _This indicator has no options, so by-options SIMD does not apply._

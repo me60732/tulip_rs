@@ -100,6 +100,43 @@ The arithmetic mean of open, high, low, and close for each bar: `(O + H + L + C)
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Avgprice;
+
+    double[] open  = {81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25};
+    double[] high  = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] low   = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] options = {}; // no options for avgprice
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Avgprice.indicator(new double[][] {open, high, low, close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // AvgPrice values
+    }
+
+    // Partial computation + state continuation.
+    int n = 8;
+    Outcome p = Avgprice.indicator(new double[][] {
+        java.util.Arrays.copyOfRange(open, 0, n),
+        java.util.Arrays.copyOfRange(high, 0, n),
+        java.util.Arrays.copyOfRange(low, 0, n),
+        java.util.Arrays.copyOfRange(close, 0, n)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(open, n, 10),
+            java.util.Arrays.copyOfRange(high, n, 10),
+            java.util.Arrays.copyOfRange(low, n, 10),
+            java.util.Arrays.copyOfRange(close, n, 10)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued AvgPrice values
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -275,6 +312,43 @@ The arithmetic mean of open, high, low, and close for each bar: `(O + H + L + C)
     ```
 
     _This indicator has no options, so by-options SIMD does not offer a by-options block._
+
+=== "Java"
+
+    **By assets** — same options (none), N assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Avgprice;
+
+    double[] o1 = {81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25};
+    double[] h1 = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] l1 = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] c1 = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] o2 = {72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50};
+    double[] h2 = {73.10, 73.89, 74.03, 74.30, 74.85, 74.90, 74.33, 74.30, 75.84, 76.00};
+    double[] l2 = {72.29, 71.64, 72.31, 72.65, 73.07, 73.11, 72.49, 72.30, 74.15, 74.11};
+    double[] c2 = {72.59, 72.06, 73.87, 74.00, 74.61, 74.15, 73.84, 74.99, 75.55, 75.36};
+    double[] o3 = {55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40};
+    double[] h3 = {56.30, 56.89, 57.03, 57.30, 57.85, 57.90, 57.33, 57.30, 58.84, 59.00};
+    double[] l3 = {55.29, 54.64, 55.31, 55.65, 56.07, 56.11, 55.49, 55.30, 57.15, 57.11};
+    double[] c3 = {55.59, 55.06, 56.87, 57.00, 57.61, 57.15, 56.84, 57.99, 58.55, 58.36};
+    double[] o4 = {100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8};
+    double[] h4 = {101.1, 101.5, 102.0, 102.3, 102.8, 103.0, 103.5, 104.0, 104.3, 104.8};
+    double[] l4 = {100.0, 100.4, 100.9, 101.2, 101.7, 101.9, 102.4, 102.9, 103.2, 103.7};
+    double[] c4 = {100.6, 101.0, 101.5, 101.8, 102.3, 102.5, 103.0, 103.5, 103.8, 104.3};
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{o1, h1, l1, c1}, {o2, h2, l2, c2}, {o3, h3, l3, c3}, {o4, h4, l4, c4}};
+    try (SimdResult sim = Avgprice.simdByAssets(assets, null, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    _This indicator has no options, so by-options SIMD does not apply._
 
 === "Python"
 

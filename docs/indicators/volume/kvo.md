@@ -103,6 +103,47 @@ Identifies long-term money flow trends while remaining sensitive enough to detec
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Kvo;
+
+    double[] high   = {82.15, 81.89, 83.03, 83.30, 83.85,
+                       83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] low    = {81.29, 80.64, 81.31, 82.65, 83.07,
+                       83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] close  = {81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] volume = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+                       900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+    double[] options = {34.0, 55.0}; // short_period, long_period
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Kvo.indicator(new double[][] {high, low, close, volume}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // KVO values
+    }
+
+    // Partial computation + state continuation.
+    int n = 8;
+    Outcome p = Kvo.indicator(new double[][] {
+        java.util.Arrays.copyOfRange(high, 0, n),
+        java.util.Arrays.copyOfRange(low, 0, n),
+        java.util.Arrays.copyOfRange(close, 0, n),
+        java.util.Arrays.copyOfRange(volume, 0, n)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(high, n, 10),
+            java.util.Arrays.copyOfRange(low, n, 10),
+            java.util.Arrays.copyOfRange(close, n, 10),
+            java.util.Arrays.copyOfRange(volume, n, 10)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued KVO
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -232,6 +273,33 @@ Identifies long-term money flow trends while remaining sensitive enough to detec
     fmt.Println(res.Rows[2]) // long_ema (optional — not requested)
     res.Close()
     st.Close()
+    ```
+
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Kvo;
+
+    double[] close  = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] high   = new double[close.length];
+    double[] low    = new double[close.length];
+    for (int i = 0; i < close.length; i++) {
+        high[i] = close[i] + 1.0;
+        low[i]  = close[i] - 1.0;
+    }
+    double[] volume = {10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0, 11800.0, 10200.0};
+    double[] options = {9.0, 26.0}; // short_period, long_period
+    boolean[] mask = {true, false}; // short_ema, long_ema
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Kvo.indicator(new double[][] {high, low, close, volume}, options, mask);
+    try (Result res = oc.result()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // kvo (primary)
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // short_ema (requested)
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(2))); // long_ema (not requested)
+    }
+    oc.state().close();
     ```
 
 === "Python"
@@ -406,34 +474,75 @@ Identifies long-term money flow trends while remaining sensitive enough to detec
     }
     sim.Close() // frees every lane state, then the SIMD buffers
     ```
-=== "Go"
+
+=== "Java"
+
+    **By assets** — same options applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Kvo;
+
+    double[] h1 = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] l1 = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] c1 = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] v1 = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0, 900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+
+    // Reuse the same data for assets 2–4 in this example
+    double[] h2 = h1;
+    double[] l2 = l1;
+    double[] c2 = c1;
+    double[] v2 = v1;
+    double[] h3 = h1;
+    double[] l3 = l1;
+    double[] c3 = c1;
+    double[] v3 = v1;
+    double[] h4 = h1;
+    double[] l4 = l1;
+    double[] c4 = c1;
+    double[] v4 = v1;
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{h1, l1, c1, v1}, {h2, l2, c2, v2}, {h3, l3, c3, v3}, {h4, l4, c4, v4}};
+    try (SimdResult sim = Kvo.simdByAssets(assets, new double[] {34.0, 55.0}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
 
     **By options** — same asset, 4 different option sets in parallel:
 
-    ```go
-    high := []float64{82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00}
-    low := []float64{81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11}
-    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
-    volume := []float64{1200.0, 1400.0, 1100.0, 1600.0, 1300.0, 900.0, 1500.0, 1800.0, 1000.0, 1700.0}
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Kvo;
 
-    tiledLen := len(high) * 20
-    highTiled := make([]float64, tiledLen)
-    lowTiled := make([]float64, tiledLen)
-    closeTiled := make([]float64, tiledLen)
-    volumeTiled := make([]float64, tiledLen)
-    for i := 0; i < 20; i++ {
-        copy(highTiled[i*len(high):(i+1)*len(high)], high)
-        copy(lowTiled[i*len(high):(i+1)*len(high)], low)
-        copy(closeTiled[i*len(high):(i+1)*len(high)], close)
-        copy(volumeTiled[i*len(high):(i+1)*len(high)], volume)
+    double[] high   = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] low    = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] close  = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] volume = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0, 900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+
+    // Tile the series 20x so longer-period option sets have enough data
+    int tiledLen = high.length * 20;
+    double[] highTiled = new double[tiledLen];
+    double[] lowTiled = new double[tiledLen];
+    double[] closeTiled = new double[tiledLen];
+    double[] volumeTiled = new double[tiledLen];
+    for (int i = 0; i < 20; i++) {
+        System.arraycopy(high, i * high.length, highTiled, i * high.length, high.length);
+        System.arraycopy(low, i * low.length, lowTiled, i * low.length, low.length);
+        System.arraycopy(close, i * close.length, closeTiled, i * close.length, close.length);
+        System.arraycopy(volume, i * volume.length, volumeTiled, i * volume.length, volume.length);
     }
-    sim2, _ := indicators.Kvo.SimdByOptions(
-        highTiled, lowTiled, closeTiled, volumeTiled,
-        [][]float64{{3.0, 7.0}, {5.0, 10.0}, {8.0, 15.0}, {10.0, 20.0}}, nil)
-    for i, lanes := range sim2.Results {
-        fmt.Printf("Option set %d: %v\n", i+1, lanes[0])
+
+    try (SimdResult sim = Kvo.simdByOptions(new double[][] {highTiled, lowTiled, closeTiled, volumeTiled},
+            new double[][] {{3.0, 7.0}, {5.0, 10.0}, {8.0, 15.0}, {10.0, 20.0}}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Option set %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
     }
-    sim2.Close()
     ```
 
 === "Python"

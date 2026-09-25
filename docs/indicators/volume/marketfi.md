@@ -77,6 +77,44 @@
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Marketfi;
+
+    double[] high   = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                       85.90, 86.58, 86.98, 88.00, 87.87};
+    double[] low    = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                       84.03, 85.39, 85.76, 87.17, 87.01};
+    double[] volume = {5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0, 3798000.0,
+                       3936200.0, 4732000.0, 4841300.0, 3915300.0, 6830800.0, 6694100.0,
+                       5293600.0, 7985800.0, 4807900.0};
+    double[] options = {}; // no options (MARKETFI has zero options)
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Marketfi.indicator(new double[][] {high, low, volume}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // MarketFi values
+    }
+
+    // Partial computation + state continuation.
+    int n = 10;
+    Outcome p = Marketfi.indicator(new double[][] {
+        java.util.Arrays.copyOfRange(high, 0, n),
+        java.util.Arrays.copyOfRange(low, 0, n),
+        java.util.Arrays.copyOfRange(volume, 0, n)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(high, n, 15),
+            java.util.Arrays.copyOfRange(low, n, 15),
+            java.util.Arrays.copyOfRange(volume, n, 15)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued MarketFi
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -210,6 +248,46 @@
     ```
 
     _This indicator has no options, so by-options SIMD does not offer._
+
+=== "Java"
+
+    **By assets** — same options applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Marketfi;
+
+    double[] a1_high = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] a1_low  = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] a1_volume = {5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0, 3798000.0,
+                          3936200.0, 4732000.0, 4841300.0, 3915300.0};
+
+    double[] a2_high = {85.00, 85.50, 86.00, 86.50, 87.00, 87.50, 88.00, 88.50, 89.00, 89.50};
+    double[] a2_low  = {84.00, 84.50, 85.00, 85.50, 86.00, 86.50, 87.00, 87.50, 88.00, 88.50};
+    double[] a2_volume = {4500000.0, 5500000.0, 6500000.0, 4000000.0, 4500000.0, 3800000.0,
+                          4200000.0, 5000000.0, 5100000.0, 4100000.0};
+
+    double[] a3_high = {78.00, 79.00, 80.00, 81.00, 82.00, 83.00, 84.00, 85.00, 86.00, 87.00};
+    double[] a3_low  = {77.00, 78.00, 79.00, 80.00, 81.00, 82.00, 83.00, 84.00, 85.00, 86.00};
+    double[] a3_volume = {3500000.0, 4500000.0, 5500000.0, 3000000.0, 3500000.0, 2800000.0,
+                          3200000.0, 4000000.0, 4100000.0, 3100000.0};
+
+    double[] a4_high = {95.00, 96.00, 97.00, 98.00, 99.00, 100.00, 101.00, 102.00, 103.00, 104.00};
+    double[] a4_low  = {94.00, 95.00, 96.00, 97.00, 98.00, 99.00, 100.00, 101.00, 102.00, 103.00};
+    double[] a4_volume = {6500000.0, 7500000.0, 8500000.0, 6000000.0, 6500000.0, 5800000.0,
+                          6200000.0, 7000000.0, 7100000.0, 6100000.0};
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{a1_high, a1_low, a1_volume}, {a2_high, a2_low, a2_volume}, {a3_high, a3_low, a3_volume}, {a4_high, a4_low, a4_volume}};
+    try (SimdResult sim = Marketfi.simdByAssets(assets, new double[] {})) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    _This indicator has no options, so by-options SIMD does not apply._
 
 === "Python"
 

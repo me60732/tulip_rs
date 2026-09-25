@@ -98,6 +98,43 @@
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Typprice;
+
+    double[] high  = {82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] low   = {81.29, 80.64, 81.31, 82.65, 83.07,
+                      83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] options = {}; // TYPPRICE has no options
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Typprice.indicator(new double[][] {high, low, close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // Typical Price values
+    }
+
+    // Partial computation + state continuation.
+    int n = 8;
+    Outcome p = Typprice.indicator(new double[][] {
+        java.util.Arrays.copyOfRange(high, 0, n),
+        java.util.Arrays.copyOfRange(low, 0, n),
+        java.util.Arrays.copyOfRange(close, 0, n)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(high, n, 10),
+            java.util.Arrays.copyOfRange(low, n, 10),
+            java.util.Arrays.copyOfRange(close, n, 10)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued Typical Price values
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -230,6 +267,40 @@
     ```
 
     _This indicator has no options, so SIMD by-options does not apply._
+
+=== "Java"
+
+    **By assets** — same options applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Typprice;
+
+    double[] a1_high = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] a1_low  = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] a1_close = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+
+    // Reuse the same data for assets 2–4 in this example
+    double[] a2_high = a1_high;
+    double[] a2_low  = a1_low;
+    double[] a2_close = a1_close;
+    double[] a3_high = a1_high;
+    double[] a3_low  = a1_low;
+    double[] a3_close = a1_close;
+    double[] a4_high = a1_high;
+    double[] a4_low  = a1_low;
+    double[] a4_close = a1_close;
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{a1_high, a1_low, a1_close}, {a2_high, a2_low, a2_close}, {a3_high, a3_low, a3_close}, {a4_high, a4_low, a4_close}};
+    try (SimdResult sim = Typprice.simdByAssets(assets, new double[] {}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));}
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    _This indicator has no options, so by-options SIMD does not apply._
 
 === "Python"
 

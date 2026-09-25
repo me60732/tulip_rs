@@ -87,6 +87,39 @@ Three bands around a Simple Moving Average. `middle = SMA(real, period)`, `upper
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Smaenvelope;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] options = {14.0, 2.5}; // period, percentage
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Smaenvelope.indicator(new double[][] {close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // lower
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // middle
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(2))); // upper
+    }
+
+    // Partial computation + state continuation.
+    int n = 8;
+    Outcome p = Smaenvelope.indicator(
+        new double[][] {java.util.Arrays.copyOfRange(close, 0, n)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(
+            new double[][] {java.util.Arrays.copyOfRange(close, n, 10)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued lower
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(1))); // continued middle
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(2))); // continued upper
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -287,6 +320,55 @@ Three bands around a Simple Moving Average. `middle = SMA(real, period)`, `upper
         fmt.Printf("Option set %d Upper:  %v\n", i+1, lanes[2])
     }
     sim2.Close()
+    ```
+
+=== "Java"
+
+    **By assets** — same options applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Smaenvelope;
+
+    double[] a1 = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] a2 = {86.59, 86.06, 87.87, 88.00, 88.61, 88.15, 87.84, 88.99, 89.55, 89.36};
+    double[] a3 = {76.59, 76.06, 77.87, 78.00, 78.61, 78.15, 77.84, 78.99, 79.55, 79.36};
+    double[] a4 = {83.22, 82.68, 83.43, 83.66, 83.68, 83.01, 82.80, 83.77, 84.44, 84.05};
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{a1}, {a2}, {a3}, {a4}};
+    try (SimdResult sim = Smaenvelope.simdByAssets(assets, new double[] {14.0, 2.5}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d Lower:  %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+            System.out.printf("Asset %d Middle: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 1)));
+            System.out.printf("Asset %d Upper:  %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 2)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Smaenvelope;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    try (SimdResult sim = Smaenvelope.simdByOptions(new double[][] {close},
+            new double[][] {{10.0, 2.0}, {14.0, 2.5}, {20.0, 3.0}, {50.0, 5.0}}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Option set %d Lower:  %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+            System.out.printf("Option set %d Middle: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 1)));
+            System.out.printf("Option set %d Upper:  %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 2)));
+        }
+    }
     ```
 
 === "Python"

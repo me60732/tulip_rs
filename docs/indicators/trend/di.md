@@ -86,25 +86,62 @@ Smoothed directional movement expressed as a percentage of ATR. +DI and -DI cros
                       83.90, 83.33, 84.30, 84.84, 85.00}
     low := []float64{81.29, 80.64, 81.31, 82.65, 83.07,
                      83.11, 82.49, 82.30, 84.15, 84.11}
-    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
-                       83.15, 82.84, 83.99, 84.55, 84.36}
     options := []float64{14.0} // period
 
-    // Full computation — Rows is [+di, -di], valid until Close.
-    res, st, _ := indicators.Di.Indicator(high, low, close, options, nil)
-    fmt.Println("+DI:", res.Rows[0])
-    fmt.Println("-DI:", res.Rows[1])
+    // Full computation — Rows is [+dm, -dm], valid until Close.
+    res, st, _ := indicators.Dm.Indicator(high, low, options, nil)
+    fmt.Println("+DM:", res.Rows[0])
+    fmt.Println("-DM:", res.Rows[1])
     res.Close()
     st.Close()
 
     // Partial computation + state continuation.
-    res2, st2, _ := indicators.Di.Indicator(high[:8], low[:8], close[:8], options, nil)
+    res2, st2, _ := indicators.Dm.Indicator(high[:8], low[:8], options, nil)
     res2.Close() // outputs consumed or closed; state stays live
-    batch, _ := st2.Batch(high[8:], low[8:], close[8:], nil)
-    fmt.Println("+DI continued:", batch.Rows[0])
-    fmt.Println("-DI continued:", batch.Rows[1])
+    batch, _ := st2.Batch(high[8:], low[8:], nil)
+    fmt.Println("+DM continued:", batch.Rows[0])
+    fmt.Println("-DM continued:", batch.Rows[1])
     batch.Close()
     st2.Close()
+    ```
+
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Di;
+
+    double[] high = {82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] low = {81.29, 80.64, 81.31, 82.65, 83.07,
+                    83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] options = {14.0}; // period
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Di.indicator(new double[][] {high, low, close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // +DI
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // -DI
+    }
+
+    // Partial computation + state continuation.
+    int n = 8;
+    Outcome p = Di.indicator(new double[][] {
+        java.util.Arrays.copyOfRange(high, 0, n),
+        java.util.Arrays.copyOfRange(low, 0, n),
+        java.util.Arrays.copyOfRange(close, 0, n)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(high, n, 10),
+            java.util.Arrays.copyOfRange(low, n, 10),
+            java.util.Arrays.copyOfRange(close, n, 10)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // +DI continued
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(1))); // -DI continued
+        }
+    }
     ```
 
 === "Python"
@@ -251,6 +288,35 @@ Smoothed directional movement expressed as a percentage of ATR. +DI and -DI cros
     atr     := res.Rows[2]  // atr (optional — requested)
     tr      := res.Rows[3]  // tr (optional — requested)
     res.Close()
+    ```
+
+=== "Java"
+
+    `di` exposes 2 optional outputs: `atr`, `tr`. By-options isn't offered.
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Di;
+
+    // (close series as in the Rust tab)
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] high = new double[close.length];
+    double[] low = new double[close.length];
+    for (int i = 0; i < close.length; i++) {
+        high[i] = close[i] + 1.0;
+        low[i] = close[i] - 1.0;
+    }
+    double[] options = {14.0}; // period
+    boolean[] mask = {true, true}; // atr, tr
+
+    Outcome oc = Di.indicator(new double[][] {high, low, close}, options, mask);
+    try (Result res = oc.result()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // plus_di
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // minus_di
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(2))); // atr
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(3))); // tr
+    }
+    oc.state().close();
     ```
 
 === "Python"
@@ -441,6 +507,55 @@ Smoothed directional movement expressed as a percentage of ATR. +DI and -DI cros
         fmt.Printf("Period set %d +DI: %v\n", i+1, lanes[0])
     }
     sim2.Close()
+    ```
+
+=== "Java"
+
+    **By assets** — same period applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Di;
+
+    // (h1/l1/c1 data as in the Go tab)
+    double[] h2 = h1, l2 = l1, c2 = c1; // Reuse same data for assets 2-4
+    double[] h3 = h1, l3 = l1, c3 = c1;
+    double[] h4 = h1, l4 = l1, c4 = c1;
+
+    double[][][] assets = {{h1, l1, c1}, {h2, l2, c2}, {h3, l3, c3}, {h4, l4, c4}};
+    try (SimdResult sim = Di.simdByAssets(assets, new double[] {14.0}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d +DI: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+            System.out.printf("Asset %d -DI: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 1)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Di;
+
+    // (high/low/close series as in the Go tab)
+    double[] expandedHigh = new double[high.length * 20];
+    double[] expandedLow = new double[low.length * 20];
+    double[] expandedClose = new double[close.length * 20];
+    for (int i = 0; i < 20; i++) {
+        System.arraycopy(high, 0, expandedHigh, i * high.length, high.length);
+        System.arraycopy(low, 0, expandedLow, i * low.length, low.length);
+        System.arraycopy(close, 0, expandedClose, i * close.length, close.length);
+    }
+
+    try (SimdResult sim = Di.simdByOptions(new double[][] {expandedHigh, expandedLow, expandedClose},
+            new double[][] {{7.0}, {14.0}, {21.0}, {28.0}}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Period set %d +DI: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }
     ```
 
 === "Python"

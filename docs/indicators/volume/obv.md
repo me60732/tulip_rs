@@ -86,6 +86,38 @@ Cumulative volume indicator: adds volume on up-days and subtracts on down-days. 
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Obv;
+
+    double[] close  = {81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] volume = {5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0,
+                       3798000.0, 3936200.0, 4732000.0, 4841300.0, 3915300.0};
+    double[] options = {}; // no options
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Obv.indicator(new double[][] {close, volume}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // OBV values
+    }
+
+    // Partial computation + state continuation.
+    Outcome p = Obv.indicator(
+        new double[][] {java.util.Arrays.copyOfRange(close, 0, 10),
+                        java.util.Arrays.copyOfRange(volume, 0, 10)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(close, 10, 20),
+            java.util.Arrays.copyOfRange(volume, 10, 20)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued OBV values
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -234,6 +266,38 @@ Cumulative volume indicator: adds volume on up-days and subtracts on down-days. 
     ```
 
     _This indicator has no options, so by-options SIMD does not offer._
+
+=== "Java"
+
+    **By assets** — same options applied to 4 assets in parallel (lane counts 2/4/8/16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Obv;
+
+    double[] c1 = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] v1 = {5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0, 3798000.0,
+                   3936200.0, 4732000.0, 4841300.0, 3915300.0};
+
+    // Reuse the same data for assets 2–4 in this example
+    double[] c2 = c1;
+    double[] v2 = v1;
+    double[] c3 = c1;
+    double[] v3 = v1;
+    double[] c4 = c1;
+    double[] v4 = v1;
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{c1, v1}, {c2, v2}, {c3, v3}, {c4, v4}};
+    try (SimdResult sim = Obv.simdByAssets(assets, new double[] {}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    _This indicator has no options, so by-options SIMD does not apply._
 
 === "Python"
 

@@ -35,6 +35,97 @@ Decomposes the roofing-filtered price series into in-phase and quadrature compon
     println!("Continued Quadrature: {:?}", continued[1]);
     ```
 
+=== "C"
+
+    ```c
+    #include "tulip_rs_ffi.h"
+
+    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                      88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+    double options[HILBERTTRANSFORM_OPTIONS] = {10.0, 20.0}; // ss_period, hp_period
+    const double *inputs[HILBERTTRANSFORM_INPUTS] = {close};
+
+    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
+    bool optional_outputs[2] = {true, true}; // roofing, highpass
+    CIndicatorResult r = hilberttransform_indicator(inputs, 40, options, optional_outputs, 2);
+    /* r.outputs[0] -> in_phase, r.outputs[1] -> quadrature */
+    /* r.outputs[2] -> roofing (optional), r.outputs[3] -> highpass (optional) */
+    tulip_ffi_result_free(r);
+    hilberttransform_state_free(r.state);
+
+    /* Partial computation + state continuation */
+    CIndicatorResult p = hilberttransform_indicator(inputs, 35, options, NULL, 0);
+    double new_close[] = {89.70, 90.10, 89.50, 90.20, 90.80};
+    const double *new_inputs[HILBERTTRANSFORM_INPUTS] = {new_close};
+    CBatchResult b = hilberttransform_batch(p.state, new_inputs, 5, NULL, 0);
+    /* b.outputs[0] -> in_phase for new bars, b.outputs[1] -> quadrature */
+    tulip_ffi_batch_result_free(b);
+    tulip_ffi_result_free(p);
+    hilberttransform_state_free(p.state);
+    ```
+
+=== "Go"
+
+    ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                       88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                       90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20}
+    options := []float64{10.0, 20.0} // ss_period, hp_period
+
+    // Full computation — Rows are zero-copy views, valid until Close.
+    res, st, _ := indicators.Hilberttransform.Indicator(close, options, nil)
+    fmt.Println(res.Rows[0]) // in_phase values
+    fmt.Println(res.Rows[1]) // quadrature values
+    res.Close();
+    st.Close();
+
+    // Partial computation + state continuation.
+    res2, st2, _ := indicators.Hilberttransform.Indicator(close[:35], options, nil);
+    res2.Close(); // outputs consumed or closed; state stays live
+    batch, _ := st2.Batch(close[35:], nil);
+    fmt.Println(batch.Rows[0]); // continued in_phase values
+    fmt.Println(batch.Rows[1]); // continued quadrature values
+    batch.Close();
+    st2.Close();
+    ```
+
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Hilberttransform;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                      88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+    double[] options = {10.0, 20.0}; // ss_period, hp_period
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Hilberttransform.indicator(new double[][] {close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // in_phase values
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // quadrature values
+    }
+
+    // Partial computation + state continuation.
+    int n = 35;
+    Outcome p = Hilberttransform.indicator(
+        new double[][] {java.util.Arrays.copyOfRange(close, 0, n)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {java.util.Arrays.copyOfRange(close, n, 40)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued in_phase values
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(1))); // continued quadrature values
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -53,7 +144,7 @@ Decomposes the roofing-filtered price series into in-phase and quadrature compon
     print("In-Phase:   ", outputs[0])
     print("Quadrature: ", outputs[1])
 
-    # State continuation
+    // State continuation
     partial = close[:-5]
     outputs2, state = tulip_rs.indicators.hilberttransform.indicator([partial], [10.0, 20.0])
     rest = close[-5:]
@@ -111,65 +202,6 @@ Decomposes the roofing-filtered price series into in-phase and quadrature compon
     console.log('Continued Quadrature: ', continued[1]);
     ```
 
-=== "C"
-
-    ```c
-    #include "tulip_rs_ffi.h"
-
-    double close[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
-                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
-                      88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
-                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
-    double options[HILBERTTRANSFORM_OPTIONS] = {10.0, 20.0}; // ss_period, hp_period
-    const double *inputs[HILBERTTRANSFORM_INPUTS] = {close};
-
-    /* Full computation (check r.error == C_INDICATOR_ERROR_OK in real code) */
-    bool optional_outputs[2] = {true, true}; // roofing, highpass
-    CIndicatorResult r = hilberttransform_indicator(inputs, 40, options, optional_outputs, 2);
-    /* r.outputs[0] -> in_phase, r.outputs[1] -> quadrature */
-    /* r.outputs[2] -> roofing (optional), r.outputs[3] -> highpass (optional) */
-    tulip_ffi_result_free(r);
-    hilberttransform_state_free(r.state);
-
-    /* Partial computation + state continuation */
-    CIndicatorResult p = hilberttransform_indicator(inputs, 35, options, NULL, 0);
-    double new_close[] = {89.70, 90.10, 89.50, 90.20, 90.80};
-    const double *new_inputs[HILBERTTRANSFORM_INPUTS] = {new_close};
-    CBatchResult b = hilberttransform_batch(p.state, new_inputs, 5, NULL, 0);
-    /* b.outputs[0] -> in_phase for new bars, b.outputs[1] -> quadrature */
-    tulip_ffi_batch_result_free(b);
-    tulip_ffi_result_free(p);
-    hilberttransform_state_free(p.state);
-    ```
-
-=== "Go"
-
-    ```go
-    import "github.com/me60732/tulip_rs_go/indicators"
-
-    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
-                       85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
-                       88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
-                       90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20}
-    options := []float64{10.0, 20.0} // ss_period, hp_period
-
-    // Full computation — Rows are zero-copy views, valid until Close.
-    res, st, _ := indicators.Hilberttransform.Indicator(close, options, nil)
-    fmt.Println(res.Rows[0]) // in_phase values
-    fmt.Println(res.Rows[1]) // quadrature values
-    res.Close()
-    st.Close()
-
-    // Partial computation + state continuation.
-    res2, st2, _ := indicators.Hilberttransform.Indicator(close[:35], options, nil)
-    res2.Close() // outputs consumed or closed; state stays live
-    batch, _ := st2.Batch(close[35:], nil)
-    fmt.Println(batch.Rows[0]) // continued in_phase values
-    fmt.Println(batch.Rows[1]) // continued quadrature values
-    batch.Close()
-    st2.Close()
-    ```
-
 ### Optional Outputs
 
 === "Rust"
@@ -193,54 +225,6 @@ Decomposes the roofing-filtered price series into in-phase and quadrature compon
     let quadrature  = &outputs[1]; // quadrature (primary)
     let roofing     = &outputs[2]; // roofing (optional — requested)
     let highpass    = &outputs[3]; // highpass (optional — requested)
-    ```
-
-=== "Python"
-
-    ```python
-    import numpy as np
-    import tulip_rs
-
-    close = np.array([
-        81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
-        85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
-        88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
-        90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20,
-    ], dtype=np.float64)
-
-    outputs, state = tulip_rs.indicators.hilberttransform.indicator(
-        [close], [10.0, 20.0],
-        optional_outputs=[True, True],
-    )
-
-    in_phase   = outputs[0]  # in_phase (primary)
-    quadrature = outputs[1]  # quadrature (primary)
-    roofing    = outputs[2]  # roofing (optional — requested)
-    highpass   = outputs[3]  # highpass (optional — requested)
-    ```
-
-=== "Node.js"
-
-    `hilberttransform` exposes 2 optional outputs: `roofing`, `highpass`.
-
-    ```javascript
-    const [allOut] = ti.hilberttransform.indicator([close], [10, 20], [true, true]);
-    const inPhase    = allOut[0]; // primary
-    const quadrature = allOut[1]; // primary
-    const roofing    = allOut[2]; // optional 0: roofing
-    const highpass   = allOut[3]; // optional 1: highpass
-    ```
-
-=== "WASM"
-
-    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
-
-    ```javascript
-    const [allOut] = ti.hilberttransform.indicator([close], [10, 20], [true, true]);
-    const inPhase    = allOut[0]; // primary
-    const quadrature = allOut[1]; // primary
-    const roofing    = allOut[2]; // optional 0: roofing
-    const highpass   = allOut[3]; // optional 1: highpass
     ```
 
 === "C"
@@ -283,19 +267,86 @@ Decomposes the roofing-filtered price series into in-phase and quadrature compon
     options := []float64{10.0, 20.0} // ss_period, hp_period
     mask := []bool{true, true} // roofing, highpass
 
-    res, st, _ := indicators.Hilberttransform.Indicator(close, options, mask)
+    res, st, _ := indicators.Hilberttransform.Indicator(close, options, mask);
     in_phase   := res.Rows[0]  // in_phase (primary)
     quadrature := res.Rows[1]  // quadrature (primary)
     roofing    := res.Rows[2]  // roofing (optional — requested)
     highpass   := res.Rows[3]  // highpass (optional — requested)
 
-    fmt.Println(in_phase)
-    fmt.Println(quadrature)
-    fmt.Println(roofing)
-    fmt.Println(highpass)
+    fmt.Println(in_phase);
+    fmt.Println(quadrature);
+    fmt.Println(roofing);
+    fmt.Println(highpass);
 
-    res.Close()
-    st.Close()
+    res.Close();
+    st.Close();
+    ```
+
+=== "Java"
+
+    `hilberttransform` exposes 2 optional outputs: `roofing`, `highpass`. Pass a boolean mask as the third argument — one `boolean` per optional output, in order.
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Hilberttransform;
+
+    // (close series as in the Basic tab)
+    boolean[] mask = {true, true}; // roofing, highpass
+    Outcome oc = Hilberttransform.indicator(new double[][] {close}, new double[] {10.0, 20.0}, mask);
+    try (Result res = oc.result()) {
+        // row 0 = in_phase (primary), row 1 = quadrature (primary)
+        // rows 2.. = requested optionals in order
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(2))); // roofing
+    }
+    oc.state().close();
+    ```
+
+=== "Python"
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([
+        81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+        85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+        88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+        90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20,
+    ], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.hilberttransform.indicator(
+        [close], [10.0, 20.0],
+        optional_outputs=[True, True],
+    )
+
+    in_phase   = outputs[0]  // in_phase (primary)
+    quadrature = outputs[1]  // quadrature (primary)
+    roofing    = outputs[2]  // roofing (optional — requested)
+    highpass   = outputs[3]  // highpass (optional — requested)
+    ```
+
+=== "Node.js"
+
+    `hilberttransform` exposes 2 optional outputs: `roofing`, `highpass`.
+
+    ```javascript
+    const [allOut] = ti.hilberttransform.indicator([close], [10, 20], [true, true]);
+    const inPhase    = allOut[0]; // primary
+    const quadrature = allOut[1]; // primary
+    const roofing    = allOut[2]; // optional 0: roofing
+    const highpass   = allOut[3]; // optional 1: highpass
+    ```
+
+=== "WASM"
+
+    The WASM API is identical to Node.js — pass the boolean mask as the third argument.
+
+    ```javascript
+    const [allOut] = ti.hilberttransform.indicator([close], [10, 20], [true, true]);
+    const inPhase    = allOut[0]; // primary
+    const quadrature = allOut[1]; // primary
+    const roofing    = allOut[2]; // optional 0: roofing
+    const highpass   = allOut[3]; // optional 1: highpass
     ```
 
 ### SIMD
@@ -346,76 +397,6 @@ Decomposes the roofing-filtered price series into in-phase and quadrature compon
         println!("Option set {} In-Phase:   {:?}", i + 1, opt_outputs[0]);
         println!("Option set {} Quadrature: {:?}", i + 1, opt_outputs[1]);
     }
-    ```
-
-=== "Python"
-
-    **By assets** — same options applied to N assets in parallel (must be 2, 4, 8, or 16):
-
-    ```python
-    import numpy as np
-    import tulip_rs
-
-    close = np.array([
-        81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
-        85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
-        88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
-        90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20,
-    ], dtype=np.float64)
-
-    simd_inputs = [[close], [close + 5.0], [close - 3.0], [close * 1.02]]
-    outputs_list, states = tulip_rs.indicators.hilberttransform.simd_by_assets(simd_inputs, [10.0, 20.0])
-    for i, out in enumerate(outputs_list):
-        print(f"Asset {i + 1} In-Phase:   {out[0]}")
-        print(f"Asset {i + 1} Quadrature: {out[1]}")
-    ```
-
-    **By options** — same asset, N different option sets in parallel:
-
-    ```python
-    import numpy as np
-    import tulip_rs
-
-    close = np.array([
-        81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
-        85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
-        88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
-        90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20,
-    ], dtype=np.float64)
-
-    simd_options = [
-        [5.0,  10.0],
-        [10.0, 20.0],
-        [14.0, 30.0],
-        [20.0, 40.0],
-    ]
-    outputs_list, states = tulip_rs.indicators.hilberttransform.simd_by_options([close], simd_options)
-    for i, out in enumerate(outputs_list):
-        print(f"Option set {i + 1} In-Phase:   {out[0]}")
-        print(f"Option set {i + 1} Quadrature: {out[1]}")
-    ```
-
-=== "Node.js"
-
-    **By assets** — same options applied to 4 assets in parallel:
-
-    ```javascript
-    const simdInputs = [
-        [close.slice()],
-        [close.map(v => v + 5.0)],
-        [close.map(v => v - 3.0)],
-        [close.map(v => v * 1.02)],
-    ];
-    const [results] = ti.hilberttransform.simdByAssets(simdInputs, [10, 20]);
-    results.forEach((out, i) => console.log(`Asset ${i + 1} In-Phase:`, out[0], 'Quadrature:', out[1]));
-    ```
-
-    **By options** — same asset, 4 different option sets in parallel:
-
-    ```javascript
-    const simdOptions = [[5, 10], [10, 20], [14, 30], [20, 40]];
-    const [results] = ti.hilberttransform.simdByOptions([close], simdOptions);
-    results.forEach((out, i) => console.log(`Option set ${i + 1} In-Phase:`, out[0]));
     ```
 
 === "C"
@@ -482,12 +463,12 @@ Decomposes the roofing-filtered price series into in-phase and quadrature compon
     options := []float64{10.0, 20.0} // ss_period, hp_period
 
     assets := [][indicators.HilberttransformInputs][]float64{{a1}, {a2}, {a3}, {a4}}
-    sim, _ := indicators.Hilberttransform.SimdByAssets(assets, options, nil)
+    sim, _ := indicators.Hilberttransform.SimdByAssets(assets, options, nil);
     for i, lanes := range sim.Results {
-        fmt.Printf("Asset %d In-Phase:   %v\n", i+1, lanes[0])
-        fmt.Printf("Asset %d Quadrature: %v\n", i+1, lanes[1])
+        fmt.Printf("Asset %d In-Phase:   %v\n", i+1, lanes[0]);
+        fmt.Printf("Asset %d Quadrature: %v\n", i+1, lanes[1]);
     }
-    sim.Close()
+    sim.Close();
     ```
 
     **By options** — same asset, 4 different option sets in parallel:
@@ -495,13 +476,126 @@ Decomposes the roofing-filtered price series into in-phase and quadrature compon
     ```go
     import "github.com/me60732/tulip_rs_go/indicators"
 
-    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61}
-    options := [][]float64{{5, 10}, {10, 20}, {14, 30}, {20, 40}}
+    close := []float64{81.59, 81.06, 82.87, 83.00, 83.61};
+    options := [][]float64{{5, 10}, {10, 20}, {14, 30}, {20, 40}};
 
-    sim, _ := indicators.Hilberttransform.SimdByOptions(close, options, nil)
+    sim, _ := indicators.Hilberttransform.SimdByOptions(close, options, nil);
     for i, lanes := range sim.Results {
-        fmt.Printf("Option set %d In-Phase:   %v\n", i+1, lanes[0])
-        fmt.Printf("Option set %d Quadrature: %v\n", i+1, lanes[1])
+        fmt.Printf("Option set %d In-Phase:   %v\n", i+1, lanes[0]);
+        fmt.Printf("Option set %d Quadrature: %v\n", i+1, lanes[1]);
     }
-    sim.Close()
+    sim.Close();
+    ```
+
+=== "Java"
+
+    **By assets** — same options applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Hilberttransform;
+
+    double[] a1 = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] a2 = {86.59, 86.06, 87.87, 88.00, 88.61, 88.15, 87.84, 88.99, 89.55, 89.36};
+    double[] a3 = {78.59, 78.06, 79.87, 80.00, 80.61, 80.15, 79.84, 80.99, 81.55, 81.36};
+    double[] a4 = {83.22, 82.68, 84.53, 84.66, 85.28, 84.81, 84.50, 85.67, 86.24, 86.05};
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{a1}, {a2}, {a3}, {a4}};
+    try (SimdResult sim = Hilberttransform.simdByAssets(assets, new double[] {10.0, 20.0}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d In-Phase:   %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+            System.out.printf("Asset %d Quadrature: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 1)));}
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Hilberttransform;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    try (SimdResult sim = Hilberttransform.simdByOptions(new double[][] {close},
+            new double[][] {{5, 10}, {10, 20}, {14, 30}, {20, 40}}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Option set %d In-Phase:   %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+            System.out.printf("Option set %d Quadrature: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 1)));}
+    }
+    ```
+
+=== "Python"
+
+    **By assets** — same options applied to N assets in parallel (must be 2, 4, 8, or 16):
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([
+        81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+        85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+        88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+        90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20,
+    ], dtype=np.float64)
+
+    simd_inputs = [[close], [close + 5.0], [close - 3.0], [close * 1.02]];
+    outputs_list, states = tulip_rs.indicators.hilberttransform.simd_by_assets(simd_inputs, [10.0, 20.0]);
+    for i, out in enumerate(outputs_list):
+        print(f"Asset {i + 1} In-Phase:   {out[0]}");
+        print(f"Asset {i + 1} Quadrature: {out[1]}");
+    ```
+
+    **By options** — same asset, N different option sets in parallel:
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([
+        81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+        85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+        88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+        90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20,
+    ], dtype=np.float64)
+
+    simd_options = [
+        [5.0,  10.0],
+        [10.0, 20.0],
+        [14.0, 30.0],
+        [20.0, 40.0],
+    ]
+    outputs_list, states = tulip_rs.indicators.hilberttransform.simd_by_options([close], simd_options);
+    for i, out in enumerate(outputs_list):
+        print(f"Option set {i + 1} In-Phase:   {out[0]}");
+        print(f"Option set {i + 1} Quadrature: {out[1]}");
+    ```
+
+=== "Node.js"
+
+    **By assets** — same options applied to 4 assets in parallel:
+
+    ```javascript
+    const simdInputs = [
+        [close.slice()],
+        [close.map(v => v + 5.0)],
+        [close.map(v => v - 3.0)],
+        [close.map(v => v * 1.02)],
+    ];
+    const [results] = ti.hilberttransform.simdByAssets(simdInputs, [10, 20]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1} In-Phase:`, out[0], 'Quadrature:', out[1]));
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```javascript
+    const simdOptions = [[5, 10], [10, 20], [14, 30], [20, 40]];
+    const [results] = ti.hilberttransform.simdByOptions([close], simdOptions);
+    results.forEach((out, i) => console.log(`Option set ${i + 1} In-Phase:`, out[0]));
     ```

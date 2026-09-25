@@ -104,6 +104,47 @@ A cumulative indicator that uses price and volume to assess whether a security i
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Ad;
+
+    double[] high   = {82.15, 81.89, 83.03, 83.30, 83.85,
+                       83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] low    = {81.29, 80.64, 81.31, 82.65, 83.07,
+                       83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] close  = {81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] volume = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+                       900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+    double[] options = {}; // no options
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Ad.indicator(new double[][] {high, low, close, volume}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // AD values
+    }
+
+    // Partial computation + state continuation.
+    int n = 8;
+    Outcome p = Ad.indicator(new double[][] {
+        java.util.Arrays.copyOfRange(high, 0, n),
+        java.util.Arrays.copyOfRange(low, 0, n),
+        java.util.Arrays.copyOfRange(close, 0, n),
+        java.util.Arrays.copyOfRange(volume, 0, n)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(high, n, 10),
+            java.util.Arrays.copyOfRange(low, n, 10),
+            java.util.Arrays.copyOfRange(close, n, 10),
+            java.util.Arrays.copyOfRange(volume, n, 10)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued AD
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -257,6 +298,24 @@ A cumulative indicator that uses price and volume to assess whether a security i
         fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
     }
     sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+=== "Java"
+
+    **By assets** — same options applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Ad;
+
+    // Each entry lists one asset's input series (h1..v4 as in the C tab).
+    double[][][] assets = {{h1, l1, c1, v1}, {h2, l2, c2, v2}, {h3, l3, c3, v3}, {h4, l4, c4, v4}};
+    try (SimdResult sim = Ad.simdByAssets(assets, new double[] {}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
     ```
 
     _This indicator has no options, so by-options SIMD does not offer._

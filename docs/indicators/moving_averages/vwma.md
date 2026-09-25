@@ -90,6 +90,39 @@ Moving average weighted by trading volume so that high-volume bars have more inf
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Vwma;
+
+    double[] close  = {81.59, 81.06, 82.87, 83.00, 83.61,
+                       83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] volume = {5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0,
+                       3798000.0, 3936200.0, 4732000.0, 4841300.0, 3915300.0};
+    double[] options = {14.0}; // period
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Vwma.indicator(new double[][] {close, volume}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // VWMA(14) values
+    }
+
+    // Partial computation + state continuation.
+    int n = 8;
+    Outcome p = Vwma.indicator(new double[][] {
+        java.util.Arrays.copyOfRange(close, 0, n),
+        java.util.Arrays.copyOfRange(volume, 0, n)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(close, n, 10),
+            java.util.Arrays.copyOfRange(volume, n, 10)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued VWMA values
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -305,6 +338,57 @@ Moving average weighted by trading volume so that high-volume bars have more inf
         fmt.Printf("Period set %d: %v\n", i+1, lanes[0])
     }
     sim2.Close()
+    ```
+
+=== "Java"
+
+    **By assets** — same period applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Vwma;
+
+    double[] a1_close = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] a1_vol   = {5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0,
+                         3798000.0, 3936200.0, 4732000.0, 4841300.0, 3915300.0};
+    double[] a2_close = {72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50};
+    double[] a2_vol   = {5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0,
+                         3798000.0, 3936200.0, 4732000.0, 4841300.0, 3915300.0};
+    double[] a3_close = {55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40};
+    double[] a3_vol   = {5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0,
+                         3798000.0, 3936200.0, 4732000.0, 4841300.0, 3915300.0};
+    double[] a4_close = {100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8};
+    double[] a4_vol   = {5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0,
+                         3798000.0, 3936200.0, 4732000.0, 4841300.0, 3915300.0};
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{a1_close, a1_vol}, {a2_close, a2_vol}, {a3_close, a3_vol}, {a4_close, a4_vol}};
+    try (SimdResult sim = Vwma.simdByAssets(assets, new double[] {14.0}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Vwma;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] volume = {5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0,
+                       3798000.0, 3936200.0, 4732000.0, 4841300.0, 3915300.0};
+
+    try (SimdResult sim = Vwma.simdByOptions(new double[][] {close, volume},
+            new double[][] {{5}, {10}, {14}, {20}}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Period set %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }
     ```
 
 === "Python"

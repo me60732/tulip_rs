@@ -107,6 +107,41 @@ Applies the Fisher Transform to the normalised Cyber Cycle oscillator, convertin
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Ccfisher;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                      88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20,
+                      93.50, 94.10, 94.80, 95.20, 95.70, 96.30, 96.80, 97.10, 97.60, 98.20,
+                      98.70, 99.10, 99.80, 100.20, 100.70, 101.30, 101.80, 102.10, 102.60, 103.20,
+                      103.70, 104.10, 104.80, 105.20, 105.70, 106.30, 106.80, 107.10, 107.60, 108.20,
+                      108.70, 109.10, 109.80, 110.20, 110.70, 111.30, 111.80, 112.10, 112.60, 113.00};
+    double[] options = {0.0}; // alpha
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Ccfisher.indicator(new double[][] {close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // fisher values
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // signal values
+    }
+
+    // Partial computation + state continuation.
+    Outcome p = Ccfisher.indicator(
+        new double[][] {java.util.Arrays.copyOfRange(close, 0, 65)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {java.util.Arrays.copyOfRange(close, 65, 70)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued fisher values
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(1))); // continued signal values
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -289,6 +324,37 @@ Applies the Fisher Transform to the normalised Cyber Cycle oscillator, convertin
 
     res.Close()
     st.Close()
+    ```
+
+=== "Java"
+
+    `ccfisher` exposes 3 optional outputs: `trendmode`, `cycle`, `peak`. Pass a boolean mask as the third argument.
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Ccfisher;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                      88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20,
+                      93.50, 94.10, 94.80, 95.20, 95.70, 96.30, 96.80, 97.10, 97.60, 98.20,
+                      98.70, 99.10, 99.80, 100.20, 100.70, 101.30, 101.80, 102.10, 102.60, 103.20,
+                      103.70, 104.10, 104.80, 105.20, 105.70, 106.30, 106.80, 107.10, 107.60, 108.20,
+                      108.70, 109.10, 109.80, 110.20, 110.70, 111.30, 111.80, 112.10, 112.60, 113.00};
+    double[] options = {0.0}; // alpha
+    boolean[] mask = {true, true, true}; // trendmode, cycle, peak
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Ccfisher.indicator(new double[][] {close}, options, mask);
+    try (Result res = oc.result()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // fisher (primary)
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // signal (primary)
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(2))); // trendmode (optional — requested)
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(3))); // cycle (optional — requested)
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(4))); // peak (optional — requested)
+    }
+    oc.state().close();
     ```
 
 === "Python"
@@ -484,6 +550,54 @@ Applies the Fisher Transform to the normalised Cyber Cycle oscillator, convertin
         fmt.Printf("Alpha set %d Signal: %v\n", i+1, lanes[1])
     }
     sim.Close()
+    ```
+
+=== "Java"
+
+    **By assets** — same alpha applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Ccfisher;
+
+    double[] a1 = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+
+    // Reuse the same data for assets 2–4 in this example
+    double[] a2 = a1;
+    double[] a3 = a1;
+    double[] a4 = a1;
+    double[] options = {0.0}; // alpha
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{a1}, {a2}, {a3}, {a4}};
+    try (SimdResult sim = Ccfisher.simdByAssets(assets, options, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d Fisher: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+            System.out.printf("Asset %d Signal: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 1)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    **By options** — same asset, 4 different alpha values in parallel:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Ccfisher;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    try (SimdResult sim = Ccfisher.simdByOptions(new double[][] {close},
+            new double[][] {{0.0}, {0.1}, {0.2}, {0.3}}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Alpha set %d Fisher: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+            System.out.printf("Alpha set %d Signal: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 1)));
+        }
+    }
     ```
 
 === "Python"

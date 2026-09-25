@@ -86,6 +86,21 @@ TA packages:
     fmt.Println(res.Rows[0]) // SMA(5) values — zero-copy views
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Sma;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    Outcome oc = Sma.indicator(new double[][] {close}, new double[] {5.0});
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // SMA(5) values — zero-copy views
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -158,6 +173,7 @@ TA packages:
 | **Rust** | ✅ Native | `tulip_rs` (this crate) |
 | **C** | ✅ Supported | [`tulip_rs_ffi`](https://github.com/me60732/tulip_rs_ffi) — hand-rolled `extern "C"` FFI, usable from C, C++/any C ABI |
 | **Go** | ✅ Supported | [`tulip_rs_go`](https://github.com/me60732/tulip_rs_go) — cgo bindings over the `extern "C"` FFI, zero-copy outputs |
+| **Java** | ✅ Supported | [`tulip-rs-java`](https://github.com/me60732/tulip_rs_java) — JDK 22+ Foreign Function API |
 | **Python** | ✅ Supported | [`tulip_rs_python`](https://github.com/me60732/tulip_rs_python) |
 | **Node.js** | ✅ Supported | [`tulip-rs-node`](https://github.com/me60732/tulip-rs-node) |
 | **Browser (WASM)** | ✅ Supported | [`tulip-rs-wasm`](https://www.npmjs.com/package/tulip-rs-wasm) · [`tulip-rs-lwc`](https://www.npmjs.com/package/tulip-rs-lwc) |

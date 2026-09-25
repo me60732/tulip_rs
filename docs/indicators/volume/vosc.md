@@ -75,7 +75,33 @@ The percentage difference between two volume moving averages. Expanding volume o
     st2.Close()
     ```
 
+=== "Java"
 
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Vosc;
+
+    double[] volume = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+                       900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+    double[] options = {5.0, 10.0}; // short_period, long_period
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Vosc.indicator(new double[][] {volume}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // VOSC values
+    }
+
+    // Partial computation + state continuation.
+    Outcome p = Vosc.indicator(
+        new double[][] {java.util.Arrays.copyOfRange(volume, 0, 8)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(volume, 8, 10)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued VOSC values
+        }
+    }
+    ```
 
 === "Python"
 
@@ -184,6 +210,25 @@ The percentage difference between two volume moving averages. Expanding volume o
     fmt.Println(res.Rows[2]) // long_sma (optional — requested)
     res.Close()
     st.Close()
+    ```
+
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Vosc;
+
+    double[] volume = {10000.0, 12000.0, 9500.0, 11000.0, 13000.0, 9800.0, 10500.0, 12500.0, 11800.0, 10200.0};
+    double[] options = {5.0, 20.0}; // short_period, long_period
+    boolean[] mask = {true, true}; // short_sma, long_sma
+
+    Outcome oc = Vosc.indicator(new double[][] {volume}, options, mask);
+    try (Result res = oc.result()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // vosc (primary)
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // short_sma (optional — requested)
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(2))); // long_sma (optional — requested)
+    }
+    oc.state().close();
     ```
 
 === "Python"
@@ -333,7 +378,6 @@ The percentage difference between two volume moving averages. Expanding volume o
     }
     sim.Close() // frees every lane state, then the SIMD buffers
     ```
-=== "Go"
 
     **By options** — same asset, 4 different option sets in parallel:
 
@@ -349,7 +393,46 @@ The percentage difference between two volume moving averages. Expanding volume o
     sim2.Close() // frees every lane state, then the SIMD buffers
     ```
 
+=== "Java"
 
+    **By assets** — same options applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Vosc;
+
+    double[] v1 = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0, 900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+    double[] v2 = {1100.0, 1300.0, 1000.0, 1500.0, 1200.0, 800.0, 1400.0, 1700.0, 900.0, 1600.0};
+    double[] v3 = {1300.0, 1500.0, 1200.0, 1700.0, 1400.0, 1000.0, 1600.0, 1900.0, 1100.0, 1800.0};
+    double[] v4 = {1400.0, 1600.0, 1300.0, 1800.0, 1500.0, 1100.0, 1700.0, 2000.0, 1200.0, 1900.0};
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{v1}, {v2}, {v3}, {v4}};
+    try (SimdResult sim = Vosc.simdByAssets(assets, new double[] {5.0, 10.0}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Vosc;
+
+    double[] volume = {1200.0, 1400.0, 1100.0, 1600.0, 1300.0,
+                       900.0, 1500.0, 1800.0, 1000.0, 1700.0};
+
+    try (SimdResult sim = Vosc.simdByOptions(new double[][] {volume},
+            new double[][] {{3.0, 6.0}, {5.0, 10.0}, {8.0, 16.0}, {12.0, 24.0}}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Option set %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }
+    ```
 
 === "Python"
 

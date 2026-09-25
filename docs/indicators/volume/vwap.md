@@ -127,6 +127,55 @@ The average price weighted by trading volume over the entire input window; commo
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Vwap;
+
+    double[] high   = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                       85.90, 86.58, 86.98, 88.00, 87.87, 88.20, 88.70, 89.10, 88.50, 89.00,
+                       89.60, 89.90, 89.30, 90.10, 90.50, 91.00, 90.30, 91.00, 91.60, 92.00,
+                       91.30, 92.00, 92.60, 93.00, 92.30, 93.00, 93.60, 94.00, 93.30, 94.10};
+    double[] low    = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                       84.03, 85.39, 85.76, 87.17, 87.01, 87.20, 87.80, 88.20, 87.60, 88.00,
+                       88.60, 88.90, 88.30, 89.00, 89.40, 89.80, 89.20, 89.90, 90.50, 90.80,
+                       90.20, 90.90, 91.50, 91.80, 91.20, 91.90, 92.50, 92.80, 92.20, 93.00};
+    double[] close  = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                       88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                       90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+    double[] volume = {1500, 2000, 1800, 2200, 1700, 2500, 2100, 1900, 2300, 1600,
+                       2800, 2400, 2100, 1800, 2600, 2200, 1900, 2400, 2000, 2100,
+                       2300, 1700, 2500, 1800, 2000, 2100, 1600, 2200, 2400, 1900,
+                       2300, 1800, 2100, 2500, 1700, 2000, 2200, 1900, 2400, 2100};
+    double[] options = {}; // no options
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Vwap.indicator(new double[][] {high, low, close, volume}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // VWAP
+    }
+
+    // Partial computation + state continuation.
+    int n = 35;
+    Outcome p = Vwap.indicator(new double[][] {
+        java.util.Arrays.copyOfRange(high, 0, n),
+        java.util.Arrays.copyOfRange(low, 0, n),
+        java.util.Arrays.copyOfRange(close, 0, n),
+        java.util.Arrays.copyOfRange(volume, 0, n)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(high, n, 40),
+            java.util.Arrays.copyOfRange(low, n, 40),
+            java.util.Arrays.copyOfRange(close, n, 40),
+            java.util.Arrays.copyOfRange(volume, n, 40)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued VWAP
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -252,24 +301,9 @@ The average price weighted by trading volume over the entire input window; commo
     let typprice = &outputs[1]; // typprice (optional — requested)
     ```
 
-=== "Python"
-
-    ```python
-    import numpy as np
-    import tulip_rs
-
-    # ... (same high, low, close, volume data as above)
-    outputs, state = tulip_rs.indicators.vwap.indicator(
-        [high, low, close, volume], [],
-        optional_outputs=[True],
-    )
-
-    vwap     = outputs[0]  # vwap (primary)
-    typprice = outputs[1]  # typprice (optional — requested)
-    ```
-
 === "C"
 
+    `vwap` exposes 1 optional output: `typprice`. Pass a boolean mask as the third argument.
     `vwap` exposes 1 optional output: `typprice`. This indicator has no options, so the options array is NULL (or empty).
 
     ```c
@@ -315,6 +349,55 @@ The average price weighted by trading volume over the entire input window; commo
     fmt.Println(res.Rows[1]) // typprice (optional — requested)
     res.Close()
     st.Close()
+    ```
+
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Vwap;
+
+    double[] high   = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                       85.90, 86.58, 86.98, 88.00, 87.87, 88.20, 88.70, 89.10, 88.50, 89.00,
+                       89.60, 89.90, 89.30, 90.10, 90.50, 91.00, 90.30, 91.00, 91.60, 92.00,
+                       91.30, 92.00, 92.60, 93.00, 92.30, 93.00, 93.60, 94.00, 93.30, 94.10};
+    double[] low    = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                       84.03, 85.39, 85.76, 87.17, 87.01, 87.20, 87.80, 88.20, 87.60, 88.00,
+                       88.60, 88.90, 88.30, 89.00, 89.40, 89.80, 89.20, 89.90, 90.50, 90.80,
+                       90.20, 90.90, 91.50, 91.80, 91.20, 91.90, 92.50, 92.80, 92.20, 93.00};
+    double[] close  = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                       85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                       88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                       90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+    double[] volume = {1500, 2000, 1800, 2200, 1700, 2500, 2100, 1900, 2300, 1600,
+                       2800, 2400, 2100, 1800, 2600, 2200, 1900, 2400, 2000, 2100,
+                       2300, 1700, 2500, 1800, 2000, 2100, 1600, 2200, 2400, 1900,
+                       2300, 1800, 2100, 2500, 1700, 2000, 2200, 1900, 2400, 2100};
+    double[] options = {}; // no options
+    boolean[] mask = {true}; // typprice
+
+    Outcome oc = Vwap.indicator(new double[][] {high, low, close, volume}, options, mask);
+    try (Result res = oc.result()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // vwap (primary)
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // typprice (optional — requested)
+    }
+    oc.state().close();
+    ```
+
+=== "Python"
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    # ... (same high, low, close, volume data as above)
+    outputs, state = tulip_rs.indicators.vwap.indicator(
+        [high, low, close, volume], [],
+        optional_outputs=[True],
+    )
+
+    vwap     = outputs[0]  # vwap (primary)
+    typprice = outputs[1]  # typprice (optional — requested)
     ```
 
 === "Node.js"
@@ -370,29 +453,9 @@ The average price weighted by trading volume over the entire input window; commo
 
     _This indicator has no options, so by-options SIMD does not apply._
 
-=== "Python"
-
-    **By assets** — same options, N assets in parallel (must be 2, 4, 8, or 16):
-
-    ```python
-    import numpy as np
-    import tulip_rs
-
-    simd_inputs = [
-        [high,        low,        close,        volume],
-        [high + 0.5,  low + 0.5,  close + 0.5,  volume * 1.1],
-        [high - 0.5,  low - 0.5,  close - 0.5,  volume * 0.9],
-        [high * 1.01, low * 1.01, close * 1.01, volume * 1.05],
-    ]
-    outputs_list, states = tulip_rs.indicators.vwap.simd_by_assets(simd_inputs, [])
-    for i, out in enumerate(outputs_list):
-        print(f"Asset {i + 1}: {out[0]}")
-    ```
-
-    _This indicator has no options, so by-options SIMD does not apply._
-
 === "C"
 
+    **By assets** — same options applied to 4 assets in one call (N must be 2/4/8/16):
     **By assets** — same option applied to 4 assets in one call (N must be 2/4/8/16). This indicator has no options.
 
     ```c
@@ -484,6 +547,72 @@ The average price weighted by trading volume over the entire input window; commo
         fmt.Printf("Asset %d: %v\n", i+1, lanes[0])
     }
     sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    _This indicator has no options, so by-options SIMD does not apply._
+
+=== "Java"
+
+    **By assets** — same options applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Vwap;
+
+    double[] h1 = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                   85.90, 86.58, 86.98, 88.00, 87.87};
+    double[] l1 = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                   84.03, 85.39, 85.76, 87.17, 87.01};
+    double[] c1 = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29};
+    double[] v1 = {1500, 2000, 1800, 2200, 1700, 2500, 2100, 1900, 2300, 1600,
+                   2800, 2400, 2100, 1800, 2600};
+
+    // Reuse the same data for assets 2–4 in this example
+    double[] h2 = h1;
+    double[] l2 = l1;
+    double[] c2 = c1;
+    double[] v2 = v1;
+
+    double[] h3 = h1;
+    double[] l3 = l1;
+    double[] c3 = c1;
+    double[] v3 = v1;
+
+    double[] h4 = h1;
+    double[] l4 = l1;
+    double[] c4 = c1;
+    double[] v4 = v1;
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{h1, l1, c1, v1}, {h2, l2, c2, v2}, {h3, l3, c3, v3}, {h4, l4, c4, v4}};
+    try (SimdResult sim = Vwap.simdByAssets(assets, new double[] {}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    _This indicator has no options, so by-options SIMD does not apply._
+
+=== "Python"
+
+    **By assets** — same options, N assets in parallel (must be 2, 4, 8, or 16):
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    simd_inputs = [
+        [high,        low,        close,        volume],
+        [high + 0.5,  low + 0.5,  close + 0.5,  volume * 1.1],
+        [high - 0.5,  low - 0.5,  close - 0.5,  volume * 0.9],
+        [high * 1.01, low * 1.01, close * 1.01, volume * 1.05],
+    ]
+    outputs_list, states = tulip_rs.indicators.vwap.simd_by_assets(simd_inputs, [])
+    for i, out in enumerate(outputs_list):
+        print(f"Asset {i + 1}: {out[0]}")
     ```
 
     _This indicator has no options, so by-options SIMD does not apply._

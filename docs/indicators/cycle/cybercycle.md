@@ -85,6 +85,36 @@ Isolates the dominant market cycle from price data using a high-pass filter foll
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Cybercycle;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                      88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+    double[] options = {0.07}; // alpha
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Cybercycle.indicator(new double[][] {close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // cybercycle_line values
+    }
+
+    // Partial computation + state continuation.
+    int n = 35;
+    Outcome p = Cybercycle.indicator(
+        new double[][] {java.util.Arrays.copyOfRange(close, 0, n)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {java.util.Arrays.copyOfRange(close, n, 40)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued cybercycle_line values
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -209,11 +239,29 @@ Isolates the dominant market cycle from price data using a high-pass filter foll
     cybercycle := res.Rows[0]  // cybercycle (primary)
     trigger    := res.Rows[1]  // trigger (optional — requested)
 
-    fmt.Println(cybercycle)
-    fmt.Println(trigger)
+    fmt.Println(cybercycle);
+    fmt.Println(trigger);
 
-    res.Close()
-    st.Close()
+    res.Close();
+    st.Close();
+    ```
+
+=== "Java"
+
+    `cybercycle` exposes 1 optional output: `trigger`. Pass a boolean mask as the third argument — one `boolean` per optional output, in order.
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Cybercycle;
+
+    // (close series as in the Basic tab)
+    boolean[] mask = {true}; // trigger
+    Outcome oc = Cybercycle.indicator(new double[][] {close}, new double[] {0.07}, mask);
+    try (Result res = oc.result()) {
+        // row 0 = cybercycle (primary), row 1 = trigger (optional — requested)
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // trigger
+    }
+    oc.state().close();
     ```
 
 === "Python"
@@ -423,6 +471,57 @@ Isolates the dominant market cycle from price data using a high-pass filter foll
         fmt.Printf("Alpha set %d: %v\n", i+1, lanes[0])
     }
     sim.Close()
+    ```
+
+=== "Java"
+
+    **By assets** — same alpha applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Cybercycle;
+
+    double[] a1 = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                   88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                   90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+    double[] a2 = {72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50,
+                   77.00, 77.50, 78.00, 78.50, 79.00, 79.50, 80.00, 80.50, 81.00, 81.50,
+                   82.00, 82.50, 83.00, 83.50, 84.00, 84.50, 85.00, 85.50, 86.00, 86.50,
+                   87.00, 87.50, 88.00, 88.50, 89.00, 89.50, 90.00, 90.50, 91.00, 91.50};
+    double[] a3 = {55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40,
+                   58.70, 59.00, 59.30, 59.60, 59.90, 60.20, 60.50, 60.80, 61.10, 61.40,
+                   61.70, 62.00, 62.30, 62.60, 62.90, 63.20, 63.50, 63.80, 64.10, 64.40,
+                   64.70, 65.00, 65.30, 65.60, 65.90, 66.20, 66.50, 66.80, 67.10, 67.40};
+    double[] a4 = {100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8,
+                   104.1, 104.5, 105.0, 105.3, 105.8, 106.0, 106.5, 107.0, 107.3, 107.8,
+                   108.1, 108.5, 109.0, 109.3, 109.8, 110.0, 110.5, 111.0, 111.3, 111.8,
+                   112.1, 112.5, 113.0, 113.3, 113.8, 114.0, 114.5, 115.0, 115.3, 115.8};
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{a1}, {a2}, {a3}, {a4}};
+    try (SimdResult sim = Cybercycle.simdByAssets(assets, new double[] {0.07}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));}
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    **By options** — same asset, 4 different alpha values in parallel:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Cybercycle;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    try (SimdResult sim = Cybercycle.simdByOptions(new double[][] {close},
+            new double[][] {{0.05}, {0.07}, {0.10}, {0.15}}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Alpha set %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));}
+    }
     ```
 
 === "Python"

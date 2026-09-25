@@ -84,6 +84,35 @@ Three bands plotted around a moving average. The width expands and contracts wit
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Bbands;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] options = {20.0, 2.0}; // period, std_dev
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Bbands.indicator(new double[][] {close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // Lower band
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // Middle band
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(2))); // Upper band
+    }
+
+    // Partial computation + state continuation.
+    Outcome p = Bbands.indicator(
+        new double[][] {java.util.Arrays.copyOfRange(close, 0, 8)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {java.util.Arrays.copyOfRange(close, 8, 10)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued lower band
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -253,6 +282,55 @@ Three bands plotted around a moving average. The width expands and contracts wit
         fmt.Printf("Option set %d Upper:  %v\n", i+1, lanes[2])
     }
     sim2.Close()
+    ```
+
+=== "Java"
+
+    **By assets** — same options applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Bbands;
+
+    double[] a1 = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] a2 = {72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50};
+    double[] a3 = {55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40};
+    double[] a4 = {100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8};
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{a1}, {a2}, {a3}, {a4}};
+    try (SimdResult sim = Bbands.simdByAssets(assets, new double[] {20.0, 2.0}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d Lower:  %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+            System.out.printf("Asset %d Middle: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 1)));
+            System.out.printf("Asset %d Upper:  %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 2)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    **By options** — same asset, N option sets in parallel:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Bbands;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    try (SimdResult sim = Bbands.simdByOptions(new double[][] {close},
+            new double[][] {{10.0, 1.5}, {20.0, 2.0}, {30.0, 2.0}, {50.0, 2.5}}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Option set %d Lower:  %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+            System.out.printf("Option set %d Middle: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 1)));
+            System.out.printf("Option set %d Upper:  %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 2)));
+        }
+    }
     ```
 
 === "Python"

@@ -111,6 +111,26 @@ pub struct DisplayGroup {
     }
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Adx;
+
+    Info info = Adx.info();
+
+    System.out.printf("Name:             %s%n", info.name());               // adx
+    System.out.printf("Full name:        %s%n", info.fullName());          // Average Directional Index
+    System.out.printf("Type:             %s%n", info.type());              // Trend | Momentum | Volume | Volatility | Price | Cycle
+    System.out.printf("Inputs:           %s%n", java.util.Arrays.toString(info.inputs().toArray()));
+    System.out.printf("Options:          %s%n", java.util.Arrays.toString(info.options().toArray()));
+    System.out.printf("Outputs:          %s%n", java.util.Arrays.toString(info.outputs().toArray()));
+    System.out.printf("Optional outputs: %s%n", java.util.Arrays.toString(info.optionalOutputs().toArray()));
+    for (Info.DisplayGroup g : info.displayGroups()) {
+        System.out.printf("  Group %s: %s (%s)%n", g.id(), g.label(), g.displayType());
+    }
+    ```
+
 === "Python"
 
     `info()` returns a plain Python `dict`. Access fields with standard key lookup:
@@ -318,6 +338,32 @@ The third argument to `indicator()` is `optional_outputs: Option<&[bool]>`. Each
     adLine  := tulip.AsFloat64(res.Rows[3]) // optional output at index 2
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Adx;
+
+    double[] high  = {/* ... */};
+    double[] low   = {/* ... */};
+    double[] close = {/* ... */};
+    double[] vol   = {/* ... */};
+    double[][] inputs = {high, low, close, vol};
+
+    // Adx.info().optionalOutputs() == ["dx", "atr", "tr"]
+    //                                index 0  index 1  index 2
+
+    // Request only dx (index 0); skip atr and tr
+    boolean[] mask = {true, false, false};
+
+    Outcome oc = Adx.indicator(inputs, new double[] {14.0}, mask);
+    try (Result res = oc.result(); State st = oc.state()) {
+        double[] adxLine = res.toDoubleArray(0); // primary output — always present
+        double[] dxLine  = res.toDoubleArray(1); // optional output at index 0 — requested
+        // res.toDoubleArray(2) and res.toDoubleArray(3) are empty (not requested)
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -405,6 +451,30 @@ Pass a mask of all `true` to capture every intermediate series:
     adLine       := res.Rows[3] // ad        (optional 2)
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Adosc;
+
+    double[] high  = {/* ... */};
+    double[] low   = {/* ... */};
+    double[] close = {/* ... */};
+    double[] vol   = {/* ... */};
+    double[][] inputs = {high, low, close, vol};
+
+    // Adosc has 3 optional outputs: short_ema, long_ema, ad
+    boolean[] mask = {true, true, true};
+
+    Outcome oc = Adosc.indicator(inputs, new double[] {6.0, 20.0}, mask);
+    try (Result res = oc.result()) {
+        double[] adoscLine     = res.toDoubleArray(0); // adosc     (primary)
+        double[] shortEmaLine  = res.toDoubleArray(1); // short_ema (optional 0)
+        double[] longEmaLine   = res.toDoubleArray(2); // long_ema  (optional 1)
+        double[] adLine        = res.toDoubleArray(3); // ad        (optional 2)
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -486,6 +556,39 @@ Optional output masks work the same way with `batch_indicator()`. Pass the same 
     newAd    := continued.Rows[1] // ad (only requested optionals are appended)
     continued.Close()
     st.Close()
+    ```
+
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Adosc;
+
+    double[] high  = {/* ... */};
+    double[] low   = {/* ... */};
+    double[] close = {/* ... */};
+    double[] vol   = {/* ... */};
+    double[][] inputs = {high, low, close, vol};
+
+    // Initial call — request AD line (the third optional)
+    boolean[] mask = {false, false, true};
+    Outcome oc = Adosc.indicator(inputs, new double[] {6.0, 20.0}, mask);
+    try (Result res = oc.result(); State st = oc.state()) {
+        // outputs consumed or copied; the state stays live
+    }
+
+    // Continue streaming — pass the same mask
+    double[] newHigh  = {/* ... */};
+    double[] newLow   = {/* ... */};
+    double[] newClose = {/* ... */};
+    double[] newVol   = {/* ... */};
+    double[][] newInputs = {newHigh, newLow, newClose, newVol};
+
+    try (Result continued = st.batch(newInputs, mask)) {
+        double[] newAdosc = continued.toDoubleArray(0); // adosc (primary)
+        // rows 1 and 2 are empty (short_ema, long_ema not requested)
+        double[] newAd    = continued.toDoubleArray(3); // ad (optional 2 — requested)
+    }
     ```
 
 === "Node.js"
@@ -595,6 +698,55 @@ The return type is `(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>)`. Index the outer 
 
     adx_set1 := tulip.AsFloat64(sim2.Results[0][0]) // option set 0 primary output
     ad_set1  := tulip.AsFloat64(sim2.Results[0][3]) // option set 0 AD line
+    ```
+
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Adx;
+
+    // SIMD by assets: 4 assets, same options, same optional-output mask
+    boolean[] mask = {false, false, true}; // request tr only (index 2)
+
+    double[] high_a = {/* ... */};
+    double[] low_a  = {/* ... */};
+    double[] close_a = {/* ... */};
+    double[] high_b = {/* ... */};
+    double[] low_b  = {/* ... */};
+    double[] close_b = {/* ... */};
+    double[] high_c = {/* ... */};
+    double[] low_c  = {/* ... */};
+    double[] close_c = {/* ... */};
+    double[] high_d = {/* ... */};
+    double[] low_d  = {/* ... */};
+    double[] close_d = {/* ... */};
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {
+        {high_a, low_a, close_a},
+        {high_b, low_b, close_b},
+        {high_c, low_c, close_c},
+        {high_d, low_d, close_d}
+    };
+
+    try (SimdResult sim = Adx.simdByAssets(assets, new double[] {14.0}, mask)) {
+        // same layout as scalar indicator() — primary rows first, then optional rows
+        double[] adx_a = sim.toDoubleArray(0, 0); // primary output
+        double[] tr_a  = sim.toDoubleArray(0, 3); // optional output at index 2 (tr)
+    }
+
+    // SIMD by options: 1 asset, 4 option sets, same mask
+    double[] high = {/* ... */};
+    double[] low  = {/* ... */};
+    double[] close = {/* ... */};
+    double[][] inputs = {high, low, close};
+
+    try (SimdResult sim2 = Adx.simdByOptions(inputs,
+            new double[][] {{3.0}, {6.0}, {12.0}, {20.0}}, mask)) {
+        double[] adx_set1 = sim2.toDoubleArray(0, 0); // option set 0 primary output
+        double[] tr_set1  = sim2.toDoubleArray(0, 3); // option set 0 tr
+    }
     ```
 
 === "Python"
@@ -731,6 +883,28 @@ The value depends on the indicator's options because period-based indicators req
         res, st, _ := indicators.Adx.Indicator(high, low, close, []float64{14.0}, nil)
         defer res.Close()
         defer st.Close()
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Adx;
+
+    long minimum = Adx.minData(new double[] {14.0});
+    System.out.printf("Min data: %d%n", minimum); // 28
+
+    if (close.length < minimum) {
+        System.out.printf("Not enough data: have %d, need %d%n", close.length, minimum);
+    } else {
+        double[] high = {/* ... */};
+        double[] low  = {/* ... */};
+        double[][] inputs = {high, low, close};
+        Outcome oc = Adx.indicator(inputs, new double[] {14.0});
+        try (Result res = oc.result(); State st = oc.state()) {
+            // ... use outputs ...
+        }
     }
     ```
 

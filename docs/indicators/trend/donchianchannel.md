@@ -92,6 +92,43 @@ Three-band channel based on the rolling highest high and lowest low over `period
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Donchianchannel;
+
+    double[] high = {82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] low  = {81.29, 80.64, 81.31, 82.65, 83.07,
+                     83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] options = {14.0}; // period
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Donchianchannel.indicator(new double[][] {high, low}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // lower
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // middle
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(2))); // upper
+    }
+
+    // Partial computation + state continuation.
+    int n = 8;
+    Outcome p = Donchianchannel.indicator(new double[][] {
+        java.util.Arrays.copyOfRange(high, 0, n),
+        java.util.Arrays.copyOfRange(low, 0, n)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(high, n, 10),
+            java.util.Arrays.copyOfRange(low, n, 10)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued lower
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(1))); // continued middle
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(2))); // continued upper
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -295,6 +332,45 @@ Three-band channel based on the rolling highest high and lowest low over `period
         fmt.Printf("Asset %d Upper:  %v\n", i+1, lanes[2])
     }
     sim.Close() // frees every lane state, then the SIMD buffers
+    ```
+
+    By-options isn't offered for this indicator.
+
+=== "Java"
+
+    **By assets** — same period applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Donchianchannel;
+
+    double[] a1 = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] l1 = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] a2 = {a1[0]*1.1, a1[1]*1.1, a1[2]*1.1, a1[3]*1.1, a1[4]*1.1,
+                   a1[5]*1.1, a1[6]*1.1, a1[7]*1.1, a1[8]*1.1, a1[9]*1.1};
+    double[] l2 = {l1[0]*1.1, l1[1]*1.1, l1[2]*1.1, l1[3]*1.1, l1[4]*1.1,
+                   l1[5]*1.1, l1[6]*1.1, l1[7]*1.1, l1[8]*1.1, l1[9]*1.1};
+    double[] a3 = {a1[0]*0.9, a1[1]*0.9, a1[2]*0.9, a1[3]*0.9, a1[4]*0.9,
+                   a1[5]*0.9, a1[6]*0.9, a1[7]*0.9, a1[8]*0.9, a1[9]*0.9};
+    double[] l3 = {l1[0]*0.9, l1[1]*0.9, l1[2]*0.9, l1[3]*0.9, l1[4]*0.9,
+                   l1[5]*0.9, l1[6]*0.9, l1[7]*0.9, l1[8]*0.9, l1[9]*0.9};
+    double[] a4 = {a1[0]*1.01, a1[1]*1.01, a1[2]*1.01, a1[3]*1.01, a1[4]*1.01,
+                   a1[5]*1.01, a1[6]*1.01, a1[7]*1.01, a1[8]*1.01, a1[9]*1.01};
+    double[] l4 = {l1[0]*1.01, l1[1]*1.01, l1[2]*1.01, l1[3]*1.01, l1[4]*1.01,
+                   l1[5]*1.01, l1[6]*1.01, l1[7]*1.01, l1[8]*1.01, l1[9]*1.01};
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{a1, l1}, {a2, l2}, {a3, l3}, {a4, l4}};
+    try (SimdResult sim = Donchianchannel.simdByAssets(assets, new double[] {14.0}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d Lower:  %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0))); // lower
+            System.out.printf("Asset %d Middle: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 1))); // middle
+            System.out.printf("Asset %d Upper:  %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 2))); // upper
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
     ```
 
     By-options isn't offered for this indicator.

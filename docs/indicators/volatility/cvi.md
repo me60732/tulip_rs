@@ -91,6 +91,38 @@ Measures the rate of change of the trading range (high minus low) EMA. Rising va
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Cvi;
+
+    double[] high = {82.15, 81.89, 83.03, 83.30, 83.85,
+                     83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] low  = {81.29, 80.64, 81.31, 82.65, 83.07,
+                     83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] options = {10.0}; // period
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Cvi.indicator(new double[][] {high, low}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // CVI values
+    }
+
+    // Partial computation + state continuation.
+    Outcome p = Cvi.indicator(
+        new double[][] {java.util.Arrays.copyOfRange(high, 0, 8),
+                        java.util.Arrays.copyOfRange(low, 0, 8)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(high, 8, 10),
+            java.util.Arrays.copyOfRange(low, 8, 10)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued CVI
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -259,6 +291,51 @@ Measures the rate of change of the trading range (high minus low) EMA. Rising va
         fmt.Printf("Period %d: %v\n", i+1, lanes[0])
     }
     sim2.Close()
+    ```
+
+=== "Java"
+
+    **By assets** — same options applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Cvi;
+
+    double[] a1_high = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] a1_low = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] a2_high = {90.0, 89.5, 91.0, 91.3, 91.9, 92.0, 91.5, 92.0, 92.5, 92.8};
+    double[] a2_low = {89.0, 88.5, 90.0, 90.3, 90.9, 91.0, 90.5, 91.0, 91.5, 91.8};
+    double[] a3_high = {75.2, 75.4, 75.6, 75.8, 76.0, 76.2, 76.4, 76.6, 76.8, 77.0};
+    double[] a3_low = {74.2, 74.4, 74.6, 74.8, 75.0, 75.2, 75.4, 75.6, 75.8, 76.0};
+    double[] a4_high = {85.9, 85.8, 85.7, 85.6, 85.5, 85.4, 85.3, 85.2, 85.1, 85.0};
+    double[] a4_low = {84.9, 84.8, 84.7, 84.6, 84.5, 84.4, 84.3, 84.2, 84.1, 84.0};
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{a1_high, a1_low}, {a2_high, a2_low}, {a3_high, a3_low}, {a4_high, a4_low}};
+    try (SimdResult sim = Cvi.simdByAssets(assets, new double[] {10.0}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    **By options** — same asset, N option sets in parallel:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Cvi;
+
+    double[] high = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] low = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+
+    try (SimdResult sim = Cvi.simdByOptions(new double[][] {high, low},
+            new double[][] {{5.0}, {10.0}, {14.0}, {20.0}}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Period %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }
     ```
 
 === "Python"

@@ -15,6 +15,7 @@ Bindings share the same Rust core calling convention; C FFI binds straight to th
 | Python (`tulip_rs_python`) | PyO3/maturin wrapper | `indicator()`/`batch_indicator()` on state object | by-assets (nested lists) + by-options (option lists) | Plain Python lists for OHLC |
 | Node.js (`tulip-rs-node`) | napi-rs native addon | `indicator()`/`batchIndicator()` on state object | `simdByAssets()` / `simdByOptions()` | Float64Array inputs |
 | Go (`tulip_rs_go`) | cgo over C FFI | `Indicator()`/`Batch()` on state object | `SimdByAssets()` / `SimdByOptions()` | float64 slices |
+| Java (`tulip-rs-java`) | Panama FFM (`java.lang.foreign`, no JNI) | `indicator()`/`batch()` on AutoCloseable handles | `simdByAssets()` / `simdByOptions()` | CSR-packed ids + pattern names via `CandleResult` |
 | Browser WASM (`tulip-rs-wasm`) | WebAssembly via wasm-pack | `indicator()`/`batchIndicator()` on state object | same as Node.js | same as Node.js |
 
 ---
@@ -25,6 +26,7 @@ Bindings share the same Rust core calling convention; C FFI binds straight to th
 - [Python](language_bindings/python.md)
 - [Node.js](language_bindings/node.md)
 - [Go](language_bindings/go.md)
+- [Java](language_bindings/java.md)
 - [Browser (WASM)](language_bindings/wasm.md)
 
 ---

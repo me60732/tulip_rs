@@ -32,30 +32,6 @@ Removes low-frequency trend components from price by applying Ehlers' two-pole h
     println!("Continued Highpass: {:?}", continued[0]);
     ```
 
-=== "Python"
-
-    ```python
-    import numpy as np
-    import tulip_rs
-
-    close = np.array([
-        81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
-        85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
-        88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
-        90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20,
-    ], dtype=np.float64)
-
-    outputs, state = tulip_rs.indicators.highpass.indicator([close], [20.0])
-    print("Highpass(20):", outputs[0])
-
-    # State continuation
-    partial = close[:-5]
-    outputs2, state = tulip_rs.indicators.highpass.indicator([partial], [20.0])
-    rest = close[-5:]
-    continued = state.batch_indicator([rest])
-    print("Continued Highpass:", continued[0])
-    ```
-
 === "C"
 
     ```c
@@ -109,6 +85,60 @@ Removes low-frequency trend components from price by applying Ehlers' two-pole h
     fmt.Println(batch.Rows[0]) // continued highpass values
     batch.Close()
     st2.Close()
+    ```
+
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Highpass;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                      88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+    double[] options = {20.0}; // period
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Highpass.indicator(new double[][] {close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // highpass values
+    }
+
+    // Partial computation + state continuation.
+    int n = 35;
+    Outcome p = Highpass.indicator(
+        new double[][] {java.util.Arrays.copyOfRange(close, 0, n)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {java.util.Arrays.copyOfRange(close, n, 40)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued highpass values
+        }
+    }
+    ```
+
+=== "Python"
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([
+        81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+        85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+        88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+        90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20,
+    ], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.highpass.indicator([close], [20.0])
+    print("Highpass(20):", outputs[0])
+
+    # State continuation
+    partial = close[:-5]
+    outputs2, state = tulip_rs.indicators.highpass.indicator([partial], [20.0])
+    rest = close[-5:]
+    continued = state.batch_indicator([rest])
+    print("Continued Highpass:", continued[0])
     ```
 
 === "Node.js"
@@ -199,70 +229,9 @@ Removes low-frequency trend components from price by applying Ehlers' two-pole h
     }
     ```
 
-=== "Python"
-
-    **By assets** — same period applied to N assets in parallel (must be 2, 4, 8, or 16):
-
-    ```python
-    import numpy as np
-    import tulip_rs
-
-    close = np.array([
-        81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
-        85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
-        88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
-        90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20,
-    ], dtype=np.float64)
-
-    simd_inputs = [[close], [close + 5.0], [close - 3.0], [close * 1.02]]
-    outputs_list, states = tulip_rs.indicators.highpass.simd_by_assets(simd_inputs, [20.0])
-    for i, out in enumerate(outputs_list):
-        print(f"Asset {i + 1}: {out[0]}")
-    ```
-
-    **By options** — same asset, N different periods in parallel:
-
-    ```python
-    import numpy as np
-    import tulip_rs
-
-    close = np.array([
-        81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
-        85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
-        88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
-        90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20,
-    ], dtype=np.float64)
-
-    simd_options = [[10.0], [20.0], [30.0], [40.0]]
-    outputs_list, states = tulip_rs.indicators.highpass.simd_by_options([close], simd_options)
-    for i, out in enumerate(outputs_list):
-        print(f"Period set {i + 1}: {out[0]}")
-    ```
-
-=== "Node.js"
-
-    ```javascript
-    const simdInputs = [
-        [close.slice()],
-        [close.map(v => v + 5.0)],
-        [close.map(v => v - 3.0)],
-        [close.map(v => v * 1.02)],
-    ];
-    const [results] = ti.highpass.simdByAssets(simdInputs, [20]);
-    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
-    ```
-
-    **By options** — same asset, 4 different periods in parallel:
-
-    ```javascript
-    const simdOptions = [[10], [20], [30], [40]];
-    const [results] = ti.highpass.simdByOptions([close], simdOptions);
-    results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]}:`, out[0]));
-    ```
-
 === "C"
 
-    **By assets** — same period applied to 4 assets in one call (N must be 2/4/8/16):
+    **By assets** — same options applied to 4 assets in one call (N must be 2/4/8/16):
 
     ```c
     double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
@@ -347,4 +316,95 @@ Removes low-frequency trend components from price by applying Ehlers' two-pole h
         fmt.Printf("Period set %d: %v\n", i+1, lanes[0])
     }
     sim.Close()
+    ```
+
+=== "Java"
+
+    **By assets** — same period applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Highpass;
+
+    double[] a1 = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] a2 = {86.59, 86.06, 87.87, 88.00, 88.61, 88.15, 87.84, 88.99, 89.55, 89.36};
+    double[] a3 = {78.59, 78.06, 79.87, 80.00, 80.61, 80.15, 79.84, 80.99, 81.55, 81.36};
+    double[] a4 = {83.22, 82.68, 84.53, 84.66, 85.28, 84.81, 84.50, 85.67, 86.24, 86.05};
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{a1}, {a2}, {a3}, {a4}};
+    try (SimdResult sim = Highpass.simdByAssets(assets, new double[] {20.0}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));}
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Highpass;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    try (SimdResult sim = Highpass.simdByOptions(new double[][] {close},
+            new double[][] {{10}, {20}, {30}, {40}}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Period set %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }
+    ```
+
+=== "Python"
+
+    **By assets** — same period applied to N assets in parallel (must be 2, 4, 8, or 16):
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([
+        81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+        85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+        88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+        90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20,
+    ], dtype=np.float64)
+
+    simd_inputs = [[close], [close + 5.0], [close - 3.0], [close * 1.02]]
+    outputs_list, states = tulip_rs.indicators.highpass.simd_by_assets(simd_inputs, [20.0])
+    for i, out in enumerate(outputs_list):
+        print(f"Asset {i + 1}: {out[0]}")
+    ```
+
+    **By options** — same asset, N different periods in parallel:
+
+    ```python
+    simd_options = [[10.0], [20.0], [30.0], [40.0]]
+    outputs_list, states = tulip_rs.indicators.highpass.simd_by_options([close], simd_options)
+    for i, out in enumerate(outputs_list):
+        print(f"Period set {i + 1}: {out[0]}")
+    ```
+
+=== "Node.js"
+
+    ```javascript
+    const simdInputs = [
+        [close.slice()],
+        [close.map(v => v + 5.0)],
+        [close.map(v => v - 3.0)],
+        [close.map(v => v * 1.02)],
+    ];
+    const [results] = ti.highpass.simdByAssets(simdInputs, [20]);
+    results.forEach((out, i) => console.log(`Asset ${i + 1}:`, out[0]));
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```javascript
+    const simdOptions = [[10], [20], [30], [40]];
+    const [results] = ti.highpass.simdByOptions([close], simdOptions);
+    results.forEach((out, i) => console.log(`Period ${simdOptions[i][0]}:`, out[0]));
     ```

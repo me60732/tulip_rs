@@ -107,6 +107,45 @@ Identifies trend direction and strength. VM+ = |high − prev_low|, VM− = |low
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Vortex;
+
+    double[] high  = {82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] low   = {81.29, 80.64, 81.31, 82.65, 83.07,
+                      83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] options = {14.0}; // period
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Vortex.indicator(new double[][] {high, low, close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // VI+ values
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // VI- values
+    }
+
+    // Partial computation + state continuation.
+    int n = 8;
+    Outcome p = Vortex.indicator(new double[][] {
+        java.util.Arrays.copyOfRange(high, 0, n),
+        java.util.Arrays.copyOfRange(low, 0, n),
+        java.util.Arrays.copyOfRange(close, 0, n)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(high, n, 10),
+            java.util.Arrays.copyOfRange(low, n, 10),
+            java.util.Arrays.copyOfRange(close, n, 10)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // VI+ continued
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(1))); // VI- continued
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -237,8 +276,10 @@ Identifies trend direction and strength. VM+ = |high − prev_low|, VM− = |low
     import "github.com/me60732/tulip_rs_go/indicators"
 
     close := []float64{81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36}
-    high := close.iter().map(|x| x + 1.0).collect::<Vec<_>>();
-    low := close.iter().map(|x| x - 1.0).collect::<Vec<_>()};
+    high := []float64{82.59, 82.06, 83.87, 84.00, 84.61,
+                      84.15, 83.84, 84.99, 85.55, 85.36};
+    low := []float64{80.59, 80.06, 81.87, 82.00, 82.61,
+                     82.15, 81.84, 82.99, 83.55, 83.36};
     options := []float64{14.0} // period
 
     // request the optional tr output (mask order matches optional_outputs)
@@ -255,6 +296,22 @@ Identifies trend direction and strength. VM+ = |high − prev_low|, VM− = |low
 
     res.Close()
     st.Close()
+    ```
+
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Vortex;
+
+    // (high/low/close series as in the Basic tab)
+    boolean[] mask = {true}; // tr
+    Outcome oc = Vortex.indicator(new double[][] {high, low, close}, new double[] {14.0}, mask);
+    try (Result res = oc.result()) {
+        // row 0 = vi_up (primary), row 1 = vi_down (primary), row 2 = tr (optional — requested)
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(2))); // tr
+    }
+    oc.state().close();
     ```
 
 === "Python"
@@ -420,6 +477,44 @@ Identifies trend direction and strength. VM+ = |high − prev_low|, VM− = |low
         fmt.Printf("Period %d VI-: %v\n", i+1, lanes[1])
     }
     sim2.Close()
+    ```
+
+=== "Java"
+
+    **By assets** — same options applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Vortex;
+
+    // Each entry lists one asset's input series (h1..c4 as in the C tab).
+    double[][][] assets = {{h1, l1, c1}, {h2, l2, c2}, {h3, l3, c3}, {h4, l4, c4}};
+    try (SimdResult sim = Vortex.simdByAssets(assets, new double[] {14.0}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d VI+: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+            System.out.printf("Asset %d VI-: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 1)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Vortex;
+
+    // (high/low/close series as in the Basic tab)
+    try (SimdResult sim = Vortex.simdByOptions(new double[][] {high, low, close},
+            new double[][] {{7.0}, {14.0}, {21.0}, {28.0}}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Period %d VI+: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+            System.out.printf("Period %d VI-: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 1)));
+        }
+    }
     ```
 
 === "Python"

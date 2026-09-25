@@ -28,28 +28,6 @@ Measures how efficiently price moves in one direction over `period` bars; values
     println!("Continued EF: {:?}", continued[0]);
     ```
 
-=== "Python"
-
-    ```python
-    import numpy as np
-    import tulip_rs
-
-    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
-                      83.15, 82.84, 83.99, 84.55, 84.36,
-                      85.53, 86.54, 86.89, 87.77, 87.29], dtype=np.float64)
-
-    outputs, state = tulip_rs.indicators.ef.indicator([close], [5.0])
-    print("EF(5):", outputs[0])
-
-    # State continuation
-    n = len(close) - 5
-    outputs2, state = tulip_rs.indicators.ef.indicator([close[:n]], [5.0])
-    print("Partial EF:", outputs2[0])
-
-    continued = state.batch_indicator([close[n:]])
-    print("Continued EF:", continued[0])
-    ```
-
 === "C"
 
     ```c
@@ -98,6 +76,57 @@ Measures how efficiently price moves in one direction over `period` bars; values
     fmt.Println(batch.Rows[0]) // continued EF values
     batch.Close()
     st2.Close()
+    ```
+
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Ef;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] options = {5.0}; // period
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Ef.indicator(new double[][] {close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // EF(5) values
+    }
+
+    // Partial computation + state continuation.
+    int n = 8;
+    Outcome p = Ef.indicator(
+        new double[][] {java.util.Arrays.copyOfRange(close, 0, n)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(
+            new double[][] {java.util.Arrays.copyOfRange(close, n, 10)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued EF
+        }
+    }
+    ```
+
+=== "Python"
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.ef.indicator([close], [5.0])
+    print("EF(5):", outputs[0])
+
+    # State continuation
+    n = len(close) - 5
+    outputs2, state = tulip_rs.indicators.ef.indicator([close[:n]], [5.0])
+    print("Partial EF:", outputs2[0])
+
+    continued = state.batch_indicator([close[n:]])
+    print("Continued EF:", continued[0])
     ```
 
 === "Node.js"
@@ -189,36 +218,9 @@ Measures how efficiently price moves in one direction over `period` bars; values
     }
     ```
 
-=== "Python"
-
-    **By assets** — same period applied to N assets in parallel (must be 2, 4, 8, or 16):
-
-    ```python
-    import numpy as np
-    import tulip_rs
-
-    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
-                      83.15, 82.84, 83.99, 84.55, 84.36,
-                      85.53, 86.54, 86.89, 87.77, 87.29], dtype=np.float64)
-
-    simd_inputs = [[close], [close + 5.0], [close - 5.0], [close * 1.02]]
-    outputs_list, states = tulip_rs.indicators.ef.simd_by_assets(simd_inputs, [5.0])
-    for i, out in enumerate(outputs_list):
-        print(f"Asset {i + 1}: {out[0]}")
-    ```
-
-    **By options** — same asset, N different periods in parallel:
-
-    ```python
-    simd_options = [[3.0], [5.0], [7.0], [10.0]]
-    outputs_list, states = tulip_rs.indicators.ef.simd_by_options([close], simd_options)
-    for i, out in enumerate(outputs_list):
-        print(f"Period set {i + 1}: {out[0]}")
-    ```
-
 === "C"
 
-    **By assets** — same period applied to 4 assets in one call (N must be 2/4/8/16):
+    **By assets** — same options applied to 4 assets in one call (N must be 2/4/8/16):
 
     ```c
     double a1[] = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
@@ -275,6 +277,58 @@ Measures how efficiently price moves in one direction over `period` bars; values
     ```
 
     By-options isn't offered for this indicator.
+
+=== "Java"
+
+    **By assets** — same period applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Ef;
+
+    double[] a1 = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] a2 = {72.10, 72.85, 73.40, 73.00, 74.20, 74.85, 75.10, 75.60, 76.00, 76.50};
+    double[] a3 = {55.30, 55.80, 56.10, 56.40, 56.90, 57.20, 57.50, 57.80, 58.10, 58.40};
+    double[] a4 = {100.1, 100.5, 101.0, 101.3, 101.8, 102.0, 102.5, 103.0, 103.3, 103.8};
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{a1}, {a2}, {a3}, {a4}};
+    try (SimdResult sim = Ef.simdByAssets(assets, new double[] {5.0}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0))); // ef
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    By-options isn't offered for this indicator.
+
+=== "Python"
+
+    **By assets** — same period applied to N assets in parallel (must be 2, 4, 8, or 16):
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29], dtype=np.float64)
+
+    simd_inputs = [[close], [close + 5.0], [close - 5.0], [close * 1.02]]
+    outputs_list, states = tulip_rs.indicators.ef.simd_by_assets(simd_inputs, [5.0])
+    for i, out in enumerate(outputs_list):
+        print(f"Asset {i + 1}: {out[0]}")
+    ```
+
+    **By options** — same asset, N different periods in parallel:
+
+    ```python
+    simd_options = [[3.0], [5.0], [7.0], [10.0]]
+    outputs_list, states = tulip_rs.indicators.ef.simd_by_options([close], simd_options)
+    for i, out in enumerate(outputs_list):
+        print(f"Period set {i + 1}: {out[0]}")
+    ```
 
 === "Node.js"
 

@@ -92,6 +92,40 @@ Converts prices into a Gaussian normal distribution. Sharp moves in the Fisher v
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Fisher;
+
+    double[] high = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                     85.90, 86.58, 86.98, 88.00, 87.87};
+    double[] low = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                    84.03, 85.39, 85.76, 87.17, 87.01};
+    double[] options = {10.0};
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Fisher.indicator(new double[][] {high, low}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // Fisher values
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // Signal values
+    }
+
+    // Partial computation + state continuation.
+    Outcome p = Fisher.indicator(new double[][] {
+        java.util.Arrays.copyOfRange(high, 0, 10),
+        java.util.Arrays.copyOfRange(low, 0, 10)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(high, 10, 15),
+            java.util.Arrays.copyOfRange(low, 10, 15)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued Fisher values
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(1))); // continued Signal values
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -290,6 +324,57 @@ Converts prices into a Gaussian normal distribution. Sharp moves in the Fisher v
         fmt.Printf("Option set %d Signal: %v\n", i+1, lanes[1])
     }
     sim2.Close()
+    ```
+
+=== "Java"
+
+    **By assets** — same period applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Fisher;
+
+    double[] h1 = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                   85.90, 86.58, 86.98, 88.00, 87.87};
+    double[] l1 = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                   84.03, 85.39, 85.76, 87.17, 87.01};
+
+    double[] h2 = h1.clone(); double[] l2 = l1.clone();
+    double[] h3 = h1.clone(); double[] l3 = l1.clone();
+    double[] h4 = h1.clone(); double[] l4 = l1.clone();
+
+    // One entry per asset; each asset lists its INPUTS series (high, low).
+    double[][][] assets = {{h1, l1}, {h2, l2}, {h3, l3}, {h4, l4}};
+    try (SimdResult sim = Fisher.simdByAssets(assets, new double[] {10.0}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d Fisher: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0))); // Fisher values
+            System.out.printf("Asset %d Signal: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 1))); // Signal values
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Fisher;
+
+    double[] high = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                     85.90, 86.58, 86.98, 88.00, 87.87};
+    double[] low = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                    84.03, 85.39, 85.76, 87.17, 87.01};
+
+    try (SimdResult sim = Fisher.simdByOptions(new double[][] {high, low},
+            new double[][] {{5}, {10}, {14}, {20}}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Option set %d Fisher: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0))); // Fisher values
+            System.out.printf("Option set %d Signal: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 1))); // Signal values
+        }
+    }
     ```
 
 === "Python"

@@ -112,6 +112,47 @@ A trailing stop-loss indicator that dynamically adjusts with volatility. The lon
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Chandelierexit;
+
+    double[] high  = {82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00,
+                      85.90, 86.58, 86.98, 88.00, 87.87};
+    double[] low   = {81.29, 80.64, 81.31, 82.65, 83.07,
+                      83.11, 82.49, 82.30, 84.15, 84.11,
+                      84.03, 85.39, 85.76, 87.17, 87.01};
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29};
+    double[] options = {14.0, 2.0}; // period, step
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Chandelierexit.indicator(new double[][] {high, low, close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // long stop values
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // short stop values
+    }
+
+    // Partial computation + state continuation.
+    Outcome p = Chandelierexit.indicator(
+        new double[][] {
+            java.util.Arrays.copyOfRange(high, 0, 8),
+            java.util.Arrays.copyOfRange(low, 0, 8),
+            java.util.Arrays.copyOfRange(close, 0, 8)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(high, 8, 15),
+            java.util.Arrays.copyOfRange(low, 8, 15),
+            java.util.Arrays.copyOfRange(close, 8, 15)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued long stop
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -215,33 +256,9 @@ A trailing stop-loss indicator that dynamically adjusts with volatility. The lon
     // min and max not requested — omitted from outputs
     ```
 
-=== "Python"
-
-    ```python
-    import numpy as np
-    import tulip_rs
-
-    high  = np.array([82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
-                      85.90, 86.58, 86.98, 88.00, 87.87], dtype=np.float64)
-    low   = np.array([81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
-                      84.03, 85.39, 85.76, 87.17, 87.01], dtype=np.float64)
-    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
-                      85.53, 86.54, 86.89, 87.77, 87.29], dtype=np.float64)
-
-    outputs, state = tulip_rs.indicators.chandelierexit.indicator(
-        [high, low, close], [14.0, 2.0],
-        optional_outputs=[True, True, False, False],
-    )
-
-    long  = outputs[0]  # long (primary)
-    short = outputs[1]  # short (primary)
-    atr   = outputs[2]  # atr (optional — requested)
-    tr    = outputs[3]  # tr (optional — requested)
-    # min and max not requested — omitted from outputs
-    ```
-
 === "C"
 
+    `chandelierexit` exposes 4 optional outputs: `atr`, `tr`, `min`, `max`. Pass a boolean mask as the third argument.
     `chandelierexit` exposes 4 optional outputs: `atr`, `tr`, `min`, `max`. The inputs are [high, low, close] and options is [period, step].
 
     ```c
@@ -304,6 +321,70 @@ A trailing stop-loss indicator that dynamically adjusts with volatility. The lon
     fmt.Println(fullRes.Rows[5]) // max (optional 3)
     fullRes.Close()
     fullSt.Close()
+    ```
+
+=== "Java"
+
+    `chandelierexit` exposes 4 optional outputs: `atr`, `tr`, `min`, `max`. Pass a boolean mask as the third argument — one `boolean` per optional output, in order.
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Chandelierexit;
+
+    double[] high  = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                      85.90, 86.58, 86.98, 88.00, 87.87};
+    double[] low   = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                      84.03, 85.39, 85.76, 87.17, 87.01};
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29};
+    double[] options = {14.0, 2.0}; // period, step
+
+    // Request atr and tr only (skip min and max)
+    boolean[] mask = {true, true, false, false}; // atr, tr, min, max
+    Outcome oc = Chandelierexit.indicator(new double[][] {high, low, close}, options, mask);
+    try (Result res = oc.result()) {
+        // row 0 = long (primary), row 1 = short (primary),
+        // row 2 = atr (optional 0 — requested), row 3 = tr (optional 1 — requested)
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // long
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // short
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(2))); // atr
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(3))); // tr
+    }
+    oc.state().close();
+
+    // Request all optional outputs
+    boolean[] mask_all = {true, true, true, true};
+    Outcome fullOc = Chandelierexit.indicator(new double[][] {high, low, close}, options, mask_all);
+    try (Result fullRes = fullOc.result()) {
+        System.out.println(java.util.Arrays.toString(fullRes.toDoubleArray(4))); // min
+        System.out.println(java.util.Arrays.toString(fullRes.toDoubleArray(5))); // max
+    }
+    fullOc.state().close();
+    ```
+
+=== "Python"
+
+    ```python
+    import numpy as np
+    import tulip_rs
+
+    high  = np.array([82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                      85.90, 86.58, 86.98, 88.00, 87.87], dtype=np.float64)
+    low   = np.array([81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                      84.03, 85.39, 85.76, 87.17, 87.01], dtype=np.float64)
+    close = np.array([81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29], dtype=np.float64)
+
+    outputs, state = tulip_rs.indicators.chandelierexit.indicator(
+        [high, low, close], [14.0, 2.0],
+        optional_outputs=[True, True, False, False],
+    )
+
+    long  = outputs[0]  # long (primary)
+    short = outputs[1]  # short (primary)
+    atr   = outputs[2]  # atr (optional — requested)
+    tr    = outputs[3]  # tr (optional — requested)
+    # min and max not requested — omitted from outputs
     ```
 
 === "Node.js"
@@ -466,6 +547,72 @@ A trailing stop-loss indicator that dynamically adjusts with volatility. The lon
         fmt.Printf("Period=%d step=%d: long=%v\n", i+1, lanes[0][0], lanes[0])
     }
     sim2.Close()
+    ```
+
+=== "Java"
+
+    **By assets** — same options applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Chandelierexit;
+
+    double[] a1_high = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                        85.90, 86.58, 86.98, 88.00, 87.87};
+    double[] a1_low = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                       84.03, 85.39, 85.76, 87.17, 87.01};
+    double[] a1_close = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                         85.53, 86.54, 86.89, 87.77, 87.29};
+    double[] a2_high = {85.0, 84.5, 86.0, 86.3, 86.9, 87.0, 86.5, 87.0, 87.5, 87.8,
+                        88.0, 88.5, 88.9, 89.0, 88.8};
+    double[] a2_low = {84.0, 83.5, 85.0, 85.3, 85.9, 86.0, 85.5, 86.0, 86.5, 86.8,
+                       87.0, 87.5, 87.9, 88.0, 87.8};
+    double[] a2_close = {84.5, 84.0, 85.5, 85.8, 86.4, 86.5, 86.0, 86.5, 87.0, 87.3,
+                         88.0, 88.5, 88.9, 89.0, 88.8};
+    double[] a3_high = {90.15, 90.89, 92.03, 92.30, 92.85, 92.90, 92.33, 93.30, 93.84, 94.00,
+                        94.90, 95.58, 95.98, 96.00, 95.87};
+    double[] a3_low = {89.29, 89.64, 90.31, 90.65, 91.07, 91.11, 90.49, 90.30, 92.15, 92.11,
+                       92.03, 93.39, 93.76, 94.17, 94.01};
+    double[] a3_close = {89.59, 89.06, 90.87, 91.00, 91.61, 91.15, 90.84, 91.99, 92.55, 92.36,
+                         93.53, 94.54, 94.89, 95.77, 95.29};
+    double[] a4_high = {100.15, 100.89, 102.03, 102.30, 102.85, 102.90, 102.33, 103.30, 103.84, 104.00,
+                        104.90, 105.58, 105.98, 106.00, 105.87};
+    double[] a4_low = {99.29, 99.64, 100.31, 100.65, 101.07, 101.11, 100.49, 100.30, 102.15, 102.11,
+                       102.03, 103.39, 103.76, 104.17, 104.01};
+    double[] a4_close = {99.59, 99.06, 100.87, 101.00, 101.61, 101.15, 100.84, 101.99, 102.55, 102.36,
+                         103.53, 104.54, 104.89, 105.77, 105.29};
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{a1_high, a1_low, a1_close}, {a2_high, a2_low, a2_close},
+                           {a3_high, a3_low, a3_close}, {a4_high, a4_low, a4_close}};
+    try (SimdResult sim = Chandelierexit.simdByAssets(assets, new double[] {14.0, 2.0}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d: long=%s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    **By options** — same asset, N option sets in parallel:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Chandelierexit;
+
+    double[] high = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                     85.90, 86.58, 86.98, 88.00, 87.87};
+    double[] low = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                    84.03, 85.39, 85.76, 87.17, 87.01};
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29};
+
+    try (SimdResult sim = Chandelierexit.simdByOptions(new double[][] {high, low, close},
+            new double[][] {{10.0, 2.0}, {14.0, 2.0}, {20.0, 2.0}, {30.0, 3.0}}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Period=%d step=%d: long=%s%n", i + 1,
+                sim.toDoubleArray(i, 0)[0], java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }
     ```
 
 === "Python"

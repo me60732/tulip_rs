@@ -60,6 +60,29 @@
 
     The module path is `github.com/me60732/tulip_rs_go` (import `github.com/me60732/tulip_rs_go/indicators`). cgo builds can't run download hooks, so `go install` is not a supported entry point — clone and bootstrap instead. The linker searches `ffi/lib/` (prebuilt) first, then `../tulip_rs_ffi/target/{release,debug}` (source build), with matching rpaths; binaries are not relocatable outside the checkout (dev-mode caveat). Everything under `ffi/` is generated and gitignored.
 
+=== "Java"
+
+    **From Maven Central** — JDK 22+ (FFM API is final from 22). The native library ships inside the dependency (platform classifier jar with a portable-baseline binary, extracted automatically at first load):
+
+    ```xml
+    <dependency>
+      <groupId>io.github.me60732</groupId>
+      <artifactId>tulip-rs-java</artifactId>
+      <version>0.2.10</version>
+    </dependency>
+    ```
+
+    Gradle: `implementation 'io.github.me60732:tulip-rs-java:0.2.10'`
+
+    **Build from source (CPU-tuned)** — mirrors the other bindings; requires a Rust toolchain:
+
+    ```sh
+    git clone https://github.com/me60732/tulip_rs_java
+    cd tulip_rs_java
+    ./bootstrap.sh --source    # clones ../tulip_rs_ffi, builds with -C target-cpu=native
+    ./build.sh                 # -> out/ (library) + out-examples/
+    ```
+
 === "Python"
 
     **From source (recommended)** — compiling on your machine with `-C target-cpu=native` lets LLVM generate code for every instruction set your CPU supports — this speeds up the scalar indicators as much as the SIMD ones, and is measurably faster than the generic prebuilt wheels:
@@ -238,6 +261,46 @@ Every indicator in TulipRS follows the same universal signature. Once you unders
     defer br.Close()
     ```
 
+=== "Java"
+
+    Every indicator follows the same pattern:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.<name>;
+    ```
+
+    - `inputs` — one `double[]` per input series (e.g. `[close]` for SMA; `[high, low, close]` for ADX).
+    - `options` — indicator parameters as `double[]`, in the order documented for each indicator.
+    - `optionalOutputs` — pass `null` unless you specifically want to suppress optional output series.
+    - The return value is an `Outcome` record:
+        - `result()` — zero-copy read-only views of output rows (valid until `close()`).
+        - `state()` — streaming state for appending new bars via `batch()`.
+    - Memory management:
+        - Use try-with-resources to close `Result` and `State` (idempotent, Cleaner backstop).
+
+    Streaming pattern:
+
+    ```java
+    // Seed with initial data
+    Outcome oc = <name>.indicator(inputs, options, null);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // primary output
+    }
+
+    // Append new bars
+    int n = 8;
+    Outcome p = <name>.indicator(
+        java.util.Arrays.copyOfRange(inputs[0], 0, n), options, null);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(inputs[0], n, len)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -336,6 +399,22 @@ Every indicator in TulipRS follows the same universal signature. Once you unders
 
     smaValues := tulip.AsFloat64(res.Rows[0]) // zero-copy view → plain float64
     fmt.Println(smaValues)                     // SMA(5) values
+    ```
+
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Sma;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    double[] options = {5.0}; // period
+    Outcome oc = Sma.indicator(new double[][] {close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // SMA(5) values
+    }
     ```
 
 === "Python"
@@ -453,6 +532,25 @@ Every indicator in TulipRS follows the same universal signature. Once you unders
     fmt.Println("  macd_line:", macdLine)
     fmt.Println("  signal:", signal)
     fmt.Println("  histogram:", histogram)
+    ```
+
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Macd;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    double[] options = {12.0, 26.0, 9.0}; // fast_period, slow_period, signal_period
+    Outcome oc = Macd.indicator(new double[][] {close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        for (int i = 0; i < res.numOutputs(); i++) {
+            System.out.println("  " + (i == 0 ? "macd_line" : i == 1 ? "signal" : "histogram") + ": "
+                + java.util.Arrays.toString(res.toDoubleArray(i)));
+        }
+    }
     ```
 
 === "Python"
@@ -574,6 +672,37 @@ Every indicator in TulipRS follows the same universal signature. Once you unders
     fmt.Println("  tr:", tr)
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Adx;
+
+    double[] high = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] low = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+
+    double[] options = {14.0}; // period
+    Outcome oc = Adx.indicator(new double[][] {high, low, close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println("ADX(14): " + java.util.Arrays.toString(res.toDoubleArray(0)));
+    }
+
+    // Optional outputs example (Rust/C tabs demo optional_outputs mask):
+    boolean[] mask = {true, true, true}; // dx, atr, tr
+    Outcome oc2 = Adx.indicator(new double[][] {
+        java.util.Arrays.copyOfRange(high, 0, 5),
+        java.util.Arrays.copyOfRange(low, 0, 5),
+        java.util.Arrays.copyOfRange(close, 0, 5)}, options, mask);
+    try (Result res2 = oc2.result()) {
+        System.out.println("ADX with optional outputs (5 bars):");
+        System.out.println("  dx: " + java.util.Arrays.toString(res2.toDoubleArray(1)));
+        System.out.println("  atr: " + java.util.Arrays.toString(res2.toDoubleArray(2)));
+        System.out.println("  tr: " + java.util.Arrays.toString(res2.toDoubleArray(3)));
+    }
+    oc2.state().close();
+    ```
+
 === "Python"
 
     ```python
@@ -663,6 +792,33 @@ Every indicator in TulipRS follows the same universal signature. Once you unders
     | `ErrNotEnoughData` | Input length shorter than minimum required |
     | `ErrInvalidOptions` | Invalid option values (e.g. period < 1) |
     | `ErrInvalidIndicatorState` | State pointer is invalid or has been freed |
+
+=== "Java"
+
+    Every FFM call that returns a non-OK error code throws an `IndicatorException`, a RuntimeException with the error code in its message:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Sma;
+
+    try {
+        double[] close = {81.59, 81.06, 82.87, 83.00, 83.61};
+        double[] options = {5.0};
+        Outcome oc = Sma.indicator(new double[][] {close}, options);
+        try (Result res = oc.result(); State st = oc.state()) {
+            System.out.println(java.util.Arrays.toString(res.toDoubleArray(0)));
+        }
+    } catch (IndicatorException e) {
+        System.err.println("tulip error: " + e.code + " - " + e.getMessage());
+    }
+    ```
+
+    | Variant | Cause |
+    |---|---|
+    | `INVALID_INPUTS` (1) | NULL/empty series or mismatched lengths |
+    | `NOT_ENOUGH_DATA` (2) | Input length shorter than minimum required |
+    | `INVALID_OPTIONS` (3) | Invalid option values (e.g. period < 1) |
+    | `INVALID_INDICATOR_STATE` (4) | State pointer is invalid or has been freed |
 
 === "Python"
 

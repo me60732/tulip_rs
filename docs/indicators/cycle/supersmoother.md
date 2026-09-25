@@ -89,6 +89,36 @@ A two-pole Butterworth filter with no phase lag that provides smoother output th
     state2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Supersmoother;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                      88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+    double[] options = {10.0}; // period
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Supersmoother.indicator(new double[][] {close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // Super Smoother values
+    }
+
+    // Partial computation + state continuation.
+    Outcome p = Supersmoother.indicator(
+        new double[][] {java.util.Arrays.copyOfRange(close, 0, 35)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(
+            new double[][] {java.util.Arrays.copyOfRange(close, 35, 40)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued Super Smoother values
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -280,6 +310,59 @@ A two-pole Butterworth filter with no phase lag that provides smoother output th
         fmt.Printf("Period set %d: %v\n", i+1, lanes[0])
     }
     sim.Close()
+    ```
+
+=== "Java"
+
+    **By assets** — same period applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Supersmoother;
+
+    double[] a1 = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                   88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                   90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+    double[] a2 = {86.59, 86.06, 87.87, 88.00, 88.61, 88.15, 87.84, 88.99, 89.55, 89.36,
+                   90.53, 91.54, 91.89, 92.77, 92.29, 92.50, 93.10, 93.50, 92.90, 93.20,
+                   93.80, 94.10, 93.70, 94.30, 94.70, 95.10, 94.50, 95.20, 95.80, 96.10,
+                   95.50, 96.20, 96.80, 97.10, 96.50, 97.20, 97.80, 98.10, 97.50, 98.20};
+    double[] a3 = {78.59, 78.06, 79.87, 80.00, 80.61, 80.15, 79.84, 80.99, 81.55, 81.36,
+                   82.53, 83.54, 83.89, 84.77, 84.29, 84.50, 85.10, 85.50, 84.90, 85.20,
+                   85.80, 86.10, 85.70, 86.30, 86.70, 87.10, 86.50, 87.20, 87.80, 88.10,
+                   87.50, 88.20, 88.80, 89.10, 88.50, 89.20, 89.80, 90.10, 89.50, 90.20};
+    double[] a4 = {83.22, 82.68, 84.53, 84.66, 85.28, 84.81, 84.50, 85.67, 86.24, 86.05,
+                   87.23, 88.34, 88.69, 89.77, 89.29, 89.50, 90.10, 90.50, 89.90, 90.20,
+                   90.80, 91.10, 90.70, 91.30, 91.70, 92.10, 91.50, 92.20, 92.80, 93.10,
+                   92.50, 93.20, 93.80, 94.10, 93.50, 94.20, 94.80, 95.10, 94.50, 95.20};
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{a1}, {a2}, {a3}, {a4}};
+    try (SimdResult sim = Supersmoother.simdByAssets(assets, new double[] {10.0})) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    **By options** — same asset, 4 different periods in parallel:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Supersmoother;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    try (SimdResult sim = Supersmoother.simdByOptions(new double[][] {close},
+            new double[][] {{5}, {10}, {14}, {20}}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Period set %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }
     ```
 
 === "Python"

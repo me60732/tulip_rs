@@ -94,6 +94,39 @@ Shows the relationship between two EMAs of different periods. The histogram visu
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Macd;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] options = {12.0, 26.0, 9.0}; // fastperiod,slowperiod,signalperiod
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Macd.indicator(new double[][] {close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // MACD line values
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // Signal line values
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(2))); // Histogram values
+    }
+
+    // Partial computation + state continuation.
+    int n = 8;
+    Outcome p = Macd.indicator(new double[][] {
+        java.util.Arrays.copyOfRange(close, 0, n)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(close, n, 10)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued MACD line values
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(1))); // continued Signal line values
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(2))); // continued Histogram values
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -223,6 +256,25 @@ Shows the relationship between two EMAs of different periods. The histogram visu
     fmt.Println(res.Rows[4]) // long_ema (optional — requested)
     res.Close()
     st.Close()
+    ```
+
+=== "Java"
+
+    `macd` exposes 2 optional outputs: `short_ema`, `long_ema`. Pass a boolean mask as the third argument — one `boolean` per optional output, in order.
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Macd;
+
+    // (close series and options as in the Basic tab)
+    boolean[] mask = {true, true}; // short_ema, long_ema
+    Outcome oc = Macd.indicator(new double[][] {close}, new double[] {12.0, 26.0, 9.0}, mask);
+    try (Result res = oc.result()) {
+        // row 0 = macd_line, row 1 = signal_line, row 2 = histogram;
+        // rows 3 = short_ema, row 4 = long_ema (optional — requested)
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // macd_line
+    }
+    oc.state().close();
     ```
 
 === "Python"
@@ -388,6 +440,8 @@ Shows the relationship between two EMAs of different periods. The histogram visu
     **By options** — same asset, 4 different option sets in parallel:
 
     ```go
+    import "github.com/me60732/tulip_rs_go/indicators"
+
     close := []float64{81.59, 81.06, 82.87, 83.00, 83.61,
                        83.15, 82.84, 83.99, 84.55, 84.36}
 
@@ -398,6 +452,53 @@ Shows the relationship between two EMAs of different periods. The histogram visu
         fmt.Printf("Option set %d Histogram: %v\n", i+1, lanes[2])
     }
     sim2.Close()
+    ```
+
+=== "Java"
+
+    **By assets** — same options applied to 2 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Macd;
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[] a1 = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] a2 = a1; // reuse the same data for asset 2
+
+    double[][][] assets = {{a1}, {a2}};
+    try (SimdResult sim = Macd.simdByAssets(assets, new double[] {12.0, 26.0, 9.0}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d MACD: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+            System.out.printf("Asset %d Signal: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 1)));
+            System.out.printf("Asset %d Histogram: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 2)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Macd;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    try (SimdResult sim = Macd.simdByOptions(new double[][] {close},
+            new double[][] {{10, 20, 5}, {12, 26, 9}, {15, 30, 8}, {20, 40, 10}}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Option set %d MACD: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+            System.out.printf("Option set %d Signal: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 1)));
+            System.out.printf("Option set %d Histogram: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 2)));
+        }
+    }
     ```
 
 === "Python"

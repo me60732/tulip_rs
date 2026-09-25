@@ -118,6 +118,32 @@ The candlestick engine accepts three options in the following order:
     }
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Candlestick;
+
+    double[] open  = {81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25};
+    double[] high  = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] low   = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+
+    double[] options = {5.0, 1.0, 1.0}; // candle_period, trend_period, trend_signal_period
+
+    CandleOutcome oc = Candlestick.indicator(new double[][] {open, high, low, close}, options);
+    try (CandleResult res = oc.result(); CandleState st = oc.state()) {
+        for (int bar = 0; bar < res.numBars(); bar++) {
+            String[] names = res.names(bar);
+            if (names.length > 0) {
+                System.out.printf("Bar %d: %s%n", bar, String.join(", ", names));
+            } else {
+                System.out.printf("Bar %d: None%n", bar);
+            }
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -327,6 +353,36 @@ Pass a `forecast_type` argument to return only patterns with a specific forecast
     // indicators.ForecastBullishReversalOrContinuation
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Candlestick;
+
+    double[] open  = {81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25};
+    double[] high  = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] low   = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+
+    double[] options = {5.0, 1.0, 1.0}; // candle_period, trend_period, trend_signal_period
+
+    // Only bullish reversal patterns — pass the forecast filter
+    CandleOutcome oc = Candlestick.indicator(
+        new double[][] {open, high, low, close}, options,
+        CandlePattern.FORECAST_BULLISH_REVERSAL);
+    try (CandleResult res = oc.result()) {
+        System.out.printf("Bullish-reversal-filtered detections: %d ids across %d bars%n",
+            res.totalPatterns(), res.numBars());
+    }
+
+    // Other available filter values:
+    // CandlePattern.FORECAST_BEARISH_REVERSAL
+    // CandlePattern.FORECAST_BULLISH_CONTINUATION
+    // CandlePattern.FORECAST_BEARISH_CONTINUATION
+    // CandlePattern.FORECAST_BEARISH_REVERSAL_OR_CONTINUATION
+    // CandlePattern.FORECAST_BULLISH_REVERSAL_OR_CONTINUATION
+    ```
+
 When `forecast_type` is omitted (or `None`), all matched patterns are returned regardless of their forecast direction.
 
 ---
@@ -497,6 +553,59 @@ Like every other indicator in TulipRS, the candlestick engine returns a `state` 
         }
     } else {
         fmt.Println("No patterns on new bar.")
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Candlestick;
+
+    double[] open  = {81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25};
+    double[] high  = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] low   = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+
+    double[] options = {5.0, 1.0, 1.0}; // candle_period, trend_period, trend_signal_period
+
+    // Step 1: run on historical data and capture state
+    CandleOutcome seed = Candlestick.indicator(
+        new double[][] {open, high, low, close}, options);
+    try (CandleResult seedRes = seed.result()) {
+        CandleState st = seed.state();
+        // result is closed; state stays alive for continuation
+    }
+
+    // Step 2: feed only the new bars
+    double[] newOpen  = {84.00};
+    double[] newHigh  = {84.50};
+    double[] newLow   = {83.20};
+    double[] newClose = {83.50};
+
+    // Continue without filter
+    try (CandleResult continued = st.batch(
+            new double[][] {newOpen, newHigh, newLow, newClose})) {
+        int lastBar = continued.numBars() - 1;
+        String[] names = continued.names(lastBar);
+        if (names.length > 0) {
+            System.out.printf("%s%n", String.join(", ", names));
+        } else {
+            System.out.println("No patterns on new bar.");
+        }
+    }
+
+    // Or with a forecast filter
+    try (CandleResult bullishOnly = st.batch(
+            new double[][] {newOpen, newHigh, newLow, newClose},
+            CandlePattern.FORECAST_BULLISH_REVERSAL)) {
+        int lastBar = bullishOnly.numBars() - 1;
+        String[] names = bullishOnly.names(lastBar);
+        if (names.length > 0) {
+            System.out.printf("%s%n", String.join(", ", names));
+        } else {
+            System.out.println("No patterns on new bar.");
+        }
     }
     ```
 

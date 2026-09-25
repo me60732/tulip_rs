@@ -98,6 +98,41 @@
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Wcprice;
+
+    double[] high  = {82.15, 81.89, 83.03, 83.30, 83.85,
+                      83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] low   = {81.29, 80.64, 81.31, 82.65, 83.07,
+                      83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+    double[] options = {}; // WCPRICE has no options
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Wcprice.indicator(new double[][] {high, low, close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // Weighted Close Price values
+    }
+
+    // Partial computation + state continuation.
+    Outcome p = Wcprice.indicator(
+        new double[][] {java.util.Arrays.copyOfRange(high, 0, 8),
+                        java.util.Arrays.copyOfRange(low, 0, 8),
+                        java.util.Arrays.copyOfRange(close, 0, 8)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {java.util.Arrays.copyOfRange(high, 8, 10),
+                                             java.util.Arrays.copyOfRange(low, 8, 10),
+                                             java.util.Arrays.copyOfRange(close, 8, 10)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued Weighted Close Price values
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -228,6 +263,41 @@
     ```
 
     _This indicator has no options, so SIMD by-options does not apply._
+
+=== "Java"
+
+    **By assets** — same options applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Wcprice;
+
+    double[] h1 = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00};
+    double[] l1 = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11};
+    double[] c1 = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36};
+
+    // Reuse the same data for assets 2–4 in this example
+    double[] h2 = h1;
+    double[] l2 = l1;
+    double[] c2 = c1;
+    double[] h3 = h1;
+    double[] l3 = l1;
+    double[] c3 = c1;
+    double[] h4 = h1;
+    double[] l4 = l1;
+    double[] c4 = c1;
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{h1, l1, c1}, {h2, l2, c2}, {h3, l3, c3}, {h4, l4, c4}};
+    try (SimdResult sim = Wcprice.simdByAssets(assets, new double[] {}, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    _This indicator has no options, so by-options SIMD does not apply._
 
 === "Python"
 

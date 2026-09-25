@@ -111,6 +111,33 @@ This design makes TulipRS well-suited for **streaming** and **incremental** pipe
     fmt.Println("Continued outputs[0]:", tulip.AsFloat64(continued.Rows[0]))
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Sma;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    // --- Step 1: compute on historical data, capture state ---
+    int n = 8; // process first 8 bars
+    Outcome oc = Sma.indicator(new double[][] {close}, new double[] {5.0});
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println("History outputs[0]: " + java.util.Arrays.toString(res.toDoubleArray(0)));
+    }
+
+    // --- Step 2: feed new bars via state.batch ---
+    double[] newClose = {85.53, 86.54};
+    Outcome p = Sma.indicator(new double[][] {java.util.Arrays.copyOfRange(close, 0, n)}, new double[] {5.0});
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {newClose});
+        try (br) {
+            System.out.println("Continued outputs[0]: " + java.util.Arrays.toString(br.toDoubleArray(0)));
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -266,6 +293,41 @@ For very long historical series, chunked processing lets you control memory usag
     fmt.Printf("Total output bars: %d\n", len(allSMA))
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Sma;
+
+    double[] close = /* ... very long series ... */ new double[0];
+    int chunkSize = 500;
+    double period = 5.0;
+
+    // Seed on the first chunk
+    Outcome oc = Sma.indicator(new double[][] {java.util.Arrays.copyOfRange(close, 0, chunkSize)}, new double[] {period});
+    try (Result res = oc.result(); State st = oc.state()) {
+        double[] firstChunkOutput = res.toDoubleArray(0);
+        System.out.println("First chunk output length: " + firstChunkOutput.length);
+    }
+
+    // Continue chunk by chunk
+    for (int start = chunkSize; start < close.length; start += chunkSize) {
+        int thisChunk = start + chunkSize;
+        if (thisChunk > close.length) {
+            thisChunk = close.length;
+        }
+        Outcome p = Sma.indicator(new double[][] {java.util.Arrays.copyOfRange(close, 0, chunkSize)}, new double[] {period});
+        try (Result pr = p.result(); State st = p.state()) {
+            Result br = st.batch(new double[][] {java.util.Arrays.copyOfRange(close, start, thisChunk)});
+            try (br) {
+                System.out.println("Chunk " + ((start/chunkSize)+1) + " output: " + java.util.Arrays.toString(br.toDoubleArray(0)));
+            }
+        }
+    }
+
+    System.out.println("Total output bars computed");
+    ```
+
 === "Python"
 
     ```python
@@ -405,6 +467,38 @@ State can be serialised to JSON for persistence and restored later. This is usef
         fmt.Printf("json serialize failed: %v\n", err)
     } else {
         fmt.Printf("json blob: %d bytes\n", len(jsonBlob))
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Sma;
+
+    // Serialise — Java genuinely supports both formats (C tab's limitation-warning does NOT apply)
+    Outcome oc = Sma.indicator(new double[][] {close}, new double[] {5.0});
+    try (State st = oc.state()) {
+        byte[] blob = st.serialize(Format.BINCODE); // recommended: compact, handles NaN/Inf
+        System.out.printf("bincode blob: %d bytes (indicator id 0x%08x)%n", blob.length, Sma.ID);
+
+        // Persist blob to disk / database ...
+
+        // Restore — use the indicator's deserializeState function
+        State rs = Sma.deserializeState(blob);
+        try (rs) {
+            double[] newClose = {87.10, 88.25};
+            Result br = rs.batch(new double[][] {newClose});
+            try (br) {
+                System.out.println("Continued from restored state: " + java.util.Arrays.toString(br.toDoubleArray(0)));
+            }
+        }
+
+        // FormatJSON too (human-readable; FFI rejects non-finite f64s)
+        byte[] jsonBlob = st.serialize(Format.JSON);
+        System.out.printf("json blob: %d bytes%n", jsonBlob.length);
+        String jsonStr = new String(jsonBlob, java.nio.charset.StandardCharsets.UTF_8);
+        System.out.println("JSON: " + jsonStr);
     }
     ```
 
@@ -589,6 +683,41 @@ State works identically for indicators with multiple output series. Bollinger Ba
     fmt.Println("lower_band continued:", newLower)
     fmt.Println("middle_band continued:", newMiddle)
     fmt.Println("upper_band continued:", newUpper)
+    ```
+
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Bbands;
+
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61,
+                      83.15, 82.84, 83.99, 84.55, 84.36};
+
+    double[] options = {20.0, 2.0}; // period, std_dev
+    Outcome oc = Bbands.indicator(new double[][] {close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        double[] lower  = res.toDoubleArray(0); // lower band (3 rows total)
+        double[] middle = res.toDoubleArray(1); // middle band
+        double[] upper  = res.toDoubleArray(2); // upper band
+
+        System.out.println("lower_band: " + java.util.Arrays.toString(lower));
+        System.out.println("middle_band: " + java.util.Arrays.toString(middle));
+        System.out.println("upper_band: " + java.util.Arrays.toString(upper));
+
+        // Continue — all three output series are extended together
+        double[] newClose = {85.53, 86.54};
+        Result br = st.batch(new double[][] {newClose});
+        try (br) {
+            double[] newLower  = br.toDoubleArray(0);
+            double[] newMiddle = br.toDoubleArray(1);
+            double[] newUpper  = br.toDoubleArray(2);
+
+            System.out.println("lower_band continued: " + java.util.Arrays.toString(newLower));
+            System.out.println("middle_band continued: " + java.util.Arrays.toString(newMiddle));
+            System.out.println("upper_band continued: " + java.util.Arrays.toString(newUpper));
+        }
+    }
     ```
 
 === "Python"

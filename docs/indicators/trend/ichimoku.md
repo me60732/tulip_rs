@@ -117,6 +117,52 @@ A comprehensive trend-following system that defines support/resistance, trend di
     st2.Close()
     ```
 
+=== "Java"
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Ichimoku;
+
+    double[] high  = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                      85.90, 86.58, 86.98, 88.00, 87.87, 88.20, 88.70, 89.10, 88.50, 89.00,
+                      89.60, 89.90, 89.30, 90.10, 90.50, 91.00, 90.30, 91.00, 91.60, 92.00,
+                      91.30, 92.00, 92.60, 93.00, 92.30, 93.00, 93.60, 94.00, 93.30, 94.10};
+    double[] low   = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                      84.03, 85.39, 85.76, 87.17, 87.01, 87.20, 87.80, 88.20, 87.60, 88.00,
+                      88.60, 88.90, 88.30, 89.00, 89.40, 89.80, 89.20, 89.90, 90.50, 90.80,
+                      90.20, 90.90, 91.50, 91.80, 91.20, 91.90, 92.50, 92.80, 92.20, 93.00};
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                      88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+    double[] options = {9.0, 26.0}; // short_period, long_period
+
+    // Full computation — output rows are zero-copy views, valid until close().
+    Outcome oc = Ichimoku.indicator(new double[][] {high, low, close}, options);
+    try (Result res = oc.result(); State st = oc.state()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // conversion
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // base
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(2))); // leading_span_a
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(3))); // leading_span_b
+    }
+
+    // Partial computation + state continuation.
+    int n = 8;
+    Outcome p = Ichimoku.indicator(new double[][] {
+        java.util.Arrays.copyOfRange(high, 0, n),
+        java.util.Arrays.copyOfRange(low, 0, n),
+        java.util.Arrays.copyOfRange(close, 0, n)}, options);
+    try (Result pr = p.result(); State st = p.state()) {
+        Result br = st.batch(new double[][] {
+            java.util.Arrays.copyOfRange(high, n, 10),
+            java.util.Arrays.copyOfRange(low, n, 10),
+            java.util.Arrays.copyOfRange(close, n, 10)});
+        try (br) {
+            System.out.println(java.util.Arrays.toString(br.toDoubleArray(0))); // continued conversion
+        }
+    }
+    ```
+
 === "Python"
 
     ```python
@@ -279,6 +325,29 @@ A comprehensive trend-following system that defines support/resistance, trend di
     laggingSpan  := res.Rows[4] // lagging_span (optional — requested)
     res.Close()
     st.Close()
+    ```
+
+=== "Java"
+
+    `ichimoku` exposes 1 optional output: `lagging_span`. Pass a boolean mask as the third argument.
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Ichimoku;
+
+    // ... (same high, low, close data as above)
+    double[] options = {9.0, 26.0};
+    boolean[] mask = {true}; // lagging_span
+
+    Outcome oc = Ichimoku.indicator(new double[][] {high, low, close}, options, mask);
+    try (Result res = oc.result()) {
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(0))); // conversion (primary)
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(1))); // base (primary)
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(2))); // leading_span_a (primary)
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(3))); // leading_span_b (primary)
+        System.out.println(java.util.Arrays.toString(res.toDoubleArray(4))); // lagging_span (optional — requested)
+    }
+    oc.state().close();
     ```
 
 === "Python"
@@ -498,6 +567,85 @@ A comprehensive trend-following system that defines support/resistance, trend di
         fmt.Printf("Short/Long %v/%v: Conversion=%v\n", optionSets[i][0], optionSets[i][1], lanes[0])
     }
     sim2.Close()
+    ```
+
+=== "Java"
+
+    **By assets** — same options applied to 4 assets in parallel (N must be 2, 4, 8, or 16):
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Ichimoku;
+
+    double[] h1 = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                   85.90, 86.58, 86.98, 88.00, 87.87, 88.20, 88.70, 89.10, 88.50, 89.00,
+                   89.60, 89.90, 89.30, 90.10, 90.50, 91.00, 90.30, 91.00, 91.60, 92.00,
+                   91.30, 92.00, 92.60, 93.00, 92.30, 93.00, 93.60, 94.00, 93.30, 94.10};
+    double[] l1 = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                   84.03, 85.39, 85.76, 87.17, 87.01, 87.20, 87.80, 88.20, 87.60, 88.00,
+                   88.60, 88.90, 88.30, 89.00, 89.40, 89.80, 89.20, 89.90, 90.50, 90.80,
+                   90.20, 90.90, 91.50, 91.80, 91.20, 91.90, 92.50, 92.80, 92.20, 93.00};
+    double[] c1 = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                   85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                   88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                   90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+    double[] options = {9.0, 26.0};
+
+    // Reuse the same data for assets 2–4 in this example.
+    double[] h2 = h1, l2 = l1, c2 = c1;
+    double[] h3 = h1, l3 = l1, c3 = c1;
+    double[] h4 = h1, l4 = l1, c4 = c1;
+
+    // One entry per asset; each asset lists its INPUTS series.
+    double[][][] assets = {{h1, l1, c1}, {h2, l2, c2}, {h3, l3, c3}, {h4, l4, c4}};
+    try (SimdResult sim = Ichimoku.simdByAssets(assets, options, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Asset %d Conversion: %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+            System.out.printf("Asset %d Base:       %s%n", i + 1,
+                java.util.Arrays.toString(sim.toDoubleArray(i, 1)));
+        }
+    }   // frees every lane state, then the SIMD buffers (contractual order)
+    ```
+
+    **By options** — same asset, 4 different option sets in parallel:
+
+    ```java
+    import org.tuliprs.*;
+    import org.tuliprs.indicators.Ichimoku;
+
+    double[] high = {82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00,
+                     85.90, 86.58, 86.98, 88.00, 87.87, 88.20, 88.70, 89.10, 88.50, 89.00,
+                     89.60, 89.90, 89.30, 90.10, 90.50, 91.00, 90.30, 91.00, 91.60, 92.00,
+                     91.30, 92.00, 92.60, 93.00, 92.30, 93.00, 93.60, 94.00, 93.30, 94.10};
+    double[] low = {81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11,
+                    84.03, 85.39, 85.76, 87.17, 87.01, 87.20, 87.80, 88.20, 87.60, 88.00,
+                    88.60, 88.90, 88.30, 89.00, 89.40, 89.80, 89.20, 89.90, 90.50, 90.80,
+                    90.20, 90.90, 91.50, 91.80, 91.20, 91.90, 92.50, 92.80, 92.20, 93.00};
+    double[] close = {81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36,
+                      85.53, 86.54, 86.89, 87.77, 87.29, 87.50, 88.10, 88.50, 87.90, 88.20,
+                      88.80, 89.10, 88.70, 89.30, 89.70, 90.10, 89.50, 90.20, 90.80, 91.10,
+                      90.50, 91.20, 91.80, 92.10, 91.50, 92.20, 92.80, 93.10, 92.50, 93.20};
+
+    // Tile to ensure longer-period option sets have enough data.
+    int tiledLen = high.length * 3;
+    double[] highTiled = new double[tiledLen];
+    double[] lowTiled = new double[tiledLen];
+    double[] closeTiled = new double[tiledLen];
+    for (int i = 0; i < 3; i++) {
+        System.arraycopy(high, 0, highTiled, i * high.length, high.length);
+        System.arraycopy(low, 0, lowTiled, i * high.length, high.length);
+        System.arraycopy(close, 0, closeTiled, i * high.length, high.length);
+    }
+
+    double[][] optionSets = {{5.0, 10.0}, {7.0, 14.0}, {9.0, 18.0}, {9.0, 26.0}};
+    try (SimdResult sim = Ichimoku.simdByOptions(new double[][] {highTiled, lowTiled, closeTiled},
+            optionSets, null)) {
+        for (int i = 0; i < sim.numResults(); i++) {
+            System.out.printf("Short/Long %v/%v: Conversion=%s%n", optionSets[i][0], optionSets[i][1],
+                java.util.Arrays.toString(sim.toDoubleArray(i, 0)));
+        }
+    }
     ```
 
 === "Python"
