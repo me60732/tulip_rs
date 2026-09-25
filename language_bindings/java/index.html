@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://me60732.github.io/tulip_rs/benchmarks/standard/">
+        <link rel="canonical" href="https://me60732.github.io/tulip_rs/language_bindings/java/">
       
       
-        <link rel="prev" href="../">
+        <link rel="prev" href="../go/">
       
       
-        <link rel="next" href="rust/">
+        <link rel="next" href="../wasm/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Overview - TulipRS</title>
+        <title>Java - TulipRS</title>
       
     
     
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#standard-performance" class="md-skip">
+        <a href="#java" class="md-skip">
           Skip to content
         </a>
       
@@ -114,7 +114,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Overview
+              Java
             
           </span>
         </div>
@@ -338,11 +338,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../../language_bindings/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
           
   
   
@@ -377,13 +379,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../benchmarks/" class="md-tabs__link">
           
   
   
@@ -3730,24 +3730,29 @@
       
   
   
+    
   
   
+  
     
     
     
     
-      
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
         
           
-          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
             
   
   
@@ -3765,7 +3770,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             
@@ -3783,7 +3788,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../language_bindings/" class="md-nav__link">
+      <a href="../" class="md-nav__link">
         
   
   
@@ -3811,7 +3816,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../language_bindings/c/" class="md-nav__link">
+      <a href="../c/" class="md-nav__link">
         
   
   
@@ -3839,7 +3844,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../language_bindings/python/" class="md-nav__link">
+      <a href="../python/" class="md-nav__link">
         
   
   
@@ -3867,7 +3872,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../language_bindings/node/" class="md-nav__link">
+      <a href="../node/" class="md-nav__link">
         
   
   
@@ -3895,7 +3900,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../language_bindings/go/" class="md-nav__link">
+      <a href="../go/" class="md-nav__link">
         
   
   
@@ -3920,10 +3925,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../language_bindings/java/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Java
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -3939,6 +3971,103 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Examples
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#memory-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#state-persistence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        State persistence
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#simd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SIMD
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#indicator-info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Indicator info
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#candlestick" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Candlestick
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -3951,7 +4080,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../language_bindings/wasm/" class="md-nav__link">
+      <a href="../wasm/" class="md-nav__link">
         
   
   
@@ -4010,29 +4139,24 @@
       
   
   
-    
   
   
-  
     
     
     
     
       
-        
-        
-      
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
         
           
-          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="">
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
             
   
   
@@ -4050,7 +4174,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_9">
             <span class="md-nav__icon md-icon"></span>
             
@@ -4068,7 +4192,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../" class="md-nav__link">
+      <a href="../../benchmarks/" class="md-nav__link">
         
   
   
@@ -4093,8 +4217,6 @@
                 
   
   
-    
-  
   
   
     
@@ -4105,11 +4227,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9_2" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9_2" >
         
           
           <label class="md-nav__link" for="__nav_9_2" id="__nav_9_2_label" tabindex="0">
@@ -4130,7 +4252,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_9_2_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_9_2_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_9_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -4145,19 +4267,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../benchmarks/standard/" class="md-nav__link">
         
   
   
@@ -4173,7 +4286,6 @@
   
 
       </a>
-      
     </li>
   
 
@@ -4186,7 +4298,7 @@
   
   
     <li class="md-nav__item">
-      <a href="rust/" class="md-nav__link">
+      <a href="../../benchmarks/standard/rust/" class="md-nav__link">
         
   
   
@@ -4214,7 +4326,7 @@
   
   
     <li class="md-nav__item">
-      <a href="python/" class="md-nav__link">
+      <a href="../../benchmarks/standard/python/" class="md-nav__link">
         
   
   
@@ -4242,7 +4354,7 @@
   
   
     <li class="md-nav__item">
-      <a href="node/" class="md-nav__link">
+      <a href="../../benchmarks/standard/node/" class="md-nav__link">
         
   
   
@@ -4270,7 +4382,7 @@
   
   
     <li class="md-nav__item">
-      <a href="c/" class="md-nav__link">
+      <a href="../../benchmarks/standard/c/" class="md-nav__link">
         
   
   
@@ -4298,7 +4410,7 @@
   
   
     <li class="md-nav__item">
-      <a href="go/" class="md-nav__link">
+      <a href="../../benchmarks/standard/go/" class="md-nav__link">
         
   
   
@@ -4384,7 +4496,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../simd/" class="md-nav__link">
+      <a href="../../benchmarks/simd/" class="md-nav__link">
         
   
   
@@ -4412,7 +4524,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../simd/by-assets/" class="md-nav__link">
+      <a href="../../benchmarks/simd/by-assets/" class="md-nav__link">
         
   
   
@@ -4440,7 +4552,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../simd/by-options/" class="md-nav__link">
+      <a href="../../benchmarks/simd/by-options/" class="md-nav__link">
         
   
   
@@ -4476,7 +4588,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../optional-outputs/" class="md-nav__link">
+      <a href="../../benchmarks/optional-outputs/" class="md-nav__link">
         
   
   
@@ -4504,7 +4616,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../streaming/" class="md-nav__link">
+      <a href="../../benchmarks/streaming/" class="md-nav__link">
         
   
   
@@ -4532,7 +4644,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../python/" class="md-nav__link">
+      <a href="../../benchmarks/python/" class="md-nav__link">
         
   
   
@@ -4560,7 +4672,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../node/" class="md-nav__link">
+      <a href="../../benchmarks/node/" class="md-nav__link">
         
   
   
@@ -4588,7 +4700,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../setup/" class="md-nav__link">
+      <a href="../../benchmarks/setup/" class="md-nav__link">
         
   
   
@@ -4616,7 +4728,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../database/" class="md-nav__link">
+      <a href="../../benchmarks/database/" class="md-nav__link">
         
   
   
@@ -4664,6 +4776,91 @@
     
   
   
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Examples
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#memory-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#state-persistence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        State persistence
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#simd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SIMD
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#indicator-info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Indicator info
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#candlestick" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Candlestick
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -4682,50 +4879,87 @@
   
 
 
-<h1 id="standard-performance">Standard Performance<a class="headerlink" href="#standard-performance" title="Permanent link">&para;</a></h1>
-<p>Single asset, averaged across 4 option sets. Ratios show how many times slower the competitor is relative to Rust — higher means Rust wins by more.</p>
-<table>
-<thead>
-<tr>
-<th>Language</th>
-<th>Compared against</th>
-<th>Highlight</th>
-<th>Full results</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Rust</td>
-<td>C Tulip, TA-Lib, RustTa, Kand</td>
-<td>Beats C Tulip on 64/69 indicators (93%), TA-Lib on 35/37 (95%), RustTa on 18/18, Kand on 35/35</td>
-<td><a href="rust/">Standard Performance: Rust →</a></td>
-</tr>
-<tr>
-<td>Python</td>
-<td><code>ta</code>, <code>pandas_ta</code></td>
-<td>Beats <code>ta</code> on 35/35 compared indicators (median ~27×); beats <code>pandas_ta</code> on 72/72 (median ~42×)</td>
-<td><a href="python/">Standard Performance: Python →</a></td>
-</tr>
-<tr>
-<td>Node</td>
-<td><code>technicalindicators</code>, <code>indicatorts</code></td>
-<td>Median speedup 56.71× vs technicalindicators, 6.62× vs indicatorts</td>
-<td><a href="node/">Standard Performance: Node →</a></td>
-</tr>
-<tr>
-<td>C</td>
-<td>Tulip Indicators (C), TA-Lib</td>
-<td>Beats C Tulip on 45/72 compared indicators (median 1.73×)</td>
-<td><a href="c/">Standard Performance: C →</a></td>
-</tr>
-<tr>
-<td>Go</td>
-<td><code>cinar/indicator</code></td>
-<td>Beats cinar on 45/45 compared indicators (median 2,283×)</td>
-<td><a href="go/">Standard Performance: Go →</a></td>
-</tr>
-</tbody>
-</table>
+<h1 id="java">Java<a class="headerlink" href="#java" title="Permanent link">&para;</a></h1>
+<p><strong>Repository:</strong> <a href="https://github.com/me60732/tulip_rs_java">github.com/me60732/tulip_rs_java</a></p>
+<p>The Java binding uses the Panama FFM API (<code>java.lang.foreign</code>, final since JDK 22)
+directly against the shared <a href="../c/"><code>tulip_rs_ffi</code></a> native library — no JNI, no
+code generation, zero third-party dependencies. It exposes every indicator, both
+SIMD modes, state streaming, serialization, and candlestick patterns.</p>
+<h3 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h3>
+<p><strong>From Maven Central</strong> — the native library comes with the dependency: an
+OS-activated profile in the published pom pulls the matching platform classifier
+jar (linux-amd64/arm64, darwin-amd64/arm64, windows-amd64) containing the
+portable-baseline binary, extracted automatically at first load.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">&lt;dependency&gt;</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">&lt;groupId&gt;</span>io.github.me60732<span class="nt">&lt;/groupId&gt;</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">&lt;artifactId&gt;</span>tulip-rs-java<span class="nt">&lt;/artifactId&gt;</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">&lt;version&gt;</span>0.2.10<span class="nt">&lt;/version&gt;</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="nt">&lt;/dependency&gt;</span>
+</code></pre></div>
+<p>Gradle: <code>implementation 'io.github.me60732:tulip-rs-java:0.2.10'</code></p>
+<p><strong>Requirements:</strong> JDK 22+ (no <code>--enable-preview</code> needed; tested on Temurin 25).</p>
+<p><strong>Build from source (CPU-tuned)</strong> — mirroring the other bindings, a local Rust
+toolchain + <code>-C target-cpu=native</code> beats the portable baseline:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/me60732/tulip_rs_java
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nb">cd</span><span class="w"> </span>tulip_rs_java
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>./bootstrap.sh<span class="w"> </span>--source<span class="w">   </span><span class="c1"># clones ../tulip_rs_ffi and builds with native CPU tuning</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>./build.sh<span class="w">                </span><span class="c1"># -&gt; out/ (library) + out-examples/</span>
+</code></pre></div>
+<hr />
+<h3 id="quick-examples">Quick Examples<a class="headerlink" href="#quick-examples" title="Permanent link">&para;</a></h3>
+<p>Every indicator follows the same shape:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">org.tuliprs.*</span><span class="p">;</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">org.tuliprs.indicators.Sma</span><span class="p">;</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="kt">double</span><span class="o">[]</span><span class="w"> </span><span class="n">close</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="mf">81.59</span><span class="p">,</span><span class="w"> </span><span class="mf">81.06</span><span class="p">,</span><span class="w"> </span><span class="mf">82.87</span><span class="p">,</span><span class="w"> </span><span class="mf">83.00</span><span class="p">,</span><span class="w"> </span><span class="mf">83.61</span><span class="p">,</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">                  </span><span class="mf">83.15</span><span class="p">,</span><span class="w"> </span><span class="mf">82.84</span><span class="p">,</span><span class="w"> </span><span class="mf">83.99</span><span class="p">,</span><span class="w"> </span><span class="mf">84.55</span><span class="p">,</span><span class="w"> </span><span class="mf">84.36</span><span class="p">};</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="c1">// inputs: double[][] (one array per input series) | options: double[]</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="n">Outcome</span><span class="w"> </span><span class="n">oc</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Sma</span><span class="p">.</span><span class="na">indicator</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="kt">double</span><span class="o">[][]</span><span class="w"> </span><span class="p">{</span><span class="n">close</span><span class="p">},</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="kt">double</span><span class="o">[]</span><span class="w"> </span><span class="p">{</span><span class="mf">5.0</span><span class="p">});</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">Result</span><span class="w"> </span><span class="n">res</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">oc</span><span class="p">.</span><span class="na">result</span><span class="p">();</span><span class="w"> </span><span class="n">State</span><span class="w"> </span><span class="n">st</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">oc</span><span class="p">.</span><span class="na">state</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">    </span><span class="kt">double</span><span class="o">[]</span><span class="w"> </span><span class="n">sma</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">res</span><span class="p">.</span><span class="na">toDoubleArray</span><span class="p">(</span><span class="mi">0</span><span class="p">);</span><span class="w">  </span><span class="c1">// zero-copy view over Rust memory</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">    </span><span class="c1">// Streaming continuation — feed new bars without reprocessing history</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">    </span><span class="n">Result</span><span class="w"> </span><span class="n">br</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">st</span><span class="p">.</span><span class="na">batch</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="kt">double</span><span class="o">[][]</span><span class="w"> </span><span class="p">{</span><span class="n">newBars</span><span class="p">});</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">    </span><span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">br</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="p">}</span>
+</code></pre></div>
+<h3 id="memory-model">Memory model<a class="headerlink" href="#memory-model" title="Permanent link">&para;</a></h3>
+<p>Outputs and streaming state are Rust-allocated, so the JVM cannot reclaim them:
+wrap <code>Result</code> / <code>State</code> / <code>SimdResult</code> in try-with-resources and every native
+free runs automatically, in the contractual order. All <code>close()</code>s are
+idempotent and a <code>java.lang.ref.Cleaner</code> backstop catches leaks — the end user
+never writes a free.</p>
+<h3 id="state-persistence">State persistence<a class="headerlink" href="#state-persistence" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kt">byte</span><span class="o">[]</span><span class="w"> </span><span class="n">blob</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">st</span><span class="p">.</span><span class="na">serialize</span><span class="p">(</span><span class="n">Format</span><span class="p">.</span><span class="na">BINCODE</span><span class="p">);</span><span class="w">   </span><span class="c1">// or Format.JSON</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">State</span><span class="w"> </span><span class="n">restored</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Sma</span><span class="p">.</span><span class="na">deserializeState</span><span class="p">(</span><span class="n">blob</span><span class="p">);</span><span class="w">  </span><span class="c1">// blobs are self-describing</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">State</span><span class="w"> </span><span class="n">snapshot</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">st</span><span class="p">.</span><span class="na">duplicate</span><span class="p">();</span><span class="w">              </span><span class="c1">// Rust-Clone value semantics</span>
+</code></pre></div>
+<h3 id="simd">SIMD<a class="headerlink" href="#simd" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1">// N assets (2, 4, 8, 16) through one option set, in one CPU pass:</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">SimdResult</span><span class="w"> </span><span class="n">sim</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Sma</span><span class="p">.</span><span class="na">simdByAssets</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="kt">double</span><span class="o">[][][]</span><span class="w"> </span><span class="p">{{</span><span class="n">a1</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="n">a2</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="n">a3</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="n">a4</span><span class="p">}},</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">        </span><span class="k">new</span><span class="w"> </span><span class="kt">double</span><span class="o">[]</span><span class="w"> </span><span class="p">{</span><span class="mf">5.0</span><span class="p">},</span><span class="w"> </span><span class="kc">null</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kt">int</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="n">sim</span><span class="p">.</span><span class="na">numResults</span><span class="p">();</span><span class="w"> </span><span class="n">i</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">        </span><span class="kt">double</span><span class="o">[]</span><span class="w"> </span><span class="n">assetI</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">sim</span><span class="p">.</span><span class="na">toDoubleArray</span><span class="p">(</span><span class="n">i</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">);</span><span class="w">  </span><span class="c1">// lane i, output row 0</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="p">}</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="c1">// One asset through N option sets:</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">SimdResult</span><span class="w"> </span><span class="n">sim</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Sma</span><span class="p">.</span><span class="na">simdByOptions</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="kt">double</span><span class="o">[][]</span><span class="w"> </span><span class="p">{</span><span class="n">close</span><span class="p">},</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">        </span><span class="k">new</span><span class="w"> </span><span class="kt">double</span><span class="o">[][]</span><span class="w"> </span><span class="p">{{</span><span class="mi">2</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="mi">5</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="mi">8</span><span class="p">},</span><span class="w"> </span><span class="p">{</span><span class="mi">10</span><span class="p">}},</span><span class="w"> </span><span class="kc">null</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div>
+<h3 id="indicator-info">Indicator info<a class="headerlink" href="#indicator-info" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">Info</span><span class="w"> </span><span class="n">info</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Sma</span><span class="p">.</span><span class="na">info</span><span class="p">();</span><span class="w">       </span><span class="c1">// name, fullName, inputs, options, outputs,</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">                              </span><span class="c1">// optionalOutputs, type, displayGroups</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="kt">long</span><span class="w"> </span><span class="n">need</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Sma</span><span class="p">.</span><span class="na">minData</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="kt">double</span><span class="o">[]</span><span class="w"> </span><span class="p">{</span><span class="mf">5.0</span><span class="p">});</span>
+</code></pre></div>
+<p>Constants <code>Sma.INPUTS</code>, <code>Sma.OPTIONS</code>, <code>Sma.ID</code> (the FFI's FNV-1a32 indicator
+id used by serialization) are exposed on every facade.</p>
+<h3 id="candlestick">Candlestick<a class="headerlink" href="#candlestick" title="Permanent link">&para;</a></h3>
+<p>Pattern detection returns per-bar pattern ids/names instead of f64 rows, takes
+an <code>int</code> forecast filter (<code>CandlePattern.FORECAST_BULLISH_REVERSAL</code> and
+friends), and has no SIMD variants. See
+<code>examples/org/tuliprs/examples/CandlestickExample.java</code> in the repository.</p>
 
 
 

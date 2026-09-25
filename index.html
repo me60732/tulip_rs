@@ -4034,6 +4034,34 @@
   
   
     <li class="md-nav__item">
+      <a href="language_bindings/java/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Java
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="language_bindings/wasm/" class="md-nav__link">
         
   
@@ -4892,7 +4920,7 @@ TA packages:</p>
 </table>
 <hr />
 <h2 id="quick-example">Quick Example<a class="headerlink" href="#quick-example" title="Permanent link">&para;</a></h2>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:5"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><input id="__tabbed_1_4" name="__tabbed_1" type="radio" /><input id="__tabbed_1_5" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Rust</label><label for="__tabbed_1_2">Go</label><label for="__tabbed_1_3">Python</label><label for="__tabbed_1_4">Node.js</label><label for="__tabbed_1_5">WASM</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:6"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><input id="__tabbed_1_4" name="__tabbed_1" type="radio" /><input id="__tabbed_1_5" name="__tabbed_1" type="radio" /><input id="__tabbed_1_6" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Rust</label><label for="__tabbed_1_2">Go</label><label for="__tabbed_1_3">Java</label><label for="__tabbed_1_4">Python</label><label for="__tabbed_1_5">Node.js</label><label for="__tabbed_1_6">WASM</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">use</span><span class="w"> </span><span class="n">tulip_rs</span><span class="p">::</span><span class="n">indicators</span><span class="p">::</span><span class="n">sma</span><span class="p">::{</span><span class="n">Sma</span><span class="p">,</span><span class="w"> </span><span class="n">Indicator</span><span class="p">};</span>
@@ -4919,40 +4947,53 @@ TA packages:</p>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">tulip_rs</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">org.tuliprs.*</span><span class="p">;</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">org.tuliprs.indicators.Sma</span><span class="p">;</span>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">close</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mf">81.59</span><span class="p">,</span> <span class="mf">81.06</span><span class="p">,</span> <span class="mf">82.87</span><span class="p">,</span> <span class="mf">83.00</span><span class="p">,</span> <span class="mf">83.61</span><span class="p">,</span>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>                  <span class="mf">83.15</span><span class="p">,</span> <span class="mf">82.84</span><span class="p">,</span> <span class="mf">83.99</span><span class="p">,</span> <span class="mf">84.55</span><span class="p">,</span> <span class="mf">84.36</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="kt">double</span><span class="o">[]</span><span class="w"> </span><span class="n">close</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="mf">81.59</span><span class="p">,</span><span class="w"> </span><span class="mf">81.06</span><span class="p">,</span><span class="w"> </span><span class="mf">82.87</span><span class="p">,</span><span class="w"> </span><span class="mf">83.00</span><span class="p">,</span><span class="w"> </span><span class="mf">83.61</span><span class="p">,</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">                  </span><span class="mf">83.15</span><span class="p">,</span><span class="w"> </span><span class="mf">82.84</span><span class="p">,</span><span class="w"> </span><span class="mf">83.99</span><span class="p">,</span><span class="w"> </span><span class="mf">84.55</span><span class="p">,</span><span class="w"> </span><span class="mf">84.36</span><span class="p">};</span>
 <a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="n">outputs</span><span class="p">,</span> <span class="n">state</span> <span class="o">=</span> <span class="n">tulip_rs</span><span class="o">.</span><span class="n">indicators</span><span class="o">.</span><span class="n">sma</span><span class="o">.</span><span class="n">indicator</span><span class="p">([</span><span class="n">close</span><span class="p">],</span> <span class="p">[</span><span class="mf">5.0</span><span class="p">])</span>
-<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>
-<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="nb">print</span><span class="p">(</span><span class="n">outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>  <span class="c1"># SMA(5) values</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="n">Outcome</span><span class="w"> </span><span class="n">oc</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">Sma</span><span class="p">.</span><span class="na">indicator</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="kt">double</span><span class="o">[][]</span><span class="w"> </span><span class="p">{</span><span class="n">close</span><span class="p">},</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="kt">double</span><span class="o">[]</span><span class="w"> </span><span class="p">{</span><span class="mf">5.0</span><span class="p">});</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="k">try</span><span class="w"> </span><span class="p">(</span><span class="n">Result</span><span class="w"> </span><span class="n">res</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">oc</span><span class="p">.</span><span class="na">result</span><span class="p">();</span><span class="w"> </span><span class="n">State</span><span class="w"> </span><span class="n">st</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">oc</span><span class="p">.</span><span class="na">state</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">    </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="n">java</span><span class="p">.</span><span class="na">util</span><span class="p">.</span><span class="na">Arrays</span><span class="p">.</span><span class="na">toString</span><span class="p">(</span><span class="n">res</span><span class="p">.</span><span class="na">toDoubleArray</span><span class="p">(</span><span class="mi">0</span><span class="p">)));</span><span class="w"> </span><span class="c1">// SMA(5) values — zero-copy views</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="p">}</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">import</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="kr">as</span><span class="w"> </span><span class="nx">ti</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s1">'tulip-rs-node'</span><span class="p">;</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="kd">const</span><span class="w"> </span><span class="nx">close</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Float64Array</span><span class="p">.</span><span class="kr">from</span><span class="p">([</span><span class="mf">81.59</span><span class="p">,</span><span class="w"> </span><span class="mf">81.06</span><span class="p">,</span><span class="w"> </span><span class="mf">82.87</span><span class="p">,</span><span class="w"> </span><span class="mf">83.00</span><span class="p">,</span><span class="w"> </span><span class="mf">83.61</span><span class="p">,</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">                                 </span><span class="mf">83.15</span><span class="p">,</span><span class="w"> </span><span class="mf">82.84</span><span class="p">,</span><span class="w"> </span><span class="mf">83.99</span><span class="p">,</span><span class="w"> </span><span class="mf">84.55</span><span class="p">,</span><span class="w"> </span><span class="mf">84.36</span><span class="p">]);</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="kd">const</span><span class="w"> </span><span class="p">[</span><span class="nx">outputs</span><span class="p">,</span><span class="w"> </span><span class="nx">state</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">ti</span><span class="p">.</span><span class="nx">sma</span><span class="p">.</span><span class="nx">indicator</span><span class="p">([</span><span class="nx">close</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="mf">5</span><span class="p">]);</span>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="nx">outputs</span><span class="p">[</span><span class="mf">0</span><span class="p">]);</span><span class="w"> </span><span class="c1">// SMA(5) values</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">tulip_rs</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">close</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mf">81.59</span><span class="p">,</span> <span class="mf">81.06</span><span class="p">,</span> <span class="mf">82.87</span><span class="p">,</span> <span class="mf">83.00</span><span class="p">,</span> <span class="mf">83.61</span><span class="p">,</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>                  <span class="mf">83.15</span><span class="p">,</span> <span class="mf">82.84</span><span class="p">,</span> <span class="mf">83.99</span><span class="p">,</span> <span class="mf">84.55</span><span class="p">,</span> <span class="mf">84.36</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="n">outputs</span><span class="p">,</span> <span class="n">state</span> <span class="o">=</span> <span class="n">tulip_rs</span><span class="o">.</span><span class="n">indicators</span><span class="o">.</span><span class="n">sma</span><span class="o">.</span><span class="n">indicator</span><span class="p">([</span><span class="n">close</span><span class="p">],</span> <span class="p">[</span><span class="mf">5.0</span><span class="p">])</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="nb">print</span><span class="p">(</span><span class="n">outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>  <span class="c1"># SMA(5) values</span>
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">init</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s1">'tulip-rs-wasm'</span><span class="p">;</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="k">import</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="kr">as</span><span class="w"> </span><span class="nx">ti</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s1">'tulip-rs-wasm'</span><span class="p">;</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="k">await</span><span class="w"> </span><span class="nx">init</span><span class="p">();</span><span class="w"> </span><span class="c1">// bundler resolves the WASM asset automatically</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">import</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="kr">as</span><span class="w"> </span><span class="nx">ti</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s1">'tulip-rs-node'</span><span class="p">;</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="kd">const</span><span class="w"> </span><span class="nx">close</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">Float64Array</span><span class="p">.</span><span class="kr">from</span><span class="p">([</span><span class="mf">81.59</span><span class="p">,</span><span class="w"> </span><span class="mf">81.06</span><span class="p">,</span><span class="w"> </span><span class="mf">82.87</span><span class="p">,</span><span class="w"> </span><span class="mf">83.00</span><span class="p">,</span><span class="w"> </span><span class="mf">83.61</span><span class="p">,</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">                                 </span><span class="mf">83.15</span><span class="p">,</span><span class="w"> </span><span class="mf">82.84</span><span class="p">,</span><span class="w"> </span><span class="mf">83.99</span><span class="p">,</span><span class="w"> </span><span class="mf">84.55</span><span class="p">,</span><span class="w"> </span><span class="mf">84.36</span><span class="p">]);</span>
 <a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="kd">const</span><span class="w"> </span><span class="nx">close</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="mf">81.59</span><span class="p">,</span><span class="w"> </span><span class="mf">81.06</span><span class="p">,</span><span class="w"> </span><span class="mf">82.87</span><span class="p">,</span><span class="w"> </span><span class="mf">83.00</span><span class="p">,</span><span class="w"> </span><span class="mf">83.61</span><span class="p">,</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">               </span><span class="mf">83.15</span><span class="p">,</span><span class="w"> </span><span class="mf">82.84</span><span class="p">,</span><span class="w"> </span><span class="mf">83.99</span><span class="p">,</span><span class="w"> </span><span class="mf">84.55</span><span class="p">,</span><span class="w"> </span><span class="mf">84.36</span><span class="p">];</span>
-<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>
-<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="kd">const</span><span class="w"> </span><span class="p">[</span><span class="nx">outputs</span><span class="p">,</span><span class="w"> </span><span class="nx">state</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">ti</span><span class="p">.</span><span class="nx">sma</span><span class="p">.</span><span class="nx">indicator</span><span class="p">([</span><span class="nx">close</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="mf">5</span><span class="p">]);</span>
-<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>
-<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="nx">outputs</span><span class="p">[</span><span class="mf">0</span><span class="p">]);</span><span class="w"> </span><span class="c1">// SMA(5) values</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="kd">const</span><span class="w"> </span><span class="p">[</span><span class="nx">outputs</span><span class="p">,</span><span class="w"> </span><span class="nx">state</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">ti</span><span class="p">.</span><span class="nx">sma</span><span class="p">.</span><span class="nx">indicator</span><span class="p">([</span><span class="nx">close</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="mf">5</span><span class="p">]);</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="nx">outputs</span><span class="p">[</span><span class="mf">0</span><span class="p">]);</span><span class="w"> </span><span class="c1">// SMA(5) values</span>
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">init</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s1">'tulip-rs-wasm'</span><span class="p">;</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="k">import</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="kr">as</span><span class="w"> </span><span class="nx">ti</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s1">'tulip-rs-wasm'</span><span class="p">;</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="k">await</span><span class="w"> </span><span class="nx">init</span><span class="p">();</span><span class="w"> </span><span class="c1">// bundler resolves the WASM asset automatically</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="kd">const</span><span class="w"> </span><span class="nx">close</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="mf">81.59</span><span class="p">,</span><span class="w"> </span><span class="mf">81.06</span><span class="p">,</span><span class="w"> </span><span class="mf">82.87</span><span class="p">,</span><span class="w"> </span><span class="mf">83.00</span><span class="p">,</span><span class="w"> </span><span class="mf">83.61</span><span class="p">,</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">               </span><span class="mf">83.15</span><span class="p">,</span><span class="w"> </span><span class="mf">82.84</span><span class="p">,</span><span class="w"> </span><span class="mf">83.99</span><span class="p">,</span><span class="w"> </span><span class="mf">84.55</span><span class="p">,</span><span class="w"> </span><span class="mf">84.36</span><span class="p">];</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="kd">const</span><span class="w"> </span><span class="p">[</span><span class="nx">outputs</span><span class="p">,</span><span class="w"> </span><span class="nx">state</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">ti</span><span class="p">.</span><span class="nx">sma</span><span class="p">.</span><span class="nx">indicator</span><span class="p">([</span><span class="nx">close</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="mf">5</span><span class="p">]);</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="nx">outputs</span><span class="p">[</span><span class="mf">0</span><span class="p">]);</span><span class="w"> </span><span class="c1">// SMA(5) values</span>
 </code></pre></div>
 </div>
 </div>
@@ -5046,6 +5087,11 @@ TA packages:</p>
 <td><strong>Go</strong></td>
 <td>✅ Supported</td>
 <td><a href="https://github.com/me60732/tulip_rs_go"><code>tulip_rs_go</code></a> — cgo bindings over the <code>extern "C"</code> FFI, zero-copy outputs</td>
+</tr>
+<tr>
+<td><strong>Java</strong></td>
+<td>✅ Supported</td>
+<td><a href="https://github.com/me60732/tulip_rs_java"><code>tulip-rs-java</code></a> — JDK 22+ Foreign Function API</td>
 </tr>
 <tr>
 <td><strong>Python</strong></td>
