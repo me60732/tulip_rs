@@ -51,8 +51,9 @@
 //! Filter/HT node kinds panic at build — emitting them (and WMA/ring taps)
 //! is the coverage roadmap (Handover §6 Step E). Sources are
 //! assumed complete (producer-NaN gating would be one more select per node);
-//! lane packing (`f64x2` vector `fma` over same-source EMAs) is the next
-//! axis on top of this structure.
+//! E1 lane packing is in: price-sourced EMA chains group in `f64x2` pairs
+//! stepped by one vector `fma` (cranelift x64's 128-bit ceiling — see
+//! `MAX_LANES`), chained recurrences stay scalar.
 
 use cranelift::codegen::ir::{BlockArg, Function, MemFlagsData, UserFuncName};
 use cranelift::codegen::isa::TargetFrontendConfig;
@@ -77,7 +78,23 @@ const PRICE: usize = usize::MAX;
 /// Sink lead meaning "never print" (disabled optional).
 const LEAD_NEVER: u64 = u64::MAX;
 
+/// E1 lane cap. The x64 backend only classifies vectors ≤ 128 bits
+/// (`rc_for_type`), so **f64x2 is the widest packable chain group** —
+/// cranelift has no 256/512-bit vector support regardless of host AVX
+/// flags (those enable VEX encodings for xmm ops). Groups are therefore
+/// pairs; `avx512` does not lift this ceiling.
+const MAX_LANES: usize = 2;
+
+fn vec_ty(lanes: usize) -> Type {
+    match lanes {
+        8 => types::F64X8,
+        4 => types::F64X4,
+        _ => types::F64X2,
+    }
+}
+
 /// One loop op: an EMA recurrence (state) or a pure derived value.
+#[derive(Clone)]
 struct Op {
     e: OpE,
     /// Absolute bar the value first exists (chain defined-from / tail's
@@ -88,6 +105,7 @@ struct Op {
     sd_word: usize,
 }
 
+#[derive(Clone)]
 enum OpE {
     /// `prev*inv + src*mult` — the `mul_add` recurrence. `chained` = the
     /// source is another op (any node, incl. an arith node — MACD's signal
@@ -102,11 +120,24 @@ enum OpE {
         feed: u64,
         chained: bool,
     },
-    /// A binary graph node (`Node::Sub/Mul/Div/Max`).
-    Arith { op: ArithKind, a: usize, b: usize },
+    /// A binary graph node (`Node::Sub/Mul/Div/Max`). With `vec == true`
+    /// (role-aligned pair subtraction, E2-lite) `a`/`b` are GROUP ids whose
+    /// lanes are the two paired expressions: ONE `fsub` computes both,
+    /// lanes split only at consumers/stores. `vec == false`: `a`/`b` are op
+    /// refs, scalarized on demand (grouped operands extract their lane,
+    /// aliased operands read the pair-vector lane — see `alias`).
+    Arith {
+        op: ArithKind,
+        a: usize,
+        b: usize,
+        vec: bool,
+    },
     /// A `Node::Const` leaf — materialized, rematerialized by RA at use.
     Const(f64),
 }
+
+/// `alias`/lane sentinel: "the op's own scalar value".
+const LANE_SELF: u8 = 0xFE;
 
 #[derive(Clone, Copy)]
 enum ArithKind {
@@ -133,6 +164,18 @@ struct ReqMeta {
     restorer: Option<StateRestorer>,
 }
 
+/// E1: one lane-packed group of price-sourced EMA chains. All members read
+/// the SAME price stream each bar, so the group steps with ONE vector
+/// `fmul`+`fma` (`vfmadd*pd` per lane — lane-wise identical rounding to the
+/// scalar `mul_add`, so bit-exactness is preserved by construction).
+/// Consumers extract their lane (cached per op, exactly once per bar).
+/// Chained recurrences never join a group: their source is a same-bar op
+/// value (the §2 producer-consumer rule).
+pub struct LaneGroup {
+    /// Member chain ops, in LANE order.
+    pub ops: Vec<usize>,
+}
+
 /// A compiled plan: the JIT module (keeps the code alive), the entry point,
 /// and the metadata that makes `run`/`resume` return shaped `Results`.
 pub struct JitPlan {
@@ -143,6 +186,12 @@ pub struct JitPlan {
     /// compile time for inspection/debugging (`JitPlan::clif`).
     clif: String,
     ops: Vec<Op>,
+    /// Lane groups (§7.1 greedy pow-2 buckets ≤ `MAX_LANES`).
+    groups: Vec<LaneGroup>,
+    /// op → (group, lane); `usize::MAX` group = stepped scalarly.
+    lane_of: Vec<(usize, usize)>,
+    /// E2-lite: absorbed pair-sub → (pair-vector sub op, lane 1).
+    alias: Vec<(usize, u8)>,
     sinks: Vec<SinkSpec>,
     counts: Vec<(usize, usize)>,
     reqs: Vec<ReqMeta>,
@@ -220,6 +269,7 @@ fn compile_request(req: &Request) -> JitPlan {
                     op: ArithKind::Sub,
                     a: node_op[a as usize],
                     b: node_op[b as usize],
+                    vec: false,
                 }
             ),
             Node::Mul { a, b } => push!(
@@ -228,6 +278,7 @@ fn compile_request(req: &Request) -> JitPlan {
                     op: ArithKind::Mul,
                     a: node_op[a as usize],
                     b: node_op[b as usize],
+                    vec: false,
                 }
             ),
             Node::Div { a, b } => push!(
@@ -236,6 +287,7 @@ fn compile_request(req: &Request) -> JitPlan {
                     op: ArithKind::Div,
                     a: node_op[a as usize],
                     b: node_op[b as usize],
+                    vec: false,
                 }
             ),
             Node::Max { a, b } => push!(
@@ -244,6 +296,7 @@ fn compile_request(req: &Request) -> JitPlan {
                     op: ArithKind::Max,
                     a: node_op[a as usize],
                     b: node_op[b as usize],
+                    vec: false,
                 }
             ),
             other => panic!("jit: node {other:?} is not emittable yet"),
@@ -305,6 +358,121 @@ fn compile_request(req: &Request) -> JitPlan {
         });
     }
 
+    // ---- E1 + E2-lite: lane grouping with role-aligned line-subs ----
+    //
+    // Price-sourced chain ops step as f64x2 lanes. E2-lite pairs `short −
+    // long` sub-ops whose operands are both chains: ONE vector group holds
+    // a pair's shorts, another its longs, and ONE fsub on the group vectors
+    // produces both line values; the second absorbed sub aliases (pair-sub,
+    // lane 1). Consumers split lanes lazily (`scalarize` in the emitter).
+    // Pairs are chosen disjoint-chains-first (zero duplication); a chain
+    // feeding several subs is cloned with its own state word — identical
+    // stepping keeps every word bit-exact. Chains not covered by any pair
+    // fall back to plain arena-order buckets.
+    let base_ops = ops.len();
+    let mut lane_of: Vec<(usize, usize)> = vec![(usize::MAX, 0); 2 * base_ops + 8];
+    let mut placed: Vec<bool> = vec![false; base_ops];
+    let mut groups: Vec<LaneGroup> = Vec::new();
+    let mut alias: Vec<(usize, u8)> = vec![(usize::MAX, LANE_SELF); base_ops];
+
+    // Snapshot candidate sub operands BEFORE any `ops` mutation.
+    let is_chain = |o: &Op| matches!(o.e, OpE::Ema { src, chained: false, .. } if src == PRICE);
+    let sub_operands: Vec<Option<(usize, usize)>> = (0..base_ops)
+        .map(|j| match ops[j].e {
+            OpE::Arith { op: ArithKind::Sub, a, b, vec: false }
+                if is_chain(&ops[a]) && is_chain(&ops[b]) && a != b =>
+            {
+                Some((a, b))
+            }
+            _ => None,
+        })
+        .collect();
+
+    // Pair candidates: a disjoint partner (zero clones) when one exists,
+    // otherwise any partner (reuse absorbed by cloning).
+    let mut cands: Vec<usize> = (0..base_ops).filter(|&j| sub_operands[j].is_some()).collect();
+    let mut pairs: Vec<(usize, usize)> = Vec::new();
+    while !cands.is_empty() {
+        let s1 = cands.remove(0);
+        let (a1, b1) = sub_operands[s1].unwrap();
+        let disjoint = cands.iter().position(|&s2| {
+            let (a2, b2) = sub_operands[s2].unwrap();
+            a2 != a1 && a2 != b1 && b2 != a1 && b2 != b1
+        });
+        let pick = disjoint.or(if cands.len() >= 2 { Some(1) } else { None });
+        if let Some(k) = pick {
+            let s2 = cands.remove(k);
+            pairs.push((s1, s2));
+        }
+    }
+
+    // Place each pair: S group (lane 0 = sub1's short, lane 1 = sub2's),
+    // L group likewise. A chain already placed gets a CLONE op — same
+    // stepping, its own state word, so the two consumers' words agree
+    // bit-exactly.
+    macro_rules! slot {
+        ($chain:expr) => {{
+            let chain = $chain;
+            if !placed[chain] {
+                placed[chain] = true;
+                chain
+            } else {
+                let clone = ops.len();
+                ops.push(ops[chain].clone());
+                clone
+            }
+        }};
+    }
+    for &(s1, s2) in &pairs {
+        let (a1, b1) = sub_operands[s1].unwrap();
+        let (a2, b2) = sub_operands[s2].unwrap();
+        let gs = groups.len();
+        groups.push(LaneGroup { ops: Vec::new() });
+        let gl = groups.len();
+        groups.push(LaneGroup { ops: Vec::new() });
+        for (chain, g, lane) in [
+            (a1, gs, 0usize),
+            (a2, gs, 1),
+            (b1, gl, 0),
+            (b2, gl, 1),
+        ] {
+            let slot = slot!(chain);
+            lane_of[slot] = (g, lane);
+            groups[g].ops.push(slot);
+        }
+        ops[s1].e = OpE::Arith {
+            op: ArithKind::Sub,
+            a: gs,
+            b: gl,
+            vec: true,
+        };
+        alias[s2] = (s1, 1);
+    }
+    debug_assert!(groups.iter().all(|g| g.ops.len() <= MAX_LANES));
+
+    // Chains no pair covers (classic's two chains under its lone sub):
+    // plain arena-order buckets.
+    {
+        let mut rest: Vec<usize> = (0..base_ops)
+            .filter(|&j| is_chain(&ops[j]) && !placed[j])
+            .collect();
+        while rest.len() >= 2 {
+            let cap = MAX_LANES.min(rest.len());
+            let mut take = 1usize;
+            while take * 2 <= cap {
+                take *= 2;
+            }
+            let chunk: Vec<usize> = rest.drain(..take).collect();
+            let g = groups.len();
+            for (l, &o) in chunk.iter().enumerate() {
+                lane_of[o] = (g, l);
+            }
+            groups.push(LaneGroup { ops: chunk });
+        }
+        // a lone remainder stays scalar (no group)
+    }
+    alias.resize(ops.len(), (usize::MAX, LANE_SELF));
+
     // ---- state layout: header, chained seed flags, op values ----
     let chained: Vec<usize> = (0..ops.len())
         .filter(|&j| matches!(ops[j].e, OpE::Ema { chained: true, .. }))
@@ -322,7 +490,9 @@ fn compile_request(req: &Request) -> JitPlan {
     // ---- emit ----
     let mut flag_builder = settings::builder();
     flag_builder.set("is_pic", "false").unwrap();
-    let isa_builder = cranelift_native::builder().expect("host ISA builder");
+    // E1 lane packing needs the host vector features (SSE2/AVX/FMA) in the
+    // ISA flags — plain `builder()` leaves CPUID-gated flags off.
+    let isa_builder = cranelift_native::builder_with_options(true).expect("host ISA builder");
     let isa = isa_builder
         .finish(settings::Flags::new(flag_builder))
         .expect("native ISA");
@@ -335,6 +505,9 @@ fn compile_request(req: &Request) -> JitPlan {
         arena,
         clif: String::new(),
         ops,
+        groups,
+        lane_of,
+        alias,
         sinks,
         counts,
         reqs,
@@ -363,6 +536,22 @@ impl JitPlan {
     /// (ops, sinks) — the compiled shape, for caching keys/bench black-boxing.
     pub fn info(&self) -> (usize, usize) {
         (self.ops.len(), self.sinks.len())
+    }
+
+    /// E1 lane-group widths, e.g. `[2]` (classic) or `[2, 2, 2, 2, 2, 2]`
+    /// (dense, role-aligned pairs).
+    pub fn lanes(&self) -> Vec<usize> {
+        self.groups.iter().map(|g| g.ops.len()).collect()
+    }
+
+    /// E2-lite: number of `short − long` subtractions computed as ONE
+    /// vector `fsub` over lane-aligned groups (dense dashboards pair their
+    /// lines; classic's lone sub stays scalar).
+    pub fn vec_subs(&self) -> usize {
+        self.ops
+            .iter()
+            .filter(|op| matches!(op.e, OpE::Arith { op: ArithKind::Sub, vec: true, .. }))
+            .count()
     }
 
     pub fn new_state(&self) -> JitState {
@@ -483,12 +672,20 @@ fn st(fb: &mut FunctionBuilder, base: Value, off: i64, val: Value) {
 /// (sink leads + chained feed leads), and ONE specialized loop is emitted
 /// per segment. Inside a segment each gate is a compile-time constant:
 /// sinks whose lead ≤ the segment start store UNCONDITIONALLY at
-/// `i - lead`; later sinks emit no gate at all; chained recurrences step
+/// `i - base`; later sinks emit no gate at all; chained recurrences step
 /// only in segments past their feed lead (the segment where feeding
 /// begins keeps the one-time seed select). The steady (last) segment is
 /// the hand shape: zero `icmp`, zero `brif` beyond the loop condition,
 /// zero selects — branch cost paid once per boundary crossing, per
 /// lifetime, not per bar.
+///
+/// E1 lane packing: the loop-carried VALUE SLOTS are `[group vectors..,
+/// scalar op values..]` — each price-sourced EMA group (chains reading the
+/// same stream, §7.1 pow-2 buckets) steps as ONE vector `fmul`+`fma`
+/// (`vfmadd*pd`, lane-wise identical to scalar `mul_add`); consumers get
+/// their lane via one cached `extractlane`. State words stay per-chain
+/// (pack/unpack happens exactly once per chunk in setup/end, never in the
+/// loop body's edges).
 fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     let module = &mut plan.module;
     let i64_t = types::I64;
@@ -496,10 +693,28 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
 
     let nops = plan.ops.len();
     let nsinks = plan.sinks.len();
+    let ngroups = plan.groups.len();
     let chained: Vec<usize> = (0..nops)
         .filter(|&j| matches!(plan.ops[j].e, OpE::Ema { chained: true, .. }))
         .collect();
     let nsd = chained.len();
+
+    // Value slots: [0..ngroups) = group vectors, then ungrouped ops in op
+    // order. `cur[op]` remains the per-op scalar view for consumers.
+    let mut slot_of_op = vec![usize::MAX; nops];
+    let mut op_of_slot: Vec<usize> = Vec::with_capacity(nops);
+    for (g, grp) in plan.groups.iter().enumerate() {
+        for &o in &grp.ops {
+            slot_of_op[o] = g;
+        }
+    }
+    for j in 0..nops {
+        if plan.lane_of[j].0 == usize::MAX && matches!(plan.ops[j].e, OpE::Ema { .. }) {
+            slot_of_op[j] = ngroups + op_of_slot.len();
+            op_of_slot.push(j);
+        }
+    }
+    let nval = ngroups + op_of_slot.len();
 
     // Segment bounds: sorted distinct finite gate leads (sink + chained
     // feed); segments are [0,b0), [b0,b1), …, [blast, ∞) in absolute bars.
@@ -542,15 +757,20 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     let mut fb_ctx = FunctionBuilderContext::new();
     let mut fb = FunctionBuilder::new(&mut ctx.func, &mut fb_ctx);
 
-    // Loop-carried params (IDENTICAL lists on every segment loop, so phase
-    // transitions are plain pass-throughs): [ op values.., chained seeds.., i ]
-    // `i` is the ABSOLUTE bar counter.
-    let mut pt: Vec<Type> = vec![f64_t; nops];
+    // Loop-carried params (IDENTICAL on every segment loop so phase
+    // transitions are pass-throughs): [ value slots.., chained seeds.., i ].
+    // `i` is the ABSOLUTE bar counter; `sdpos`/`ipos` index into it.
+    let mut pt: Vec<Type> = Vec::with_capacity(nval);
+    for (g, grp) in plan.groups.iter().enumerate() {
+        let _ = g;
+        pt.push(vec_ty(grp.ops.len()));
+    }
+    pt.extend(std::iter::repeat(f64_t).take(op_of_slot.len()));
     pt.extend(std::iter::repeat(i64_t).take(nsd));
     pt.push(i64_t);
     let nparam = pt.len();
     let ipos = nparam - 1;
-    let sdpos = nops;
+    let sdpos = nval;
 
     let entry = fb.create_block();
     let setup = fb.create_block();
@@ -569,11 +789,25 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     for &b in &body_bb {
         add_params(&mut fb, b, &pt);
     }
-    // end: values + seeds + the global seeded flag
-    let mut et = vec![f64_t; nops];
-    et.extend(std::iter::repeat(i64_t).take(nsd));
+    // end: value slots + seeds + the global seeded flag
+    let mut et = pt.clone();
+    et.pop();
     et.push(i64_t);
     add_params(&mut fb, end_bb, &et);
+
+    // assemble a group vector from per-lane scalar sources
+    macro_rules! pack {
+        ($g:expr, $src:expr) => {{
+            let g = $g;
+            let ty = vec_ty(plan.groups[g].ops.len());
+            let z = fb.ins().f64const(0.0);
+            let mut v = fb.ins().splat(ty, z);
+            for (l, &o) in plan.groups[g].ops.iter().enumerate() {
+                v = fb.ins().insertlane(v, $src[o], l as u8);
+            }
+            v
+        }};
+    }
 
     // ---- entry: loads, empty-chunk early-out ----
     fb.switch_to_block(entry);
@@ -596,13 +830,20 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
         sdloads.push(ld(&mut fb, state, 8 * w, i64_t));
     }
     let empty = fb.ins().icmp(IntCC::Equal, len, zero);
-    let mut end_empty = loads.clone();
+    let mut end_empty: Vec<Value> = Vec::with_capacity(nval);
+    for g in 0..ngroups {
+        let v = pack!(g, loads);
+        end_empty.push(v);
+    }
+    for &o in &op_of_slot {
+        end_empty.push(loads[o]);
+    }
     end_empty.extend(sdloads.iter().copied());
     end_empty.push(seeded);
     fb.ins()
         .brif(empty, end_bb, &ba(&end_empty), setup, &ba(&[]));
 
-    // ---- setup: seed selects, out pointers, per-segment runtime [lo, hi) ----
+    // ---- setup: seed selects, constants, out pointers, segment bounds ----
     fb.switch_to_block(setup);
     let is_seeded = fb.ins().icmp(IntCC::NotEqual, seeded, zero);
     let p0 = ld(&mut fb, price, 0, f64_t);
@@ -616,6 +857,27 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
         };
         init.push(v);
     }
+    // Lane constants (setup values — they dominate every loop).
+    let mut gmvec: Vec<Value> = Vec::with_capacity(ngroups);
+    let mut givec: Vec<Value> = Vec::with_capacity(ngroups);
+    for g in 0..ngroups {
+        let ty = vec_ty(plan.groups[g].ops.len());
+        let z = fb.ins().f64const(0.0);
+        let mut mv = fb.ins().splat(ty, z);
+        let mut iv = fb.ins().splat(ty, z);
+        for (l, &o) in plan.groups[g].ops.iter().enumerate() {
+            let (mult, inv) = match plan.ops[o].e {
+                OpE::Ema { mult, inv, .. } => (mult, inv),
+                _ => unreachable!(),
+            };
+            let mc = fb.ins().f64const(mult);
+            let ic = fb.ins().f64const(inv);
+            mv = fb.ins().insertlane(mv, mc, l as u8);
+            iv = fb.ins().insertlane(iv, ic, l as u8);
+        }
+        gmvec.push(mv);
+        givec.push(iv);
+    }
     // Cold chunk: bar `start` (== 0) was consumed by the entry seed ⇒ i0 = 1.
     let start1 = fb.ins().iadd(next_bar, one);
     let i0 = fb.ins().select(is_seeded, next_bar, start1);
@@ -623,10 +885,9 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     for j in 0..nsinks {
         optr.push(ld(&mut fb, outs, 8 * j as i64, i64_t));
     }
-    // Segment runtime upper bounds: hi_s = min(end, e_s). The `lo` side
-    // needs no value: segments are entered in order and each head's `done`
-    // test passes the live set straight through until `i` reaches its
-    // range — skipping a fully-past segment costs one compare.
+    // Segment runtime upper bounds: hi_s = min(end, e_s). Segments are
+    // entered in order and each head's `done` test passes the live set
+    // straight through — skipping a fully-past segment costs one compare.
     let mut hi_v: Vec<Value> = Vec::with_capacity(segs.len());
     for (_b, e) in &segs {
         match e {
@@ -651,7 +912,14 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
         let below = fb.ins().icmp(IntCC::SignedLessThan, next_bar, lc);
         sbase.push(fb.ins().select(below, lc, next_bar));
     }
-    let mut args = init;
+    let mut args: Vec<Value> = Vec::with_capacity(nparam);
+    for g in 0..ngroups {
+        let v = pack!(g, init);
+        args.push(v);
+    }
+    for &o in &op_of_slot {
+        args.push(init[o]);
+    }
     args.extend(sdloads.iter().copied());
     args.push(i0);
     fb.ins().jump(head_bb[0], &ba(&args));
@@ -668,16 +936,11 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
             .ins()
             .icmp(IntCC::SignedGreaterThanOrEqual, hp[ipos], hi_v[s]);
         if is_last {
-            // loop exit → store state: same values, seeded flags as-is, the
-            // global seeded flag becomes 1 (any non-empty chunk consumed ≥1
-            // bar; the entry seeded the price chains on the skipped bar).
-            let mut end_args = hp[..nops + nsd].to_vec();
+            let mut end_args = hp[..nval + nsd].to_vec();
             end_args.push(one);
             fb.ins()
                 .brif(done, end_bb, &ba(&end_args), body_bb[s], &ba(&hp));
         } else {
-            // done mid-stream ⇒ advance to the next phase with the SAME
-            // live set (a pass-through edge, executed once per boundary).
             fb.ins().brif(done, succ, &ba(&hp), body_bb[s], &ba(&hp));
         }
 
@@ -689,10 +952,65 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
         let paddr = fb.ins().iadd(price, poff);
         let price_v = fb.ins().load(f64_t, MemFlagsData::new(), paddr, 0);
 
-        let mut cur = bp[..nops].to_vec();
+        // price broadcast, one per distinct vector width
+        let mut pvs: Vec<(Type, Value)> = Vec::with_capacity(2);
+        let mut splat_price = |ty: Type, fb: &mut FunctionBuilder| -> Value {
+            if let Some((_, v)) = pvs.iter().find(|(t, _)| *t == ty) {
+                return *v;
+            }
+            let v = fb.ins().splat(ty, price_v);
+            pvs.push((ty, v));
+            v
+        };
+
+        // packed groups: ONE vector step per group. Lane values are NOT
+        // extracted here — `scalarize` materializes an extract only where
+        // a scalar consumer (sink store, arith operand, chained seed)
+        // actually needs one; vector subs consume whole group vectors.
+        let mut stepv: Vec<Value> = Vec::with_capacity(ngroups);
+        for g in 0..ngroups {
+            let ty = vec_ty(plan.groups[g].ops.len());
+            let pv = splat_price(ty, &mut fb);
+            let prev = bp[g];
+            let prod = fb.ins().fmul(pv, gmvec[g]);
+            stepv.push(fb.ins().fma(prev, givec[g], prod));
+        }
+        // lazily-materialized scalar views (Eager values: ungrouped Ema /
+        // arith / const; grouped chains + aliased subs start None)
+        let mut cur: Vec<Option<Value>> = vec![None; nops];
+        // pair-vector results (vec Arith ops): consumed by lane via `alias`
+        let mut vvec: Vec<Option<Value>> = vec![None; nops];
+
+        // Resolve any op id to its scalar value for this bar, extracting a
+        // vector lane only now (E2-lite's lazy split). SSA order makes the
+        // memoized fill safe: producers precede consumers.
+        macro_rules! scalarize {
+            ($o:expr) => {{
+                let o = $o;
+                if let Some(v) = cur[o] {
+                    v
+                } else {
+                    let (tgt, lane) = plan.alias[o];
+                    let (vecv, l) = if tgt != usize::MAX {
+                        (vvec[tgt].expect("pair-vector produced first"), lane)
+                    } else if plan.lane_of[o].0 != usize::MAX {
+                        (stepv[plan.lane_of[o].0], plan.lane_of[o].1 as u8)
+                    } else {
+                        (vvec[o].expect("scalarize: value-producing op computed first"), 0)
+                    };
+                    let v = fb.ins().extractlane(vecv, l);
+                    cur[o] = Some(v);
+                    v
+                }
+            }};
+        }
+        // scalar ops in arena order (grouped members already computed)
+        let mut sd: Vec<Value> = Vec::with_capacity(nsd);
         let mut ci = 0usize;
         for j in 0..nops {
-            let prev = bp[j];
+            if plan.lane_of[j].0 != usize::MAX {
+                continue;
+            }
             let newv = match plan.ops[j].e {
                 OpE::Ema {
                     src,
@@ -701,15 +1019,19 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                     feed,
                     chained,
                 } => {
-                    let step = |fb: &mut FunctionBuilder| -> Value {
-                        let src_v = if src == PRICE { price_v } else { cur[src] };
-                        let m = fb.ins().f64const(mult);
-                        let iv = fb.ins().f64const(inv);
-                        let prod = fb.ins().fmul(src_v, m);
-                        fb.ins().fma(prev, iv, prod)
-                    };
+                    let slot = slot_of_op[j];
+                    let prev = bp[slot];
+                    macro_rules! step_ema {
+                        () => {{
+                            let src_v = if src == PRICE { price_v } else { scalarize!(src) };
+                            let m = fb.ins().f64const(mult);
+                            let iv = fb.ins().f64const(inv);
+                            let prod = fb.ins().fmul(src_v, m);
+                            fb.ins().fma(prev, iv, prod)
+                        }};
+                    }
                     if !chained {
-                        step(&mut fb)
+                        step_ema!()
                     } else {
                         let sdj = bp[sdpos + ci];
                         ci += 1;
@@ -717,18 +1039,27 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                             prev // source reports no bars of this segment
                         } else if b == feed as i64 {
                             // feeding starts here: first bar seeds
-                            let stepped = step(&mut fb);
+                            let stepped = step_ema!();
                             let is_sd = fb.ins().icmp(IntCC::NotEqual, sdj, zero);
-                            let src_v = if src == PRICE { price_v } else { cur[src] };
+                            let src_v = if src == PRICE { price_v } else { scalarize!(src) };
                             fb.ins().select(is_sd, stepped, src_v)
                         } else {
-                            step(&mut fb) // sd proven 1: pure step
+                            step_ema!() // sd proven 1: pure step
                         }
                     }
                 }
-                OpE::Arith { op, a, b } => {
-                    let av = cur[a];
-                    let bv = cur[b];
+                OpE::Arith { op, a, b, vec } => {
+                    if vec {
+                        // E2-lite pair-sub: a/b are GROUP ids; one fsub on
+                        // THIS bar's stepped lane vectors yields both line
+                        // values (`bp` holds the previous bar).
+                        let v = fb.ins().fsub(stepv[a], stepv[b]);
+                        vvec[j] = Some(v);
+                        cur[j] = Some(fb.ins().extractlane(v, 0));
+                        continue;
+                    }
+                    let av = scalarize!(a);
+                    let bv = scalarize!(b);
                     match op {
                         ArithKind::Sub => fb.ins().fsub(av, bv),
                         ArithKind::Mul => fb.ins().fmul(av, bv),
@@ -739,21 +1070,18 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                 }
                 OpE::Const(v) => fb.ins().f64const(v),
             };
-            cur[j] = newv;
+            cur[j] = Some(newv);
         }
-        // Seed flags for the next edge, in `chained` order: a segment at or
-        // past a chain's feed lead has seeded it (first bar) or found it
-        // seeded; earlier segments pass the incoming flag through.
-        let mut sd_args: Vec<Value> = Vec::with_capacity(nsd);
+        // Seed flags for the next edge, in `chained` order.
         for (i, &cj) in chained.iter().enumerate() {
             let feed = match plan.ops[cj].e {
                 OpE::Ema { feed, .. } => feed as i64,
                 _ => unreachable!(),
             };
             if b < feed {
-                sd_args.push(bp[sdpos + i]);
+                sd.push(bp[sdpos + i]);
             } else {
-                sd_args.push(one);
+                sd.push(one);
             }
         }
 
@@ -764,22 +1092,37 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
             let idx = fb.ins().isub(ivar, sbase[k]);
             let soff = fb.ins().imul(idx, eight);
             let saddr = fb.ins().iadd(optr[k], soff);
-            let v = cur[sink.val];
+            let v = scalarize!(sink.val);
             fb.ins().store(MemFlagsData::new(), v, saddr, 0);
         }
         let i1 = fb.ins().iadd(ivar, one);
-        let mut la = cur.clone();
-        la.extend(sd_args.iter().copied());
+        let mut la: Vec<Value> = Vec::with_capacity(nparam);
+        la.extend(stepv.iter().copied());
+        for &o in &op_of_slot {
+            la.push(cur[o].expect("state-carried op has a value"));
+        }
+        la.extend(sd.iter().copied());
         la.push(i1);
         fb.ins().jump(head_bb[s], &ba(&la));
     }
 
-    // ---- end: store state once ----
+    // ---- end: store state once (group vectors extracted back per chain) ----
     fb.switch_to_block(end_bb);
     let endp: Vec<Value> = fb.block_params(end_bb).to_vec();
-    for j in 0..nops {
-        if matches!(plan.ops[j].e, OpE::Ema { .. }) {
-            st(&mut fb, state, 8 * plan.ops[j].ema_word as i64, endp[j]);
+    for g in 0..ngroups {
+        for (l, &o) in plan.groups[g].ops.iter().enumerate() {
+            let v = fb.ins().extractlane(endp[g], l as u8);
+            st(&mut fb, state, 8 * plan.ops[o].ema_word as i64, v);
+        }
+    }
+    for (si, &o) in op_of_slot.iter().enumerate() {
+        if matches!(plan.ops[o].e, OpE::Ema { .. }) {
+            st(
+                &mut fb,
+                state,
+                8 * plan.ops[o].ema_word as i64,
+                endp[ngroups + si],
+            );
         }
     }
     for (i, &j) in chained.iter().enumerate() {
@@ -787,10 +1130,10 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
             &mut fb,
             state,
             8 * plan.ops[j].sd_word as i64,
-            endp[nops + i],
+            endp[nval + i],
         );
     }
-    st(&mut fb, state, 8 * W_SEED as i64, endp[nops + nsd]);
+    st(&mut fb, state, 8 * W_SEED as i64, endp[nval + nsd]);
     let nb = fb.ins().iadd(next_bar, len);
     st(&mut fb, state, 8 * W_NEXT as i64, nb);
     fb.ins().return_(&[]);
@@ -1094,5 +1437,41 @@ mod tests {
         );
         assert_eq!(nops, 10);
         assert_eq!(nsinks, 11);
+    }
+
+    /// E1/E2-lite shape: classic's two price chains pack into one `f64x2`
+    /// group (its lone line sub has no partner to pair with, so it stays a
+    /// scalar consumer of the lanes); dense's six line-subs form three
+    /// role-aligned pairs → six f64x2 groups covering all 11 close EMAs
+    /// plus ONE clone (ema9 feeds both an apo long and a ppo short) and
+    /// three vector `fsub`s replacing six scalar ones. Chained signals
+    /// never pack (producer in the same bar). Value parity across all
+    /// suites above now runs THROUGH the packed stepping — lane-wise
+    /// `fma` is the same `mul_add` per lane.
+    #[test]
+    fn jit_lanes_pack_price_chains() {
+        assert_eq!(
+            classic().build().lanes(),
+            vec![2],
+            "ema12+ema26 in one f64x2"
+        );
+        assert_eq!(classic().build().vec_subs(), 0, "lone sub stays scalar");
+        let dense = Request::new()
+            .add_opt(Apo::recipe(&[5.0, 8.0]), None)
+            .add_opt(Apo::recipe(&[6.0, 9.0]), None)
+            .add_opt(Ppo::recipe(&[9.0, 25.0]), None)
+            .add_opt(Ppo::recipe(&[10.0, 26.0]), None)
+            .add_opt(Macd::recipe(&[11.0, 23.0, 17.0]), None)
+            .add_opt(Macd::recipe(&[12.0, 24.0, 9.0]), None)
+            .build();
+        assert_eq!(
+            dense.lanes(),
+            vec![2, 2, 2, 2, 2, 2],
+            "three role-aligned sub pairs → six f64x2 groups"
+        );
+        assert_eq!(dense.vec_subs(), 3, "one vector fsub per pair");
+        // 11 distinct close chains + 1 clone (shared ema9) = 12 lane slots
+        let slots: usize = dense.lanes().iter().sum();
+        assert_eq!(slots, 12, "clone absorbs the cross-request chain reuse");
     }
 }

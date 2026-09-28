@@ -152,7 +152,7 @@ fn bench_dense(c: &mut Criterion) {
     let plan = dense_request().build();
     let mut g = c.benchmark_group("dense");
     g.sample_size(20);
-    g.bench_function("hand_by_options_2", |b| {
+    g.bench_function("hand_by_options_2(Dashboard)", |b| {
         b.iter(|| {
             let a = Apo::indicator_by_options::<2>(&inputs, &apo_opts, None).unwrap();
             let p = Ppo::indicator_by_options::<2>(&inputs, &ppo_opts, None).unwrap();

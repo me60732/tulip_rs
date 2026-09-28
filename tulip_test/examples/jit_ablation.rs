@@ -116,4 +116,21 @@ fn main() {
     // Dump the classic CLIF for inspection.
     std::fs::write("/tmp/classic.clif", classic.clif()).ok();
     println!("classic CLIF written to /tmp/classic.clif");
+
+    // ...and the dense dashboard's, to audit the extract/insert traffic.
+    let dense = Request::new()
+        .add_opt(Apo::recipe(&[5.0, 8.0]), None)
+        .add_opt(Apo::recipe(&[6.0, 9.0]), None)
+        .add_opt(Ppo::recipe(&[9.0, 25.0]), None)
+        .add_opt(Ppo::recipe(&[10.0, 26.0]), None)
+        .add_opt(Macd::recipe(&[11.0, 23.0, 17.0]), None)
+        .add_opt(Macd::recipe(&[12.0, 24.0, 9.0]), None)
+        .build();
+    println!("dense lanes: {:?}", dense.lanes());
+    time("9 jit dense", || {
+        let (r, q) = dense.run(&s);
+        std::hint::black_box(r.outputs[0][0].len() + q.words.len());
+    });
+    std::fs::write("/tmp/dense.clif", dense.clif()).ok();
+    println!("dense CLIF written to /tmp/dense.clif");
 }
