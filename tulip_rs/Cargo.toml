@@ -29,6 +29,13 @@ targets = [
 # No dependencies needed for the simple file scanning build script
 
 [dependencies]
+# The CSE planner's executor (`cse/jit.rs`): every query compiles to one
+# fused machine loop on the native ISA (FMA/AVX2). Required, not optional —
+# the JIT is the engine.
+cranelift = "0.136.1"
+cranelift-jit = "0.136.1"
+cranelift-module = "0.136.1"
+cranelift-native = "0.136.1"
 serde = { version = "1.0.225", features = ["derive"] }
 serde_json = "1.0.145"
 tulip_rs_macros = "0.1.0"
@@ -44,6 +51,9 @@ default = ["simd_options", "simd_assets"] #, "candle_deep_analysis"]
 portable_simd = []
 simd_options = []
 simd_assets = []
+# Lane-width cap reserved for a future lane-packed JIT (vector `fma` groups,
+# `cse/jit.rs` step E1); nothing reads it yet.
+avx512 = []
 
 # TODO figure out how to do a deep analysis to eliminate pattern clashes and pull out only one match, would be a cool feature
 # candle_deep_analysis = []

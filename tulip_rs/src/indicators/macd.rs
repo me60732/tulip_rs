@@ -5,6 +5,7 @@ pub use crate::indicator_types::IndicatorByOptions;
 pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 
+use crate::cse::{Node, Planable, Recipe, Sink};
 use crate::indicators::ema::{Ema, State as EmaState};
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
@@ -174,6 +175,88 @@ fn cycle_macd(
 }
 
 pub struct Macd;
+
+impl Planable for Macd {
+    /// `Macd(s, l, g)`:
+    /// ```text
+    ///   ema_s(close)  ema_l(close)
+    ///          \        /
+    ///           sub  = macd_line   ( == Apo(s, l) )
+    ///          /        \
+    ///   ema_g(macd_line)  \   = signal_line
+    ///          \            /
+    ///            sub        = histogram
+    /// ```
+    ///
+    /// SSA order matches [`Macd`]'s `TState::calc` (`short_ema`, `long_ema`,
+    /// `macd_value`, `signal`, then `histogram`). The `Ema{period: s}` and
+    /// `Ema{period: l}` nodes over `Input{0}` are *the same CSE keys* as
+    /// [`Apo::recipe`](super::apo::Apo::recipe), and the `macd_line` node
+    /// `sub(s, l)` is `Apo`'s result — the engine §4 identity `Apo ≡ macd_line`.
+    fn recipe(options: &[f64]) -> Recipe {
+        let short = options[0] as u32;
+        let long = options[1] as u32;
+        let signal_period = options[2] as u32;
+
+        let mut r = Recipe::new();
+        let real = r.add(Node::Input { stream: 0 });
+        let s = r.add(Node::Ema {
+            src: real,
+            period: short,
+        });
+        let l = r.add(Node::Ema {
+            src: real,
+            period: long,
+        });
+        // The line Sub is the SAME node APO declares (and PPO's numerator) —
+        // merge interns one `fsub` for all three (§4 identity). The signal
+        // is an `Ema` *of that node*: the engine's chained-recurrence rule
+        // feeds it exactly the line's REPORTED bars (lead `long-1`), seeded
+        // from the first — bit-for-bit `Macd::init_state`. The arena lead
+        // formula gives it `long-1 + sp-1` = the hand's 33.
+        let line = r.add(Node::Sub { a: s, b: l });
+        let sig = r.add(Node::Ema {
+            src: line,
+            period: signal_period,
+        });
+        let hist = r.add(Node::Sub { a: line, b: sig });
+
+        r.kind = "macd";
+        r.options = options.to_vec();
+        // The hand State's three chains, in TState field order.
+        r.tail_inputs = vec![s, l, sig];
+        r.restorer = Some(restore_state);
+        // outputs in Info order: macd_line, signal, histogram — publish leads
+        // = hand slot_lengths offsets (25 / 33 / 33 for 12/26/9).
+        r.outputs.push(Sink::iface_lead(line, long - 1));
+        r.outputs
+            .push(Sink::iface_lead(sig, long + signal_period - 2));
+        r.outputs
+            .push(Sink::iface_lead(hist, long + signal_period - 2));
+        // optional_outputs in Info order: short_ema, long_ema — node
+        // mirrors with hand `Ema::output_length` capacities ⇒ publish leads
+        // are the periods (defined-from + 1), declared explicitly.
+        r.optional_outputs.push(Sink::iface_lead(s, short));
+        r.optional_outputs.push(Sink::iface_lead(l, long));
+        r
+    }
+}
+
+/// Rebuild `macd::State` from the arena chains — `tail_inputs` order is the
+/// `TState` field order, so the signal chain arrives as `signal_state`.
+pub(crate) fn restore_state(mut v: Vec<EmaState<Warm>>) -> crate::cse::IndicatorStateBox {
+    if v.len() != 3 {
+        return crate::cse::IndicatorStateBox::Other;
+    }
+    let signal_state = v.pop().unwrap();
+    let long_ema = v.pop().unwrap();
+    let short_ema = v.pop().unwrap();
+    crate::cse::IndicatorStateBox::Macd(State {
+        short_ema,
+        long_ema,
+        signal_state,
+    })
+}
 
 impl Indicator<INPUTS, OPTIONS> for Macd {
     type IndicatorState = IndicatorState;

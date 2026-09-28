@@ -4,6 +4,7 @@
 pub mod candle_indicators;
 pub mod common;
 pub mod common_simd;
+pub mod cse;
 pub mod indicator_types;
 pub mod indicators;
 pub mod macros;

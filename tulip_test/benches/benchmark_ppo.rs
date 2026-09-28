@@ -724,10 +724,10 @@ fn bench_vector_ta_ppo(c: &mut Criterion) {
 #[cfg(feature = "talib")]
 criterion_group!(
     ppo_benchmarks,
-    bench_vector_ta_ppo,
     bench_rust_ppo_simd_by_options,
     bench_rust_ppo_simd_by_assets,
     bench_rust_ppo,
+    bench_vector_ta_ppo,
     bench_rust_ta_ppo,
     bench_c_ppo,
     bench_talib_ppo,
@@ -738,10 +738,10 @@ criterion_group!(
 #[cfg(not(feature = "talib"))]
 criterion_group!(
     ppo_benchmarks,
-    bench_vector_ta_ppo,
     bench_rust_ppo_simd_by_options,
     bench_rust_ppo_simd_by_assets,
     bench_rust_ppo,
+    bench_vector_ta_ppo,
     bench_rust_ta_ppo,
     bench_c_ppo,
     bench_rust_ppo_from_state,

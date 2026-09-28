@@ -16,7 +16,7 @@
 //! is what makes `Apo`'s `ema12/ema26` and `Macd`'s literally the same arena
 //! nodes, the §4 identity falling out of CSE for free.
 
-use crate::cse::{Id, Node, Recipe, Sink, SinkSrc};
+use crate::cse::{Id, Node, Recipe, Sink, SinkSrc, StateRestorer};
 use std::collections::HashMap;
 
 /// Merged, node-deduplicated interface graph. Child `Id`s in `nodes` are
@@ -55,19 +55,21 @@ impl Merged {
     }
 }
 
-/// Where one input recipe landed in the merged arena: its tail wiring with
-/// all ids resolved to arena globals.
+/// Where one input recipe landed in the merged arena: its state wiring and
+/// sinks with all ids resolved to arena globals.
 #[derive(Debug, Clone)]
 pub struct Resolved {
-    /// Tail selector (from `Recipe::kind`).
+    /// Debug/label tag (from `Recipe::kind`) — the executor does not read it.
     pub kind: &'static str,
-    /// Options forwarded to the tail constructor.
+    /// Options (labels; the graph carries what matters).
     pub options: Vec<f64>,
-    /// Global arena ids fed to the tail, in argument order. The request's
-    /// tail starts running at `max(leads[inputs])` — the first bar every
-    /// argument is reported.
+    /// Global arena ids of the `Ema` chains the hand `State` holds, in
+    /// `TState` field order — `get_states` feeds their live slot values to
+    /// `restorer`, in this order.
     pub inputs: Vec<Id>,
-    /// Primary sinks (global ids / tail slots), `Info::outputs` order.
+    /// Rebuilds the hand state (from the indicator module). `None` ⇒ Other.
+    pub restorer: Option<StateRestorer>,
+    /// Primary sinks (global node ids), `Info::outputs` order.
     pub outputs: Vec<Sink>,
     /// Optional sinks, `Info::optional_outputs` order.
     pub optional_outputs: Vec<Sink>,
@@ -140,7 +142,6 @@ fn remap(node: &Node, l2g: &[Id]) -> Node {
 fn remap_sink(sink: &Sink, l2g: &[Id]) -> Sink {
     Sink {
         src: match sink.src {
-            SinkSrc::Tail(i) => SinkSrc::Tail(i),
             SinkSrc::Interface(local) => SinkSrc::Interface(l2g[local as usize]),
         },
         lead: sink.lead,
@@ -169,6 +170,7 @@ pub fn merge(recipes: &[Recipe]) -> (Merged, Vec<Resolved>) {
                 .iter()
                 .map(|&i| l2g[i as usize])
                 .collect(),
+            restorer: recipe.restorer,
             outputs: recipe.outputs.iter().map(|s| remap_sink(s, &l2g)).collect(),
             optional_outputs: recipe
                 .optional_outputs
@@ -190,54 +192,62 @@ mod tests {
     use crate::indicators::macd::Macd;
     use crate::indicators::ppo::Ppo;
 
-    /// The three classic requests share every recurrence: `ema12`/`ema26`
-    /// CSE to one arena node each, so the whole interface is 3 nodes
-    /// (`Input` + 2 `Ema`) — the signal EMA is macd's *tail* state, not an
-    /// interface node, and `Apo ≡ macd_line` is one tail subtraction each.
+    /// The three classic requests share EVERYTHING shareable as one graph:
+    /// `Input` + `ema12` + `ema26` (one chain each), ONE `Sub` line node
+    /// (apo's output, macd's line, ppo's numerator — the §4 identity is now
+    /// a single arena node), the ppo guard chain (`Const ε`, `Max`,
+    /// `Const 100`, `Mul`, `Div`), the chained signal `Ema` over the line,
+    /// and the hist `Sub` = 11 nodes. Per-request state wiring stays just
+    /// the EMA chains (`tail_inputs`), macd's naming its signal chain too.
     #[test]
-    fn merge_dedups_interface_to_three_nodes() {
+    fn merge_dedups_classic_graph() {
         let (m, r) = merge(&[
             Apo::recipe(&[12.0, 26.0]),
             Ppo::recipe(&[12.0, 26.0]),
             Macd::recipe(&[12.0, 26.0, 9.0]),
         ]);
-        assert_eq!(m.nodes.len(), 3, "Input + ema12 + ema26, shared");
-        let n_ema = m
-            .nodes
-            .iter()
-            .filter(|n| matches!(n, Node::Ema { .. }))
-            .count();
-        assert_eq!(n_ema, 2);
+        assert_eq!(m.nodes.len(), 11, "one shared graph, no duplicates");
+        let n = |p: fn(&Node) -> bool| m.nodes.iter().filter(|n| p(n)).count();
+        assert_eq!(n(|x| matches!(x, Node::Ema { .. })), 3, "e12, e26, sig");
+        assert_eq!(n(|x| matches!(x, Node::Sub { .. })), 2, "line + hist");
+        assert_eq!(n(|x| matches!(x, Node::Const { .. })), 2, "eps, 100");
+        assert_eq!(n(|x| matches!(x, Node::Max { .. })), 1);
+        assert_eq!(n(|x| matches!(x, Node::Mul { .. })), 1);
+        assert_eq!(n(|x| matches!(x, Node::Div { .. })), 1);
 
-        // every request's tail reads the same two global ids
-        for res in &r {
-            assert_eq!(res.inputs.len(), 2);
-        }
-        assert_eq!(r[0].inputs, r[1].inputs);
-        assert_eq!(r[1].inputs, r[2].inputs);
+        // state wiring: apo/ppo name the same two chains; macd adds the
+        // signal chain (an arena Ema over the shared line).
+        assert_eq!(r[0].inputs, vec![1, 2]);
+        assert_eq!(r[1].inputs, vec![1, 2]);
+        assert_eq!(r[2].inputs.len(), 3);
+        assert_eq!(&r[2].inputs[..2], &[1, 2]);
 
-        // defined-from leads: ema12 → 11, ema26 → 25 (Input = 0)
+        // defined-from leads: ema12 → 11, ema26 → 25, line → 25, sig → 33
         let leads = m.leads();
-        assert_eq!(leads[r[0].inputs[0] as usize], 11);
-        assert_eq!(leads[r[0].inputs[1] as usize], 25);
+        assert_eq!(leads[1], 11);
+        assert_eq!(leads[2], 25);
+        assert_eq!(leads[r[2].inputs[2] as usize], 33, "signal = 25 + 9 - 1");
 
-        // passthrough optionals are Interface mirrors of those same nodes
+        // every sink is a node mirror (no tail slots survive)
         assert!(matches!(
             r[0].optional_outputs[0].src,
-            SinkSrc::Interface(id) if id == r[0].inputs[0]
+            SinkSrc::Interface(id) if id == 1
         ));
+        assert!(matches!(r[1].outputs[0].src, SinkSrc::Interface(_)));
         assert!(matches!(
             r[2].optional_outputs[1].src,
-            SinkSrc::Interface(id) if id == r[2].inputs[1]
+            SinkSrc::Interface(id) if id == 2
         ));
     }
 
     /// The dense dashboard's PARTIAL overlap: `Apo(6,9)`'s long EMA and
     /// `Ppo(9,25)`'s short EMA are both `ema9(close)` — one structural key,
-    /// so the arena holds exactly ONE `Ema{period: 9}` node and the two
-    /// requests receive the same global id (one advance per bar; the JIT
-    /// emits one chain, both tails read it). All other periods in the set
-    /// are distinct, so the interface is `Input` + 11 EMAs — not 12.
+    /// so the arena holds exactly ONE price-sourced `Ema{period: 9}` node
+    /// and the two requests receive the same global id (one advance per bar;
+    /// both consumers read the same chain). `Macd(12,24,9)`'s signal is ALSO
+    /// period 9 but over the line node — a different key, correctly NOT
+    /// deduped. All other periods are distinct: 11 close EMAs + 2 signal
+    /// chains + the per-request derived graph = 30 nodes.
     #[test]
     fn merge_dedups_dense_shared_ema9() {
         let (m, r) = merge(&[
@@ -252,30 +262,32 @@ mod tests {
             m.nodes
                 .iter()
                 .enumerate()
-                .filter(|(_, n)| matches!(**n, Node::Ema { period, .. } if period == p))
+                .filter(
+                    |(_, n)| matches!(**n, Node::Ema { src, period } if period == p && src == 0),
+                )
                 .map(|(i, _)| i as Id)
                 .collect()
         };
         assert_eq!(
-            m.nodes.len(),
-            12,
-            "Input + 11 distinct close EMAs (periods 5,6,8,9,10,11,12,23,24,25,26)"
+            ema(9).len(),
+            1,
+            "ema9(close) exists exactly once (the period-9 SIGNAL chain is over the line, not close)"
         );
-        assert_eq!(ema(9), vec![ema(9)[0]], "ema9 must exist exactly once");
-        // Apo(6,9) = request 1: tail inputs [ema6, ema9];
-        // Ppo(9,25) = request 2: tail inputs [ema9, ema25].
+        // Apo(6,9) = request 1: state chains [ema6, ema9];
+        // Ppo(9,25) = request 2: state chains [ema9, ema25].
         assert_eq!(
             r[1].inputs[1], r[2].inputs[0],
             "Apo long(9) and Ppo short(9) must be the SAME arena node"
         );
-        // and one Input for all six recipes:
-        assert!(matches!(m.nodes[0], Node::Input { stream: 0 }));
-        assert!(
-            m.nodes[1..].iter().all(|n| matches!(
-                n,
-                Node::Ema { src, .. } if *src == 0
-            )),
-            "every EMA in this query reads the single close Input"
+        let n_price_emas = m
+            .nodes
+            .iter()
+            .filter(|n| matches!(n, Node::Ema { src, .. } if *src == 0))
+            .count();
+        assert_eq!(
+            n_price_emas, 11,
+            "periods 5,6,8,9,10,11,12,23,24,25,26 over the single close Input"
         );
+        assert_eq!(m.nodes.len(), 30);
     }
 }

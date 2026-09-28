@@ -8,6 +8,7 @@ use crate::indicators::ema::{Ema, State as EmaState};
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
+use crate::cse::{Node, Planable, Recipe, Sink};
 /// Number of input price series required by this indicator.
 pub const INPUTS: usize = 1;
 
@@ -87,10 +88,10 @@ impl TState for State<Warm> {
     #[inline(always)]
     fn calc<'a>(&mut self, real: Self::Inputs<'a>) -> Self::Outputs {
         let short_ema = self.short_ema.calc(real);
-        let long_ema = self.long_ema.calc(real).max(f64::EPSILON);
+        let long_ema = self.long_ema.calc(real);
 
         (
-            (short_ema - long_ema) * 100.0 / long_ema,
+            (short_ema - long_ema) * 100.0 / long_ema.max(f64::EPSILON),
             short_ema,
             long_ema,
         )
@@ -223,4 +224,63 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Ppo {
             optional_outputs,
         )
     }
+}
+
+impl Planable for Ppo {
+    /// `Ppo(s, l)  ≡  (ema_s − ema_l) * 100.0 / max(ema_l, EPSILON)` written
+    /// entirely as nodes: the `Sub` of the raw EMAs (the SAME arena node
+    /// APO and MACD declare — `merge` interns one numerator for all three),
+    /// a `Max` guard feeding ONLY the divisor, then `Mul`/`Div` in the
+    /// hand's exact evaluation order: `((s − l) * 100.0) / l_c`.
+    /// Reassociating to `(s − l) * (100.0 / l_c)` would change the bits
+    /// (MATHEMATICAL_ENGINE §5).
+    fn recipe(options: &[f64]) -> Recipe {
+        let short = options[0] as u32;
+        let long = options[1] as u32;
+
+        let mut r = Recipe::new();
+        let close = r.add(Node::Input { stream: 0 });
+        let s = r.add(Node::Ema {
+            src: close,
+            period: short,
+        });
+        let l = r.add(Node::Ema {
+            src: close,
+            period: long,
+        });
+        let line = r.add(Node::Sub { a: s, b: l });
+        let eps = r.constant(f64::EPSILON);
+        let l_c = r.add(Node::Max { a: l, b: eps });
+        let c100 = r.constant(100.0);
+        let num = r.add(Node::Mul { a: line, b: c100 });
+        let ratio = r.add(Node::Div { a: num, b: l_c });
+
+        r.kind = "ppo";
+        r.options = options.to_vec();
+        r.tail_inputs = vec![s, l];
+        r.restorer = Some(restore_state);
+        // publish lead = min_data - 1 = options[1] (output_length = data_len -
+        // min_data + 1, right-aligned); the ratio node is DEFINED at long-1
+        // but the hand capacity starts it one bar later.
+        r.outputs.push(Sink::iface_lead(ratio, long));
+        // optional_outputs: both RAW EMA mirrors — short at hand
+        // `Ema::output_length` capacity (lead = short), long at the primary
+        // capacity (explicit lead `long`, hand `slot_lengths` fact).
+        r.optional_outputs.push(Sink::iface_lead(s, short));
+        r.optional_outputs.push(Sink::iface_lead(l, long));
+        r
+    }
+}
+
+/// Rebuild `ppo::State` from the arena chains, `TState` field order.
+pub(crate) fn restore_state(mut v: Vec<EmaState<Warm>>) -> crate::cse::IndicatorStateBox {
+    if v.len() != 2 {
+        return crate::cse::IndicatorStateBox::Other;
+    }
+    let long_ema = v.pop().unwrap();
+    let short_ema = v.pop().unwrap();
+    crate::cse::IndicatorStateBox::Ppo(State {
+        short_ema,
+        long_ema,
+    })
 }

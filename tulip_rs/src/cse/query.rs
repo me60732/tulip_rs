@@ -182,7 +182,8 @@ mod tests {
         cmp_exact(res.request(0).output(0), &apo[0], "apo_line");
         cmp_exact(res.request(0).optional(0), &apo[1], "apo_short_opt");
         cmp_exact(res.request(0).optional(1), &apo[2], "apo_long_opt");
-        // ppo: [ppo] + optional [short, clamped long]
+        // ppo: [ppo] + optional [short, long] — both raw EMA mirrors now
+        // (the hand clamp guards only the divisor)
         cmp_exact(res.request(1).output(0), &ppo[0], "ppo_line");
         cmp_exact(res.request(1).optional(0), &ppo[1], "ppo_short_opt");
         cmp_exact(res.request(1).optional(1), &ppo[2], "ppo_long_opt");
@@ -203,7 +204,10 @@ mod tests {
         let plan = classic_request().build();
         let (full, _) = plan.run(&s_all);
 
-        for split in [90usize, 140, 20, 33, 25] {
+        // Splits include every phase boundary of this plan's leads
+        // (mirrors 12, primaries 25/26, signal 33) — boundary arithmetic is
+        // exactly where chunking bugs live.
+        for split in [90usize, 140, 20, 33, 25, 12, 13, 26, 27, 34] {
             let s1: [&[f64]; 1] = [&close[..split]];
             let s2: [&[f64]; 1] = [&close[split..]];
             let (head, qs) = plan.run(&s1);
@@ -289,13 +293,13 @@ mod tests {
         assert!(rp.request(2).optional(1).is_empty(), "macd_long disabled");
     }
 
-    /// `get_states` reconstitutes the hand `State` from BOTH authorities:
-    /// interface EMA state from the arena, macd's signal from the tail — and
-    /// each field's `ema` must equal the last *published* value on its line
-    /// (shared arena node ⇒ identical across the three requests: one
-    /// authority per node).
+    /// `get_states` reconstitutes each hand `State` from its arena chains
+    /// through the INDICATOR's own restorer (`Recipe::restorer`) — the
+    /// engine assembles no state structs and knows no indicator fields
+    /// (shared arena node ⇒ identical chains across the three requests:
+    /// one authority per node).
     #[test]
-    fn get_states_restores_from_both_authorities() {
+    fn get_states_restores_via_indicator_restorers() {
         let close = series(500);
         let s: [&[f64]; 1] = [close.as_slice()];
         let plan = classic_request().build();
@@ -349,10 +353,15 @@ mod tests {
             .add_opt(Ema::recipe(&[12.0]), None)
             .add_opt(Ema::recipe(&[26.0]), None)
             .build();
+        let classic_nodes = classic_request().build().arena().nodes.len();
         assert_eq!(
             plan.arena().nodes.len(),
-            3,
-            "ema requests must merge into the classic arena (Input + ema12 + ema26)"
+            classic_nodes,
+            "ema requests must add ZERO nodes to the classic graph"
+        );
+        assert_eq!(
+            classic_nodes, 11,
+            "classic graph: chains, the shared line Sub, the ppo guard chain, signal + hist"
         );
         let (res, qs) = plan.run(&s);
 

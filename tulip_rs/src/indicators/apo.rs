@@ -1,4 +1,5 @@
 use crate::common::validate_inputs;
+use crate::cse::{Node, Planable, Recipe, Sink};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -94,7 +95,6 @@ impl TState for State<Warm> {
         short_ema - long_ema
     }
 }
-
 pub(crate) fn validate_options(options: &[f64; OPTIONS]) -> Result<(), IndicatorError> {
     if options[0] < 1.0 || options[1] <= options[0] {
         return Err(IndicatorError::InvalidOptions);
@@ -162,7 +162,66 @@ pub fn multiplier(short_period: usize, long_period: usize) -> ((f64, f64), (f64,
     (ema_multiplier(short_period), ema_multiplier(long_period))
 }
 
+/// APO's math reference is [`State::calc`] (`short_ema - long_ema`, verbatim
+/// in `cycle_apo`); the JIT emits that subtraction as an interned `Sub` op
+/// shared with macd_line and the ppo numerator.
 pub struct Apo;
+
+impl Planable for Apo {
+    /// `Apo(s, l) ≡ ema_s(close) − ema_l(close)` written entirely as nodes:
+    /// the two `Ema`s plus the `Sub` of their values. That `Sub` node is the
+    /// §4 identity — MACD's line and PPO's numerator declare the same key
+    /// and `merge` interns them into ONE arena node (one `fsub` in the
+    /// fused loop, up to three consumers).
+    ///
+    /// SSA order matches [`Apo`]'s `TState::calc` (short advanced before
+    /// long). Publish leads from `output_length`/`min_data`: primary from
+    /// bar `long-1`, the two EMA passthroughs from their defined-from
+    /// (`short-1`, `long-1`) — exactly the capacities
+    /// [`Apo::indicator`] allocates for `Some(&[true, true])`.
+    fn recipe(options: &[f64]) -> Recipe {
+        let short = options[0] as u32;
+        let long = options[1] as u32;
+
+        let mut r = Recipe::new();
+        let close = r.add(Node::Input { stream: 0 });
+        let s = r.add(Node::Ema {
+            src: close,
+            period: short,
+        });
+        let l = r.add(Node::Ema {
+            src: close,
+            period: long,
+        });
+        let line = r.add(Node::Sub { a: s, b: l });
+
+        r.kind = "apo";
+        r.options = options.to_vec();
+        r.tail_inputs = vec![s, l];
+        r.restorer = Some(restore_state);
+        r.outputs.push(Sink::iface_lead(line, long - 1));
+        // optional_outputs in Info order: short_ema, long_ema — node
+        // mirrors. PUBLISH leads are hand facts, not defined-from: the short
+        // line is `Ema::output_length` (lead = period), the long reuses the
+        // primary capacity (lead = long-1 = defined-from → fallback).
+        r.optional_outputs.push(Sink::iface_lead(s, short));
+        r.optional_outputs.push(Sink::iface(l));
+        r
+    }
+}
+
+/// Rebuild `apo::State` from the arena chains, `TState` field order.
+pub(crate) fn restore_state(mut v: Vec<EmaState<Warm>>) -> crate::cse::IndicatorStateBox {
+    if v.len() != 2 {
+        return crate::cse::IndicatorStateBox::Other;
+    }
+    let long_ema = v.pop().unwrap();
+    let short_ema = v.pop().unwrap();
+    crate::cse::IndicatorStateBox::Apo(State {
+        short_ema,
+        long_ema,
+    })
+}
 
 impl Indicator<INPUTS, OPTIONS> for Apo {
     type IndicatorState = IndicatorState;

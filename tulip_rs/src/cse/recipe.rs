@@ -1,51 +1,65 @@
 //! The recipe *language*: what an indicator request **is** to the planner.
 //!
-//! A [`Recipe`] is not a program to interpret — it is a **cut-set** through the
-//! indicator's math, exactly the split `Apo::calc_cse` made manual:
+//! A [`Recipe`] is not a program to interpret — it is the indicator's math
+//! written as a **node graph**: everything downstream of the raw price
+//! streams, including the derived values an indicator used to hide behind a
+//! "tail" label. The planner/executor split is by node kind, not indicator:
 //!
-//! * [`nodes`] — the **interface**: the recurrences the *planner* owns
-//!   ([`Node::Input`] streams + [`Node::Ema`] chains). These are CSE-merged
-//!   across every request in the [`crate::cse::Request`], so `ema26(close)`
-//!   advanced for APO is the same state MACD and PPO read — one authority,
-//!   one advance per bar (§5.2/§5.3 unchanged).
-//! * [`kind`] + [`tail_inputs`] — the request's **tail**: the indicator's
-//!   own math ([`crate::cse::tail::Tail`]) that receives the gated
-//!   interface values and produces its outputs (owning any state the
-//!   planner does *not* model — until the emitter covers it as a chained
-//!   recurrence, which macd's signal now is). The JIT lifts exactly this
-//!   arithmetic into the fused loop: the math below the interface never
-//!   passes through a node dispatcher.
-//! * [`outputs`] / [`optional_outputs`] — sinks: each reads either a tail
-//!   output slot or an interface value directly (a passthrough EMA line is a
-//!   *mirror*, not a copy through the tail), with an explicit publish lead.
+//! * [`nodes`] — the graph, SSA-ordered: [`Node::Input`] streams,
+//!   [`Node::Ema`] recurrences, [`Node::Sub`]/[`Mul`]/[`Div`]/[`Max`] glue and
+//!   [`Node::Const`] leaves. All of it is CSE-merged across requests, so
+//!   `ema26(close)` advanced for APO is the same state MACD and PPO read —
+//!   and the `ema12 − ema26` line APO, MACD and PPO all consume is ONE node
+//!   (§5.2/§5.3 unchanged; MACD's signal is an `Ema` over the shared line
+//!   node, fed per §5.3 by the same machinery any chained `Ema` uses).
+//! * [`tail_inputs`] — the arena ids of the chains the indicator's hand state
+//!   holds, in `TState` field order; [`restorer`] rebuilds the concrete hand
+//!   `IndicatorState` from them (`get_states`). Both are the ONLY places an
+//!   indicator's identity appears outside its own module — the executor emits
+//!   node kinds, never indicator names.
+//! * [`outputs`] / [`optional_outputs`] — sinks: node references with an
+//!   explicit publish lead (hand `slot_lengths`/`output_length` facts; a
+//!   passthrough EMA line and a derived oscillator line are the same thing —
+//!   a mirror of a node).
 //!
-//! [`nodes`]: Recipe::nodes · [`kind`]: Recipe::kind · [`tail_inputs`]: Recipe::tail_inputs
+//! [`nodes`]: Recipe::nodes · [`tail_inputs`]: Recipe::tail_inputs ·
+//! [`restorer`]: Recipe::restorer ·
 //! [`outputs`]: Recipe::outputs · [`optional_outputs`]: Recipe::optional_outputs
 //!
-//! SSA discipline is unchanged: a node's inputs are lower ids, so the merged
-//! arena is topologically ordered and `merge` remaps local→global ids.
+//! SSA discipline: a node's inputs are lower ids, so the merged arena is
+//! topologically ordered and `merge` remaps local→global ids.
 
 /// Local index of a node inside a [`Recipe`]'s `nodes` vector (SSA order).
 pub type Id = u32;
 
-/// A primitive the **interface** can contain. v1 executes `Input` + `Ema`;
-/// the arithmetic/filter kinds are vocabulary for future interface chains
-/// (e.g. a WMA + shared delay-ring tap for HMA) and the merge/lead rules
-/// already cover them.
+/// Rebuilds the concrete hand `IndicatorState` from the chains named by
+/// [`Recipe::tail_inputs`], in that order. Defined in the INDICATOR module —
+/// the only per-indicator hook the executor calls without knowing what the
+/// indicator is (mirrored into [`crate::cse::merge::Resolved`]).
+pub type StateRestorer =
+    fn(Vec<crate::indicators::ema::State<crate::types::Warm>>) -> crate::cse::IndicatorStateBox;
+
+/// A primitive the node graph can contain. The v1 executor emits `Input`,
+/// `Ema`, `Sub`, `Mul`, `Div`, `Max`, `Const`; the filter/HT kinds are
+/// vocabulary for future chains (e.g. a WMA + shared delay-ring tap for HMA)
+/// and the merge/lead rules already cover them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Node {
     /// A named source stream, by input position (`Info::inputs` order;
     /// `0` = close/real).
     Input { stream: Id },
-    /// `ema(period)` applied to node `src` — the shareable recurrence.
+    /// `ema(period)` applied to node `src` — the shareable recurrence
+    /// (chained over any node; a chained `Ema` feeds on its source's
+    /// REPORTED bars, §5.3).
     Ema { src: Id, period: Id },
-    /// `a - b` (future interface glue; not executed by the v1 engine).
+    /// `a - b`.
     Sub { a: Id, b: Id },
     /// `a * b`.
     Mul { a: Id, b: Id },
     /// `a / b`.
     Div { a: Id, b: Id },
-    /// `a.max(b)` — the NaN-propagates-other `f64::max`.
+    /// `a.max(b)` — the NaN-propagates-other `f64::max` (CLIF `fmax`,
+    /// same IEEE maxNum semantics).
     Max { a: Id, b: Id },
     /// A floating-point constant leaf, stored as `f64::to_bits()` so `Node`
     /// stays `Eq + Hash` (the CSE key).
@@ -61,22 +75,19 @@ pub enum Node {
     HtQuadrature { src: Id },
 }
 
-/// Where a sink's value comes from each bar.
+/// Where a sink's value comes from each bar: a node reference (after merge:
+/// the global arena id). Passthrough EMA lines and derived oscillator lines
+/// are the same thing — mirrors of nodes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SinkSrc {
-    /// Slot `u32` of the request tail's output array (primaries first, then
-    /// any optional values the tail itself computes).
-    Tail(u32),
-    /// Mirror of an interface node's reported value (arena id after merge).
-    /// This is how a passthrough optional (`short_ema`, `long_ema`, …)
-    /// reaches the output without round-tripping through the tail.
+    /// Mirror of a node's reported value.
     Interface(Id),
 }
 
 /// One output sink: its source, and the absolute bar it starts printing at.
-/// `lead = 0` falls back to the source's defined-from lead; an interface
-/// mirror's lead is additionally clamped up to the node's defined-from
-/// (same rule as `finalize`'s clamp, so publish ≤ defined is safe to write).
+/// `lead = 0` falls back to the source's defined-from lead; the lead is
+/// clamped up to the node's defined-from by the engine (publish ≤ defined
+/// is safe to write).
 #[derive(Debug, Clone, Copy)]
 pub struct Sink {
     pub src: SinkSrc,
@@ -84,22 +95,16 @@ pub struct Sink {
 }
 
 impl Sink {
-    /// Tail-output sink with an explicit publish lead.
-    pub fn tail(slot: u32, lead: Id) -> Self {
-        Sink {
-            src: SinkSrc::Tail(slot),
-            lead,
-        }
-    }
-    /// Interface mirror; reporting starts at the node's defined-from lead.
+    /// Mirror; reporting starts at the node's defined-from lead.
     pub fn iface(id: Id) -> Self {
         Sink {
             src: SinkSrc::Interface(id),
             lead: 0,
         }
     }
-    /// Interface mirror with an explicit publish lead (clamped up to the
-    /// node's defined-from by the engine).
+    /// Mirror with an explicit publish lead (clamped up to the node's
+    /// defined-from by the engine — hand capacities are facts, e.g. the
+    /// `Ema`-shaped optionals of apo/ppo/macd publish at `period`).
     pub fn iface_lead(id: Id, lead: Id) -> Self {
         Sink {
             src: SinkSrc::Interface(id),
@@ -108,26 +113,31 @@ impl Sink {
     }
 }
 
-/// A canonical request: the interface graph + tail wiring for one indicator
+/// A canonical request: the indicator's node graph + sink wiring for one
 /// invocation, e.g. `Macd::recipe(&[12.0, 26.0, 9.0])`.
 #[derive(Debug, Clone)]
 pub struct Recipe {
-    /// Interface nodes, SSA-ordered (inputs at lower ids). Input + Ema in v1.
+    /// The graph, SSA-ordered (inputs at lower ids).
     pub nodes: Vec<Node>,
-    /// Concrete-state tag for [`crate::cse::JitPlan::get_states`]
-    /// (e.g. `"macd"`). Also names the tail math the emitter inlines for
-    /// this request (the closed set `"ema" | "apo" | "ppo" | "macd"`; the
-    /// [`crate::cse::tail::Tail`] impl in the indicator module is the
-    /// reference those CLIF ops mirror). Empty ⇒ interface-only (all sinks
-    /// are mirrors; no derived values).
+    /// Debug/label tag for the request (e.g. `"macd"`) — carried through
+    /// `merge`/`Resolved` for messages and future plan-cache keys, but the
+    /// executor NEVER matches on it: everything the engine needs is in the
+    /// nodes, the sinks, and `restorer`.
     pub kind: &'static str,
-    /// The resolved option values (`[12.0, 26.0]` for `Apo(12, 26)`) — the
-    /// tail constructor receives them (macd's signal period, …).
+    /// The resolved option values (`[12.0, 26.0]` for `Apo(12, 26)`) —
+    /// labels the request; the graph already carries the values that matter
+    /// (periods, constants).
     pub options: Vec<f64>,
-    /// Arena (post-merge: global) ids fed to the tail, **in tail argument
-    /// order**. SSA order matches the hand `TState::calc` advance order, so
-    /// the tail reads exactly what the hand loop did at that bar.
+    /// Arena (post-merge: global) ids of the `Ema` chains this indicator's
+    /// hand `State` holds, **in `TState` field order** — fed verbatim to
+    /// [`restorer`] by `get_states`. (Formerly "tail inputs".)
     pub tail_inputs: Vec<Id>,
+    /// Rebuilds the concrete hand `IndicatorState` from the chains named by
+    /// [`tail_inputs`] — defined in the indicator module. `None` ⇒
+    /// [`IndicatorStateBox::Other`].
+    ///
+    /// [`tail_inputs`]: Recipe::tail_inputs · [`IndicatorStateBox::Other`]: crate::cse::IndicatorStateBox
+    pub restorer: Option<StateRestorer>,
     /// Primary sinks, `Info::outputs` order.
     pub outputs: Vec<Sink>,
     /// Optional sinks, `Info::optional_outputs` order (enabled/disabled is a
@@ -145,6 +155,21 @@ impl Recipe {
         self.nodes.push(node);
         (self.nodes.len() - 1) as Id
     }
+
+    /// Intern-friendly helper: append (or reuse) a `Const` leaf, returning
+    /// its local id. Recipes dedup identical constants within themselves;
+    /// `merge` dedups them across requests.
+    pub fn constant(&mut self, v: f64) -> Id {
+        let bits = v.to_bits();
+        if let Some(i) = self
+            .nodes
+            .iter()
+            .position(|n| matches!(n, Node::Const { bits: b } if *b == bits))
+        {
+            return i as Id;
+        }
+        self.add(Node::Const { bits })
+    }
 }
 
 impl Default for Recipe {
@@ -154,6 +179,7 @@ impl Default for Recipe {
             kind: "",
             options: Vec::new(),
             tail_inputs: Vec::new(),
+            restorer: None,
             outputs: Vec::new(),
             optional_outputs: Vec::new(),
         }

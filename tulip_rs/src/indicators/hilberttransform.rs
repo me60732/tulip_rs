@@ -30,6 +30,7 @@ pub use crate::indicator_types::IndicatorByOptions;
 pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 
+use crate::cse::{Id, Node, Planable, Recipe, Sink};
 use crate::indicators::{
     highpass::HighPass,
     roofingfilter::{RoofingFilter, State as RfSate},
@@ -130,6 +131,7 @@ impl TState for State<Cold> {
 }
 
 pub type IndicatorState = State<Warm>;
+
 impl TIndicatorState<INPUTS> for IndicatorState {
     fn batch_indicator(
         &mut self,
@@ -289,5 +291,51 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for HilbertTransform {
             options,
             optional_outputs,
         )
+    }
+}
+
+impl Planable for HilbertTransform {
+    /// `Hilbert(hp, ss)  ≡  ht( ss( hp( real ) ) )` split into I and Q.
+    ///
+    /// SSA order mirrors [`HilbertTransform`]'s `TState::calc`: the Roofing
+    /// Filter advances first (`HighPass` then `SuperSmoother`), then the 7-tap
+    /// Hilbert kernel reads the `roofing` stream and yields I (centre tap) and Q
+    /// (FIR sum). The Roofing Filter is *decomposed* into `HighPass` +
+    /// `SuperSmoother` (two nodes, not one opaque `RoofingFilter` leaf) so the
+    /// `highpass` optional output has its own SSA id and `P-HP` can share with
+    /// the standalone `highpass` indicator (Decision B: exhaustive decomposition).
+    ///
+    /// New primitives this recipe needs that `apo`/`macd`/`ppo` don't: `HighPass`,
+    /// `SuperSmoother`, `HtInPhase`, `HtQuadrature`. The `P-HT` coefficients
+    /// (`C0..C3`) stay intrinsic to the *kind* (not in the node), so `Node` keeps
+    /// `Eq + Hash` (the CSE key) and the seed rule stays canonical (Decision P).
+    fn recipe(options: &[f64]) -> Recipe {
+        let ss_period = options[0] as Id;
+        let hp_period = options[1] as Id;
+
+        let mut r = Recipe::new();
+        let real = r.add(Node::Input { stream: 0 });
+        let highpass = r.add(Node::HighPass {
+            input: real,
+            period: hp_period,
+        });
+        let roofing = r.add(Node::SuperSmoother {
+            src: highpass,
+            period: ss_period,
+        });
+        let in_phase = r.add(Node::HtInPhase { src: roofing });
+        let quadrature = r.add(Node::HtQuadrature { src: roofing });
+
+        // outputs in Info::outputs order: in_phase, quadrature.
+        // optional_outputs in Info::optional_outputs order: roofing, highpass.
+        // No `kind` yet (the filter/HT tail is future work): every sink is an
+        // interface mirror, and the v1 engine executes Input/Ema only — the
+        // plan builds and prints NaN rows, exactly like the retired arena
+        // interpreters did for these kinds.
+        r.outputs.push(Sink::iface(in_phase));
+        r.outputs.push(Sink::iface(quadrature));
+        r.optional_outputs.push(Sink::iface(roofing));
+        r.optional_outputs.push(Sink::iface(highpass));
+        r
     }
 }

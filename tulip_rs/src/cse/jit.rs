@@ -9,24 +9,31 @@
 //! derived value (the tail arithmetic lifted to CLIF for the closed kind
 //! set), every sink (lead-gated stores into the caller's output buffers).
 //!
-//! Emitted shape:
+//! Emitted shape — PHASE-SPLIT, the hand `init_state`/sliced-`cycle`
+//! discipline as codegen: the absolute bar line is cut at every gate the
+//! plan has (sink leads + chained feed leads) and each segment gets its
+//! own specialized loop, so inside a loop every gate is a compile-time
+//! constant:
 //!
 //! ```text
-//! setup (once per chunk): state loaded; seeded/first-valid selects; per-sink
-//!   first-row offsets g0 = sat_sub(lead, next_bar) and out pointers — all
-//!   setup values DOMINATE the loop, so loop-carried params are just
-//!   [op values.., chained seed flags.., i]:
-//! for i in 0..len:
-//!   price = load
-//!   ops in topological order:
-//!     Ema  : stepped = fma(prev, inv, src*mult)      // ← `mul_add`, ONE FMA
-//!            chained (e.g. macd signal): step/seed only once src reports
-//!     Sub  : a - b                                    // apo/line/histogram
-//!     Clamp: max(b, EPSILON)                           // ppo
-//!     Ppo  : (a - clamp)*100.0 / clamp                // op-for-op hand order
-//!   sinks: if i >= g0: out[i - g0] = op value          // lead-gated stores
-//!          (gate/store block chain; always-store-with-selected-address
-//!           measured 18→24µs WORSE — dead writes tax the store buffer)
+//! setup (once per chunk): state loaded; entry seed from price[0]; out
+//!   pointers; per-segment hi = min(end, boundary). i is the ABSOLUTE bar.
+//! for seg [b, e) in [0,b0) [b0,b1) … [blast, ∞):        # heads chain,
+//!   for i in max(start, b)..min(end, e):                # 1 cmp per skip
+//!     price = load
+//!     ops in topological order:
+//!       Ema  : fma(prev, inv, src*mult)                 // ← `mul_add`, FMA
+//!              chained: SKIPPED before its feed lead; the one segment
+//!              where feeding starts keeps the seed select; later segments
+//!              step unconditionally (seed flag proven 1)
+//!       arith: fsub / fmul / fdiv / fmax over node operands — a `Sub`
+//!              declared identically by APO, MACD and PPO is ONE node
+//!              (merge interns it: one fsub, up to 3 consumers)
+//!       Const  : materialized f64 (fmax's guard, the ×100)
+//!     sinks with lead ≤ b: UNCONDITIONAL out[i - lead] stores — no icmp,
+//!          no brif, no select on the address (branchless always-store was
+//!          measured 18→24µs WORSE; the phase split removes the branches
+//!          without ever issuing a dead write)
 //! state stored once → ret
 //! ```
 //!
@@ -35,17 +42,17 @@
 //! source bar, chained recurrences fed only past their source's publish
 //! lead, `next_bar`-absolute gating) is the lifecycle the hand indicators
 //! define — every parity test here is against HAND, bit-for-bit (`to_bits`),
-//! mirroring the hand-derived leads and the `calc_cse` bodies.
+//! mirroring the hand-derived leads and the hand `TState::calc` order.
 //!
-//! Scope: closed kind set `"ema" | "apo" | "ppo" | "macd" | ""` (mirror-only)
-//! over `Input`/`Ema` arena nodes. Unknown kinds/nodes panic at build —
-//! emitting the reserved arith/filter `Node` kinds is the coverage roadmap
-//! (Handover §6 Step E). Sources are
+//! Scope: emittable node kinds `Input`/`Ema`/`Const`/`Sub`/`Mul`/`Div`/
+//! `Max` over any merged recipe graph — the engine carries NO indicator
+//! knowledge (not even a `match` on indicator): each recipe's `restorer`
+//! fn pointer (defined in the indicator module) rebuilds its hand state.
+//! Filter/HT node kinds panic at build — emitting them (and WMA/ring taps)
+//! is the coverage roadmap (Handover §6 Step E). Sources are
 //! assumed complete (producer-NaN gating would be one more select per node);
 //! lane packing (`f64x2` vector `fma` over same-source EMAs) is the next
 //! axis on top of this structure.
-
-use std::collections::HashMap;
 
 use cranelift::codegen::ir::{BlockArg, Function, MemFlagsData, UserFuncName};
 use cranelift::codegen::isa::TargetFrontendConfig;
@@ -55,7 +62,7 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{default_libcall_names, Linkage, Module};
 
 use crate::cse::query::{IndicatorStateBox, Request, Results};
-use crate::cse::{merge, Merged, Node, Sink, SinkSrc};
+use crate::cse::{merge, Merged, Node, Sink, SinkSrc, StateRestorer};
 use crate::indicators::ema::{multiplier, State as EmaState};
 use crate::types::Warm;
 
@@ -83,9 +90,11 @@ struct Op {
 
 enum OpE {
     /// `prev*inv + src*mult` — the `mul_add` recurrence. `chained` = the
-    /// source is another op: step/seed only once the source reports
-    /// (`i >= feed`), otherwise advance every bar (price source is always
-    /// there; the chunk's first bar seeds an unseeded chain in setup).
+    /// source is another op (any node, incl. an arith node — MACD's signal
+    /// is just an `Ema` over the line `Sub`): step/seed only once the
+    /// source reports (`i >= feed`), otherwise advance every bar (price
+    /// source is always there; the chunk's first bar seeds an unseeded
+    /// chain in setup).
     Ema {
         src: usize,
         mult: f64,
@@ -93,12 +102,19 @@ enum OpE {
         feed: u64,
         chained: bool,
     },
-    /// `a - b` (apo line, macd line, histogram).
-    Sub { a: usize, b: usize },
-    /// `max(b, EPSILON)` — ppo's clamped long_ema slot.
-    Clamp { b: usize },
-    /// `(a - max(b, EPSILON)) * 100.0 / max(b, EPSILON)` — `PpoTail`, op-for-op.
-    Ppo { a: usize, b: usize },
+    /// A binary graph node (`Node::Sub/Mul/Div/Max`).
+    Arith { op: ArithKind, a: usize, b: usize },
+    /// A `Node::Const` leaf — materialized, rematerialized by RA at use.
+    Const(f64),
+}
+
+#[derive(Clone, Copy)]
+enum ArithKind {
+    Sub,
+    Mul,
+    Div,
+    /// CLIF `fmax` — IEEE maxNum, same NaN rule as `f64::max`.
+    Max,
 }
 
 /// One compiled sink: value op + publish lead (clamped `max(declared,
@@ -108,16 +124,13 @@ struct SinkSpec {
     lead: u64,
 }
 
-/// Per-request metadata for `get_states` reconstitution.
+/// Per-request metadata for `get_states` reconstitution — the request's
+/// state chains (op + period, `TState` field order) and the INDICATOR's own
+/// restorer fn. The engine holds no indicator identity at all: `restorer`
+/// is an opaque pointer and the sink layout lives in `counts`.
 struct ReqMeta {
-    kind: &'static str,
-    options: Vec<f64>,
-    /// Op index per `Resolved::inputs` entry (tail inputs in order).
-    input_ops: Vec<usize>,
-    /// The `Ema` mirror request's chain op.
-    mirror_op: Option<usize>,
-    /// macd's signal-chain op.
-    sig_op: Option<usize>,
+    state: Vec<(usize, u32)>,
+    restorer: Option<StateRestorer>,
 }
 
 /// A compiled plan: the JIT module (keeps the code alive), the entry point,
@@ -153,8 +166,12 @@ impl JitState {
 const W_NEXT: usize = 0;
 const W_SEED: usize = 1;
 
-/// Merge `Request` (CSE arena + leads + sink wiring) and compile it into one
-/// fused loop. Panics on shapes outside the emitter's scope.
+/// Merge `Request` (CSE'd node-graph arena + leads + sink wiring) and
+/// compile it into one fused loop. The walk is over NODE KINDS — the engine
+/// knows no indicators; a recipe's graph carries the whole math (chains,
+/// shared sub-expressions, constants) and the only per-indicator hook is
+/// the recipe's own `restorer` fn for `get_states`. Node kinds outside the
+/// emittable set (`HighPass`/`SuperSmoother`/HT taps) panic at build.
 fn compile_request(req: &Request) -> JitPlan {
     let (arena, mut resolved) = merge(&req.recipes);
     // same switch `Request::build` applies — disabled optionals compile to
@@ -164,140 +181,89 @@ fn compile_request(req: &Request) -> JitPlan {
     }
     let leads = arena.leads();
 
-    // ---- pass 1: arena EMA chains, SSA order (producers are lower ids) ----
+    // ---- pass 1: arena nodes → ops, SSA order (producers are lower ids) ----
     let mut ops: Vec<Op> = Vec::new();
     let mut node_op: Vec<usize> = vec![PRICE; arena.nodes.len()]; // Input → PRICE
-    for (id, node) in arena.nodes.iter().enumerate() {
-        if let Node::Ema { src, period } = *node {
-            let (mult, inv) = multiplier(period as usize);
-            let src_op = node_op[src as usize];
-            let chained = src_op != PRICE;
-            let feed = leads[src as usize] as u64;
+    macro_rules! push {
+        ($id:expr, $e:expr) => {{
+            let id = $id as usize;
             ops.push(Op {
-                e: OpE::Ema {
-                    src: src_op,
-                    mult,
-                    inv,
-                    feed,
-                    chained,
-                },
+                e: $e,
                 lead: leads[id] as u64,
                 ema_word: 0,
                 sd_word: 0,
             });
             node_op[id] = ops.len() - 1;
+        }};
+    }
+    for (id, node) in arena.nodes.iter().enumerate() {
+        match *node {
+            Node::Input { .. } => {}
+            Node::Const { bits } => push!(id, OpE::Const(f64::from_bits(bits))),
+            Node::Ema { src, period } => {
+                let (mult, inv) = multiplier(period as usize);
+                let src_op = node_op[src as usize];
+                push!(
+                    id,
+                    OpE::Ema {
+                        src: src_op,
+                        mult,
+                        inv,
+                        feed: leads[src as usize] as u64,
+                        chained: src_op != PRICE,
+                    }
+                );
+            }
+            Node::Sub { a, b } => push!(
+                id,
+                OpE::Arith {
+                    op: ArithKind::Sub,
+                    a: node_op[a as usize],
+                    b: node_op[b as usize],
+                }
+            ),
+            Node::Mul { a, b } => push!(
+                id,
+                OpE::Arith {
+                    op: ArithKind::Mul,
+                    a: node_op[a as usize],
+                    b: node_op[b as usize],
+                }
+            ),
+            Node::Div { a, b } => push!(
+                id,
+                OpE::Arith {
+                    op: ArithKind::Div,
+                    a: node_op[a as usize],
+                    b: node_op[b as usize],
+                }
+            ),
+            Node::Max { a, b } => push!(
+                id,
+                OpE::Arith {
+                    op: ArithKind::Max,
+                    a: node_op[a as usize],
+                    b: node_op[b as usize],
+                }
+            ),
+            other => panic!("jit: node {other:?} is not emittable yet"),
         }
     }
+    debug_assert_eq!(
+        ops.len(),
+        arena
+            .nodes
+            .iter()
+            .filter(|n| !matches!(n, Node::Input { .. }))
+            .count()
+    );
 
-    // ---- pass 2: per-request tail ops, mirrors, sinks ----
+    // ---- pass 2: sinks + state wiring, all by arena id ----
     let mut sinks: Vec<SinkSpec> = Vec::new();
     let mut counts = Vec::new();
     let mut reqs: Vec<ReqMeta> = Vec::new();
-    let mut opcache: HashMap<(u8, usize, usize), usize> = HashMap::new();
 
     for res in &resolved {
-        let input_ops: Vec<usize> = res
-            .inputs
-            .iter()
-            .map(|&i| {
-                let o = node_op[i as usize];
-                assert!(o != PRICE, "jit: tail input {i} is not an EMA chain");
-                o
-            })
-            .collect();
-        let first_bar: u64 = input_ops.iter().map(|&o| ops[o].lead).max().unwrap_or(0);
-
-        // Tail value ops for this request, indexed by `SinkSrc::Tail(slot)`.
-        let mut tvs: Vec<usize> = Vec::new();
-        let mut mirror_op = None;
-        let mut sig_op = None;
-
-        match res.kind {
-            "" => {
-                assert!(
-                    res.inputs.is_empty(),
-                    "jit: mirror-only request must have no tail inputs"
-                );
-            }
-            "ema" => match res.outputs[0].src {
-                SinkSrc::Interface(id) => mirror_op = Some(node_op[id as usize]),
-                _ => panic!("jit: `ema` request must mirror an interface node"),
-            },
-            "apo" => {
-                // slot 0: line = short − long.
-                tvs.push(intern_op(
-                    &mut ops,
-                    &mut opcache,
-                    OpE::Sub {
-                        a: input_ops[0],
-                        b: input_ops[1],
-                    },
-                    first_bar,
-                ));
-            }
-            "ppo" => {
-                // slot 0 = scaled, slot 1 = clamped long (hand `PpoTail`).
-                let clamp = intern_op(
-                    &mut ops,
-                    &mut opcache,
-                    OpE::Clamp { b: input_ops[1] },
-                    first_bar,
-                );
-                let scaled = intern_op(
-                    &mut ops,
-                    &mut opcache,
-                    OpE::Ppo {
-                        a: input_ops[0],
-                        b: clamp,
-                    },
-                    first_bar,
-                );
-                tvs.push(scaled);
-                tvs.push(clamp);
-            }
-            "macd" => {
-                let sp = res.options[2] as usize;
-                let (mult, inv) = multiplier(sp);
-                // slot 0 = line; signal = chained EMA over the line; slot 2 =
-                // hist = line − signal. The line `Sub` interns against APO's
-                // identical subtraction — `Apo ≡ macd_line` is ONE fsub.
-                let line = intern_op(
-                    &mut ops,
-                    &mut opcache,
-                    OpE::Sub {
-                        a: input_ops[0],
-                        b: input_ops[1],
-                    },
-                    first_bar,
-                );
-                let k = intern_op(
-                    &mut ops,
-                    &mut opcache,
-                    OpE::Ema {
-                        src: line,
-                        mult,
-                        inv,
-                        feed: first_bar,
-                        chained: true,
-                    },
-                    first_bar + sp as u64 - 1,
-                );
-                sig_op = Some(k);
-                let hist = intern_op(
-                    &mut ops,
-                    &mut opcache,
-                    OpE::Sub { a: line, b: k },
-                    first_bar + sp as u64 - 1,
-                );
-                tvs.push(line);
-                tvs.push(k);
-                tvs.push(hist);
-            }
-            other => panic!("jit: kind {other:?} not in the closed emittable set"),
-        }
-
-        // Sinks: primaries then ALL declared optionals, in order — disabled
-        // ones keep their position as never-print slots (`Results` shape).
         let mut add = |list: &[Sink], enabled: Option<&[bool]>| {
             for (oi, s) in list.iter().enumerate() {
                 if enabled.is_some_and(|f| !f.get(oi).copied().unwrap_or(true)) {
@@ -307,22 +273,17 @@ fn compile_request(req: &Request) -> JitPlan {
                     });
                     continue;
                 }
-                let (val, val_lead) = match s.src {
-                    SinkSrc::Tail(slot) => {
-                        let o = tvs[slot as usize];
-                        (o, ops[o].lead)
-                    }
-                    SinkSrc::Interface(id) => {
-                        let o = node_op[id as usize];
-                        assert!(o != PRICE, "jit: mirror of a non-EMA node");
-                        (o, ops[o].lead)
-                    }
-                };
+                let SinkSrc::Interface(id) = s.src;
+                let o = node_op[id as usize];
+                assert!(
+                    o != PRICE,
+                    "jit: mirroring a bare Input needs sink support for price streams"
+                );
                 // hand invariant (slot_lengths/output_length): publish lead
                 // = max(declared, value lead)
                 sinks.push(SinkSpec {
-                    val,
-                    lead: (s.lead as u64).max(val_lead),
+                    val: o,
+                    lead: (s.lead as u64).max(ops[o].lead),
                 });
             }
         };
@@ -330,12 +291,17 @@ fn compile_request(req: &Request) -> JitPlan {
         add(&res.optional_outputs, Some(&res.optional_enabled));
 
         counts.push((res.outputs.len(), res.optional_outputs.len()));
+        let state = res
+            .inputs
+            .iter()
+            .map(|&i| match arena.nodes[i as usize] {
+                Node::Ema { period, .. } => (node_op[i as usize], period),
+                _ => panic!("jit: `tail_inputs` id {i} must name an Ema chain"),
+            })
+            .collect();
         reqs.push(ReqMeta {
-            kind: res.kind,
-            options: res.options.clone(),
-            input_ops,
-            mirror_op,
-            sig_op,
+            state,
+            restorer: res.restorer,
         });
     }
 
@@ -376,41 +342,6 @@ fn compile_request(req: &Request) -> JitPlan {
     };
     emit(&mut plan, fc);
     plan
-}
-
-/// Structural key for tail-op interning: identical expression on identical
-/// value sources ⇒ ONE emitted instruction shared by every consumer
-/// (`Apo ≡ macd_line` dedups inside the loop, not just across requests).
-fn op_key(e: &OpE) -> (u8, usize, usize) {
-    match e {
-        // mult bits carry the period: same src + same period = same chain.
-        OpE::Ema { src, mult, .. } => (1, *src, mult.to_bits() as usize),
-        OpE::Sub { a, b } => (2, *a, *b),
-        OpE::Clamp { b } => (3, *b, 0),
-        OpE::Ppo { a, b } => (4, *a, *b),
-    }
-}
-
-fn intern_op(
-    ops: &mut Vec<Op>,
-    cache: &mut HashMap<(u8, usize, usize), usize>,
-    e: OpE,
-    lead: u64,
-) -> usize {
-    let key = op_key(&e);
-    if let Some(&j) = cache.get(&key) {
-        debug_assert_eq!(ops[j].lead, lead, "interned op with divergent lead");
-        return j;
-    }
-    ops.push(Op {
-        e,
-        lead,
-        ema_word: 0,
-        sd_word: 0,
-    });
-    let j = ops.len() - 1;
-    cache.insert(key, j);
-    j
 }
 
 impl JitPlan {
@@ -494,41 +425,22 @@ impl JitPlan {
         f64::from_bits(st.words[self.ops[op].ema_word])
     }
 
-    /// Reconstitute hand states from the chain slots — one authority per
-    /// arena chain, matching the published lines exactly.
+    /// Reconstitute hand states by feeding each request's chain slots to
+    /// the INDICATOR's `restorer` (carried through `Recipe::restorer`) —
+    /// the engine never names an indicator to rebuild its state.
     pub fn get_states(&self, st: &JitState) -> Vec<IndicatorStateBox> {
-        use crate::indicators::{apo, macd, ppo};
         self.reqs
             .iter()
-            .map(|r| match r.kind {
-                "ema" => match r.mirror_op {
-                    Some(o) => {
-                        IndicatorStateBox::Ema(ema_state(self.ema_of(st, o), r.options[0] as usize))
-                    }
-                    None => IndicatorStateBox::Other,
-                },
-                "apo" if r.input_ops.len() == 2 => IndicatorStateBox::Apo(apo::State {
-                    short_ema: ema_state(self.ema_of(st, r.input_ops[0]), r.options[0] as usize),
-                    long_ema: ema_state(self.ema_of(st, r.input_ops[1]), r.options[1] as usize),
-                }),
-                "ppo" if r.input_ops.len() == 2 => IndicatorStateBox::Ppo(ppo::State {
-                    short_ema: ema_state(self.ema_of(st, r.input_ops[0]), r.options[0] as usize),
-                    long_ema: ema_state(self.ema_of(st, r.input_ops[1]), r.options[1] as usize),
-                }),
-                "macd" if r.input_ops.len() == 2 && r.sig_op.is_some() => {
-                    IndicatorStateBox::Macd(macd::State {
-                        short_ema: ema_state(
-                            self.ema_of(st, r.input_ops[0]),
-                            r.options[0] as usize,
-                        ),
-                        long_ema: ema_state(self.ema_of(st, r.input_ops[1]), r.options[1] as usize),
-                        signal_state: ema_state(
-                            self.ema_of(st, r.sig_op.unwrap()),
-                            r.options[2] as usize,
-                        ),
-                    })
+            .map(|r| match r.restorer {
+                Some(rest) => {
+                    let states = r
+                        .state
+                        .iter()
+                        .map(|&(op, period)| ema_state(self.ema_of(st, op), period as usize))
+                        .collect();
+                    rest(states)
                 }
-                _ => IndicatorStateBox::Other,
+                None => IndicatorStateBox::Other,
             })
             .collect()
     }
@@ -564,14 +476,19 @@ fn st(fb: &mut FunctionBuilder, base: Value, off: i64, val: Value) {
     fb.ins().store(MemFlagsData::new(), val, addr, 0);
 }
 
-/// `sat_sub(lead, start)` computed once in setup (dominates the loop).
-fn satsub(fb: &mut FunctionBuilder, lead_c: Value, start: Value, zero: Value) -> Value {
-    let d = fb.ins().isub(lead_c, start);
-    let neg = fb.ins().icmp(IntCC::SignedLessThan, d, zero);
-    fb.ins().select(neg, zero, d)
-}
-
 /// Build and define the plan's function; sets `plan.func`.
+///
+/// Phase-split (the hand `init_state`/sliced-`cycle` discipline as codegen):
+/// the chunk's absolute bar line is cut at every gate point the plan has
+/// (sink leads + chained feed leads), and ONE specialized loop is emitted
+/// per segment. Inside a segment each gate is a compile-time constant:
+/// sinks whose lead ≤ the segment start store UNCONDITIONALLY at
+/// `i - lead`; later sinks emit no gate at all; chained recurrences step
+/// only in segments past their feed lead (the segment where feeding
+/// begins keeps the one-time seed select). The steady (last) segment is
+/// the hand shape: zero `icmp`, zero `brif` beyond the loop condition,
+/// zero selects — branch cost paid once per boundary crossing, per
+/// lifetime, not per bar.
 fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     let module = &mut plan.module;
     let i64_t = types::I64;
@@ -583,6 +500,34 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
         .filter(|&j| matches!(plan.ops[j].e, OpE::Ema { chained: true, .. }))
         .collect();
     let nsd = chained.len();
+
+    // Segment bounds: sorted distinct finite gate leads (sink + chained
+    // feed); segments are [0,b0), [b0,b1), …, [blast, ∞) in absolute bars.
+    let mut bounds: Vec<u64> = plan
+        .sinks
+        .iter()
+        .map(|s| s.lead)
+        .filter(|&l| l < LEAD_NEVER && l > 0)
+        .chain(plan.ops.iter().filter_map(|op| match op.e {
+            OpE::Ema {
+                chained: true,
+                feed,
+                ..
+            } if feed > 0 => Some(feed),
+            _ => None,
+        }))
+        .collect();
+    bounds.sort_unstable();
+    bounds.dedup();
+    let mut segs: Vec<(u64, Option<u64>)> = Vec::with_capacity(bounds.len() + 1);
+    {
+        let mut prev = 0u64;
+        for &b in &bounds {
+            segs.push((prev, Some(b)));
+            prev = b;
+        }
+        segs.push((prev, None));
+    }
 
     let mut sig = module.make_signature();
     for _ in 0..4 {
@@ -597,7 +542,9 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     let mut fb_ctx = FunctionBuilderContext::new();
     let mut fb = FunctionBuilder::new(&mut ctx.func, &mut fb_ctx);
 
-    // Loop-carried params: [ op values.., chained seeds.., i ]
+    // Loop-carried params (IDENTICAL lists on every segment loop, so phase
+    // transitions are plain pass-throughs): [ op values.., chained seeds.., i ]
+    // `i` is the ABSOLUTE bar counter.
     let mut pt: Vec<Type> = vec![f64_t; nops];
     pt.extend(std::iter::repeat(i64_t).take(nsd));
     pt.push(i64_t);
@@ -607,33 +554,28 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
 
     let entry = fb.create_block();
     let setup = fb.create_block();
-    let loop_bb = fb.create_block();
-    let body_bb = fb.create_block();
-    let after_bb = fb.create_block();
     let end_bb = fb.create_block();
-    let mut gate_bb = Vec::with_capacity(nsinks);
-    let mut store_bb = Vec::with_capacity(nsinks);
-    for _ in 0..nsinks {
-        gate_bb.push(fb.create_block());
-        store_bb.push(fb.create_block());
+    let mut head_bb = Vec::with_capacity(segs.len());
+    let mut body_bb = Vec::with_capacity(segs.len());
+    for _ in 0..segs.len() {
+        head_bb.push(fb.create_block());
+        body_bb.push(fb.create_block());
     }
 
     fb.append_block_params_for_function_params(entry);
-    for b in [loop_bb, body_bb, after_bb] {
+    for &h in &head_bb {
+        add_params(&mut fb, h, &pt);
+    }
+    for &b in &body_bb {
         add_params(&mut fb, b, &pt);
     }
-    for &g in gate_bb.iter().chain(store_bb.iter()) {
-        add_params(&mut fb, g, &pt);
-    }
-    // end: values + seeds + the (unchanged-or-set) global seeded flag
+    // end: values + seeds + the global seeded flag
     let mut et = vec![f64_t; nops];
     et.extend(std::iter::repeat(i64_t).take(nsd));
     et.push(i64_t);
     add_params(&mut fb, end_bb, &et);
-    // (blocks are sealed once at the end — predecessors arrive as edges are
-    // emitted, several of them late)
 
-    // ---- entry ----
+    // ---- entry: loads, empty-chunk early-out ----
     fb.switch_to_block(entry);
     let ep: Vec<Value> = fb.block_params(entry).to_vec();
     let (state, price, len, outs) = (ep[0], ep[1], ep[2], ep[3]);
@@ -660,174 +602,177 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     fb.ins()
         .brif(empty, end_bb, &ba(&end_empty), setup, &ba(&[]));
 
-    // ---- setup ----
+    // ---- setup: seed selects, out pointers, per-segment runtime [lo, hi) ----
     fb.switch_to_block(setup);
     let is_seeded = fb.ins().icmp(IntCC::NotEqual, seeded, zero);
     let p0 = ld(&mut fb, price, 0, f64_t);
-    // per-op initial value + gates (entry values dominate the whole CFG)
+    let end_abs = fb.ins().iadd(next_bar, len);
     let mut init: Vec<Value> = Vec::with_capacity(nops);
-    let mut feed_g: Vec<Value> = Vec::with_capacity(nops);
     for j in 0..nops {
-        // feed_g[j] aligns with ops[j] (only chained EMAs read it).
-        let (v, fg) = match plan.ops[j].e {
-            OpE::Ema { chained: false, .. } => (fb.ins().select(is_seeded, loads[j], p0), zero),
-            OpE::Ema {
-                feed,
-                chained: true,
-                ..
-            } => {
-                let lc = fb.ins().iconst(i64_t, feed as i64);
-                (loads[j], satsub(&mut fb, lc, next_bar, zero))
-            }
-            _ => (fb.ins().f64const(0.0), zero),
+        let v = match plan.ops[j].e {
+            OpE::Ema { chained: false, .. } => fb.ins().select(is_seeded, loads[j], p0),
+            OpE::Ema { .. } => loads[j],
+            _ => fb.ins().f64const(0.0),
         };
         init.push(v);
-        feed_g.push(fg);
     }
-    let i_init = fb.ins().select(is_seeded, zero, one);
-    let mut g0: Vec<Value> = Vec::with_capacity(nsinks);
+    // Cold chunk: bar `start` (== 0) was consumed by the entry seed ⇒ i0 = 1.
+    let start1 = fb.ins().iadd(next_bar, one);
+    let i0 = fb.ins().select(is_seeded, next_bar, start1);
     let mut optr: Vec<Value> = Vec::with_capacity(nsinks);
-    for (j, s) in plan.sinks.iter().enumerate() {
-        let lead_i: i64 = if s.lead > (i64::MAX as u64) / 2 {
-            i64::MAX
-        } else {
-            s.lead as i64
-        };
-        let lc = fb.ins().iconst(i64_t, lead_i);
-        g0.push(satsub(&mut fb, lc, next_bar, zero));
+    for j in 0..nsinks {
         optr.push(ld(&mut fb, outs, 8 * j as i64, i64_t));
+    }
+    // Segment runtime upper bounds: hi_s = min(end, e_s). The `lo` side
+    // needs no value: segments are entered in order and each head's `done`
+    // test passes the live set straight through until `i` reaches its
+    // range — skipping a fully-past segment costs one compare.
+    let mut hi_v: Vec<Value> = Vec::with_capacity(segs.len());
+    for (_b, e) in &segs {
+        match e {
+            Some(eb) => {
+                let ec = fb.ins().iconst(i64_t, *eb as i64);
+                let above = fb.ins().icmp(IntCC::SignedGreaterThan, end_abs, ec);
+                hi_v.push(fb.ins().select(above, ec, end_abs));
+            }
+            None => hi_v.push(end_abs),
+        }
+    }
+    // Per-sink store base = max(start, lead): `out_k[0]` corresponds to
+    // absolute bar `base_k` (exactly `advance`'s row slicing), so the
+    // in-segment index is `i - base_k` with `i` the absolute counter.
+    let mut sbase: Vec<Value> = Vec::with_capacity(nsinks);
+    for s in plan.sinks.iter() {
+        if s.lead >= LEAD_NEVER {
+            sbase.push(zero); // never stores; base unused
+            continue;
+        }
+        let lc = fb.ins().iconst(i64_t, s.lead as i64);
+        let below = fb.ins().icmp(IntCC::SignedLessThan, next_bar, lc);
+        sbase.push(fb.ins().select(below, lc, next_bar));
     }
     let mut args = init;
     args.extend(sdloads.iter().copied());
-    args.push(i_init);
-    fb.ins().jump(loop_bb, &ba(&args));
+    args.push(i0);
+    fb.ins().jump(head_bb[0], &ba(&args));
 
-    // ---- loop head ----
-    fb.switch_to_block(loop_bb);
-    let lp: Vec<Value> = fb.block_params(loop_bb).to_vec();
-    let ivar = lp[ipos];
-    let done = fb.ins().icmp(IntCC::SignedGreaterThanOrEqual, ivar, len);
-    let mut end_done: Vec<Value> = lp[..nops + nsd].to_vec();
-    end_done.push(one);
-    fb.ins()
-        .brif(done, end_bb, &ba(&end_done), body_bb, &ba(&lp));
+    // ---- segment loops ----
+    for (s, (b, _e)) in segs.iter().enumerate() {
+        let b = *b as i64;
+        let is_last = s + 1 == segs.len();
+        let succ = if is_last { end_bb } else { head_bb[s + 1] };
 
-    // ---- body: ops in topological order ----
-    fb.switch_to_block(body_bb);
-    let bp: Vec<Value> = fb.block_params(body_bb).to_vec();
-    let poff = fb.ins().imul(bp[ipos], eight);
-    let paddr = fb.ins().iadd(price, poff);
-    let price_v = fb.ins().load(f64_t, MemFlagsData::new(), paddr, 0);
-
-    let mut cur = bp[..nops].to_vec();
-    let mut sd: Vec<Value> = Vec::with_capacity(nsd);
-    let mut ci = 0usize;
-    for j in 0..nops {
-        let prev = bp[j];
-        let newv = match plan.ops[j].e {
-            OpE::Ema {
-                src,
-                mult,
-                inv,
-                chained,
-                ..
-            } => {
-                let src_v = if src == PRICE { price_v } else { cur[src] };
-                let m = fb.ins().f64const(mult);
-                let iv = fb.ins().f64const(inv);
-                let prod = fb.ins().fmul(src_v, m);
-                let stepped = fb.ins().fma(prev, iv, prod);
-                if !chained {
-                    stepped
-                } else {
-                    let sdj = bp[sdpos + ci];
-                    ci += 1;
-                    let g = feed_g[j];
-                    let fed_c = fb.ins().icmp(IntCC::SignedGreaterThanOrEqual, bp[ipos], g);
-                    let is_sd = fb.ins().icmp(IntCC::NotEqual, sdj, zero);
-                    let fed = fb.ins().select(is_sd, stepped, src_v);
-                    let nv = fb.ins().select(fed_c, fed, prev);
-                    let sd_next = fb.ins().select(fed_c, one, sdj);
-                    sd.push(sd_next);
-                    nv
-                }
-            }
-            OpE::Sub { a, b } => {
-                let av = cur[a];
-                let bv = cur[b];
-                fb.ins().fsub(av, bv)
-            }
-            OpE::Clamp { b } => {
-                let bv = cur[b];
-                let eps = fb.ins().f64const(f64::EPSILON);
-                fb.ins().fmax(bv, eps)
-            }
-            OpE::Ppo { a, b } => {
-                // `b` IS the Clamp op's clamped value (pass 2 wires it that
-                // way) — no second fmax needed: (a - b) * 100 / b, the hand
-                // `PpoTail` expression exactly.
-                let av = cur[a];
-                let bv = cur[b];
-                let d = fb.ins().fsub(av, bv);
-                let c100 = fb.ins().f64const(100.0);
-                let num = fb.ins().fmul(d, c100);
-                fb.ins().fdiv(num, bv)
-            }
-        };
-        cur[j] = newv;
-    }
-    debug_assert_eq!(sd.len(), nsd);
-    debug_assert_eq!(ci, nsd);
-
-    // Sinks: gate → store block chain. The always-store alternative (select
-    // the address, write a scratch word when gated off) was MEASURED
-    // 18→24µs on classic: two of five sinks are predicated-off every bar,
-    // and pushing those dead writes through the store buffer costs more
-    // than the near-free not-taken branches — the same reason hand splits
-    // its cycles into gated window loops instead of one branchless loop.
-    let mut chain_args = cur.clone();
-    chain_args.extend(sd.iter().copied());
-    chain_args.push(bp[ipos]);
-    if nsinks == 0 {
-        fb.ins().jump(after_bb, &ba(&chain_args));
-    } else {
-        fb.ins().jump(gate_bb[0], &ba(&chain_args));
-    }
-
-    for j in 0..nsinks {
-        fb.switch_to_block(gate_bb[j]);
-        let gp: Vec<Value> = fb.block_params(gate_bb[j]).to_vec();
-        let print = fb
+        fb.switch_to_block(head_bb[s]);
+        let hp: Vec<Value> = fb.block_params(head_bb[s]).to_vec();
+        let done = fb
             .ins()
-            .icmp(IntCC::SignedGreaterThanOrEqual, gp[ipos], g0[j]);
-        let next = if j + 1 < nsinks {
-            gate_bb[j + 1]
+            .icmp(IntCC::SignedGreaterThanOrEqual, hp[ipos], hi_v[s]);
+        if is_last {
+            // loop exit → store state: same values, seeded flags as-is, the
+            // global seeded flag becomes 1 (any non-empty chunk consumed ≥1
+            // bar; the entry seeded the price chains on the skipped bar).
+            let mut end_args = hp[..nops + nsd].to_vec();
+            end_args.push(one);
+            fb.ins()
+                .brif(done, end_bb, &ba(&end_args), body_bb[s], &ba(&hp));
         } else {
-            after_bb
-        };
-        fb.ins().brif(print, store_bb[j], &ba(&gp), next, &ba(&gp));
+            // done mid-stream ⇒ advance to the next phase with the SAME
+            // live set (a pass-through edge, executed once per boundary).
+            fb.ins().brif(done, succ, &ba(&hp), body_bb[s], &ba(&hp));
+        }
 
-        fb.switch_to_block(store_bb[j]);
-        let sp: Vec<Value> = fb.block_params(store_bb[j]).to_vec();
-        let idx = fb.ins().isub(sp[ipos], g0[j]);
-        let soff = fb.ins().imul(idx, eight);
-        let saddr = fb.ins().iadd(optr[j], soff);
-        let v = sp[plan.sinks[j].val];
-        fb.ins().store(MemFlagsData::new(), v, saddr, 0);
-        let next = if j + 1 < nsinks {
-            gate_bb[j + 1]
-        } else {
-            after_bb
-        };
-        fb.ins().jump(next, &ba(&sp));
+        fb.switch_to_block(body_bb[s]);
+        let bp: Vec<Value> = fb.block_params(body_bb[s]).to_vec();
+        let ivar = bp[ipos];
+        let roff = fb.ins().isub(ivar, next_bar);
+        let poff = fb.ins().imul(roff, eight);
+        let paddr = fb.ins().iadd(price, poff);
+        let price_v = fb.ins().load(f64_t, MemFlagsData::new(), paddr, 0);
+
+        let mut cur = bp[..nops].to_vec();
+        let mut ci = 0usize;
+        for j in 0..nops {
+            let prev = bp[j];
+            let newv = match plan.ops[j].e {
+                OpE::Ema {
+                    src,
+                    mult,
+                    inv,
+                    feed,
+                    chained,
+                } => {
+                    let step = |fb: &mut FunctionBuilder| -> Value {
+                        let src_v = if src == PRICE { price_v } else { cur[src] };
+                        let m = fb.ins().f64const(mult);
+                        let iv = fb.ins().f64const(inv);
+                        let prod = fb.ins().fmul(src_v, m);
+                        fb.ins().fma(prev, iv, prod)
+                    };
+                    if !chained {
+                        step(&mut fb)
+                    } else {
+                        let sdj = bp[sdpos + ci];
+                        ci += 1;
+                        if b < feed as i64 {
+                            prev // source reports no bars of this segment
+                        } else if b == feed as i64 {
+                            // feeding starts here: first bar seeds
+                            let stepped = step(&mut fb);
+                            let is_sd = fb.ins().icmp(IntCC::NotEqual, sdj, zero);
+                            let src_v = if src == PRICE { price_v } else { cur[src] };
+                            fb.ins().select(is_sd, stepped, src_v)
+                        } else {
+                            step(&mut fb) // sd proven 1: pure step
+                        }
+                    }
+                }
+                OpE::Arith { op, a, b } => {
+                    let av = cur[a];
+                    let bv = cur[b];
+                    match op {
+                        ArithKind::Sub => fb.ins().fsub(av, bv),
+                        ArithKind::Mul => fb.ins().fmul(av, bv),
+                        ArithKind::Div => fb.ins().fdiv(av, bv),
+                        // IEEE maxNum — Rust's `f64::max` exactly.
+                        ArithKind::Max => fb.ins().fmax(av, bv),
+                    }
+                }
+                OpE::Const(v) => fb.ins().f64const(v),
+            };
+            cur[j] = newv;
+        }
+        // Seed flags for the next edge, in `chained` order: a segment at or
+        // past a chain's feed lead has seeded it (first bar) or found it
+        // seeded; earlier segments pass the incoming flag through.
+        let mut sd_args: Vec<Value> = Vec::with_capacity(nsd);
+        for (i, &cj) in chained.iter().enumerate() {
+            let feed = match plan.ops[cj].e {
+                OpE::Ema { feed, .. } => feed as i64,
+                _ => unreachable!(),
+            };
+            if b < feed {
+                sd_args.push(bp[sdpos + i]);
+            } else {
+                sd_args.push(one);
+            }
+        }
+
+        for (k, sink) in plan.sinks.iter().enumerate() {
+            if sink.lead >= LEAD_NEVER || sink.lead as i64 > b {
+                continue; // not printing during this segment (compile-time)
+            }
+            let idx = fb.ins().isub(ivar, sbase[k]);
+            let soff = fb.ins().imul(idx, eight);
+            let saddr = fb.ins().iadd(optr[k], soff);
+            let v = cur[sink.val];
+            fb.ins().store(MemFlagsData::new(), v, saddr, 0);
+        }
+        let i1 = fb.ins().iadd(ivar, one);
+        let mut la = cur.clone();
+        la.extend(sd_args.iter().copied());
+        la.push(i1);
+        fb.ins().jump(head_bb[s], &ba(&la));
     }
-
-    fb.switch_to_block(after_bb);
-    let ap: Vec<Value> = fb.block_params(after_bb).to_vec();
-    let i1 = fb.ins().iadd(ap[ipos], one);
-    let mut la = ap[..ipos].to_vec();
-    la.push(i1);
-    fb.ins().jump(loop_bb, &ba(&la));
 
     // ---- end: store state once ----
     fb.switch_to_block(end_bb);
@@ -942,7 +887,10 @@ mod tests {
         let s_all: [&[f64]; 1] = [close.as_slice()];
         let plan = classic().build();
         let (full, _) = plan.run(&s_all);
-        for split in [90usize, 140, 20, 33, 25] {
+        // Split points deliberately straddle every phase boundary
+        // (leads 25/26/33): a chunk ending AT a boundary, one starting at
+        // one, and one crossing two.
+        for split in [90usize, 140, 20, 33, 25, 26, 27, 24, 34] {
             let s1: [&[f64]; 1] = [&close[..split]];
             let s2: [&[f64]; 1] = [&close[split..]];
             let (h1, qs) = plan.run(&s1);
@@ -963,8 +911,9 @@ mod tests {
 
     /// Every optional line and the standalone `Ema` requests: one merged
     /// plan computing ema12/ema26 ONCE for five consumers, matching all
-    /// hand arrays bit-for-bit including lengths (ppo's long slot is the
-    /// CLAMPED mirror, ema lines are the hand `Ema` primary shape).
+    /// hand arrays bit-for-bit including lengths (ppo's optional long line
+    /// is a raw EMA mirror with the hand's explicit lead, the ema lines are
+    /// the hand `Ema` primary shape).
     #[test]
     fn jit_mirrors_and_ema_requests_match_hand() {
         let close = series(500);
@@ -986,7 +935,7 @@ mod tests {
         let ppo = Ppo::indicator(&s, &PPO, flags).unwrap().0;
         cmp_exact(res.request(1).output(0), &ppo[0], "ppo_line");
         cmp_exact(res.request(1).optional(0), &ppo[1], "ppo_short");
-        cmp_exact(res.request(1).optional(1), &ppo[2], "ppo_long_clamped");
+        cmp_exact(res.request(1).optional(1), &ppo[2], "ppo_long_mirror");
         let macd = Macd::indicator(&s, &MACD, flags).unwrap().0;
         for o in 0..3 {
             cmp_exact(res.request(2).output(o), &macd[o], &format!("macd{o}"));
@@ -1088,5 +1037,62 @@ mod tests {
                 assert!(line.is_empty(), "empty chunk printed rows");
             }
         }
+    }
+
+    /// Sub-epsilon prices: the one domain where "clamp guards only the
+    /// divisor" (`(s−l)*100/max(l,ε)`) DISAGREES with the old
+    /// "clamp feeds the subtraction" (`(s−max(l,ε))*100/max(l,ε)`) and the
+    /// raw-vs-clamped `long_ema` optional. Bit-exact parity here pins the
+    /// emitter to the hand `Ppo::State::calc` shape, not just to sane data.
+    #[test]
+    fn jit_ppo_matches_hand_below_epsilon() {
+        let tiny: Vec<f64> = (0..300)
+            .map(|i| ((i as f64 * 0.7).sin() * 0.5 + 0.5).mul_add(1e-18, 3e-19))
+            .collect();
+        let s: [&[f64]; 1] = [tiny.as_slice()];
+        let plan = Request::new()
+            .add_opt(Ppo::recipe(&PPO), Some(&[true, true]))
+            .build();
+        let (res, _) = plan.run(&s);
+        let ppo = Ppo::indicator(&s, &PPO, Some(&[true, true])).unwrap().0;
+        cmp_exact(res.request(0).output(0), &ppo[0], "ppo_line_tiny");
+        cmp_exact(res.request(0).optional(0), &ppo[1], "ppo_short_tiny");
+        cmp_exact(res.request(0).optional(1), &ppo[2], "ppo_long_raw_tiny");
+    }
+
+    /// `Apo ≡ macd_line ≡ ppo numerator`: on the classic query the three
+    /// indicators' subtractions intern to exactly ONE `Sub` op (plus macd's
+    /// histogram), and the optional EMA mirrors make `ema12`/`ema26` feed
+    /// five consumers. Counting ops pins the sharing itself — parity of
+    /// VALUES cannot catch a regressed duplicate.
+    #[test]
+    fn jit_classic_interns_one_sub_for_three_indicators() {
+        let plan = Request::new()
+            .add(Apo::recipe(&APO))
+            .add(Ppo::recipe(&PPO))
+            .add(Macd::recipe(&MACD))
+            .build();
+        let (nops, nsinks) = plan.info();
+        // Classic arena as NODES: Input, ema12, ema26, ONE shared line Sub,
+        // Const eps, Max (ppo divisor guard), Const 100, Mul, Div, chained
+        // signal Ema, hist Sub = 11 nodes ⇒ 10 ops (no op for the Input).
+        let arena = plan.arena();
+        let n_ema = arena
+            .nodes
+            .iter()
+            .filter(|n| matches!(n, Node::Ema { .. }))
+            .count();
+        let n_sub = arena
+            .nodes
+            .iter()
+            .filter(|n| matches!(n, Node::Sub { .. }))
+            .count();
+        assert_eq!(n_ema, 3, "ema12, ema26, chained signal — nothing else");
+        assert_eq!(
+            n_sub, 2,
+            "ONE Sub shared by apo line, macd line, ppo numerator — plus hist"
+        );
+        assert_eq!(nops, 10);
+        assert_eq!(nsinks, 11);
     }
 }

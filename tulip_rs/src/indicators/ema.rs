@@ -1,4 +1,5 @@
 use crate::common::{validate_inputs, validate_options};
+use crate::cse::{Node, Planable, Recipe, Sink};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -78,6 +79,40 @@ impl State<Cold> {
     }
 }
 pub struct Ema;
+
+impl Planable for Ema {
+    /// `Ema(p)` is one node — the request mirrors it. In a merged query the
+    /// CSE key `Ema{src: close, period: p}` dedups into the chain
+    /// apo/ppo/macd already advance ⇒ the extra line is one gated store in
+    /// the fused loop, zero extra recurrence.
+    ///
+    /// Publish lead = `period`: the hand defaults (`min_data = period + 1`,
+    /// `output_length = len - period`) report from bar `period` — one bar
+    /// after the node's defined-from `period-1` (the seed bar is not
+    /// published) — the same lead the apo/ppo/macd optional EMA mirrors
+    /// already use.
+    fn recipe(options: &[f64]) -> Recipe {
+        let period = options[0] as u32;
+        let mut r = Recipe::new();
+        let close = r.add(Node::Input { stream: 0 });
+        let e = r.add(Node::Ema { src: close, period });
+        r.kind = "ema";
+        r.options = options.to_vec();
+        r.tail_inputs = vec![e];
+        r.restorer = Some(restore_state);
+        r.outputs.push(Sink::iface_lead(e, period));
+        r
+    }
+}
+
+/// Rebuild the hand `ema::State` from its single chain slot (`get_states`).
+pub(crate) fn restore_state(mut v: Vec<State<Warm>>) -> crate::cse::IndicatorStateBox {
+    match v.len() {
+        1 => crate::cse::IndicatorStateBox::Ema(v.pop().unwrap()),
+        _ => crate::cse::IndicatorStateBox::Other,
+    }
+}
+
 impl Indicator<INPUTS, OPTIONS> for Ema {
     const INFO: Info = Info {
         name: "ema",
