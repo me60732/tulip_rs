@@ -32,6 +32,14 @@ fn asset(i: usize) -> Vec<f64> {
 
 /// The classic merged query (apo + macd + ppo, primary-only emission —
 /// `add_opt(_, None)` for parity with the hand `None` flags).
+/// classic query with EVERY declared optional mirrored on (E2c's shape).
+fn classic_request_all_on() -> Request {
+    Request::new()
+        .add(Apo::recipe(&APO))
+        .add(Macd::recipe(&MACD))
+        .add(Ppo::recipe(&PPO))
+}
+
 fn classic_request() -> Request {
     Request::new()
         .add_opt(Apo::recipe(&APO), None)
@@ -74,6 +82,14 @@ fn bench_prepare(c: &mut Criterion) {
             black_box((plan.arena().nodes.len(), plan.info()))
         })
     });
+    // E4: the same through the plan cache — warm lookup (the first
+    // iteration pays the compile, amortized into criterion's warmup).
+    g.bench_function("jit_cached_build", |b| {
+        b.iter(|| {
+            let plan = classic_request().build_cached();
+            black_box((plan.arena().nodes.len(), plan.info(), plan.fingerprint()))
+        })
+    });
     g.finish();
 }
 
@@ -104,6 +120,26 @@ fn bench_classic(c: &mut Criterion) {
             let (res, qs) = plan.run(&inputs);
             let states = plan.get_states(&qs);
             black_box((res.outputs.len(), states.len()))
+        })
+    });
+    // E2c showcase: ALL optional outputs on. 11 request slots, but only 6
+    // distinct output nodes — the JIT writes each row once and hands
+    // mirror slots aliased views; the hand trio writes 11 arrays (its own
+    // duplicates). Hand parity of values AND lengths is pinned in cse tests.
+    let on_flags = Some(&[true, true][..]);
+    let plan_on = classic_request_all_on().build();
+    g.bench_function("hand_3_indicators_all_on", |b| {
+        b.iter(|| {
+            let a = Apo::indicator(&inputs, &APO, on_flags).unwrap();
+            let m = Macd::indicator(&inputs, &MACD, on_flags).unwrap();
+            let p = Ppo::indicator(&inputs, &PPO, on_flags).unwrap();
+            black_box(a.0.len() + m.0.len() + p.0.len())
+        })
+    });
+    g.bench_function("jit_query_all_on", |b| {
+        b.iter(|| {
+            let (res, qs) = plan_on.run(&inputs);
+            black_box((qs.next_bar(), res.outputs[0][0].len(), res.optional[2][1].len()))
         })
     });
     g.finish();
@@ -207,6 +243,40 @@ fn bench_assets(c: &mut Criterion) {
             black_box(total)
         })
     });
+    // E2: ONE asset-lane plan for all 8 symbols. Beyond the xmm pressure
+    // (8 group vecs + 8 sigs), E2b's carried write-pointers put 40 GP
+    // values through a 16-register int file — spills every bar, and this
+    // shape got WORSE under the walk (151µs vs 105 before). KEPT as the
+    // measurement of that cliff.
+    let lanes_plan = classic_request().build_assets(ASSETS);
+    g.bench_function(&format!("jit_{ASSETS}_assets_lanes"), |b| {
+        b.iter(|| {
+            let ss: Vec<&[f64]> = series.iter().map(|v| v.as_slice()).collect();
+            let (res, _qs) = lanes_plan.run_assets(&ss);
+            black_box((res.len(), res[0].outputs[0][0].len()))
+        })
+    });
+    // E2 sweet spot at 2 lanes: asset-PAIR plans (A = 2). Under E2b this
+    // shape came WITHIN 3.5% of sequential (56.9 vs 55.0µs): the walk
+    // feeds 10 carried pointers to the int file and frees xmm pressure, so
+    // cross-asset pairing finally pays — still not a win at classic's 2
+    // chains (the pairing budget argument stands), but the gap moved from
+    // 12% to noise. One fused loop steps two symbols; four pairs cover 8.
+    let pair_plan = classic_request().build_assets(2);
+    g.bench_function(&format!("jit_{ASSETS}_assets_paired"), |b| {
+        b.iter(|| {
+            let mut total = 0usize;
+            for pr in 0..ASSETS / 2 {
+                let ss: [&[f64]; 2] = [
+                    series[2 * pr].as_slice(),
+                    series[2 * pr + 1].as_slice(),
+                ];
+                let (res, _qs) = pair_plan.run_assets(&ss);
+                total += res[0].outputs[0][0].len() + res[1].outputs[0][0].len();
+            }
+            black_box(total)
+        })
+    });
     g.finish();
 }
 
@@ -245,6 +315,20 @@ fn bench_tick(c: &mut Criterion) {
             || qs.clone(),
             |state| {
                 let (_res, qs2) = plan.resume(state, &nb);
+                black_box(qs2.next_bar())
+            },
+            criterion::BatchSize::PerIteration,
+        )
+    });
+    // E4: the per-tick worst case done RIGHT — rebuild the request every
+    // tick (a stateless caller), served by the plan cache instead of a
+    // 411µs compile.
+    g.bench_function("jit_cached_resume", |b| {
+        b.iter_batched(
+            || qs.clone(),
+            |state| {
+                let p = classic_request().build_cached();
+                let (_res, qs2) = p.resume(state, &nb);
                 black_box(qs2.next_bar())
             },
             criterion::BatchSize::PerIteration,

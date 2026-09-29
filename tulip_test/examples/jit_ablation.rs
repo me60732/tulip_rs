@@ -113,6 +113,22 @@ fn main() {
         std::hint::black_box(a.0[0].len() + m.0[0].len() + p.0[0].len());
     });
 
+    // E2 asset lanes: same classic query, 8 symbols in one fused plan
+    // (same series fed to every lane — shape is what times).
+    let lanes8 = Request::new()
+        .add_opt(Apo::recipe(&[12.0, 26.0]), None)
+        .add_opt(Macd::recipe(&[12.0, 26.0, 9.0]), None)
+        .add_opt(Ppo::recipe(&[12.0, 26.0]), None)
+        .build_assets(8);
+    println!("assets8 lanes: {:?} ({} vector subs)", lanes8.lanes(), lanes8.vec_subs());
+    time("7 jit assets8 lanes", || {
+        let ss: Vec<&[f64]> = (0..8).map(|_| close.as_slice()).collect();
+        let (r, q) = lanes8.run_assets(&ss);
+        std::hint::black_box(r[0].outputs[0][0].len() + q.words.len());
+    });
+
+    std::fs::write("/tmp/assets8.clif", lanes8.clif()).ok();
+
     // Dump the classic CLIF for inspection.
     std::fs::write("/tmp/classic.clif", classic.clif()).ok();
     println!("classic CLIF written to /tmp/classic.clif");

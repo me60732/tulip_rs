@@ -20,7 +20,9 @@
 //! indicators (`::indicator()` + `batch_indicator` streaming).
 
 use crate::cse::jit::JitPlan;
-use crate::cse::Recipe;
+use crate::cse::{Node, Recipe, Sink, SinkSrc};
+use std::rc::Rc;
+use std::sync::Arc;
 use crate::indicators::ema::State as EmaState;
 use crate::types::Warm;
 
@@ -72,16 +74,166 @@ impl Request {
     pub fn build(self) -> JitPlan {
         JitPlan::compile(&self)
     }
+
+    /// E2: compile an ASSET-LANE plan — the arena replicates over
+    /// `n_assets` price streams (one query shape, many symbols), so the
+    /// per-bar math steps pairs of assets per `f64x2` group and one fused
+    /// loop advances every symbol's chains, lines, and signals together.
+    /// Feed it via [`JitPlan::run_assets`]/`advance_assets`; all streams
+    /// carry the same bar count (hand `indicator_by_assets` contract).
+    pub fn build_assets(self, n_assets: usize) -> JitPlan {
+        JitPlan::compile_assets(&self, n_assets)
+    }
+
+    /// E4: [`Self::build`] through the process-wide plan cache — identical
+    /// query shapes compile ONCE (~0.4ms) and are then shared as cheap
+    /// `Arc<JitPlan>` handles (~µs lookup). Same bytes ⇒ same plan: the
+    /// cache is content-addressed, so `Arc::ptr_eq` identifies a shape.
+    pub fn build_cached(self) -> Arc<JitPlan> {
+        super::cache::cached_plan(&self, 1)
+    }
+
+    /// E4: [`Self::build_assets`] through the plan cache.
+    pub fn build_assets_cached(self, n_assets: usize) -> Arc<JitPlan> {
+        super::cache::cached_plan(&self, n_assets)
+    }
+
+    /// E4: deterministic canonical encoding of EVERYTHING that affects
+    /// compilation (Handover §4: "serialize the `Request`" — this is that
+    /// key). Recipe order, node fields, sink leads, the optional switch,
+    /// restorer PRESENCE (not its address — keeps the fingerprint stable
+    /// across process restarts), and the asset-lane count. Two requests
+    /// with equal bytes merge to equal arenas: same ids, same plan.
+    pub(crate) fn canonical_bytes(&self, n_assets: usize) -> Vec<u8> {
+        fn u64b(b: &mut Vec<u8>, v: u64) {
+            b.extend_from_slice(&v.to_le_bytes());
+        }
+        fn sinkb(b: &mut Vec<u8>, s: &Sink) {
+            let SinkSrc::Interface(id) = s.src;
+            u64b(b, id as u64);
+            u64b(b, s.lead as u64);
+        }
+        let mut b: Vec<u8> = Vec::new();
+        u64b(&mut b, n_assets as u64);
+        u64b(&mut b, self.recipes.len() as u64);
+        for (r, flags) in self.recipes.iter().zip(self.opt_flags.iter()) {
+            u64b(&mut b, r.kind.len() as u64);
+            b.extend_from_slice(r.kind.as_bytes());
+            u64b(&mut b, r.options.len() as u64);
+            for o in &r.options {
+                u64b(&mut b, o.to_bits());
+            }
+            u64b(&mut b, r.nodes.len() as u64);
+            for node in &r.nodes {
+                let (tag, x, y): (u8, u64, u64) = match *node {
+                    Node::Input { stream } => (1, stream as u64, 0),
+                    Node::Ema { src, period } => (2, src as u64, period as u64),
+                    Node::Sub { a, b } => (3, a as u64, b as u64),
+                    Node::Mul { a, b } => (4, a as u64, b as u64),
+                    Node::Div { a, b } => (5, a as u64, b as u64),
+                    Node::Max { a, b } => (6, a as u64, b as u64),
+                    Node::Const { bits } => (7, bits, 0),
+                    Node::HighPass { input, period } => (8, input as u64, period as u64),
+                    Node::SuperSmoother { src, period } => (9, src as u64, period as u64),
+                    Node::HtInPhase { src } => (10, src as u64, 0),
+                    Node::HtQuadrature { src } => (11, src as u64, 0),
+                };
+                b.push(tag);
+                u64b(&mut b, x);
+                u64b(&mut b, y);
+            }
+            u64b(&mut b, r.tail_inputs.len() as u64);
+            for &t in &r.tail_inputs {
+                u64b(&mut b, t as u64);
+            }
+            b.push(r.restorer.is_some() as u8);
+            u64b(&mut b, r.outputs.len() as u64);
+            for o in &r.outputs {
+                sinkb(&mut b, o);
+            }
+            u64b(&mut b, r.optional_outputs.len() as u64);
+            for o in &r.optional_outputs {
+                sinkb(&mut b, o);
+            }
+            u64b(&mut b, flags.len() as u64);
+            for &f in flags {
+                b.push(f as u8);
+            }
+        }
+        b
+    }
 }
 
 /// Outputs for every request in a run/resume, request-major.
+///
+/// E2c: slots are `RowRef` VIEWS over one shared buffer per unique output
+/// node — mirror lines (three requests' `short_ema`, say) alias the same
+/// row the engine wrote once, and ±1 publish-lead differences are windows
+/// (an offset), never a copy. Deref makes every existing call site
+/// (`res.outputs[r][o].len()`, `[..]`, `&*` → `&[f64]`) work unchanged;
+/// code that needs to OWN a row calls `to_vec()`.
 #[derive(Debug, Clone, Default)]
 pub struct Results {
     /// `outputs[request][output]` — primary, in `Info::outputs` order.
-    pub outputs: Vec<Vec<Vec<f64>>>,
+    pub outputs: Vec<Vec<RowRef>>,
     /// `optional[request][output]` — `Info::optional_outputs` order; EMPTY
     /// for sinks disabled via [`Request::add_opt`].
-    pub optional: Vec<Vec<Vec<f64>>>,
+    pub optional: Vec<Vec<RowRef>>,
+}
+
+/// One output row as written by the plan: a window into the chunk's shared
+/// output ARENA (see [`Results`]). `advance` allocates ONE `Rc<[f64]>`
+/// per chunk and every store writes its slice of it; each request slot
+/// reads `arena[start..start + len]` — mirrors alias, ±1 publish leads are
+/// offsets, nothing is copied, and the `Results` clone cost of a 5000-bar
+/// dashboard is one refcount bump per row.
+#[derive(Clone)]
+pub struct RowRef {
+    arena: Rc<[f64]>,
+    start: usize,
+    len: usize,
+}
+
+impl RowRef {
+    pub(crate) fn window(arena: &Rc<[f64]>, start: usize, len: usize) -> Self {
+        // a slot whose chunk ENDED before its publish lead projects past a
+        // zero-row window (lead_off > rows); clamp to a valid empty view
+        let start = start.min(arena.len());
+        let len = len.min(arena.len() - start);
+        Self {
+            arena: Rc::clone(arena),
+            start,
+            len,
+        }
+    }
+    pub fn as_slice(&self) -> &[f64] {
+        &self.arena[self.start..self.start + self.len]
+    }
+    /// Own a copy (streaming-concat in tests; DB rows that must outlive
+    /// the `Results`).
+    pub fn to_vec(&self) -> Vec<f64> {
+        self.as_slice().to_vec()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+    /// Do two slots read inside the SAME chunk arena? (E2c aliasing.)
+    pub fn shares_data_with(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.arena, &other.arena)
+    }
+}
+
+impl std::ops::Deref for RowRef {
+    type Target = [f64];
+    fn deref(&self) -> &[f64] {
+        self.as_slice()
+    }
+}
+
+impl std::fmt::Debug for RowRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self.as_slice(), f)
+    }
 }
 
 impl Results {
@@ -95,18 +247,20 @@ impl Results {
 
 /// A single request's outputs within a [`Results`].
 pub struct RequestResults<'a> {
-    outputs: &'a [Vec<f64>],
-    optional: &'a [Vec<f64>],
+    outputs: &'a [RowRef],
+    optional: &'a [RowRef],
 }
 
 impl<'a> RequestResults<'a> {
     pub fn output(&self, i: usize) -> &'a [f64] {
-        &self.outputs[i]
+        self.outputs[i].as_slice()
     }
     pub fn optional(&self, i: usize) -> &'a [f64] {
-        &self.optional[i]
+        self.optional[i].as_slice()
     }
 }
+// (the returns above coerce `&RowRef` → `&[f64]` through Deref — the
+//  accessor surface is byte-for-byte the pre-E2c API)
 
 /// Concrete hand `IndicatorState`s for DB/FFI/legacy streaming, exported
 /// one-way (never fed back into `resume` — independent timelines).
@@ -214,7 +368,7 @@ mod tests {
             let (tail, _) = plan.resume(qs, &s2);
             for req in 0..full.outputs.len() {
                 for out in 0..full.outputs[req].len() {
-                    let mut c = head.outputs[req][out].clone();
+                    let mut c = head.outputs[req][out].to_vec();
                     c.extend_from_slice(&tail.outputs[req][out]);
                     cmp_exact(
                         &c,
@@ -223,7 +377,7 @@ mod tests {
                     );
                 }
                 for out in 0..full.optional[req].len() {
-                    let mut c = head.optional[req][out].clone();
+                    let mut c = head.optional[req][out].to_vec();
                     c.extend_from_slice(&tail.optional[req][out]);
                     cmp_exact(
                         &c,
@@ -391,7 +545,7 @@ mod tests {
         let s2: [&[f64]; 1] = [&close[split..]];
         let (h1, qs1) = plan.run(&s1);
         let (h2, _) = plan.resume(qs1, &s2);
-        let mut c = h1.outputs[3][0].clone();
+        let mut c = h1.outputs[3][0].to_vec();
         c.extend_from_slice(&h2.outputs[3][0]);
         cmp_exact(&c, res.request(3).output(0), "ema12_streamed");
 

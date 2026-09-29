@@ -53,7 +53,15 @@
 //! assumed complete (producer-NaN gating would be one more select per node);
 //! E1 lane packing is in: price-sourced EMA chains group in `f64x2` pairs
 //! stepped by one vector `fma` (cranelift x64's 128-bit ceiling — see
-//! `MAX_LANES`), chained recurrences stay scalar.
+//! `MAX_LANES`), chained recurrences stay scalar. E2-lite pairs `short −
+//! long` subs into one vector `fsub` (role-aligned lane groups, absorbed
+//! subs alias lane 1). E2 asset lanes (`build_assets`/`run_assets`)
+//! replicate the arena over N price streams so cross-asset subs group
+//! automatically — but at the f64x2 ceiling every symbol still owns its
+//! output buffers (stores do NOT amortize) and A signals + A/2·chains
+//! group vectors overflow the 16-xmm file, so the all-assets-one-loop
+//! shape spills per bar beyond a handful of symbols; `run`-per-asset
+//! remains the shipped assets path and the lane plan is kept measured.
 
 use cranelift::codegen::ir::{BlockArg, Function, MemFlagsData, UserFuncName};
 use cranelift::codegen::isa::TargetFrontendConfig;
@@ -62,16 +70,22 @@ use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{default_libcall_names, Linkage, Module};
 
-use crate::cse::query::{IndicatorStateBox, Request, Results};
+use crate::cse::query::{IndicatorStateBox, Request, Results, RowRef};
 use crate::cse::{merge, Merged, Node, Sink, SinkSrc, StateRestorer};
 use crate::indicators::ema::{multiplier, State as EmaState};
 use crate::types::Warm;
 
-/// Compiled entry point: advance `len` bars of `price`, storing to `outs`
-/// (one `*mut f64` per sink, plan order), carrying `state` (raw u64 words,
-/// layout owned by the plan) across chunk calls.
-pub type JitFn =
-    unsafe extern "C" fn(state: *mut u64, price: *const f64, len: usize, outs: *mut *mut f64);
+/// Compiled entry point: advance `len` bars of every stream in `prices`
+/// (a table of `nassets` f64 slice pointers — one entry for the classic
+/// plan), storing to `outs` (one `*mut f64` per sink slot, plan order),
+/// carrying `state` (raw u64 words, layout owned by the plan) across
+/// chunk calls.
+pub type JitFn = unsafe extern "C" fn(
+    state: *mut u64,
+    prices: *const *const f64,
+    len: usize,
+    outs: *mut *mut f64,
+);
 
 /// Source reference: the price stream.
 const PRICE: usize = usize::MAX;
@@ -155,12 +169,26 @@ struct SinkSpec {
     lead: u64,
 }
 
+/// E2c: one request/output/asset slot. `store` indexes the unique
+/// write-stream for its node (`usize::MAX` ⇒ disabled optional: prints
+/// EMPTY); `lead` is the slot's publish lead. Hand parity makes leads
+/// differ per request for the same node (apo long @25 vs ppo long @26),
+/// so the ROW is stored at the node's MIN lead and each slot reads a
+/// window — `offset = max(start, slot.lead) - max(start, store.lead)`,
+/// resolved per chunk in `advance_assets`. Nothing is ever copied.
+#[derive(Clone, Copy)]
+struct View {
+    store: usize,
+    lead: u64,
+}
+
 /// Per-request metadata for `get_states` reconstitution — the request's
 /// state chains (op + period, `TState` field order) and the INDICATOR's own
 /// restorer fn. The engine holds no indicator identity at all: `restorer`
 /// is an opaque pointer and the sink layout lives in `counts`.
 struct ReqMeta {
-    state: Vec<(usize, u32)>,
+    /// Per asset: state chains (op, period) in `TState` field order.
+    state: Vec<Vec<(usize, u32)>>,
     restorer: Option<StateRestorer>,
 }
 
@@ -192,11 +220,36 @@ pub struct JitPlan {
     lane_of: Vec<(usize, usize)>,
     /// E2-lite: absorbed pair-sub → (pair-vector sub op, lane 1).
     alias: Vec<(usize, u8)>,
-    sinks: Vec<SinkSpec>,
+    /// E2c: unique write-streams — one compiled store per distinct
+    /// output node, at the node's minimum publish lead.
+    stores: Vec<SinkSpec>,
+    /// One view per request slot (order: request → output → asset),
+    /// aliasing `stores`. Slot count == the pre-E2c `sinks` count.
+    views: Vec<View>,
     counts: Vec<(usize, usize)>,
     reqs: Vec<ReqMeta>,
     nwords: usize,
+    /// E2: number of asset streams the arena was replicated over.
+    nassets: usize,
+    /// E4: `hash64` of the canonical request bytes this plan was compiled
+    /// from; stamped onto every [`JitState`] and asserted on `advance` —
+    /// the DB-reload safety net (state words are only meaningful under the
+    /// arena layout that created them).
+    fingerprint: u64,
 }
+
+/// `JitPlan` is shareable (`Arc<JitPlan>` across threads — the E4 cache).
+/// Soundness: the `JITModule` field is touched ONLY during
+/// `compile_request`/`emit`, before any plan is ever handed out; the run
+/// path reads immutable plan data and calls the finalized, reentrant
+/// function with caller-owned [`JitState`] (all machine-code state lives
+/// in that image — nothing global inside the code itself).
+unsafe impl Sync for JitPlan {}
+
+const _: fn() = || {
+    fn assert<T: Send + Sync>() {}
+    assert::<JitPlan>();
+};
 
 /// Per-asset resumable state: the plan's raw state words (header
 /// `next_bar`/`seeded`, chained seed flags, chain values). Layout owned by
@@ -204,6 +257,9 @@ pub struct JitPlan {
 #[derive(Clone)]
 pub struct JitState {
     pub words: Vec<u64>,
+    /// E4: the fingerprint of the plan that created this image;
+    /// `advance` refuses to run under a different one.
+    plan_key: u64,
 }
 
 impl JitState {
@@ -221,7 +277,8 @@ const W_SEED: usize = 1;
 /// shared sub-expressions, constants) and the only per-indicator hook is
 /// the recipe's own `restorer` fn for `get_states`. Node kinds outside the
 /// emittable set (`HighPass`/`SuperSmoother`/HT taps) panic at build.
-fn compile_request(req: &Request) -> JitPlan {
+fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
+    let fingerprint = crate::cse::cache::fingerprint_of(req, n_assets);
     let (arena, mut resolved) = merge(&req.recipes);
     // same switch `Request::build` applies — disabled optionals compile to
     // never-print sinks (EMPTY in position, values unchanged elsewhere).
@@ -232,9 +289,13 @@ fn compile_request(req: &Request) -> JitPlan {
 
     // ---- pass 1: arena nodes → ops, SSA order (producers are lower ids) ----
     let mut ops: Vec<Op> = Vec::new();
-    let mut node_op: Vec<usize> = vec![PRICE; arena.nodes.len()]; // Input → PRICE
+    // op ids per asset; an asset's `Input` node maps to its PRICE SLOT
+    // (`PRICE - s`), so `src` doubles as the stream selector and the A = 1
+    // plan keeps the classic `src == PRICE` identity exactly.
+    let mut node_op: Vec<Vec<usize>> = vec![vec![PRICE; arena.nodes.len()]; n_assets];
+    let is_price = |id: usize| id > PRICE - n_assets;
     macro_rules! push {
-        ($id:expr, $e:expr) => {{
+        ($s:expr, $id:expr, $e:expr) => {{
             let id = $id as usize;
             ops.push(Op {
                 e: $e,
@@ -242,64 +303,78 @@ fn compile_request(req: &Request) -> JitPlan {
                 ema_word: 0,
                 sd_word: 0,
             });
-            node_op[id] = ops.len() - 1;
+            node_op[$s][id] = ops.len() - 1;
         }};
     }
-    for (id, node) in arena.nodes.iter().enumerate() {
-        match *node {
-            Node::Input { .. } => {}
-            Node::Const { bits } => push!(id, OpE::Const(f64::from_bits(bits))),
+    for s in 0..n_assets {
+        let price = PRICE - s;
+        for (id, node) in arena.nodes.iter().enumerate() {
+            match *node {
+            Node::Input { stream } => {
+                assert!(
+                    stream == 0,
+                    "jit: multi-stream recipes need (stream, asset) slotting — not E2 v1"
+                );
+                node_op[s][id] = price;
+            }
+            Node::Const { bits } => push!(s, id, OpE::Const(f64::from_bits(bits))),
             Node::Ema { src, period } => {
                 let (mult, inv) = multiplier(period as usize);
-                let src_op = node_op[src as usize];
+                let src_op = node_op[s][src as usize];
                 push!(
+                    s,
                     id,
                     OpE::Ema {
                         src: src_op,
                         mult,
                         inv,
                         feed: leads[src as usize] as u64,
-                        chained: src_op != PRICE,
+                        chained: !is_price(src_op),
                     }
                 );
             }
             Node::Sub { a, b } => push!(
+                s,
                 id,
                 OpE::Arith {
                     op: ArithKind::Sub,
-                    a: node_op[a as usize],
-                    b: node_op[b as usize],
+                    a: node_op[s][a as usize],
+                    b: node_op[s][b as usize],
                     vec: false,
                 }
             ),
             Node::Mul { a, b } => push!(
+                s,
                 id,
                 OpE::Arith {
                     op: ArithKind::Mul,
-                    a: node_op[a as usize],
-                    b: node_op[b as usize],
+                    a: node_op[s][a as usize],
+                    b: node_op[s][b as usize],
                     vec: false,
                 }
             ),
             Node::Div { a, b } => push!(
+                s,
                 id,
                 OpE::Arith {
                     op: ArithKind::Div,
-                    a: node_op[a as usize],
-                    b: node_op[b as usize],
+                    a: node_op[s][a as usize],
+                    b: node_op[s][b as usize],
                     vec: false,
                 }
             ),
             Node::Max { a, b } => push!(
+                s,
                 id,
                 OpE::Arith {
                     op: ArithKind::Max,
-                    a: node_op[a as usize],
-                    b: node_op[b as usize],
+                    a: node_op[s][a as usize],
+                    b: node_op[s][b as usize],
                     vec: false,
                 }
             ),
             other => panic!("jit: node {other:?} is not emittable yet"),
+            }
         }
     }
     debug_assert_eq!(
@@ -309,51 +384,74 @@ fn compile_request(req: &Request) -> JitPlan {
             .iter()
             .filter(|n| !matches!(n, Node::Input { .. }))
             .count()
+            * n_assets
     );
 
-    // ---- pass 2: sinks + state wiring, all by arena id ----
-    let mut sinks: Vec<SinkSpec> = Vec::new();
+    // ---- pass 2: stores/views + state wiring, all by arena id ----
+    let mut stores: Vec<SinkSpec> = Vec::new();
+    let mut views: Vec<View> = Vec::new();
     let mut counts = Vec::new();
     let mut reqs: Vec<ReqMeta> = Vec::new();
 
     for res in &resolved {
+        // sink slot order: request → output (declared) → asset — `advance`
+        // regroups per asset with that stride.
         let mut add = |list: &[Sink], enabled: Option<&[bool]>| {
             for (oi, s) in list.iter().enumerate() {
-                if enabled.is_some_and(|f| !f.get(oi).copied().unwrap_or(true)) {
-                    sinks.push(SinkSpec {
-                        val: 0,
-                        lead: LEAD_NEVER,
-                    });
-                    continue;
+                for st_s in 0..n_assets {
+                    if enabled.is_some_and(|f| !f.get(oi).copied().unwrap_or(true)) {
+                        views.push(View {
+                            store: usize::MAX,
+                            lead: LEAD_NEVER,
+                        });
+                        continue;
+                    }
+                    let SinkSrc::Interface(id) = s.src;
+                    let o = node_op[st_s][id as usize];
+                    assert!(
+                        !is_price(o),
+                        "jit: mirroring a bare Input needs sink support for price streams"
+                    );
+                    // hand invariant (slot_lengths/output_length): publish
+                    // lead = max(declared, value lead) — asset-independent
+                    let lead = (s.lead as u64).max(ops[o].lead);
+                    // E2c: intern the write-stream by node. A later slot
+                    // with a SMALLER lead lowers the store's lead (the row
+                    // grows at its head) and every view keeps its own lead,
+                    // so windows re-offset correctly at advance time.
+                    let k = match stores.iter().position(|x| x.val == o) {
+                        Some(k) => {
+                            if lead < stores[k].lead {
+                                stores[k].lead = lead;
+                            }
+                            k
+                        }
+                        None => {
+                            stores.push(SinkSpec { val: o, lead });
+                            stores.len() - 1
+                        }
+                    };
+                    views.push(View { store: k, lead });
                 }
-                let SinkSrc::Interface(id) = s.src;
-                let o = node_op[id as usize];
-                assert!(
-                    o != PRICE,
-                    "jit: mirroring a bare Input needs sink support for price streams"
-                );
-                // hand invariant (slot_lengths/output_length): publish lead
-                // = max(declared, value lead)
-                sinks.push(SinkSpec {
-                    val: o,
-                    lead: (s.lead as u64).max(ops[o].lead),
-                });
             }
         };
         add(&res.outputs, None);
         add(&res.optional_outputs, Some(&res.optional_enabled));
 
         counts.push((res.outputs.len(), res.optional_outputs.len()));
-        let state = res
-            .inputs
-            .iter()
-            .map(|&i| match arena.nodes[i as usize] {
-                Node::Ema { period, .. } => (node_op[i as usize], period),
-                _ => panic!("jit: `tail_inputs` id {i} must name an Ema chain"),
+        let states: Vec<Vec<(usize, u32)>> = (0..n_assets)
+            .map(|st_s| {
+                res.inputs
+                    .iter()
+                    .map(|&i| match arena.nodes[i as usize] {
+                        Node::Ema { period, .. } => (node_op[st_s][i as usize], period),
+                        _ => panic!("jit: `tail_inputs` id {i} must name an Ema chain"),
+                    })
+                    .collect()
             })
             .collect();
         reqs.push(ReqMeta {
-            state,
+            state: states,
             restorer: res.restorer,
         });
     }
@@ -376,7 +474,7 @@ fn compile_request(req: &Request) -> JitPlan {
     let mut alias: Vec<(usize, u8)> = vec![(usize::MAX, LANE_SELF); base_ops];
 
     // Snapshot candidate sub operands BEFORE any `ops` mutation.
-    let is_chain = |o: &Op| matches!(o.e, OpE::Ema { src, chained: false, .. } if src == PRICE);
+    let is_chain = |o: &Op| matches!(o.e, OpE::Ema { src, chained: false, .. } if is_price(src));
     let sub_operands: Vec<Option<(usize, usize)>> = (0..base_ops)
         .map(|j| match ops[j].e {
             OpE::Arith { op: ArithKind::Sub, a, b, vec: false }
@@ -508,10 +606,13 @@ fn compile_request(req: &Request) -> JitPlan {
         groups,
         lane_of,
         alias,
-        sinks,
+        stores,
+        views,
         counts,
         reqs,
         nwords,
+        nassets: n_assets,
+        fingerprint,
     };
     emit(&mut plan, fc);
     plan
@@ -520,7 +621,16 @@ fn compile_request(req: &Request) -> JitPlan {
 impl JitPlan {
     /// Compile entry used by `Request::build`.
     pub fn compile(req: &Request) -> Self {
-        compile_request(req)
+        compile_request(req, 1)
+    }
+
+    /// E2: compile one plan whose lanes are ASSETS — the arena replicates
+    /// over `n_assets` price streams (same leads/segments for all), and the
+    /// E1/E2-lite groupers pair cross-asset chains and subs automatically.
+    /// `run_assets`/`advance_assets` feed the streams; results are per-asset.
+    pub fn compile_assets(req: &Request, n_assets: usize) -> Self {
+        assert!(n_assets >= 1, "jit: an asset-lane plan needs ≥ 1 stream");
+        compile_request(req, n_assets)
     }
 
     /// The CSE'd arena (introspection: node count proves dedup).
@@ -535,7 +645,7 @@ impl JitPlan {
 
     /// (ops, sinks) — the compiled shape, for caching keys/bench black-boxing.
     pub fn info(&self) -> (usize, usize) {
-        (self.ops.len(), self.sinks.len())
+        (self.ops.len(), self.stores.len())
     }
 
     /// E1 lane-group widths, e.g. `[2]` (classic) or `[2, 2, 2, 2, 2, 2]`
@@ -557,7 +667,14 @@ impl JitPlan {
     pub fn new_state(&self) -> JitState {
         JitState {
             words: vec![0u64; self.nwords],
+            plan_key: self.fingerprint,
         }
+    }
+
+    /// E4: canonical fingerprint of the request shape this plan implements
+    /// (stable across processes for the same engine + request).
+    pub fn fingerprint(&self) -> u64 {
+        self.fingerprint
     }
 
     pub fn run(&self, series: &[&[f64]]) -> (Results, JitState) {
@@ -571,43 +688,176 @@ impl JitPlan {
         (res, st)
     }
 
-    /// Advance one chunk: per-sink output rows `len − max(lead, start) +
-    /// start` (empty for never-print), call the compiled loop, regroup
-    /// `Results` request-major (disabled optionals keep their EMPTY slot).
-    pub fn advance(&self, st: &mut JitState, series: &[&[f64]]) -> Results {
-        let len = series.iter().map(|s| s.len()).max().unwrap_or(0);
-        let start = st.words[W_NEXT] as usize;
-        let price = series.first().copied().unwrap_or(&[]);
+    /// E2: one cold call over all asset streams (see `advance_assets`).
+    pub fn run_assets(&self, series: &[&[f64]]) -> (Vec<Results>, JitState) {
+        let mut st = self.new_state();
+        let res = self.advance_assets(&mut st, series);
+        (res, st)
+    }
 
-        let mut outs: Vec<Vec<f64>> = Vec::with_capacity(self.sinks.len());
-        let mut ptrs: Vec<*mut f64> = Vec::with_capacity(self.sinks.len());
-        for s in &self.sinks {
-            let g0 = s.lead.saturating_sub(start as u64) as usize;
-            let rows = len.saturating_sub(g0);
-            let mut v = crate::uninit_vec!(f64, rows);
-            ptrs.push(v.as_mut_ptr());
-            outs.push(v);
+    /// E2: streaming twin of `run_assets`.
+    pub fn resume_assets(&self, mut st: JitState, series: &[&[f64]]) -> (Vec<Results>, JitState) {
+        let res = self.advance_assets(&mut st, series);
+        (res, st)
+    }
+
+    /// Advance one chunk on a single-asset plan (see [`Self::advance_assets`]).
+    pub fn advance(&self, st: &mut JitState, series: &[&[f64]]) -> Results {
+        assert_eq!(self.nassets, 1, "advance: plan has {} lanes; use advance_assets", self.nassets);
+        let series: &[&[f64]] = if series.is_empty() { &[&[]] } else { series };
+        self.advance_assets(st, series).remove(0)
+    }
+
+    /// E2: advance one asset-lane chunk — ALL `nassets` streams are the
+    /// same bar count (the hand `by_assets` contract). Per-sink rows
+    /// `len − max(lead, start)` as usual; the compiled loop writes every
+    /// (output, asset) sink slot; `Results` are regrouped PER ASSET,
+    /// request-major (disabled optionals keep their EMPTY slot).
+    pub fn advance_assets(&self, st: &mut JitState, series: &[&[f64]]) -> Vec<Results> {
+        assert_eq!(
+            st.plan_key, self.fingerprint,
+            "jit: JitState was created by a different plan ({:x} vs {:x}) — its state \
+             words would be reinterpreted against foreign arena ids",
+            st.plan_key, self.fingerprint
+        );
+        let a = self.nassets;
+        assert_eq!(series.len(), a, "jit: plan takes {a} streams");
+        let len = series[0].len();
+        assert!(
+            series.iter().all(|s| s.len() == len),
+            "jit: asset-lane streams must have equal bar counts"
+        );
+        let start = st.words[W_NEXT] as usize;
+
+        // ONE chunk arena for every unique row (E2c): sizes are exact, the
+        // compiled loop writes each store's whole slice, so `assume_init`
+        // at the end leaves NO uninitialized reads. Per-store bookkeeping
+        // tables live on the STACK for sane plans (dense all-on ≈ 22,
+        // 8 assets × 6 = 48 ≤ 64); beyond that a heap fallback. The only
+        // per-advance data allocation is the arena itself — tick-size
+        // advances must not malloc scratch (the original Vec trio measured
+        // +40ns/chunk).
+        const STACK_STORES: usize = 64;
+        let nst = self.stores.len();
+        let mut rows_buf = [0usize; STACK_STORES];
+        let mut offs_buf = [0usize; STACK_STORES];
+        let mut ptrs_buf = [std::ptr::null_mut::<f64>(); STACK_STORES];
+        let mut rows_heap: Vec<usize> = Vec::new();
+        let mut offs_heap: Vec<usize> = Vec::new();
+        let mut ptrs_heap: Vec<*mut f64> = Vec::new();
+        let (rows, offs, ptrs) = if nst <= STACK_STORES {
+            (
+                rows_buf.as_mut_slice(),
+                offs_buf.as_mut_slice(),
+                ptrs_buf.as_mut_slice(),
+            )
+        } else {
+            rows_heap.resize(nst, 0);
+            offs_heap.resize(nst, 0);
+            ptrs_heap.resize(nst, std::ptr::null_mut());
+            (
+                rows_heap.as_mut_slice(),
+                offs_heap.as_mut_slice(),
+                ptrs_heap.as_mut_slice(),
+            )
+        };
+        let mut total = 0usize;
+        for k in 0..nst {
+            let r = len.saturating_sub(self.stores[k].lead.saturating_sub(start as u64) as usize);
+            rows[k] = r;
+            offs[k] = total;
+            total += r;
         }
+        let mut arc: std::rc::Rc<[std::mem::MaybeUninit<f64>]> =
+            std::rc::Rc::new_uninit_slice(total);
+        let base: *mut f64 = if total == 0 {
+            std::ptr::null_mut()
+        } else {
+            std::rc::Rc::get_mut(&mut arc)
+                .expect("fresh arena is uniquely owned")
+                .as_mut_ptr()
+                .cast::<f64>()
+        };
+        for k in 0..nst {
+            ptrs[k] = unsafe { base.add(offs[k]) };
+        }
+        let ptr_table: *mut *mut f64 = ptrs.as_mut_ptr();
         if len > 0 {
+            // pointer table on the stack for sane lane counts (no per-chunk
+            // heap alloc — matters at tick sizes), heap fallback beyond 32
+            let mut tab: [*const f64; 32] = [std::ptr::null(); 32];
+            let heap: Vec<*const f64>;
+            let base: *const *const f64 = if a <= 32 {
+                for (k, s) in series.iter().enumerate() {
+                    tab[k] = s.as_ptr();
+                }
+                tab.as_ptr()
+            } else {
+                heap = series.iter().map(|s| s.as_ptr()).collect();
+                heap.as_ptr()
+            };
             let f = self.func.expect("compiled plan has a function");
             unsafe {
-                (f)(
-                    st.words.as_mut_ptr(),
-                    price.as_ptr(),
-                    len,
-                    ptrs.as_mut_ptr(),
-                )
+                (f)(st.words.as_mut_ptr(), base, len, ptr_table)
             };
         }
         st.words[W_NEXT] = (start + len) as u64;
+        // SAFETY: every element was written by the compiled loop (row
+        // lengths equal per-store write counts exactly).
+        let arena: std::rc::Rc<[f64]> = unsafe { arc.assume_init() };
 
-        let mut outputs = Vec::with_capacity(self.counts.len());
-        let mut optional = Vec::with_capacity(self.counts.len());
-        for &(np, no) in &self.counts {
-            outputs.push(outs.drain(..np).collect());
-            optional.push(outs.drain(..no).collect());
+        // E2c: wrap each UNIQUE row once, then hand every request slot a
+        // window into it — mirror slots alias (no copy, refcount share),
+        // a later publish lead simply skips leading elements. Chunk bases
+        // (`max(start, lead)`) keep the resume slicing identical to the
+        // old one-row-per-slot layout.
+        let mk = |slot: usize| -> RowRef {
+            let v = self.views[slot];
+            if v.store == usize::MAX {
+                return RowRef::window(&arena, 0, 0);
+            }
+            let rowbase = start.max(self.stores[v.store].lead as usize);
+            let lead_off = start.max(v.lead as usize) - rowbase;
+            let len_row = rows[v.store];
+            RowRef::window(
+                &arena,
+                offs[v.store] + lead_off,
+                len_row.saturating_sub(lead_off),
+            )
+        };
+        // `with_capacity(0)` STILL mallocs (minimum bucket) — use the
+        // allocation-free empty vec there; primary rows are always ≥ 1.
+        let mut results: Vec<Results> = (0..a)
+            .map(|_| Results {
+                outputs: self
+                    .counts
+                    .iter()
+                    .map(|&(np, _)| Vec::with_capacity(np))
+                    .collect(),
+                optional: self
+                    .counts
+                    .iter()
+                    .map(|&(_, no)| if no == 0 { Vec::new() } else { Vec::with_capacity(no) })
+                    .collect(),
+            })
+            .collect();
+        let mut slot = 0usize;
+        for (req, &(np, no)) in self.counts.iter().enumerate() {
+            for _o in 0..np {
+                for asset in 0..a {
+                    results[asset].outputs[req].push(mk(slot));
+                    slot += 1;
+                }
+            }
+            for _o in 0..no {
+                for asset in 0..a {
+                    results[asset].optional[req].push(mk(slot));
+                    slot += 1;
+                }
+            }
         }
-        Results { outputs, optional }
+        debug_assert_eq!(slot, self.views.len());
+        results
     }
 
     fn ema_of(&self, st: &JitState, op: usize) -> f64 {
@@ -618,18 +868,28 @@ impl JitPlan {
     /// the INDICATOR's `restorer` (carried through `Recipe::restorer`) —
     /// the engine never names an indicator to rebuild its state.
     pub fn get_states(&self, st: &JitState) -> Vec<IndicatorStateBox> {
-        self.reqs
-            .iter()
-            .map(|r| match r.restorer {
-                Some(rest) => {
-                    let states = r
-                        .state
-                        .iter()
-                        .map(|&(op, period)| ema_state(self.ema_of(st, op), period as usize))
-                        .collect();
-                    rest(states)
-                }
-                None => IndicatorStateBox::Other,
+        self.get_states_assets(st).remove(0)
+    }
+
+    /// E2: per-asset hand states (asset-major; an A = 1 plan has one row).
+    pub fn get_states_assets(&self, st: &JitState) -> Vec<Vec<IndicatorStateBox>> {
+        (0..self.nassets)
+            .map(|a| {
+                self.reqs
+                    .iter()
+                    .map(|r| match r.restorer {
+                        Some(rest) => {
+                            let states = r.state[a]
+                                .iter()
+                                .map(|&(op, period)| {
+                                    ema_state(self.ema_of(st, op), period as usize)
+                                })
+                                .collect();
+                            rest(states)
+                        }
+                        None => IndicatorStateBox::Other,
+                    })
+                    .collect()
             })
             .collect()
     }
@@ -692,7 +952,7 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     let f64_t = types::F64;
 
     let nops = plan.ops.len();
-    let nsinks = plan.sinks.len();
+    let nsinks = plan.stores.len();
     let ngroups = plan.groups.len();
     let chained: Vec<usize> = (0..nops)
         .filter(|&j| matches!(plan.ops[j].e, OpE::Ema { chained: true, .. }))
@@ -719,7 +979,7 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     // Segment bounds: sorted distinct finite gate leads (sink + chained
     // feed); segments are [0,b0), [b0,b1), …, [blast, ∞) in absolute bars.
     let mut bounds: Vec<u64> = plan
-        .sinks
+        .stores
         .iter()
         .map(|s| s.lead)
         .filter(|&l| l < LEAD_NEVER && l > 0)
@@ -767,10 +1027,16 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     }
     pt.extend(std::iter::repeat(f64_t).take(op_of_slot.len()));
     pt.extend(std::iter::repeat(i64_t).take(nsd));
+    // E2b: one loop-carried WRITE POINTER per sink (int file — separate
+    // budget from the xmm lanes). Segments cut at every sink lead, so
+    // inside a segment a sink stores EVERY bar or NEVER: the pointer
+    // needs no gating, only the unconditional +8 on storing bars.
+    pt.extend(std::iter::repeat(i64_t).take(nsinks));
     pt.push(i64_t);
     let nparam = pt.len();
     let ipos = nparam - 1;
     let sdpos = nval;
+    let ppos = nval + nsd;
 
     let entry = fb.create_block();
     let setup = fb.create_block();
@@ -812,7 +1078,14 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     // ---- entry: loads, empty-chunk early-out ----
     fb.switch_to_block(entry);
     let ep: Vec<Value> = fb.block_params(entry).to_vec();
-    let (state, price, len, outs) = (ep[0], ep[1], ep[2], ep[3]);
+    let (state, prices, len, outs) = (ep[0], ep[1], ep[2], ep[3]);
+    // E2 asset lanes: param 1 points at a table of `nassets` f64 slice
+    // bases. An A = 1 plan loads exactly one pointer (same machine work).
+    let na = plan.nassets;
+    let mut pbase: Vec<Value> = Vec::with_capacity(na);
+    for a in 0..na {
+        pbase.push(ld(&mut fb, prices, 8 * a as i64, i64_t));
+    }
     let zero = fb.ins().iconst(i64_t, 0);
     let one = fb.ins().iconst(i64_t, 1);
     let eight = fb.ins().iconst(i64_t, 8);
@@ -839,6 +1112,7 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
         end_empty.push(loads[o]);
     }
     end_empty.extend(sdloads.iter().copied());
+    end_empty.extend(std::iter::repeat(zero).take(nsinks));
     end_empty.push(seeded);
     fb.ins()
         .brif(empty, end_bb, &ba(&end_empty), setup, &ba(&[]));
@@ -846,12 +1120,22 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     // ---- setup: seed selects, constants, out pointers, segment bounds ----
     fb.switch_to_block(setup);
     let is_seeded = fb.ins().icmp(IntCC::NotEqual, seeded, zero);
-    let p0 = ld(&mut fb, price, 0, f64_t);
+    let mut p0: Vec<Value> = Vec::with_capacity(na);
+    for a in 0..na {
+        p0.push(ld(&mut fb, pbase[a], 0, f64_t));
+    }
     let end_abs = fb.ins().iadd(next_bar, len);
     let mut init: Vec<Value> = Vec::with_capacity(nops);
     for j in 0..nops {
         let v = match plan.ops[j].e {
-            OpE::Ema { chained: false, .. } => fb.ins().select(is_seeded, loads[j], p0),
+            OpE::Ema {
+                src,
+                chained: false,
+                ..
+            } => {
+                // cold chunk seeds from ITS asset's first bar
+                fb.ins().select(is_seeded, loads[j], p0[PRICE - src])
+            }
             OpE::Ema { .. } => loads[j],
             _ => fb.ins().f64const(0.0),
         };
@@ -899,19 +1183,8 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
             None => hi_v.push(end_abs),
         }
     }
-    // Per-sink store base = max(start, lead): `out_k[0]` corresponds to
-    // absolute bar `base_k` (exactly `advance`'s row slicing), so the
-    // in-segment index is `i - base_k` with `i` the absolute counter.
-    let mut sbase: Vec<Value> = Vec::with_capacity(nsinks);
-    for s in plan.sinks.iter() {
-        if s.lead >= LEAD_NEVER {
-            sbase.push(zero); // never stores; base unused
-            continue;
-        }
-        let lc = fb.ins().iconst(i64_t, s.lead as i64);
-        let below = fb.ins().icmp(IntCC::SignedLessThan, next_bar, lc);
-        sbase.push(fb.ins().select(below, lc, next_bar));
-    }
+    // E2b: `optr[k]` (row 0 of sink k's buffer) is the pointer's initial
+    // value — stores walk it by +8 per written bar, no index math per bar.
     let mut args: Vec<Value> = Vec::with_capacity(nparam);
     for g in 0..ngroups {
         let v = pack!(g, init);
@@ -921,6 +1194,7 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
         args.push(init[o]);
     }
     args.extend(sdloads.iter().copied());
+    args.extend(optr.iter().copied());
     args.push(i0);
     fb.ins().jump(head_bb[0], &ba(&args));
 
@@ -936,7 +1210,7 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
             .ins()
             .icmp(IntCC::SignedGreaterThanOrEqual, hp[ipos], hi_v[s]);
         if is_last {
-            let mut end_args = hp[..nval + nsd].to_vec();
+            let mut end_args = hp[..nval + nsd + nsinks].to_vec();
             end_args.push(one);
             fb.ins()
                 .brif(done, end_bb, &ba(&end_args), body_bb[s], &ba(&hp));
@@ -949,30 +1223,54 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
         let ivar = bp[ipos];
         let roff = fb.ins().isub(ivar, next_bar);
         let poff = fb.ins().imul(roff, eight);
-        let paddr = fb.ins().iadd(price, poff);
-        let price_v = fb.ins().load(f64_t, MemFlagsData::new(), paddr, 0);
-
-        // price broadcast, one per distinct vector width
-        let mut pvs: Vec<(Type, Value)> = Vec::with_capacity(2);
-        let mut splat_price = |ty: Type, fb: &mut FunctionBuilder| -> Value {
-            if let Some((_, v)) = pvs.iter().find(|(t, _)| *t == ty) {
-                return *v;
-            }
-            let v = fb.ins().splat(ty, price_v);
-            pvs.push((ty, v));
-            v
-        };
+        // this bar's price, per stream (one load per asset — the same work
+        // the A = 1 plan did with its single pointer)
+        let mut pv: Vec<Value> = Vec::with_capacity(na);
+        for a in 0..na {
+            let paddr = fb.ins().iadd(pbase[a], poff);
+            pv.push(fb.ins().load(f64_t, MemFlagsData::new(), paddr, 0));
+        }
 
         // packed groups: ONE vector step per group. Lane values are NOT
         // extracted here — `scalarize` materializes an extract only where
         // a scalar consumer (sink store, arith operand, chained seed)
         // actually needs one; vector subs consume whole group vectors.
+        // The group's price vector depends only on its lane-asset pattern
+        // (e.g. (0,0) = plain broadcast, (0,1) = cross-asset E2 pair), so
+        // identical patterns SHARE one packed value per bar.
         let mut stepv: Vec<Value> = Vec::with_capacity(ngroups);
+        let mut price_packs: Vec<(Vec<usize>, Value)> = Vec::with_capacity(ngroups);
         for g in 0..ngroups {
             let ty = vec_ty(plan.groups[g].ops.len());
-            let pv = splat_price(ty, &mut fb);
+            let assets: Vec<usize> = plan.groups[g]
+                .ops
+                .iter()
+                .map(|&o| {
+                    PRICE - match plan.ops[o].e {
+                        OpE::Ema { src, .. } => src,
+                        _ => unreachable!(),
+                    }
+                })
+                .collect();
+            if let Some((_, v)) = price_packs.iter().find(|(k, _)| *k == assets) {
+                let v = *v;
+                let prev = bp[g];
+                let prod = fb.ins().fmul(v, gmvec[g]);
+                stepv.push(fb.ins().fma(prev, givec[g], prod));
+                continue;
+            }
+            let mut it = assets.iter().enumerate();
+            let (_, &a0) = it.next().unwrap();
+            let mut v = fb.ins().splat(ty, pv[a0]);
+            for (l, &a) in it {
+                // same-asset lanes are already broadcast by the splat
+                if a != a0 {
+                    v = fb.ins().insertlane(v, pv[a], l as u8);
+                }
+            }
+            price_packs.push((assets, v));
             let prev = bp[g];
-            let prod = fb.ins().fmul(pv, gmvec[g]);
+            let prod = fb.ins().fmul(v, gmvec[g]);
             stepv.push(fb.ins().fma(prev, givec[g], prod));
         }
         // lazily-materialized scalar views (Eager values: ungrouped Ema /
@@ -1011,6 +1309,12 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
             if plan.lane_of[j].0 != usize::MAX {
                 continue;
             }
+            if plan.alias[j].0 != usize::MAX {
+                // absorbed pair-sub: its value IS a lane of another op's
+                // pair-vector; `scalarize` extracts there — compute nothing
+                // (and leave `cur[j]` None so consumers take the alias).
+                continue;
+            }
             let newv = match plan.ops[j].e {
                 OpE::Ema {
                     src,
@@ -1023,7 +1327,11 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                     let prev = bp[slot];
                     macro_rules! step_ema {
                         () => {{
-                            let src_v = if src == PRICE { price_v } else { scalarize!(src) };
+                            let src_v = if src > PRICE - na {
+                                pv[PRICE - src]
+                            } else {
+                                scalarize!(src)
+                            };
                             let m = fb.ins().f64const(mult);
                             let iv = fb.ins().f64const(inv);
                             let prod = fb.ins().fmul(src_v, m);
@@ -1041,7 +1349,11 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                             // feeding starts here: first bar seeds
                             let stepped = step_ema!();
                             let is_sd = fb.ins().icmp(IntCC::NotEqual, sdj, zero);
-                            let src_v = if src == PRICE { price_v } else { scalarize!(src) };
+                            let src_v = if src > PRICE - na {
+                                pv[PRICE - src]
+                            } else {
+                                scalarize!(src)
+                            };
                             fb.ins().select(is_sd, stepped, src_v)
                         } else {
                             step_ema!() // sd proven 1: pure step
@@ -1085,15 +1397,19 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
             }
         }
 
-        for (k, sink) in plan.sinks.iter().enumerate() {
-            if sink.lead >= LEAD_NEVER || sink.lead as i64 > b {
-                continue; // not printing during this segment (compile-time)
+        // E2b: writing sinks store through their carried pointer and hand
+        // the +8 bump to the next iteration; non-writing sinks pass their
+        // pointer through untouched (compile-time known per segment).
+        let mut walked: Vec<Value> = Vec::with_capacity(nsinks);
+        for (k, sink) in plan.stores.iter().enumerate() {
+            let ptr = bp[ppos + k];
+            if sink.lead as i64 > b {
+                walked.push(ptr); // not printing during this segment
+                continue;
             }
-            let idx = fb.ins().isub(ivar, sbase[k]);
-            let soff = fb.ins().imul(idx, eight);
-            let saddr = fb.ins().iadd(optr[k], soff);
             let v = scalarize!(sink.val);
-            fb.ins().store(MemFlagsData::new(), v, saddr, 0);
+            fb.ins().store(MemFlagsData::new(), v, ptr, 0);
+            walked.push(fb.ins().iadd(ptr, eight));
         }
         let i1 = fb.ins().iadd(ivar, one);
         let mut la: Vec<Value> = Vec::with_capacity(nparam);
@@ -1102,6 +1418,7 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
             la.push(cur[o].expect("state-carried op has a value"));
         }
         la.extend(sd.iter().copied());
+        la.extend(walked.iter().copied());
         la.push(i1);
         fb.ins().jump(head_bb[s], &ba(&la));
     }
@@ -1133,7 +1450,12 @@ fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
             endp[nval + i],
         );
     }
-    st(&mut fb, state, 8 * W_SEED as i64, endp[nval + nsd]);
+    st(
+        &mut fb,
+        state,
+        8 * W_SEED as i64,
+        endp[nval + nsd + nsinks],
+    );
     let nb = fb.ins().iadd(next_bar, len);
     st(&mut fb, state, 8 * W_NEXT as i64, nb);
     fb.ins().return_(&[]);
@@ -1240,7 +1562,7 @@ mod tests {
             let (h2, _) = plan.resume(qs, &s2);
             for req in 0..full.outputs.len() {
                 for out in 0..full.outputs[req].len() {
-                    let mut c = h1.outputs[req][out].clone();
+                    let mut c = h1.outputs[req][out].to_vec();
                     c.extend_from_slice(&h2.outputs[req][out]);
                     cmp_exact(
                         &c,
@@ -1436,7 +1758,10 @@ mod tests {
             "ONE Sub shared by apo line, macd line, ppo numerator — plus hist"
         );
         assert_eq!(nops, 10);
-        assert_eq!(nsinks, 11);
+        // E2c: 11 request SLOTS collapse to 6 unique write-streams —
+        // ema12 (×3 optionals), ema26 (×3, min lead 25 + windows), line
+        // (apo ≡ macd primaries), ratio, signal, hist.
+        assert_eq!(nsinks, 6, "one store per distinct output node");
     }
 
     /// E1/E2-lite shape: classic's two price chains pack into one `f64x2`
@@ -1473,5 +1798,203 @@ mod tests {
         // 11 distinct close chains + 1 clone (shared ema9) = 12 lane slots
         let slots: usize = dense.lanes().iter().sum();
         assert_eq!(slots, 12, "clone absorbs the cross-request chain reuse");
+    }
+
+    /// E2 asset lanes: the replicated arena PAIRS ASSETS by construction
+    /// (line subs of two assets share no chains ⇒ disjoint ⇒ lane-aligned
+    /// S/L groups and one vector `fsub` per asset pair), and every asset's
+    /// rows are bit-exact against the single-asset plan — values, lengths,
+    /// the optional switch, and `get_states` per symbol. Streaming at a
+    /// phase boundary rides the same shared `next_bar`/`seeded` words.
+    #[test]
+    fn jit_asset_lanes_match_single_asset_runs() {
+        let c0 = series(500);
+        let c1: Vec<f64> = c0.iter().map(|v| v * 0.5 + 3.0).collect();
+        let c2: Vec<f64> = c0.iter().map(|v| v * 2.0 - 7.0).collect();
+        let streams = [&c0, &c1, &c2];
+
+        let one = classic3_all_on().build();
+        let expect: Vec<Results> = streams.iter().map(|c| one.run(&[c.as_slice()]).0).collect();
+
+        // A = 2: the two line subs pair cross-asset — one vector fsub,
+        // two f64x2 groups; A = 3: third sub is LONE (odd remainder), its
+        // chains fall back to their own bucket pair.
+        let p2 = classic3_all_on().build_assets(2);
+        assert_eq!(p2.lanes(), vec![2, 2], "S pair group + L pair group");
+        assert_eq!(p2.vec_subs(), 1, "one vector fsub serves both assets");
+        let (r2, _qs) = p2.run_assets(&[streams[0].as_slice(), streams[1].as_slice()]);
+        for asset in 0..2 {
+            cmp_results(&r2[asset], &expect[asset], &format!("A2 asset{asset}"));
+        }
+
+        let p3 = classic3_all_on().build_assets(3);
+        assert_eq!(p3.lanes(), vec![2, 2, 2]);
+        assert_eq!(p3.vec_subs(), 1);
+        let all: Vec<&[f64]> = streams.iter().map(|c| c.as_slice()).collect();
+        let (r3, qs3) = p3.run_assets(&all);
+        for asset in 0..3 {
+            cmp_results(&r3[asset], &expect[asset], &format!("A3 asset{asset}"));
+        }
+
+        // streaming: resume a split at a phase boundary (24/25/26 leads)
+        let s1: Vec<&[f64]> = streams.iter().map(|c| &c[..24]).collect();
+        let s2: Vec<&[f64]> = streams.iter().map(|c| &c[24..]).collect();
+        let (h1, qs) = p3.run_assets(&s1);
+        let (h2, _) = p3.resume_assets(qs, &s2);
+        for asset in 0..3 {
+            for req in 0..expect[asset].outputs.len() {
+                for out in 0..expect[asset].outputs[req].len() {
+                    let mut c = h1[asset].outputs[req][out].to_vec();
+                    c.extend_from_slice(&h2[asset].outputs[req][out]);
+                    cmp_exact(
+                        &c,
+                        &expect[asset].outputs[req][out],
+                        &format!("A3 stream r{req}o{out}"),
+                    );
+                }
+            }
+        }
+
+        // per-asset hand states export identically to the single plan
+        let st1 = one.run(&[c0.as_slice()]).1;
+        let gs_a = p3.get_states_assets(&qs3);
+        let gs_1 = one.get_states(&st1);
+        let IndicatorStateBox::Apo(ap_a) = &gs_a[0][0] else {
+            panic!("asset0 apo state");
+        };
+        let IndicatorStateBox::Apo(ap_1) = &gs_1[0] else {
+            panic!("single apo state");
+        };
+        assert_eq!(ap_a.short_ema.ema.to_bits(), ap_1.short_ema.ema.to_bits());
+
+        // dense across 2 assets, all optionals on: mirrors + clone path
+        let d1 = dense_all_on().build();
+        let e0 = d1.run(&[c0.as_slice()]).0;
+        let e1 = d1.run(&[c1.as_slice()]).0;
+        let dd = dense_all_on().build_assets(2);
+        let (dr, _) = dd.run_assets(&[c0.as_slice(), c1.as_slice()]);
+        cmp_results(&dr[0], &e0, "dense A2 asset0");
+        cmp_results(&dr[1], &e1, "dense A2 asset1");
+    }
+
+    fn classic3_all_on() -> Request {
+        Request::new()
+            .add(Apo::recipe(&APO))
+            .add(Ppo::recipe(&PPO))
+            .add(Macd::recipe(&MACD))
+    }
+
+    fn dense_all_on() -> Request {
+        Request::new()
+            .add(Apo::recipe(&[5.0, 8.0]))
+            .add(Apo::recipe(&[6.0, 9.0]))
+            .add(Ppo::recipe(&[9.0, 25.0]))
+            .add(Ppo::recipe(&[10.0, 26.0]))
+            .add(Macd::recipe(&[11.0, 23.0, 17.0]))
+            .add(Macd::recipe(&[12.0, 24.0, 9.0]))
+    }
+
+    /// Counts heap touches inside `run` (diagnosis harness, tick floor).
+    #[test]
+    fn jit_resume_allocations() {
+        use std::alloc::{GlobalAlloc, Layout, System};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static ALLOCS: AtomicUsize = AtomicUsize::new(0);
+        struct Counter;
+        unsafe impl GlobalAlloc for Counter {
+            unsafe fn alloc(&self, l: Layout) -> *mut u8 {
+                ALLOCS.fetch_add(1, Ordering::Relaxed);
+                System.alloc(l)
+            }
+            unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
+                System.dealloc(p, l)
+            }
+            unsafe fn realloc(&self, p: *mut u8, l: Layout, n: usize) -> *mut u8 {
+                ALLOCS.fetch_add(1, Ordering::Relaxed);
+                System.realloc(p, l, n)
+            }
+        }
+        #[global_allocator]
+        static A: Counter = Counter;
+
+        let close = series(300);
+        let warm: [&[f64]; 1] = [close.as_slice()];
+        let plan = classic().build();
+        let (res, qs) = plan.run(&warm);
+        let bar = std::hint::black_box(res.outputs[0][0].len() + qs.next_bar() as usize);
+        std::hint::black_box(bar);
+
+        let one = [1.0f64; 1];
+        let nb: [&[f64]; 1] = [one.as_slice()];
+        let n = std::hint::black_box(200);
+        ALLOCS.store(0, Ordering::Relaxed);
+        for _ in 0..n {
+            let (_r, q2) = plan.resume(qs.clone(), &nb);
+            std::hint::black_box(q2.next_bar());
+        }
+        let per = ALLOCS.load(Ordering::Relaxed) as f64 / n as f64;
+        println!("allocs per 1-bar resume: {per:.1}");
+        assert!(per < 16.0, "resume touched {per} allocations");
+    }
+
+    /// E2c: mirror slots share ONE engine-written buffer per node, with
+    /// hand-exact lengths preserved as windows. The all-on classic query
+    /// stores six rows; eleven request slots read them (three ema12
+    /// mirrors alias whole, the ±1 ema26 case is apo@25 full row and
+    /// ppo/macd@26 windows). Values/lengths vs hand are the existing
+    /// parity suite; this pins the STRUCTURE + aliasing.
+    #[test]
+    fn jit_output_mirrors_are_written_once() {
+        let close = series(500);
+        let s: [&[f64]; 1] = [close.as_slice()];
+        let req = Request::new()
+            .add(Apo::recipe(&APO))
+            .add(Ppo::recipe(&PPO))
+            .add(Macd::recipe(&MACD));
+        let plan = req.build();
+        let (_, stores) = plan.info();
+        assert_eq!(stores, 6, "unique write-streams");
+
+        let (res, _) = plan.run(&s);
+        // same-node mirrors → same buffer
+        assert!(res.optional[0][0].shares_data_with(&res.optional[1][0]));
+        assert!(res.optional[1][0].shares_data_with(&res.optional[2][0]));
+        // the ±1 lead case: ONE row, windowed reads, hand-exact lengths
+        assert!(res.optional[0][1].shares_data_with(&res.optional[1][1]));
+        assert_eq!(res.optional[0][1].len(), res.optional[1][1].len() + 1);
+        cmp_exact(&res.optional[0][1][1..], &res.optional[1][1], "ppo long window");
+        // apo line ≡ macd line primaries alias too
+        assert!(res.outputs[0][0].shares_data_with(&res.outputs[2][0]));
+        // hand parity of ALIASED rows (values AND per-slot lengths)
+        let apo = Apo::indicator(&s, &APO, Some(&[true, true])).unwrap().0;
+        let ppo = Ppo::indicator(&s, &PPO, Some(&[true, true])).unwrap().0;
+        cmp_exact(res.request(0).optional(1), &apo[2], "apo long full row");
+        cmp_exact(res.request(1).optional(1), &ppo[2], "ppo long window vs hand");
+        // disabled optionals still print EMPTY through the view layer
+        let (rn, _) = Request::new()
+            .add_opt(Apo::recipe(&APO), None)
+            .build()
+            .run(&s);
+        assert!(rn.optional[0][0].is_empty() && rn.optional[0][1].is_empty());
+    }
+
+    fn cmp_results(a: &Results, b: &Results, what: &str) {
+        assert_eq!(a.outputs.len(), b.outputs.len(), "{what}: requests");
+        for req in 0..a.outputs.len() {
+            for out in 0..a.outputs[req].len() {
+                cmp_exact(
+                    &a.outputs[req][out],
+                    &b.outputs[req][out],
+                    &format!("{what} p{req}o{out}"),
+                );
+            }
+            for out in 0..a.optional[req].len() {
+                cmp_exact(
+                    &a.optional[req][out],
+                    &b.optional[req][out],
+                    &format!("{what} x{req}o{out}"),
+                );
+            }
+        }
     }
 }

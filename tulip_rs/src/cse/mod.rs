@@ -21,15 +21,17 @@
 //! Handover.md §4, and §5.2/§5.3 of proposals/EXECUTION_PLANNER.md (CSE
 //! key, warm-up trap — both still exact).
 
+mod cache;
 mod merge;
 mod query;
 mod recipe;
 
 pub mod jit;
 
+pub use cache::cached_plan;
 pub use jit::{JitPlan, JitState};
 pub use merge::{merge, Merged, Resolved};
-pub use query::{IndicatorStateBox, Request, Results};
+pub use query::{IndicatorStateBox, Request, Results, RowRef};
 pub use recipe::{Id, Node, Recipe, Sink, SinkSrc, StateRestorer};
 
 /// An indicator that can describe itself as a canonical recipe graph.

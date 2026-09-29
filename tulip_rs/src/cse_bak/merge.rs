@@ -1,52 +1,36 @@
-//! The CSE merge pass: combine several indicator [`Recipe`]s into one arena and
-//! deduplicate identical nodes by *canonical structural key* — the planner's
-//! common-subexpression elimination (`EXECUTION_PLANNER.md` §5.2).
+//! The CSE merge pass: intern several indicator [`Recipe`]s' **interface**
+//! graphs into one arena, deduplicating identical nodes by canonical
+//! structural key (§5.2). The tail wiring (inputs, sinks) is remapped
+//! local→global alongside the nodes.
 //!
 //! # The one hazard
-//! [`Node`] stores **child references** and **plain params** (period, `Const`
-//! bits, input stream) under the *same* [`Id`] type. That makes the recipes
-//! terse, but it means the merge MUST know which `Id` fields are references —
-//! those get remapped local→global; the rest are copied verbatim. See [`remap`].
-//! When you add a [`Node`] variant with a new child, add it to `remap` or CSE
-//! silently keys on a stale local index (the test below is the guard).
+//! [`Node`] stores child references and plain params (period, `Const` bits,
+//! input stream) under the same [`Id`] type — `remap` is the single place that
+//! knows which is which. A new `Node` variant with a child must be added to
+//! `remap` **and** [`Merged::leads`], or CSE keys on a stale local index.
 //!
 //! # Why interning is order-independent
-//! Every recipe is SSA-ordered (a node's inputs are lower indices), so when we
-//! intern node `i` of a recipe, all of `i`'s children are *already* global — their
-//! `local→global` entries are set. Thus two structurally-identical subtrees, no
-//! matter which recipe or local indices they came from, rewrite to the *same*
-//! globally-shaped `Node` and hit the same cache entry. That's exactly what makes
-//! `Apo`'s `sub(ema12,ema26)` and `Macd`'s `macd_line` merge into one node — the
-//! `Apo ≡ Macd.macd_line` identity (`MATHEMATICAL_ENGINE.md` §4) falls out of CSE
-//! for free, with no special rewrite rule.
+//! Every recipe is SSA-ordered, so when node `i` is interned all of `i`'s
+//! children are already global. Structurally-identical subtrees from any
+//! recipe rewrite to the same global node and hit the same cache entry — that
+//! is what makes `Apo`'s `ema12/ema26` and `Macd`'s literally the same arena
+//! nodes, the §4 identity falling out of CSE for free.
 
-use crate::cse::{Id, Node, Recipe};
+use crate::cse::{Id, Node, Recipe, Sink, SinkSrc, StateRestorer};
 use std::collections::HashMap;
 
-/// Merged, node-deduplicated graph. Child `Id`s in `nodes` are *global* arena
-/// indices (not per-recipe SSA ids any more).
+/// Merged, node-deduplicated interface graph. Child `Id`s in `nodes` are
+/// *global* arena indices.
 #[derive(Debug, Clone)]
 pub struct Merged {
     pub nodes: Vec<Node>,
 }
 
 impl Merged {
-    /// Canonical per-node `defined-from` lead: the earliest *absolute bar at which
-    /// the node has a valid value* (NOT the hand `slot_lengths` report offset —
-    /// that is the per-sink publish-lead, §5.3). Rules:
-    /// - `Ema{src, period} = lead(src) + (period - 1)` (`ema.rs::init_state` seeds
-    ///   bar 0 then advances `period - 1`).
-    /// - arithmetic (`Sub/Mul/Div/Max`) = `max` of child leads.
-    /// - `Input`/`Const` = 0.
-    ///
-    /// This is the *defined-from* half of §5.3; the *publish* half is
-    /// `data_len - slot_lengths/output_length` per sink (the indicator's capacity),
-    /// tracked as an open item (§10 decision U, §11). It is what makes
-    /// `Apo`/`Ppo` (which report an EMA at bar `period`) coexist with `Macd`
-    /// (which reports `macd_line` at `long - 1` and seeds `signal` from that
-    /// early value). Right-aligned `to_bits` already pass on defined-from alone
-    /// because EMA seed differences decay to sub-ulp; capacity-publish-lead will
-    /// upgrade them to exact full-array alignment + turn on the chained test.
+    /// Canonical per-node `defined-from` lead: the earliest absolute bar at
+    /// which the node has a valid value (§5.3). `Ema = lead(src) + period-1`,
+    /// arithmetic = `max(children)`, `Input`/`Const` = 0, filter/HT per the
+    /// catalog rules (not executed in v1, but the lead math is defined).
     pub fn leads(&self) -> Vec<Id> {
         let mut leads: Vec<Id> = Vec::with_capacity(self.nodes.len());
         for node in &self.nodes {
@@ -63,7 +47,6 @@ impl Merged {
                 Node::SuperSmoother { src, period } => {
                     leads[src as usize] + period.saturating_sub(1)
                 }
-                // 7-tap kernel: needs `src` valid then 6 more taps (see ht_kernel ring buffer).
                 Node::HtInPhase { src } | Node::HtQuadrature { src } => leads[src as usize] + 6,
             };
             leads.push(id);
@@ -72,49 +55,48 @@ impl Merged {
     }
 }
 
-/// Where one input recipe's outputs landed in the merged arena, plus the
-/// per-sink publish lead (§5.3) so `exec`/`finalize` can emit arrays whose
-/// length matches that indicator's own `slot_lengths`/`min_data`.
-#[derive(Debug, Clone, Default)]
+/// Where one input recipe landed in the merged arena: its state wiring and
+/// sinks with all ids resolved to arena globals.
+#[derive(Debug, Clone)]
 pub struct Resolved {
-    /// Global ids of the request's primary outputs (`Info::outputs` order).
-    pub outputs: Vec<Id>,
-    /// Global ids of the request's optional outputs (`Info::optional_outputs` order).
-    pub optional_outputs: Vec<Id>,
-    /// Publish lead per primary output (parallel to `outputs`).
-    pub output_leads: Vec<Id>,
-    /// Publish lead per optional output (parallel to `optional_outputs`).
-    pub optional_output_leads: Vec<Id>,
-    /// Per-optional-output enable flags (parallel to `optional_outputs`);
-    /// `merge` defaults all-`true`, `Request::add_opt` overrides per request.
+    /// Debug/label tag (from `Recipe::kind`) — the executor does not read it.
+    pub kind: &'static str,
+    /// Options (labels; the graph carries what matters).
+    pub options: Vec<f64>,
+    /// Global arena ids of the `Ema` chains the hand `State` holds, in
+    /// `TState` field order — `get_states` feeds their live slot values to
+    /// `restorer`, in this order.
+    pub inputs: Vec<Id>,
+    /// Rebuilds the hand state (from the indicator module). `None` ⇒ Other.
+    pub restorer: Option<StateRestorer>,
+    /// Primary sinks (global node ids), `Info::outputs` order.
+    pub outputs: Vec<Sink>,
+    /// Optional sinks, `Info::optional_outputs` order.
+    pub optional_outputs: Vec<Sink>,
+    /// Per-optional enable flags (parallel to `optional_outputs`); `merge`
+    /// defaults all-`true`, `Request::add_opt` overrides per request.
     /// A disabled optional sink prints an EMPTY array in declared position
-    /// (hand `::indicator(None)` parity) and is excluded from the plan's
-    /// `max_publish_lead`. The producing nodes are still computed when they
-    /// feed enabled sinks — flags prune emission, not (yet) liveness.
+    /// (hand `::indicator(None)` parity) and is excluded from emission.
     pub optional_enabled: Vec<bool>,
-    /// Arena node ids of this request's EMA nodes, in recipe order (== the
-    /// concrete `State`'s field order), for `get_states` projection.
-    pub ema_arena_ids: Vec<Id>,
 }
 
-/// Intern `node` (child ids already global) into `arena`, returning its global id.
-/// Equal structure ⇒ same id ⇒ shared computation (the CSE key).
+/// Intern `node` (child ids already global) into `arena`, returning its global
+/// id. Equal structure ⇒ same id ⇒ shared computation (the CSE key).
 fn intern(arena: &mut Vec<Node>, cache: &mut HashMap<Node, Id>, node: Node) -> Id {
     if let Some(&existing) = cache.get(&node) {
         return existing;
     }
     let id = arena.len() as Id;
-    arena.push(node.clone());
+    arena.push(node);
     cache.insert(node, id);
     id
 }
 
 /// Rewrite a recipe-local node into its globally-shaped form.
 ///
-/// **Which fields are child refs (→ `l2g[...]`) vs params (→ copy):**
-/// - `Input{stream}` · `Const{bits}` · every `period` — **params** (a value, not a ref).
-/// - `Ema{src}` · `Sub/Mul/Div/Max{a,b}` · `HighPass{input}` · `SuperSmoother{src}` ·
-///   `HtInPhase{src}` · `HtQuadrature{src}` — **refs** (translate through `l2g`).
+/// **Refs (→ `l2g[...]`):** `Ema{src}`, `Sub/Mul/Div/Max{a,b}`,
+/// `HighPass{input}`, `SuperSmoother{src}`, `HtInPhase/HtQuadrature{src}`.
+/// **Params (copy):** `Input{stream}`, `Const{bits}`, every `period`.
 fn remap(node: &Node, l2g: &[Id]) -> Node {
     use Node::*;
     match *node {
@@ -157,11 +139,17 @@ fn remap(node: &Node, l2g: &[Id]) -> Node {
     }
 }
 
-/// Merge `recipes` into one arena with shared nodes deduplicated.
-///
-/// Returns the merged graph and, per input recipe (same order), where its
-/// `outputs` / `optional_outputs` now live in the arena (plus the per-sink
-/// publish leads copied through from the recipe — §5.3).
+fn remap_sink(sink: &Sink, l2g: &[Id]) -> Sink {
+    Sink {
+        src: match sink.src {
+            SinkSrc::Interface(local) => SinkSrc::Interface(l2g[local as usize]),
+        },
+        lead: sink.lead,
+    }
+}
+
+/// Merge `recipes` into one interface arena with shared nodes deduplicated.
+/// Returns the arena and, per input recipe (same order), its resolved wiring.
 pub fn merge(recipes: &[Recipe]) -> (Merged, Vec<Resolved>) {
     let mut arena: Vec<Node> = Vec::new();
     let mut cache: HashMap<Node, Id> = HashMap::new();
@@ -175,26 +163,21 @@ pub fn merge(recipes: &[Recipe]) -> (Merged, Vec<Resolved>) {
             l2g[local] = intern(&mut arena, &mut cache, global);
         }
         resolved.push(Resolved {
-            outputs: recipe.outputs.iter().map(|&o| l2g[o as usize]).collect(),
+            kind: recipe.kind,
+            options: recipe.options.clone(),
+            inputs: recipe
+                .tail_inputs
+                .iter()
+                .map(|&i| l2g[i as usize])
+                .collect(),
+            restorer: recipe.restorer,
+            outputs: recipe.outputs.iter().map(|s| remap_sink(s, &l2g)).collect(),
             optional_outputs: recipe
                 .optional_outputs
                 .iter()
-                .map(|&o| l2g[o as usize])
+                .map(|s| remap_sink(s, &l2g))
                 .collect(),
-            // leads are sink-local (bar counts), so they pass through unchanged.
-            output_leads: recipe.output_leads.clone(),
-            optional_output_leads: recipe.optional_output_leads.clone(),
-            // Default: every declared optional emits (full `Results`).
-            // `Request::add_opt` overrides per request before `build`.
             optional_enabled: vec![true; recipe.optional_outputs.len()],
-            // EMA nodes in recipe order → their (interned) arena ids.
-            ema_arena_ids: recipe
-                .nodes
-                .iter()
-                .enumerate()
-                .filter(|(_, n)| matches!(n, Node::Ema { .. }))
-                .map(|(l, _)| l2g[l])
-                .collect(),
         });
     }
 
@@ -209,46 +192,102 @@ mod tests {
     use crate::indicators::macd::Macd;
     use crate::indicators::ppo::Ppo;
 
+    /// The three classic requests share EVERYTHING shareable as one graph:
+    /// `Input` + `ema12` + `ema26` (one chain each), ONE `Sub` line node
+    /// (apo's output, macd's line, ppo's numerator — the §4 identity is now
+    /// a single arena node), the ppo guard chain (`Const ε`, `Max`,
+    /// `Const 100`, `Mul`, `Div`), the chained signal `Ema` over the line,
+    /// and the hist `Sub` = 11 nodes. Per-request state wiring stays just
+    /// the EMA chains (`tail_inputs`), macd's naming its signal chain too.
     #[test]
-    fn apo_macd_ppo_merge_dedups_shared_emas() {
-        let apo = Apo::recipe(&[12.0, 26.0]); // 4 nodes: in, ema12, ema26, sub
-        let macd = Macd::recipe(&[12.0, 26.0, 9.0]); // 6 nodes: in, ema12, ema26, sub, ema9, sub
-        let ppo = Ppo::recipe(&[12.0, 26.0]); // 9 nodes: in, ema12, ema26, eps, max, sub, c100, mul, div
-        let before = apo.nodes.len() + macd.nodes.len() + ppo.nodes.len();
+    fn merge_dedups_classic_graph() {
+        let (m, r) = merge(&[
+            Apo::recipe(&[12.0, 26.0]),
+            Ppo::recipe(&[12.0, 26.0]),
+            Macd::recipe(&[12.0, 26.0, 9.0]),
+        ]);
+        assert_eq!(m.nodes.len(), 11, "one shared graph, no duplicates");
+        let n = |p: fn(&Node) -> bool| m.nodes.iter().filter(|n| p(n)).count();
+        assert_eq!(n(|x| matches!(x, Node::Ema { .. })), 3, "e12, e26, sig");
+        assert_eq!(n(|x| matches!(x, Node::Sub { .. })), 2, "line + hist");
+        assert_eq!(n(|x| matches!(x, Node::Const { .. })), 2, "eps, 100");
+        assert_eq!(n(|x| matches!(x, Node::Max { .. })), 1);
+        assert_eq!(n(|x| matches!(x, Node::Mul { .. })), 1);
+        assert_eq!(n(|x| matches!(x, Node::Div { .. })), 1);
 
-        let (merged, resolved) = merge(&[apo, macd, ppo]);
+        // state wiring: apo/ppo name the same two chains; macd adds the
+        // signal chain (an arena Ema over the shared line).
+        assert_eq!(r[0].inputs, vec![1, 2]);
+        assert_eq!(r[1].inputs, vec![1, 2]);
+        assert_eq!(r[2].inputs.len(), 3);
+        assert_eq!(&r[2].inputs[..2], &[1, 2]);
 
-        // 19 inputs collapse to 12 unique nodes.
-        assert_eq!(before, 19);
-        assert_eq!(merged.nodes.len(), 12);
+        // defined-from leads: ema12 → 11, ema26 → 25, line → 25, sig → 33
+        let leads = m.leads();
+        assert_eq!(leads[1], 11);
+        assert_eq!(leads[2], 25);
+        assert_eq!(leads[r[2].inputs[2] as usize], 33, "signal = 25 + 9 - 1");
 
-        // The three shared Ema recurrences (ema12, ema26 across all 3; + macd's ema9
-        // signal) → only 3 Ema nodes total, not 6.
-        let n_ema = merged
+        // every sink is a node mirror (no tail slots survive)
+        assert!(matches!(
+            r[0].optional_outputs[0].src,
+            SinkSrc::Interface(id) if id == 1
+        ));
+        assert!(matches!(r[1].outputs[0].src, SinkSrc::Interface(_)));
+        assert!(matches!(
+            r[2].optional_outputs[1].src,
+            SinkSrc::Interface(id) if id == 2
+        ));
+    }
+
+    /// The dense dashboard's PARTIAL overlap: `Apo(6,9)`'s long EMA and
+    /// `Ppo(9,25)`'s short EMA are both `ema9(close)` — one structural key,
+    /// so the arena holds exactly ONE price-sourced `Ema{period: 9}` node
+    /// and the two requests receive the same global id (one advance per bar;
+    /// both consumers read the same chain). `Macd(12,24,9)`'s signal is ALSO
+    /// period 9 but over the line node — a different key, correctly NOT
+    /// deduped. All other periods are distinct: 11 close EMAs + 2 signal
+    /// chains + the per-request derived graph = 30 nodes.
+    #[test]
+    fn merge_dedups_dense_shared_ema9() {
+        let (m, r) = merge(&[
+            Apo::recipe(&[5.0, 8.0]),
+            Apo::recipe(&[6.0, 9.0]),
+            Ppo::recipe(&[9.0, 25.0]),
+            Ppo::recipe(&[10.0, 26.0]),
+            Macd::recipe(&[11.0, 23.0, 17.0]),
+            Macd::recipe(&[12.0, 24.0, 9.0]),
+        ]);
+        let ema = |p: u32| -> Vec<Id> {
+            m.nodes
+                .iter()
+                .enumerate()
+                .filter(
+                    |(_, n)| matches!(**n, Node::Ema { src, period } if period == p && src == 0),
+                )
+                .map(|(i, _)| i as Id)
+                .collect()
+        };
+        assert_eq!(
+            ema(9).len(),
+            1,
+            "ema9(close) exists exactly once (the period-9 SIGNAL chain is over the line, not close)"
+        );
+        // Apo(6,9) = request 1: state chains [ema6, ema9];
+        // Ppo(9,25) = request 2: state chains [ema9, ema25].
+        assert_eq!(
+            r[1].inputs[1], r[2].inputs[0],
+            "Apo long(9) and Ppo short(9) must be the SAME arena node"
+        );
+        let n_price_emas = m
             .nodes
             .iter()
-            .filter(|n| matches!(n, Node::Ema { .. }))
+            .filter(|n| matches!(n, Node::Ema { src, .. } if *src == 0))
             .count();
-        assert_eq!(n_ema, 3);
-        let n_sub = merged
-            .nodes
-            .iter()
-            .filter(|n| matches!(n, Node::Sub { .. }))
-            .count();
-        assert_eq!(n_sub, 3); // apo/macd_line (shared), macd histogram, ppo diff
-
-        // `Apo`'s value and `Macd`'s `macd_line` are literally the same global node.
-        assert_eq!(resolved[0].outputs[0], resolved[1].outputs[0]);
-
-        // (PPO's `diff` Sub is the third Sub counted above: its right operand is
-        //  the clamped `max` node, not raw ema26, so CSE correctly keeps it a
-        //  distinct node rather than merging it with apo/macd's `sub`.)
-
-        // every resolved id points inside the arena
-        for r in &resolved {
-            for &id in r.outputs.iter().chain(r.optional_outputs.iter()) {
-                assert!((id as usize) < merged.nodes.len());
-            }
-        }
+        assert_eq!(
+            n_price_emas, 11,
+            "periods 5,6,8,9,10,11,12,23,24,25,26 over the single close Input"
+        );
+        assert_eq!(m.nodes.len(), 30);
     }
 }
