@@ -21,10 +21,10 @@
 
 use crate::cse::jit::JitPlan;
 use crate::cse::{Node, Recipe, Sink, SinkSrc};
-use std::rc::Rc;
-use std::sync::Arc;
 use crate::indicators::ema::State as EmaState;
 use crate::types::Warm;
+use std::rc::Rc;
+use std::sync::Arc;
 
 /// Ordered list of indicator requests.
 #[derive(Default)]
@@ -125,22 +125,44 @@ impl Request {
             }
             u64b(&mut b, r.nodes.len() as u64);
             for node in &r.nodes {
-                let (tag, x, y): (u8, u64, u64) = match *node {
-                    Node::Input { stream } => (1, stream as u64, 0),
-                    Node::Ema { src, period } => (2, src as u64, period as u64),
-                    Node::Sub { a, b } => (3, a as u64, b as u64),
-                    Node::Mul { a, b } => (4, a as u64, b as u64),
-                    Node::Div { a, b } => (5, a as u64, b as u64),
-                    Node::Max { a, b } => (6, a as u64, b as u64),
-                    Node::Const { bits } => (7, bits, 0),
-                    Node::HighPass { input, period } => (8, input as u64, period as u64),
-                    Node::SuperSmoother { src, period } => (9, src as u64, period as u64),
-                    Node::HtInPhase { src } => (10, src as u64, 0),
-                    Node::HtQuadrature { src } => (11, src as u64, 0),
+                let (tag, x, y, z): (u8, u64, u64, u64) = match *node {
+                    Node::Input { stream } => (1, stream as u64, 0, 0),
+                    Node::Ema { src, period } => (2, src as u64, period as u64, 0),
+                    Node::Sub { a, b } => (3, a as u64, b as u64, 0),
+                    Node::Add { a, b } => (19, a as u64, b as u64, 0),
+                    Node::Abs { src } => (20, src as u64, 0, 0),
+                    Node::Lag { src, n } => (21, src as u64, n as u64, 0),
+                    Node::Mul { a, b } => (4, a as u64, b as u64, 0),
+                    Node::Div { a, b } => (5, a as u64, b as u64, 0),
+                    Node::Max { a, b } => (6, a as u64, b as u64, 0),
+                    Node::WhereGe { a, b, t } => (22, a as u64, b as u64, t as u64),
+                    Node::Const { bits } => (7, bits, 0, 0),
+                    Node::HighPass { input, period } => (8, input as u64, period as u64, 0),
+                    Node::SuperSmoother { src, period } => (9, src as u64, period as u64, 0),
+                    Node::HtInPhase { src } => (10, src as u64, 0, 0),
+                    Node::HtQuadrature { src } => (11, src as u64, 0, 0),
+                    Node::Sma { src, period } => (12, src as u64, period as u64, 0),
+                    Node::Stddev { src, period } => (13, src as u64, period as u64, 0),
+                    Node::Fma { a, b, c } => (14, a as u64, b as u64, c as u64),
+                    Node::Sqrt { src } => (15, src as u64, 0, 0),
+                    Node::Wma { src, period } => (16, src as u64, period as u64, 0),
+                    Node::Hma { src, period } => (17, src as u64, period as u64, 0),
+                    Node::Wilders {
+                        src,
+                        period,
+                        composite,
+                        feed,
+                    } => (
+                        18,
+                        src as u64,
+                        period as u64,
+                        (composite as u64) | ((feed as u64) << 1),
+                    ),
                 };
                 b.push(tag);
                 u64b(&mut b, x);
                 u64b(&mut b, y);
+                u64b(&mut b, z);
             }
             u64b(&mut b, r.tail_inputs.len() as u64);
             for &t in &r.tail_inputs {
@@ -270,6 +292,15 @@ pub enum IndicatorStateBox {
     Apo(crate::indicators::apo::State<Warm>),
     Macd(crate::indicators::macd::State<Warm>),
     Ppo(crate::indicators::ppo::State<Warm>),
+    /// E3 rolling recurrences — the hand `State<Warm>` (the raw sums +
+    /// aux lines). The price window the hand `IndicatorState` also holds is
+    /// NOT here: it is the engine's host-side `JitState.window` (the anchor
+    /// stitch), which the caller serializes alongside these words.
+    Sma(crate::indicators::sma::State<Warm>),
+    Stddev(crate::indicators::stddev::State<Warm>),
+    Wma(crate::indicators::wma::State<Warm>),
+    Wilders(crate::indicators::wilders::State<Warm>),
+    Hma(crate::indicators::hma::State<Warm>),
     Other,
 }
 

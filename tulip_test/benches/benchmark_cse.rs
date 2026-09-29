@@ -12,10 +12,24 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::cse::{JitPlan, Planable, Request};
 use tulip_rs::indicator_types::{Indicator, IndicatorByOptions, TIndicatorState};
+use tulip_rs::indicators::adx::Adx;
 use tulip_rs::indicators::apo::Apo;
+use tulip_rs::indicators::atr::Atr;
+use tulip_rs::indicators::bbands::BBands;
+use tulip_rs::indicators::di::Di;
+use tulip_rs::indicators::dm::Dm;
+use tulip_rs::indicators::dx::Dx;
 use tulip_rs::indicators::ema::Ema;
+use tulip_rs::indicators::hma::Hma;
 use tulip_rs::indicators::macd::Macd;
+use tulip_rs::indicators::medprice::Medprice;
+use tulip_rs::indicators::natr::Natr;
 use tulip_rs::indicators::ppo::Ppo;
+use tulip_rs::indicators::sma::Sma;
+use tulip_rs::indicators::stddev::StdDev;
+use tulip_rs::indicators::tr::Tr;
+use tulip_rs::indicators::wilders::Wilders;
+use tulip_rs::indicators::wma::Wma;
 
 const APO: [f64; 2] = [12.0, 26.0];
 const MACD: [f64; 3] = [12.0, 26.0, 9.0];
@@ -139,7 +153,11 @@ fn bench_classic(c: &mut Criterion) {
     g.bench_function("jit_query_all_on", |b| {
         b.iter(|| {
             let (res, qs) = plan_on.run(&inputs);
-            black_box((qs.next_bar(), res.outputs[0][0].len(), res.optional[2][1].len()))
+            black_box((
+                qs.next_bar(),
+                res.outputs[0][0].len(),
+                res.optional[2][1].len(),
+            ))
         })
     });
     g.finish();
@@ -267,10 +285,7 @@ fn bench_assets(c: &mut Criterion) {
         b.iter(|| {
             let mut total = 0usize;
             for pr in 0..ASSETS / 2 {
-                let ss: [&[f64]; 2] = [
-                    series[2 * pr].as_slice(),
-                    series[2 * pr + 1].as_slice(),
-                ];
+                let ss: [&[f64]; 2] = [series[2 * pr].as_slice(), series[2 * pr + 1].as_slice()];
                 let (res, _qs) = pair_plan.run_assets(&ss);
                 total += res[0].outputs[0][0].len() + res[1].outputs[0][0].len();
             }
@@ -337,6 +352,492 @@ fn bench_tick(c: &mut Criterion) {
     g.finish();
 }
 
+/// E3 rolling trio (sma + stddev + bbands @20): the hand calls three
+/// windows over the same 5000 bars — three passes, three sums; the JIT
+/// fused loop runs ONE ring + ONE sum (shared via CSE across the three
+/// requests) and mirrors the middle line out of it.
+fn bench_rolling(c: &mut Criterion) {
+    let series = asset(0);
+    let inputs: [&[f64]; 1] = [series.as_slice()];
+    let plan = Request::new()
+        .add_opt(Sma::recipe(&[20.0]), None)
+        .add_opt(StdDev::recipe(&[20.0]), None)
+        .add_opt(BBands::recipe(&[20.0, 2.0]), None)
+        .add_opt(Wma::recipe(&[20.0]), None)
+        .build();
+    let mut g = c.benchmark_group("rolling");
+    g.sample_size(20);
+    g.bench_function("hand_3_rolling_indicators", |b| {
+        b.iter(|| {
+            let sm = Sma::indicator(&inputs, &[20.0], None).unwrap();
+            let sd = StdDev::indicator(&inputs, &[20.0], None).unwrap();
+            let bb = BBands::indicator(&inputs, &[20.0, 2.0], None).unwrap();
+            let w = Wma::indicator(&inputs, &[20.0], None).unwrap();
+            black_box(sm.0[0].len() + sd.0[0].len() + bb.0[0].len() + w.0[0].len())
+        })
+    });
+    g.bench_function("jit_query", |b| {
+        b.iter(|| {
+            let (res, qs) = plan.run(&inputs);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    g.finish();
+}
+
+/// E3 stage 3: HMA — the engine's ONLY per-bar stored-CALCULATION ring
+/// (the psqrt=4 diff buffer for period 20). Hand pays one full pass per
+/// call; the fused loop rides the same anchor-stitched price window as
+/// the other rolling kinds and pays the ring push/pop for the diff line
+/// alone. The `jit_with_sma` row proves the deliberate NON-share: an
+/// Hma(20) + Sma(20) query duplicates the period-20 sum roll (~4 flops/
+/// bar) rather than couple the bespoke op to the group machinery.
+fn bench_rolling_hma(c: &mut Criterion) {
+    let series = asset(0);
+    let inputs: [&[f64]; 1] = [series.as_slice()];
+    let plan = Request::new().add_opt(Hma::recipe(&[20.0]), None).build();
+    let plan_sma = Request::new()
+        .add_opt(Hma::recipe(&[20.0]), None)
+        .add_opt(Sma::recipe(&[20.0]), None)
+        .build();
+    let mut g = c.benchmark_group("rolling_hma");
+    g.sample_size(20);
+    g.bench_function("hand_hma", |b| {
+        b.iter(|| {
+            let h = Hma::indicator(&inputs, &[20.0], None).unwrap();
+            //let s = Sma::indicator(&inputs, &[20.0], None).unwrap();
+            black_box(h.0[0].len())
+        })
+    });
+    g.bench_function("jit_query", |b| {
+        b.iter(|| {
+            let (res, qs) = plan.run(&inputs);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    g.bench_function("jit_with_sma", |b| {
+        b.iter(|| {
+            let (res, qs) = plan_sma.run(&inputs);
+            black_box((
+                res.outputs[0][0].len() + res.outputs[1][0].len(),
+                qs.next_bar(),
+            ))
+        })
+    });
+    g.finish();
+}
+
+/// Multiple HMA OPTIONS — the option axis on the bespoke op. Unlike the
+/// window-20 trio (which shares one sum+ring), independent HMAs share
+/// NOTHING: each owns its two engines + `√P` diff ring. The rivals: the
+/// hand's scalar path (one cold pass each) AND the hand's own option-axis
+/// SIMD (`indicator_by_options::<N>`), which is the hand's strongest form
+/// here — BUT `N` must be a real SIMD lane width (2/4/8), since the lanes
+/// pack a `Simd<f64, N>`; `::<3>` is not a valid instantiation (its extra
+/// lane is padding, and a `::<3>` timing read ~1µs of nothing). So this
+/// row uses **N = 4**. The fused JIT loop is the point of comparison: four
+/// self-contained HMA states carried at once test whether the anchor+group
+/// machinery's fusion win survives when there is NOTHING to fuse.
+fn bench_rolling_hma_multi(c: &mut Criterion) {
+    let series = asset(0);
+    let inputs: [&[f64]; 1] = [series.as_slice()];
+    let plan = Request::new()
+        .add_opt(Hma::recipe(&[9.0]), None)
+        .add_opt(Hma::recipe(&[12.0]), None)
+        .add_opt(Hma::recipe(&[20.0]), None)
+        .add_opt(Hma::recipe(&[50.0]), None)
+        .build();
+    let hma_opts: [&[f64; 1]; 4] = [&[9.0], &[12.0], &[20.0], &[50.0]];
+    let mut g = c.benchmark_group("rolling_hma_multi");
+    g.sample_size(20);
+    // hand, scalar axis: one full pass per period over the 5000 bars
+    g.bench_function("hand_scalar_hma_4", |b| {
+        b.iter(|| {
+            let a = Hma::indicator(&inputs, &[9.0], None).unwrap();
+            let b = Hma::indicator(&inputs, &[20.0], None).unwrap();
+            let c = Hma::indicator(&inputs, &[50.0], None).unwrap();
+            let d = Hma::indicator(&inputs, &[12.0], None).unwrap();
+            black_box(a.0[0].len() + b.0[0].len() + c.0[0].len() + d.0[0].len())
+        })
+    });
+    // hand, option axis: ONE pass, 4 periods lane-packed (f64x4 = a real
+    // SIMD width) — the hand's best shape for this workload
+    g.bench_function("hand_by_options_4", |b| {
+        b.iter(|| {
+            let a = Hma::indicator_by_options::<4>(&inputs, &hma_opts, None).unwrap();
+            black_box(a.0[0][0].len() + a.0[1][0].len() + a.0[2][0].len() + a.0[3][0].len())
+        })
+    });
+    // JIT: all four HMA kernels fused into one resumable loop
+    g.bench_function("jit_query", |b| {
+        b.iter(|| {
+            let (res, qs) = plan.run(&inputs);
+            black_box((
+                res.outputs[0][0].len()
+                    + res.outputs[1][0].len()
+                    + res.outputs[2][0].len()
+                    + res.outputs[3][0].len(),
+                qs.next_bar(),
+            ))
+        })
+    });
+    g.finish();
+}
+
+/// SIZES the "HMA.state1 joins the (src,period) group" dedup prize,
+/// honestly. The ONLY clean share is `Hma(P).state1` ↔ a co-resident
+/// standalone `Wma(P)`/`Sma(P)`: both warm from `real[0..P]`, so they run
+/// the identical `sum += src − src[i−P]` (+ `ws` trick for Wma) recurrence.
+/// (NOT two HMAs — a `state2` warms from an OFFSET window, so `Hma(20)`
+/// and `Hma(40)` do not share a Wma(20); different fold ⇒ sums never
+/// reconverge in f64. That is also why HMA can't be composed from
+/// standalone nodes.) The prize unit is "one WMA engine in the fused loop":
+/// `wma20_wma30 − wma_dup` (wma_dup is Wma(20)+Wma(20), which CSE already
+/// merges to ONE engine — the control that proves a genuinely-shared engine
+/// is free). Compare `hma20_wma20` (today: two bodies; ideal: the Wma(20)
+/// body disappears into HMA's own state1) against `hma20` alone: the gap is
+/// the standalone Wma(20)'s marginal cost, which is ~all removable.
+fn bench_hma_group_dedup(c: &mut Criterion) {
+    let series = asset(0);
+    let inputs: [&[f64]; 1] = [series.as_slice()];
+    // WMA engines: the prize unit + the free-dedup control.
+    let wma20 = Request::new().add_opt(Wma::recipe(&[20.0]), None).build();
+    let wma_dup = Request::new()
+        .add_opt(Wma::recipe(&[20.0]), None)
+        .add_opt(Wma::recipe(&[20.0]), None)
+        .build();
+    let wma20_30 = Request::new()
+        .add_opt(Wma::recipe(&[20.0]), None)
+        .add_opt(Wma::recipe(&[30.0]), None)
+        .build();
+    // The actual dedup target: HMA(20) shares its state1 Wma(20) engine.
+    let hma20 = Request::new().add_opt(Hma::recipe(&[20.0]), None).build();
+    let hma20_wma20 = Request::new()
+        .add_opt(Hma::recipe(&[20.0]), None)
+        .add_opt(Wma::recipe(&[20.0]), None)
+        .build();
+    let hma20_sma20 = Request::new()
+        .add_opt(Hma::recipe(&[20.0]), None)
+        .add_opt(Sma::recipe(&[20.0]), None)
+        .build();
+    let mut g = c.benchmark_group("hma_group_dedup");
+    g.sample_size(20);
+    g.bench_function("jit_wma20", |b| {
+        b.iter(|| {
+            let (r, qs) = wma20.run(&inputs);
+            black_box((r.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    // CONTROL: two Wma(20) requests — CSE merges to one engine, so ≈ wma20.
+    g.bench_function("jit_wma_dup", |b| {
+        b.iter(|| {
+            let (r, qs) = wma_dup.run(&inputs);
+            black_box((r.outputs[0][0].len() + r.outputs[1][0].len(), qs.next_bar()))
+        })
+    });
+    // PRIZE UNIT: a second, non-colliding engine costs (this − wma20).
+    g.bench_function("jit_wma20_wma30", |b| {
+        b.iter(|| {
+            let (r, qs) = wma20_30.run(&inputs);
+            black_box((r.outputs[0][0].len() + r.outputs[1][0].len(), qs.next_bar()))
+        })
+    });
+    g.bench_function("jit_hma20", |b| {
+        b.iter(|| {
+            let (r, qs) = hma20.run(&inputs);
+            black_box((r.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    // HMA(20)+Wma(20): today pays a whole extra Wma body; ideal folds the
+    // Wma(20) into HMA's own state1 engine → saves ≈ the prize unit.
+    g.bench_function("jit_hma20_wma20", |b| {
+        b.iter(|| {
+            let (r, qs) = hma20_wma20.run(&inputs);
+            black_box((r.outputs[0][0].len() + r.outputs[1][0].len(), qs.next_bar()))
+        })
+    });
+    // HMA(20)+Sma(20): shares only the raw SUM roll (Sma has no ws trick),
+    // so a smaller partial prize — included to bound the two cases apart.
+    g.bench_function("jit_hma20_sma20", |b| {
+        b.iter(|| {
+            let (r, qs) = hma20_sma20.run(&inputs);
+            black_box((r.outputs[0][0].len() + r.outputs[1][0].len(), qs.next_bar()))
+        })
+    });
+    g.finish();
+}
+
+/// E6 leaf: Wilders smoothing (single price source) — the ADX family's
+/// shared decayed-average chain. Standalone it faces the same "nothing to
+/// fuse, one hand tight loop vs one cranelift loop" ceiling as a lone Ema/
+/// Hma; the row is the baseline the atr/adx stack will ride on (each ATR/
+/// ADX step reuses this exact recurrence, so a whole ADX query is Wilders
+/// chains over TR/DX sources — once the (stream,asset) multi-input axis
+/// lets TR/ATR exist, `jit_atr_over_wilders` becomes the fusion case).
+fn bench_rolling_wilders(c: &mut Criterion) {
+    let series = asset(0);
+    let inputs: [&[f64]; 1] = [series.as_slice()];
+    let single = Request::new()
+        .add_opt(Wilders::recipe(&[14.0]), None)
+        .build();
+    // two independent Wilders chains (different periods) in ONE fused loop
+    let dual = Request::new()
+        .add_opt(Wilders::recipe(&[14.0]), None)
+        .add_opt(Wilders::recipe(&[28.0]), None)
+        .build();
+    let mut g = c.benchmark_group("rolling_wilders");
+    g.sample_size(20);
+    g.bench_function("hand_wilders", |b| {
+        b.iter(|| {
+            let w = Wilders::indicator(&inputs, &[14.0], None).unwrap();
+            black_box(w.0[0].len())
+        })
+    });
+    g.bench_function("jit_query", |b| {
+        b.iter(|| {
+            let (res, qs) = single.run(&inputs);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    // dual: two chains fused — the hand pays two passes, the loop one.
+    g.bench_function("hand_wilders_2", |b| {
+        b.iter(|| {
+            let a = Wilders::indicator(&inputs, &[14.0], None).unwrap();
+            let c = Wilders::indicator(&inputs, &[28.0], None).unwrap();
+            black_box(a.0[0].len() + c.0[0].len())
+        })
+    });
+    g.bench_function("jit_query_dual", |b| {
+        b.iter(|| {
+            let (res, qs) = dual.run(&inputs);
+            black_box((
+                res.outputs[0][0].len() + res.outputs[1][0].len(),
+                qs.next_bar(),
+            ))
+        })
+    });
+    g.finish();
+}
+
+/// E6 chained-Wilders: ATR over (H,L,C). Standalone atr is the expected
+/// single-vs-single floor (one hand tight loop vs one cranelift loop — the
+/// engine isn't trying to win there). The PRIZE row is `jit_tr_plus_atr`:
+/// a `tr`+`atr` query shares the identical `tr` subgraph (CSE dedups the
+/// nodes), so ONE fused loop rolls true range once for both — where the hand
+/// pays a full `tr` pass AND a full `atr` pass (two independent folds over
+/// the whole series). That workload reduction, not loop-local scheduling,
+/// is where the JIT earns its keep.
+fn bench_rolling_atr(c: &mut Criterion) {
+    let hi = asset(0);
+    let lo: Vec<f64> = hi.iter().map(|v| v * 0.97 - 2.0).collect();
+    let cl: Vec<f64> = (0..BARS).map(|i| lo[i] + (hi[i] - lo[i]) * 0.5).collect();
+    let inputs: [&[f64]; 3] = [hi.as_slice(), lo.as_slice(), cl.as_slice()];
+    let single = Request::new().add_opt(Atr::recipe(&[14.0]), None).build();
+    // tr + atr(14) share the tr subgraph → one fused loop, tr rolled once.
+    let shared = Request::new()
+        .add(Tr::recipe(&[]))
+        .add_opt(Atr::recipe(&[14.0]), None)
+        .build();
+    let mut g = c.benchmark_group("rolling_atr");
+    g.sample_size(20);
+    g.bench_function("hand_atr", |b| {
+        b.iter(|| {
+            let a = Atr::indicator(&inputs, &[14.0], None).unwrap();
+            black_box(a.0[0].len())
+        })
+    });
+    g.bench_function("jit_atr", |b| {
+        b.iter(|| {
+            let (res, qs) = single.run(&inputs);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    // shared: hand rolls tr once (full pass) AND atr once (its own full tr
+    // fold) — two passes; the fused plan rolls tr ONCE feeding both sinks.
+    g.bench_function("hand_tr_plus_atr", |b| {
+        b.iter(|| {
+            let t = Tr::indicator(&inputs, &[], None).unwrap();
+            let a = Atr::indicator(&inputs, &[14.0], None).unwrap();
+            black_box(t.0[0].len() + a.0[0].len())
+        })
+    });
+    g.bench_function("jit_tr_plus_atr", |b| {
+        b.iter(|| {
+            let (res, qs) = shared.run(&inputs);
+            black_box((
+                res.outputs[0][0].len() + res.outputs[1][0].len(),
+                qs.next_bar(),
+            ))
+        })
+    });
+    g.finish();
+}
+
+/// E6 ADX family — the fusion prize. `dm`+`di`+`dx`+`adx` ALL read the same
+/// `+DM`/`−DM` composite-accumulator subgraph (deduped by CSE) plus the shared
+/// TR→sum-ATR, so ONE fused loop computes directional movement once for all
+/// four; the hand runs four INDEPENDENT full passes (each re-folds the DM
+/// chain). Same shape for the volatility pair `natr`+`atr` (share the whole tr
+/// subgraph + the mean-ATR chain). This is the workload reduction the JIT wins
+/// on — NOT the single-vs-single floor the standalone rows above show.
+fn bench_rolling_adx(c: &mut Criterion) {
+    let hi = asset(0);
+    let lo: Vec<f64> = hi.iter().map(|v| v * 0.97 - 2.0).collect();
+    let cl: Vec<f64> = (0..BARS).map(|i| lo[i] + (hi[i] - lo[i]) * 0.5).collect();
+    let three: [&[f64]; 3] = [hi.as_slice(), lo.as_slice(), cl.as_slice()];
+    let two: [&[f64]; 2] = [hi.as_slice(), lo.as_slice()];
+    let trend = Request::new()
+        .add(Dm::recipe(&[14.0]))
+        .add(Di::recipe(&[14.0]))
+        .add(Dx::recipe(&[14.0]))
+        .add(Adx::recipe(&[14.0]))
+        .build();
+    let vol = Request::new()
+        .add(Natr::recipe(&[14.0]))
+        .add(Atr::recipe(&[14.0]))
+        .build();
+    let mut g = c.benchmark_group("rolling_adx");
+    g.sample_size(20);
+    g.bench_function("hand_dm_di_dx_adx", |b| {
+        b.iter(|| {
+            let a = Dm::indicator(&two, &[14.0], None).unwrap();
+            let d = Di::indicator(&three, &[14.0], None).unwrap();
+            let x = Dx::indicator(&three, &[14.0], None).unwrap();
+            let s = Adx::indicator(&three, &[14.0], None).unwrap();
+            black_box(a.0[0].len() + d.0[0].len() + x.0[0].len() + s.0[0].len())
+        })
+    });
+    g.bench_function("jit_dm_di_dx_adx", |b| {
+        b.iter(|| {
+            let (res, qs) = trend.run(&three);
+            let t = res.outputs[0][0].len()
+                + res.outputs[1][0].len()
+                + res.outputs[2][0].len()
+                + res.outputs[3][0].len();
+            black_box((t, qs.next_bar()))
+        })
+    });
+    g.bench_function("hand_natr_plus_atr", |b| {
+        b.iter(|| {
+            let n = Natr::indicator(&three, &[14.0], None).unwrap();
+            let a = Atr::indicator(&three, &[14.0], None).unwrap();
+            black_box(n.0[0].len() + a.0[0].len())
+        })
+    });
+    g.bench_function("jit_natr_plus_atr", |b| {
+        b.iter(|| {
+            let (res, qs) = vol.run(&three);
+            black_box((
+                res.outputs[0][0].len() + res.outputs[1][0].len(),
+                qs.next_bar(),
+            ))
+        })
+    });
+    g.finish();
+}
+
+/// E6 field axis proof at scale: MEDPRICE (H/L, 2 streams) alone, and
+/// MEDPRICE + a close-EMA fused (mixes a multi-input stateless op with a
+/// single-input chain in one loop — the shape every ADX-family query has:
+/// H/L/C ops alongside close-only chains). This is what `tr → atr → adx`
+/// will look like once emitted; medprice is the simplest same-bar case.
+fn bench_multi_input(c: &mut Criterion) {
+    let hi = asset(0);
+    let lo: Vec<f64> = hi.iter().map(|v| v * 0.98 - 1.0).collect();
+    let two: [&[f64]; 2] = [hi.as_slice(), lo.as_slice()];
+    let med = Request::new().add(Medprice::recipe(&[])).build();
+    let fused = Request::new()
+        .add(Medprice::recipe(&[]))
+        .add_opt(Ema::recipe(&[12.0]), None)
+        .build();
+    let mut g = c.benchmark_group("multi_input");
+    g.sample_size(20);
+    g.bench_function("hand_medprice", |b| {
+        b.iter(|| {
+            let m = Medprice::indicator(&two, &[], None).unwrap();
+            black_box(m.0[0].len())
+        })
+    });
+    g.bench_function("jit_medprice", |b| {
+        b.iter(|| {
+            let (res, qs) = med.run(&two);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    // fused: 2-field medprice + a close-field chain in ONE loop. n_fields=2
+    // (medprice's high/low) so the caller supplies exactly 2 streams; the
+    // EMA reads field 0 — the ADX-query shape (H/L/C ops + chains, one loop).
+    g.bench_function("jit_medprice_plus_ema", |b| {
+        b.iter(|| {
+            let (res, qs) = fused.run(&two);
+            black_box((
+                res.outputs[0][0].len() + res.outputs[1][0].len(),
+                qs.next_bar(),
+            ))
+        })
+    });
+    g.finish();
+}
+
+/// The MIXED-window rolling dashboard (the question single-window benches
+/// can't ask): five distinct windows 5/8/14/20/26 across four kinds.
+/// Hand pays one full pass per indicator; the plan pays per GROUP for
+/// recurrences and per ROW for stores — 12 output slots, 10 write streams.
+fn bench_rolling_mixed(c: &mut Criterion) {
+    let series = asset(0);
+    let inputs: [&[f64]; 1] = [series.as_slice()];
+    let plan = Request::new()
+        .add_opt(Sma::recipe(&[5.0]), None)
+        .add_opt(Wma::recipe(&[8.0]), None)
+        .add_opt(StdDev::recipe(&[14.0]), None)
+        .add_opt(Sma::recipe(&[20.0]), None)
+        .add_opt(StdDev::recipe(&[20.0]), None)
+        .add_opt(BBands::recipe(&[20.0, 2.5]), None)
+        .add_opt(Wma::recipe(&[26.0]), None)
+        .build();
+    let mut g = c.benchmark_group("rolling_mixed");
+    g.sample_size(20);
+    g.bench_function("hand_7_indicators", |b| {
+        b.iter(|| {
+            //let t = Some(&[true][..]);
+            let a = Sma::indicator(&inputs, &[5.0], None).unwrap();
+            let b = Wma::indicator(&inputs, &[8.0], None).unwrap();
+            let c = StdDev::indicator(&inputs, &[14.0], None).unwrap();
+            let d = Sma::indicator(&inputs, &[20.0], None).unwrap();
+            let e = StdDev::indicator(&inputs, &[20.0], None).unwrap();
+            let f = BBands::indicator(&inputs, &[20.0, 2.5], None).unwrap();
+            let h = Wma::indicator(&inputs, &[26.0], None).unwrap();
+            black_box(
+                a.0.len() + b.0.len() + c.0.len() + d.0.len() + e.0.len() + f.0.len() + h.0.len(),
+            )
+        })
+    });
+    // The hand's BEST form on this workload, matching the dense group's
+    // convention: the option axis lanes the paired windows (sma 5/20,
+    // stddev 14/20, wma 8/26) two-per-pass; bbands' single set rides ::<1>.
+    let sma_opts: [&[f64; 1]; 2] = [&[5.0], &[20.0]];
+    let sd_opts: [&[f64; 1]; 2] = [&[14.0], &[20.0]];
+    let wma_opts: [&[f64; 1]; 2] = [&[8.0], &[26.0]];
+    //let bb_opts: [&[f64; 2]; 1] = [&[20.0, 2.5]];
+    g.bench_function("hand_by_options_2", |b| {
+        b.iter(|| {
+            let t = Some(&[true][..]);
+            let a = Sma::indicator_by_options::<2>(&inputs, &sma_opts, None).unwrap();
+            let c = StdDev::indicator_by_options::<2>(&inputs, &sd_opts, t).unwrap();
+            let w = Wma::indicator_by_options::<2>(&inputs, &wma_opts, t).unwrap();
+            let f = BBands::indicator(&inputs, &[20.0, 2.5], None).unwrap();
+            black_box(a.0[0][0].len() + c.0[0][0].len() + w.0[0][0].len() + f.0[0].len())
+        })
+    });
+    g.bench_function("jit_query", |b| {
+        b.iter(|| {
+            let (res, qs) = plan.run(&inputs);
+            black_box((res.outputs[5][2].len(), qs.next_bar()))
+        })
+    });
+    g.finish();
+}
+
 criterion_group!(
     benches,
     bench_prepare,
@@ -344,6 +845,15 @@ criterion_group!(
     bench_dedup,
     bench_dense,
     bench_assets,
+    bench_rolling,
+    bench_rolling_hma,
+    bench_rolling_hma_multi,
+    bench_hma_group_dedup,
+    bench_rolling_wilders,
+    bench_rolling_atr,
+    bench_rolling_adx,
+    bench_multi_input,
+    bench_rolling_mixed,
     bench_tick
 );
 criterion_main!(benches);

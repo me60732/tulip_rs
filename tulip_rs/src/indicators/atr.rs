@@ -222,3 +222,42 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Atr {
         )
     }
 }
+
+// ── planner recipe (cse) ─────────────────────────────────────────────
+
+impl crate::cse::Planable for Atr {
+    /// `ATR(p)` = Wilder's smoothing (`Wilders{period:p}`) chained over the
+    /// SAME `tr` subgraph `Tr::recipe` builds — so a dashboard asking for
+    /// `tr` + `atr` (+ `natr`/`adx`) rolls true range ONCE (CSE dedups the
+    /// identical nodes). It is a CHAINED `Wilders`: no per-stream `p0`, so
+    /// the cold chain value is `0.0` and the loop folds the tr node-value
+    /// from bar 0. The `Lag` clamp makes `tr[0] = high[0] − low[0]` — hand
+    /// `init_state`'s bar-0 term — so the mean seed `Σ tr[0..p] / p` is
+    /// bit-exact, then the steady decayed avg (`wilders::calc`). Publish
+    /// lead = `period` (hand `min_data = p+1`, reports `len − p` rows).
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        let period = options[0] as u32;
+        let mut r = crate::cse::Recipe::new();
+        let high = r.add(crate::cse::Node::Input { stream: 0 });
+        let low = r.add(crate::cse::Node::Input { stream: 1 });
+        let close = r.add(crate::cse::Node::Input { stream: 2 });
+        let pc = r.add(crate::cse::Node::Lag { src: close, n: 1 });
+        let range = r.add(crate::cse::Node::Sub { a: high, b: low });
+        let h_pc = r.add(crate::cse::Node::Sub { a: high, b: pc });
+        let hc = r.add(crate::cse::Node::Abs { src: h_pc });
+        let l_pc = r.add(crate::cse::Node::Sub { a: low, b: pc });
+        let lc = r.add(crate::cse::Node::Abs { src: l_pc });
+        let m1 = r.add(crate::cse::Node::Max { a: range, b: hc });
+        let tr = r.add(crate::cse::Node::Max { a: m1, b: lc });
+        let w = r.add(crate::cse::Node::Wilders {
+            src: tr,
+            period,
+            composite: false,
+            feed: false,
+        });
+        r.kind = "atr";
+        r.options = options.to_vec();
+        r.outputs.push(crate::cse::Sink::iface_lead(w, period));
+        r
+    }
+}

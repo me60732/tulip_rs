@@ -213,3 +213,45 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Natr {
         )
     }
 }
+
+// ── planner recipe (cse) ─────────────────────────────────────────────
+
+impl crate::cse::Planable for Natr {
+    /// `NATR(p)` = `atr(p) / close · 100`, the trivial wrapper over the SAME
+    /// mean-chained-`Wilders(tr)` node `Atr::recipe` builds — so a
+    /// `natr`+`atr` dashboard shares the whole tr subgraph AND the atr chain
+    /// (CSE dedups), only adding a divide + a scale. Exact op order
+    /// `(atr / close) * 100.0` (hand `calc`). Publish lead = `period` (hand
+    /// `min_data = p+1`), same as atr — the divide/mul are same-bar.
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        let period = options[0] as u32;
+        let mut r = crate::cse::Recipe::new();
+        let high = r.add(crate::cse::Node::Input { stream: 0 });
+        let low = r.add(crate::cse::Node::Input { stream: 1 });
+        let close = r.add(crate::cse::Node::Input { stream: 2 });
+        let pc = r.add(crate::cse::Node::Lag { src: close, n: 1 });
+        let range = r.add(crate::cse::Node::Sub { a: high, b: low });
+        let h_pc = r.add(crate::cse::Node::Sub { a: high, b: pc });
+        let hc = r.add(crate::cse::Node::Abs { src: h_pc });
+        let l_pc = r.add(crate::cse::Node::Sub { a: low, b: pc });
+        let lc = r.add(crate::cse::Node::Abs { src: l_pc });
+        let m1 = r.add(crate::cse::Node::Max { a: range, b: hc });
+        let tr = r.add(crate::cse::Node::Max { a: m1, b: lc });
+        let atr = r.add(crate::cse::Node::Wilders {
+            src: tr,
+            period,
+            composite: false,
+            feed: false,
+        });
+        let ratio = r.add(crate::cse::Node::Div { a: atr, b: close });
+        let hundred = r.constant(100.0);
+        let natr = r.add(crate::cse::Node::Mul {
+            a: ratio,
+            b: hundred,
+        });
+        r.kind = "natr";
+        r.options = options.to_vec();
+        r.outputs.push(crate::cse::Sink::iface_lead(natr, period));
+        r
+    }
+}

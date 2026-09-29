@@ -245,3 +245,36 @@ pub(crate) fn calc(sum: &mut f64, value: &f64, prev_value: &f64, multiplier: &f6
 pub fn multiplier(period: usize) -> f64 {
     1.0 / period as f64
 }
+
+// ── planner recipe (cse) ─────────────────────────────────────────────
+
+impl crate::cse::Planable for Sma {
+    /// `SMA(p)` is one rolling-sum node. Publish lead = `period`: the
+    /// hand reports `len - period` rows (init folds bars 0..p-1 but the
+    /// seed bar is not published), matching the `Ema` mirror convention.
+    /// Hand state is a lone `sum` (plus the batch price tail) — the plan
+    /// keeps the identical value in the op's state word; `get_states`
+    /// exports it via [`restore_state`] (the tail is the host window).
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        let period = options[0] as u32;
+        let mut r = crate::cse::Recipe::new();
+        let close = r.add(crate::cse::Node::Input { stream: 0 });
+        let m = r.add(crate::cse::Node::Sma { src: close, period });
+        r.kind = "sma";
+        r.options = options.to_vec();
+        r.tail_inputs = vec![m];
+        r.restorer = Some(restore_state);
+        r.outputs.push(crate::cse::Sink::iface_lead(m, period));
+        r
+    }
+}
+
+/// Rebuild the hand `sma::State<Warm>` from the group's rolling `sum`
+/// (`get_states`). The price window `IndicatorState` also holds lives in
+/// the engine's host `JitState.window`, not here.
+pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
+    let [crate::cse::ChainState::Sma { sum, period }] = v.as_slice() else {
+        return crate::cse::IndicatorStateBox::Other;
+    };
+    crate::cse::IndicatorStateBox::Sma(State::new(*sum, *period as usize).into_warm())
+}

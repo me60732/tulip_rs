@@ -244,17 +244,14 @@ impl Planable for Macd {
 
 /// Rebuild `macd::State` from the arena chains — `tail_inputs` order is the
 /// `TState` field order, so the signal chain arrives as `signal_state`.
-pub(crate) fn restore_state(mut v: Vec<EmaState<Warm>>) -> crate::cse::IndicatorStateBox {
+pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
     if v.len() != 3 {
         return crate::cse::IndicatorStateBox::Other;
     }
-    let signal_state = v.pop().unwrap();
-    let long_ema = v.pop().unwrap();
-    let short_ema = v.pop().unwrap();
     crate::cse::IndicatorStateBox::Macd(State {
-        short_ema,
-        long_ema,
-        signal_state,
+        short_ema: v[0].as_ema(),
+        long_ema: v[1].as_ema(),
+        signal_state: v[2].as_ema(),
     })
 }
 

@@ -273,14 +273,12 @@ impl Planable for Ppo {
 }
 
 /// Rebuild `ppo::State` from the arena chains, `TState` field order.
-pub(crate) fn restore_state(mut v: Vec<EmaState<Warm>>) -> crate::cse::IndicatorStateBox {
+pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
     if v.len() != 2 {
         return crate::cse::IndicatorStateBox::Other;
     }
-    let long_ema = v.pop().unwrap();
-    let short_ema = v.pop().unwrap();
     crate::cse::IndicatorStateBox::Ppo(State {
-        short_ema,
-        long_ema,
+        short_ema: v[0].as_ema(),
+        long_ema: v[1].as_ema(),
     })
 }

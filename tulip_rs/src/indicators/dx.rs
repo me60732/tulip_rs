@@ -244,3 +244,65 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Dx {
         )
     }
 }
+
+// ── planner recipe (cse) ─────────────────────────────────────────────
+
+impl crate::cse::Planable for Dx {
+    /// `DX(p)` = `(|DM+ − DM−| · 100 / (DM+ + DM−)).max(0)` — a PURE function
+    /// of the two composite `Wilders` accumulators, so its recipe rebuilds the
+    /// SAME `+DM`/`−DM`/accumulator subgraph as `Dm`/`Di` (dedups to one chain)
+    /// and needs only high/low (`n_fields = 2`; the hand's 3rd input, `close`,
+    /// feeds only its optional ATR/TR mirrors). Exact op order
+    /// `(diff · 100) / sum` (left-assoc), then `Max(_,0)`; the divide emits the
+    /// raw sum (hand `calc_dx` skips the `÷atr`). Publish lead = `period`.
+    /// `Adx` chains a mean `Wilders` onto this node.
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        let period = options[0] as u32;
+        let mut r = crate::cse::Recipe::new();
+        let high = r.add(crate::cse::Node::Input { stream: 0 });
+        let low = r.add(crate::cse::Node::Input { stream: 1 });
+        let zero = r.constant(0.0);
+        let ph = r.add(crate::cse::Node::Lag { src: high, n: 1 });
+        let pl = r.add(crate::cse::Node::Lag { src: low, n: 1 });
+        let up = r.add(crate::cse::Node::Sub { a: high, b: ph });
+        let down = r.add(crate::cse::Node::Sub { a: pl, b: low });
+        let up_pos = r.add(crate::cse::Node::Max { a: up, b: zero });
+        let down_pos = r.add(crate::cse::Node::Max { a: down, b: zero });
+        let dp = r.add(crate::cse::Node::WhereGe {
+            a: up,
+            b: down,
+            t: up_pos,
+        });
+        let dm = r.add(crate::cse::Node::WhereGe {
+            a: down,
+            b: up,
+            t: down_pos,
+        });
+        let dmup = r.add(crate::cse::Node::Wilders {
+            src: dp,
+            period,
+            composite: true,
+            feed: false,
+        });
+        let dmdown = r.add(crate::cse::Node::Wilders {
+            src: dm,
+            period,
+            composite: true,
+            feed: false,
+        });
+        let dm_sub = r.add(crate::cse::Node::Sub { a: dmup, b: dmdown });
+        let dm_diff = r.add(crate::cse::Node::Abs { src: dm_sub });
+        let hundred = r.constant(100.0);
+        let numer = r.add(crate::cse::Node::Mul {
+            a: dm_diff,
+            b: hundred,
+        });
+        let denom = r.add(crate::cse::Node::Add { a: dmup, b: dmdown });
+        let quot = r.add(crate::cse::Node::Div { a: numer, b: denom });
+        let dx = r.add(crate::cse::Node::Max { a: quot, b: zero });
+        r.kind = "dx";
+        r.options = options.to_vec();
+        r.outputs.push(crate::cse::Sink::iface_lead(dx, period));
+        r
+    }
+}

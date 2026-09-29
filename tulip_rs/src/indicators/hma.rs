@@ -289,3 +289,74 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Hma {
         )
     }
 }
+
+// ── planner recipe (cse) ─────────────────────────────────────────────
+
+impl crate::cse::Planable for Hma {
+    /// `HMA(p)` — ONE bespoke rolling node (E3 stage 3): the two inner
+    /// WMA engines (p, p/2 with the hand's OFFSET init window), the diff
+    /// series and its `√p` ring all live inside the op. It is NOT a
+    /// recipe of generic Wmas — composition is not bit-exact (documented
+    /// in Handover E3). Publish lead = `p + trunc(sqrt(p))` — the hand
+    /// `init_state`'s returned start.
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        let period = options[0] as u32;
+        let psqrt = (period as f64).sqrt() as u32;
+        let mut r = crate::cse::Recipe::new();
+        let close = r.add(crate::cse::Node::Input { stream: 0 });
+        let h = r.add(crate::cse::Node::Hma { src: close, period });
+        r.kind = "hma";
+        r.options = options.to_vec();
+        r.tail_inputs = vec![h];
+        r.restorer = Some(restore_state);
+        r.outputs
+            .push(crate::cse::Sink::iface_lead(h, period + psqrt));
+        r
+    }
+}
+
+/// Rebuild the hand `hma::State<Warm>` from the op's word run (`get_states`
+/// A-structured): the two private WMA engines, the `wss`/`ss`
+/// accumulators, and the `prev_diff: Buffer<Warm>` — reconstituted DIRECTLY
+/// from the ring's slot order + our cursor (all `Buffer` fields are
+/// `pub(crate)`, so the same-crate module rebuilds it exactly). The engine's
+/// `curs` (next-push slot) == hand `Buffer::index` after the last push, and
+/// slot `i` holds the diff the hand pushed there — a faithful Warm buffer.
+pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
+    let [crate::cse::ChainState::Hma {
+        accs,
+        cursor,
+        ring,
+        period,
+        p2,
+        psqrt,
+    }] = v.as_slice()
+    else {
+        return crate::cse::IndicatorStateBox::Other;
+    };
+    let [sum1, ws1, sum2, ws2, wss, ss] = *accs;
+    let state1 = WMAState::new(sum1, ws1, *period as usize).into_warm();
+    let state2 = WMAState::new(sum2, ws2, *p2 as usize).into_warm();
+    let capacity = *psqrt as usize;
+    let index = (cursor / 8) as usize;
+    let prev_idx = (index + capacity - 1) % capacity;
+    let periodsqrt = capacity as f64;
+    let weightssqrt = periodsqrt * (periodsqrt + 1.0) / 2.0;
+    let prev_diff = Buffer::<Warm> {
+        vals: ring.clone(),
+        index,
+        capacity,
+        count: capacity,
+        prev_idx,
+        state: std::marker::PhantomData,
+    };
+    crate::cse::IndicatorStateBox::Hma(State {
+        prev_diff,
+        state1,
+        state2,
+        weighted_sumsqrt: wss,
+        weightssqrt,
+        periodsqrt,
+        sumsqrt: ss,
+    })
+}

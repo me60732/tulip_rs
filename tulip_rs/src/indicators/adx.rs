@@ -265,3 +265,78 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Adx {
         )
     }
 }
+
+// ── planner recipe (cse) ─────────────────────────────────────────────
+
+impl crate::cse::Planable for Adx {
+    /// `ADX(p)` = a MEAN `Wilders` over the `dx` node, but **feed-gated**:
+    /// hand `init_state` folds the FIRST `period` *published* `dx` values
+    /// (`dx[period-1 .. 2·period-2]`), divides by `period`, then steady-decays
+    /// — so the fold window starts at `dx`'s publish lead, not bar 0 (the
+    /// `feed: true` axis). This is the ONE chained `Wilders` in the family that
+    /// rides its source's lead (like a chained `Ema`), because `dx` is itself
+    /// only meaningful after the DM/ATR warmup — unlike `atr` (fold from the
+    /// head, `tr[0]` is defined). Its recipe rebuilds the whole `dx` subgraph
+    /// (`+DM`/`−DM` → composite accumulators → the `dx` divide), so a
+    /// `dm`+`di`+`dx`+`adx` query rolls directional movement ONCE for all four.
+    /// Value depends only on high/low → `n_fields = 2`; publish lead =
+    /// `2·period − 1` (hand `min_data = 2·period`).
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        let period = options[0] as u32;
+        let mut r = crate::cse::Recipe::new();
+        let high = r.add(crate::cse::Node::Input { stream: 0 });
+        let low = r.add(crate::cse::Node::Input { stream: 1 });
+        let zero = r.constant(0.0);
+        let ph = r.add(crate::cse::Node::Lag { src: high, n: 1 });
+        let pl = r.add(crate::cse::Node::Lag { src: low, n: 1 });
+        let up = r.add(crate::cse::Node::Sub { a: high, b: ph });
+        let down = r.add(crate::cse::Node::Sub { a: pl, b: low });
+        let up_pos = r.add(crate::cse::Node::Max { a: up, b: zero });
+        let down_pos = r.add(crate::cse::Node::Max { a: down, b: zero });
+        let dp = r.add(crate::cse::Node::WhereGe {
+            a: up,
+            b: down,
+            t: up_pos,
+        });
+        let dm = r.add(crate::cse::Node::WhereGe {
+            a: down,
+            b: up,
+            t: down_pos,
+        });
+        let dmup = r.add(crate::cse::Node::Wilders {
+            src: dp,
+            period,
+            composite: true,
+            feed: false,
+        });
+        let dmdown = r.add(crate::cse::Node::Wilders {
+            src: dm,
+            period,
+            composite: true,
+            feed: false,
+        });
+        // dx = (|dmup − dmdown| · 100 / (dmup + dmdown)).max(0)  (shared w/ Dx)
+        let dm_sub = r.add(crate::cse::Node::Sub { a: dmup, b: dmdown });
+        let dm_diff = r.add(crate::cse::Node::Abs { src: dm_sub });
+        let hundred = r.constant(100.0);
+        let numer = r.add(crate::cse::Node::Mul {
+            a: dm_diff,
+            b: hundred,
+        });
+        let denom = r.add(crate::cse::Node::Add { a: dmup, b: dmdown });
+        let quot = r.add(crate::cse::Node::Div { a: numer, b: denom });
+        let dx = r.add(crate::cse::Node::Max { a: quot, b: zero });
+        // adx = mean Wilders over dx, folding from dx's publish lead.
+        let adx = r.add(crate::cse::Node::Wilders {
+            src: dx,
+            period,
+            composite: false,
+            feed: true,
+        });
+        r.kind = "adx";
+        r.options = options.to_vec();
+        r.outputs
+            .push(crate::cse::Sink::iface_lead(adx, 2 * period - 1));
+        r
+    }
+}

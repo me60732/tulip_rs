@@ -111,15 +111,15 @@ impl<S> State<S> {
         (self.prev_high, self.prev_low) = (high, low);
 
         if dp < 0.0 {
-            dp = 0.0; 
-        } else if dp > dm { 
-            dm = 0.0; 
+            dp = 0.0;
+        } else if dp > dm {
+            dm = 0.0;
         }
 
         if dm < 0.0 {
-            dm = 0.0; 
+            dm = 0.0;
         } else if dm > dp {
-            dp = 0.0;        
+            dp = 0.0;
         }
 
         (dp, dm)
@@ -248,5 +248,63 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Dm {
             options,
             optional_outputs,
         )
+    }
+}
+
+// ── planner recipe (cse) ─────────────────────────────────────────────
+
+impl crate::cse::Planable for Dm {
+    /// `DM(p)` = Wilder's **sum** smoothing (`composite` `Wilders`) over the
+    /// raw `+DM`/`−DM` per-bar movement, `INPUTS=2` (high, low). The raw
+    /// directional movement is the mutual exclusion
+    /// `up = h − Lag(h,1)`, `down = Lag(l,1) − l`, then
+    /// `+DM = where(up >= down, max(up,0), 0)`, `−DM = where(down >= up,
+    /// max(down,0), 0)` — a `WhereGe` select + `Max`, NOT a `×0.0` mask (which
+    /// could yield `-0.0`/NaN where the hand writes a literal `0.0`). The two
+    /// accumulators are COMPOSITE `Wilders` (partial_calc: no `÷period`, steady
+    /// `w·mult + v`), folded from bar 0 (`up[0] = down[0] = 0` via the `Lag`
+    /// clamp, so bar 0 adds nothing — exactly the hand's `skip(1)` warmup).
+    /// Publish lead = `period` (hand `min_data = p+1`). `Di`/`Dx` reuse the
+    /// exact `+DM`/`−DM`/accumulator subgraph, so a `dm`+`di`+`dx`+`adx`
+    /// dashboard computes directional movement ONCE.
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        let period = options[0] as u32;
+        let mut r = crate::cse::Recipe::new();
+        let high = r.add(crate::cse::Node::Input { stream: 0 });
+        let low = r.add(crate::cse::Node::Input { stream: 1 });
+        let ph = r.add(crate::cse::Node::Lag { src: high, n: 1 });
+        let pl = r.add(crate::cse::Node::Lag { src: low, n: 1 });
+        let up = r.add(crate::cse::Node::Sub { a: high, b: ph });
+        let down = r.add(crate::cse::Node::Sub { a: pl, b: low });
+        let zero = r.constant(0.0);
+        let up_pos = r.add(crate::cse::Node::Max { a: up, b: zero });
+        let down_pos = r.add(crate::cse::Node::Max { a: down, b: zero });
+        let dp = r.add(crate::cse::Node::WhereGe {
+            a: up,
+            b: down,
+            t: up_pos,
+        });
+        let dm = r.add(crate::cse::Node::WhereGe {
+            a: down,
+            b: up,
+            t: down_pos,
+        });
+        let dmup = r.add(crate::cse::Node::Wilders {
+            src: dp,
+            period,
+            composite: true,
+            feed: false,
+        });
+        let dmdown = r.add(crate::cse::Node::Wilders {
+            src: dm,
+            period,
+            composite: true,
+            feed: false,
+        });
+        r.kind = "dm";
+        r.options = options.to_vec();
+        r.outputs.push(crate::cse::Sink::iface_lead(dmup, period));
+        r.outputs.push(crate::cse::Sink::iface_lead(dmdown, period));
+        r
     }
 }

@@ -38,9 +38,45 @@ impl Merged {
                 Node::Input { .. } | Node::Const { .. } => 0,
                 Node::Ema { src, period } => leads[src as usize] + period.saturating_sub(1),
                 Node::Sub { a, b }
+                | Node::Add { a, b }
                 | Node::Mul { a, b }
                 | Node::Div { a, b }
                 | Node::Max { a, b } => leads[a as usize].max(leads[b as usize]),
+                // A compare-select: defined once all three inputs are.
+                Node::WhereGe { a, b, t } => leads[a as usize]
+                    .max(leads[b as usize])
+                    .max(leads[t as usize]),
+                Node::Abs { src } => leads[src as usize],
+                // A delayed read of a stream first has a value once the
+                // stream is `n` bars old.
+                Node::Lag { src, n } => leads[src as usize] + n,
+                Node::Sma { src, period }
+                | Node::Stddev { src, period }
+                | Node::Wma { src, period } => leads[src as usize] + period.saturating_sub(1),
+                // E3 stage 3: the hand fills `√P` (truncated) diff slots
+                // AFTER the two-engine warm, so the first value exists at
+                // bar `P + psqrt − 1` (publish lead = that + 1, hand
+                // `init_state`'s returned start).
+                Node::Hma { src, period } => {
+                    let psqrt = (period as f64).sqrt() as Id;
+                    leads[src as usize] + (period + psqrt).saturating_sub(1)
+                }
+                // Wilder's smoothing: the fold is `period` long; MEAN mode
+                // divides at the last fold bar (hand `init_state` seed),
+                // COMPOSITE mode keeps the raw sum (`partial_calc`). The fold
+                // START bar is bar 0 unless `feed` (then it starts at the
+                // source's publish lead, like a chained `Ema` — `adx` over
+                // `dx`). So the seam = `feed ? lead(src) : 0 + period-1`.
+                Node::Wilders {
+                    src, period, feed, ..
+                } => {
+                    let f = if feed { leads[src as usize] } else { 0 };
+                    f + period.saturating_sub(1)
+                }
+                Node::Sqrt { src } => leads[src as usize],
+                Node::Fma { a, b, c } => leads[a as usize]
+                    .max(leads[b as usize])
+                    .max(leads[c as usize]),
                 Node::HighPass { input, period } => {
                     leads[input as usize] + period.saturating_sub(1)
                 }
@@ -110,6 +146,10 @@ fn remap(node: &Node, l2g: &[Id]) -> Node {
             a: l2g[a as usize],
             b: l2g[b as usize],
         },
+        Add { a, b } => Add {
+            a: l2g[a as usize],
+            b: l2g[b as usize],
+        },
         Mul { a, b } => Mul {
             a: l2g[a as usize],
             b: l2g[b as usize],
@@ -118,9 +158,56 @@ fn remap(node: &Node, l2g: &[Id]) -> Node {
             a: l2g[a as usize],
             b: l2g[b as usize],
         },
+        WhereGe { a, b, t } => WhereGe {
+            a: l2g[a as usize],
+            b: l2g[b as usize],
+            t: l2g[t as usize],
+        },
+        Abs { src } => Abs {
+            src: l2g[src as usize],
+        },
+        Lag { src, n } => Lag {
+            src: l2g[src as usize],
+            n,
+        },
         Max { a, b } => Max {
             a: l2g[a as usize],
             b: l2g[b as usize],
+        },
+        Hma { src, period } => Hma {
+            src: l2g[src as usize],
+            period,
+        },
+        Wilders {
+            src,
+            period,
+            composite,
+            feed,
+        } => Wilders {
+            src: l2g[src as usize],
+            period,
+            composite,
+            feed,
+        },
+        Wma { src, period } => Wma {
+            src: l2g[src as usize],
+            period,
+        },
+        Sma { src, period } => Sma {
+            src: l2g[src as usize],
+            period,
+        },
+        Stddev { src, period } => Stddev {
+            src: l2g[src as usize],
+            period,
+        },
+        Sqrt { src } => Sqrt {
+            src: l2g[src as usize],
+        },
+        Fma { a, b, c } => Fma {
+            a: l2g[a as usize],
+            b: l2g[b as usize],
+            c: l2g[c as usize],
         },
         HighPass { input, period } => HighPass {
             input: l2g[input as usize],

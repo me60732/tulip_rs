@@ -246,3 +246,43 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for StdDev {
         )
     }
 }
+
+// ── planner recipe (cse) ─────────────────────────────────────────────
+
+impl crate::cse::Planable for StdDev {
+    /// `STDDEV(p)` is one rolling node (sum + sum_sq, hand `calc` op for
+    /// op); its optional SMA line is the SAME node the standalone `Sma`
+    /// request would build — CSE gives one recurrence, two mirrors.
+    /// Lead = `period` (hand reports `len - period` rows, primary and
+    /// optional alike).
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        let period = options[0] as u32;
+        let mut r = crate::cse::Recipe::new();
+        let close = r.add(crate::cse::Node::Input { stream: 0 });
+        let sd = r.add(crate::cse::Node::Stddev { src: close, period });
+        let m = r.add(crate::cse::Node::Sma { src: close, period });
+        r.kind = "stddev";
+        r.options = options.to_vec();
+        r.tail_inputs = vec![sd];
+        r.restorer = Some(restore_state);
+        r.outputs.push(crate::cse::Sink::iface_lead(sd, period));
+        r.optional_outputs
+            .push(crate::cse::Sink::iface_lead(m, period));
+        r
+    }
+}
+
+/// Rebuild the hand `stddev::State<Warm>` from the group sum + this op's
+/// `sum_sq` aux line (`get_states`). Like every rolling kind, the price
+/// window the `IndicatorState` also holds lives in `JitState.window`.
+pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
+    let [crate::cse::ChainState::Stddev {
+        sum,
+        sum_sq,
+        period,
+    }] = v.as_slice()
+    else {
+        return crate::cse::IndicatorStateBox::Other;
+    };
+    crate::cse::IndicatorStateBox::Stddev(State::new(*sum, *sum_sq, *period as usize).into_warm())
+}

@@ -31,7 +31,6 @@ impl TState for State<Warm> {
     fn calc<'a>(&mut self, inputs: Self::Inputs<'a>) -> Self::Outputs {
         let (dmup, dmdown, atr, tr) = self.calc_diup_didown(inputs);
 
-        
         let atr_inv = 100.0 / atr;
         //let atr_inv = if atr > 0.0 { 100.0 / atr } else { 0.0 };
         let pdi = (dmup * atr_inv).max(0.0); // multiplication
@@ -260,5 +259,92 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Di {
             options,
             optional_outputs,
         )
+    }
+}
+
+// ── planner recipe (cse) ─────────────────────────────────────────────
+
+impl crate::cse::Planable for Di {
+    /// `DI(p)` = `(±DM_smoothed · (100 / ATR_sum)).max(0)`, `INPUTS=3`. The
+    /// `+DM`/`−DM` mutual-exclusion subgraph and its two COMPOSITE (sum)
+    /// `Wilders` accumulators are the SAME nodes `Dm::recipe` builds, and the
+    /// ATR here is a COMPOSITE (sum) `Wilders(tr)` (`composite: true`, matching
+    /// hand `AtrState::init_state(…, true)` — the DI denominator is the running
+    /// SUM, not the mean ATR), so it is a DIFFERENT node from `Atr`'s mean
+    /// chain (correctly — different values). Exact op order: `atr_inv =
+    /// 100/atr` shared by both, `pdi = max(dmup·atr_inv, 0)`,
+    /// `mdi = max(dmdown·atr_inv, 0)`; `Max` = CLIF `fmax` reproduces the
+    /// hand's `.max(0.0)` NaN→0 semantics when `atr = 0` (`0·inf`→NaN→0).
+    /// Publish lead = `period`. A `dm`+`di`+`dx` query shares the whole DM
+    /// chain; `dx` shares the ATR-sum too.
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        let period = options[0] as u32;
+        let mut r = crate::cse::Recipe::new();
+        let high = r.add(crate::cse::Node::Input { stream: 0 });
+        let low = r.add(crate::cse::Node::Input { stream: 1 });
+        let close = r.add(crate::cse::Node::Input { stream: 2 });
+        let zero = r.constant(0.0);
+        // +DM / −DM (shared with Dm)
+        let ph = r.add(crate::cse::Node::Lag { src: high, n: 1 });
+        let pl = r.add(crate::cse::Node::Lag { src: low, n: 1 });
+        let up = r.add(crate::cse::Node::Sub { a: high, b: ph });
+        let down = r.add(crate::cse::Node::Sub { a: pl, b: low });
+        let up_pos = r.add(crate::cse::Node::Max { a: up, b: zero });
+        let down_pos = r.add(crate::cse::Node::Max { a: down, b: zero });
+        let dp = r.add(crate::cse::Node::WhereGe {
+            a: up,
+            b: down,
+            t: up_pos,
+        });
+        let dm = r.add(crate::cse::Node::WhereGe {
+            a: down,
+            b: up,
+            t: down_pos,
+        });
+        let dmup = r.add(crate::cse::Node::Wilders {
+            src: dp,
+            period,
+            composite: true,
+            feed: false,
+        });
+        let dmdown = r.add(crate::cse::Node::Wilders {
+            src: dm,
+            period,
+            composite: true,
+            feed: false,
+        });
+        // TR → composite (sum) ATR (the DI denominator)
+        let pc = r.add(crate::cse::Node::Lag { src: close, n: 1 });
+        let range = r.add(crate::cse::Node::Sub { a: high, b: low });
+        let h_pc = r.add(crate::cse::Node::Sub { a: high, b: pc });
+        let hc = r.add(crate::cse::Node::Abs { src: h_pc });
+        let l_pc = r.add(crate::cse::Node::Sub { a: low, b: pc });
+        let lc = r.add(crate::cse::Node::Abs { src: l_pc });
+        let m1 = r.add(crate::cse::Node::Max { a: range, b: hc });
+        let tr = r.add(crate::cse::Node::Max { a: m1, b: lc });
+        let atr = r.add(crate::cse::Node::Wilders {
+            src: tr,
+            period,
+            composite: true,
+            feed: false,
+        });
+        // ±DI = max(±DM · (100/atr), 0)
+        let hundred = r.constant(100.0);
+        let atr_inv = r.add(crate::cse::Node::Div { a: hundred, b: atr });
+        let up_di = r.add(crate::cse::Node::Mul {
+            a: dmup,
+            b: atr_inv,
+        });
+        let pdi = r.add(crate::cse::Node::Max { a: up_di, b: zero });
+        let dn_di = r.add(crate::cse::Node::Mul {
+            a: dmdown,
+            b: atr_inv,
+        });
+        let mdi = r.add(crate::cse::Node::Max { a: dn_di, b: zero });
+        r.kind = "di";
+        r.options = options.to_vec();
+        r.outputs.push(crate::cse::Sink::iface_lead(pdi, period));
+        r.outputs.push(crate::cse::Sink::iface_lead(mdi, period));
+        r
     }
 }

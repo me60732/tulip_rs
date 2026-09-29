@@ -216,3 +216,32 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for BBands {
         )
     }
 }
+
+// ── planner recipe (cse) ─────────────────────────────────────────────
+
+impl crate::cse::Planable for BBands {
+    /// `BBANDS(p, k)` shares its rolling core with standalone requests:
+    /// middle is the `Sma` node, spread derives from the `Stddev` node,
+    /// and the bands are single-rounded `fma`s — bit-identical to the
+    /// hand's `std_dev.mul_add(±sd, sma)`. Lead = `period` on all three.
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        let period = options[0] as u32;
+        let range = options[1];
+        let mut r = crate::cse::Recipe::new();
+        let close = r.add(crate::cse::Node::Input { stream: 0 });
+        let m = r.add(crate::cse::Node::Sma { src: close, period });
+        let sd = r.add(crate::cse::Node::Stddev { src: close, period });
+        let k = r.constant(range);
+        let n1 = r.constant(-1.0);
+        let nk = r.add(crate::cse::Node::Mul { a: k, b: n1 });
+        let up = r.add(crate::cse::Node::Fma { a: k, b: sd, c: m });
+        let lo = r.add(crate::cse::Node::Fma { a: nk, b: sd, c: m });
+        r.kind = "bbands";
+        r.options = options.to_vec();
+        let lead = period;
+        r.outputs.push(crate::cse::Sink::iface_lead(lo, lead));
+        r.outputs.push(crate::cse::Sink::iface_lead(m, lead));
+        r.outputs.push(crate::cse::Sink::iface_lead(up, lead));
+        r
+    }
+}

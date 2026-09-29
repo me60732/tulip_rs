@@ -74,6 +74,41 @@ impl TIndicatorState<1> for IndicatorState {
     }
 }
 
+// ── planner recipe (cse) ─────────────────────────────────────────────
+
+impl crate::cse::Planable for Wilders {
+    /// `WILDERS(p)` — one decayed-average node, `INPUTS=1` (the engine's
+    /// only buildable ADX-family leaf pre-multi-input). Warm = fold the
+    /// first `p` into a mean seed; steady = `w·(p−1)/p + v·(1/p)`. Publish
+    /// lead = `period` (hand reports `len − period` rows, `min_data = p+1`).
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        let period = options[0] as u32;
+        let mut r = crate::cse::Recipe::new();
+        let close = r.add(crate::cse::Node::Input { stream: 0 });
+        let w = r.add(crate::cse::Node::Wilders {
+            src: close,
+            period,
+            composite: false,
+            feed: false,
+        });
+        r.kind = "wilders";
+        r.options = options.to_vec();
+        r.tail_inputs = vec![w];
+        r.restorer = Some(restore_state);
+        r.outputs.push(crate::cse::Sink::iface_lead(w, period));
+        r
+    }
+}
+
+/// Rebuild the hand `wilders::State<Warm>` from the carried decayed-average
+/// value (`get_states`).
+pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
+    let [crate::cse::ChainState::Wilders { value, period }] = v.as_slice() else {
+        return crate::cse::IndicatorStateBox::Other;
+    };
+    crate::cse::IndicatorStateBox::Wilders(State::new(*value, *period as usize).into_warm())
+}
+
 impl TState for State<Warm> {
     type Inputs<'a> = f64;
     type Outputs = f64;

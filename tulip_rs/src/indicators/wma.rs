@@ -79,6 +79,14 @@ impl State<Cold> {
             period: n,
         }
     }
+    pub(crate) fn into_warm(self) -> State<Warm> {
+        State {
+            sma_state: self.sma_state.into_warm(),
+            weighted_sum: self.weighted_sum,
+            weights: self.weights,
+            period: self.period,
+        }
+    }
     pub fn init_state(prev_real: &[f64], period: usize) -> State<Warm> {
         let mut sum: f64 = 0.0;
         let mut weighted_sum: f64 = 0.0;
@@ -236,4 +244,45 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Wma {
             optional_outputs,
         )
     }
+}
+// ── planner recipe (cse) ─────────────────────────────────────────────
+
+impl crate::cse::Planable for Wma {
+    /// `WMA(p)` — one trick node sharing its window GROUP with any
+    /// `Sma`/`Stddev` of the same `(src, p)` (one raw sum, one ring, one
+    /// cursor; WMA adds only its weighted-sum line — the SMA multiply
+    /// happens only when an `Sma`/`Stddev` line demands it). The optional
+    /// SMA line is the shared `Sma` node. Lead = `period` (hand reports
+    /// `len - period` rows: init folds bars 0..p-1, first value published
+    /// at bar p per the hand's cycle bounds).
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        let period = options[0] as u32;
+        let mut r = crate::cse::Recipe::new();
+        let close = r.add(crate::cse::Node::Input { stream: 0 });
+        let w = r.add(crate::cse::Node::Wma { src: close, period });
+        let m = r.add(crate::cse::Node::Sma { src: close, period });
+        r.kind = "wma";
+        r.options = options.to_vec();
+        r.tail_inputs = vec![w];
+        r.restorer = Some(restore_state);
+        r.outputs.push(crate::cse::Sink::iface_lead(w, period));
+        r.optional_outputs
+            .push(crate::cse::Sink::iface_lead(m, period));
+        r
+    }
+}
+
+/// Rebuild the hand `wma::State<Warm>` from the group's raw `sum` (the
+/// trick's input, resolved through the leader) + this op's weighted-sum
+/// line (`get_states`).
+pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
+    let [crate::cse::ChainState::Wma {
+        sum,
+        weighted,
+        period,
+    }] = v.as_slice()
+    else {
+        return crate::cse::IndicatorStateBox::Other;
+    };
+    crate::cse::IndicatorStateBox::Wma(State::new(*sum, *weighted, *period as usize).into_warm())
 }

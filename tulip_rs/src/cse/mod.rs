@@ -32,7 +32,7 @@ pub use cache::cached_plan;
 pub use jit::{JitPlan, JitState};
 pub use merge::{merge, Merged, Resolved};
 pub use query::{IndicatorStateBox, Request, Results, RowRef};
-pub use recipe::{Id, Node, Recipe, Sink, SinkSrc, StateRestorer};
+pub use recipe::{ChainState, Id, Node, Recipe, Sink, SinkSrc, StateRestorer};
 
 /// An indicator that can describe itself as a canonical recipe graph.
 ///
