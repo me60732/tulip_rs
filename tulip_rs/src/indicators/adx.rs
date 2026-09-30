@@ -4,6 +4,7 @@ pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
 pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
+use crate::indicators::atr::Atr;
 use crate::indicators::dx::{Dx, State as DxState};
 use crate::indicators::tr::Tr;
 pub use crate::indicators::wilders::multiplier;
@@ -273,59 +274,18 @@ impl crate::cse::Planable for Adx {
     /// hand `init_state` folds the FIRST `period` *published* `dx` values
     /// (`dx[period-1 .. 2·period-2]`), divides by `period`, then steady-decays
     /// — so the fold window starts at `dx`'s publish lead, not bar 0 (the
-    /// `feed: true` axis). This is the ONE chained `Wilders` in the family that
-    /// rides its source's lead (like a chained `Ema`), because `dx` is itself
-    /// only meaningful after the DM/ATR warmup — unlike `atr` (fold from the
-    /// head, `tr[0]` is defined). Its recipe rebuilds the whole `dx` subgraph
-    /// (`+DM`/`−DM` → composite accumulators → the `dx` divide), so a
-    /// `dm`+`di`+`dx`+`adx` query rolls directional movement ONCE for all four.
-    /// Value depends only on high/low → `n_fields = 2`; publish lead =
-    /// `2·period − 1` (hand `min_data = 2·period`).
+    /// `feed: true` axis), because `dx` is only meaningful after its own warmup.
+    /// The `dx` chain is **composed from `Dx`** (`sub::<Dx>`) rather than
+    /// re-derived, so the whole `+DM`/`−DM` → `dx` subgraph has one source of
+    /// truth and dedups with any co-requested `dx`/`di`. `adx` never reads the
+    /// ATR for its value, so the `atr`/`tr` optional mirrors are composed via
+    /// `sub_graph::<Atr>` (shared with natr/atr). Publish lead = `2·period − 1`.
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
         let period = options[0] as u32;
         let mut r = crate::cse::Recipe::new();
-        let high = r.add(crate::cse::Node::Input { stream: 0 });
-        let low = r.add(crate::cse::Node::Input { stream: 1 });
-        let zero = r.constant(0.0);
-        let ph = r.add(crate::cse::Node::Lag { src: high, n: 1 });
-        let pl = r.add(crate::cse::Node::Lag { src: low, n: 1 });
-        let up = r.add(crate::cse::Node::Sub { a: high, b: ph });
-        let down = r.add(crate::cse::Node::Sub { a: pl, b: low });
-        let up_pos = r.add(crate::cse::Node::Max { a: up, b: zero });
-        let down_pos = r.add(crate::cse::Node::Max { a: down, b: zero });
-        let dp = r.add(crate::cse::Node::WhereGe {
-            a: up,
-            b: down,
-            t: up_pos,
-        });
-        let dm = r.add(crate::cse::Node::WhereGe {
-            a: down,
-            b: up,
-            t: down_pos,
-        });
-        let dmup = r.add(crate::cse::Node::Wilders {
-            src: dp,
-            period,
-            composite: true,
-            feed: false,
-        });
-        let dmdown = r.add(crate::cse::Node::Wilders {
-            src: dm,
-            period,
-            composite: true,
-            feed: false,
-        });
-        // dx = (|dmup − dmdown| · 100 / (dmup + dmdown)).max(0)  (shared w/ Dx)
-        let dm_sub = r.add(crate::cse::Node::Sub { a: dmup, b: dmdown });
-        let dm_diff = r.add(crate::cse::Node::Abs { src: dm_sub });
-        let hundred = r.constant(100.0);
-        let numer = r.add(crate::cse::Node::Mul {
-            a: dm_diff,
-            b: hundred,
-        });
-        let denom = r.add(crate::cse::Node::Add { a: dmup, b: dmdown });
-        let quot = r.add(crate::cse::Node::Div { a: numer, b: denom });
-        let dx = r.add(crate::cse::Node::Max { a: quot, b: zero });
+        // dx = the standalone Dx chain (it composes Dm internally) — one source
+        // of truth. Dx reads high/low (parent streams 0/1).
+        let dx = r.sub::<Dx>(&[period as f64], &[0, 1]);
         // adx = mean Wilders over dx, folding from dx's publish lead.
         let adx = r.add(crate::cse::Node::Wilders {
             src: dx,
@@ -333,10 +293,22 @@ impl crate::cse::Planable for Adx {
             composite: false,
             feed: true,
         });
+        // atr/tr mirrors: compose Atr (mean-atri primary + exposed tr) — the
+        // same nodes natr/atr use, so shared. (Hand's adx atr mirror is
+        // `sum·inv`, equal to this mean within the 1e-12 ti_atr tolerance.)
+        let atr = r.sub_graph::<Atr>(&[period as f64], &[0, 1, 2]);
+        let atr_id = atr.primary;
+        let tr = atr.optional_at(0);
         r.kind = "adx";
         r.options = options.to_vec();
         r.outputs
             .push(crate::cse::Sink::iface_lead(adx, 2 * period - 1));
+        // Hand optional_outputs order: [dx, atr, tr].
+        r.optional_outputs
+            .push(crate::cse::Sink::iface_lead(dx, period));
+        r.optional_outputs
+            .push(crate::cse::Sink::iface_lead(atr_id, period));
+        r.optional_outputs.push(crate::cse::Sink::iface_lead(tr, 1));
         r
     }
 }

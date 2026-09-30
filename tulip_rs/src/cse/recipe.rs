@@ -94,12 +94,14 @@ impl ChainState {
 pub type StateRestorer = fn(Vec<ChainState>) -> crate::cse::IndicatorStateBox;
 
 /// A primitive the node graph can contain. The executor emits `Input`,
-/// `Ema`, `Sub`/`Add`/`Mul`/`Div`/`Max`, `Abs`, `Const`, the raw `Lag`
-/// (a stream delayed `n` bars off the anchor), the rolling kinds
-/// `Sma`/`Stddev`/`Wma` (price-sourced, grouped by `(src, period)`), the
-/// `Wilders` chain (price-sourced leaf OR chained over a derived node —
-/// `atr = Wilders(tr)`), and the bespoke rolling `Hma` (E3 stage 3 — its own
-/// two-engine + diff-ring state, see its variant) with `Fma`/`Sqrt` graph
+/// `Ema`, `Sub`/`Add`/`Mul`/`Div`/`Max`, `Abs`, `WhereGe` (a `fcmp.ge`+select),
+/// `Const`, the raw `Lag` (a stream delayed `n` bars off the anchor), the
+/// rolling kinds `Sma`/`Stddev`/`Wma` (price-sourced, grouped by
+/// `(src, period)`), the `Wilders` chain (price leaf OR chained over a derived
+/// node — `atr = Wilders(tr)`; `composite` mean/sum, `feed` fold-from-head vs
+/// fold-from-src-lead), the bespoke rolling `Hma` (E3 stage 3 — its own
+/// two-engine + diff-ring state), the bespoke multi-value feedback `SuperTrend`
+/// (E7 — 3 f64 + a boolean carried like HMA's run), with `Fma`/`Sqrt` graph
 /// glue; the filter/HT kinds stay vocabulary for future chains with
 /// merge/lead rules already covering them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -186,6 +188,29 @@ pub enum Node {
     /// SMA line — is what the trick needs, so no `×1/P` multiply happens
     /// unless an `Sma`/`Stddev` sibling demands it.
     Wma { src: Id, period: Id },
+    /// `supertrend(period, step)` — the hand's stateful feedback band
+    /// (E7), the engine's first MULTI-VALUE chain (mirrors hand
+    /// `State` field types exactly: `prev_st`/`prev_ub`/`prev_lb: f64` +
+    /// `trend: bool`). Reads three upstream NODES — `atr` (the shared mean
+    /// `Wilders(tr)`), `med` (the shared `0.5·(high+low)` medprice), `close`
+    /// — so a `natr`+`supertrend` query dedups the WHOLE atr chain (one
+    /// level up from `tr`), and every H/L chart dedups `med` for free. Per
+    /// bar (band half-width `w = step·atr`, `med±w`):
+    /// `trend = (close>prev_st) | (trend & !(close<prev_st))`;
+    /// `st = trend ? max(prev_lb, med−w) : min(prev_ub, med+w)`; the two
+    /// non-chosen bands are still re-seeded raw (hand's `ub`/`lb`), so all
+    /// three f64 + the latch persist across bars. `period`/`step` are
+    /// literals (like `Wilders.period`), `step` carried as raw bits (like
+    /// `Const`) so `Node` stays `Hash + Eq`. Defined-from bar `period−1` (the
+    /// atr seam = the single seed `calc_st`), publish `period` (hand
+    /// `min_data = period+1`).
+    SuperTrend {
+        atr: Id,
+        med: Id,
+        close: Id,
+        period: Id,
+        step_bits: u64,
+    },
     /// `sma(period)` over node `src` — the rolling-sum recurrence
     /// (`sum += src[i] − src[i−P]`, output `sum/P`). The engine keeps a
     /// ring of the last `P` src values in the state image (for a
@@ -253,6 +278,32 @@ impl Sink {
     }
 }
 
+/// Handle to a sub-recipe's nodes after [`Recipe::graft`]/`sub_graph`, with
+/// every output id already remapped into the PARENT recipe's id space. Only
+/// the sub's PRIMARY is meant for direct chaining; the rest are for the rare
+/// caller that reuses a sub's optional mirror too (e.g. grafting `atr` and
+/// also mirroring its `tr`). `*_locals` are the ORIGINAL sub-local ids (0 for
+/// primary, 1 for its tr mirror …), so a caller can address a mirror by a
+/// stable per-subscriber convention rather than a positional index.
+#[derive(Debug, Clone)]
+pub struct Grafted {
+    pub primary: Id,
+    pub outputs: Vec<Id>,
+    pub optional: Vec<Id>,
+}
+
+impl Grafted {
+    /// The grafted optional at the sub-recipe's `optional_outputs[i]` position
+    /// (a sub exposes exactly its own declared optionals, e.g. `atr`'s `[tr]`
+    /// → `optional(0)`). Panics if the sub declares no such optional.
+    pub fn optional_at(&self, i: usize) -> Id {
+        self.optional
+            .get(i)
+            .copied()
+            .unwrap_or_else(|| panic!("cse: sub-recipe has no optional output #{i}"))
+    }
+}
+
 /// A canonical request: the indicator's node graph + sink wiring for one
 /// invocation, e.g. `Macd::recipe(&[12.0, 26.0, 9.0])`.
 #[derive(Debug, Clone)]
@@ -282,6 +333,10 @@ pub struct Recipe {
     pub outputs: Vec<Sink>,
     /// Optional sinks, `Info::optional_outputs` order (enabled/disabled is a
     /// per-request runtime switch — see [`crate::cse::merge::Resolved`]).
+    /// A sub-recipe's optionals are ALSO what it exposes to consumers that
+    /// compose it via [`sub_graph`](Self::sub_graph) — a sub-indicator exposes
+    /// exactly its own declared optional outputs (e.g. `atr` exposes `tr`),
+    /// no separate channel.
     pub optional_outputs: Vec<Sink>,
 }
 
@@ -309,6 +364,88 @@ impl Recipe {
             return i as Id;
         }
         self.add(Node::Const { bits })
+    }
+
+    /// Graft `sub`'s node graph into `self`, returning the sub's PRIMARY
+    /// output as a parent-local id (plus every output id, in `outputs` order).
+    ///
+    /// `in_streams[k]` is the parent **stream number** the sub's `Input{k}`
+    /// (its k-th declared price input) binds to; the sub's own `outputs` /
+    /// `optional_outputs` / `tail_inputs` / `restorer` are IGNORED — only the
+    /// shared math (nodes) composes; the top-level indicator keeps its own
+    /// sinks and state restoration. Structural interning in `merge` then
+    /// dedups the grafted nodes against anything already in the arena, so
+    /// "if the math matches it is shared" holds automatically — a sub-recipe
+    /// is only a shorthand for that sub-indicator's node graph, nothing more.
+    pub(crate) fn graft(&mut self, sub: Recipe, in_nodes: &[Id]) -> Grafted {
+        // sub-local id -> parent id, computed in SSA order. A sub `Input{k}`
+        // binds to `in_nodes[k]` — a parent PRICE stream OR any computed node
+        // (e.g. `tr`), so `Atr = Wilders(tr)` composes by binding wilders'
+        // input to the tr node. An unbound input falls back to its own stream.
+        let mut map: Vec<Id> = vec![0; sub.nodes.len()];
+        for (l, node) in sub.nodes.iter().enumerate() {
+            map[l] = match *node {
+                Node::Input { stream } => in_nodes
+                    .get(stream as usize)
+                    .copied()
+                    .unwrap_or_else(|| self.add(Node::Input { stream })),
+                ref other => {
+                    let remapped = crate::cse::merge::remap_node(other, &|c: Id| map[c as usize]);
+                    self.add(remapped)
+                }
+            };
+        }
+        let iface = |s: &Sink| match s.src {
+            SinkSrc::Interface(id) => map[id as usize],
+        };
+        Grafted {
+            primary: sub
+                .outputs
+                .first()
+                .map(iface)
+                .unwrap_or_else(|| *map.last().unwrap_or(&0)),
+            outputs: sub.outputs.iter().map(iface).collect(),
+            optional: sub.optional_outputs.iter().map(iface).collect(),
+        }
+    }
+
+    /// Bind a sub-recipe's logical inputs to the parent's price streams
+    /// `in_streams[k]` (creates one `Input` node each). This is the common
+    /// sugar; see [`graft`](Self::graft)/[`sub_at`](Self::sub_at) for binding to
+    /// an arbitrary node.
+    fn bind_streams(&mut self, in_streams: &[u32]) -> Vec<Id> {
+        in_streams
+            .iter()
+            .map(|&s| self.add(Node::Input { stream: s }))
+            .collect()
+    }
+
+    /// Compose another [`Planable`]'s math as a sub-recipe over parent price
+    /// streams, returning its PRIMARY output id for chaining. See
+    /// [`sub_graph`](Self::sub_graph) / [`sub_at`](Self::sub_at) for optionals
+    /// and node-bound inputs.
+    pub fn sub<R: crate::cse::Planable>(&mut self, options: &[f64], in_streams: &[u32]) -> Id {
+        let nodes = self.bind_streams(in_streams);
+        self.graft(R::recipe(options), &nodes).primary
+    }
+
+    /// Like [`sub`](Self::sub) but returns the full [`Grafted`] handle (the
+    /// sub's own `outputs` + `optional_outputs`, remapped).
+    pub fn sub_graph<R: crate::cse::Planable>(
+        &mut self,
+        options: &[f64],
+        in_streams: &[u32],
+    ) -> Grafted {
+        let nodes = self.bind_streams(in_streams);
+        self.graft(R::recipe(options), &nodes)
+    }
+
+    /// Like [`sub`](Self::sub) but binds the sub's logical input `k` to an
+    /// EXISTING parent node `in_nodes[k]` (a stream node, or any computed node
+    /// such as `tr`). This is what makes `Atr = Wilders(tr)` a composition, not
+    /// a re-emission: bind wilders' price-input to `tr`.
+    pub fn sub_at<R: crate::cse::Planable>(&mut self, options: &[f64], in_nodes: &[Id]) -> Id {
+        self.graft(R::recipe(options), in_nodes).primary
     }
 }
 

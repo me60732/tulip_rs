@@ -39,22 +39,15 @@ impl Request {
         Self::default()
     }
 
-    /// Append a request (from e.g. `Macd::recipe(&[12.,26.,9.])`). Every
-    /// declared optional output emits (full `Results`).
-    pub fn add(mut self, recipe: Recipe) -> Self {
-        let flags = vec![true; recipe.optional_outputs.len()];
-        self.recipes.push(recipe);
-        self.opt_flags.push(flags);
-        self
-    }
-
-    /// Append with hand-`::indicator`-parity optional-output flags: `None` ⇒
-    /// every optional off (primary-only emission, the hand `None` call);
-    /// `Some(flags)` ⇒ per declared optional in `Info::optional_outputs`
+    /// Append a request (from e.g. `Macd::recipe(&[12.,26.,9.])`) with
+    /// hand-`::indicator`-parity optional-output flags — the ONE builder
+    /// method, mirroring `indicator(inputs, options, Option<&[bool]>)`.
+    /// `None` ⇒ every optional off (primary-only emission, the hand `None`
+    /// call); `Some(flags)` ⇒ per declared optional in `Info::optional_outputs`
     /// order, missing tail = off. Disabled optionals print EMPTY arrays in
     /// declared position; enabled arrays and primaries are bit-identical to
     /// the all-on run.
-    pub fn add_opt(mut self, recipe: Recipe, optional_outputs: Option<&[bool]>) -> Self {
+    pub fn add(mut self, recipe: Recipe, optional_outputs: Option<&[bool]>) -> Self {
         let n = recipe.optional_outputs.len();
         let mut flags = vec![false; n];
         if let Some(f) = optional_outputs {
@@ -65,6 +58,14 @@ impl Request {
         self.recipes.push(recipe);
         self.opt_flags.push(flags);
         self
+    }
+
+    /// Append emitting **every** declared optional output (full `Results`).
+    /// Explicitly named so "all-on" is never the silent default — the plain
+    /// [`add`] mirrors the hand and defaults to primary-only (`None`).
+    pub fn add_all(self, recipe: Recipe) -> Self {
+        let n = recipe.optional_outputs.len();
+        self.add(recipe, Some(&vec![true; n]))
     }
 
     /// Merge (CSE) the interface graphs, bake leads, apply the optional
@@ -157,6 +158,22 @@ impl Request {
                         src as u64,
                         period as u64,
                         (composite as u64) | ((feed as u64) << 1),
+                    ),
+                    // Five identity fields into three u64 slots: arena ids and
+                    // `period` are u32, so two fit per word; `step` is the raw
+                    // f64 bit pattern. Injective (plus the recipe `options`
+                    // already hashed separately above).
+                    Node::SuperTrend {
+                        atr,
+                        med,
+                        close,
+                        period,
+                        step_bits,
+                    } => (
+                        23,
+                        (atr as u64) | ((med as u64) << 32),
+                        (close as u64) | ((period as u64) << 32),
+                        step_bits,
                     ),
                 };
                 b.push(tag);
@@ -343,9 +360,9 @@ mod tests {
 
     fn classic_request() -> Request {
         Request::new()
-            .add(Apo::recipe(&APO))
-            .add(Ppo::recipe(&PPO))
-            .add(Macd::recipe(&MACD))
+            .add_all(Apo::recipe(&APO))
+            .add_all(Ppo::recipe(&PPO))
+            .add_all(Macd::recipe(&MACD))
     }
 
     /// THE parity gate: one `run` of the classic merged query == the three
@@ -430,9 +447,9 @@ mod tests {
 
         let (all, _) = classic_request().build().run(&s);
         let none_plan = Request::new()
-            .add_opt(Apo::recipe(&APO), None)
-            .add_opt(Ppo::recipe(&PPO), None)
-            .add_opt(Macd::recipe(&MACD), None)
+            .add(Apo::recipe(&APO), None)
+            .add(Ppo::recipe(&PPO), None)
+            .add(Macd::recipe(&MACD), None)
             .build();
         let (rn, _) = none_plan.run(&s);
 
@@ -465,9 +482,9 @@ mod tests {
 
         // partial: macd long_ema off only — everything else keeps its all-on bits
         let part = Request::new()
-            .add_opt(Apo::recipe(&APO), None)
-            .add_opt(Ppo::recipe(&PPO), None)
-            .add_opt(Macd::recipe(&MACD), Some(&[true, false]))
+            .add(Apo::recipe(&APO), None)
+            .add(Ppo::recipe(&PPO), None)
+            .add(Macd::recipe(&MACD), Some(&[true, false]))
             .build();
         let (rp, _) = part.run(&s);
         cmp_exact(
@@ -535,8 +552,8 @@ mod tests {
         let close = series(500);
         let s: [&[f64]; 1] = [close.as_slice()];
         let plan = classic_request()
-            .add_opt(Ema::recipe(&[12.0]), None)
-            .add_opt(Ema::recipe(&[26.0]), None)
+            .add(Ema::recipe(&[12.0]), None)
+            .add(Ema::recipe(&[26.0]), None)
             .build();
         let classic_nodes = classic_request().build().arena().nodes.len();
         assert_eq!(

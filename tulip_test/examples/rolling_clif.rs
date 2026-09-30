@@ -9,17 +9,17 @@ use tulip_rs::indicators::wma::Wma;
 
 fn main() {
     let mixed = Request::new()
-        .add_opt(Sma::recipe(&[5.0]), None)
-        .add_opt(Wma::recipe(&[8.0]), Some(&[true]))
-        .add_opt(StdDev::recipe(&[14.0]), Some(&[true]))
-        .add_opt(Sma::recipe(&[20.0]), None)
-        .add_opt(StdDev::recipe(&[20.0]), Some(&[true]))
-        .add_opt(BBands::recipe(&[20.0, 2.5]), None)
-        .add_opt(Wma::recipe(&[26.0]), None);
+        .add(Sma::recipe(&[5.0]), None)
+        .add(Wma::recipe(&[8.0]), Some(&[true]))
+        .add(StdDev::recipe(&[14.0]), Some(&[true]))
+        .add(Sma::recipe(&[20.0]), None)
+        .add(StdDev::recipe(&[20.0]), Some(&[true]))
+        .add(BBands::recipe(&[20.0, 2.5]), None)
+        .add(Wma::recipe(&[26.0]), None);
     std::fs::write("/tmp/rolling_mixed.clif", mixed.build().clif()).expect("write");
     println!("wrote /tmp/rolling_mixed.clif");
 
-    let hma = Request::new().add_opt(Hma::recipe(&[20.0]), None);
+    let hma = Request::new().add(Hma::recipe(&[20.0]), None);
     std::fs::write("/tmp/rolling_hma.clif", hma.build().clif()).expect("write");
     println!("wrote /tmp/rolling_hma.clif");
 }

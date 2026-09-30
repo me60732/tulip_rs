@@ -200,14 +200,13 @@ impl Planable for Macd {
 
         let mut r = Recipe::new();
         let real = r.add(Node::Input { stream: 0 });
-        let s = r.add(Node::Ema {
-            src: real,
-            period: short,
-        });
-        let l = r.add(Node::Ema {
-            src: real,
-            period: long,
-        });
+        // Three EMA SUB-INDICATORS (short/long over close, signal over the
+        // line) composed via `sub_at` — Ema::recipe is their single source of
+        // truth; macd depends on the EMAs, not on Apo. The grafted nodes carry
+        // the same intern keys, so the §4 identity (this line ≡ apo line ≡ ppo
+        // numerator) still interns to one `fsub`.
+        let s = r.sub_at::<Ema>(&[short as f64], &[real]);
+        let l = r.sub_at::<Ema>(&[long as f64], &[real]);
         // The line Sub is the SAME node APO declares (and PPO's numerator) —
         // merge interns one `fsub` for all three (§4 identity). The signal
         // is an `Ema` *of that node*: the engine's chained-recurrence rule
@@ -215,10 +214,7 @@ impl Planable for Macd {
         // from the first — bit-for-bit `Macd::init_state`. The arena lead
         // formula gives it `long-1 + sp-1` = the hand's 33.
         let line = r.add(Node::Sub { a: s, b: l });
-        let sig = r.add(Node::Ema {
-            src: line,
-            period: signal_period,
-        });
+        let sig = r.sub_at::<Ema>(&[signal_period as f64], &[line]);
         let hist = r.add(Node::Sub { a: line, b: sig });
 
         r.kind = "macd";

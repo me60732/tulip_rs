@@ -82,7 +82,7 @@ mod tests {
     use crate::indicators::ppo::Ppo;
 
     fn apo() -> Request {
-        Request::new().add(Apo::recipe(&[12.0, 26.0]))
+        Request::new().add_all(Apo::recipe(&[12.0, 26.0]))
     }
 
     #[test]
@@ -104,20 +104,20 @@ mod tests {
     #[test]
     fn cache_keys_cover_the_switches_that_change_codegen() {
         // optional-output switch: same recipes, different flags ⇒ different plan
-        let on = Request::new().add(Apo::recipe(&[12.0, 26.0]));
-        let off = Request::new().add_opt(Apo::recipe(&[12.0, 26.0]), None);
+        let on = Request::new().add_all(Apo::recipe(&[12.0, 26.0]));
+        let off = Request::new().add(Apo::recipe(&[12.0, 26.0]), None);
         let a = cached_plan(&on, 1);
         let b = cached_plan(&off, 1);
         assert!(!Arc::ptr_eq(&a, &b));
         assert_ne!(a.fingerprint(), b.fingerprint());
         // recipe ORDER changes arena ids ⇒ different plan
-        let ab = Request::new().add(Apo::recipe(&[12.0, 26.0])).add(Ppo::recipe(&[12.0, 26.0]));
-        let ba = Request::new().add(Ppo::recipe(&[12.0, 26.0])).add(Apo::recipe(&[12.0, 26.0]));
+        let ab = Request::new().add_all(Apo::recipe(&[12.0, 26.0])).add_all(Ppo::recipe(&[12.0, 26.0]));
+        let ba = Request::new().add_all(Ppo::recipe(&[12.0, 26.0])).add_all(Apo::recipe(&[12.0, 26.0]));
         assert_ne!(cached_plan(&ab, 1).fingerprint(), cached_plan(&ba, 1).fingerprint());
         // period values, too
         assert_ne!(
-            cached_plan(&Request::new().add(Apo::recipe(&[12.0, 26.0])), 1).fingerprint(),
-            cached_plan(&Request::new().add(Apo::recipe(&[12.0, 26.1])), 1).fingerprint()
+            cached_plan(&Request::new().add_all(Apo::recipe(&[12.0, 26.0])), 1).fingerprint(),
+            cached_plan(&Request::new().add_all(Apo::recipe(&[12.0, 26.1])), 1).fingerprint()
         );
         // ...and the asset-lane count
         assert_ne!(cached_plan(&ab, 1).fingerprint(), cached_plan(&ab, 2).fingerprint());
@@ -127,7 +127,7 @@ mod tests {
     fn foreign_state_cannot_resume_a_different_plan() {
         let small = cached_plan(&apo(), 1);
         let big = cached_plan(
-            &Request::new().add(Apo::recipe(&[12.0, 26.0])).add(Ppo::recipe(&[12.0, 26.0])),
+            &Request::new().add_all(Apo::recipe(&[12.0, 26.0])).add_all(Ppo::recipe(&[12.0, 26.0])),
             1,
         );
         let c: Vec<f64> = (0..200).map(|i| (i as f64 * 0.7).sin() * 10.0 + 100.0).collect();

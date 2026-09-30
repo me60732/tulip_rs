@@ -6,6 +6,7 @@ pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 
 use crate::indicators::atr::State as AtrState;
+use crate::indicators::dm::Dm;
 use crate::indicators::dm::State as DMState;
 use crate::indicators::tr::Tr;
 pub use crate::indicators::wilders::multiplier;
@@ -280,48 +281,15 @@ impl crate::cse::Planable for Di {
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
         let period = options[0] as u32;
         let mut r = crate::cse::Recipe::new();
-        let high = r.add(crate::cse::Node::Input { stream: 0 });
-        let low = r.add(crate::cse::Node::Input { stream: 1 });
-        let close = r.add(crate::cse::Node::Input { stream: 2 });
         let zero = r.constant(0.0);
-        // +DM / −DM (shared with Dm)
-        let ph = r.add(crate::cse::Node::Lag { src: high, n: 1 });
-        let pl = r.add(crate::cse::Node::Lag { src: low, n: 1 });
-        let up = r.add(crate::cse::Node::Sub { a: high, b: ph });
-        let down = r.add(crate::cse::Node::Sub { a: pl, b: low });
-        let up_pos = r.add(crate::cse::Node::Max { a: up, b: zero });
-        let down_pos = r.add(crate::cse::Node::Max { a: down, b: zero });
-        let dp = r.add(crate::cse::Node::WhereGe {
-            a: up,
-            b: down,
-            t: up_pos,
-        });
-        let dm = r.add(crate::cse::Node::WhereGe {
-            a: down,
-            b: up,
-            t: down_pos,
-        });
-        let dmup = r.add(crate::cse::Node::Wilders {
-            src: dp,
-            period,
-            composite: true,
-            feed: false,
-        });
-        let dmdown = r.add(crate::cse::Node::Wilders {
-            src: dm,
-            period,
-            composite: true,
-            feed: false,
-        });
-        // TR → composite (sum) ATR (the DI denominator)
-        let pc = r.add(crate::cse::Node::Lag { src: close, n: 1 });
-        let range = r.add(crate::cse::Node::Sub { a: high, b: low });
-        let h_pc = r.add(crate::cse::Node::Sub { a: high, b: pc });
-        let hc = r.add(crate::cse::Node::Abs { src: h_pc });
-        let l_pc = r.add(crate::cse::Node::Sub { a: low, b: pc });
-        let lc = r.add(crate::cse::Node::Abs { src: l_pc });
-        let m1 = r.add(crate::cse::Node::Max { a: range, b: hc });
-        let tr = r.add(crate::cse::Node::Max { a: m1, b: lc });
+        // +DM / −DM accumulators, composed from Dm's recipe (outputs
+        // [dmup, dmdown]) — identical to Dm's/Dx's, so the DM subgraph CSEs
+        // across every DI/DX/ADX consumer.
+        let dm = r.sub_graph::<Dm>(&[period as f64], &[0, 1]);
+        let (dmup, dmdown) = (dm.outputs[0], dm.outputs[1]);
+        // TR (composed) → composite (sum) ATR, the DI denominator. Tr's
+        // `Input{2}` binds to parent stream 2 (close) via the graft map.
+        let tr = r.sub::<Tr>(&[], &[0, 1, 2]);
         let atr = r.add(crate::cse::Node::Wilders {
             src: tr,
             period,

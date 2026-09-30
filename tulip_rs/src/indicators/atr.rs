@@ -7,6 +7,7 @@ pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TS
 use crate::indicators::tr::{State as TrState, Tr};
 pub use crate::indicators::wilders::multiplier;
 use crate::indicators::wilders::State as WildersState;
+use crate::indicators::wilders::Wilders;
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
@@ -226,38 +227,30 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Atr {
 // ── planner recipe (cse) ─────────────────────────────────────────────
 
 impl crate::cse::Planable for Atr {
-    /// `ATR(p)` = Wilder's smoothing (`Wilders{period:p}`) chained over the
-    /// SAME `tr` subgraph `Tr::recipe` builds — so a dashboard asking for
-    /// `tr` + `atr` (+ `natr`/`adx`) rolls true range ONCE (CSE dedups the
-    /// identical nodes). It is a CHAINED `Wilders`: no per-stream `p0`, so
-    /// the cold chain value is `0.0` and the loop folds the tr node-value
-    /// from bar 0. The `Lag` clamp makes `tr[0] = high[0] − low[0]` — hand
-    /// `init_state`'s bar-0 term — so the mean seed `Σ tr[0..p] / p` is
-    /// bit-exact, then the steady decayed avg (`wilders::calc`). Publish
-    /// lead = `period` (hand `min_data = p+1`, reports `len − p` rows).
+    /// `ATR(p)` = **`Wilders` over `tr`** — literally composed. `Tr` as a
+    /// sub-recipe, then `sub_at::<Wilders>` binds the standalone `Wilders`
+    /// indicator's price input to that `tr` node — so the ONLY difference from
+    /// the `wilders` indicator is the source, and the mean-Wilders chain has
+    /// ONE source of truth (shared with natr/adx/supertrend via CSE). The `Lag`
+    /// clamp makes `tr[0] = high[0] − low[0]` (hand `init_state`'s bar-0 term),
+    /// so the mean seed `Σ tr[0..p] / p` is bit-exact, then steady
+    /// `wilders::calc`. Publish lead = `period`.
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
         let period = options[0] as u32;
         let mut r = crate::cse::Recipe::new();
-        let high = r.add(crate::cse::Node::Input { stream: 0 });
-        let low = r.add(crate::cse::Node::Input { stream: 1 });
-        let close = r.add(crate::cse::Node::Input { stream: 2 });
-        let pc = r.add(crate::cse::Node::Lag { src: close, n: 1 });
-        let range = r.add(crate::cse::Node::Sub { a: high, b: low });
-        let h_pc = r.add(crate::cse::Node::Sub { a: high, b: pc });
-        let hc = r.add(crate::cse::Node::Abs { src: h_pc });
-        let l_pc = r.add(crate::cse::Node::Sub { a: low, b: pc });
-        let lc = r.add(crate::cse::Node::Abs { src: l_pc });
-        let m1 = r.add(crate::cse::Node::Max { a: range, b: hc });
-        let tr = r.add(crate::cse::Node::Max { a: m1, b: lc });
-        let w = r.add(crate::cse::Node::Wilders {
-            src: tr,
-            period,
-            composite: false,
-            feed: false,
-        });
+        // Tr's declared inputs are (high, low, close) → parent streams 0/1/2.
+        let tr = r.sub::<Tr>(&[], &[0, 1, 2]);
+        // Atr = Wilders(tr): the standalone wilders chain with its price input
+        // bound to the tr node (composite/feed come from Wilders' own recipe).
+        let w = r.sub_at::<Wilders>(&[period as f64], &[tr]);
         r.kind = "atr";
         r.options = options.to_vec();
         r.outputs.push(crate::cse::Sink::iface_lead(w, period));
+        // Hand `Info::optional_outputs = ["tr"]`. Declaring it here means a
+        // consumer that composes atr via `sub_graph::<Atr>` gets `tr` for free
+        // (the sub exposes exactly its own optionals) — that is where adx's /
+        // natr's / supertrend's `tr` comes from, never a re-derived copy.
+        r.optional_outputs.push(crate::cse::Sink::iface_lead(tr, 1));
         r
     }
 }

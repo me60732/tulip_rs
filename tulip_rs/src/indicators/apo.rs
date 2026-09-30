@@ -185,14 +185,12 @@ impl Planable for Apo {
 
         let mut r = Recipe::new();
         let close = r.add(Node::Input { stream: 0 });
-        let s = r.add(Node::Ema {
-            src: close,
-            period: short,
-        });
-        let l = r.add(Node::Ema {
-            src: close,
-            period: long,
-        });
+        // The two EMA SUB-INDICATORS over `close` (Apo = short_ema − long_ema),
+        // composed via `sub_at` so `Ema::recipe` is their single source of
+        // truth. The grafted node has the SAME intern key as before, so the
+        // §4 identity (apo line ≡ macd_line ≡ ppo numerator) is unchanged.
+        let s = r.sub_at::<Ema>(&[short as f64], &[close]);
+        let l = r.sub_at::<Ema>(&[long as f64], &[close]);
         let line = r.add(Node::Sub { a: s, b: l });
 
         r.kind = "apo";

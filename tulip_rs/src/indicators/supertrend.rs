@@ -307,3 +307,48 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for SuperTrend {
         )
     }
 }
+
+// ── planner recipe (cse) ─────────────────────────────────────────────
+
+impl crate::cse::Planable for SuperTrend {
+    /// `SUPERTREND(p, step)` — the multi-value feedback band. Its three
+    /// inputs are all **shared nodes**: `atr` is the mean `Wilders(tr)`
+    /// (identical to `Natr`/`Atr` → dedup to one chain, the payoff the family
+    /// has been driving at), `med` is the `0.5·(high+low)` `Medprice` node
+    /// (dedups across every H/L chart), and `tr` is the shared true-range
+    /// subgraph. `st` itself is the bespoke `SuperTrend` op (4 carried states:
+    /// `prev_st/prev_ub/prev_lb` f64 + `trend` bool, mirroring the hand
+    /// `State`). Publish lead = `period` (hand `min_data = period+1`); the op
+    /// is defined from the atr seam `period−1` where it seeds one `calc_st`.
+    /// Emits `optional_outputs = [atr, tr, medprice]` (hand order) as mirrors.
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        let period = options[0] as u32;
+        let step = options[1];
+        let mut r = crate::cse::Recipe::new();
+        let close = r.add(crate::cse::Node::Input { stream: 2 });
+        // ATR (composed): atr's primary is the mean chain, and atr exposes
+        // `tr` as its own optional → both come from ONE sub-recipe, zero
+        // re-derived math. Medprice composed too (shared `0.5·(high+low)`).
+        let atr = r.sub_graph::<Atr>(&[period as f64], &[0, 1, 2]);
+        let atr_id = atr.primary;
+        let tr = atr.optional_at(0);
+        let med = r.sub::<Medprice>(&[], &[0, 1]);
+        // The feedback band op.
+        let st = r.add(crate::cse::Node::SuperTrend {
+            atr: atr_id,
+            med,
+            close,
+            period,
+            step_bits: step.to_bits(),
+        });
+        r.kind = "supertrend";
+        r.options = options.to_vec();
+        r.outputs.push(crate::cse::Sink::iface_lead(st, period));
+        // Hand optional_outputs order: [atr, tr, medprice].
+        r.optional_outputs
+            .push(crate::cse::Sink::iface_lead(atr_id, period));
+        r.optional_outputs.push(crate::cse::Sink::iface_lead(tr, 1));
+        r.optional_outputs.push(crate::cse::Sink::iface(med));
+        r
+    }
+}

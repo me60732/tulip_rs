@@ -122,6 +122,16 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     for (k, &j) in hmas.iter().enumerate() {
         hma_of[j] = k;
     }
+    // E7: supertrend carries THREE f64 band states + one i64-backed bool
+    // (trend) — a dedicated loop-param block, exactly like HMA's run.
+    let sups: Vec<usize> = (0..nops)
+        .filter(|&j| matches!(plan.ops[j].e, OpE::SuperTrend { .. }))
+        .collect();
+    let nsup = sups.len();
+    let mut sup_of = vec![usize::MAX; nops];
+    for (k, &j) in sups.iter().enumerate() {
+        sup_of[j] = k;
+    }
 
     // Value slots: [0..ngroups) = group vectors, then ungrouped ops in op
     // order. `cur[op]` remains the per-op scalar view for consumers.
@@ -165,6 +175,11 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
             // E6: Wilders folds its mean seed over bars 0..lead then decays
             // from bar lead+1 — the fold→steady seam.
             OpE::Wilders { .. } => Some(op.lead + 1),
+            // E7: supertrend idles until the atr seam (its `lead`), seeds one
+            // `calc_st` there, steady-decays after — the sink store lead
+            // (lead+1 = period) cuts the seed→steady seam, so only `lead`
+            // (idle→seed) is added here.
+            OpE::SuperTrend { .. } => Some(op.lead),
             _ => None,
         }))
         .collect();
@@ -230,6 +245,10 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     // i64 ring cursor run.
     pt.extend(std::iter::repeat(f64_t).take(6 * nh));
     pt.extend(std::iter::repeat(i64_t).take(nh));
+    // E7: per supertrend op — 3 carried f64 band states (prev_st/prev_ub/
+    // prev_lb) + one i64-backed bool (trend), threaded like HMA's run.
+    pt.extend(std::iter::repeat(f64_t).take(3 * nsup));
+    pt.extend(std::iter::repeat(i64_t).take(nsup));
     pt.push(i64_t);
     let nparam = pt.len();
     let ipos = nparam - 1;
@@ -238,6 +257,8 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     let auxpos = ppos + nsinks;
     let hpos = auxpos + nsq;
     let cpos = hpos + 6 * nh;
+    let spos = cpos + nh;
+    let tpos = spos + 3 * nsup;
 
     let entry = fb.create_block();
     let setup = fb.create_block();
@@ -320,6 +341,17 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
         }
         cursloads.push(ld(&mut fb, state, 8 * (base + 6), i64_t));
     }
+    // E7: per supertrend — three band-state words (f64 bits) + the trend word
+    // (i64 0/1).
+    let mut sloads: Vec<Value> = Vec::with_capacity(3 * nsup);
+    let mut tloads: Vec<Value> = Vec::with_capacity(nsup);
+    for &j in &sups {
+        let base = plan.ops[j].aux_word as i64;
+        for m in 0..3 {
+            sloads.push(ld(&mut fb, state, 8 * (base + m), f64_t));
+        }
+        tloads.push(ld(&mut fb, state, 8 * (base + 3), i64_t));
+    }
     let empty = fb.ins().icmp(IntCC::Equal, len, zero);
     let mut end_empty: Vec<Value> = Vec::with_capacity(nval);
     for g in 0..ngroups {
@@ -334,6 +366,8 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     end_empty.extend(sqloads.iter().copied());
     end_empty.extend(hloads.iter().copied());
     end_empty.extend(cursloads.iter().copied());
+    end_empty.extend(sloads.iter().copied());
+    end_empty.extend(tloads.iter().copied());
     end_empty.push(seeded);
     fb.ins()
         .brif(empty, end_bb, &ba(&end_empty), setup, &ba(&[]));
@@ -489,6 +523,20 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     }
     for k in 0..nh {
         let sel = fb.ins().select(is_seeded, cursloads[k], zero);
+        args.push(sel);
+    }
+    // E7 supertrend cold start mirrors hand `init_state`: prev_st = prev_ub =
+    // prev_lb = 0.0, trend = false (0). No p0 seeding — the feedback only runs
+    // from the atr seam (its `lead`), where the shared atr node already holds
+    // the mean seed.
+    for k in 0..nsup {
+        for m in 0..3 {
+            let sel = fb.ins().select(is_seeded, sloads[3 * k + m], hzero);
+            args.push(sel);
+        }
+    }
+    for k in 0..nsup {
+        let sel = fb.ins().select(is_seeded, tloads[k], zero);
         args.push(sel);
     }
     args.push(i0);
@@ -694,6 +742,10 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
         // param run must stay uniform across phase transitions).
         let mut h_lat: Vec<Option<Value>> = vec![None; 6 * nh];
         let mut c_lat: Vec<Option<Value>> = vec![None; nh];
+        // E7: supertrend's three band states + trend latch, likewise carried
+        // uniformly across every segment arm.
+        let mut s_lat: Vec<Option<Value>> = vec![None; 3 * nsup];
+        let mut t_lat: Vec<Option<Value>> = vec![None; nsup];
         // pair-vector results (vec Arith ops): consumed by lane via `alias`
         let mut vvec: Vec<Option<Value>> = vec![None; nops];
 
@@ -1189,6 +1241,56 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                     let first = lag_clamp[lag_of[j]];
                     fb.ins().select(warm, first, real)
                 }
+                OpE::SuperTrend {
+                    atr,
+                    med,
+                    close,
+                    step,
+                } => {
+                    let lead = plan.ops[j].lead as i64;
+                    let k = sup_of[j];
+                    let sb = 3 * k;
+                    if b < lead {
+                        // idle before the atr seam — carry the state words
+                        // through untouched, publish nothing.
+                        s_lat[sb] = Some(bp[spos + sb]);
+                        s_lat[sb + 1] = Some(bp[spos + sb + 1]);
+                        s_lat[sb + 2] = Some(bp[spos + sb + 2]);
+                        t_lat[k] = Some(bp[tpos + k]);
+                        fb.ins().f64const(0.0)
+                    } else {
+                        // `calc_st`, identical at the seed bar (b==lead, prev
+                        // all-zero) and every steady bar — mirrors the hand's
+                        // State::calc_st exactly.
+                        let prev_st = bp[spos + sb];
+                        let prev_ub = bp[spos + sb + 1];
+                        let prev_lb = bp[spos + sb + 2];
+                        let trend0 = fb.ins().icmp(IntCC::NotEqual, bp[tpos + k], zero);
+                        let atr_v = scalarize!(atr);
+                        let med_v = scalarize!(med);
+                        let close_v = scalarize!(close);
+                        let stepv = fb.ins().f64const(step);
+                        let w = fb.ins().fmul(stepv, atr_v);
+                        let ub_raw = fb.ins().fadd(med_v, w);
+                        let lb_raw = fb.ins().fsub(med_v, w);
+                        let cu = fb.ins().fcmp(FloatCC::GreaterThan, close_v, prev_st);
+                        let cd = fb.ins().fcmp(FloatCC::LessThan, close_v, prev_st);
+                        let notcd = fb.ins().bnot(cd);
+                        let held = fb.ins().band(trend0, notcd);
+                        let trend = fb.ins().bor(cu, held);
+                        let lb_clamp = fb.ins().fmax(prev_lb, lb_raw);
+                        let ub_clamp = fb.ins().fmin(prev_ub, ub_raw);
+                        let st = fb.ins().select(trend, lb_clamp, ub_clamp);
+                        let n_lb = fb.ins().select(trend, lb_clamp, lb_raw);
+                        let n_ub = fb.ins().select(trend, ub_raw, ub_clamp);
+                        let n_tr = fb.ins().select(trend, one, zero);
+                        s_lat[sb] = Some(st);
+                        s_lat[sb + 1] = Some(n_ub);
+                        s_lat[sb + 2] = Some(n_lb);
+                        t_lat[k] = Some(n_tr);
+                        st
+                    }
+                }
                 OpE::Const(v) => fb.ins().f64const(v),
             };
             cur[j] = Some(newv);
@@ -1235,6 +1337,12 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
         for k in 0..nh {
             la.push(c_lat[k].expect("hma cursors carry every segment"));
         }
+        for m in 0..3 * nsup {
+            la.push(s_lat[m].expect("supertrend band states carry every segment"));
+        }
+        for k in 0..nsup {
+            la.push(t_lat[k].expect("supertrend trend latch carries every segment"));
+        }
         la.push(i1);
         fb.ins().jump(head_bb[s], &ba(&la));
     }
@@ -1270,6 +1378,19 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
             );
         }
         st(&mut fb, state, 8 * (base + 6), endp[cpos + k]);
+    }
+    // E7: supertrend's three band states + trend latch back to its aux run.
+    for (k, &o) in sups.iter().enumerate() {
+        let base = plan.ops[o].aux_word as i64;
+        for m in 0..3 {
+            st(
+                &mut fb,
+                state,
+                8 * (base + m as i64),
+                endp[spos + 3 * k + m],
+            );
+        }
+        st(&mut fb, state, 8 * (base + 3), endp[tpos + k]);
     }
     for (si, &o) in op_of_slot.iter().enumerate() {
         if matches!(

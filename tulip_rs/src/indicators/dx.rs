@@ -5,6 +5,7 @@ pub use crate::indicator_types::IndicatorByOptions;
 pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 pub use crate::indicators::di::State as DiState;
+use crate::indicators::dm::Dm;
 use crate::indicators::tr::Tr;
 pub use crate::indicators::wilders::multiplier;
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
@@ -259,37 +260,14 @@ impl crate::cse::Planable for Dx {
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
         let period = options[0] as u32;
         let mut r = crate::cse::Recipe::new();
-        let high = r.add(crate::cse::Node::Input { stream: 0 });
-        let low = r.add(crate::cse::Node::Input { stream: 1 });
+        // The whole +DM/−DM composite-accumulator chain, composed from Dm's
+        // own recipe (single source of truth): outputs [dmup, dmdown]. Dm's
+        // inputs (high, low) bind to parent streams 0, 1. dx then reads the
+        // two accumulators — structurally identical to di's/adx's, so all
+        // three CSE-share the entire DM subgraph.
+        let dm = r.sub_graph::<Dm>(&[period as f64], &[0, 1]);
+        let (dmup, dmdown) = (dm.outputs[0], dm.outputs[1]);
         let zero = r.constant(0.0);
-        let ph = r.add(crate::cse::Node::Lag { src: high, n: 1 });
-        let pl = r.add(crate::cse::Node::Lag { src: low, n: 1 });
-        let up = r.add(crate::cse::Node::Sub { a: high, b: ph });
-        let down = r.add(crate::cse::Node::Sub { a: pl, b: low });
-        let up_pos = r.add(crate::cse::Node::Max { a: up, b: zero });
-        let down_pos = r.add(crate::cse::Node::Max { a: down, b: zero });
-        let dp = r.add(crate::cse::Node::WhereGe {
-            a: up,
-            b: down,
-            t: up_pos,
-        });
-        let dm = r.add(crate::cse::Node::WhereGe {
-            a: down,
-            b: up,
-            t: down_pos,
-        });
-        let dmup = r.add(crate::cse::Node::Wilders {
-            src: dp,
-            period,
-            composite: true,
-            feed: false,
-        });
-        let dmdown = r.add(crate::cse::Node::Wilders {
-            src: dm,
-            period,
-            composite: true,
-            feed: false,
-        });
         let dm_sub = r.add(crate::cse::Node::Sub { a: dmup, b: dmdown });
         let dm_diff = r.add(crate::cse::Node::Abs { src: dm_sub });
         let hundred = r.constant(100.0);

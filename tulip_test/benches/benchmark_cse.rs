@@ -27,6 +27,7 @@ use tulip_rs::indicators::natr::Natr;
 use tulip_rs::indicators::ppo::Ppo;
 use tulip_rs::indicators::sma::Sma;
 use tulip_rs::indicators::stddev::StdDev;
+use tulip_rs::indicators::supertrend::SuperTrend;
 use tulip_rs::indicators::tr::Tr;
 use tulip_rs::indicators::wilders::Wilders;
 use tulip_rs::indicators::wma::Wma;
@@ -49,16 +50,16 @@ fn asset(i: usize) -> Vec<f64> {
 /// classic query with EVERY declared optional mirrored on (E2c's shape).
 fn classic_request_all_on() -> Request {
     Request::new()
-        .add(Apo::recipe(&APO))
-        .add(Macd::recipe(&MACD))
-        .add(Ppo::recipe(&PPO))
+        .add_all(Apo::recipe(&APO))
+        .add_all(Macd::recipe(&MACD))
+        .add_all(Ppo::recipe(&PPO))
 }
 
 fn classic_request() -> Request {
     Request::new()
-        .add_opt(Apo::recipe(&APO), None)
-        .add_opt(Macd::recipe(&MACD), None)
-        .add_opt(Ppo::recipe(&PPO), None)
+        .add(Apo::recipe(&APO), None)
+        .add(Macd::recipe(&MACD), None)
+        .add(Ppo::recipe(&PPO), None)
 }
 
 /// Classic + `ema12`/`ema26` as standalone requests: the arena does NOT
@@ -67,8 +68,8 @@ fn classic_request() -> Request {
 /// The hand path pays two full extra `Ema::indicator` scans.
 fn plus_emas_request() -> Request {
     classic_request()
-        .add_opt(Ema::recipe(&[12.0]), None)
-        .add_opt(Ema::recipe(&[26.0]), None)
+        .add(Ema::recipe(&[12.0]), None)
+        .add(Ema::recipe(&[26.0]), None)
 }
 
 /// Dense dashboard: 11 distinct-period close EMAs (two Apo + two Ppo + two
@@ -77,12 +78,12 @@ fn plus_emas_request() -> Request {
 /// `indicator_by_options::<2>` lane packs.
 fn dense_request() -> Request {
     Request::new()
-        .add_opt(Apo::recipe(&[5.0, 8.0]), None)
-        .add_opt(Apo::recipe(&[6.0, 9.0]), None)
-        .add_opt(Ppo::recipe(&[9.0, 25.0]), None)
-        .add_opt(Ppo::recipe(&[10.0, 26.0]), None)
-        .add_opt(Macd::recipe(&[11.0, 23.0, 17.0]), None)
-        .add_opt(Macd::recipe(&[12.0, 24.0, 9.0]), None)
+        .add(Apo::recipe(&[5.0, 8.0]), None)
+        .add(Apo::recipe(&[6.0, 9.0]), None)
+        .add(Ppo::recipe(&[9.0, 25.0]), None)
+        .add(Ppo::recipe(&[10.0, 26.0]), None)
+        .add(Macd::recipe(&[11.0, 23.0, 17.0]), None)
+        .add(Macd::recipe(&[12.0, 24.0, 9.0]), None)
 }
 
 /// Plan-cache miss cost: compile the classic query from scratch per iter.
@@ -360,10 +361,10 @@ fn bench_rolling(c: &mut Criterion) {
     let series = asset(0);
     let inputs: [&[f64]; 1] = [series.as_slice()];
     let plan = Request::new()
-        .add_opt(Sma::recipe(&[20.0]), None)
-        .add_opt(StdDev::recipe(&[20.0]), None)
-        .add_opt(BBands::recipe(&[20.0, 2.0]), None)
-        .add_opt(Wma::recipe(&[20.0]), None)
+        .add(Sma::recipe(&[20.0]), None)
+        .add(StdDev::recipe(&[20.0]), None)
+        .add(BBands::recipe(&[20.0, 2.0]), None)
+        .add(Wma::recipe(&[20.0]), None)
         .build();
     let mut g = c.benchmark_group("rolling");
     g.sample_size(20);
@@ -395,10 +396,10 @@ fn bench_rolling(c: &mut Criterion) {
 fn bench_rolling_hma(c: &mut Criterion) {
     let series = asset(0);
     let inputs: [&[f64]; 1] = [series.as_slice()];
-    let plan = Request::new().add_opt(Hma::recipe(&[20.0]), None).build();
+    let plan = Request::new().add(Hma::recipe(&[20.0]), None).build();
     let plan_sma = Request::new()
-        .add_opt(Hma::recipe(&[20.0]), None)
-        .add_opt(Sma::recipe(&[20.0]), None)
+        .add(Hma::recipe(&[20.0]), None)
+        .add(Sma::recipe(&[20.0]), None)
         .build();
     let mut g = c.benchmark_group("rolling_hma");
     g.sample_size(20);
@@ -442,10 +443,10 @@ fn bench_rolling_hma_multi(c: &mut Criterion) {
     let series = asset(0);
     let inputs: [&[f64]; 1] = [series.as_slice()];
     let plan = Request::new()
-        .add_opt(Hma::recipe(&[9.0]), None)
-        .add_opt(Hma::recipe(&[12.0]), None)
-        .add_opt(Hma::recipe(&[20.0]), None)
-        .add_opt(Hma::recipe(&[50.0]), None)
+        .add(Hma::recipe(&[9.0]), None)
+        .add(Hma::recipe(&[12.0]), None)
+        .add(Hma::recipe(&[20.0]), None)
+        .add(Hma::recipe(&[50.0]), None)
         .build();
     let hma_opts: [&[f64; 1]; 4] = [&[9.0], &[12.0], &[20.0], &[50.0]];
     let mut g = c.benchmark_group("rolling_hma_multi");
@@ -501,24 +502,24 @@ fn bench_hma_group_dedup(c: &mut Criterion) {
     let series = asset(0);
     let inputs: [&[f64]; 1] = [series.as_slice()];
     // WMA engines: the prize unit + the free-dedup control.
-    let wma20 = Request::new().add_opt(Wma::recipe(&[20.0]), None).build();
+    let wma20 = Request::new().add(Wma::recipe(&[20.0]), None).build();
     let wma_dup = Request::new()
-        .add_opt(Wma::recipe(&[20.0]), None)
-        .add_opt(Wma::recipe(&[20.0]), None)
+        .add(Wma::recipe(&[20.0]), None)
+        .add(Wma::recipe(&[20.0]), None)
         .build();
     let wma20_30 = Request::new()
-        .add_opt(Wma::recipe(&[20.0]), None)
-        .add_opt(Wma::recipe(&[30.0]), None)
+        .add(Wma::recipe(&[20.0]), None)
+        .add(Wma::recipe(&[30.0]), None)
         .build();
     // The actual dedup target: HMA(20) shares its state1 Wma(20) engine.
-    let hma20 = Request::new().add_opt(Hma::recipe(&[20.0]), None).build();
+    let hma20 = Request::new().add(Hma::recipe(&[20.0]), None).build();
     let hma20_wma20 = Request::new()
-        .add_opt(Hma::recipe(&[20.0]), None)
-        .add_opt(Wma::recipe(&[20.0]), None)
+        .add(Hma::recipe(&[20.0]), None)
+        .add(Wma::recipe(&[20.0]), None)
         .build();
     let hma20_sma20 = Request::new()
-        .add_opt(Hma::recipe(&[20.0]), None)
-        .add_opt(Sma::recipe(&[20.0]), None)
+        .add(Hma::recipe(&[20.0]), None)
+        .add(Sma::recipe(&[20.0]), None)
         .build();
     let mut g = c.benchmark_group("hma_group_dedup");
     g.sample_size(20);
@@ -577,13 +578,11 @@ fn bench_hma_group_dedup(c: &mut Criterion) {
 fn bench_rolling_wilders(c: &mut Criterion) {
     let series = asset(0);
     let inputs: [&[f64]; 1] = [series.as_slice()];
-    let single = Request::new()
-        .add_opt(Wilders::recipe(&[14.0]), None)
-        .build();
+    let single = Request::new().add(Wilders::recipe(&[14.0]), None).build();
     // two independent Wilders chains (different periods) in ONE fused loop
     let dual = Request::new()
-        .add_opt(Wilders::recipe(&[14.0]), None)
-        .add_opt(Wilders::recipe(&[28.0]), None)
+        .add(Wilders::recipe(&[14.0]), None)
+        .add(Wilders::recipe(&[28.0]), None)
         .build();
     let mut g = c.benchmark_group("rolling_wilders");
     g.sample_size(20);
@@ -632,11 +631,11 @@ fn bench_rolling_atr(c: &mut Criterion) {
     let lo: Vec<f64> = hi.iter().map(|v| v * 0.97 - 2.0).collect();
     let cl: Vec<f64> = (0..BARS).map(|i| lo[i] + (hi[i] - lo[i]) * 0.5).collect();
     let inputs: [&[f64]; 3] = [hi.as_slice(), lo.as_slice(), cl.as_slice()];
-    let single = Request::new().add_opt(Atr::recipe(&[14.0]), None).build();
+    let single = Request::new().add(Atr::recipe(&[14.0]), None).build();
     // tr + atr(14) share the tr subgraph → one fused loop, tr rolled once.
     let shared = Request::new()
-        .add(Tr::recipe(&[]))
-        .add_opt(Atr::recipe(&[14.0]), None)
+        .add(Tr::recipe(&[]), None)
+        .add(Atr::recipe(&[14.0]), None)
         .build();
     let mut g = c.benchmark_group("rolling_atr");
     g.sample_size(20);
@@ -673,28 +672,44 @@ fn bench_rolling_atr(c: &mut Criterion) {
     g.finish();
 }
 
-/// E6 ADX family — the fusion prize. `dm`+`di`+`dx`+`adx` ALL read the same
-/// `+DM`/`−DM` composite-accumulator subgraph (deduped by CSE) plus the shared
-/// TR→sum-ATR, so ONE fused loop computes directional movement once for all
-/// four; the hand runs four INDEPENDENT full passes (each re-folds the DM
-/// chain). Same shape for the volatility pair `natr`+`atr` (share the whole tr
-/// subgraph + the mean-ATR chain). This is the workload reduction the JIT wins
-/// on — NOT the single-vs-single floor the standalone rows above show.
+/// E6 ADX family — the fusion prize, AND its boundary. `dm`+`di`+`dx`+`adx`
+/// ALL read the same `+DM`/`−DM` composite-accumulator subgraph (deduped by
+/// CSE) plus the shared TR→sum-ATR, so ONE fused loop rolls directional
+/// movement once for all four; the hand runs four INDEPENDENT full passes (each
+/// re-folds the DM chain) → the JIT wins ~1.5×. The `natr`+`adx` pair is the
+/// CONTRAST: they share the stateless `tr` subgraph (both fold it) but NOT the
+/// ATR recurrence — natr's is the MEAN/calc `Wilders(tr)`, adx's internal one is
+/// the SUM/partial-calc `Wilders(tr)` (different `composite` nodes). So the only
+/// dedup is `tr` (~7 ops), a small slice of two otherwise-heavy chains → the
+/// fused loop serializes both bodies (register pressure) and the hand wins.
+/// Lesson: fusion pays off when the SHARED work is a LARGE fraction of the cost
+/// (the DM chain ×4), not a minor stateless prefix between two big chains.
+/// (A `natr`+`atr` pair would be meaningless — `atr` is `natr`'s own optional
+/// output, so no dashboard emits both as separate indicators.)
 fn bench_rolling_adx(c: &mut Criterion) {
     let hi = asset(0);
     let lo: Vec<f64> = hi.iter().map(|v| v * 0.97 - 2.0).collect();
     let cl: Vec<f64> = (0..BARS).map(|i| lo[i] + (hi[i] - lo[i]) * 0.5).collect();
     let three: [&[f64]; 3] = [hi.as_slice(), lo.as_slice(), cl.as_slice()];
     let two: [&[f64]; 2] = [hi.as_slice(), lo.as_slice()];
+    // PRIMARY-ONLY everywhere (`add(_, None)`) — the default workload a
+    // dashboard requests; optionals only ON when the bench is specifically
+    // about the optional switch. Both hand + jit sides emit the SAME rows.
+    // trend: dm+di+dx+adx all read the SAME +DM/−DM accumulator subgraph
+    // (CSE-deduped) → one fused loop rolls directional movement once, where
+    // the hand runs four INDEPENDENT full passes. THIS is the shared-chain win.
     let trend = Request::new()
-        .add(Dm::recipe(&[14.0]))
-        .add(Di::recipe(&[14.0]))
-        .add(Dx::recipe(&[14.0]))
-        .add(Adx::recipe(&[14.0]))
+        .add(Dm::recipe(&[14.0]), None)
+        .add(Di::recipe(&[14.0]), None)
+        .add(Dx::recipe(&[14.0]), None)
+        .add(Adx::recipe(&[14.0]), None)
         .build();
+    // natr + adx: their VALUES share nothing (adx is dm→dx→adx-mean; natr is
+    // tr→mean-ATR) — only the raw price streams. The honest "no shared chain"
+    // contrast to `trend`.
     let vol = Request::new()
-        .add(Natr::recipe(&[14.0]))
-        .add(Atr::recipe(&[14.0]))
+        .add(Natr::recipe(&[14.0]), None)
+        .add(Adx::recipe(&[14.0]), None)
         .build();
     let mut g = c.benchmark_group("rolling_adx");
     g.sample_size(20);
@@ -704,29 +719,79 @@ fn bench_rolling_adx(c: &mut Criterion) {
             let d = Di::indicator(&three, &[14.0], None).unwrap();
             let x = Dx::indicator(&three, &[14.0], None).unwrap();
             let s = Adx::indicator(&three, &[14.0], None).unwrap();
-            black_box(a.0[0].len() + d.0[0].len() + x.0[0].len() + s.0[0].len())
+            black_box((a.0[0].len(), d.0[0].len(), x.0[0].len(), s.0[0].len()))
         })
     });
     g.bench_function("jit_dm_di_dx_adx", |b| {
         b.iter(|| {
             let (res, qs) = trend.run(&three);
-            let t = res.outputs[0][0].len()
-                + res.outputs[1][0].len()
-                + res.outputs[2][0].len()
-                + res.outputs[3][0].len();
-            black_box((t, qs.next_bar()))
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
         })
     });
-    g.bench_function("hand_natr_plus_atr", |b| {
+    g.bench_function("hand_natr_plus_adx", |b| {
         b.iter(|| {
             let n = Natr::indicator(&three, &[14.0], None).unwrap();
-            let a = Atr::indicator(&three, &[14.0], None).unwrap();
-            black_box(n.0[0].len() + a.0[0].len())
+            let a = Adx::indicator(&three, &[14.0], None).unwrap();
+            black_box((n.0[0].len(), a.0[0].len()))
         })
     });
-    g.bench_function("jit_natr_plus_atr", |b| {
+    g.bench_function("jit_natr_plus_adx", |b| {
         b.iter(|| {
             let (res, qs) = vol.run(&three);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    g.finish();
+}
+
+/// E7 multi-value feedback op + its fusion payoff. Standalone `supertrend`
+/// is the expected floor (one hand tight loop vs one cranelift loop). The
+/// PRIZE is `natr`+`supertrend`: BOTH read the mean `Wilders(tr)` ATR node and
+/// the `tr`/`medprice` subgraphs, so CSE dedups them to ONE chain — a
+/// `natr`+`supertrend` query computes true range AND the ATR fold ONCE, where
+/// the hand runs two passes each recomputing them. Unlike natr+adx (disjoint
+/// ATR recurrences), here the shared work is the FULL atr chain, so the fused
+/// loop should win.
+fn bench_rolling_st(c: &mut Criterion) {
+    let hi = asset(0);
+    let lo: Vec<f64> = hi.iter().map(|v| v * 0.97 - 2.0).collect();
+    let cl: Vec<f64> = (0..BARS).map(|i| lo[i] + (hi[i] - lo[i]) * 0.5).collect();
+    let three: [&[f64]; 3] = [hi.as_slice(), lo.as_slice(), cl.as_slice()];
+    let st_only = Request::new()
+        .add(SuperTrend::recipe(&[14.0, 3.0]), None)
+        .build();
+    // natr + supertrend: BOTH consume the mean `Wilders(tr)` ATR node → the
+    // fused loop dedups the WHOLE atr chain (one level up from `tr`), where
+    // the hand runs two passes each recomputing tr + the atr fold. Primary-only
+    // both sides (`add(_, None)`).
+    let vol_trend = Request::new()
+        .add(Natr::recipe(&[14.0]), None)
+        .add(SuperTrend::recipe(&[14.0, 3.0]), None)
+        .build();
+    let mut g = c.benchmark_group("rolling_st");
+    g.sample_size(20);
+    g.bench_function("hand_supertrend", |b| {
+        b.iter(|| {
+            let s = SuperTrend::indicator(&three, &[14.0, 3.0], None).unwrap();
+            black_box(s.0[0].len())
+        })
+    });
+    g.bench_function("jit_supertrend", |b| {
+        b.iter(|| {
+            let (res, qs) = st_only.run(&three);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    g.bench_function("hand_natr_plus_supertrend", |b| {
+        b.iter(|| {
+            let n = Natr::indicator(&three, &[14.0], None).unwrap();
+            let s = SuperTrend::indicator(&three, &[14.0, 3.0], None).unwrap();
+            black_box(n.0[0].len() + s.0[0].len())
+        })
+    });
+    g.bench_function("jit_natr_plus_supertrend", |b| {
+        b.iter(|| {
+            let (res, qs) = vol_trend.run(&three);
             black_box((
                 res.outputs[0][0].len() + res.outputs[1][0].len(),
                 qs.next_bar(),
@@ -745,10 +810,10 @@ fn bench_multi_input(c: &mut Criterion) {
     let hi = asset(0);
     let lo: Vec<f64> = hi.iter().map(|v| v * 0.98 - 1.0).collect();
     let two: [&[f64]; 2] = [hi.as_slice(), lo.as_slice()];
-    let med = Request::new().add(Medprice::recipe(&[])).build();
+    let med = Request::new().add(Medprice::recipe(&[]), None).build();
     let fused = Request::new()
-        .add(Medprice::recipe(&[]))
-        .add_opt(Ema::recipe(&[12.0]), None)
+        .add(Medprice::recipe(&[]), None)
+        .add(Ema::recipe(&[12.0]), None)
         .build();
     let mut g = c.benchmark_group("multi_input");
     g.sample_size(20);
@@ -787,13 +852,13 @@ fn bench_rolling_mixed(c: &mut Criterion) {
     let series = asset(0);
     let inputs: [&[f64]; 1] = [series.as_slice()];
     let plan = Request::new()
-        .add_opt(Sma::recipe(&[5.0]), None)
-        .add_opt(Wma::recipe(&[8.0]), None)
-        .add_opt(StdDev::recipe(&[14.0]), None)
-        .add_opt(Sma::recipe(&[20.0]), None)
-        .add_opt(StdDev::recipe(&[20.0]), None)
-        .add_opt(BBands::recipe(&[20.0, 2.5]), None)
-        .add_opt(Wma::recipe(&[26.0]), None)
+        .add(Sma::recipe(&[5.0]), None)
+        .add(Wma::recipe(&[8.0]), None)
+        .add(StdDev::recipe(&[14.0]), None)
+        .add(Sma::recipe(&[20.0]), None)
+        .add(StdDev::recipe(&[20.0]), None)
+        .add(BBands::recipe(&[20.0, 2.5]), None)
+        .add(Wma::recipe(&[26.0]), None)
         .build();
     let mut g = c.benchmark_group("rolling_mixed");
     g.sample_size(20);
@@ -852,6 +917,7 @@ criterion_group!(
     bench_rolling_wilders,
     bench_rolling_atr,
     bench_rolling_adx,
+    bench_rolling_st,
     bench_multi_input,
     bench_rolling_mixed,
     bench_tick

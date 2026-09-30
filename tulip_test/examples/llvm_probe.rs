@@ -457,12 +457,12 @@ fn main() {
     // SAME-SHAPE cranelift twin of the probe loop: six APO lines = 12 price
     // chains, 6 (paired) subs, 6 walking stores — op-for-op the probe's job
     let twin = Request::new()
-        .add_opt(Apo::recipe(&[5.0, 8.0]), None)
-        .add_opt(Apo::recipe(&[6.0, 9.0]), None)
-        .add_opt(Apo::recipe(&[11.0, 23.0]), None)
-        .add_opt(Apo::recipe(&[10.0, 26.0]), None)
-        .add_opt(Apo::recipe(&[9.0, 25.0]), None)
-        .add_opt(Apo::recipe(&[12.0, 24.0]), None);
+        .add(Apo::recipe(&[5.0, 8.0]), None)
+        .add(Apo::recipe(&[6.0, 9.0]), None)
+        .add(Apo::recipe(&[11.0, 23.0]), None)
+        .add(Apo::recipe(&[10.0, 26.0]), None)
+        .add(Apo::recipe(&[9.0, 25.0]), None)
+        .add(Apo::recipe(&[12.0, 24.0]), None);
     let t = Instant::now();
     let twin_plan = twin.build();
     let twin_compile = t.elapsed().as_secs_f64() * 1e6;
@@ -482,12 +482,12 @@ fn main() {
         "clif-twin", twin_compile, twin_us, twin_us * 1000.0 / BARS as f64, "suite ✅"
     );
     let dense = Request::new()
-        .add_opt(Apo::recipe(&[5.0, 8.0]), None)
-        .add_opt(Apo::recipe(&[6.0, 9.0]), None)
-        .add_opt(Ppo::recipe(&[9.0, 25.0]), None)
-        .add_opt(Ppo::recipe(&[10.0, 26.0]), None)
-        .add_opt(Macd::recipe(&[11.0, 23.0, 17.0]), None)
-        .add_opt(Macd::recipe(&[12.0, 24.0, 9.0]), None);
+        .add(Apo::recipe(&[5.0, 8.0]), None)
+        .add(Apo::recipe(&[6.0, 9.0]), None)
+        .add(Ppo::recipe(&[9.0, 25.0]), None)
+        .add(Ppo::recipe(&[10.0, 26.0]), None)
+        .add(Macd::recipe(&[11.0, 23.0, 17.0]), None)
+        .add(Macd::recipe(&[12.0, 24.0, 9.0]), None);
     let t = Instant::now();
     let plan = dense.build();
     let clif_compile = t.elapsed().as_secs_f64() * 1e6;

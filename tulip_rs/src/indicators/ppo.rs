@@ -240,14 +240,12 @@ impl Planable for Ppo {
 
         let mut r = Recipe::new();
         let close = r.add(Node::Input { stream: 0 });
-        let s = r.add(Node::Ema {
-            src: close,
-            period: short,
-        });
-        let l = r.add(Node::Ema {
-            src: close,
-            period: long,
-        });
+        // The two EMA SUB-INDICATORS over `close`, composed via `sub_at`
+        // (Ema::recipe = single source of truth; ppo depends on the EMAs, not
+        // Apo). Same intern keys → the `(s − l)` numerator still shares ONE node
+        // with apo/macd (§4).
+        let s = r.sub_at::<Ema>(&[short as f64], &[close]);
+        let l = r.sub_at::<Ema>(&[long as f64], &[close]);
         let line = r.add(Node::Sub { a: s, b: l });
         let eps = r.constant(f64::EPSILON);
         let l_c = r.add(Node::Max { a: l, b: eps });

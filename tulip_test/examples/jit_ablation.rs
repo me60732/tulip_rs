@@ -50,25 +50,25 @@ fn main() {
     let close = series();
     let s: [&[f64]; 1] = [close.as_slice()];
 
-    let ema = Request::new().add_opt(Ema::recipe(&[12.0]), None).build();
+    let ema = Request::new().add(Ema::recipe(&[12.0]), None).build();
     let ema2 = Request::new()
-        .add_opt(Ema::recipe(&[12.0]), None)
-        .add_opt(Ema::recipe(&[26.0]), None)
+        .add(Ema::recipe(&[12.0]), None)
+        .add(Ema::recipe(&[26.0]), None)
         .build();
     let apo = Request::new()
-        .add_opt(Apo::recipe(&[12.0, 26.0]), None)
+        .add(Apo::recipe(&[12.0, 26.0]), None)
         .build();
     let apo_ppo = Request::new()
-        .add_opt(Apo::recipe(&[12.0, 26.0]), None)
-        .add_opt(Ppo::recipe(&[12.0, 26.0]), None)
+        .add(Apo::recipe(&[12.0, 26.0]), None)
+        .add(Ppo::recipe(&[12.0, 26.0]), None)
         .build();
     let macd = Request::new()
-        .add_opt(Macd::recipe(&[12.0, 26.0, 9.0]), None)
+        .add(Macd::recipe(&[12.0, 26.0, 9.0]), None)
         .build();
     let classic = Request::new()
-        .add_opt(Apo::recipe(&[12.0, 26.0]), None)
-        .add_opt(Macd::recipe(&[12.0, 26.0, 9.0]), None)
-        .add_opt(Ppo::recipe(&[12.0, 26.0]), None)
+        .add(Apo::recipe(&[12.0, 26.0]), None)
+        .add(Macd::recipe(&[12.0, 26.0, 9.0]), None)
+        .add(Ppo::recipe(&[12.0, 26.0]), None)
         .build();
 
     time("1 jit ema12", || {
@@ -116,9 +116,9 @@ fn main() {
     // E2 asset lanes: same classic query, 8 symbols in one fused plan
     // (same series fed to every lane — shape is what times).
     let lanes8 = Request::new()
-        .add_opt(Apo::recipe(&[12.0, 26.0]), None)
-        .add_opt(Macd::recipe(&[12.0, 26.0, 9.0]), None)
-        .add_opt(Ppo::recipe(&[12.0, 26.0]), None)
+        .add(Apo::recipe(&[12.0, 26.0]), None)
+        .add(Macd::recipe(&[12.0, 26.0, 9.0]), None)
+        .add(Ppo::recipe(&[12.0, 26.0]), None)
         .build_assets(8);
     println!("assets8 lanes: {:?} ({} vector subs)", lanes8.lanes(), lanes8.vec_subs());
     time("7 jit assets8 lanes", || {
@@ -135,12 +135,12 @@ fn main() {
 
     // ...and the dense dashboard's, to audit the extract/insert traffic.
     let dense = Request::new()
-        .add_opt(Apo::recipe(&[5.0, 8.0]), None)
-        .add_opt(Apo::recipe(&[6.0, 9.0]), None)
-        .add_opt(Ppo::recipe(&[9.0, 25.0]), None)
-        .add_opt(Ppo::recipe(&[10.0, 26.0]), None)
-        .add_opt(Macd::recipe(&[11.0, 23.0, 17.0]), None)
-        .add_opt(Macd::recipe(&[12.0, 24.0, 9.0]), None)
+        .add(Apo::recipe(&[5.0, 8.0]), None)
+        .add(Apo::recipe(&[6.0, 9.0]), None)
+        .add(Ppo::recipe(&[9.0, 25.0]), None)
+        .add(Ppo::recipe(&[10.0, 26.0]), None)
+        .add(Macd::recipe(&[11.0, 23.0, 17.0]), None)
+        .add(Macd::recipe(&[12.0, 24.0, 9.0]), None)
         .build();
     println!("dense lanes: {:?}", dense.lanes());
     time("9 jit dense", || {

@@ -50,6 +50,14 @@ impl Merged {
                 // A delayed read of a stream first has a value once the
                 // stream is `n` bars old.
                 Node::Lag { src, n } => leads[src as usize] + n,
+                // Supertrend's first bar is the atr seam (the single seed
+                // `calc_st`), so its defined-from = the atr's lead (max of its
+                // three node inputs; the atr chain dominates).
+                Node::SuperTrend {
+                    atr, med, close, ..
+                } => leads[atr as usize]
+                    .max(leads[med as usize])
+                    .max(leads[close as usize]),
                 Node::Sma { src, period }
                 | Node::Stddev { src, period }
                 | Node::Wma { src, period } => leads[src as usize] + period.saturating_sub(1),
@@ -128,54 +136,42 @@ fn intern(arena: &mut Vec<Node>, cache: &mut HashMap<Node, Id>, node: Node) -> I
     id
 }
 
-/// Rewrite a recipe-local node into its globally-shaped form.
-///
-/// **Refs (→ `l2g[...]`):** `Ema{src}`, `Sub/Mul/Div/Max{a,b}`,
-/// `HighPass{input}`, `SuperSmoother{src}`, `HtInPhase/HtQuadrature{src}`.
-/// **Params (copy):** `Input{stream}`, `Const{bits}`, every `period`.
+/// Rewrite a recipe-local node into its globally-shaped form, mapping every
+/// child ref through `g` (slice wrapper for the merge pass).
 fn remap(node: &Node, l2g: &[Id]) -> Node {
+    remap_node(node, &|id| l2g[id as usize])
+}
+
+/// The one child-id-remapping truth, shared by merge (local→global) and
+/// [`Recipe::sub`](crate::cse::Recipe::sub) (sub-local→parent-local graft).
+/// **Refs (→ `g`):** `Ema{src}`, `Sub/Add/Mul/Div/Max{a,b}`, `WhereGe{a,b,t}`,
+/// `Abs/Lag/Sqrt{src}`, `Sma/Stddev/Wma/Hma{src,period}`, `Wilders{..}`,
+/// `SuperTrend{atr,med,close}`, `Fma{a,b,c}`, `HighPass/SuperSmoother`,
+/// `Ht*{src}`. **Params (copy):** `Input{stream}`, `Const{bits}`, every
+/// `period`, `Lag{n}`, `SuperTrend{step_bits}`.
+pub(crate) fn remap_node(node: &Node, g: &dyn Fn(Id) -> Id) -> Node {
     use Node::*;
     match *node {
         Input { stream } => Input { stream },
         Const { bits } => Const { bits },
         Ema { src, period } => Ema {
-            src: l2g[src as usize],
+            src: g(src),
             period,
         },
-        Sub { a, b } => Sub {
-            a: l2g[a as usize],
-            b: l2g[b as usize],
-        },
-        Add { a, b } => Add {
-            a: l2g[a as usize],
-            b: l2g[b as usize],
-        },
-        Mul { a, b } => Mul {
-            a: l2g[a as usize],
-            b: l2g[b as usize],
-        },
-        Div { a, b } => Div {
-            a: l2g[a as usize],
-            b: l2g[b as usize],
-        },
+        Sub { a, b } => Sub { a: g(a), b: g(b) },
+        Add { a, b } => Add { a: g(a), b: g(b) },
+        Mul { a, b } => Mul { a: g(a), b: g(b) },
+        Div { a, b } => Div { a: g(a), b: g(b) },
         WhereGe { a, b, t } => WhereGe {
-            a: l2g[a as usize],
-            b: l2g[b as usize],
-            t: l2g[t as usize],
+            a: g(a),
+            b: g(b),
+            t: g(t),
         },
-        Abs { src } => Abs {
-            src: l2g[src as usize],
-        },
-        Lag { src, n } => Lag {
-            src: l2g[src as usize],
-            n,
-        },
-        Max { a, b } => Max {
-            a: l2g[a as usize],
-            b: l2g[b as usize],
-        },
+        Abs { src } => Abs { src: g(src) },
+        Lag { src, n } => Lag { src: g(src), n },
+        Max { a, b } => Max { a: g(a), b: g(b) },
         Hma { src, period } => Hma {
-            src: l2g[src as usize],
+            src: g(src),
             period,
         },
         Wilders {
@@ -184,45 +180,52 @@ fn remap(node: &Node, l2g: &[Id]) -> Node {
             composite,
             feed,
         } => Wilders {
-            src: l2g[src as usize],
+            src: g(src),
             period,
             composite,
             feed,
         },
+        SuperTrend {
+            atr,
+            med,
+            close,
+            period,
+            step_bits,
+        } => SuperTrend {
+            atr: g(atr),
+            med: g(med),
+            close: g(close),
+            period,
+            step_bits,
+        },
         Wma { src, period } => Wma {
-            src: l2g[src as usize],
+            src: g(src),
             period,
         },
         Sma { src, period } => Sma {
-            src: l2g[src as usize],
+            src: g(src),
             period,
         },
         Stddev { src, period } => Stddev {
-            src: l2g[src as usize],
+            src: g(src),
             period,
         },
-        Sqrt { src } => Sqrt {
-            src: l2g[src as usize],
-        },
+        Sqrt { src } => Sqrt { src: g(src) },
         Fma { a, b, c } => Fma {
-            a: l2g[a as usize],
-            b: l2g[b as usize],
-            c: l2g[c as usize],
+            a: g(a),
+            b: g(b),
+            c: g(c),
         },
         HighPass { input, period } => HighPass {
-            input: l2g[input as usize],
+            input: g(input),
             period,
         },
         SuperSmoother { src, period } => SuperSmoother {
-            src: l2g[src as usize],
+            src: g(src),
             period,
         },
-        HtInPhase { src } => HtInPhase {
-            src: l2g[src as usize],
-        },
-        HtQuadrature { src } => HtQuadrature {
-            src: l2g[src as usize],
-        },
+        HtInPhase { src } => HtInPhase { src: g(src) },
+        HtQuadrature { src } => HtQuadrature { src: g(src) },
     }
 }
 

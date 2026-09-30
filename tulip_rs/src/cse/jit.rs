@@ -243,6 +243,23 @@ enum OpE {
     Sqrt { src: usize },
     /// A `Node::Const` leaf — materialized, rematerialized by RA at use.
     Const(f64),
+    /// `supertrend(period, step)` — the hand's multi-value feedback band
+    /// (E7). `atr`/`med` are resolved operand op-ids (both may be derived
+    /// nodes — the shared mean-`Wilders(tr)` and `0.5·(high+low)` medprice);
+    /// `close` is a price-stream slot (`PRICE - …`). Carries FOUR loop params
+    /// in a dedicated `spos` block mirroring hand `State`: three f64
+    /// (`prev_st`/`prev_ub`/`prev_lb`) + one i64-backed `bool` (`trend`, same
+    /// 0/1 convention as `seeded`). The per-bar value `st` is `cur[j]` (a sink
+    /// source), NOT a loop param — like HMA, whose value is likewise fresh
+    /// each bar. `feed` = its source lead (the atr seam): it seeds one
+    /// `calc_st` there then steady-decays; `seam = op.lead` (derived from
+    /// `period` by the merge pass, so `period` itself is not re-carried).
+    SuperTrend {
+        atr: usize,
+        med: usize,
+        close: usize,
+        step: f64,
+    },
 }
 
 /// `alias`/lane sentinel: "the op's own scalar value".
@@ -588,6 +605,22 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
                         }
                     );
                 }
+                Node::SuperTrend {
+                    atr,
+                    med,
+                    close,
+                    step_bits,
+                    ..
+                } => push!(
+                    s,
+                    id,
+                    OpE::SuperTrend {
+                        atr: node_op[s][atr as usize],
+                        med: node_op[s][med as usize],
+                        close: node_op[s][close as usize],
+                        step: f64::from_bits(step_bits),
+                    }
+                ),
                 Node::Wma { src, period } => {
                     let src_op = node_op[s][src as usize];
                     assert!(
@@ -916,6 +949,16 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
                 op.aux_word = word_next;
                 word_next += 7 + psqrt as usize;
                 pmax = pmax.max(period as usize);
+            }
+            // E7: supertrend carries FOUR feedback words — `prev_st`,
+            // `prev_ub`, `prev_lb` (f64 bits) + `trend` (i64 0/1), mirroring
+            // hand `State` — in its own `aux_word` run (threaded as the
+            // `spos` loop-param block). No anchor history (it reads the atr
+            // NODE value, not a price tail).
+            OpE::SuperTrend { .. } => {
+                op.aux_word = word_next;
+                word_next += 4;
+                op.roll_leader = usize::MAX;
             }
             // E6: a delayed read widens the anchor window to reach `n` bars
             // back; it has no accumulator of its own.
@@ -1441,11 +1484,29 @@ mod tests {
         }
     }
 
+    /// Compare two rows to a relative tolerance. Used for the adx/dx `atr`
+    /// MIRROR: the engine emits the shared MEAN-ATR chain (deduped with natr),
+    /// whereas the hand's adx mirror is the `sum·inv` approximation — the two
+    /// agree to ~1e-16, and the project's own oracle (`adx_test`/`natr_test`)
+    /// validates that ATR against C-tulip `ti_atr` at 1e-12, NOT bit-exact.
+    fn cmp_within(a: &[f64], b: &[f64], eps: f64, what: &str) {
+        assert_eq!(a.len(), b.len(), "{what}: len {} vs {}", a.len(), b.len());
+        for i in 0..a.len() {
+            let scale = a[i].abs().max(1.0);
+            assert!(
+                (a[i] - b[i]).abs() <= eps * scale,
+                "{what}: mismatch at {i}: {:?} vs {:?}",
+                a[i],
+                b[i]
+            );
+        }
+    }
+
     fn classic() -> Request {
         Request::new()
-            .add_opt(Apo::recipe(&APO), None)
-            .add_opt(Ppo::recipe(&PPO), None)
-            .add_opt(Macd::recipe(&MACD), None)
+            .add(Apo::recipe(&APO), None)
+            .add(Ppo::recipe(&PPO), None)
+            .add(Macd::recipe(&MACD), None)
     }
 
     /// The engine gate: the fused compiled loop over the CSE'd arena matches
@@ -1522,11 +1583,11 @@ mod tests {
         let close = series(500);
         let s: [&[f64]; 1] = [close.as_slice()];
         let plan = Request::new()
-            .add(Apo::recipe(&APO))
-            .add(Ppo::recipe(&PPO))
-            .add(Macd::recipe(&MACD))
-            .add_opt(Ema::recipe(&[12.0]), None)
-            .add_opt(Ema::recipe(&[26.0]), None)
+            .add_all(Apo::recipe(&APO))
+            .add_all(Ppo::recipe(&PPO))
+            .add_all(Macd::recipe(&MACD))
+            .add(Ema::recipe(&[12.0]), None)
+            .add(Ema::recipe(&[26.0]), None)
             .build();
         let (res, st) = plan.run(&s);
 
@@ -1594,12 +1655,12 @@ mod tests {
         let close = series(500);
         let s: [&[f64]; 1] = [close.as_slice()];
         let plan = Request::new()
-            .add_opt(Apo::recipe(&[5.0, 8.0]), None)
-            .add_opt(Apo::recipe(&[6.0, 9.0]), None)
-            .add_opt(Ppo::recipe(&[9.0, 25.0]), None)
-            .add_opt(Ppo::recipe(&[10.0, 26.0]), None)
-            .add_opt(Macd::recipe(&[11.0, 23.0, 17.0]), None)
-            .add_opt(Macd::recipe(&[12.0, 24.0, 9.0]), None)
+            .add(Apo::recipe(&[5.0, 8.0]), None)
+            .add(Apo::recipe(&[6.0, 9.0]), None)
+            .add(Ppo::recipe(&[9.0, 25.0]), None)
+            .add(Ppo::recipe(&[10.0, 26.0]), None)
+            .add(Macd::recipe(&[11.0, 23.0, 17.0]), None)
+            .add(Macd::recipe(&[12.0, 24.0, 9.0]), None)
             .build();
         let (res, _) = plan.run(&s);
 
@@ -1654,7 +1715,7 @@ mod tests {
             .collect();
         let s: [&[f64]; 1] = [tiny.as_slice()];
         let plan = Request::new()
-            .add_opt(Ppo::recipe(&PPO), Some(&[true, true]))
+            .add(Ppo::recipe(&PPO), Some(&[true, true]))
             .build();
         let (res, _) = plan.run(&s);
         let ppo = Ppo::indicator(&s, &PPO, Some(&[true, true])).unwrap().0;
@@ -1671,9 +1732,9 @@ mod tests {
     #[test]
     fn jit_classic_interns_one_sub_for_three_indicators() {
         let plan = Request::new()
-            .add(Apo::recipe(&APO))
-            .add(Ppo::recipe(&PPO))
-            .add(Macd::recipe(&MACD))
+            .add_all(Apo::recipe(&APO))
+            .add_all(Ppo::recipe(&PPO))
+            .add_all(Macd::recipe(&MACD))
             .build();
         let (nops, nsinks) = plan.info();
         // Classic arena as NODES: Input, ema12, ema26, ONE shared line Sub,
@@ -1720,12 +1781,12 @@ mod tests {
         );
         assert_eq!(classic().build().vec_subs(), 0, "lone sub stays scalar");
         let dense = Request::new()
-            .add_opt(Apo::recipe(&[5.0, 8.0]), None)
-            .add_opt(Apo::recipe(&[6.0, 9.0]), None)
-            .add_opt(Ppo::recipe(&[9.0, 25.0]), None)
-            .add_opt(Ppo::recipe(&[10.0, 26.0]), None)
-            .add_opt(Macd::recipe(&[11.0, 23.0, 17.0]), None)
-            .add_opt(Macd::recipe(&[12.0, 24.0, 9.0]), None)
+            .add(Apo::recipe(&[5.0, 8.0]), None)
+            .add(Apo::recipe(&[6.0, 9.0]), None)
+            .add(Ppo::recipe(&[9.0, 25.0]), None)
+            .add(Ppo::recipe(&[10.0, 26.0]), None)
+            .add(Macd::recipe(&[11.0, 23.0, 17.0]), None)
+            .add(Macd::recipe(&[12.0, 24.0, 9.0]), None)
             .build();
         assert_eq!(
             dense.lanes(),
@@ -1830,9 +1891,9 @@ mod tests {
         let close = series(500);
         let s: [&[f64]; 1] = [close.as_slice()];
         let req = Request::new()
-            .add_opt(Sma::recipe(&[20.0]), None)
-            .add_opt(StdDev::recipe(&[20.0]), Some(&[true]))
-            .add_opt(BBands::recipe(&[20.0, 2.0]), None);
+            .add(Sma::recipe(&[20.0]), None)
+            .add(StdDev::recipe(&[20.0]), Some(&[true]))
+            .add(BBands::recipe(&[20.0, 2.0]), None);
         let plan = req.build();
 
         let (res, _) = plan.run(&s);
@@ -1884,7 +1945,7 @@ mod tests {
         use crate::indicators::sma::{IndicatorState as SmaIS, Sma};
         let close = series(500);
         let s: [&[f64]; 1] = [close.as_slice()];
-        let plan = Request::new().add_opt(Sma::recipe(&[20.0]), None).build();
+        let plan = Request::new().add(Sma::recipe(&[20.0]), None).build();
         // cold full run == the hand reference for the whole series
         let hand = Sma::indicator(&s, &[20.0], None).unwrap().0;
 
@@ -1926,10 +1987,10 @@ mod tests {
         let close = series(500);
         let s: [&[f64]; 1] = [close.as_slice()];
         let plan = Request::new()
-            .add_opt(Wma::recipe(&[20.0]), Some(&[true]))
-            .add_opt(Sma::recipe(&[20.0]), None)
-            .add_opt(StdDev::recipe(&[20.0]), Some(&[true]))
-            .add_opt(BBands::recipe(&[20.0, 2.0]), None)
+            .add(Wma::recipe(&[20.0]), Some(&[true]))
+            .add(Sma::recipe(&[20.0]), None)
+            .add(StdDev::recipe(&[20.0]), Some(&[true]))
+            .add(BBands::recipe(&[20.0, 2.0]), None)
             .build();
         // five unique write streams for SIX slots (wma, sma×3 shared, sd,
         // lo, up): the three sma consumers + bbands' middle collapse.
@@ -1985,13 +2046,13 @@ mod tests {
         let close = series(600);
         let s: [&[f64]; 1] = [close.as_slice()];
         let plan = Request::new()
-            .add_opt(Sma::recipe(&[5.0]), None)
-            .add_opt(Wma::recipe(&[8.0]), Some(&[true])) // wma + its sma(8) opt
-            .add_opt(StdDev::recipe(&[14.0]), Some(&[true]))
-            .add_opt(Sma::recipe(&[20.0]), None) // window-20 group …
-            .add_opt(StdDev::recipe(&[20.0]), Some(&[true])) // … same group
-            .add_opt(BBands::recipe(&[20.0, 2.5]), None) // … same group
-            .add_opt(Wma::recipe(&[26.0]), None)
+            .add(Sma::recipe(&[5.0]), None)
+            .add(Wma::recipe(&[8.0]), Some(&[true])) // wma + its sma(8) opt
+            .add(StdDev::recipe(&[14.0]), Some(&[true]))
+            .add(Sma::recipe(&[20.0]), None) // window-20 group …
+            .add(StdDev::recipe(&[20.0]), Some(&[true])) // … same group
+            .add(BBands::recipe(&[20.0, 2.5]), None) // … same group
+            .add(Wma::recipe(&[26.0]), None)
             .build();
         // slots: 1+2+1+2+2+3+1 = 12; window-20's sma line is consumed 3×
         // (standalone, stddev-opt, bbands-mid) → ONE store ⇒ 10 rows.
@@ -2068,11 +2129,11 @@ mod tests {
         let close = series(300);
         let s: [&[f64]; 1] = [close.as_slice()];
         let plan = Request::new()
-            .add_opt(Sma::recipe(&[5.0]), None)
-            .add_opt(Wma::recipe(&[8.0]), None)
-            .add_opt(StdDev::recipe(&[14.0]), Some(&[true]))
-            .add_opt(BBands::recipe(&[20.0, 2.5]), None)
-            .add_opt(Wma::recipe(&[26.0]), None)
+            .add(Sma::recipe(&[5.0]), None)
+            .add(Wma::recipe(&[8.0]), None)
+            .add(StdDev::recipe(&[14.0]), Some(&[true]))
+            .add(BBands::recipe(&[20.0, 2.5]), None)
+            .add(Wma::recipe(&[26.0]), None)
             .build();
         let (full, _) = plan.run(&s);
 
@@ -2134,7 +2195,7 @@ mod tests {
         let s: [&[f64]; 1] = [close.as_slice()];
         for period in [2u32, 3, 4, 9, 20, 50] {
             let plan = Request::new()
-                .add_opt(Hma::recipe(&[period as f64]), None)
+                .add(Hma::recipe(&[period as f64]), None)
                 .build();
             let (res, _) = plan.run(&s);
             let h = Hma::indicator(&s, &[period as f64], None).unwrap().0;
@@ -2184,9 +2245,9 @@ mod tests {
         let close = series(400);
         let s: [&[f64]; 1] = [close.as_slice()];
         let plan = Request::new()
-            .add_opt(Hma::recipe(&[20.0]), None)
-            .add_opt(Sma::recipe(&[20.0]), None)
-            .add_opt(BBands::recipe(&[20.0, 2.0]), None)
+            .add(Hma::recipe(&[20.0]), None)
+            .add(Sma::recipe(&[20.0]), None)
+            .add(BBands::recipe(&[20.0, 2.0]), None)
             .build();
         let (res, _) = plan.run(&s);
         let hh = Hma::indicator(&s, &[20.0], None).unwrap().0;
@@ -2242,7 +2303,7 @@ mod tests {
             let p = period as usize;
             let psqrt = (p as f64).sqrt() as usize; // hand HMA lead = p + psqrt
             let plan = Request::new()
-                .add_opt(Hma::recipe(&[period as f64]), None)
+                .add(Hma::recipe(&[period as f64]), None)
                 .build();
             let hand = Hma::indicator(&s, &[period as f64], None).unwrap().0;
             let split = 200usize;
@@ -2283,11 +2344,11 @@ mod tests {
         let streams = [&c0, &c1, &c2];
         let req = || {
             Request::new()
-                .add_opt(Sma::recipe(&[20.0]), None)
-                .add_opt(StdDev::recipe(&[14.0]), Some(&[true]))
-                .add_opt(Wma::recipe(&[26.0]), None)
-                .add_opt(BBands::recipe(&[20.0, 2.5]), None)
-                .add_opt(Hma::recipe(&[9.0]), None)
+                .add(Sma::recipe(&[20.0]), None)
+                .add(StdDev::recipe(&[14.0]), Some(&[true]))
+                .add(Wma::recipe(&[26.0]), None)
+                .add(BBands::recipe(&[20.0, 2.5]), None)
+                .add(Hma::recipe(&[9.0]), None)
         };
         let one = req().build();
         let expect: Vec<Results> = streams.iter().map(|c| one.run(&[c.as_slice()]).0).collect();
@@ -2357,7 +2418,7 @@ mod tests {
         for period in [1u32, 2, 3, 9, 14] {
             let p = period as usize;
             let plan = Request::new()
-                .add_opt(Wilders::recipe(&[period as f64]), None)
+                .add(Wilders::recipe(&[period as f64]), None)
                 .build();
             let (res, _) = plan.run(&s);
             let h = Wilders::indicator(&s, &[period as f64], None).unwrap();
@@ -2414,7 +2475,7 @@ mod tests {
         let high = series(300);
         let low: Vec<f64> = high.iter().map(|v| v * 0.98 - 1.0).collect();
         let s: [&[f64]; 2] = [high.as_slice(), low.as_slice()];
-        let plan = Request::new().add(Medprice::recipe(&[])).build();
+        let plan = Request::new().add_all(Medprice::recipe(&[])).build();
         assert_eq!(plan.n_fields, 2, "medprice recipe must declare 2 fields");
         let (res, _) = plan.run(&s);
         let h = Medprice::indicator(&s, &[], None).unwrap().0;
@@ -2452,7 +2513,7 @@ mod tests {
             .map(|i| low[i] + (high[i] - low[i]) * 0.5)
             .collect();
         let s: [&[f64]; 3] = [high.as_slice(), low.as_slice(), close.as_slice()];
-        let plan = Request::new().add(Tr::recipe(&[])).build();
+        let plan = Request::new().add_all(Tr::recipe(&[])).build();
         assert_eq!(plan.n_fields, 3, "tr declares high/low/close");
         let (res, _) = plan.run(&s);
         let h = Tr::indicator(&s, &[], None).unwrap().0;
@@ -2494,7 +2555,7 @@ mod tests {
         let s: [&[f64]; 3] = [high.as_slice(), low.as_slice(), close.as_slice()];
         for period in [7usize, 14, 20] {
             let plan = Request::new()
-                .add_opt(Atr::recipe(&[period as f64]), None)
+                .add(Atr::recipe(&[period as f64]), None)
                 .build();
             let (res, _) = plan.run(&s);
             let h = Atr::indicator(&s, &[period as f64], None).unwrap().0;
@@ -2522,8 +2583,8 @@ mod tests {
         // both outputs stay bit-exact (the shared tr nodes compute in SSA
         // order before atr's chained Wilders scalarizes them).
         let combo = Request::new()
-            .add(Tr::recipe(&[]))
-            .add(Atr::recipe(&[14.0]))
+            .add_all(Tr::recipe(&[]))
+            .add_all(Atr::recipe(&[14.0]))
             .build();
         let (cres, _) = combo.run(&s);
         let th = Tr::indicator(&s, &[], None).unwrap().0;
@@ -2547,7 +2608,7 @@ mod tests {
         let s: [&[f64]; 3] = [high.as_slice(), low.as_slice(), close.as_slice()];
         for period in [7usize, 14, 20] {
             let plan = Request::new()
-                .add_opt(Natr::recipe(&[period as f64]), None)
+                .add(Natr::recipe(&[period as f64]), None)
                 .build();
             let (res, _) = plan.run(&s);
             let h = Natr::indicator(&s, &[period as f64], None).unwrap().0;
@@ -2571,8 +2632,8 @@ mod tests {
         // natr + atr(14) share the tr subgraph AND the atr Wilders chain
         // (same `(Wilders(tr), 14)` node) — one fused loop, both exact.
         let combo = Request::new()
-            .add(Atr::recipe(&[14.0]))
-            .add(Natr::recipe(&[14.0]))
+            .add_all(Atr::recipe(&[14.0]))
+            .add_all(Natr::recipe(&[14.0]))
             .build();
         let (cres, _) = combo.run(&s);
         let ah = Atr::indicator(&s, &[14.0], None).unwrap().0;
@@ -2593,7 +2654,7 @@ mod tests {
         let low: Vec<f64> = high.iter().map(|v| v * 0.98 - 1.5).collect();
         let s: [&[f64]; 2] = [high.as_slice(), low.as_slice()];
         for period in [7usize, 14, 20] {
-            let plan = Request::new().add(Dm::recipe(&[period as f64])).build();
+            let plan = Request::new().add_all(Dm::recipe(&[period as f64])).build();
             let (res, _) = plan.run(&s);
             let h = Dm::indicator(&s, &[period as f64], None).unwrap().0;
             cmp_exact(res.request(0).output(0), &h[0], &format!("dm+{period}"));
@@ -2635,7 +2696,7 @@ mod tests {
             .collect();
         let s: [&[f64]; 3] = [high.as_slice(), low.as_slice(), close.as_slice()];
         for period in [7usize, 14, 20] {
-            let plan = Request::new().add(Di::recipe(&[period as f64])).build();
+            let plan = Request::new().add_all(Di::recipe(&[period as f64])).build();
             let (res, _) = plan.run(&s);
             let h = Di::indicator(&s, &[period as f64], None).unwrap().0;
             cmp_exact(res.request(0).output(0), &h[0], &format!("di+{period}"));
@@ -2661,8 +2722,8 @@ mod tests {
         // dm + di(14) share the whole +DM/−DM accumulator subgraph (both use
         // the composite `Wilders(dp/dm)` nodes) — one fused loop, all exact.
         let combo = Request::new()
-            .add(Dm::recipe(&[14.0]))
-            .add(Di::recipe(&[14.0]))
+            .add_all(Dm::recipe(&[14.0]))
+            .add_all(Di::recipe(&[14.0]))
             .build();
         let (cres, _) = combo.run(&s);
         let dh = Dm::indicator(&[high.as_slice(), low.as_slice()], &[14.0], None)
@@ -2691,7 +2752,7 @@ mod tests {
         let two: [&[f64]; 2] = [high.as_slice(), low.as_slice()];
         let three: [&[f64]; 3] = [high.as_slice(), low.as_slice(), close.as_slice()];
         for period in [7usize, 14, 20] {
-            let plan = Request::new().add(Dx::recipe(&[period as f64])).build();
+            let plan = Request::new().add_all(Dx::recipe(&[period as f64])).build();
             assert_eq!(plan.n_fields, 2, "dx value needs only high/low");
             let (res, _) = plan.run(&two);
             let h = Dx::indicator(&three, &[period as f64], None).unwrap().0;
@@ -2715,8 +2776,8 @@ mod tests {
         // dx + di(14): both consume the SAME dmup/dmdown nodes (merged), so
         // directional movement is rolled once across the two requests.
         let combo = Request::new()
-            .add(Dx::recipe(&[14.0]))
-            .add(Di::recipe(&[14.0]))
+            .add_all(Dx::recipe(&[14.0]))
+            .add_all(Di::recipe(&[14.0]))
             .build();
         let (cres, _) = combo.run(&three);
         let xh = Dx::indicator(&three, &[14.0], None).unwrap().0;
@@ -2727,71 +2788,269 @@ mod tests {
     }
 
     /// E6 feed-gated mean `Wilders`: ADX = `Wilders(dx, feed)` — the fold
-    /// window slides to start at `dx`'s publish lead, so the doubled warmup
-    /// (`period` for dm/atr, then `period` for the dx mean) is bit-exact.
-    /// `n_fields=2`. Streaming across the `2·period−1` seam + a `dx`+`adx`
-    /// combo proving they share the whole DM + dx chain.
+    /// window slides to start at `dx`'s publish lead (doubled warmup `2·period−1`).
+    /// Emits its real `optional_outputs=[dx, atr, tr]` (so `n_fields=3`, the `tr`
+    /// chain needs close), which lets a `natr`+`adx` panel SHARE the `tr`
+    /// subgraph + the mean-`ATR` node (both fold the same `tr` chain — deduped
+    /// by CSE). Bit-exact primary + all optional mirrors, streaming across the
+    /// `2·period−1` seam AND the shared `tr` row (lead 1).
     #[test]
     fn jit_adx_matches_hand() {
         use crate::indicators::adx::Adx;
-        use crate::indicators::dx::Dx;
+        use crate::indicators::atr::Atr;
+        use crate::indicators::natr::Natr;
         let high = series(500);
         let low: Vec<f64> = high.iter().map(|v| v * 0.97 - 2.0).collect();
         let close: Vec<f64> = (0..500)
             .map(|i| low[i] + (high[i] - low[i]) * 0.5)
             .collect();
-        let two: [&[f64]; 2] = [high.as_slice(), low.as_slice()];
         let three: [&[f64]; 3] = [high.as_slice(), low.as_slice(), close.as_slice()];
         for period in [7usize, 14] {
-            let plan = Request::new().add(Adx::recipe(&[period as f64])).build();
-            assert_eq!(plan.n_fields, 2, "adx value needs only high/low");
-            let (res, _) = plan.run(&two);
-            let h = Adx::indicator(&three, &[period as f64], None).unwrap().0;
+            // `.add` enables ALL declared optionals ([dx, atr, tr]) → faithful panel.
+            let plan = Request::new().add_all(Adx::recipe(&[period as f64])).build();
+            assert_eq!(
+                plan.n_fields, 3,
+                "adx folds tr (close) for its atr/tr mirrors"
+            );
+            let (res, _) = plan.run(&three);
+            let h = Adx::indicator(&three, &[period as f64], Some(&[true, true, true]))
+                .unwrap()
+                .0;
+            // adx's ATR MIRROR is the shared MEAN chain (= the standalone Atr
+            // indicator, bit-exact), NOT hand-adx's `sum·inv` approximation;
+            // the two agree to ~1e-16, inside the project's 1e-12 ti_atr oracle.
+            let mean_atr = Atr::indicator(&three, &[period as f64], None).unwrap().0;
             cmp_exact(res.request(0).output(0), &h[0], &format!("adx{period}"));
+            cmp_exact(
+                res.request(0).optional(0),
+                &h[1],
+                &format!("adx{period} opt-dx"),
+            );
+            cmp_exact(
+                res.request(0).optional(1),
+                &mean_atr[0],
+                &format!("adx{period} opt-atr=mean"),
+            );
+            cmp_within(
+                res.request(0).optional(1),
+                &h[2],
+                1e-12,
+                &format!("adx{period} opt-atr vs hand sum*inv"),
+            );
+            cmp_exact(
+                res.request(0).optional(2),
+                &h[3],
+                &format!("adx{period} opt-tr"),
+            );
             assert_eq!(
                 res.request(0).output(0).len(),
                 high.len() - (2 * period - 1),
                 "adx publishes from bar 2p-1"
             );
-            for split in [2 * period - 1, 2 * period, 2 * period + 1, 200, 499] {
-                let s1: [&[f64]; 2] = [&high[..split], &low[..split]];
-                let s2: [&[f64]; 2] = [&high[split..], &low[split..]];
+            for split in [2 * period - 1, 2 * period, 200, 499] {
+                let s1: [&[f64]; 3] = [&high[..split], &low[..split], &close[..split]];
+                let s2: [&[f64]; 3] = [&high[split..], &low[split..], &close[split..]];
                 let (h1, qs) = plan.run(&s1);
                 let (h2, _) = plan.resume(qs, &s2);
-                let mut c = h1.outputs[0][0].to_vec();
-                c.extend_from_slice(&h2.outputs[0][0]);
-                cmp_exact(&c, &h[0], &format!("adx{period} split{split}"));
+                let mut c0 = h1.request(0).output(0).to_vec();
+                c0.extend_from_slice(h2.request(0).output(0));
+                cmp_exact(&c0, &h[0], &format!("adx{period} split{split}"));
+                // the shared tr row (lead 1) must stitch across the seam too.
+                let mut c3 = h1.request(0).optional(2).to_vec();
+                c3.extend_from_slice(h2.request(0).optional(2));
+                cmp_exact(&c3, &h[3], &format!("adx{period} tr split{split}"));
             }
         }
 
-        // dx + adx share the entire DM + dx subgraph (identical nodes) — adx's
-        // feed-gated mean chain rides dx's publish lead; both stay bit-exact.
-        let combo = Request::new()
-            .add(Dx::recipe(&[14.0]))
-            .add(Adx::recipe(&[14.0]))
+        // natr + adx panel: both reference the IDENTICAL mean-`Wilders(tr)` node
+        // (natr's ATR = adx's ATR mirror) → CSE dedups the whole ATR chain, one
+        // level up from `tr`. Every row exact; the two atr rows are bit-identical
+        // (same fused node), proving the share.
+        let panel = Request::new()
+            .add_all(Natr::recipe(&[14.0]))
+            .add_all(Adx::recipe(&[14.0]))
             .build();
-        let (cres, _) = combo.run(&two);
-        let xh = Dx::indicator(&three, &[14.0], None).unwrap().0;
-        let ah = Adx::indicator(&three, &[14.0], None).unwrap().0;
-        cmp_exact(cres.request(0).output(0), &xh[0], "dx (shared w/ adx)");
-        cmp_exact(cres.request(1).output(0), &ah[0], "adx (shared w/ dx)");
+        let (pres, _) = panel.run(&three);
+        let ah = Adx::indicator(&three, &[14.0], Some(&[true, true, true]))
+            .unwrap()
+            .0;
+        // natr with its [atr, tr] optionals on (`.add` enables them).
+        let nh = Natr::indicator(&three, &[14.0], Some(&[true, true]))
+            .unwrap()
+            .0;
+        cmp_exact(pres.request(0).output(0), &nh[0], "natr (panel)");
+        cmp_exact(pres.request(0).optional(0), &nh[1], "natr atr (panel)");
+        cmp_exact(pres.request(0).optional(1), &nh[2], "natr tr (panel)");
+        cmp_exact(pres.request(1).output(0), &ah[0], "adx (panel)");
+        cmp_exact(pres.request(1).optional(0), &ah[1], "adx dx (panel)");
+        cmp_exact(
+            pres.request(1).optional(2),
+            &ah[3],
+            "adx tr (panel, shared with natr)",
+        );
+        // THE PROOF: natr's ATR and adx's ATR are the SAME fused node →
+        // bit-identical rows (one shared mean-`Wilders(tr)`, not two chains).
+        cmp_exact(
+            pres.request(0).optional(0),
+            pres.request(1).optional(1),
+            "natr ATR == adx ATR (deduped to one node)",
+        );
+    }
+
+    /// E7 multi-value FEEDBACK op: SUPERTREND — the first chain that carries
+    /// several states (prev_st/prev_ub/prev_lb f64 + a `trend` boolean), fed by
+    /// the SHARED mean-`atr`/`medprice`/`tr` nodes. Bit-exact primary + all
+    /// optional mirrors (the atr mirror == the standalone Atr, proving the
+    /// share), streaming across the `period−1` seed seam, and a `natr`+
+    /// `supertrend` combo where the two ATR rows are bit-identical (one fused
+    /// mean-`Wilders(tr)` node).
+    #[test]
+    fn jit_supertrend_matches_hand() {
+        use crate::indicators::natr::Natr;
+        use crate::indicators::supertrend::SuperTrend;
+        let high = series(500);
+        let low: Vec<f64> = high.iter().map(|v| v * 0.97 - 2.0).collect();
+        let close: Vec<f64> = (0..500)
+            .map(|i| low[i] + (high[i] - low[i]) * 0.5)
+            .collect();
+        let three: [&[f64]; 3] = [high.as_slice(), low.as_slice(), close.as_slice()];
+        for period in [7usize, 14] {
+            let opts = [period as f64, 3.0];
+            let plan = Request::new()
+                .add(SuperTrend::recipe(&opts), Some(&[true, true, true]))
+                .build();
+            let (res, _) = plan.run(&three);
+            let h = SuperTrend::indicator(&three, &opts, Some(&[true, true, true]))
+                .unwrap()
+                .0;
+            cmp_exact(res.request(0).output(0), &h[0], &format!("st p{period}"));
+            cmp_exact(
+                res.request(0).optional(0),
+                &h[1],
+                &format!("st p{period} atr"),
+            );
+            cmp_exact(
+                res.request(0).optional(1),
+                &h[2],
+                &format!("st p{period} tr"),
+            );
+            assert_eq!(
+                res.request(0).output(0).len(),
+                high.len() - period,
+                "supertrend publishes from bar {period}"
+            );
+            for split in [period - 1, period, period + 1, 200, 499] {
+                let s1: [&[f64]; 3] = [&high[..split], &low[..split], &close[..split]];
+                let s2: [&[f64]; 3] = [&high[split..], &low[split..], &close[split..]];
+                let (h1, qs) = plan.run(&s1);
+                let (h2, _) = plan.resume(qs, &s2);
+                let mut c = h1.request(0).output(0).to_vec();
+                c.extend_from_slice(h2.request(0).output(0));
+                cmp_exact(&c, &h[0], &format!("st p{period} split{split}"));
+            }
+        }
+
+        // natr + supertrend share the WHOLE mean-ATR chain (identical node),
+        // not just tr: the two ATR rows must be bit-identical (dedup proof).
+        let combo = Request::new()
+            .add_all(Natr::recipe(&[14.0]))
+            .add(SuperTrend::recipe(&[14.0, 3.0]), Some(&[true, true, true]))
+            .build();
+        let (cres, _) = combo.run(&three);
+        let nh = Natr::indicator(&three, &[14.0], Some(&[true, true]))
+            .unwrap()
+            .0;
+        let sh = SuperTrend::indicator(&three, &[14.0, 3.0], Some(&[true, true, true]))
+            .unwrap()
+            .0;
+        cmp_exact(cres.request(0).output(0), &nh[0], "natr (st combo)");
+        cmp_exact(cres.request(1).output(0), &sh[0], "supertrend (st combo)");
+        cmp_exact(
+            cres.request(0).optional(0),
+            cres.request(1).optional(0),
+            "natr ATR == supertrend ATR (deduped mean chain)",
+        );
+    }
+
+    /// The planner/optimizer must dedup shared math SYMMETRICALLY — request
+    /// order cannot change the merged shape or the values. `(adx,natr)` and
+    /// `(natr,adx)` yield identical op/store counts and bit-identical outputs,
+    /// and the fused op count is STRICTLY below the sum of the two standalone
+    /// plans (the shared `tr` subgraph + the three price reads collapse to one).
+    #[test]
+    fn jit_adx_natr_cse_is_order_independent() {
+        use crate::indicators::adx::Adx;
+        use crate::indicators::natr::Natr;
+        let high = series(300);
+        let low: Vec<f64> = high.iter().map(|v| v * 0.97 - 2.0).collect();
+        let close: Vec<f64> = (0..300)
+            .map(|i| low[i] + (high[i] - low[i]) * 0.5)
+            .collect();
+        let three: [&[f64]; 3] = [high.as_slice(), low.as_slice(), close.as_slice()];
+
+        let plan_ab = Request::new()
+            .add_all(Adx::recipe(&[14.0]))
+            .add_all(Natr::recipe(&[14.0]))
+            .build();
+        let plan_ba = Request::new()
+            .add_all(Natr::recipe(&[14.0]))
+            .add_all(Adx::recipe(&[14.0]))
+            .build();
+
+        // (1) symmetric dedup: order cannot change the compiled shape.
+        assert_eq!(
+            plan_ab.info(),
+            plan_ba.info(),
+            "CSE must dedup identically for (adx,natr) and (natr,adx)"
+        );
+
+        // (2) sharing really happens: fused < sum-of-standalone op counts.
+        let n_natr = Request::new().add_all(Natr::recipe(&[14.0])).build().info().0;
+        let n_adx = Request::new().add_all(Adx::recipe(&[14.0])).build().info().0;
+        let n_fused = plan_ab.info().0;
+        assert!(
+            n_fused < n_natr + n_adx,
+            "shared tr + the ONE mean-ATR chain must collapse: fused {n_fused} < {n_natr}+{n_adx}"
+        );
+
+        // (3) bit-identical values regardless of order (adx is req0 in ab /
+        // req1 in ba; natr is req1 in ab / req0 in ba).
+        let (ra, _) = plan_ab.run(&three);
+        let (rb, _) = plan_ba.run(&three);
+        cmp_exact(
+            rb.request(1).output(0),
+            ra.request(0).output(0),
+            "adx primary order-indep",
+        );
+        cmp_exact(
+            ra.request(1).output(0),
+            rb.request(0).output(0),
+            "natr primary order-indep",
+        );
+        for k in 0..3 {
+            cmp_exact(
+                rb.request(1).optional(k),
+                ra.request(0).optional(k),
+                &format!("adx opt{k} order-indep"),
+            );
+        }
     }
 
     fn classic3_all_on() -> Request {
         Request::new()
-            .add(Apo::recipe(&APO))
-            .add(Ppo::recipe(&PPO))
-            .add(Macd::recipe(&MACD))
+            .add_all(Apo::recipe(&APO))
+            .add_all(Ppo::recipe(&PPO))
+            .add_all(Macd::recipe(&MACD))
     }
 
     fn dense_all_on() -> Request {
         Request::new()
-            .add(Apo::recipe(&[5.0, 8.0]))
-            .add(Apo::recipe(&[6.0, 9.0]))
-            .add(Ppo::recipe(&[9.0, 25.0]))
-            .add(Ppo::recipe(&[10.0, 26.0]))
-            .add(Macd::recipe(&[11.0, 23.0, 17.0]))
-            .add(Macd::recipe(&[12.0, 24.0, 9.0]))
+            .add_all(Apo::recipe(&[5.0, 8.0]))
+            .add_all(Apo::recipe(&[6.0, 9.0]))
+            .add_all(Ppo::recipe(&[9.0, 25.0]))
+            .add_all(Ppo::recipe(&[10.0, 26.0]))
+            .add_all(Macd::recipe(&[11.0, 23.0, 17.0]))
+            .add_all(Macd::recipe(&[12.0, 24.0, 9.0]))
     }
 
     /// Counts heap touches inside `run` (diagnosis harness, tick floor).
@@ -2852,9 +3111,9 @@ mod tests {
         let close = series(500);
         let s: [&[f64]; 1] = [close.as_slice()];
         let req = Request::new()
-            .add(Apo::recipe(&APO))
-            .add(Ppo::recipe(&PPO))
-            .add(Macd::recipe(&MACD));
+            .add_all(Apo::recipe(&APO))
+            .add_all(Ppo::recipe(&PPO))
+            .add_all(Macd::recipe(&MACD));
         let plan = req.build();
         let (_, stores) = plan.info();
         assert_eq!(stores, 6, "unique write-streams");
@@ -2884,7 +3143,7 @@ mod tests {
         );
         // disabled optionals still print EMPTY through the view layer
         let (rn, _) = Request::new()
-            .add_opt(Apo::recipe(&APO), None)
+            .add(Apo::recipe(&APO), None)
             .build()
             .run(&s);
         assert!(rn.optional[0][0].is_empty() && rn.optional[0][1].is_empty());

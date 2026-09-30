@@ -5,7 +5,7 @@ pub use crate::indicator_types::IndicatorByOptions;
 pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 //use crate::indicators::atr::calc as calc_atr;
-pub use crate::indicators::atr::{multiplier, State as AtrState};
+pub use crate::indicators::atr::{multiplier, Atr, State as AtrState};
 use crate::indicators::tr::Tr;
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
@@ -217,33 +217,27 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Natr {
 // ── planner recipe (cse) ─────────────────────────────────────────────
 
 impl crate::cse::Planable for Natr {
-    /// `NATR(p)` = `atr(p) / close · 100`, the trivial wrapper over the SAME
-    /// mean-chained-`Wilders(tr)` node `Atr::recipe` builds — so a
-    /// `natr`+`atr` dashboard shares the whole tr subgraph AND the atr chain
-    /// (CSE dedups), only adding a divide + a scale. Exact op order
-    /// `(atr / close) * 100.0` (hand `calc`). Publish lead = `period` (hand
-    /// `min_data = p+1`), same as atr — the divide/mul are same-bar.
+    /// `NATR(p)` = `atr(p) / close · 100`, wrapping the SAME mean-chained
+    /// `Wilders(tr)` ATR node `Atr::recipe` builds. The `tr` graph is composed
+    /// from `Tr` via [`Recipe::sub`](crate::cse::Recipe::sub) (one source of
+    /// truth), and natr's own mean-`Wilders(tr)` is structurally identical to
+    /// atr's so CSE dedups the WHOLE atr chain (natr==atr, proven by the
+    /// order-independence test). Exact op order `(atr / close) * 100.0` (hand
+    /// `calc`). Publish lead = `period`; mirrors [atr, tr] (both shared).
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
         let period = options[0] as u32;
         let mut r = crate::cse::Recipe::new();
-        let high = r.add(crate::cse::Node::Input { stream: 0 });
-        let low = r.add(crate::cse::Node::Input { stream: 1 });
         let close = r.add(crate::cse::Node::Input { stream: 2 });
-        let pc = r.add(crate::cse::Node::Lag { src: close, n: 1 });
-        let range = r.add(crate::cse::Node::Sub { a: high, b: low });
-        let h_pc = r.add(crate::cse::Node::Sub { a: high, b: pc });
-        let hc = r.add(crate::cse::Node::Abs { src: h_pc });
-        let l_pc = r.add(crate::cse::Node::Sub { a: low, b: pc });
-        let lc = r.add(crate::cse::Node::Abs { src: l_pc });
-        let m1 = r.add(crate::cse::Node::Max { a: range, b: hc });
-        let tr = r.add(crate::cse::Node::Max { a: m1, b: lc });
-        let atr = r.add(crate::cse::Node::Wilders {
-            src: tr,
-            period,
-            composite: false,
-            feed: false,
+        // Compose atr wholesale: its primary is the mean-ATR chain, and atr
+        // exposes `tr` as its own optional — so natr mirrors both with zero
+        // re-derived math (this is the "sub exposes its optionals" rule).
+        let atr = r.sub_graph::<Atr>(&[period as f64], &[0, 1, 2]);
+        let atr_id = atr.primary;
+        let tr = atr.optional_at(0);
+        let ratio = r.add(crate::cse::Node::Div {
+            a: atr_id,
+            b: close,
         });
-        let ratio = r.add(crate::cse::Node::Div { a: atr, b: close });
         let hundred = r.constant(100.0);
         let natr = r.add(crate::cse::Node::Mul {
             a: ratio,
@@ -252,6 +246,12 @@ impl crate::cse::Planable for Natr {
         r.kind = "natr";
         r.options = options.to_vec();
         r.outputs.push(crate::cse::Sink::iface_lead(natr, period));
+        // Hand optional_outputs order: [atr, tr]. Both nodes come straight
+        // from the composed Atr (its primary + its exposed `tr`) — identical
+        // arena nodes to standalone Atr/adx, so fully shared.
+        r.optional_outputs
+            .push(crate::cse::Sink::iface_lead(atr_id, period));
+        r.optional_outputs.push(crate::cse::Sink::iface_lead(tr, 1));
         r
     }
 }
