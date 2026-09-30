@@ -1,2 +1,14 @@
 [build]
 rustflags = ["-C", "target-cpu=native"]  # Use all CPU features
+
+# The cse/lib suite drives cranelift `JITModule` lifecycles (compile + drop of
+# executable-memory arenas). At PROCESS TEARDOWN — after every test reports ok —
+# dropping many `JITPlan`s across libtest's default worker threads races the
+# runtime's teardown of cranelift's process-global executable-memory arena: an
+# intermittent SIGSEGV (reproduces on clean HEAD; 0/16 at 1 thread, ~40-75% at
+# ≥2). It is a harness-lifecycle artifact, NOT an engine correctness bug and NOT
+# a concurrency problem in normal operation (probes: concurrent build and
+# shared-plan threaded run are both clean). Pin the harness to one thread so
+# plain `cargo test` is deterministic.
+[env]
+RUST_TEST_THREADS = "1"

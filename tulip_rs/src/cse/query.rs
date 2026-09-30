@@ -2,11 +2,12 @@
 //! for the JIT executor (planner-owned interface compiled into one fused
 //! machine loop, closed tail set inlined as CLIF ops).
 //!
-//! * [`Request`] builds the recipe list. `add` emits every declared optional;
-//!   `add_opt` mirrors hand `::indicator(optional_outputs)` (`None` ⇒
-//!   primary-only: disabled optionals print EMPTY arrays in position, their
-//!   sinks are excluded from emission and from `first_bar`-independent lead
-//!   clamping).
+//! * [`Request`] builds the recipe list. `add(recipe, None)` mirrors hand
+//!   `::indicator(None)` (primary-only: disabled optionals print EMPTY arrays
+//!   in position, their sinks are excluded from emission and from
+//!   `first_bar`-independent lead clamping); `add(recipe, Some(&flags))` turns
+//!   optionals on per `Info::optional_outputs`, and [`Request::add_all`] is the
+//!   explicit all-on form.
 //! * [`Request::build`] merges (CSE) the interface graphs, bakes leads, and
 //!   compiles the plan with Cranelift. Immutable, data-length-independent;
 //!   build once per query SHAPE and cache (compile ≈ 0.4ms — the
@@ -23,7 +24,6 @@ use crate::cse::jit::JitPlan;
 use crate::cse::{Node, Recipe, Sink, SinkSrc};
 use crate::indicators::ema::State as EmaState;
 use crate::types::Warm;
-use std::rc::Rc;
 use std::sync::Arc;
 
 /// Ordered list of indicator requests.
@@ -66,6 +66,22 @@ impl Request {
     pub fn add_all(self, recipe: Recipe) -> Self {
         let n = recipe.optional_outputs.len();
         self.add(recipe, Some(&vec![true; n]))
+    }
+
+    /// Partition this request's indicators into **sharing groups**: request
+    /// indices that reach a common computed node (a chain / arith — not a raw
+    /// price `Input`) group together; disjoint ones split. The engine uses this
+    /// to run one fused loop *per group* rather than one monolithic loop for the
+    /// whole request (measured: fusing disjoint indicators into one loop gives no
+    /// dedup and worse — see `natr`+`adx`). Cheap: merge + a union-find walk, no
+    /// codegen. Exposed for measurement/diagnostics; the grouping is applied
+    /// internally once the composite-plan path lands.
+    pub fn sharing_groups(&self) -> Vec<Vec<usize>> {
+        let (arena, mut resolved) = crate::cse::merge::merge(&self.recipes);
+        for (r, f) in resolved.iter_mut().zip(&self.opt_flags) {
+            r.optional_enabled = f.clone();
+        }
+        arena.sharing_groups(&resolved)
     }
 
     /// Merge (CSE) the interface graphs, bake leads, apply the optional
@@ -216,31 +232,43 @@ pub struct Results {
     /// `outputs[request][output]` — primary, in `Info::outputs` order.
     pub outputs: Vec<Vec<RowRef>>,
     /// `optional[request][output]` — `Info::optional_outputs` order; EMPTY
-    /// for sinks disabled via [`Request::add_opt`].
+    /// for sinks disabled via [`Request::add`].
     pub optional: Vec<Vec<RowRef>>,
 }
 
+// `Results` is `Send + Sync`, so a consumer may fan symbols across a thread
+// pool and collect the rows off the workers (review §3.3 / §2.7). Pinned at
+// compile time the way `JitPlan` pins itself (jit.rs), so an accidental
+// revert to `Rc` fails the build rather than the scanner.
+const _: fn() = || {
+    fn assert<T: Send + Sync>() {}
+    assert::<Results>();
+    assert::<RowRef>();
+};
+
 /// One output row as written by the plan: a window into the chunk's shared
-/// output ARENA (see [`Results`]). `advance` allocates ONE `Rc<[f64]>`
+/// output ARENA (see [`Results`]). `advance` allocates ONE `Arc<[f64]>`
 /// per chunk and every store writes its slice of it; each request slot
 /// reads `arena[start..start + len]` — mirrors alias, ±1 publish leads are
 /// offsets, nothing is copied, and the `Results` clone cost of a 5000-bar
-/// dashboard is one refcount bump per row.
+/// dashboard is one refcount bump per row. `Arc` (not `Rc`) so `Results` is
+/// `Send` — a consumer may fan symbols across threads and collect the rows
+/// (review §3.3 / §2.7).
 #[derive(Clone)]
 pub struct RowRef {
-    arena: Rc<[f64]>,
+    arena: Arc<[f64]>,
     start: usize,
     len: usize,
 }
 
 impl RowRef {
-    pub(crate) fn window(arena: &Rc<[f64]>, start: usize, len: usize) -> Self {
+    pub(crate) fn window(arena: &Arc<[f64]>, start: usize, len: usize) -> Self {
         // a slot whose chunk ENDED before its publish lead projects past a
         // zero-row window (lead_off > rows); clamp to a valid empty view
         let start = start.min(arena.len());
         let len = len.min(arena.len() - start);
         Self {
-            arena: Rc::clone(arena),
+            arena: Arc::clone(arena),
             start,
             len,
         }
@@ -258,7 +286,7 @@ impl RowRef {
     }
     /// Do two slots read inside the SAME chunk arena? (E2c aliasing.)
     pub fn shares_data_with(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.arena, &other.arena)
+        Arc::ptr_eq(&self.arena, &other.arena)
     }
 }
 
@@ -282,6 +310,10 @@ impl Results {
             optional: &self.optional[i],
         }
     }
+    /// Number of request slots in this `Results` (= plans' requests).
+    pub fn request_count(&self) -> usize {
+        self.outputs.len()
+    }
 }
 
 /// A single request's outputs within a [`Results`].
@@ -296,6 +328,10 @@ impl<'a> RequestResults<'a> {
     }
     pub fn optional(&self, i: usize) -> &'a [f64] {
         self.optional[i].as_slice()
+    }
+    /// Primary output-row count for this request (≤ `Info::outputs`).
+    pub fn output_count(&self) -> usize {
+        self.outputs.len()
     }
 }
 // (the returns above coerce `&RowRef` → `&[f64]` through Deref — the

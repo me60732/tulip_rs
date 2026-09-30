@@ -26,10 +26,11 @@
 //!              chained: SKIPPED before its feed lead; the one segment
 //!              where feeding starts keeps the seed select; later segments
 //!              step unconditionally (seed flag proven 1)
-//!       arith: fsub / fmul / fdiv / fmax over node operands — a `Sub`
+//!       arith: fsub / fmul / fdiv / maxNum over node operands (Max lowers to
+//!       `max_num`, not `fmax` — see §2.1) — a `Sub`
 //!              declared identically by APO, MACD and PPO is ONE node
 //!              (merge interns it: one fsub, up to 3 consumers)
-//!       Const  : materialized f64 (fmax's guard, the ×100)
+//!       Const  : materialized f64 (max's `0.0`/`EPSILON` guard, the ×100)
 //!     sinks with lead ≤ b: UNCONDITIONAL out[i - lead] stores — no icmp,
 //!          no brif, no select on the address (branchless always-store was
 //!          measured 18→24µs WORSE; the phase split removes the branches
@@ -100,6 +101,12 @@ pub type JitFn = unsafe extern "C" fn(
 const PRICE: usize = usize::MAX;
 /// Sink lead meaning "never print" (disabled optional).
 const LEAD_NEVER: u64 = u64::MAX;
+
+/// Per-advance bookkeeping tables live on the STACK for sane plans (dense
+/// all-on ≈ 22, 8 assets × 6 = 48 ≤ 64); beyond that a heap fallback. Bounds
+/// `tick`'s scratch too. The only per-advance heap is the arena (`tick` skips
+/// it).
+const STACK_STORES: usize = 64;
 
 /// E1 lane cap. The x64 backend only classifies vectors ≤ 128 bits
 /// (`rc_for_type`), so **f64x2 is the widest packable chain group** —
@@ -262,6 +269,39 @@ enum OpE {
     },
 }
 
+// ── §2.3 state-shape descriptors: the ONE source of truth for what each
+// stateful op kind carries across bars ────────────────────────────────────
+// `codegen::emit` (the loop-carried param runs `hpos/cpos/spos/tpos` + the
+// `sq` aux run) and `compile_request` (the aux-word reservation → `nwords`)
+// both index these runs, so the per-kind sizes live HERE, read by both — a
+// new stateful kind declares its shape once instead of repeating magic
+// numbers in two files. Distinct concerns, deliberately NOT collapsed:
+//   · `*_f64_params / *_i64_params` = loop-carried PARAM slots (xmm/int file
+//     budget) — `emit` lays them out in this fixed order:
+//     [ sq aux · hma f64 · hma i64 · sup f64 · sup i64 ]
+//   · `*_aux_words` = STATE-IMAGE words reserved after the per-op value run
+//     (`compile_request` walks ops in order; HMA's ring size is `psqrt`, so
+//     its word total is not a constant — see `HMA_AUX_BASE`).
+// The `schedule()`/`Phase` warm-up generalization is intentionally NOT here
+// (deferred to the next new stateful primitive — see review_feedback §2.3):
+// `Hma`/`SuperTrend` are permanent bespoke ops whose seams don't fit one DSL.
+
+/// `Stddev` / `Wma`: one `sum_sq` / `weighted_sum` aux loop-param + state word
+/// each (their rolling `sum` is the group leader's, not per-op).
+const ROLLING_AUX_PARAMS: usize = 1;
+const ROLLING_AUX_WORDS: usize = 1;
+/// `Hma`: 6 carried f64 accumulators `[sum1, ws1, sum2, ws2, wss, ss]` + 1
+/// i64 ring cursor as loop params; state words = `[6 acc + 1 cursor]` plus the
+/// `psqrt` diff-ring words (total `7 + psqrt`).
+const HMA_F64_PARAMS: usize = 6;
+const HMA_I64_PARAMS: usize = 1;
+const HMA_AUX_BASE: usize = 7; // + per-op `psqrt` ring words
+/// `SuperTrend`: 3 carried f64 band states (`prev_st/prev_ub/prev_lb`) + 1
+/// i64-backed bool (`trend`); 4 state words (the bool is one of the 4).
+const SUP_F64_PARAMS: usize = 3;
+const SUP_I64_PARAMS: usize = 1;
+const SUP_AUX_WORDS: usize = 4;
+
 /// `alias`/lane sentinel: "the op's own scalar value".
 const LANE_SELF: u8 = 0xFE;
 
@@ -271,7 +311,8 @@ enum ArithKind {
     Add,
     Mul,
     Div,
-    /// CLIF `fmax` — IEEE maxNum, same NaN rule as `f64::max`.
+    /// Rust `f64::max` (IEEE maxNum), lowered by `codegen::max_num` — NOT CLIF
+    /// `fmax`, whose WebAssembly NaN rules are the opposite of Rust (see §2.1).
     Max,
 }
 
@@ -374,7 +415,13 @@ const _: fn() = || {
 /// Per-asset resumable state: the plan's raw state words (header
 /// `next_bar`/`seeded`, chained seed flags, chain values). Layout owned by
 /// the emitter; opaque otherwise.
-#[derive(Clone)]
+/// `Serialize`/`Deserialize` so a symbol's resumable state persists across a
+/// process/DB/FFI boundary exactly like the hand `IndicatorState`: save it,
+/// reload it, `resume`/`tick` with only the next bar — the caller never
+/// assembles the price tail (that lives in `window`). `plan_key` is serialized
+/// so the foreign-state guard still fires after a reload; `scratch` is a
+/// transient stitch buffer rebuilt on demand, so it is skipped.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct JitState {
     pub words: Vec<u64>,
     /// E3: per-stream tail of real prices (the `pmax` bars before
@@ -384,7 +431,8 @@ pub struct JitState {
     /// E4: the fingerprint of the plan that created this image;
     /// `advance` refuses to run under a different one.
     plan_key: u64,
-    /// Stitch buffers (transient — never serialized).
+    /// Stitch buffers (transient — rebuilt by `stitch`, never serialized).
+    #[serde(skip, default)]
     scratch: Vec<Vec<f64>>,
 }
 
@@ -412,6 +460,40 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
         r.optional_enabled = flags.clone();
     }
     let leads = arena.leads();
+
+    // ---- dead-node elimination (review §2.2 / D3) ----
+    // Roots = every ENABLED sink's src node ∪ every `tail_inputs` state chain.
+    // The latter is load-bearing: `get_states` may read a chain no sink wants
+    // *now* (and an indicator whose `get_states` is merely deferred still names
+    // its chains here), so pruning a "dead-looking" recurrence would silently
+    // break resume-after-`get_states`. A node is live iff reachable from a root
+    // through child edges; SSA order ⇒ children < parent ⇒ ONE descending scan
+    // propagates liveness. Dead nodes get no `Op`: no state word, no loop-carried
+    // param, no per-bar math — the register-pressure relief DCE exists to give.
+    // The arena itself and the stream encoding are NOT touched (a dead `Input`
+    // slot is simply never read; `n_fields` stays the caller-visible count so
+    // `series.len() == n_fields · n_assets` holds for an unchanged `Request`).
+    let mut live = vec![false; arena.nodes.len()];
+    for res in &resolved {
+        for s in &res.outputs {
+            let SinkSrc::Interface(id) = s.src;
+            live[id as usize] = true;
+        }
+        for (oi, s) in res.optional_outputs.iter().enumerate() {
+            if res.optional_enabled.get(oi).copied().unwrap_or(true) {
+                let SinkSrc::Interface(id) = s.src;
+                live[id as usize] = true;
+            }
+        }
+        for &i in &res.inputs {
+            live[i as usize] = true;
+        }
+    }
+    for id in (0..arena.nodes.len()).rev() {
+        if live[id] {
+            merge::node_children(&arena.nodes[id], &mut |c| live[c as usize] = true);
+        }
+    }
 
     // ---- pass 1: arena nodes → ops, SSA order (producers are lower ids) ----
     let mut ops: Vec<Op> = Vec::new();
@@ -450,6 +532,12 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
     }
     for s in 0..n_assets {
         for (id, node) in arena.nodes.iter().enumerate() {
+            // DCE: skip a dead node's op, but keep walking `Input` (it only
+            // sets `node_op`, never pushes) so live consumers still resolve
+            // their price-slot operands.
+            if !live[id] && !matches!(node, Node::Input { .. }) {
+                continue;
+            }
             match *node {
                 Node::Input { stream } => {
                     // (field, asset) → physical stream slot, field-fastest
@@ -696,9 +784,11 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
         arena
             .nodes
             .iter()
-            .filter(|n| !matches!(n, Node::Input { .. }))
+            .enumerate()
+            .filter(|(id, n)| live[*id] && !matches!(n, Node::Input { .. }))
             .count()
-            * n_assets
+            * n_assets,
+        "ops.len() must equal the LIVE non-input node count × n_assets (DCE)"
     );
 
     // ---- pass 2: stores/views + state wiring, all by arena id ----
@@ -934,7 +1024,7 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
                 op.roll_leader = leader;
                 if matches!(op.e, OpE::Stddev { .. } | OpE::Wma { .. }) {
                     op.aux_word = word_next;
-                    word_next += 1;
+                    word_next += ROLLING_AUX_WORDS;
                 } else {
                     op.aux_word = 0;
                 }
@@ -947,7 +1037,7 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
             OpE::Hma { period, psqrt, .. } => {
                 op.roll_leader = usize::MAX;
                 op.aux_word = word_next;
-                word_next += 7 + psqrt as usize;
+                word_next += HMA_AUX_BASE + psqrt as usize;
                 pmax = pmax.max(period as usize);
             }
             // E7: supertrend carries FOUR feedback words — `prev_st`,
@@ -957,7 +1047,7 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
             // NODE value, not a price tail).
             OpE::SuperTrend { .. } => {
                 op.aux_word = word_next;
-                word_next += 4;
+                word_next += SUP_AUX_WORDS;
                 op.roll_leader = usize::MAX;
             }
             // E6: a delayed read widens the anchor window to reach `n` bars
@@ -1158,12 +1248,10 @@ impl JitPlan {
         // ONE chunk arena for every unique row (E2c): sizes are exact, the
         // compiled loop writes each store's whole slice, so `assume_init`
         // at the end leaves NO uninitialized reads. Per-store bookkeeping
-        // tables live on the STACK for sane plans (dense all-on ≈ 22,
-        // 8 assets × 6 = 48 ≤ 64); beyond that a heap fallback. The only
-        // per-advance data allocation is the arena itself — tick-size
-        // advances must not malloc scratch (the original Vec trio measured
-        // +40ns/chunk).
-        const STACK_STORES: usize = 64;
+        // tables live on the STACK (`STACK_STORES`) for sane plans; beyond
+        // that a heap fallback. The only per-advance heap is the arena
+        // itself — tick-size advances must not malloc scratch (the original
+        // Vec trio measured +40ns/chunk).
         let nst = self.stores.len();
         let mut rows_buf = [0usize; STACK_STORES];
         let mut offs_buf = [0usize; STACK_STORES];
@@ -1194,12 +1282,16 @@ impl JitPlan {
             offs[k] = total;
             total += r;
         }
-        let mut arc: std::rc::Rc<[std::mem::MaybeUninit<f64>]> =
-            std::rc::Rc::new_uninit_slice(total);
+        let mut arc: std::sync::Arc<[std::mem::MaybeUninit<f64>]> =
+            std::sync::Arc::new_uninit_slice(total);
         let base: *mut f64 = if total == 0 {
             std::ptr::null_mut()
         } else {
-            std::rc::Rc::get_mut(&mut arc)
+            // uniquely owned (fresh, refcount 1) ⇒ `get_mut` yields the slice;
+            // the compiled loop writes through `base` while it is the only
+            // holder, exactly as the former `Rc` did. `Arc` only so the
+            // resulting `Results` is `Send` (threading across symbols, §3.3).
+            std::sync::Arc::get_mut(&mut arc)
                 .expect("fresh arena is uniquely owned")
                 .as_mut_ptr()
                 .cast::<f64>()
@@ -1208,6 +1300,152 @@ impl JitPlan {
             ptrs[k] = unsafe { base.add(offs[k]) };
         }
         let ptr_table: *mut *mut f64 = ptrs.as_mut_ptr();
+        self.run_chunk(st, series, start, len, ptr_table);
+        // SAFETY: every element was written by the compiled loop (row
+        // lengths equal per-store write counts exactly).
+        let arena: std::sync::Arc<[f64]> = unsafe { arc.assume_init() };
+
+        // E2c: wrap each UNIQUE row once, then hand every request slot a
+        // window into it — mirror slots alias (no copy, refcount share),
+        // a later publish lead simply skips leading elements. Chunk bases
+        // (`max(start, lead)`) keep the resume slicing identical to the
+        // old one-row-per-slot layout.
+        let mk = |slot: usize| -> RowRef {
+            let v = self.views[slot];
+            if v.store == usize::MAX {
+                return RowRef::window(&arena, 0, 0);
+            }
+            let rowbase = start.max(self.stores[v.store].lead as usize);
+            let lead_off = start.max(v.lead as usize) - rowbase;
+            let len_row = rows[v.store];
+            RowRef::window(
+                &arena,
+                offs[v.store] + lead_off,
+                len_row.saturating_sub(lead_off),
+            )
+        };
+        // `with_capacity(0)` STILL mallocs (minimum bucket) — use the
+        // allocation-free empty vec there; primary rows are always ≥ 1.
+        let mut results: Vec<Results> = (0..a)
+            .map(|_| Results {
+                outputs: self
+                    .counts
+                    .iter()
+                    .map(|&(np, _)| Vec::with_capacity(np))
+                    .collect(),
+                optional: self
+                    .counts
+                    .iter()
+                    .map(|&(_, no)| {
+                        if no == 0 {
+                            Vec::new()
+                        } else {
+                            Vec::with_capacity(no)
+                        }
+                    })
+                    .collect(),
+            })
+            .collect();
+        let mut slot = 0usize;
+        for (req, &(np, no)) in self.counts.iter().enumerate() {
+            for _o in 0..np {
+                for asset in 0..a {
+                    results[asset].outputs[req].push(mk(slot));
+                    slot += 1;
+                }
+            }
+            for _o in 0..no {
+                for asset in 0..a {
+                    results[asset].optional[req].push(mk(slot));
+                    slot += 1;
+                }
+            }
+        }
+        debug_assert_eq!(slot, self.views.len());
+        results
+    }
+
+    /// Number of report slots in a `tick`/`Results` output for a
+    /// single-asset plan: one per (request, output) and (request, optional),
+    /// in `advance`'s slot order (`request → output → asset`, asset dropped
+    /// when `nassets == 1`). A streaming consumer sizes its `tick` `out`
+    /// buffer with this and learns the request/output layout once from
+    /// `Request`.
+    pub fn n_slots(&self) -> usize {
+        self.views.len()
+    }
+
+    /// Advance ONE bar for one symbol, writing each report slot's current
+    /// value into `out[slot]` (slot order = [`Self::n_slots`]). Zero heap
+    /// allocation: the stores write into a stack scratch, not a fresh arena,
+    /// and no `Results`/`RowRef`/`Vec` tree is built. The recurrence state
+    /// still advances every bar in `st.words`, so this is bit-identical to the
+    /// corresponding element of a cold `run` — `tick` *is* a resume (§1.4).
+    ///
+    /// `bar[k]` is the single new value of physical stream `k`
+    /// (`k = asset · n_fields + field`; for a single-asset plan just the
+    /// field order — high/low/close). Each slice must have length 1.
+    ///
+    /// A slot whose publish lead exceeds this bar (still warming up) — and a
+    /// disabled optional (`store == MAX`) — is written `f64::NAN`, never `0.0`
+    /// (§2.1 lesson: a real reading can be `0.0`; a "not yet published" is not
+    /// a reading at all). Returns the values for the first `out.len()` slots.
+    pub fn tick(&self, st: &mut JitState, bar: &[&[f64]], out: &mut [f64]) {
+        assert_eq!(
+            self.nassets, 1,
+            "tick: plan has {} asset lanes; tick is per-symbol (thread the assets, §3.3)",
+            self.nassets
+        );
+        assert_eq!(
+            st.plan_key, self.fingerprint,
+            "jit: JitState created by a different plan"
+        );
+        let ns = self.n_streams();
+        assert_eq!(bar.len(), ns, "tick: plan takes {ns} streams");
+        assert!(
+            bar.iter().all(|s| s.len() == 1),
+            "tick: every stream must carry exactly one bar"
+        );
+        let nst = self.stores.len();
+        assert!(
+            nst <= STACK_STORES,
+            "tick: {nst} stores exceeds the stack scratch ({STACK_STORES}); use advance"
+        );
+        let start = st.words[W_NEXT] as usize;
+
+        let mut scratch = [0.0f64; STACK_STORES];
+        let mut pbuf = [std::ptr::null_mut::<f64>(); STACK_STORES];
+        for k in 0..nst {
+            pbuf[k] = std::ptr::addr_of_mut!(scratch[k]);
+        }
+        self.run_chunk(st, bar, start, 1, pbuf.as_mut_ptr());
+
+        for (slot, o) in out.iter_mut().enumerate() {
+            let v = self.views[slot];
+            *o = if v.store != usize::MAX && start >= v.lead as usize {
+                scratch[v.store]
+            } else {
+                f64::NAN
+            };
+        }
+    }
+
+    /// Invoke the compiled loop for `series[..len]` starting at absolute bar
+    /// `start`, storing each sink through `ptr_table[k]` (the caller owns the
+    /// destinations — an arena row for `advance_assets`, a 1-slot scratch for
+    /// `tick`), and advance `W_NEXT`. The store addressing is a cursor that
+    /// walks `+8` per *published* bar, so the caller's buffer must be sized for
+    /// the bars this chunk publishes (`advance_assets` sizes it from
+    /// `rows[k]`; `tick` passes `len == 1` so each store writes ≤ 1 `f64`).
+    fn run_chunk(
+        &self,
+        st: &mut JitState,
+        series: &[&[f64]],
+        start: usize,
+        len: usize,
+        ptr_table: *mut *mut f64,
+    ) {
+        let ns = self.n_streams();
         if len > 0 {
             // pointer + anchor tables on the stack for sane stream counts
             // (no per-chunk heap alloc — matters at tick sizes), heap
@@ -1274,68 +1512,6 @@ impl JitPlan {
             }
         }
         st.words[W_NEXT] = (start + len) as u64;
-        // SAFETY: every element was written by the compiled loop (row
-        // lengths equal per-store write counts exactly).
-        let arena: std::rc::Rc<[f64]> = unsafe { arc.assume_init() };
-
-        // E2c: wrap each UNIQUE row once, then hand every request slot a
-        // window into it — mirror slots alias (no copy, refcount share),
-        // a later publish lead simply skips leading elements. Chunk bases
-        // (`max(start, lead)`) keep the resume slicing identical to the
-        // old one-row-per-slot layout.
-        let mk = |slot: usize| -> RowRef {
-            let v = self.views[slot];
-            if v.store == usize::MAX {
-                return RowRef::window(&arena, 0, 0);
-            }
-            let rowbase = start.max(self.stores[v.store].lead as usize);
-            let lead_off = start.max(v.lead as usize) - rowbase;
-            let len_row = rows[v.store];
-            RowRef::window(
-                &arena,
-                offs[v.store] + lead_off,
-                len_row.saturating_sub(lead_off),
-            )
-        };
-        // `with_capacity(0)` STILL mallocs (minimum bucket) — use the
-        // allocation-free empty vec there; primary rows are always ≥ 1.
-        let mut results: Vec<Results> = (0..a)
-            .map(|_| Results {
-                outputs: self
-                    .counts
-                    .iter()
-                    .map(|&(np, _)| Vec::with_capacity(np))
-                    .collect(),
-                optional: self
-                    .counts
-                    .iter()
-                    .map(|&(_, no)| {
-                        if no == 0 {
-                            Vec::new()
-                        } else {
-                            Vec::with_capacity(no)
-                        }
-                    })
-                    .collect(),
-            })
-            .collect();
-        let mut slot = 0usize;
-        for (req, &(np, no)) in self.counts.iter().enumerate() {
-            for _o in 0..np {
-                for asset in 0..a {
-                    results[asset].outputs[req].push(mk(slot));
-                    slot += 1;
-                }
-            }
-            for _o in 0..no {
-                for asset in 0..a {
-                    results[asset].optional[req].push(mk(slot));
-                    slot += 1;
-                }
-            }
-        }
-        debug_assert_eq!(slot, self.views.len());
-        results
     }
 
     /// E3 host stitch: scratch[s] = window ++ chunk; returns the shifted
@@ -2787,6 +2963,250 @@ mod tests {
         cmp_exact(cres.request(1).output(1), &ih[1], "di− (shared w/ dx)");
     }
 
+    /// §2.1 / D6 — degenerate (flat-bar) data. When `h==l==c` the composite
+    /// ATR **sum** is `0`, so `di` evaluates `0 · (100/0) = 0·inf = NaN` and
+    /// `dx` evaluates `0/0 = NaN`; both then hit `.max(0.0)`. Rust `f64::max`
+    /// returns the *other* operand (`0.0`), while CLIF `fmax` propagates NaN —
+    /// so the JIT emitted `NaN` where the hand emits `0.0`. The smooth
+    /// `series()` suite is structurally blind to this (it never goes flat).
+    #[test]
+    fn jit_flat_bar_degenerate_matches_hand() {
+        use crate::indicators::di::Di;
+        use crate::indicators::dx::Dx;
+        let n = 80;
+        let flat: Vec<f64> = (0..n).map(|_| 100.0).collect();
+        let three: [&[f64]; 3] = [flat.as_slice(), flat.as_slice(), flat.as_slice()];
+        let two: [&[f64]; 2] = [flat.as_slice(), flat.as_slice()];
+        for period in [7usize, 14] {
+            // di = max(±DM · (100/ATR_sum), 0): every bar `0·inf → NaN → 0`.
+            let plan = Request::new().add_all(Di::recipe(&[period as f64])).build();
+            let (res, _) = plan.run(&three);
+            let h = Di::indicator(&three, &[period as f64], None).unwrap().0;
+            assert!(
+                h[0].iter().all(|v| *v == 0.0),
+                "hand di+ on flat data must be all 0.0 (Rust NaN→other)"
+            );
+            cmp_exact(
+                res.request(0).output(0),
+                &h[0],
+                &format!("di+ flat {period}"),
+            );
+            cmp_exact(
+                res.request(0).output(1),
+                &h[1],
+                &format!("di− flat {period}"),
+            );
+
+            // dx = (|ΔDM|·100 / ΣDM).max(0): `0/0 → NaN → 0`.
+            let plan = Request::new().add_all(Dx::recipe(&[period as f64])).build();
+            let (res, _) = plan.run(&two);
+            let h = Dx::indicator(&three, &[period as f64], None).unwrap().0;
+            assert!(
+                h[0].iter().all(|v| *v == 0.0),
+                "hand dx on flat data must be all 0.0 (Rust NaN→other)"
+            );
+            cmp_exact(
+                res.request(0).output(0),
+                &h[0],
+                &format!("dx flat {period}"),
+            );
+        }
+    }
+
+    /// §2.1 / D6 — `stddev`'s `.max(EPSILON)` clamp under **catastrophic
+    /// cancellation**, the third `fmax`→`max_num` site (the sqrt clamp is a raw
+    /// `fb.ins().fmax`, not `ArithKind::Max`). The hand computes variance as
+    /// `sum_sq·(1/P) − sma²`; for large-magnitude, near-constant POSITIVE prices
+    /// the two rounded terms can leave the result slightly NEGATIVE (not a
+    /// negative price — a pure float artifact of the naive formula), so
+    /// `sqrt(<0) = NaN`. Rust `NaN.max(EPSILON)` yields `EPSILON`; CLIF `fmax`
+    /// yields `NaN`. Verified: this construction makes 1320/1980 rows clamp to
+    /// EPSILON in the hand, and the old `fmax` emitted `NaN` there.
+    #[test]
+    fn jit_stddev_negative_variance_clamps_like_hand() {
+        use crate::indicators::stddev::StdDev;
+        // 1e8 + {0,1,2} jitter: positive prices, true variance ≈ 0.67 vs a
+        // ~1e16 mean² — the rolling subtraction cancels to sign-flipping noise.
+        let n = 2000;
+        let real: Vec<f64> = (0..n).map(|k| 1e8 + (k % 3) as f64).collect();
+        let s: [&[f64]; 1] = [real.as_slice()];
+        let period = 20.0;
+        let plan = Request::new().add_all(StdDev::recipe(&[period])).build();
+        let (res, _) = plan.run(&s);
+        let h = StdDev::indicator(&s, &[period], None).unwrap().0;
+        let jit = res.request(0).output(0);
+        cmp_exact(jit, &h[0], "stddev negative-variance clamp");
+        // The clamp must ACTUALLY fire — otherwise the test proves nothing.
+        let clamped = h[0].iter().filter(|v| **v == f64::EPSILON).count();
+        assert!(
+            clamped > 0,
+            "expected ≥1 EPSILON-clamped (negative-variance) row; the data no longer trips cancellation"
+        );
+        assert!(
+            jit.iter().all(|v| !v.is_nan()),
+            "JIT must never emit NaN here (old fmax did)"
+        );
+    }
+
+    /// DCE (review §2.2 / D3): a recipe whose disabled optional mirrors pulled
+    /// in an entire sub-chain must stop paying for it. `Adx`'s `[dx, atr, tr]`
+    /// mirrors graft the **mean** `Wilders(tr)` ATR node; under `add(_, None)`
+    /// that mean chain is dead (adx's primary folds the *composite* sum-ATR and
+    /// only `dx`/`tr` stay reachable), so it is pruned — strictly fewer ops, and
+    /// the primary output is unchanged (bit-identical to hand). This is the
+    /// register-pressure relief DCE exists to give, asserted structurally.
+    #[test]
+    fn jit_dce_prunes_disabled_optional_chain() {
+        use crate::indicators::adx::Adx;
+        let high = series(300);
+        let low: Vec<f64> = high.iter().map(|v| v * 0.97 - 2.0).collect();
+        let close: Vec<f64> = (0..300)
+            .map(|i| low[i] + (high[i] - low[i]) * 0.5)
+            .collect();
+        let s: [&[f64]; 3] = [high.as_slice(), low.as_slice(), close.as_slice()];
+        let primary = Request::new().add(Adx::recipe(&[14.0]), None).build();
+        let all = Request::new().add_all(Adx::recipe(&[14.0])).build();
+        let (p_ops, p_stores) = primary.info();
+        let (a_ops, a_stores) = all.info();
+        assert!(
+            p_ops < a_ops,
+            "primary-only must prune the dead mean-ATR chain: {p_ops} ops !< {a_ops}"
+        );
+        assert!(
+            p_stores < a_stores,
+            "primary-only writes fewer rows: {p_stores} !< {a_stores}"
+        );
+        // Pruning is output-preserving: the surviving primary matches hand.
+        let (res, _) = primary.run(&s);
+        let h = Adx::indicator(&s, &[14.0], None).unwrap().0;
+        cmp_exact(res.request(0).output(0), &h[0], "adx primary (DCE)");
+    }
+
+    /// Streaming surface (§3.2 / §1.4): tick bar-by-bar must be bit-identical
+    /// to a cold `run` — both the OUTPUT VALUES (cold == resumed == tick) and
+    /// the carried STATE. Covers a `pmax == 0` plan (classic: no stitch) and a
+    /// rolling `Sma` (pmax > 0: the `tick` path drives the host anchor/stitch).
+    /// Disabled optionals report `NaN` every bar; warmup bars report `NaN`
+    /// before their lead — stripping leading `NaN`s aligns each slot with its
+    /// cold row (which begins AT its lead).
+    #[test]
+    fn jit_tick_matches_cold_run() {
+        use crate::indicators::sma::Sma;
+
+        // Flatten one asset's Results into slot order: per request, all
+        // primaries then all optionals (the `advance` slot order, asset==1).
+        fn slot_rows(res: &Results) -> Vec<Vec<f64>> {
+            let mut v = Vec::new();
+            for r in 0..res.outputs.len() {
+                for row in res.outputs[r].iter() {
+                    v.push(row.to_vec());
+                }
+                for row in res.optional[r].iter() {
+                    v.push(row.to_vec());
+                }
+            }
+            v
+        }
+        fn strip_leading_nan(g: &[f64]) -> &[f64] {
+            let s = g.iter().position(|x| !x.is_nan()).unwrap_or(g.len());
+            &g[s..]
+        }
+
+        let close = series(400);
+        for (label, plan) in [
+            ("classic", classic().build()),
+            (
+                "sma14",
+                Request::new().add_all(Sma::recipe(&[14.0])).build(),
+            ),
+        ] {
+            let n = plan.n_slots();
+            assert!(n <= 32, "{label}: widen the test out buffer");
+            let (res, st_full) = plan.run(&[close.as_slice()]);
+            let expected = slot_rows(&res);
+            assert_eq!(expected.len(), n, "{label}: slot count");
+
+            let mut st = plan.new_state();
+            let mut got: Vec<Vec<f64>> = vec![Vec::new(); n];
+            let mut out = [0.0f64; 32];
+            for i in 0..close.len() {
+                let v = close[i];
+                let bar = [std::slice::from_ref(&v)];
+                plan.tick(&mut st, &bar, &mut out[..n]);
+                for s in 0..n {
+                    got[s].push(out[s]);
+                }
+            }
+            // values: each slot's published stream == its cold row.
+            for s in 0..n {
+                assert_eq!(
+                    strip_leading_nan(&got[s]),
+                    expected[s].as_slice(),
+                    "{label}: slot {s} tick vs cold"
+                );
+            }
+            // state: ticking every bar lands on the same carried words as a
+            // cold whole-chunk run (this is the cold==resumed invariant).
+            assert_eq!(st.words, st_full.words, "{label}: tick state != run");
+        }
+    }
+
+    /// §1.4 kept contract, persisted: a `JitState` survives a serialize →
+    /// reload round-trip and resumes BIT-EXACTLY, with the caller supplying
+    /// only new bars (never the price tail). Covers a rolling plan (window +
+    /// transient `scratch` must round-trip / rebuild) and asserts the
+    /// foreign-state guard still fires on a reloaded state.
+    #[test]
+    fn jit_state_persist_reload_resumes_bit_exact() {
+        use crate::indicators::sma::Sma;
+        let close = series(400);
+        let period = 20usize;
+        let plan = Request::new()
+            .add_all(Sma::recipe(&[period as f64]))
+            .build();
+        let cold = {
+            let s: [&[f64]; 1] = [close.as_slice()];
+            let (r, _) = plan.run(&s);
+            r.request(0).output(0).to_vec()
+        };
+
+        // run first 150 bars, persist, reload, resume the rest.
+        let split = 150;
+        let s1: [&[f64]; 1] = [&close[..split]];
+        let (_r1, st) = plan.run(&s1);
+        let bytes = serde_json::to_vec(&st).expect("JitState serializes");
+        let st_re: JitState = serde_json::from_slice(&bytes).expect("JitState deserializes");
+        // transient stitch buffer is not persisted, and must be empty on load.
+        assert!(st_re.scratch.is_empty(), "scratch must not serialize");
+
+        let s2: [&[f64]; 1] = [&close[split..]];
+        let (r2, _) = plan.resume(st_re.clone(), &s2);
+
+        // bit-exact continuity: (first-chunk rows) ++ (resumed rows) == cold.
+        let s1full: [&[f64]; 1] = [close.as_slice()];
+        let (r1full, _) = plan.run(&s1full);
+        let head = r1full.request(0).output(0);
+        let head_part = &head[..head.len() - r2.request(0).output(0).len()];
+        let mut joined = head_part.to_vec();
+        joined.extend_from_slice(r2.request(0).output(0));
+        cmp_exact(&joined, &cold, "sma persist→reload→resume");
+
+        // foreign-state guard survives the round-trip: the reloaded state's
+        // plan_key is intact, so it still refuses a DIFFERENT plan.
+        let other = Request::new()
+            .add_all(Sma::recipe(&[(period + 1) as f64]))
+            .build();
+        let s_one: [&[f64]; 1] = [[1.0f64].as_slice()];
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = other.resume(st_re.clone(), &s_one);
+        }));
+        assert!(
+            result.is_err(),
+            "reloaded JitState must still reject a foreign plan"
+        );
+        let _ = st_re.next_bar();
+    }
+
     /// E6 feed-gated mean `Wilders`: ADX = `Wilders(dx, feed)` — the fold
     /// window slides to start at `dx`'s publish lead (doubled warmup `2·period−1`).
     /// Emits its real `optional_outputs=[dx, atr, tr]` (so `n_fields=3`, the `tr`
@@ -2807,7 +3227,9 @@ mod tests {
         let three: [&[f64]; 3] = [high.as_slice(), low.as_slice(), close.as_slice()];
         for period in [7usize, 14] {
             // `.add` enables ALL declared optionals ([dx, atr, tr]) → faithful panel.
-            let plan = Request::new().add_all(Adx::recipe(&[period as f64])).build();
+            let plan = Request::new()
+                .add_all(Adx::recipe(&[period as f64]))
+                .build();
             assert_eq!(
                 plan.n_fields, 3,
                 "adx folds tr (close) for its atr/tr mirrors"
@@ -3005,8 +3427,16 @@ mod tests {
         );
 
         // (2) sharing really happens: fused < sum-of-standalone op counts.
-        let n_natr = Request::new().add_all(Natr::recipe(&[14.0])).build().info().0;
-        let n_adx = Request::new().add_all(Adx::recipe(&[14.0])).build().info().0;
+        let n_natr = Request::new()
+            .add_all(Natr::recipe(&[14.0]))
+            .build()
+            .info()
+            .0;
+        let n_adx = Request::new()
+            .add_all(Adx::recipe(&[14.0]))
+            .build()
+            .info()
+            .0;
         let n_fused = plan_ab.info().0;
         assert!(
             n_fused < n_natr + n_adx,
@@ -3053,52 +3483,11 @@ mod tests {
             .add_all(Macd::recipe(&[12.0, 24.0, 9.0]))
     }
 
-    /// Counts heap touches inside `run` (diagnosis harness, tick floor).
-    #[test]
-    fn jit_resume_allocations() {
-        use std::alloc::{GlobalAlloc, Layout, System};
-        use std::cell::Cell;
-        // thread-local: the suite runs tests in parallel and a shared
-        // counter would measure other threads' churn
-        thread_local! {
-            static ALLOCS: Cell<usize> = const { Cell::new(0) };
-        }
-        struct Counter;
-        unsafe impl GlobalAlloc for Counter {
-            unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-                ALLOCS.with(|a| a.set(a.get() + 1));
-                System.alloc(l)
-            }
-            unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
-                System.dealloc(p, l)
-            }
-            unsafe fn realloc(&self, p: *mut u8, l: Layout, n: usize) -> *mut u8 {
-                ALLOCS.with(|a| a.set(a.get() + 1));
-                System.realloc(p, l, n)
-            }
-        }
-        #[global_allocator]
-        static A: Counter = Counter;
-
-        let close = series(300);
-        let warm: [&[f64]; 1] = [close.as_slice()];
-        let plan = classic().build();
-        let (res, qs) = plan.run(&warm);
-        let bar = std::hint::black_box(res.outputs[0][0].len() + qs.next_bar() as usize);
-        std::hint::black_box(bar);
-
-        let one = [1.0f64; 1];
-        let nb: [&[f64]; 1] = [one.as_slice()];
-        let n = std::hint::black_box(200);
-        ALLOCS.with(|a| a.set(0));
-        for _ in 0..n {
-            let (_r, q2) = plan.resume(qs.clone(), &nb);
-            std::hint::black_box(q2.next_bar());
-        }
-        let per = ALLOCS.with(|a| a.get()) as f64 / n as f64;
-        println!("allocs per 1-bar resume: {per:.1}");
-        assert!(per < 16.0, "resume touched {per} allocations");
-    }
+    // NOTE: the allocation-count guard (`jit_resume_allocations`) lives in
+    // `tests/jit_alloc_count.rs` — its OWN integration-test binary. A
+    // `#[global_allocator]` is process-wide, so keeping it here routed EVERY
+    // cse test's allocations through the counting TLS and SIGSEGV'd the `--lib`
+    // suite nondeterministically under many threads (reproduced on clean HEAD).
 
     /// E2c: mirror slots share ONE engine-written buffer per node, with
     /// hand-exact lengths preserved as windows. The all-on classic query
@@ -3142,10 +3531,7 @@ mod tests {
             "ppo long window vs hand",
         );
         // disabled optionals still print EMPTY through the view layer
-        let (rn, _) = Request::new()
-            .add(Apo::recipe(&APO), None)
-            .build()
-            .run(&s);
+        let (rn, _) = Request::new().add(Apo::recipe(&APO), None).build().run(&s);
         assert!(rn.optional[0][0].is_empty() && rn.optional[0][1].is_empty());
     }
 

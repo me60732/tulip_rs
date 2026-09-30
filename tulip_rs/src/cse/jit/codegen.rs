@@ -39,6 +39,23 @@ fn st(fb: &mut FunctionBuilder, base: Value, off: i64, val: Value) {
     fb.ins().store(MemFlagsData::new(), val, addr, 0);
 }
 
+/// `a.max(b)` where `b` is the guard, matching the hand for **every shipped
+/// use**: `di`/`dx` `.max(0.0)`, `ppo`/`stddev` `.max(EPSILON)` all pass a
+/// constant `+0.0`/`+ε` as `b` and a possibly-NaN value as `a` (`0·inf`/`0/0`/
+/// `sqrt(<0)`); `tr`'s maxes take finite price differences as both. The two-op
+/// `select(a > b, a, b)` is `f64::max` for all finite inputs and on the ±0 tie,
+/// and still yields the guard on a NaN first operand — `gt(NaN, b) = false ⇒ b`
+/// — so `di`/`dx` on a zero ATR print `0.0` and `stddev`'s negative-variance
+/// `sqrt` clamps to `EPSILON`. This is also exactly the hand `tr`'s `if x > tr`
+/// reduction. It is NOT general IEEE maxNum: it diverges only when `b` could be
+/// NaN, and no recipe guards against that (every `b` here is a non-NaN constant
+/// or a finite price). The earlier `bor(fcmp.gt, fcmp.uno)` 4-op form bought
+/// that generality at a cost on the hot `tr` path for no reachable benefit.
+fn max_num(fb: &mut FunctionBuilder, a: Value, b: Value) -> Value {
+    let gt = fb.ins().fcmp(FloatCC::GreaterThan, a, b);
+    fb.ins().select(gt, a, b)
+}
+
 /// Build and define the plan's function; sets `plan.func`.
 ///
 /// Phase-split (the hand `init_state`/sliced-`cycle` discipline as codegen):
@@ -240,25 +257,25 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     // inside a segment a sink stores EVERY bar or NEVER: the pointer
     // needs no gating, only the unconditional +8 on storing bars.
     pt.extend(std::iter::repeat(i64_t).take(nsinks));
-    pt.extend(std::iter::repeat(f64_t).take(nsq));
+    pt.extend(std::iter::repeat(f64_t).take(nsq * ROLLING_AUX_PARAMS));
     // E3 stage 3: per HMA op — 6 carried f64 accumulators, then the
     // i64 ring cursor run.
-    pt.extend(std::iter::repeat(f64_t).take(6 * nh));
-    pt.extend(std::iter::repeat(i64_t).take(nh));
+    pt.extend(std::iter::repeat(f64_t).take(HMA_F64_PARAMS * nh));
+    pt.extend(std::iter::repeat(i64_t).take(HMA_I64_PARAMS * nh));
     // E7: per supertrend op — 3 carried f64 band states (prev_st/prev_ub/
     // prev_lb) + one i64-backed bool (trend), threaded like HMA's run.
-    pt.extend(std::iter::repeat(f64_t).take(3 * nsup));
-    pt.extend(std::iter::repeat(i64_t).take(nsup));
+    pt.extend(std::iter::repeat(f64_t).take(SUP_F64_PARAMS * nsup));
+    pt.extend(std::iter::repeat(i64_t).take(SUP_I64_PARAMS * nsup));
     pt.push(i64_t);
     let nparam = pt.len();
     let ipos = nparam - 1;
     let sdpos = nval;
     let ppos = nval + nsd;
     let auxpos = ppos + nsinks;
-    let hpos = auxpos + nsq;
-    let cpos = hpos + 6 * nh;
-    let spos = cpos + nh;
-    let tpos = spos + 3 * nsup;
+    let hpos = auxpos + nsq * ROLLING_AUX_PARAMS;
+    let cpos = hpos + HMA_F64_PARAMS * nh;
+    let spos = cpos + HMA_I64_PARAMS * nh;
+    let tpos = spos + SUP_F64_PARAMS * nsup;
 
     let entry = fb.create_block();
     let setup = fb.create_block();
@@ -332,25 +349,35 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
         sqloads.push(ld(&mut fb, state, 8 * w, f64_t));
     }
     // E3 stage 3: per HMA — six accumulator words, then the cursor word.
-    let mut hloads: Vec<Value> = Vec::with_capacity(6 * nh);
+    let mut hloads: Vec<Value> = Vec::with_capacity(HMA_F64_PARAMS * nh);
     let mut cursloads: Vec<Value> = Vec::with_capacity(nh);
     for &j in &hmas {
         let base = plan.ops[j].aux_word as i64;
-        for m in 0..6 {
+        for m in 0..HMA_F64_PARAMS as i64 {
             hloads.push(ld(&mut fb, state, 8 * (base + m), f64_t));
         }
-        cursloads.push(ld(&mut fb, state, 8 * (base + 6), i64_t));
+        cursloads.push(ld(
+            &mut fb,
+            state,
+            8 * (base + HMA_F64_PARAMS as i64),
+            i64_t,
+        ));
     }
     // E7: per supertrend — three band-state words (f64 bits) + the trend word
     // (i64 0/1).
-    let mut sloads: Vec<Value> = Vec::with_capacity(3 * nsup);
+    let mut sloads: Vec<Value> = Vec::with_capacity(SUP_F64_PARAMS * nsup);
     let mut tloads: Vec<Value> = Vec::with_capacity(nsup);
     for &j in &sups {
         let base = plan.ops[j].aux_word as i64;
-        for m in 0..3 {
+        for m in 0..SUP_F64_PARAMS as i64 {
             sloads.push(ld(&mut fb, state, 8 * (base + m), f64_t));
         }
-        tloads.push(ld(&mut fb, state, 8 * (base + 3), i64_t));
+        tloads.push(ld(
+            &mut fb,
+            state,
+            8 * (base + SUP_F64_PARAMS as i64),
+            i64_t,
+        ));
     }
     let empty = fb.ins().icmp(IntCC::Equal, len, zero);
     let mut end_empty: Vec<Value> = Vec::with_capacity(nval);
@@ -515,9 +542,11 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
             _ => unreachable!(),
         };
         let p0v = p0[PRICE - src];
-        for m in 0..6 {
+        for m in 0..HMA_F64_PARAMS {
             let cold = if m < 2 { p0v } else { hzero };
-            let sel = fb.ins().select(is_seeded, hloads[6 * k + m], cold);
+            let sel = fb
+                .ins()
+                .select(is_seeded, hloads[HMA_F64_PARAMS * k + m], cold);
             args.push(sel);
         }
     }
@@ -530,8 +559,10 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     // from the atr seam (its `lead`), where the shared atr node already holds
     // the mean seed.
     for k in 0..nsup {
-        for m in 0..3 {
-            let sel = fb.ins().select(is_seeded, sloads[3 * k + m], hzero);
+        for m in 0..SUP_F64_PARAMS {
+            let sel = fb
+                .ins()
+                .select(is_seeded, sloads[SUP_F64_PARAMS * k + m], hzero);
             args.push(sel);
         }
     }
@@ -740,11 +771,11 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
         // E3 stage 3: HMA's six accumulators + ring cursor are carried
         // by EVERY segment arm (each phase updates a subset, but the
         // param run must stay uniform across phase transitions).
-        let mut h_lat: Vec<Option<Value>> = vec![None; 6 * nh];
+        let mut h_lat: Vec<Option<Value>> = vec![None; HMA_F64_PARAMS * nh];
         let mut c_lat: Vec<Option<Value>> = vec![None; nh];
         // E7: supertrend's three band states + trend latch, likewise carried
         // uniformly across every segment arm.
-        let mut s_lat: Vec<Option<Value>> = vec![None; 3 * nsup];
+        let mut s_lat: Vec<Option<Value>> = vec![None; SUP_F64_PARAMS * nsup];
         let mut t_lat: Vec<Option<Value>> = vec![None; nsup];
         // pair-vector results (vec Arith ops): consumed by lane via `alias`
         let mut vvec: Vec<Option<Value>> = vec![None; nops];
@@ -929,8 +960,10 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                         ArithKind::Add => fb.ins().fadd(av, bv),
                         ArithKind::Mul => fb.ins().fmul(av, bv),
                         ArithKind::Div => fb.ins().fdiv(av, bv),
-                        // IEEE maxNum — Rust's `f64::max` exactly.
-                        ArithKind::Max => fb.ins().fmax(av, bv),
+                        // Rust `f64::max`, NOT CLIF `fmax` (NaN-propagating) —
+                        // see `max_num`. di/dx guard a possible `0·inf`/`0/0`
+                        // NaN with `.max(0.0)`.
+                        ArithKind::Max => max_num(&mut fb, av, bv),
                     }
                 }
                 OpE::Wma {
@@ -1030,10 +1063,13 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                     let inner = fb.ins().fmul(sma_v, sma_v);
                     let neg = fb.ins().fneg(inner);
                     let sd0 = fb.ins().fma(sq2, mc, neg);
+                    // `sqrt(sd0).max(EPSILON)` — a negative variance (catastrophic
+                    // cancellation) makes `sd0` NaN, and Rust `.max` yields the
+                    // EPSILON guard while CLIF `fmax` would propagate the NaN.
                     let sdr = fb.ins().sqrt(sd0);
                     let eps = fb.ins().f64const(f64::EPSILON);
                     sq_lat[sk] = Some(sq2);
-                    fb.ins().fmax(sdr, eps)
+                    max_num(&mut fb, sdr, eps)
                 }
                 OpE::Hma {
                     src,
@@ -1048,7 +1084,7 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                     wssq,
                 } => {
                     let k = hma_of[j];
-                    let hb = hpos + 6 * k;
+                    let hb = hpos + HMA_F64_PARAMS * k;
                     let s1 = bp[hb];
                     let ws1 = bp[hb + 1];
                     let s2 = bp[hb + 2];
@@ -1091,9 +1127,9 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                     }
                     macro_rules! hma_carry {
                         ($vals:expr, $curs:expr) => {{
-                            let vals: [Value; 6] = $vals;
+                            let vals: [Value; HMA_F64_PARAMS] = $vals;
                             for (m, v) in vals.into_iter().enumerate() {
-                                h_lat[6 * k + m] = Some(v);
+                                h_lat[HMA_F64_PARAMS * k + m] = Some(v);
                             }
                             c_lat[k] = Some($curs);
                         }};
@@ -1249,7 +1285,7 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                 } => {
                     let lead = plan.ops[j].lead as i64;
                     let k = sup_of[j];
-                    let sb = 3 * k;
+                    let sb = SUP_F64_PARAMS * k;
                     if b < lead {
                         // idle before the atr seam — carry the state words
                         // through untouched, publish nothing.
@@ -1278,6 +1314,12 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                         let notcd = fb.ins().bnot(cd);
                         let held = fb.ins().band(trend0, notcd);
                         let trend = fb.ins().bor(cu, held);
+                        // Band clamps stay raw `fmax`/`fmin` (not `max_num`):
+                        // both operands are finite — `med ± step·atr` and the
+                        // carried band, over finite OHLC with no division — so
+                        // maxNum and the NaN-propagating form are bit-identical
+                        // here. The hand-parity bug (§2.1) needs the NaN guard
+                        // only where a `0·inf`/`0/0` can appear.
                         let lb_clamp = fb.ins().fmax(prev_lb, lb_raw);
                         let ub_clamp = fb.ins().fmin(prev_ub, ub_raw);
                         let st = fb.ins().select(trend, lb_clamp, ub_clamp);
@@ -1331,13 +1373,13 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
         la.extend(sd.iter().copied());
         la.extend(walked.iter().copied());
         la.extend(sq_lat.iter().copied().flatten());
-        for m in 0..6 * nh {
+        for m in 0..HMA_F64_PARAMS * nh {
             la.push(h_lat[m].expect("hma accumulators carry every segment"));
         }
         for k in 0..nh {
             la.push(c_lat[k].expect("hma cursors carry every segment"));
         }
-        for m in 0..3 * nsup {
+        for m in 0..SUP_F64_PARAMS * nsup {
             la.push(s_lat[m].expect("supertrend band states carry every segment"));
         }
         for k in 0..nsup {
@@ -1369,28 +1411,38 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     // image, no end-block copy).
     for (k, &o) in hmas.iter().enumerate() {
         let base = plan.ops[o].aux_word as i64;
-        for m in 0..6 {
+        for m in 0..HMA_F64_PARAMS {
             st(
                 &mut fb,
                 state,
                 8 * (base + m as i64),
-                endp[hpos + 6 * k + m],
+                endp[hpos + HMA_F64_PARAMS * k + m],
             );
         }
-        st(&mut fb, state, 8 * (base + 6), endp[cpos + k]);
+        st(
+            &mut fb,
+            state,
+            8 * (base + HMA_F64_PARAMS as i64),
+            endp[cpos + k],
+        );
     }
     // E7: supertrend's three band states + trend latch back to its aux run.
     for (k, &o) in sups.iter().enumerate() {
         let base = plan.ops[o].aux_word as i64;
-        for m in 0..3 {
+        for m in 0..SUP_F64_PARAMS {
             st(
                 &mut fb,
                 state,
                 8 * (base + m as i64),
-                endp[spos + 3 * k + m],
+                endp[spos + SUP_F64_PARAMS * k + m],
             );
         }
-        st(&mut fb, state, 8 * (base + 3), endp[tpos + k]);
+        st(
+            &mut fb,
+            state,
+            8 * (base + SUP_F64_PARAMS as i64),
+            endp[tpos + k],
+        );
     }
     for (si, &o) in op_of_slot.iter().enumerate() {
         if matches!(

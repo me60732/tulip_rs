@@ -10,7 +10,7 @@
 //! Criterion-only (no DB logging).
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::cse::{JitPlan, Planable, Request};
+use tulip_rs::cse::{JitPlan, Planable, Recipe, Request};
 use tulip_rs::indicator_types::{Indicator, IndicatorByOptions, TIndicatorState};
 use tulip_rs::indicators::adx::Adx;
 use tulip_rs::indicators::apo::Apo;
@@ -32,17 +32,39 @@ use tulip_rs::indicators::tr::Tr;
 use tulip_rs::indicators::wilders::Wilders;
 use tulip_rs::indicators::wma::Wma;
 
+use tulip_test::database::{get_all_stock_data, init_database_data, EodData};
+
 const APO: [f64; 2] = [12.0, 26.0];
 const MACD: [f64; 3] = [12.0, 26.0, 9.0];
 const PPO: [f64; 2] = [12.0, 26.0];
-const ASSETS: usize = 8;
-const BARS: usize = 5000;
+/// Real EOD symbols available (BHP/CBA/AAPL/MSFT in the synthetic fallback;
+/// whatever the DB returns once login is wired). The asset-axis bench uses one
+/// per lane, so it caps at this.
+const ASSETS: usize = 4;
 
-/// Deterministic per-asset synthetic series.
-fn asset(i: usize) -> Vec<f64> {
-    (0..BARS)
-        .map(|b| ((b as f64 + (i as f64) * 3.17) * 0.7).sin() * 10.0 + 100.0)
-        .collect()
+/// Real EOD data — the SAME source the per-indicator benches use
+/// (`init_database_data` is an idempotent `OnceLock`, so per-bench calls are
+/// free after the first). With `should_log_to_db=false` it is the canonical
+/// synthetic 15-bar→1500 EodData; with login wired it is real Postgres EOD,
+/// and every bench below switches to real data with no further edit.
+fn stocks() -> &'static Vec<(String, Vec<EodData>)> {
+    init_database_data();
+    get_all_stock_data().expect("stock data initialised")
+}
+fn col(sym: usize, f: impl Fn(&EodData) -> f64) -> Vec<f64> {
+    stocks()[sym].1.iter().map(|d| f(d)).collect()
+}
+/// One real price stream (single-input indicators run on close).
+fn close(sym: usize) -> Vec<f64> {
+    col(sym, |d| d.close)
+}
+/// Real (high, low, close) triple for the multi-input benches.
+fn hlc(sym: usize) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    (
+        col(sym, |d| d.high),
+        col(sym, |d| d.low),
+        col(sym, |d| d.close),
+    )
 }
 
 /// The classic merged query (apo + macd + ppo, primary-only emission —
@@ -110,7 +132,7 @@ fn bench_prepare(c: &mut Criterion) {
 
 /// The classic query: one 5000-bar asset, five output lines.
 fn bench_classic(c: &mut Criterion) {
-    let series = asset(0);
+    let series = close(0);
     let inputs: [&[f64]; 1] = [series.as_slice()];
     let plan: JitPlan = classic_request().build();
     let mut g = c.benchmark_group("classic");
@@ -167,7 +189,7 @@ fn bench_classic(c: &mut Criterion) {
 /// The dedup showcase: the classic query PLUS standalone `ema12`/`ema26`
 /// requests. The JIT pays two gated stores; hand pays two full scans.
 fn bench_dedup(c: &mut Criterion) {
-    let series = asset(0);
+    let series = close(0);
     let inputs: [&[f64]; 1] = [series.as_slice()];
     let plan = plus_emas_request().build();
     let mut g = c.benchmark_group("dedup");
@@ -199,7 +221,7 @@ fn bench_dedup(c: &mut Criterion) {
 /// is CSE + one merged pass; the hand's edge is vectorized chains (until
 /// the emitter gets lane packing — Handover Step E1).
 fn bench_dense(c: &mut Criterion) {
-    let series = asset(0);
+    let series = close(0);
     let inputs: [&[f64]; 1] = [series.as_slice()];
     let apo_opts: [&[f64; 2]; 2] = [&[5.0, 8.0], &[6.0, 9.0]];
     let ppo_opts: [&[f64; 2]; 2] = [&[9.0, 25.0], &[10.0, 26.0]];
@@ -225,21 +247,23 @@ fn bench_dense(c: &mut Criterion) {
     g.finish();
 }
 
-/// Eight assets through the classic query. Hand competitor: the SIMD
-/// *asset axis* (`indicator_by_assets::<8>`, lanes = symbols, no
+/// Four assets (real symbols) through the classic query. Hand competitor:
+/// the SIMD *asset axis* (`indicator_by_assets::<4>`, lanes = symbols, no
 /// cross-indicator dedup).
 fn bench_assets(c: &mut Criterion) {
-    let series: Vec<Vec<f64>> = (0..ASSETS).map(asset).collect();
+    // one real symbol per lane; `run_assets`/`indicator_by_assets` require all
+    // streams equal length, so trim to the shortest real symbol.
+    let mut series: Vec<Vec<f64>> = (0..ASSETS).map(close).collect();
+    let len = series.iter().map(|s| s.len()).min().unwrap();
+    for s in &mut series {
+        s.truncate(len);
+    }
     let plan = classic_request().build();
     let inputs: [&[&[f64]; 1]; ASSETS] = [
         &[series[0].as_slice()],
         &[series[1].as_slice()],
         &[series[2].as_slice()],
         &[series[3].as_slice()],
-        &[series[4].as_slice()],
-        &[series[5].as_slice()],
-        &[series[6].as_slice()],
-        &[series[7].as_slice()],
     ];
     let mut g = c.benchmark_group("assets");
     g.sample_size(20);
@@ -262,11 +286,10 @@ fn bench_assets(c: &mut Criterion) {
             black_box(total)
         })
     });
-    // E2: ONE asset-lane plan for all 8 symbols. Beyond the xmm pressure
-    // (8 group vecs + 8 sigs), E2b's carried write-pointers put 40 GP
-    // values through a 16-register int file — spills every bar, and this
-    // shape got WORSE under the walk (151µs vs 105 before). KEPT as the
-    // measurement of that cliff.
+    // E2: ONE asset-lane plan for all 4 symbols. Beyond the xmm pressure
+    // (4 group vecs + 4 sigs), E2b's carried write-pointers put many GP
+    // values through the int file — spills every bar, and this
+    // shape got WORSE under the walk. KEPT as the measurement of that cliff.
     let lanes_plan = classic_request().build_assets(ASSETS);
     g.bench_function(&format!("jit_{ASSETS}_assets_lanes"), |b| {
         b.iter(|| {
@@ -280,7 +303,7 @@ fn bench_assets(c: &mut Criterion) {
     // feeds 10 carried pointers to the int file and frees xmm pressure, so
     // cross-asset pairing finally pays — still not a win at classic's 2
     // chains (the pairing budget argument stands), but the gap moved from
-    // 12% to noise. One fused loop steps two symbols; four pairs cover 8.
+    // 12% to noise. One fused loop steps two symbols; two pairs cover 4.
     let pair_plan = classic_request().build_assets(2);
     g.bench_function(&format!("jit_{ASSETS}_assets_paired"), |b| {
         b.iter(|| {
@@ -300,7 +323,7 @@ fn bench_assets(c: &mut Criterion) {
 /// shared-authority `resume` vs three separate `batch_indicator` calls
 /// (the hand streaming floor).
 fn bench_tick(c: &mut Criterion) {
-    let series = asset(0);
+    let series = close(0);
     let inputs: [&[f64]; 1] = [series.as_slice()];
     let plan = classic_request().build();
     let (_r, qs) = plan.run(&inputs);
@@ -336,6 +359,22 @@ fn bench_tick(c: &mut Criterion) {
             criterion::BatchSize::PerIteration,
         )
     });
+    // Streaming surface (§3.2): advance one bar writing slot values into a
+    // caller buffer — reuses the SAME compiled loop as `jit_resume` but with a
+    // stack scratch instead of a heap arena + `Results` tree. This is the
+    // zero-allocation tick the 117 ns resume floor was measured against.
+    let nslots = plan.n_slots();
+    g.bench_function("jit_tick", |b| {
+        b.iter_batched(
+            || qs.clone(),
+            |mut state| {
+                let mut out = [0.0_f64; 32];
+                plan.tick(&mut state, &nb, &mut out[..nslots]);
+                black_box(out[0] + out[nslots - 1])
+            },
+            criterion::BatchSize::PerIteration,
+        )
+    });
     // E4: the per-tick worst case done RIGHT — rebuild the request every
     // tick (a stateless caller), served by the plan cache instead of a
     // 411µs compile.
@@ -354,11 +393,11 @@ fn bench_tick(c: &mut Criterion) {
 }
 
 /// E3 rolling trio (sma + stddev + bbands @20): the hand calls three
-/// windows over the same 5000 bars — three passes, three sums; the JIT
+/// windows over the same real series — three passes, three sums; the JIT
 /// fused loop runs ONE ring + ONE sum (shared via CSE across the three
 /// requests) and mirrors the middle line out of it.
 fn bench_rolling(c: &mut Criterion) {
-    let series = asset(0);
+    let series = close(0);
     let inputs: [&[f64]; 1] = [series.as_slice()];
     let plan = Request::new()
         .add(Sma::recipe(&[20.0]), None)
@@ -394,7 +433,7 @@ fn bench_rolling(c: &mut Criterion) {
 /// Hma(20) + Sma(20) query duplicates the period-20 sum roll (~4 flops/
 /// bar) rather than couple the bespoke op to the group machinery.
 fn bench_rolling_hma(c: &mut Criterion) {
-    let series = asset(0);
+    let series = close(0);
     let inputs: [&[f64]; 1] = [series.as_slice()];
     let plan = Request::new().add(Hma::recipe(&[20.0]), None).build();
     let plan_sma = Request::new()
@@ -440,7 +479,7 @@ fn bench_rolling_hma(c: &mut Criterion) {
 /// self-contained HMA states carried at once test whether the anchor+group
 /// machinery's fusion win survives when there is NOTHING to fuse.
 fn bench_rolling_hma_multi(c: &mut Criterion) {
-    let series = asset(0);
+    let series = close(0);
     let inputs: [&[f64]; 1] = [series.as_slice()];
     let plan = Request::new()
         .add(Hma::recipe(&[9.0]), None)
@@ -451,7 +490,7 @@ fn bench_rolling_hma_multi(c: &mut Criterion) {
     let hma_opts: [&[f64; 1]; 4] = [&[9.0], &[12.0], &[20.0], &[50.0]];
     let mut g = c.benchmark_group("rolling_hma_multi");
     g.sample_size(20);
-    // hand, scalar axis: one full pass per period over the 5000 bars
+    // hand, scalar axis: one full pass per period over the real series
     g.bench_function("hand_scalar_hma_4", |b| {
         b.iter(|| {
             let a = Hma::indicator(&inputs, &[9.0], None).unwrap();
@@ -499,7 +538,7 @@ fn bench_rolling_hma_multi(c: &mut Criterion) {
 /// body disappears into HMA's own state1) against `hma20` alone: the gap is
 /// the standalone Wma(20)'s marginal cost, which is ~all removable.
 fn bench_hma_group_dedup(c: &mut Criterion) {
-    let series = asset(0);
+    let series = close(0);
     let inputs: [&[f64]; 1] = [series.as_slice()];
     // WMA engines: the prize unit + the free-dedup control.
     let wma20 = Request::new().add(Wma::recipe(&[20.0]), None).build();
@@ -576,7 +615,7 @@ fn bench_hma_group_dedup(c: &mut Criterion) {
 /// chains over TR/DX sources — once the (stream,asset) multi-input axis
 /// lets TR/ATR exist, `jit_atr_over_wilders` becomes the fusion case).
 fn bench_rolling_wilders(c: &mut Criterion) {
-    let series = asset(0);
+    let series = close(0);
     let inputs: [&[f64]; 1] = [series.as_slice()];
     let single = Request::new().add(Wilders::recipe(&[14.0]), None).build();
     // two independent Wilders chains (different periods) in ONE fused loop
@@ -627,9 +666,7 @@ fn bench_rolling_wilders(c: &mut Criterion) {
 /// the whole series). That workload reduction, not loop-local scheduling,
 /// is where the JIT earns its keep.
 fn bench_rolling_atr(c: &mut Criterion) {
-    let hi = asset(0);
-    let lo: Vec<f64> = hi.iter().map(|v| v * 0.97 - 2.0).collect();
-    let cl: Vec<f64> = (0..BARS).map(|i| lo[i] + (hi[i] - lo[i]) * 0.5).collect();
+    let (hi, lo, cl) = hlc(0);
     let inputs: [&[f64]; 3] = [hi.as_slice(), lo.as_slice(), cl.as_slice()];
     let single = Request::new().add(Atr::recipe(&[14.0]), None).build();
     // tr + atr(14) share the tr subgraph → one fused loop, tr rolled once.
@@ -687,9 +724,7 @@ fn bench_rolling_atr(c: &mut Criterion) {
 /// (A `natr`+`atr` pair would be meaningless — `atr` is `natr`'s own optional
 /// output, so no dashboard emits both as separate indicators.)
 fn bench_rolling_adx(c: &mut Criterion) {
-    let hi = asset(0);
-    let lo: Vec<f64> = hi.iter().map(|v| v * 0.97 - 2.0).collect();
-    let cl: Vec<f64> = (0..BARS).map(|i| lo[i] + (hi[i] - lo[i]) * 0.5).collect();
+    let (hi, lo, cl) = hlc(0);
     let three: [&[f64]; 3] = [hi.as_slice(), lo.as_slice(), cl.as_slice()];
     let two: [&[f64]; 2] = [hi.as_slice(), lo.as_slice()];
     // PRIMARY-ONLY everywhere (`add(_, None)`) — the default workload a
@@ -753,9 +788,7 @@ fn bench_rolling_adx(c: &mut Criterion) {
 /// ATR recurrences), here the shared work is the FULL atr chain, so the fused
 /// loop should win.
 fn bench_rolling_st(c: &mut Criterion) {
-    let hi = asset(0);
-    let lo: Vec<f64> = hi.iter().map(|v| v * 0.97 - 2.0).collect();
-    let cl: Vec<f64> = (0..BARS).map(|i| lo[i] + (hi[i] - lo[i]) * 0.5).collect();
+    let (hi, lo, cl) = hlc(0);
     let three: [&[f64]; 3] = [hi.as_slice(), lo.as_slice(), cl.as_slice()];
     let st_only = Request::new()
         .add(SuperTrend::recipe(&[14.0, 3.0]), None)
@@ -767,6 +800,7 @@ fn bench_rolling_st(c: &mut Criterion) {
     let vol_trend = Request::new()
         .add(Natr::recipe(&[14.0]), None)
         .add(SuperTrend::recipe(&[14.0, 3.0]), None)
+        //.add(Atr::recipe(&[14.0]), None)
         .build();
     let mut g = c.benchmark_group("rolling_st");
     g.sample_size(20);
@@ -786,16 +820,14 @@ fn bench_rolling_st(c: &mut Criterion) {
         b.iter(|| {
             let n = Natr::indicator(&three, &[14.0], None).unwrap();
             let s = SuperTrend::indicator(&three, &[14.0, 3.0], None).unwrap();
-            black_box(n.0[0].len() + s.0[0].len())
+            //let a = Atr::indicator(&three, &[14.0], None).unwrap();
+            black_box((n, s))
         })
     });
     g.bench_function("jit_natr_plus_supertrend", |b| {
         b.iter(|| {
             let (res, qs) = vol_trend.run(&three);
-            black_box((
-                res.outputs[0][0].len() + res.outputs[1][0].len(),
-                qs.next_bar(),
-            ))
+            black_box((res, qs))
         })
     });
     g.finish();
@@ -807,8 +839,7 @@ fn bench_rolling_st(c: &mut Criterion) {
 /// H/L/C ops alongside close-only chains). This is what `tr → atr → adx`
 /// will look like once emitted; medprice is the simplest same-bar case.
 fn bench_multi_input(c: &mut Criterion) {
-    let hi = asset(0);
-    let lo: Vec<f64> = hi.iter().map(|v| v * 0.98 - 1.0).collect();
+    let (hi, lo, _) = hlc(0);
     let two: [&[f64]; 2] = [hi.as_slice(), lo.as_slice()];
     let med = Request::new().add(Medprice::recipe(&[]), None).build();
     let fused = Request::new()
@@ -849,7 +880,7 @@ fn bench_multi_input(c: &mut Criterion) {
 /// Hand pays one full pass per indicator; the plan pays per GROUP for
 /// recurrences and per ROW for stores — 12 output slots, 10 write streams.
 fn bench_rolling_mixed(c: &mut Criterion) {
-    let series = asset(0);
+    let series = close(0);
     let inputs: [&[f64]; 1] = [series.as_slice()];
     let plan = Request::new()
         .add(Sma::recipe(&[5.0]), None)
@@ -903,6 +934,102 @@ fn bench_rolling_mixed(c: &mut Criterion) {
     g.finish();
 }
 
+/// The `sharing_groups` measurement (see `Merged::sharing_groups`): a mixed
+/// dashboard = an EMA cluster (Apo/Macd/Ppo/Ema on close) + an ATR cluster
+/// (Atr/Natr/SuperTrend on H/L/C). The two clusters share **no computed node**,
+/// so `sharing_groups` yields 2 groups. We time the SAME set of indicators
+/// three ways to isolate the "one monolithic fused loop vs one loop per sharing
+/// cluster" cost (register footprint), plus threading the clusters:
+///   - `jit_single_fused`  : whole dashboard in ONE loop (most live xmm).
+///   - `jit_split_seq`     : one loop per group, run sequentially.
+///   - `jit_split_parallel`: groups on separate host threads (bulk).
+/// Hand is the per-indicator independent passes (the existing baselines); here we
+/// compare single-vs-split *within the engine*, which is the grouping question.
+fn dashboard() -> Vec<(Recipe, Option<Vec<bool>>)> {
+    vec![
+        (Apo::recipe(&APO), None),
+        (Macd::recipe(&MACD), None),
+        (Ppo::recipe(&PPO), None),
+        (Ema::recipe(&[9.0]), None),
+        (Atr::recipe(&[14.0]), None),
+        (Natr::recipe(&[14.0]), None),
+        (SuperTrend::recipe(&[14.0, 3.0]), None),
+    ]
+}
+
+fn bench_grouping(c: &mut Criterion) {
+    let (hi, lo, cl) = hlc(0);
+    let three: [&[f64]; 3] = [hi.as_slice(), lo.as_slice(), cl.as_slice()];
+    let groups = {
+        let mut r = Request::new();
+        for (rec, opt) in dashboard() {
+            r = r.add(rec, opt.as_deref());
+        }
+        r.sharing_groups()
+    };
+    eprintln!("grouping: {} groups = {:?}", groups.len(), groups);
+
+    let mut g = c.benchmark_group("grouping");
+    g.sample_size(20);
+
+    // one fused loop over the whole dashboard.
+    let single = {
+        let mut r = Request::new();
+        for (rec, opt) in dashboard() {
+            r = r.add(rec, opt.as_deref());
+        }
+        r.build()
+    };
+    g.bench_function("jit_single_fused", |b| {
+        b.iter(|| {
+            let (res, qs) = single.run(&three);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+
+    // one plan per sharing group, run sequentially.
+    let split: Vec<JitPlan> = groups
+        .iter()
+        .map(|idxs| {
+            let mut r = Request::new();
+            for &i in idxs {
+                let (rec, opt) = dashboard()[i].clone();
+                r = r.add(rec, opt.as_deref());
+            }
+            r.build()
+        })
+        .collect();
+    g.bench_function("jit_split_seq", |b| {
+        b.iter(|| {
+            let mut acc = 0usize;
+            for p in &split {
+                let ns = p.n_streams();
+                let (res, _) = p.run(&three[..ns]);
+                acc += res.outputs[0][0].len();
+            }
+            black_box(acc)
+        })
+    });
+
+    // groups on separate host threads (bulk run; needs `Results: Send`).
+    g.bench_function("jit_split_parallel", |b| {
+        b.iter(|| {
+            std::thread::scope(|s| {
+                let mut acc = 0usize;
+                for p in &split {
+                    let ns = p.n_streams();
+                    s.spawn(move || {
+                        let (res, _) = p.run(&three[..ns]);
+                        black_box(res.outputs[0][0].len());
+                    });
+                }
+                black_box(&mut acc);
+            })
+        })
+    });
+    g.finish();
+}
+
 criterion_group!(
     benches,
     bench_prepare,
@@ -920,6 +1047,7 @@ criterion_group!(
     bench_rolling_st,
     bench_multi_input,
     bench_rolling_mixed,
-    bench_tick
+    bench_tick,
+    bench_grouping
 );
 criterion_main!(benches);

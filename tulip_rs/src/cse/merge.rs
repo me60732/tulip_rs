@@ -97,6 +97,93 @@ impl Merged {
         }
         leads
     }
+
+    /// Partition request indices into **sharing groups**: two requests join a
+    /// group iff their sub-graphs reach a common *computed* node — a chain,
+    /// arith, `Abs`/`Lag`, anything that is not a raw `Input` price stream or a
+    /// `Const`. Inputs are shared by every indicator, so counting them would
+    /// collapse all requests into one group and defeat the purpose; only
+    /// genuine shared *computation* links. Roots are the same liveness roots the
+    /// executor uses (enabled sinks ∪ `tail_inputs`), so a disabled optional
+    /// pulls in no sharing.
+    ///
+    /// This is the primitive behind "don't fuse disjoint indicators into one
+    /// loop" (measured: `natr`+`adx` and the disjoint `assets` lanes *lose* —
+    /// zero dedup, monolithic-plan cost). Groups map to independent sub-plans:
+    /// fuse *within* a cluster (shared chains computed once), run *across*
+    /// clusters as separate loops (bounded register footprint; parallelizable
+    /// on bulk `run`, sequential on `tick`). Returns `Vec<Vec<request_idx>>` in
+    /// first-appearance order.
+    pub fn sharing_groups(&self, resolved: &[Resolved]) -> Vec<Vec<usize>> {
+        let n = resolved.len();
+        let mut parent: Vec<usize> = (0..n).collect();
+        fn find(p: &mut Vec<usize>, x: usize) -> usize {
+            if p[x] == x {
+                return x;
+            }
+            let r = find(p, p[x]);
+            p[x] = r;
+            r
+        }
+        // arena node id -> first request whose fanin includes it (computed nodes
+        // only); a second distinct request that reaches it unions the two.
+        let mut owner: HashMap<Id, usize> = HashMap::new();
+        let nnodes = self.nodes.len();
+        let mut mark = vec![usize::MAX; nnodes]; // per-request visited stamp (reused)
+        for (r, res) in resolved.iter().enumerate() {
+            let mut stack: Vec<Id> = Vec::new();
+            let mut roots = |sinks: &[Sink]| {
+                for s in sinks {
+                    let SinkSrc::Interface(id) = s.src;
+                    stack.push(id);
+                }
+            };
+            roots(&res.outputs);
+            for (oi, s) in res.optional_outputs.iter().enumerate() {
+                if res.optional_enabled.get(oi).copied().unwrap_or(true) {
+                    stack.push(match s.src {
+                        SinkSrc::Interface(id) => id,
+                    });
+                }
+            }
+            stack.extend(res.inputs.iter().copied());
+            while let Some(id) = stack.pop() {
+                if mark[id as usize] == r {
+                    continue;
+                }
+                mark[id as usize] = r;
+                let node = &self.nodes[id as usize];
+                if !matches!(node, Node::Input { .. } | Node::Const { .. }) {
+                    match owner.get(&id) {
+                        Some(&o) => {
+                            let (ro, rr) = (find(&mut parent, o), find(&mut parent, r));
+                            if ro != rr {
+                                parent[rr] = ro;
+                            }
+                        }
+                        None => {
+                            owner.insert(id, r);
+                        }
+                    }
+                }
+                node_children(node, &mut |c| stack.push(c));
+            }
+        }
+        let mut order: Vec<usize> = Vec::new();
+        let mut buckets: HashMap<usize, Vec<usize>> = HashMap::new();
+        for r in 0..n {
+            let root = find(&mut parent, r);
+            let e = buckets.entry(root).or_default();
+            if e.is_empty() {
+                order.push(root);
+            }
+            e.push(r);
+        }
+        order
+            .into_iter()
+            .map(|root| buckets[&root].clone())
+            .collect()
+    }
 }
 
 /// Where one input recipe landed in the merged arena: its state wiring and
@@ -118,7 +205,7 @@ pub struct Resolved {
     /// Optional sinks, `Info::optional_outputs` order.
     pub optional_outputs: Vec<Sink>,
     /// Per-optional enable flags (parallel to `optional_outputs`); `merge`
-    /// defaults all-`true`, `Request::add_opt` overrides per request.
+    /// defaults all-`true`, [`crate::cse::Request::add`] overrides per request.
     /// A disabled optional sink prints an EMPTY array in declared position
     /// (hand `::indicator(None)` parity) and is excluded from emission.
     pub optional_enabled: Vec<bool>,
@@ -229,6 +316,52 @@ pub(crate) fn remap_node(node: &Node, g: &dyn Fn(Id) -> Id) -> Node {
     }
 }
 
+/// Visit every **child ref** of `node` (params — `period`, `n`, `stream`,
+/// `bits`, `step_bits` — are not graph edges and are skipped). SSA order
+/// guarantees each child id `< node` id, so the executor's dead-node pass
+/// propagates liveness in one descending scan. A new `Node` variant with a
+/// child must be added here **and** `remap_node` **and** `Merged::leads`.
+pub(crate) fn node_children(node: &Node, visit: &mut dyn FnMut(Id)) {
+    use Node::*;
+    match node {
+        Input { .. } | Const { .. } => {}
+        Ema { src, .. }
+        | Abs { src }
+        | Sqrt { src }
+        | Lag { src, .. }
+        | Hma { src, .. }
+        | Wma { src, .. }
+        | Sma { src, .. }
+        | Stddev { src, .. }
+        | Wilders { src, .. }
+        | SuperSmoother { src, .. }
+        | HtInPhase { src }
+        | HtQuadrature { src } => visit(*src),
+        Sub { a, b } | Add { a, b } | Mul { a, b } | Div { a, b } | Max { a, b } => {
+            visit(*a);
+            visit(*b);
+        }
+        WhereGe { a, b, t } => {
+            visit(*a);
+            visit(*b);
+            visit(*t);
+        }
+        Fma { a, b, c } => {
+            visit(*a);
+            visit(*b);
+            visit(*c);
+        }
+        HighPass { input, .. } => visit(*input),
+        SuperTrend {
+            atr, med, close, ..
+        } => {
+            visit(*atr);
+            visit(*med);
+            visit(*close);
+        }
+    }
+}
+
 fn remap_sink(sink: &Sink, l2g: &[Id]) -> Sink {
     Sink {
         src: match sink.src {
@@ -278,9 +411,76 @@ pub fn merge(recipes: &[Recipe]) -> (Merged, Vec<Resolved>) {
 mod tests {
     use super::*;
     use crate::cse::Planable;
+    use crate::indicators::adx::Adx;
     use crate::indicators::apo::Apo;
     use crate::indicators::macd::Macd;
+    use crate::indicators::natr::Natr;
     use crate::indicators::ppo::Ppo;
+    use crate::indicators::supertrend::SuperTrend;
+
+    /// Group requests and return each group's request indices, sorted, so the
+    /// result is order-stable for assertion. `opt[i]` is request `i`'s optional
+    /// enable mask (mirrors what `Request::build` applies before compiling).
+    fn groups_of(recipes: &[Recipe], opt: &[Vec<bool>]) -> Vec<Vec<usize>> {
+        let (arena, mut resolved) = merge(recipes);
+        for (r, f) in resolved.iter_mut().zip(opt) {
+            r.optional_enabled = f.clone();
+        }
+        let mut g = arena.sharing_groups(&resolved);
+        for grp in &mut g {
+            grp.sort_unstable();
+        }
+        g.sort();
+        g
+    }
+
+    /// Partition primitive: `apo`+`macd` share `ema12/ema24`; `natr`+`supertrend`
+    /// share the mean-`Wilders(tr)`/`tr` chain; `adx` (its `dx`/`dm` chain over
+    /// high/low) shares no *computed* node with the others when its optional
+    /// `atr`/`tr` mirrors are OFF → three disjoint groups → three sub-plans.
+    #[test]
+    fn sharing_groups_splits_disjoint_panels() {
+        let recipes = [
+            Apo::recipe(&[12.0, 24.0]),
+            Macd::recipe(&[12.0, 24.0, 9.0]),
+            Adx::recipe(&[12.0]),
+            Natr::recipe(&[12.0]),
+            SuperTrend::recipe(&[12.0, 3.0]),
+        ];
+        // primary-only: adx's atr/tr mirrors disabled ⇒ disjoint.
+        let primary = groups_of(
+            &recipes,
+            &[
+                vec![],
+                vec![false, false],
+                vec![false, false, false],
+                vec![false, false],
+                vec![false, false, false],
+            ],
+        );
+        assert_eq!(
+            primary,
+            vec![vec![0, 1], vec![2], vec![3, 4]],
+            "ema-pair / adx / mean-ATR pair are three sharing groups"
+        );
+        // With adx's optional atr/tr mirror ON, it now reaches the shared
+        // mean-`Wilders(tr)` node → joins the natr/supertrend group (2 groups).
+        let with_atr = groups_of(
+            &recipes,
+            &[
+                vec![],
+                vec![false, false],
+                vec![true, true, true],
+                vec![false, false],
+                vec![false, false, false],
+            ],
+        );
+        assert_eq!(
+            with_atr,
+            vec![vec![0, 1], vec![2, 3, 4]],
+            "adx sharing the ATR mirror merges into the mean-ATR group"
+        );
+    }
 
     /// The three classic requests share EVERYTHING shareable as one graph:
     /// `Input` + `ema12` + `ema26` (one chain each), ONE `Sub` line node

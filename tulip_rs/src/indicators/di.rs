@@ -274,8 +274,10 @@ impl crate::cse::Planable for Di {
     /// SUM, not the mean ATR), so it is a DIFFERENT node from `Atr`'s mean
     /// chain (correctly — different values). Exact op order: `atr_inv =
     /// 100/atr` shared by both, `pdi = max(dmup·atr_inv, 0)`,
-    /// `mdi = max(dmdown·atr_inv, 0)`; `Max` = CLIF `fmax` reproduces the
-    /// hand's `.max(0.0)` NaN→0 semantics when `atr = 0` (`0·inf`→NaN→0).
+    /// `mdi = max(dmdown·atr_inv, 0)`; `Max` lowers to Rust `f64::max`
+    /// (`codegen::max_num`, IEEE maxNum) reproducing the hand's `.max(0.0)`
+    /// NaN→0 semantics when `atr = 0` (`0·inf`→NaN→0). CLIF `fmax` would return
+    /// NaN here (WebAssembly rules), so it is deliberately not used.
     /// Publish lead = `period`. A `dm`+`di`+`dx` query shares the whole DM
     /// chain; `dx` shares the ATR-sum too.
     fn recipe(options: &[f64]) -> crate::cse::Recipe {

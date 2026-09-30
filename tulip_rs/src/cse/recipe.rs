@@ -134,8 +134,11 @@ pub enum Node {
     /// |l−c0|) = h0 − l0`, the hand's bar-0 term). E6: the stateless
     /// `tr = max(h−l, |h−pc|, |l−pc|)` (`Lag` = prev close) + atr/dx.
     Lag { src: Id, n: u32 },
-    /// `a.max(b)` — the NaN-propagates-other `f64::max` (CLIF `fmax`,
-    /// same IEEE maxNum semantics).
+    /// `a.max(b)` — the hand's Rust `f64::max` (IEEE **maxNum**: a NaN operand
+    /// yields the *other*). Lowered by `codegen::max_num`, NOT CLIF `fmax` —
+    /// Cranelift's `fmax` follows the WebAssembly rules (propagates NaN), the
+    /// opposite of Rust, which broke `di`/`dx`'s `.max(0.0)` guard on a zero ATR
+    /// (review §2.1 / D6).
     Max { a: Id, b: Id },
     /// `if a >= b { t } else { 0.0 }` — an ordered float compare feeding a
     /// CLIF `select`, the else arm pinned to `+0.0`. This is the DM+ / DM−
