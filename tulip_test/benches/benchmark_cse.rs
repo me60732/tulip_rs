@@ -1122,11 +1122,11 @@ fn bench_range(c: &mut Criterion) {
 /// roll's value AND trail live across the loop, and live xmm is what decays this
 /// engine's wins — hence measuring instead of assuming.
 ///
-/// The group ends with the shape that motivated the mechanism at all: FOUR
-/// unrelated indicator requests (`willr(14) + donchian(20) + max(50) +
-/// ichimoku(9,26)`) whose windows merely overlap on the same columns. Interning
-/// shares nothing across them; linking chains nine of their eleven rolls (all but
-/// the narrowest per column and direction) into one walk per column per direction.
+/// The cross-indicator version of the same idea — four UNRELATED requests whose
+/// windows merely overlap (`willr(14) + donchian(20) + max(50) + ichimoku(9,26)`)
+/// — is `bench_nested4`, because interning shares nothing across those requests
+/// while linking chains nine of their eleven rolls (all but the narrowest roll per
+/// column and direction) into one walk per column per direction.
 fn bench_nested(c: &mut Criterion) {
     let (hi, lo, cl) = hlc(0);
     let s: [&[f64]; 2] = [hi.as_slice(), lo.as_slice()];
@@ -1194,10 +1194,11 @@ fn bench_nested(c: &mut Criterion) {
             black_box((res.outputs[0][0].len(), qs.next_bar()))
         })
     });
-    // The FOUR-REQUEST cross-indicator row is NOT here — it is `bench_nested4`,
-    // its own group, because compiling a fourth plan measurably inflated the hand
-    // rows of THIS group (see that function's doc). A pair must be measured in the
-    // environment it belongs to.
+    // The FOUR-REQUEST cross-indicator row lives in `bench_nested4` (its own
+    // group), where the pair is measured together against a small plan set. Note
+    // that the group split is for clarity and iteration speed, NOT for isolation:
+    // adding this row anywhere in this file moves the HAND rows of the other
+    // groups by shifting the bench binary's text — see `bench_list`'s doc.
     g.finish();
 }
 
@@ -1220,16 +1221,14 @@ fn bench_nested(c: &mut Criterion) {
 /// internally, so per bar it does strictly MORE stores than the plan here. Read a
 /// jit loss as real; a win carries that headroom.
 ///
-/// WHY ITS OWN GROUP. Measured, mechanism unidentified: adding a compiled plan to
-/// `bench_nested` moves an UNRELATED row there — `hand_ichimoku_9_26` reads 46.4 µs
-/// with three plans compiled (every run before this row existed) and 62.3 / 63.5 /
-/// 64.5 µs in three runs with a fourth compiled too, identical code and data. So a
-/// `JitPlan` being alive in the process changes the environment the hand rows run
-/// in — location within the function is NOT the lever, since criterion defers all
-/// measurement to `finish()` and every setup plan is live for every row either way
-/// (verified by isolation). Consequence, and the rule this file should follow:
-/// compare a jit/hand PAIR from the same run, in a group whose plan set is the one
-/// being asked about, and treat absolute µs as unportable across runs.
+/// WHY IT IS READ AS A PAIR, NOT AS A µs. Adding this row to `bench_nested` moved
+/// an UNRELATED hand row there from 46.4 to 62–64 µs while every JIT row held
+/// within ~1% — and the effect survived `CSE_BENCH=nested`, where this function is
+/// never called and its plan never compiled. So it is not the plan being alive: it
+/// is this bench BINARY's text layout shifting the hand's inlined AVX2 loop, while
+/// engine code runs from a runtime-`mmap`'d cranelift arena. See `bench_list`'s doc
+/// for the measurements and the rule: a jit/hand ratio is valid for one binary and
+/// one run, and must be re-measured after any edit here.
 fn bench_nested4(c: &mut Criterion) {
     let (hi, lo, cl) = hlc(0);
     let s: [&[f64]; 2] = [hi.as_slice(), lo.as_slice()];
@@ -1435,29 +1434,84 @@ fn bench_grouping(c: &mut Criterion) {
     g.finish();
 }
 
-criterion_group!(
-    benches,
-    bench_prepare,
-    bench_classic,
-    bench_dedup,
-    bench_dense,
-    bench_assets,
-    bench_rolling,
-    bench_rolling_hma,
-    bench_rolling_hma_multi,
-    bench_hma_group_dedup,
-    bench_rolling_wilders,
-    bench_rolling_atr,
-    bench_rolling_adx,
-    bench_rolling_st,
-    bench_multi_input,
-    bench_minmax,
-    bench_aroon,
-    bench_range,
-    bench_nested,
-    bench_nested4,
-    bench_rolling_mixed,
-    bench_tick,
-    bench_grouping
-);
+/// Bench functions are dispatched through a table so a run can be restricted to
+/// one group (`CSE_BENCH=nested4`, comma-separated; unset = everything).
+///
+/// What that DOES buy: iterating on one group without compiling twenty `JitPlan`s
+/// (the builds are seconds each), and a pair measured with only its own plan set
+/// alive. What it does NOT buy, and this is the measured part: comparability of
+/// the HAND rows across builds. `nested/hand_ichimoku_9_26` reads 46.4 µs in the
+/// build where `bench_nested4` did not exist and 62–64 µs in every build where it
+/// does — including runs where that function is never CALLED (`CSE_BENCH=nested`,
+/// so its plan is never compiled), which rules out "a live plan perturbs its
+/// neighbours" — my first explanation, and wrong.
+///
+/// The discriminator is the bench binary's own text layout. Across every
+/// configuration measured today the JIT rows hold within ~1% (`jit_max`
+/// 12.6/12.7/12.8/12.6) while the hand rows move 6–37% (`hand_max` 5.9 → 6.55
+/// isolated, `hand_ichimoku` 46 → 64). That is the expected asymmetry: JIT code
+/// lives in a runtime-`mmap`'d cranelift arena whose placement does not depend on
+/// the executable's contents, whereas the hand's `indicator()` is monomorphised
+/// and inlined into THIS binary, so adding a function relocates and re-aligns its
+/// hot AVX2 loop. Mechanism inside that (alignment, I-cache sets, BTB aliasing)
+/// not identified.
+///
+/// RULE: a jit/hand ratio is valid for ONE binary and ONE run. Re-measure the
+/// pair after any edit to this file — do not compare an absolute ratio from a
+/// table above against a row measured from a different bench-function set. The
+/// jit-vs-jit comparisons in `proposals/Handover.md` §6.12–6.13 are the reliable
+/// direction precisely because the JIT rows are the stable ones.
+macro_rules! bench_list {
+    ($($name:literal => $f:path),+ $(,)?) => {
+        fn dispatch(c: &mut Criterion) {
+            let want = std::env::var("CSE_BENCH").unwrap_or_default();
+            if want.is_empty() {
+                $(
+                    $f(c);
+                )+
+                return;
+            }
+            let mut ran = 0usize;
+            $(
+                if want.split(',').any(|s| s.trim() == $name) {
+                    $f(c);
+                    ran += 1;
+                }
+            )+
+            if ran == 0 {
+                panic!(
+                    "CSE_BENCH={want:?} matched no group; known: {:?}",
+                    [$($name),+]
+                );
+            }
+        }
+    };
+}
+
+bench_list! {
+    "prepare" => bench_prepare,
+    "classic" => bench_classic,
+    "dedup" => bench_dedup,
+    "dense" => bench_dense,
+    "assets" => bench_assets,
+    "rolling" => bench_rolling,
+    "rolling_hma" => bench_rolling_hma,
+    "rolling_hma_multi" => bench_rolling_hma_multi,
+    "hma_group_dedup" => bench_hma_group_dedup,
+    "rolling_wilders" => bench_rolling_wilders,
+    "rolling_atr" => bench_rolling_atr,
+    "rolling_adx" => bench_rolling_adx,
+    "rolling_st" => bench_rolling_st,
+    "multi_input" => bench_multi_input,
+    "minmax" => bench_minmax,
+    "aroon" => bench_aroon,
+    "range" => bench_range,
+    "nested" => bench_nested,
+    "nested4" => bench_nested4,
+    "rolling_mixed" => bench_rolling_mixed,
+    "tick" => bench_tick,
+    "grouping" => bench_grouping,
+}
+
+criterion_group!(benches, dispatch);
 criterion_main!(benches);
