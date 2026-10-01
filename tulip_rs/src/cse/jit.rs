@@ -144,6 +144,9 @@ struct Op {
     /// = walk the whole window, as before). See
     /// `gap_seeded_rescan_matches_full_walk` for the proof this is exact.
     seed: usize,
+    /// E12: index into [`JitPlan::rings`] for a `RollSum` op — the ring holding
+    /// its source's recent values (`usize::MAX` for every other kind).
+    ring: usize,
 }
 
 #[derive(Clone)]
@@ -200,6 +203,14 @@ enum OpE {
     /// `sma(period)` over a PRICE `src` (asserted at build): ring of src
     /// values in state, rolling `sum`, result `sum * mult` (E3).
     Sma { src: usize, period: u32, mult: f64 },
+    /// E12: rolling sum of a DERIVED node over `period` bars (`mean` emits
+    /// `sum · (1/period)` like the hands that scale rather than divide). Same
+    /// recurrence as `Sma`, but the leaving term is read from a ring of the
+    /// source's own recent node-values held in the state image (`rings`), which
+    /// is what lets `cmo`/`stoch`/`vhf` roll over computed series. Asserted
+    /// NON-price at build: a price-sourced sum belongs to the anchor-reading
+    /// `Sma` group, which shares one roll per `(src, period)` and needs no ring.
+    RollSum { src: usize, period: u32, mean: bool },
     /// `stddev(period)` over a PRICE `src` — hand `Stddev::calc` op-for-op
     /// (sum roll + `sum_sq`, warm segments fold `fma(v,v,sq)` exactly like
     /// the hand's init, steady segments the double-rounded update).
@@ -408,10 +419,36 @@ pub struct LaneGroup {
     pub ops: Vec<usize>,
 }
 
+/// E12: one ring of a DERIVED node's recent values, held in the plan's STATE
+/// word image so it persists across chunks and ticks with no extra contract.
+///
+/// Slots are addressed as `absolute_bar_counter & mask`, and the counter is
+/// already the loop's carried `i` — so a ring needs NO cursor of its own, and a
+/// resumed chunk reads the same logical slot it would have if the series had
+/// been one chunk. `cap` is a power of two ≥ `lag + 1` (mask, never `urem`:
+/// cranelift lowers a non-power-of-two remainder to an integer DIVISION, worth
+/// 2.6× on this loop — Handover §6.16).
+struct Ring {
+    /// The source op whose per-bar value is written here.
+    src: usize,
+    base: usize,
+    cap: usize,
+    /// Widest lag any consumer of this ring reads (max `period`).
+    lag: u32,
+}
+
 /// A compiled plan: the JIT module (keeps the code alive), the entry point,
 /// and the metadata that makes `run`/`resume` return shaped `Results`.
 pub struct JitPlan {
-    module: JITModule,
+    /// LEAKED on purpose (`ManuallyDrop`): dropping a cranelift `JITModule`
+    /// munmaps/protects the process-wide executable arena, and with several plans
+    /// alive that teardown races threads still inside generated code — the
+    /// intermittent `cse::` SIGSEGV (mid-run or at exit, rate rising with the
+    /// number of compiled plans, masked by `--nocapture`, absent at 1 thread until
+    /// the plan count got high enough). Plans are already process-lifetime (E4's
+    /// cache never evicts, and `JitFn` pointers outlive every caller), so nothing
+    /// is released that anyone can observe — the arena is reclaimed at exit.
+    module: std::mem::ManuallyDrop<JITModule>,
     func: Option<JitFn>,
     arena: Merged,
     /// The verifier-cleaned CLIF text of the compiled loop, captured at
@@ -450,6 +487,8 @@ pub struct JitPlan {
     /// Pure code shape — the STATE LAYOUT IS IDENTICAL, so a `JitState` image is
     /// interchangeable between the two modes and the fingerprint is not tagged.
     vecwalk: bool,
+    /// E12: the derived-value rings backing `OpE::RollSum` (empty otherwise).
+    rings: Vec<Ring>,
     /// E4: `hash64` of the canonical request bytes this plan was compiled
     /// from; stamped onto every [`JitState`] and asserted on `advance` —
     /// the DB-reload safety net (state words are only meaningful under the
@@ -590,6 +629,7 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
                 aux_word: 0,
                 roll_leader: usize::MAX,
                 seed: usize::MAX,
+                ring: usize::MAX,
             });
             node_op[$s][id] = ops.len() - 1;
         }};
@@ -804,6 +844,28 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
                             src: src_op,
                             period,
                             mult: 1.0 / period as f64,
+                        }
+                    );
+                }
+                // E12: rolling sum over a DERIVED node — the ring replaces the
+                // anchor read that `Sma` uses, so this is the arm that lifts the
+                // "rolling over a derived src" gate for the sum-shaped consumers
+                // (`cmo`, `stoch`, `vhf`).
+                Node::RollSum { src, period, mean } => {
+                    let src_op = node_op[s][src as usize];
+                    assert!(
+                        !is_price(src_op),
+                        "jit: a price-sourced rolling sum is `Sma` (anchor-read, group-shared) — \
+                         `RollSum` is for derived sources only"
+                    );
+                    assert!(period >= 1, "jit: RollSum period must be >= 1");
+                    push!(
+                        s,
+                        id,
+                        OpE::RollSum {
+                            src: src_op,
+                            period,
+                            mean,
                         }
                     );
                 }
@@ -1039,6 +1101,7 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
                     .map(|&i| match arena.nodes[i as usize] {
                         Node::Ema { period, .. }
                         | Node::Sma { period, .. }
+                        | Node::RollSum { period, .. }
                         | Node::Stddev { period, .. }
                         | Node::Wma { period, .. }
                         | Node::Hma { period, .. }
@@ -1189,9 +1252,33 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
         op.ema_word = ema_base + j;
     }
     // E3 rolling layout: aux words only (stddev's sum_sq, wma's
-    // weighted_sum). Price history lives HOST-side in the anchor stitch,
-    // so no ring words occupy the state image.
+    // weighted_sum). PRICE history lives HOST-side in the anchor stitch, so no
+    // price ring occupies the state image — E12's rings hold DERIVED node-values,
+    // which the host cannot supply, and are allocated just below.
     let mut word_next = ema_base + ops.len();
+    // E12: one ring per DERIVED source that some `RollSum` reads. Sized by the
+    // widest lag on that source, so the allocation must happen before ops are
+    // walked one at a time.
+    let mut rings: Vec<Ring> = Vec::new();
+    for op in ops.iter() {
+        if let OpE::RollSum { src, period, .. } = op.e {
+            if let Some(r) = rings.iter_mut().find(|r| r.src == src) {
+                r.lag = r.lag.max(period);
+            } else {
+                rings.push(Ring {
+                    src,
+                    base: 0,
+                    cap: 0,
+                    lag: period,
+                });
+            }
+        }
+    }
+    for r in rings.iter_mut() {
+        r.cap = (r.lag as usize + 1).next_power_of_two();
+        r.base = word_next;
+        word_next += r.cap;
+    }
     // (src, period) groups: FIRST op owns the sum roll; a sibling of the
     // other kind (Sma+Stddev over one window — bbands and standalone sma
     // in one query makes this the norm) carries nothing and reads the
@@ -1259,6 +1346,19 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
                 op.roll_leader = usize::MAX;
                 pmax = pmax.max(n as usize);
             }
+            // E12: a derived rolling sum carries its raw SUM in the op's own
+            // value slot (exactly like an `Sma` group leader, so `get_states`
+            // reports it as `ChainState::Sma`); the only extra state is the
+            // source's ring, allocated above, and the op records which ring it
+            // reads. No anchor widening: the leaving value comes from the ring.
+            OpE::RollSum { src, .. } => {
+                op.aux_word = 0;
+                op.roll_leader = usize::MAX;
+                op.ring = rings
+                    .iter()
+                    .position(|r| r.src == src)
+                    .expect("ring built for every RollSum source above");
+            }
             _ => {
                 op.aux_word = 0;
                 op.roll_leader = usize::MAX;
@@ -1280,7 +1380,7 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
     let module = JITModule::new(JITBuilder::with_isa(isa, default_libcall_names()));
 
     let mut plan = JitPlan {
-        module,
+        module: std::mem::ManuallyDrop::new(module),
         func: None,
         arena,
         clif: String::new(),
@@ -1297,6 +1397,7 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
         n_fields,
         pmax,
         vecwalk,
+        rings,
         fingerprint,
     };
     codegen::emit(&mut plan, fc);
@@ -1783,7 +1884,7 @@ impl JitPlan {
                 value: self.ema_of(st, op),
                 period,
             },
-            OpE::Sma { .. } => ChainState::Sma { sum, period },
+            OpE::Sma { .. } | OpE::RollSum { .. } => ChainState::Sma { sum, period },
             OpE::Wilders { .. } => ChainState::Wilders {
                 value: self.ema_of(st, op),
                 period,

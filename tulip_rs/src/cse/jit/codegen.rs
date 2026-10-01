@@ -174,7 +174,7 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
         if plan.lane_of[j].0 == usize::MAX
             && (matches!(
                 plan.ops[j].e,
-                OpE::Ema { .. } | OpE::Wilders { .. } | OpE::Roll { .. }
+                OpE::Ema { .. } | OpE::Wilders { .. } | OpE::Roll { .. } | OpE::RollSum { .. }
             ) || (matches!(
                 plan.ops[j].e,
                 OpE::Sma { .. } | OpE::Stddev { .. } | OpE::Wma { .. }
@@ -201,7 +201,7 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
             } if feed > 0 => Some(feed),
             // E3: rings fold while filling (bars <= lead) and trick once
             // the oldest slot is real (bars >= lead+1).
-            OpE::Sma { .. } | OpE::Stddev { .. } => Some(op.lead + 1),
+            OpE::Sma { .. } | OpE::Stddev { .. } | OpE::RollSum { .. } => Some(op.lead + 1),
             // E6: Wilders folds its mean seed over bars 0..lead then decays
             // from bar lead+1 — the fold→steady seam.
             OpE::Wilders { .. } => Some(op.lead + 1),
@@ -470,6 +470,11 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
             // E9: cold chunk — bar 0 seeds the extremum exactly as the hand's
             // `init_state` opens (`max = real[0]` / `min = real[0]`, trail 0).
             OpE::Roll { src, .. } => fb.ins().select(is_seeded, loads[j], p0[PRICE - src]),
+            // E12: the derived rolling sum carries from state — a cold chunk's
+            // slot is zero-initialized and bar 0 is NOT added (the loop starts at
+            // bar 1, and the hand's own fold likewise starts at the source's first
+            // defined bar, which for a `Lag{1}`-sourced movement IS bar 1).
+            OpE::RollSum { .. } => loads[j],
             _ => fb.ins().f64const(0.0),
         };
         init.push(v);
@@ -825,6 +830,14 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
         // published value lives in `cur`); stddev's sum_sq and the ring
         // cursors ride dedicated param blocks.
         let mut carry: Vec<Option<Value>> = vec![None; nops];
+        // E12: the derived-value ring gets ONE write per ring per bar, emitted by
+        // its first consumer (rings are shared by several `RollSum`s with
+        // different lags, and writing the same value twice would be pure waste).
+        // These are per-segment because each segment re-emits the body.
+        let nring = plan.rings.len();
+        let mut ring_done = vec![false; nring];
+        let mut ring_mask: Vec<Option<Value>> = vec![None; nring];
+        let mut ring_base8: Vec<Option<Value>> = vec![None; nring];
         let mut sq_lat: Vec<Option<Value>> = vec![None; nsq];
         // E3 stage 3: HMA's six accumulators + ring cursor are carried
         // by EVERY segment arm (each phase updates a subset, but the
@@ -1110,6 +1123,59 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                     let _ = (src_v, prevv, period);
                     let mc = fb.ins().f64const(mult);
                     fb.ins().fmul(sum2, mc)
+                }
+                // E12: rolling sum of a DERIVED node. Same shape as `Sma` (the
+                // raw sum is the carried value, `mean` scales it on the way out),
+                // except the leaving value is read from the source's ring instead
+                // of the host price anchor — slots are `bar & mask` off the
+                // ABSOLUTE bar counter, so there is no cursor to carry and a
+                // resumed chunk continues the window by construction.
+                OpE::RollSum { src, period, mean } => {
+                    let slot = slot_of_op[j];
+                    let prev_sum = bp[slot];
+                    let src_v = scalarize!(src);
+                    let ivar = bp[ipos];
+                    let ri = plan.ops[j].ring;
+                    let ring = &plan.rings[ri];
+                    if !ring_done[ri] {
+                        let mask = fb.ins().iconst(i64_t, (ring.cap - 1) as i64);
+                        let b8 = fb.ins().iconst(i64_t, 8 * ring.base as i64);
+                        let wslot = fb.ins().band(ivar, mask);
+                        let woff = fb.ins().imul(wslot, eight);
+                        let waddr = fb.ins().iadd(b8, woff);
+                        let wa = fb.ins().iadd(state, waddr);
+                        st(&mut fb, wa, 0, src_v);
+                        ring_mask[ri] = Some(mask);
+                        ring_base8[ri] = Some(b8);
+                        ring_done[ri] = true;
+                    }
+                    let mask = ring_mask[ri].expect("ring written by its first consumer");
+                    let b8 = ring_base8[ri].expect("ring base alongside its mask");
+                    let sum2 = if b <= plan.ops[j].lead as i64 {
+                        // Window still filling: nothing has fallen out yet, so the
+                        // fold is a plain accumulate (and the ring slot for `i−P`
+                        // has not been written — reading it would be garbage).
+                        fb.ins().fadd(prev_sum, src_v)
+                    } else {
+                        let lag = fb.ins().iconst(i64_t, period as i64);
+                        let rpos = fb.ins().isub(ivar, lag);
+                        let rslot = fb.ins().band(rpos, mask);
+                        let roff = fb.ins().imul(rslot, eight);
+                        let raddr = fb.ins().iadd(b8, roff);
+                        let ra = fb.ins().iadd(state, raddr);
+                        let old = fb.ins().load(f64_t, MemFlagsData::new(), ra, 0);
+                        // The hand's `sum += v - old`: the difference is rounded
+                        // FIRST, so this is `fadd` of an `fsub`, never an `fma`.
+                        let net = fb.ins().fsub(src_v, old);
+                        fb.ins().fadd(prev_sum, net)
+                    };
+                    carry[j] = Some(sum2);
+                    if mean {
+                        let mc = fb.ins().f64const(1.0 / period as f64);
+                        fb.ins().fmul(sum2, mc)
+                    } else {
+                        sum2
+                    }
                 }
                 OpE::Stddev {
                     src,
@@ -1802,6 +1868,7 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                 | OpE::Stddev { .. }
                 | OpE::Wma { .. }
                 | OpE::Roll { .. }
+                | OpE::RollSum { .. }
                 | OpE::Wilders { .. }
         ) {
             st(

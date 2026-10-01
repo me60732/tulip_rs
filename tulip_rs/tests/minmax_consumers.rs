@@ -15,11 +15,13 @@
 //! in the lib test is here, and the regime sweep (7 shapes × 3 pseudo-random
 //! periods, cold AND streamed) additionally runs in `differential_parity`.
 
-use tulip_rs::cse::{Planable, Request};
-use tulip_rs::indicator_types::Indicator;
+use tulip_rs::cse::{IndicatorStateBox, Planable, Request};
+use tulip_rs::indicator_types::{Indicator, TIndicatorState};
+use tulip_rs::indicators::cmo::Cmo;
 use tulip_rs::indicators::donchianchannel::DonchianChannel;
 use tulip_rs::indicators::ichimoku::Ichimoku;
 use tulip_rs::indicators::max::Max;
+use tulip_rs::indicators::rsi::Rsi;
 use tulip_rs::indicators::willr::Willr;
 
 fn series(n: usize) -> Vec<f64> {
@@ -451,4 +453,131 @@ fn ichimoku_matches_hand() {
             }
         }
     }
+}
+
+/// E12 — the rolling-over-DERIVED class (`RSI` chains Wilders over the movement;
+/// `CMO` rolls sums of it through a ring held in the STATE IMAGE rather than read
+/// from the host price anchor). A short series never reaches the bar where the
+/// ring wraps, and a monotone series hides a subtracted term that was never
+/// added, so the datasets here are long, smooth-ramped, and saw-toothed on
+/// purpose: with a slow trend the sums stay small and any mis-timed ring read
+/// shows up as a negative sum and a wild ratio.
+///
+/// Runs in this binary for the same reason the other matrices do — plan-heavy
+/// sweeps are what the unresolved lib-suite fault is sensitive to.
+#[test]
+fn derived_rolls_match_hand_and_resume() {
+    let n = 600usize;
+    let smooth: Vec<f64> = (0..n).map(|i| 100.0 + (i as f64) * 0.01).collect();
+    let saw: Vec<f64> = (0..n).map(|i| 100.0 + ((i % 23) as f64) * 0.7).collect();
+    let wig = series(n);
+    let flat: Vec<f64> = vec![10.0; n];
+    let data: [(&str, &Vec<f64>); 4] = [
+        ("smooth", &smooth),
+        ("saw", &saw),
+        ("wiggle", &wig),
+        ("flat", &flat),
+    ];
+    for p in [3usize, 11, 14, 40] {
+        let opt = [p as f64];
+        let rsi_plan = Request::new().add(Rsi::recipe(&opt), None).build();
+        let cmo_plan = Request::new().add(Cmo::recipe(&opt), None).build();
+        for (name, series) in data {
+            let s: [&[f64]; 1] = [series.as_slice()];
+            let rhand = Rsi::indicator(&s, &opt, None).unwrap().0;
+            let chand = Cmo::indicator(&s, &opt, None).unwrap().0;
+            cmp_exact(
+                rsi_plan.run(&s).0.request(0).output(0),
+                &rhand[0],
+                &format!("rsi {name} p{p}"),
+            );
+            cmp_exact(
+                cmo_plan.run(&s).0.request(0).output(0),
+                &chand[0],
+                &format!("cmo {name} p{p}"),
+            );
+            for split in [p + 1, p + 2, p * 3, n / 3, n - 1] {
+                let c: [&[f64]; 1] = [&series[..split]];
+                let t: [&[f64]; 1] = [&series[split..]];
+                let (r1, qs) = rsi_plan.run(&c);
+                let (r2, _) = rsi_plan.resume(qs, &t);
+                let mut got = r1.request(0).output(0).to_vec();
+                got.extend_from_slice(r2.request(0).output(0));
+                cmp_exact(&got, &rhand[0], &format!("rsi {name} p{p} split{split}"));
+                let (r1, qs) = cmo_plan.run(&c);
+                let (r2, _) = cmo_plan.resume(qs, &t);
+                let mut got = r1.request(0).output(0).to_vec();
+                got.extend_from_slice(r2.request(0).output(0));
+                cmp_exact(&got, &chand[0], &format!("cmo {name} p{p} split{split}"));
+            }
+        }
+    }
+}
+
+/// E12 kept contract: `get_states` on a `CMO` plan must hand back a hand
+/// `IndicatorState` that CONTINUES bit-exactly. That exercises everything the
+/// ring added: the two raw sums come out of the ops' carried value slots,
+/// `prev` and `drop_real` out of the two `Ema{period: 1}` identity chains the
+/// recipe uses to report them, and the ring itself must have been written from
+/// bar 1 onward and persisted across the chunk boundary.
+#[test]
+fn cmo_get_states_continues_bit_exact() {
+    use tulip_rs::indicator_types::TIndicatorState;
+    use tulip_rs::indicators::cmo::IndicatorState as CmoIS;
+    let n = 400usize;
+    let data: Vec<f64> = (0..n)
+        .map(|i| 100.0 + (i as f64 * 0.05).sin() * 3.0)
+        .collect();
+    let p = 14usize;
+    let opt = [p as f64];
+    let s: [&[f64]; 1] = [data.as_slice()];
+    let hand = Cmo::indicator(&s, &opt, None).unwrap().0;
+    let plan = Request::new().add(Cmo::recipe(&opt), None).build();
+    let split = 200usize;
+    let c: [&[f64]; 1] = [&data[..split]];
+    let (_r1, qs) = plan.run(&c);
+    let states = plan.get_states(&qs);
+    let IndicatorStateBox::Cmo(restored) = &states[0] else {
+        panic!("cmo get_states did not rebuild the hand state");
+    };
+    let mut is = CmoIS::new(&data[..split], restored.clone(), p);
+    let t: [&[f64]; 1] = [&data[split..]];
+    let cont = is.batch_indicator(&t, None).unwrap();
+    cmp_exact(
+        &cont[0],
+        &hand[0][split - (p + 1)..],
+        "cmo get_states continuation",
+    );
+}
+
+/// E12 kept contract, `RSI`: its state is ONE hand `WildersSimdState<2>` rebuilt
+/// from the engine's two mean chains plus `prev_real` from the identity chain,
+/// and the continuation must be bit-exact from there.
+#[test]
+fn rsi_get_states_continues_bit_exact() {
+    use tulip_rs::indicators::rsi::IndicatorState as RsiIS;
+    let n = 400usize;
+    let data: Vec<f64> = (0..n)
+        .map(|i| 100.0 + (i as f64 * 0.07).cos() * 4.0)
+        .collect();
+    let p = 14usize;
+    let opt = [p as f64];
+    let s: [&[f64]; 1] = [data.as_slice()];
+    let hand = Rsi::indicator(&s, &opt, None).unwrap().0;
+    let plan = Request::new().add(Rsi::recipe(&opt), None).build();
+    let split = 200usize;
+    let c: [&[f64]; 1] = [&data[..split]];
+    let (_r1, qs) = plan.run(&c);
+    let states = plan.get_states(&qs);
+    let IndicatorStateBox::Rsi(restored) = &states[0] else {
+        panic!("rsi get_states did not rebuild the hand state");
+    };
+    let mut is = restored.clone();
+    let t: [&[f64]; 1] = [&data[split..]];
+    let cont = <RsiIS as TIndicatorState<1>>::batch_indicator(&mut is, &t, None).unwrap();
+    cmp_exact(
+        &cont[0],
+        &hand[0][split - (p + 1)..],
+        "rsi get_states continuation",
+    );
 }

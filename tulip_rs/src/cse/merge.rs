@@ -60,7 +60,12 @@ impl Merged {
                     .max(leads[close as usize]),
                 Node::Sma { src, period }
                 | Node::Stddev { src, period }
-                | Node::Wma { src, period } => leads[src as usize] + period.saturating_sub(1),
+                | Node::Wma { src, period }
+                // E12: same boundary — the window is `period` wide, so the first
+                // full one ends at `lead(src) + period − 1`.
+                | Node::RollSum { src, period, .. } => {
+                    leads[src as usize] + period.saturating_sub(1)
+                }
                 // E9 trail-rescan roll: the carried extremum is meaningful
                 // from bar 0, but the WINDOW the hand's rescan walks needs
                 // `period` bars to exist, so the warm boundary is the same
@@ -304,6 +309,11 @@ pub(crate) fn remap_node(node: &Node, g: &dyn Fn(Id) -> Id) -> Node {
             src: g(src),
             period,
         },
+        RollSum { src, period, mean } => RollSum {
+            src: g(src),
+            period,
+            mean,
+        },
         Stddev { src, period } => Stddev {
             src: g(src),
             period,
@@ -362,6 +372,7 @@ pub(crate) fn node_children(node: &Node, visit: &mut dyn FnMut(Id)) {
         | Hma { src, .. }
         | Wma { src, .. }
         | Sma { src, .. }
+        | RollSum { src, .. }
         | Stddev { src, .. }
         | RollMax { src, .. }
         | RollMin { src, .. }

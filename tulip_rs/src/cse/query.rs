@@ -159,6 +159,11 @@ impl Request {
                     Node::HtInPhase { src } => (10, src as u64, 0, 0),
                     Node::HtQuadrature { src } => (11, src as u64, 0, 0),
                     Node::Sma { src, period } => (12, src as u64, period as u64, 0),
+                    // E12: the mean/raw switch changes the emitted value, so it
+                    // enters the key alongside the period.
+                    Node::RollSum { src, period, mean } => {
+                        (27, src as u64, (period as u64) | ((mean as u64) << 32), 0)
+                    }
                     Node::Stddev { src, period } => (13, src as u64, period as u64, 0),
                     // E9: `period` and `look_back` are INDEPENDENT facts — a
                     // `(P, P−1)` window and a `(P, P)` window are different
@@ -395,6 +400,14 @@ pub enum IndicatorStateBox {
     /// E9 M4 — the densest nesting case: three canonical windows per column, so
     /// the state is six `{value, trail}` pairs with no derived constants.
     Ichimoku(crate::indicators::ichimoku::State<Warm>),
+    /// E12 — `rsi`: the two MEAN-mode `Wilders` chains (the hand keeps both sums
+    /// in one SIMD state) plus `prev_real`, which the recipe carries as an
+    /// `Ema{period: 1}` — α=1 makes that recurrence the identity, so its chain
+    /// slot holds the last processed close without any new engine concept.
+    Rsi(crate::indicators::rsi::State<Warm>),
+    /// E12 — `cmo`: two rolling SUMS over the same `up_down` subgraph `rsi`
+    /// smooths, so an `rsi`+`cmo` query shares the movement nodes exactly.
+    Cmo(crate::indicators::cmo::State<Warm>),
     Other,
 }
 

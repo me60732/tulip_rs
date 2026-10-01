@@ -19,6 +19,7 @@ use tulip_rs::indicators::aroon::Aroon;
 use tulip_rs::indicators::aroonosc::AroonOsc;
 use tulip_rs::indicators::atr::Atr;
 use tulip_rs::indicators::bbands::BBands;
+use tulip_rs::indicators::cmo::Cmo;
 use tulip_rs::indicators::di::Di;
 use tulip_rs::indicators::dm::Dm;
 use tulip_rs::indicators::donchianchannel::DonchianChannel;
@@ -31,6 +32,7 @@ use tulip_rs::indicators::medprice::Medprice;
 use tulip_rs::indicators::min::Min;
 use tulip_rs::indicators::natr::Natr;
 use tulip_rs::indicators::ppo::Ppo;
+use tulip_rs::indicators::rsi::Rsi;
 use tulip_rs::indicators::sma::Sma;
 use tulip_rs::indicators::stddev::StdDev;
 use tulip_rs::indicators::supertrend::SuperTrend;
@@ -279,6 +281,18 @@ fn differential_parity() {
                 |s: &[&[f64]], pp: usize| Willr::indicator(&[s[0], s[1], s[2]], &[pp as f64], None)
                     .unwrap()
                     .0
+            );
+            chk!(
+                "Rsi",
+                1,
+                |q: usize| Request::new().add(Rsi::recipe(&[q as f64]), None),
+                |s: &[&[f64]], pp: usize| Rsi::indicator(&[s[0]], &[pp as f64], None).unwrap().0
+            );
+            chk!(
+                "Cmo",
+                1,
+                |q: usize| Request::new().add(Cmo::recipe(&[q as f64]), None),
+                |s: &[&[f64]], pp: usize| Cmo::indicator(&[s[0]], &[pp as f64], None).unwrap().0
             );
             chk!(
                 "DonchianChannel",

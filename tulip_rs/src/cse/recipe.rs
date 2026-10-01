@@ -243,6 +243,26 @@ pub enum Node {
     /// rolling `sum` and `sum_sq` (`fma` fold, like the hand's init),
     /// `sd = sqrt(sum_sq/P − sma·sma).max(f64::EPSILON)`.
     Stddev { src: Id, period: Id },
+    /// Rolling SUM of `src` over `period` bars; `mean` selects the emitted
+    /// value — the raw sum, or `sum · (1/period)` (a multiply, exactly as the
+    /// hands write it, never a divide).
+    ///
+    /// The difference from [`Node::Sma`] is only where the LEAVING value comes
+    /// from: `Sma` reads it from the host price anchor, so its `src` must be a
+    /// price stream, while this op keeps a ring of `src`'s own recent
+    /// NODE-VALUES in the state image, so `src` may be any emittable node.
+    /// That is the unlock for the rolling-over-derived class: `cmo`'s summed
+    /// up/down movement, `stoch`'s slow %K over its fast %K and %D over %K,
+    /// `vhf`'s Σ|Δclose| denominator.
+    ///
+    /// The recurrence is the hand's `sum += v − old` — one `fsub` then one
+    /// `fadd`, deliberately NOT an `fma` (the hand rounds the difference
+    /// first). The ring is addressed off the plan's ABSOLUTE bar counter, so it
+    /// needs no cursor of its own and a resumed chunk keeps a valid window by
+    /// construction; the `v − old` term is folded away until the window is
+    /// full, which is also what makes bar 0's (clamped, hence zero) movement
+    /// term harmless for `cmo`.
+    RollSum { src: Id, period: Id, mean: bool },
     /// Rolling **maximum** over node `src` — hand `max.rs` (E9), the
     /// trail-rescan recurrence (a windowed `Max` node, not a fold). Carries
     /// TWO values: the current max (f64) and the `trail` — bars since the

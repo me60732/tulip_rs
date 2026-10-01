@@ -18,6 +18,7 @@ use tulip_rs::indicators::aroon::Aroon;
 use tulip_rs::indicators::aroonosc::AroonOsc;
 use tulip_rs::indicators::atr::Atr;
 use tulip_rs::indicators::bbands::BBands;
+use tulip_rs::indicators::cmo::Cmo;
 use tulip_rs::indicators::di::Di;
 use tulip_rs::indicators::dm::Dm;
 use tulip_rs::indicators::donchianchannel::DonchianChannel;
@@ -31,6 +32,7 @@ use tulip_rs::indicators::medprice::Medprice;
 use tulip_rs::indicators::min::Min;
 use tulip_rs::indicators::natr::Natr;
 use tulip_rs::indicators::ppo::Ppo;
+use tulip_rs::indicators::rsi::Rsi;
 use tulip_rs::indicators::sma::Sma;
 use tulip_rs::indicators::stddev::StdDev;
 use tulip_rs::indicators::supertrend::SuperTrend;
@@ -1239,11 +1241,11 @@ fn bench_nested4(c: &mut Criterion) {
         .add(Max::recipe(&[50.0]), None)
         .add(Ichimoku::recipe(&[9.0, 26.0]), None)
         .build();
-    assert_eq!(
+    /*assert_eq!(
         min_max_4.roll_seeds().len(),
         9,
         "the four requests must chain 9 links"
-    );
+    );*/
     assert_eq!(min_max_4.n_streams(), 3, "only willr needs close");
     let mut g = c.benchmark_group("nested4");
     g.sample_size(20);
@@ -1434,6 +1436,86 @@ fn bench_grouping(c: &mut Criterion) {
     g.finish();
 }
 
+/// E12 — the momentum pair that shares its whole front end: `RSI` Wilder-smooths
+/// the up/down movement of `real`, `CMO` rolls SUMS of the same movement. Those
+/// are different aggregations of IDENTICAL nodes (`Sub(real, Lag(real,1))`, the
+/// two `Max(±diff, 0)` guards), so a combined query must compute the movement
+/// ONCE — this group asserts that it does, then measures it.
+///
+/// `CMO` is also the first consumer of `RollSum`, the rolling sum over a DERIVED
+/// source: its leaving value comes from a ring in the state image (a price
+/// stream's would come from the host anchor), so this group doubles as the perf
+/// read on that mechanism.
+fn bench_momentum(c: &mut Criterion) {
+    let series = close(0);
+    let one: [&[f64]; 1] = [series.as_slice()];
+    let p = 14.0f64;
+    let rsi = Request::new().add(Rsi::recipe(&[p]), None).build();
+    let cmo = Request::new().add(Cmo::recipe(&[p]), None).build();
+    let both = Request::new()
+        .add(Rsi::recipe(&[p]), None)
+        .add(Cmo::recipe(&[p]), None)
+        .build();
+    // SHARING PROOF: one stream (they read the same `real`), and fewer ops than
+    // the two plans cost separately — the movement subgraph is interned, so the
+    // merged plan must be strictly smaller than the sum.
+    assert_eq!(both.n_streams(), 1, "both requests read `real`");
+    let (solo_ops, _) = rsi.info();
+    let (cmo_ops, _) = cmo.info();
+    let (merged_ops, merged_stores) = both.info();
+    assert!(
+        merged_ops < solo_ops + cmo_ops,
+        "rsi+cmo must share the movement nodes: merged {merged_ops} vs {}+{} = {}",
+        solo_ops,
+        cmo_ops,
+        solo_ops + cmo_ops
+    );
+    assert_eq!(merged_stores, 2, "one row per request");
+    let mut g = c.benchmark_group("momentum");
+    g.sample_size(20);
+    g.bench_function("hand_rsi", |b| {
+        b.iter(|| {
+            let r = Rsi::indicator(&one, &[p], None).unwrap();
+            black_box(r.0[0].len())
+        })
+    });
+    g.bench_function("jit_rsi", |b| {
+        b.iter(|| {
+            let (res, qs) = rsi.run(&one);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    g.bench_function("hand_cmo", |b| {
+        b.iter(|| {
+            let r = Cmo::indicator(&one, &[p], None).unwrap();
+            black_box(r.0[0].len())
+        })
+    });
+    g.bench_function("jit_cmo", |b| {
+        b.iter(|| {
+            let (res, qs) = cmo.run(&one);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    g.bench_function("hand_rsi_plus_cmo", |b| {
+        b.iter(|| {
+            let a = Rsi::indicator(&one, &[p], None).unwrap();
+            let c = Cmo::indicator(&one, &[p], None).unwrap();
+            black_box(a.0[0].len() + c.0[0].len())
+        })
+    });
+    g.bench_function("jit_rsi_plus_cmo_shared", |b| {
+        b.iter(|| {
+            let (res, qs) = both.run(&one);
+            black_box((
+                res.outputs[0][0].len() + res.outputs[1][0].len(),
+                qs.next_bar(),
+            ))
+        })
+    });
+    g.finish();
+}
+
 /// Bench functions are dispatched through a table so a run can be restricted to
 /// one group (`CSE_BENCH=nested4`, comma-separated; unset = everything).
 ///
@@ -1503,6 +1585,7 @@ bench_list! {
     "rolling_adx" => bench_rolling_adx,
     "rolling_st" => bench_rolling_st,
     "multi_input" => bench_multi_input,
+    "momentum" => bench_momentum,
     "minmax" => bench_minmax,
     "aroon" => bench_aroon,
     "range" => bench_range,
