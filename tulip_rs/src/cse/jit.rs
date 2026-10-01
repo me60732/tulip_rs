@@ -442,6 +442,14 @@ pub struct JitPlan {
     n_fields: usize,
     /// E3: max rolling period (0 = none) — how far back `anchors` reach.
     pmax: usize,
+    /// E11: the roll's rescan walk runs 2 lanes wide (vector load + vector `fcmp` +
+    /// `vany_true`, scalar bookkeeping only on the rare improving chunk). This is
+    /// the DEFAULT after measuring −6…−27% across the roll benches with every hand
+    /// row flat (Handover §6.17); `CSE_SCALARWALK=1` restores the one-slot chain,
+    /// and BOTH paths are kept green in CI by running the suites in each mode.
+    /// Pure code shape — the STATE LAYOUT IS IDENTICAL, so a `JitState` image is
+    /// interchangeable between the two modes and the fingerprint is not tagged.
+    vecwalk: bool,
     /// E4: `hash64` of the canonical request bytes this plan was compiled
     /// from; stamped onto every [`JitState`] and asserted on `advance` —
     /// the DB-reload safety net (state words are only meaningful under the
@@ -503,6 +511,11 @@ const W_SEED: usize = 1;
 /// emittable set (`HighPass`/`SuperSmoother`/HT taps) panic at build.
 fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
     let fingerprint = crate::cse::cache::fingerprint_of(req, n_assets);
+    // E11: 2-lane rescan walk is the default (see `JitPlan::vecwalk`);
+    // `CSE_SCALARWALK=1` selects the old one-slot chain, which keeps both paths
+    // measurable inside ONE binary — the only honest A/B on this box, where the
+    // bench binary's text layout moves the hand baselines by up to 37% (§6.14).
+    let vecwalk = std::env::var_os("CSE_SCALARWALK").is_none();
     let (arena, mut resolved) = merge(&req.recipes);
     // same switch `Request::build` applies — disabled optionals compile to
     // never-print sinks (EMPTY in position, values unchanged elsewhere).
@@ -1283,6 +1296,7 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
         nassets: n_assets,
         n_fields,
         pmax,
+        vecwalk,
         fingerprint,
     };
     codegen::emit(&mut plan, fc);
@@ -3262,6 +3276,157 @@ mod tests {
                                 "{shape} {d:?} lb={lb} lb_n={lb_n} bar={i}: seeded reverse != full walk"
                             );
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    /// E10 DEQUE PRE-FLIGHT — can ONE monotonic deque answer N NESTED windows,
+    /// exactly (value AND trail), or does each window need its own?
+    ///
+    /// One, and the reason is the property that makes the idea work at all:
+    /// back-eviction (pop while the tail is dominated-or-equal) removes only entries
+    /// that can NEVER be the extremum of any window ending at this bar or later, at
+    /// ANY width — the new entry is both at least as extreme AND newer, so it
+    /// dominates the old one for every window that still contains it. Hence all
+    /// widths share the structure; front-eviction goes by the WIDEST window (a
+    /// narrower one may still need an entry), and each window reads through its own
+    /// monotone cursor, which advances at most once per push → O(1) amortised per
+    /// window per bar. Popping on `<=` (max) / `>=` (min) also keeps the NEWEST index
+    /// on a tie, which is exactly the hand's rule.
+    ///
+    /// STATUS: the engine was built to do this (ring in the state image, one cursor
+    /// per roll, cold ring seeded with bar 0 — all 61 lib + 6 consumer tests green in
+    /// that mode) and it measured 1.5–2.6× SLOWER than the rescan, so the emitter is
+    /// not in the tree; see Handover §6.16. Kept as the correctness proof and design
+    /// record: if a future plan shape crosses over (the deficit narrowed from 2.61×
+    /// with one roll per ring to 1.50× with six), this is the set of invariants an
+    /// implementation must preserve — including the cursor repointing that a popped
+    /// champion needs. Full experiment: `proposals/deque-roll-experiment.patch`.
+    #[test]
+    fn one_deque_answers_nested_windows_bit_exact() {
+        /// One deque shared by `widths`, emitting `(value, trail)` per window, plus
+        /// (pushes, cursor advances) for the complexity claim.
+        fn deque(
+            src: &[f64],
+            widths: &[usize],
+            want_max: bool,
+        ) -> (Vec<Vec<(f64, usize)>>, usize, usize) {
+            let lb_max = *widths.iter().max().unwrap();
+            let mut ent: Vec<(f64, usize)> = Vec::new(); // (value, bar), monotone
+            let mut head = 0usize; // oldest live entry (evicted by the WIDEST window)
+            let mut cur: Vec<usize> = vec![0; widths.len()];
+            let mut out: Vec<Vec<(f64, usize)>> = vec![Vec::new(); widths.len()];
+            let mut pushes = 0usize;
+            let mut advances = 0usize;
+            for (i, &v) in src.iter().enumerate() {
+                // back-evict: tail dominated by, or equal-but-older than, the new bar
+                while ent.len() > head {
+                    let (tv, _) = *ent.last().unwrap();
+                    if (want_max && tv <= v) || (!want_max && tv >= v) {
+                        ent.pop();
+                        // A cursor sitting on a popped entry moves to the entry that
+                        // displaced it: newer AND at least as extreme, so it is the
+                        // right champion for every window that still had the old one.
+                        for c in cur.iter_mut() {
+                            if *c >= ent.len() {
+                                *c = ent.len();
+                            }
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                ent.push((v, i));
+                pushes += 1;
+                while ent[head].1 + lb_max < i {
+                    head += 1;
+                }
+                for (w, &lb) in widths.iter().enumerate() {
+                    while ent[cur[w]].1 + lb < i {
+                        cur[w] += 1;
+                        advances += 1;
+                    }
+                    if i >= lb {
+                        out[w].push((ent[cur[w]].0, i - ent[cur[w]].1));
+                    }
+                }
+            }
+            (out, pushes, advances)
+        }
+
+        // The oracle: what the engine does today — rescan the window oldest → newest
+        // with the non-strict compare (newest occurrence wins), trail = look_back − slot.
+        fn rescanned(src: &[f64], lb: usize, want_max: bool) -> Vec<(f64, usize)> {
+            let mut out = Vec::new();
+            for i in lb..src.len() {
+                let mut v = src[i - lb];
+                let mut sl = 0usize;
+                for k in 1..=lb {
+                    let x = src[i - lb + k];
+                    if (want_max && x >= v) || (!want_max && x <= v) {
+                        v = x;
+                        sl = k;
+                    }
+                }
+                out.push((v, lb - sl));
+            }
+            out
+        }
+
+        let datasets = vec![
+            (
+                "ties",
+                (0..200usize).map(|k| (k % 5) as f64).collect::<Vec<f64>>(),
+            ),
+            (
+                "plateau",
+                (0..200usize)
+                    .map(|k| if k % 17 < 8 { 3.0 } else { -2.0 })
+                    .collect::<Vec<f64>>(),
+            ),
+            (
+                "rising",
+                (0..200usize).map(|k| k as f64).collect::<Vec<f64>>(),
+            ),
+            (
+                "falling",
+                (0..200usize)
+                    .map(|k| 200.0 - k as f64)
+                    .collect::<Vec<f64>>(),
+            ),
+            ("wiggle", series(200)),
+        ];
+        // `nested4`'s window set on one column in one direction: ichimoku short +
+        // willr + donchian + max(50) + ichimoku medium + ichimoku ultra.
+        let widths = [8usize, 13, 19, 25, 49, 51];
+
+        for (shape, src) in datasets {
+            for want_max in [true, false] {
+                let (got, pushes, advances) = deque(&src, &widths, want_max);
+                assert!(
+                    advances <= pushes * widths.len(),
+                    "{shape}: cursor advances must stay amortised O(1) per window"
+                );
+                for (w, &lb) in widths.iter().enumerate() {
+                    let want = rescanned(&src, lb, want_max);
+                    assert_eq!(
+                        got[w].len(),
+                        want.len(),
+                        "{shape} lb={lb}: deque emitted {} rows, oracle {} (want_max={want_max})",
+                        got[w].len(),
+                        want.len()
+                    );
+                    for i in 0..want.len() {
+                        assert_eq!(
+                            (got[w][i].0.to_bits(), got[w][i].1),
+                            (want[i].0.to_bits(), want[i].1),
+                            "{shape} lb={lb} bar{}: deque {:?} != rescan {:?} (want_max={want_max})",
+                            i + lb,
+                            got[w][i],
+                            want[i]
+                        );
                     }
                 }
             }

@@ -1248,6 +1248,103 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                                 (bv, bi)
                             }};
                         }
+                        // E11 experiment: the same walk, TWO SLOTS PER ITERATION.
+                        // One vector load, one `CMPPD`, one `vany_true` and a branch
+                        // that is rarely taken; all the scalar bookkeeping (the new
+                        // extremum, which lane it came from) happens inside that
+                        // branch, and the winning LANE is resolved once after the loop
+                        // — which is why no vector select is needed (cranelift 0.136
+                        // has none), and why the running value/index pair stays a
+                        // single (scalar, scalar) like the hand's `find_max_simd`.
+                        //
+                        // The improvement test is `UGE` with the operands swapped for
+                        // min (`chunk ≤ gmin` ≡ `gmin ≥ chunk`), because x64 lowers the
+                        // unordered-or-greater forms and NOT `ULE`.
+                        //
+                        // NaN is the one place the two walks are NOT interchangeable:
+                        // `fmax`/`fmin` drop a NaN operand, while the scalar chain's
+                        // `fcmp(ge)`/`fcmp(le)` returns false on NaN and so keeps the
+                        // previous best. This matches the engine's standing position on
+                        // price data (see `max_num`: bit-identical for finite prices) and
+                        // the hand's own scalar-vs-SIMD pair already differs the same
+                        // way, but it is why a NaN-tolerant dataset would need the
+                        // scalar walk (`CSE_SCALARWALK=1`) to stay hand-exact.
+                        macro_rules! walkv {
+                            ($base:expr, $n:expr, $nonstrict:expr, $is_max:expr) => {{
+                                let n: i64 = $n;
+                                let base: Value = $base;
+                                let is_max: bool = $is_max;
+                                let vty = vec_ty(2);
+                                // Slot 0 seeds the running extremum, exactly as the
+                                // scalar chain does, so a window nothing later improves
+                                // still answers (slot 0, that slot's value).
+                                let v0 = fb.ins().load(f64_t, MemFlagsData::new(), base, 0);
+                                let mut gv = fb.ins().splat(vty, v0);
+                                let mut bc = gv;
+                                let neg1 = fb.ins().iconst(i64_t, -1);
+                                let mut bs = neg1;
+                                // Chunks of two over slots 1..=n-1. At most ONE slot
+                                // is left over, so there is no tail loop — the scalar
+                                // compare after the loop is the whole remainder path.
+                                let nchunks = (n - 1) / 2;
+                                for j in 0..nchunks {
+                                    let up_bb = fb.create_block();
+                                    let mrg_bb = fb.create_block();
+                                    add_params(&mut fb, mrg_bb, &[vty, vty, i64_t]);
+                                    let off = fb.ins().iconst(i64_t, 8 * (1 + 2 * j));
+                                    let a = fb.ins().iadd(base, off);
+                                    let chunk = fb.ins().load(vty, MemFlagsData::new(), a, 0);
+                                    let (ca, cb) = if is_max { (chunk, gv) } else { (gv, chunk) };
+                                    let chg = fb.ins().fcmp(
+                                        FloatCC::UnorderedOrGreaterThanOrEqual,
+                                        ca,
+                                        cb,
+                                    );
+                                    let any = fb.ins().vany_true(chg);
+                                    fb.ins()
+                                        .brif(any, up_bb, &ba(&[]), mrg_bb, &ba(&[gv, bc, bs]));
+                                    fb.switch_to_block(up_bb);
+                                    let l0 = fb.ins().extractlane(chunk, 0);
+                                    let l1 = fb.ins().extractlane(chunk, 1);
+                                    let nm = if is_max {
+                                        fb.ins().fmax(l0, l1)
+                                    } else {
+                                        fb.ins().fmin(l0, l1)
+                                    };
+                                    let ng = fb.ins().splat(vty, nm);
+                                    let sj = fb.ins().iconst(i64_t, 1 + 2 * j);
+                                    fb.ins().jump(mrg_bb, &ba(&[ng, chunk, sj]));
+                                    fb.switch_to_block(mrg_bb);
+                                    let p = fb.block_params(mrg_bb).to_vec();
+                                    gv = p[0];
+                                    bc = p[1];
+                                    bs = p[2];
+                                }
+                                let mut gmax = fb.ins().extractlane(gv, 0);
+                                // Ties go to the NEWER lane (the hand's
+                                // `simd_eq(global_max).to_bitmask().ilog2()` at width 2).
+                                let e1 = fb.ins().extractlane(bc, 1);
+                                let newer = fb.ins().fcmp(FloatCC::Equal, e1, gmax);
+                                let add1 = fb.ins().select(newer, one, zero);
+                                let mut bi = fb.ins().iadd(bs, add1);
+                                // Sentinel: no chunk ever improved on slot 0, so the
+                                // answer is slot 0 (and any later EQUAL value would have
+                                // taken the rare path, which is what makes that sound).
+                                let sent = fb.ins().icmp(IntCC::Equal, bs, neg1);
+                                bi = fb.ins().select(sent, zero, bi);
+                                let rem = 1 + 2 * nchunks;
+                                if rem < n {
+                                    let off = fb.ins().iconst(i64_t, 8 * rem);
+                                    let a = fb.ins().iadd(base, off);
+                                    let v = fb.ins().load(f64_t, MemFlagsData::new(), a, 0);
+                                    let hit = fb.ins().fcmp($nonstrict, v, gmax);
+                                    gmax = fb.ins().select(hit, v, gmax);
+                                    let rc = fb.ins().iconst(i64_t, rem);
+                                    bi = fb.ins().select(hit, rc, bi);
+                                }
+                                (gmax, bi)
+                            }};
+                        }
                         let seed = plan.ops[j].seed;
                         // The walk yields a WINDOW slot, so the trail is
                         // `look_back − slot` — the hand's
@@ -1259,7 +1356,11 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                         // roll publishes no index), so trail is the only unit both
                         // branches agree on.
                         let (bv, bt) = if seed == usize::MAX {
-                            let (v, i) = walk!(w0, look_back as i64 + 1, cc);
+                            let (v, i) = if plan.vecwalk {
+                                walkv!(w0, look_back as i64 + 1, cc, want_max)
+                            } else {
+                                walk!(w0, look_back as i64 + 1, cc)
+                            };
                             (v, fb.ins().isub(lbc, i))
                         } else {
                             // SEEDED walk: the narrower roll (same stream, same
@@ -1277,7 +1378,11 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                             let st = trail_cur[seed]
                                 .expect("jit: a seed roll's trail comes with its value");
                             let gap = (look_back - lb_n) as i64;
-                            let (gv, gi) = walk!(w0, gap, cc);
+                            let (gv, gi) = if plan.vecwalk {
+                                walkv!(w0, gap, cc, want_max)
+                            } else {
+                                walk!(w0, gap, cc)
+                            };
                             let gap_trail = fb.ins().isub(lbc, gi);
                             let strict = if want_max {
                                 fb.ins().fcmp(FloatCC::GreaterThan, gv, sv)

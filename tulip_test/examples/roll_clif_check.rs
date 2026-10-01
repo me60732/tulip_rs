@@ -79,6 +79,12 @@ fn report(label: &str, plan: &JitPlan) {
         "  blocks with 1..={ns} loads (bodies + merges + any 1-slot gap walk): {:?}",
         small.iter().map(|(k, v)| (*k, *v)).collect::<Vec<_>>()
     );
+    // E11: the vector-walk mode must be VISIBLE, not assumed — `vany_true` only
+    // exists in the chunked walk, so a zero here means the flag did not take.
+    let clif = plan.clif();
+    let nvec = clif.matches("vany_true").count();
+    let nmax = clif.matches("fmax").count() + clif.matches("fmin").count();
+    println!("  vector-walk evidence: vany_true × {nvec}, fmax/fmin × {nmax}");
 }
 
 fn main() {
