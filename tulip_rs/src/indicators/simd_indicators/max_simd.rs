@@ -2,13 +2,13 @@ use crate::indicators::max::{find_max_scalar as find_remainder, State};
 #[cfg(feature = "simd_assets")]
 pub(crate) use crate::indicators::simd_indicators::by_asset::max::indicator_by_assets;
 
+pub use crate::indicator_types::{TSimdState, TState};
 #[cfg(feature = "simd_options")]
 pub(crate) use crate::indicators::simd_indicators::by_option::max::indicator_by_options;
-pub use crate::indicator_types::{TSimdState, TState};
 use crate::types::Warm;
 
 use core::ops::Range;
-pub(crate) const CHUNK_1: Range<usize> = 1..15;
+pub(crate) const CHUNK_1: Range<usize> = 1..10;
 pub(crate) use std::{
     f64,
     simd::{
@@ -29,7 +29,7 @@ mod import {
 }
 pub mod assets {
     use super::import::*;
-    use super::{find_max_scalar, find_max_simd, TSimdState, TState, Warm, State};
+    use super::{find_max_scalar, find_max_simd, State, TSimdState, TState, Warm};
 
     pub struct SimdState<const N: usize> {
         pub max: Simd<f64, N>,
@@ -45,12 +45,9 @@ pub mod assets {
     impl<const N: usize> TState for SimdState<N> {
         type Inputs<'a> = ([*const f64; N], usize, usize);
         type Outputs = (Simd<f64, N>, Simd<usize, N>);
-        
+
         #[inline(always)]
-        fn calc(
-            &mut self,
-            (real, i, look_back): Self::Inputs<'_>
-        ) -> Self::Outputs {
+        fn calc(&mut self, (real, i, look_back): Self::Inputs<'_>) -> Self::Outputs {
             let current = crate::extract_simd_inputs_at_index!(i, N, val @ real);
 
             self.calc_w_current::<4>((real, i, look_back, current))
@@ -60,7 +57,7 @@ pub mod assets {
         #[inline(always)]
         pub fn calc_chuncked<const WINDOW_LANES: usize>(
             &mut self,
-            (real, i, look_back): ([*const f64; N], usize, usize)
+            (real, i, look_back): ([*const f64; N], usize, usize),
         ) -> (Simd<f64, N>, Simd<usize, N>) {
             let current = crate::extract_simd_inputs_at_index!(i, N, val @ real);
 
@@ -69,7 +66,7 @@ pub mod assets {
         #[inline(always)]
         pub fn calc_w_current<const WINDOW_LANES: usize>(
             &mut self,
-            (real, i, look_back, current): ([*const f64; N], usize, usize, Simd<f64, N>)
+            (real, i, look_back, current): ([*const f64; N], usize, usize, Simd<f64, N>),
         ) -> (Simd<f64, N>, Simd<usize, N>) {
             let mut trail = self.trail;
             let mut max = self.max;
@@ -94,7 +91,8 @@ pub mod assets {
                 let mut lane = 0;
                 while lane < N {
                     if search_mask & (1 << lane) != 0 {
-                        let window = unsafe { std::slice::from_raw_parts(real[lane].add(start), take) };
+                        let window =
+                            unsafe { std::slice::from_raw_parts(real[lane].add(start), take) };
                         let (max_val, max_idx) = if WINDOW_LANES == 1 {
                             find_max_scalar(window, current[lane])
                         } else {
@@ -115,7 +113,7 @@ pub mod assets {
 }
 pub mod options {
     use super::import::*;
-    use super::{find_max_scalar, find_max_simd, TSimdState, TState, State, Warm, CHUNK_1};
+    use super::{find_max_scalar, find_max_simd, State, TSimdState, TState, Warm, CHUNK_1};
 
     pub struct SimdState<const N: usize> {
         pub max: Simd<f64, N>,
@@ -132,12 +130,9 @@ pub mod options {
     impl<const N: usize> TState for SimdState<N> {
         type Inputs<'a> = ([*const f64; N], Simd<usize, N>, Simd<usize, N>);
         type Outputs = (Simd<f64, N>, Simd<usize, N>);
-        
+
         #[inline(always)]
-        fn calc(
-            &mut self,
-            (real, i, look_back): Self::Inputs<'_>
-        ) -> Self::Outputs {
+        fn calc(&mut self, (real, i, look_back): Self::Inputs<'_>) -> Self::Outputs {
             let current = Simd::splat(unsafe { *real[0].add(i[0]) });
             self.calc_w_current((real, i, look_back, current))
         }
@@ -146,7 +141,12 @@ pub mod options {
         #[inline(always)]
         pub fn calc_w_current(
             &mut self,
-            (real, i, look_back, current): ([*const f64; N], Simd<usize, N>, Simd<usize, N>, Simd<f64, N>)
+            (real, i, look_back, current): (
+                [*const f64; N],
+                Simd<usize, N>,
+                Simd<usize, N>,
+                Simd<f64, N>,
+            ),
         ) -> (Simd<f64, N>, Simd<usize, N>) {
             let mut trail = self.trail;
             let mut max = self.max;
@@ -169,17 +169,63 @@ pub mod options {
                 let mut lane = 0;
                 while lane < N {
                     if search_mask & (1 << lane) != 0 {
-                        let start = i_array[lane] - look_back_array[lane];
                         let take = look_back_array[lane];
-                        let window = unsafe { std::slice::from_raw_parts(real[lane].add(start), take) };
-                        let (max_val, max_idx) = if CHUNK_1.contains(&take) {
-                            find_max_scalar(window, current[lane])
-                        } else {
-                            find_max_simd::<4>(window, current[lane])
-                        };
 
-                        max_array[lane] = max_val;
-                        trail_array[lane] = take - max_idx;
+                        // Nested rolling window optimization:
+                        // If there's a shorter-period neighbor (lane-1) drawing from the same
+                        // underlying series, we only need to scan the "older gap" beyond the
+                        // shorter window, then merge with its max. Lane pointers are NOT
+                        // guaranteed equal even within a single by_option call: the road_train
+                        // scheduler (PrimeMover::next) reslices each asset's input independently
+                        // based on its own warm-up offset, so lane addresses can differ even when
+                        // both lanes ultimately read the same original series. We must check
+                        // pointer equality (and the shorter-neighbor condition) at runtime and
+                        // fall back to a full scan when it doesn't hold - never assert it.
+                        let has_shorter_neighbor = lane > 0
+                            && real[lane] == real[lane - 1]
+                            && look_back_array[lane - 1] < take;
+
+                        if has_shorter_neighbor {
+                            // Shorter neighbor exists - use nested window optimization
+                            let prev_take = look_back_array[lane - 1];
+                            let gap_take = take - prev_take;
+                            let gap_start = i_array[lane] - take; // same as start for full window
+                            let gap_window = unsafe {
+                                std::slice::from_raw_parts(real[lane].add(gap_start), gap_take)
+                            };
+
+                            // Use shorter lane's already-computed max (max_array[lane-1])
+                            // as the "current" value to compare against the gap. Always dispatch
+                            // to the SIMD scan here (not the scalar/CHUNK_1 split used for full
+                            // windows): gaps are frequently small, and the scalar path was
+                            // measurably slower for them in benchmarking - the branch + per-lane
+                            // memory-dependency overhead of this optimization is only worth it
+                            // when the gap scan itself stays on the fast path.
+                            let (max_val, idx_local) =
+                                find_max_simd::<4>(gap_window, max_array[lane - 1]);
+                            if idx_local == gap_take {
+                                // Sentinel: shorter lane's champion wins
+                                max_array[lane] = max_array[lane - 1];
+                                trail_array[lane] = trail_array[lane - 1];
+                            } else {
+                                // A value in the gap won
+                                max_array[lane] = max_val;
+                                trail_array[lane] = take - idx_local; // use full take, not gap_take
+                            }
+                        } else {
+                            // No usable shorter neighbor - fall back to full scan
+                            let start = i_array[lane] - look_back_array[lane];
+                            let window =
+                                unsafe { std::slice::from_raw_parts(real[lane].add(start), take) };
+                            let (max_val, max_idx) = if CHUNK_1.contains(&take) {
+                                find_max_scalar(window, current[lane])
+                            } else {
+                                find_max_simd::<4>(window, current[lane])
+                            };
+
+                            max_array[lane] = max_val;
+                            trail_array[lane] = take - max_idx;
+                        }
                     }
                     lane += 1;
                 }
@@ -232,10 +278,7 @@ pub(crate) fn find_max_simd<const N: usize>(window: &[f64], current: f64) -> (f6
     // Position finding done once outside the loop
     if best_start != usize::MAX {
         let i = if N <= 4 {
-            best_values
-                .simd_eq(global_max)
-                .to_bitmask()
-                .ilog2() as usize
+            best_values.simd_eq(global_max).to_bitmask().ilog2() as usize
         } else {
             let eq_mask = best_values.simd_eq(global_max);
             let mut i = N;

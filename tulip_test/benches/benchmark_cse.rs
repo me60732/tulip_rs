@@ -10,19 +10,25 @@
 //! Criterion-only (no DB logging).
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use tulip_rs::cse::{JitPlan, Planable, Recipe, Request};
+use tulip_rs::cse::{JitPlan, Node, Planable, Recipe, Request, Sink};
 use tulip_rs::indicator_types::{Indicator, IndicatorByOptions, TIndicatorState};
 use tulip_rs::indicators::adx::Adx;
 use tulip_rs::indicators::apo::Apo;
+use tulip_rs::indicators::aroon::Aroon;
+use tulip_rs::indicators::aroonosc::AroonOsc;
 use tulip_rs::indicators::atr::Atr;
 use tulip_rs::indicators::bbands::BBands;
 use tulip_rs::indicators::di::Di;
 use tulip_rs::indicators::dm::Dm;
+use tulip_rs::indicators::donchianchannel::DonchianChannel;
 use tulip_rs::indicators::dx::Dx;
 use tulip_rs::indicators::ema::Ema;
 use tulip_rs::indicators::hma::Hma;
+use tulip_rs::indicators::ichimoku::Ichimoku;
 use tulip_rs::indicators::macd::Macd;
+use tulip_rs::indicators::max::Max;
 use tulip_rs::indicators::medprice::Medprice;
+use tulip_rs::indicators::min::Min;
 use tulip_rs::indicators::natr::Natr;
 use tulip_rs::indicators::ppo::Ppo;
 use tulip_rs::indicators::sma::Sma;
@@ -30,6 +36,7 @@ use tulip_rs::indicators::stddev::StdDev;
 use tulip_rs::indicators::supertrend::SuperTrend;
 use tulip_rs::indicators::tr::Tr;
 use tulip_rs::indicators::wilders::Wilders;
+use tulip_rs::indicators::willr::Willr;
 use tulip_rs::indicators::wma::Wma;
 
 use tulip_test::database::{get_all_stock_data, init_database_data, EodData};
@@ -875,6 +882,400 @@ fn bench_multi_input(c: &mut Criterion) {
     g.finish();
 }
 
+/// E9 M0 — the trail-rescan roll (`max`/`min`).
+///
+/// `jit_max` is the STANDALONE FLOOR and is expected to lose: the hand's rescan
+/// is a real 4-wide AVX reduction (`find_max_simd::<4>`) while cranelift tops
+/// out at f64×2, and nothing is shared. The prize rows are the fusions: the hand
+/// pays one full pass per indicator, the plan walks the series once.
+///
+/// NOTE on the field axis: `Max::recipe`/`Min::recipe` each declare
+/// `Input{stream: 0}`, and a merged plan gives EVERY request the same physical
+/// column per index (verified: `add(Max).add(Min)` → `n_streams() == 1`). So a
+/// two-request `max`+`min` query computes BOTH over one column — correct only
+/// when that is what you want. The `max_plus_min` row therefore composes ONE
+/// recipe over two fields (max over high, min over low), which is exactly the
+/// shape `aroon`/`willr`/`donchian` recipes will need; the `ema` row is a
+/// legitimate same-field fusion (both genuinely read field 0).
+fn roll_pair(period: u32) -> Recipe {
+    let mut r = Recipe::new();
+    let h = r.add(Node::Input { stream: 0 });
+    let l = r.add(Node::Input { stream: 1 });
+    let mx = r.add(Node::RollMax {
+        src: h,
+        period,
+        look_back: period - 1,
+    });
+    let mn = r.add(Node::RollMin {
+        src: l,
+        period,
+        look_back: period - 1,
+    });
+    r.kind = "roll_pair";
+    r.options = vec![period as f64];
+    r.outputs = vec![Sink::iface(mx), Sink::iface(mn)];
+    r
+}
+
+fn bench_minmax(c: &mut Criterion) {
+    let (hi, lo, _cl) = hlc(0);
+    let one: [&[f64]; 1] = [hi.as_slice()];
+    let pair: [&[f64]; 2] = [hi.as_slice(), lo.as_slice()];
+    let solo = Request::new().add(Max::recipe(&[20.0]), None).build();
+    let both = Request::new().add(roll_pair(20), None).build();
+    let roll_plus_ema = Request::new()
+        .add(Max::recipe(&[20.0]), None)
+        .add(Ema::recipe(&[20.0]), None)
+        .build();
+    assert_eq!(solo.n_streams(), 1);
+    assert_eq!(both.n_streams(), 2, "the pair recipe needs both fields");
+    let mut g = c.benchmark_group("minmax");
+    g.sample_size(20);
+    g.bench_function("hand_max", |b| {
+        b.iter(|| {
+            let m = Max::indicator(&one, &[20.0], None).unwrap();
+            black_box(m.0[0].len())
+        })
+    });
+    g.bench_function("jit_max", |b| {
+        b.iter(|| {
+            let (res, qs) = solo.run(&one);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    g.bench_function("hand_max_plus_min", |b| {
+        b.iter(|| {
+            let mx = Max::indicator(&one, &[20.0], None).unwrap();
+            let mn = Min::indicator(&[lo.as_slice()], &[20.0], None).unwrap();
+            black_box(mx.0[0].len() + mn.0[0].len())
+        })
+    });
+    g.bench_function("jit_max_plus_min", |b| {
+        b.iter(|| {
+            // ONE request carrying BOTH rows (field-bound max + min), so the
+            // rows are `outputs[0][0]` / `outputs[0][1]` — request-major.
+            let (res, qs) = both.run(&pair);
+            black_box((
+                res.outputs[0][0].len() + res.outputs[0][1].len(),
+                qs.next_bar(),
+            ))
+        })
+    });
+    g.bench_function("hand_max_plus_ema", |b| {
+        b.iter(|| {
+            let mx = Max::indicator(&one, &[20.0], None).unwrap();
+            let em = Ema::indicator(&one, &[20.0], None).unwrap();
+            black_box(mx.0[0].len() + em.0[0].len())
+        })
+    });
+    g.bench_function("jit_max_plus_ema", |b| {
+        b.iter(|| {
+            let (res, qs) = roll_plus_ema.run(&one);
+            black_box((
+                res.outputs[0][0].len() + res.outputs[1][0].len(),
+                qs.next_bar(),
+            ))
+        })
+    });
+    g.finish();
+}
+
+/// E9 M1 — AROON / AROONOSC, the family's fusion case. `aroonosc` is literally
+/// `aroon_up − aroon_down` over the SAME graph, so the plan interns the whole
+/// shape (one `RollMax` of high, one `RollMin` of low, both trail projections,
+/// both scaled lines — `jit_aroonosc_interns_the_whole_aroon_graph` pins the op
+/// count at +1). The hand runs a SECOND full pass over both series for the
+/// oscillator. `aroon_two_periods` is the DISJOINT-window contrast: four rolls,
+/// nothing to dedup — the case where the by-option "scan only the gap" trick
+/// (the user's nested-window optimization in `max_simd`) would apply.
+fn bench_aroon(c: &mut Criterion) {
+    let (hi, lo, _cl) = hlc(0);
+    let s: [&[f64]; 2] = [hi.as_slice(), lo.as_slice()];
+    let alone = Request::new().add(Aroon::recipe(&[14.0]), None).build();
+    let with_osc = Request::new()
+        .add(Aroon::recipe(&[14.0]), None)
+        .add(AroonOsc::recipe(&[14.0]), None)
+        .build();
+    let dual = Request::new()
+        .add(Aroon::recipe(&[14.0]), None)
+        .add(Aroon::recipe(&[25.0]), None)
+        .build();
+    let mut g = c.benchmark_group("aroon");
+    g.sample_size(20);
+    g.bench_function("hand_aroon", |b| {
+        b.iter(|| {
+            let a = Aroon::indicator(&s, &[14.0], None).unwrap();
+            black_box((a.0[0].len(), a.0[1].len()))
+        })
+    });
+    g.bench_function("jit_aroon", |b| {
+        b.iter(|| {
+            let (res, qs) = alone.run(&s);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    g.bench_function("hand_aroon_plus_aroonosc", |b| {
+        b.iter(|| {
+            let a = Aroon::indicator(&s, &[14.0], None).unwrap();
+            let o = AroonOsc::indicator(&s, &[14.0], None).unwrap();
+            black_box((a.0[0].len(), o.0[0].len()))
+        })
+    });
+    g.bench_function("jit_aroon_plus_aroonosc", |b| {
+        b.iter(|| {
+            let (res, qs) = with_osc.run(&s);
+            black_box((res.outputs[1][0].len(), qs.next_bar()))
+        })
+    });
+    g.bench_function("hand_aroon_two_periods", |b| {
+        b.iter(|| {
+            let a = Aroon::indicator(&s, &[14.0], None).unwrap();
+            let c = Aroon::indicator(&s, &[25.0], None).unwrap();
+            black_box((a.0[0].len(), c.0[0].len()))
+        })
+    });
+    g.bench_function("jit_aroon_two_periods", |b| {
+        b.iter(|| {
+            let (res, qs) = dual.run(&s);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    g.finish();
+}
+
+/// E9 M2 — the RANGE family (willr / donchian / aroon), which is where the
+/// cross-indicator window dedup lives. `willr` and `donchian` both take max of
+/// high and min of low at `(p, p−1)`, so ONE fused loop advances ONE rolling max
+/// and ONE rolling min for both (op count 10+5 → 13, proven by
+/// `jit_willr_and_donchian_share_both_rolls`). The `aroon_plus_willr` row is the
+/// CONTRAST and the user's window note made it predictable: aroon's window is
+/// `(p, p)` (P+1 bars), so at the SAME period the four rolls do NOT merge and the
+/// loop carries four windows — the shape the nested gap-scan is meant to fix.
+fn bench_range(c: &mut Criterion) {
+    let (hi, lo, cl) = hlc(0);
+    let three: [&[f64]; 3] = [hi.as_slice(), lo.as_slice(), cl.as_slice()];
+    let two: [&[f64]; 2] = [hi.as_slice(), lo.as_slice()];
+    let willr = Request::new().add(Willr::recipe(&[14.0]), None).build();
+    let pair = Request::new()
+        .add(Willr::recipe(&[14.0]), None)
+        .add(DonchianChannel::recipe(&[14.0]), None)
+        .build();
+    let mixed = Request::new()
+        .add(Aroon::recipe(&[14.0]), None)
+        .add(Willr::recipe(&[14.0]), None)
+        .build();
+    assert_eq!(pair.info().0, 13, "willr+donchian must share both rolls");
+    assert_eq!(mixed.info().0, 20, "aroon's wider window must NOT merge");
+    let mut g = c.benchmark_group("range");
+    g.sample_size(20);
+    g.bench_function("hand_willr", |b| {
+        b.iter(|| {
+            let w = Willr::indicator(&three, &[14.0], None).unwrap();
+            black_box(w.0[0].len())
+        })
+    });
+    g.bench_function("jit_willr", |b| {
+        b.iter(|| {
+            let (res, qs) = willr.run(&three);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    g.bench_function("hand_willr_plus_donchian", |b| {
+        b.iter(|| {
+            let w = Willr::indicator(&three, &[14.0], None).unwrap();
+            let d = DonchianChannel::indicator(&two, &[14.0], None).unwrap();
+            black_box(w.0[0].len() + d.0[0].len())
+        })
+    });
+    g.bench_function("jit_willr_plus_donchian", |b| {
+        b.iter(|| {
+            let (res, qs) = pair.run(&three);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    g.bench_function("hand_aroon_plus_willr", |b| {
+        b.iter(|| {
+            let a = Aroon::indicator(&two, &[14.0], None).unwrap();
+            let w = Willr::indicator(&three, &[14.0], None).unwrap();
+            black_box(a.0[0].len() + w.0[0].len())
+        })
+    });
+    g.bench_function("jit_aroon_plus_willr", |b| {
+        b.iter(|| {
+            let (res, qs) = mixed.run(&three);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    g.finish();
+}
+
+/// E9 seed link — nested windows over the SAME column, which is the sharing
+/// interning can NEVER provide (different periods are different nodes by
+/// definition). `donchian(20)` + `max(50)` + `max(100)` all read `high`, so the
+/// chain links twice and that column's rescan work is the UNION OF THE GAPS
+/// (19 + 30 + 50 loads) instead of three independent walks (19 + 50 + 100).
+///
+/// No seeded/unseeded pair exists any more: linking is order-independent (the
+/// emitter runs all rolls first, narrow→wide), so the mechanism's contribution is
+/// the load count above plus the asserted `roll_seeds().len()`, and the honest
+/// perf question is chain-vs-hand. The link is not free — it keeps the narrow
+/// roll's value AND trail live across the loop, and live xmm is what decays this
+/// engine's wins — hence measuring instead of assuming.
+///
+/// The group ends with the shape that motivated the mechanism at all: FOUR
+/// unrelated indicator requests (`willr(14) + donchian(20) + max(50) +
+/// ichimoku(9,26)`) whose windows merely overlap on the same columns. Interning
+/// shares nothing across them; linking chains nine of their eleven rolls (all but
+/// the narrowest per column and direction) into one walk per column per direction.
+fn bench_nested(c: &mut Criterion) {
+    let (hi, lo, cl) = hlc(0);
+    let s: [&[f64]; 2] = [hi.as_slice(), lo.as_slice()];
+    let pair = Request::new()
+        .add(DonchianChannel::recipe(&[20.0]), None)
+        .add(Max::recipe(&[50.0]), None)
+        .build();
+    assert_eq!(pair.roll_seeds().len(), 1, "2 windows must link once");
+    let chain = Request::new()
+        .add(DonchianChannel::recipe(&[20.0]), None)
+        .add(Max::recipe(&[50.0]), None)
+        .add(Max::recipe(&[100.0]), None)
+        .build();
+    assert_eq!(chain.roll_seeds().len(), 2, "3 windows must chain twice");
+    let mut g = c.benchmark_group("nested");
+    g.sample_size(20);
+    g.bench_function("hand_donchian20_plus_max50", |b| {
+        b.iter(|| {
+            let d = DonchianChannel::indicator(&s, &[20.0], None).unwrap();
+            let m = Max::indicator(&[hi.as_slice()], &[50.0], None).unwrap();
+            black_box(d.0[0].len() + m.0[0].len())
+        })
+    });
+    g.bench_function("jit_2_windows_1_link", |b| {
+        b.iter(|| {
+            let (res, qs) = pair.run(&s);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    g.bench_function("hand_3_windows", |b| {
+        b.iter(|| {
+            let d = DonchianChannel::indicator(&s, &[20.0], None).unwrap();
+            let a = Max::indicator(&[hi.as_slice()], &[50.0], None).unwrap();
+            let c = Max::indicator(&[hi.as_slice()], &[100.0], None).unwrap();
+            black_box(d.0[0].len() + a.0[0].len() + c.0[0].len())
+        })
+    });
+    g.bench_function("jit_3_windows_2_links", |b| {
+        b.iter(|| {
+            let (res, qs) = chain.run(&s);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    // ICHIMOKU: six rolls, three strictly nested windows per column (9 / 26 /
+    // 52), so four links form and the per-column walk widths come out as
+    // 9 + 17 + 26 = 52 instead of 9 + 26 + 52 = 87 (`roll_clif_check` reads
+    // those widths off the emitted CLIF). This is the shape the chain exists for.
+    let ichi = Request::new()
+        .add(Ichimoku::recipe(&[9.0, 26.0]), None)
+        .build();
+    assert_eq!(ichi.roll_seeds().len(), 4, "two links per column");
+    // The hand takes [high, low, close]; close reaches only its `lagging_span`
+    // optional, which is OFF here — the plan itself takes 2 streams.
+    let three: [&[f64]; 3] = [hi.as_slice(), lo.as_slice(), cl.as_slice()];
+    g.bench_function("hand_ichimoku_9_26", |b| {
+        b.iter(|| {
+            let i = Ichimoku::indicator(&three, &[9.0, 26.0], None).unwrap();
+            black_box((i.0[0].len(), i.0[3].len()))
+        })
+    });
+    g.bench_function("jit_ichimoku_9_26", |b| {
+        b.iter(|| {
+            // 2 streams: ichimoku's math never reads close (no lagging_span row)
+            let (res, qs) = ichi.run(&s);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    // The FOUR-REQUEST cross-indicator row is NOT here — it is `bench_nested4`,
+    // its own group, because compiling a fourth plan measurably inflated the hand
+    // rows of THIS group (see that function's doc). A pair must be measured in the
+    // environment it belongs to.
+    g.finish();
+}
+
+/// E9 seed link — FOUR SEPARATE indicator requests whose windows merely OVERLAP
+/// on the same columns: `willr(14) + donchian(20) + max(50) + ichimoku(9,26)`.
+/// This is the case interning structurally CANNOT serve — none of 14 / 20 / 50 /
+/// 9-26 matches another, so not ONE node is shared across the four requests —
+/// while the gap link chains them anyway, because linking only asks whether one
+/// window contains another over the same column and direction.
+///
+/// `roll_clif_check` reads the shape off the emitted CLIF: 9 links (all but the
+/// narrowest roll per column per direction), and per column+direction the walk
+/// widths come out 9 + 5 + 6 + 6 + 24 + 26 = 76 loads where six independent
+/// windows would cost 9 + 14 + 20 + 26 + 50 + 52 = 171. The whole thesis of the
+/// mechanism in one row.
+///
+/// Baseline fairness: the plan emits 9 rows (willr 1 + donchian 3 + max 1 +
+/// ichimoku 4 = its `stores`), the same 9 the hand returns as its primary output
+/// — except that the hand ALSO materialises willr's two min/max mirrors it keeps
+/// internally, so per bar it does strictly MORE stores than the plan here. Read a
+/// jit loss as real; a win carries that headroom.
+///
+/// WHY ITS OWN GROUP. Measured, mechanism unidentified: adding a compiled plan to
+/// `bench_nested` moves an UNRELATED row there — `hand_ichimoku_9_26` reads 46.4 µs
+/// with three plans compiled (every run before this row existed) and 62.3 / 63.5 /
+/// 64.5 µs in three runs with a fourth compiled too, identical code and data. So a
+/// `JitPlan` being alive in the process changes the environment the hand rows run
+/// in — location within the function is NOT the lever, since criterion defers all
+/// measurement to `finish()` and every setup plan is live for every row either way
+/// (verified by isolation). Consequence, and the rule this file should follow:
+/// compare a jit/hand PAIR from the same run, in a group whose plan set is the one
+/// being asked about, and treat absolute µs as unportable across runs.
+fn bench_nested4(c: &mut Criterion) {
+    let (hi, lo, cl) = hlc(0);
+    let s: [&[f64]; 2] = [hi.as_slice(), lo.as_slice()];
+    let three: [&[f64]; 3] = [hi.as_slice(), lo.as_slice(), cl.as_slice()];
+    let min_max_4 = Request::new()
+        .add(Willr::recipe(&[14.0]), None)
+        .add(DonchianChannel::recipe(&[20.0]), None)
+        .add(Max::recipe(&[50.0]), None)
+        .add(Ichimoku::recipe(&[9.0, 26.0]), None)
+        .build();
+    assert_eq!(
+        min_max_4.roll_seeds().len(),
+        9,
+        "the four requests must chain 9 links"
+    );
+    assert_eq!(min_max_4.n_streams(), 3, "only willr needs close");
+    let mut g = c.benchmark_group("nested4");
+    g.sample_size(20);
+    g.bench_function("hand_4_requests", |b| {
+        b.iter(|| {
+            let w = Willr::indicator(&three, &[14.0], None).unwrap();
+            let d = DonchianChannel::indicator(&s, &[20.0], None).unwrap();
+            let m = Max::indicator(&[hi.as_slice()], &[50.0], None).unwrap();
+            let i = Ichimoku::indicator(&three, &[9.0, 26.0], None).unwrap();
+            black_box(
+                w.0[0].len()
+                    + d.0[0].len()
+                    + d.0[1].len()
+                    + d.0[2].len()
+                    + m.0[0].len()
+                    + i.0[0].len()
+                    + i.0[1].len()
+                    + i.0[2].len()
+                    + i.0[3].len(),
+            )
+        })
+    });
+    g.bench_function("jit_4_requests_9_links", |b| {
+        b.iter(|| {
+            let (res, qs) = min_max_4.run(&three);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    g.finish();
+}
+
 /// The MIXED-window rolling dashboard (the question single-window benches
 /// can't ask): five distinct windows 5/8/14/20/26 across four kinds.
 /// Hand pays one full pass per indicator; the plan pays per GROUP for
@@ -935,10 +1336,14 @@ fn bench_rolling_mixed(c: &mut Criterion) {
 }
 
 /// The `sharing_groups` measurement (see `Merged::sharing_groups`): a mixed
-/// dashboard = an EMA cluster (Apo/Macd/Ppo/Ema on close) + an ATR cluster
-/// (Atr/Natr/SuperTrend on H/L/C). The two clusters share **no computed node**,
-/// so `sharing_groups` yields 2 groups. We time the SAME set of indicators
-/// three ways to isolate the "one monolithic fused loop vs one loop per sharing
+/// dashboard = an EMA cluster (Apo/Macd/Ppo on close) + a lone `Ema(9)` + an ATR
+/// cluster (Atr/Natr/SuperTrend on H/L/C). `sharing_groups` deliberately links
+/// requests only through a SHARED **computed** node (an `Input`/`Const` is not a
+/// link — otherwise every request that reads close would merge into one group),
+/// so this yields THREE: [apo, macd, ppo] (shared ema12/ema26 + line), [ema9]
+/// (its 9-period chain is nobody else's), [atr, natr, supertrend] (shared
+/// `tr`/mean-`Wilders(tr)`/`med`). We time the SAME set three ways to isolate the
+/// "one monolithic fused loop vs one loop per sharing
 /// cluster" cost (register footprint), plus threading the clusters:
 ///   - `jit_single_fused`  : whole dashboard in ONE loop (most live xmm).
 ///   - `jit_split_seq`     : one loop per group, run sequentially.
@@ -1046,6 +1451,11 @@ criterion_group!(
     bench_rolling_adx,
     bench_rolling_st,
     bench_multi_input,
+    bench_minmax,
+    bench_aroon,
+    bench_range,
+    bench_nested,
+    bench_nested4,
     bench_rolling_mixed,
     bench_tick,
     bench_grouping

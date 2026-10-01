@@ -4,8 +4,8 @@ pub(crate) use crate::indicators::simd_indicators::by_asset::min::indicator_by_a
 #[cfg(feature = "simd_options")]
 pub(crate) use crate::indicators::simd_indicators::by_option::min::indicator_by_options;
 
-use crate::indicators::min::{find_min_scalar as find_remainder,  State};
 pub use crate::indicator_types::{TSimdState, TState};
+use crate::indicators::min::{find_min_scalar as find_remainder, State};
 use crate::types::Warm;
 
 pub(crate) use std::{
@@ -39,12 +39,9 @@ pub mod assets {
     impl<const N: usize> TState for SimdState<N> {
         type Inputs<'a> = ([*const f64; N], usize, usize);
         type Outputs = (Simd<f64, N>, Simd<usize, N>);
-        
+
         #[inline(always)]
-        fn calc(
-            &mut self,
-            (real, i, look_back): Self::Inputs<'_>
-        ) -> Self::Outputs {
+        fn calc(&mut self, (real, i, look_back): Self::Inputs<'_>) -> Self::Outputs {
             let current = crate::extract_simd_inputs_at_index!(i, N, val @ real);
 
             self.calc_w_current::<4>((real, i, look_back, current))
@@ -54,7 +51,7 @@ pub mod assets {
         #[inline(always)]
         pub fn calc_chuncked<const WINDOW_LANES: usize>(
             &mut self,
-            (real, i, look_back): ([*const f64; N], usize, usize)
+            (real, i, look_back): ([*const f64; N], usize, usize),
         ) -> (Simd<f64, N>, Simd<usize, N>) {
             let current = crate::extract_simd_inputs_at_index!(i, N, val @ real);
 
@@ -63,7 +60,7 @@ pub mod assets {
         #[inline(always)]
         pub fn calc_w_current<const WINDOW_LANES: usize>(
             &mut self,
-            (real, i, look_back, current): ([*const f64; N], usize, usize, Simd<f64, N>)
+            (real, i, look_back, current): ([*const f64; N], usize, usize, Simd<f64, N>),
         ) -> (Simd<f64, N>, Simd<usize, N>) {
             let mut trail = self.trail;
             let mut min = self.min;
@@ -72,7 +69,7 @@ pub mod assets {
             let needs_search = lookback_simd.simd_eq(trail);
             let search_mask = needs_search.to_bitmask();
             let current_is_new_min = current.simd_le(min);
-            
+
             trail = needs_search.select(trail, trail + UsizeConstants::ONE);
             min = current_is_new_min.select(current, min);
             trail = current_is_new_min.select(UsizeConstants::ZERO, trail);
@@ -84,11 +81,12 @@ pub mod assets {
                 let min_array = min.as_mut_array();
                 let trail_array = trail.as_mut_array();
                 let current = current.as_array();
-                
+
                 let mut lane = 0;
                 while lane < N {
                     if search_mask & (1 << lane) != 0 {
-                        let window = unsafe { std::slice::from_raw_parts(real[lane].add(start), take) };
+                        let window =
+                            unsafe { std::slice::from_raw_parts(real[lane].add(start), take) };
                         let (min_val, min_idx) = if WINDOW_LANES == 1 {
                             find_min_scalar(window, current[lane])
                         } else {
@@ -112,9 +110,9 @@ pub mod options {
     //! Per-option road SIMD helpers for the Rolling Minimum indicator.
     use crate::indicators::simd_indicators::max_simd::CHUNK_1;
 
-use super::import::*;
+    use super::import::*;
     use super::*;
-    
+
     pub struct SimdState<const N: usize> {
         pub min: Simd<f64, N>,
         pub trail: Simd<usize, N>,
@@ -126,16 +124,13 @@ use super::import::*;
             scalar: [min, trail]
         );
     }
-   
+
     impl<const N: usize> TState for SimdState<N> {
         type Inputs<'a> = ([*const f64; N], Simd<usize, N>, Simd<usize, N>);
         type Outputs = (Simd<f64, N>, Simd<usize, N>);
-        
+
         #[inline(always)]
-        fn calc(
-            &mut self,
-            (real, i, look_back): Self::Inputs<'_>,
-        ) -> Self::Outputs {
+        fn calc(&mut self, (real, i, look_back): Self::Inputs<'_>) -> Self::Outputs {
             let current = Simd::splat(unsafe { *real[0].add(i[0]) });
 
             self.calc_w_current((real, i, look_back, current))
@@ -145,7 +140,12 @@ use super::import::*;
         #[inline(always)]
         pub fn calc_w_current(
             &mut self,
-            (real, i, look_back, current): ([*const f64; N], Simd<usize, N>, Simd<usize, N>, Simd<f64, N>)
+            (real, i, look_back, current): (
+                [*const f64; N],
+                Simd<usize, N>,
+                Simd<usize, N>,
+                Simd<f64, N>,
+            ),
         ) -> (Simd<f64, N>, Simd<usize, N>) {
             let mut trail = self.trail;
             let mut min = self.min;
@@ -153,7 +153,7 @@ use super::import::*;
             let needs_search = look_back.simd_eq(trail);
             let search_mask = needs_search.to_bitmask();
             let current_is_new_min = current.simd_le(min);
-            
+
             trail = needs_search.select(trail, trail + UsizeConstants::ONE);
             min = current_is_new_min.select(current, min);
             trail = current_is_new_min.select(UsizeConstants::ZERO, trail);
@@ -168,17 +168,64 @@ use super::import::*;
                 let mut lane = 0;
                 while lane < N {
                     if search_mask & (1 << lane) != 0 {
-                        let start = i_array[lane] - look_back_array[lane];
                         let take = look_back_array[lane];
-                        let window = unsafe { std::slice::from_raw_parts(real[lane].add(start), take) };
-                        let (min_val, min_idx) = if CHUNK_1.contains(&take) {
-                            find_min_scalar(window, current[lane])
-                        } else {
-                            find_min_simd::<4>(window, current[lane])
-                        };
 
-                        min_array[lane] = min_val;
-                        trail_array[lane] = take - min_idx;
+                        // Nested rolling window optimization:
+                        // If there's a shorter-period neighbor (lane-1) drawing from the same
+                        // underlying series, we only need to scan the "older gap" beyond the
+                        // shorter window, then merge with its min. Lane pointers are NOT
+                        // guaranteed equal even within a single by_option call: the road_train
+                        // scheduler (PrimeMover::next) reslices each asset's input independently
+                        // based on its own warm-up offset, so lane addresses can differ even when
+                        // both lanes ultimately read the same original series. We must check
+                        // pointer equality (and the shorter-neighbor condition) at runtime and
+                        // fall back to a full scan when it doesn't hold - never assert it.
+                        let has_shorter_neighbor = lane > 0
+                            && real[lane] == real[lane - 1]
+                            && look_back_array[lane - 1] < take;
+
+                        if has_shorter_neighbor {
+                            // Shorter neighbor exists - use nested window optimization
+                            let prev_take = look_back_array[lane - 1];
+                            let gap_take = take - prev_take;
+                            let gap_start = i_array[lane] - take; // same as start for full window
+                            let gap_window = unsafe {
+                                std::slice::from_raw_parts(real[lane].add(gap_start), gap_take)
+                            };
+
+                            // Use shorter lane's already-computed min (min_array[lane-1])
+                            // as the "current" value to compare against the gap. Always dispatch
+                            // to the SIMD scan here (not the scalar/CHUNK_1 split used for full
+                            // windows): gaps are frequently small, and the scalar path was
+                            // measurably slower for them in benchmarking - the branch + per-lane
+                            // memory-dependency overhead of this optimization is only worth it
+                            // when the gap scan itself stays on the fast path.
+                            let (min_val, idx_local) =
+                                find_min_simd::<4>(gap_window, min_array[lane - 1]);
+
+                            if idx_local == gap_take {
+                                // Sentinel: shorter lane's champion wins
+                                min_array[lane] = min_array[lane - 1];
+                                trail_array[lane] = trail_array[lane - 1];
+                            } else {
+                                // A value in the gap won
+                                min_array[lane] = min_val;
+                                trail_array[lane] = take - idx_local; // use full take, not gap_take
+                            }
+                        } else {
+                            // No usable shorter neighbor - fall back to full scan
+                            let start = i_array[lane] - look_back_array[lane];
+                            let window =
+                                unsafe { std::slice::from_raw_parts(real[lane].add(start), take) };
+                            let (min_val, min_idx) = if CHUNK_1.contains(&take) {
+                                find_min_scalar(window, current[lane])
+                            } else {
+                                find_min_simd::<4>(window, current[lane])
+                            };
+
+                            min_array[lane] = min_val;
+                            trail_array[lane] = take - min_idx;
+                        }
                     }
                     lane += 1;
                 }
@@ -238,7 +285,12 @@ pub(crate) fn find_min_simd<const N: usize>(window: &[f64], current: f64) -> (f6
         } else {
             let eq_mask = best_values.simd_eq(global_min);
             let mut i = N;
-            while i > 0 { i -= 1; if unsafe { eq_mask.test_unchecked(i) } { break; } }
+            while i > 0 {
+                i -= 1;
+                if unsafe { eq_mask.test_unchecked(i) } {
+                    break;
+                }
+            }
             i
         };
         min_idx = best_start * N + 1 + i;

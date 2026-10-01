@@ -73,19 +73,36 @@ pub(crate) fn indicator_by_options<const N: usize>(
 ) -> Result<(Vec<Vec<Vec<f64>>>, Vec<IndicatorState>), IndicatorError> {
     validate_inputs::<OPTIONS>(inputs, options, Max::min_data)?;
     validate_options(options, None)?;
-    let periods: [(usize, usize); N] =
-        std::array::from_fn(|i| (options[i][0] as usize, options[i][0] as usize - 1));
-    let mut road_train = PrimeMover::<N, State<Warm>, usize>::new();
-    let mut output_buffers = Vec::with_capacity(N);
 
-    for (i, &(_period, look_back)) in periods.iter().enumerate() {
+    // Build periods array and create sorting permutation
+    let periods_unsorted: [(usize, usize); N] =
+        std::array::from_fn(|i| (options[i][0] as usize, options[i][0] as usize - 1));
+
+    // Compute a permutation that sorts lanes by period ascending
+    // Store original indices sorted by period value
+    let mut sorted_indices: [usize; N] = std::array::from_fn(|i| i);
+    sorted_indices.sort_by(|&a, &b| periods_unsorted[a].0.cmp(&periods_unsorted[b].0));
+
+    // Build the sorted periods array
+    let mut periods: [(usize, usize); N] = std::array::from_fn(|_| (0, 0));
+    for (sorted_pos, &orig_idx) in sorted_indices.iter().enumerate() {
+        periods[sorted_pos] = periods_unsorted[orig_idx];
+    }
+
+    let mut road_train = PrimeMover::<N, State<Warm>, usize>::new();
+    // Track output buffers in sorted order
+    let mut output_buffers_sorted: Vec<Vec<Vec<f64>>> = Vec::with_capacity(N);
+
+    for (sorted_pos, &(_period, look_back)) in periods.iter().enumerate() {
+        let orig_idx = sorted_indices[sorted_pos]; // Original caller index
+
         let asset_inputs = vec![
             inputs[0], // real
         ];
 
         let max_line = {
             let len = inputs[0].len();
-            let capacity = Max::output_length(len, options[i]);
+            let capacity = Max::output_length(len, options[orig_idx]);
             crate::uninit_vec!(f64, capacity)
         };
 
@@ -111,21 +128,34 @@ pub(crate) fn indicator_by_options<const N: usize>(
         road_train.add_asset(Asset::new(
             asset_inputs,
             asset_outputs,
-            i,
+            sorted_pos, // Lane index in SIMD state (sorted by period)
             look_back,
             look_back,
             state,
-            Some(&periods[i].1),
+            Some(&periods[sorted_pos].1),
         ));
-        output_buffers.push(output_buffer);
+        output_buffers_sorted.push(output_buffer);
     }
 
     let mut driver = MaxDriver {};
     let states_vec = road_train.drive(&mut driver);
 
+    // Permute results back to original caller-supplied order
+    let mut output_buffers: Vec<Vec<Vec<f64>>> = Vec::with_capacity(N);
+    output_buffers.resize(N, vec![vec![0.0; 0]; 1]);
+
+    for (sorted_pos, &orig_idx) in sorted_indices.iter().enumerate() {
+        output_buffers[orig_idx] = std::mem::take(&mut output_buffers_sorted[sorted_pos]);
+    }
+
     let mut states = Vec::with_capacity(N);
-    for (i, state) in states_vec.into_iter().enumerate() {
-        states.push(IndicatorState::new(inputs[0], state, periods[i]));
+    for (sorted_pos, state) in states_vec.into_iter().enumerate() {
+        let orig_idx = sorted_indices[sorted_pos];
+        states.push(IndicatorState::new(
+            inputs[0],
+            state,
+            periods_unsorted[orig_idx],
+        ));
     }
     Ok((output_buffers, states))
 }

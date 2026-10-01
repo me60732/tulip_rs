@@ -61,6 +61,17 @@ impl Merged {
                 Node::Sma { src, period }
                 | Node::Stddev { src, period }
                 | Node::Wma { src, period } => leads[src as usize] + period.saturating_sub(1),
+                // E9 trail-rescan roll: the carried extremum is meaningful
+                // from bar 0, but the WINDOW the hand's rescan walks needs
+                // `period` bars to exist, so the warm boundary is the same
+                // `period − 1` a rolling sum uses. (`look_back` does not move
+                // the boundary: `aroon`'s wider window still first prints at
+                // bar `period` via its explicit sink lead.)
+                Node::RollMax { src, period, .. } | Node::RollMin { src, period, .. } => {
+                    leads[src as usize] + period.saturating_sub(1)
+                }
+                // E9: a trail projection exists exactly when its roll does.
+                Node::Trail { src } => leads[src as usize],
                 // E3 stage 3: the hand fills `√P` (truncated) diff slots
                 // AFTER the two-engine warm, so the first value exists at
                 // bar `P + psqrt − 1` (publish lead = that + 1, hand
@@ -297,6 +308,25 @@ pub(crate) fn remap_node(node: &Node, g: &dyn Fn(Id) -> Id) -> Node {
             src: g(src),
             period,
         },
+        RollMax {
+            src,
+            period,
+            look_back,
+        } => RollMax {
+            src: g(src),
+            period,
+            look_back,
+        },
+        RollMin {
+            src,
+            period,
+            look_back,
+        } => RollMin {
+            src: g(src),
+            period,
+            look_back,
+        },
+        Trail { src } => Trail { src: g(src) },
         Sqrt { src } => Sqrt { src: g(src) },
         Fma { a, b, c } => Fma {
             a: g(a),
@@ -333,6 +363,9 @@ pub(crate) fn node_children(node: &Node, visit: &mut dyn FnMut(Id)) {
         | Wma { src, .. }
         | Sma { src, .. }
         | Stddev { src, .. }
+        | RollMax { src, .. }
+        | RollMin { src, .. }
+        | Trail { src }
         | Wilders { src, .. }
         | SuperSmoother { src, .. }
         | HtInPhase { src }

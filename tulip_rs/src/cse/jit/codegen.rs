@@ -149,6 +149,17 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     for (k, &j) in sups.iter().enumerate() {
         sup_of[j] = k;
     }
+    // E9: a trail-rescan roll carries its extremum in the op's f64 value slot
+    // (like an Ema) and its `trail` in a dedicated i64 run. Its rescan needs
+    // one anchor base per op (the window's newest bar).
+    let mmrolls: Vec<usize> = (0..nops)
+        .filter(|&j| matches!(plan.ops[j].e, OpE::Roll { .. }))
+        .collect();
+    let ntr = mmrolls.len();
+    let mut tr_of = vec![usize::MAX; nops];
+    for (k, &j) in mmrolls.iter().enumerate() {
+        tr_of[j] = k;
+    }
 
     // Value slots: [0..ngroups) = group vectors, then ungrouped ops in op
     // order. `cur[op]` remains the per-op scalar view for consumers.
@@ -161,11 +172,13 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     }
     for j in 0..nops {
         if plan.lane_of[j].0 == usize::MAX
-            && (matches!(plan.ops[j].e, OpE::Ema { .. } | OpE::Wilders { .. })
-                || (matches!(
-                    plan.ops[j].e,
-                    OpE::Sma { .. } | OpE::Stddev { .. } | OpE::Wma { .. }
-                ) && plan.ops[j].roll_leader == j))
+            && (matches!(
+                plan.ops[j].e,
+                OpE::Ema { .. } | OpE::Wilders { .. } | OpE::Roll { .. }
+            ) || (matches!(
+                plan.ops[j].e,
+                OpE::Sma { .. } | OpE::Stddev { .. } | OpE::Wma { .. }
+            ) && plan.ops[j].roll_leader == j))
         {
             slot_of_op[j] = ngroups + op_of_slot.len();
             op_of_slot.push(j);
@@ -197,6 +210,14 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
             // (lead+1 = period) cuts the seed→steady seam, so only `lead`
             // (idle→seed) is added here.
             OpE::SuperTrend { .. } => Some(op.lead),
+            // E9: a trail-rescan roll's guard (`period <= trail`) is
+            // UNREACHABLE below bar `period` (the trail counts bars since bar
+            // 0 at most), and reachable from `period` on — so the rescan
+            // side-exit is a compile-time decision per segment if the line is
+            // cut here. Standalone `max`/`min` (lead = period−1) get a
+            // guard-free one-bar segment at their first printed bar; `aroon`
+            // (lead = period) starts guarded.
+            OpE::Roll { period, .. } => Some(period as u64),
             _ => None,
         }))
         .collect();
@@ -266,6 +287,8 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     // prev_lb) + one i64-backed bool (trend), threaded like HMA's run.
     pt.extend(std::iter::repeat(f64_t).take(SUP_F64_PARAMS * nsup));
     pt.extend(std::iter::repeat(i64_t).take(SUP_I64_PARAMS * nsup));
+    // E9: per trail-rescan roll — its `trail` bar-count (int file).
+    pt.extend(std::iter::repeat(i64_t).take(ntr * ROLL_TRAIL_PARAMS));
     pt.push(i64_t);
     let nparam = pt.len();
     let ipos = nparam - 1;
@@ -276,6 +299,7 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     let cpos = hpos + HMA_F64_PARAMS * nh;
     let spos = cpos + HMA_I64_PARAMS * nh;
     let tpos = spos + SUP_F64_PARAMS * nsup;
+    let rpos = tpos + SUP_I64_PARAMS * nsup;
 
     let entry = fb.create_block();
     let setup = fb.create_block();
@@ -379,6 +403,11 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
             i64_t,
         ));
     }
+    // E9: per trail-rescan roll — its `trail` word (a bar count, integer).
+    let mut trloads: Vec<Value> = Vec::with_capacity(ntr);
+    for &j in &mmrolls {
+        trloads.push(ld(&mut fb, state, 8 * plan.ops[j].aux_word as i64, i64_t));
+    }
     let empty = fb.ins().icmp(IntCC::Equal, len, zero);
     let mut end_empty: Vec<Value> = Vec::with_capacity(nval);
     for g in 0..ngroups {
@@ -395,6 +424,7 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     end_empty.extend(cursloads.iter().copied());
     end_empty.extend(sloads.iter().copied());
     end_empty.extend(tloads.iter().copied());
+    end_empty.extend(trloads.iter().copied());
     end_empty.push(seeded);
     fb.ins()
         .brif(empty, end_bb, &ba(&end_empty), setup, &ba(&[]));
@@ -437,6 +467,9 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
             // so the cold chain value is the (zero-initialized) slot and the
             // loop folds the source node-value from bar 0.
             OpE::Wilders { .. } => loads[j],
+            // E9: cold chunk — bar 0 seeds the extremum exactly as the hand's
+            // `init_state` opens (`max = real[0]` / `min = real[0]`, trail 0).
+            OpE::Roll { src, .. } => fb.ins().select(is_seeded, loads[j], p0[PRICE - src]),
             _ => fb.ins().f64const(0.0),
         };
         init.push(v);
@@ -482,6 +515,9 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
         OpE::Wilders { chained, .. } => !chained,
         // HMA cold-seeds sum1/ws1 from p0 (bar 0 consumed as its seed).
         OpE::Hma { .. } => true,
+        // E9: a trail-rescan roll's cold seed IS bar 0 (hand `init_state`:
+        // `max = real[0]`, `trail = 0`), so the loop must start at bar 1.
+        OpE::Roll { .. } => true,
         _ => false,
     });
     let i0 = if seeds_bar0 {
@@ -570,6 +606,12 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
         let sel = fb.ins().select(is_seeded, tloads[k], zero);
         args.push(sel);
     }
+    // E9: a cold roll's trail is 0 (the hand's `init_state` sets `trail = 0`
+    // when it seeds the value from bar 0); a resumed chunk keeps its count.
+    for (k, &_j) in mmrolls.iter().enumerate() {
+        let sel = fb.ins().select(is_seeded, trloads[k], zero);
+        args.push(sel);
+    }
     args.push(i0);
     // E3 anchor bases (setup values — the per-bar cost is one iadd + one
     // load): per-stream virtual price array from the host anchor table,
@@ -577,9 +619,25 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     // prev(bar i−P) is `load(vbase_g + poff)` sharing the price load's
     // `poff` — no predicate, no ring store, no cursor param.
     let mut abases: Vec<Value> = Vec::with_capacity(na);
-    if nroll > 0 || nh > 0 || nlag > 0 {
+    if nroll > 0 || nh > 0 || nlag > 0 || ntr > 0 {
         for a_idx in 0..na {
             abases.push(ld(&mut fb, anchors, 8 * a_idx as i64, i64_t));
+        }
+    }
+    // E9: a trail-rescan roll walks its window `[i − look_back ..= i]` through
+    // the same anchor. Its base is the anchor of THIS bar
+    // (`abases[src] + 8·pmax`), so window slot k is `base + poff − 8k` — one
+    // iadd per window element, no cursor and no ring store (the rescan is the
+    // rare bar; the common bar is a compare and two selects).
+    let mut mmroll_base: Vec<Value> = Vec::with_capacity(ntr);
+    if ntr > 0 {
+        let pmax8 = fb.ins().iconst(i64_t, 8 * plan.pmax as i64);
+        for &j in &mmrolls {
+            let src = match plan.ops[j].e {
+                OpE::Roll { src, .. } => src,
+                _ => unreachable!(),
+            };
+            mmroll_base.push(fb.ins().iadd(abases[PRICE - src], pmax8));
         }
     }
     let mut vbases: Vec<Value> = Vec::with_capacity(nroll);
@@ -777,6 +835,11 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
         // uniformly across every segment arm.
         let mut s_lat: Vec<Option<Value>> = vec![None; SUP_F64_PARAMS * nsup];
         let mut t_lat: Vec<Option<Value>> = vec![None; nsup];
+        // E9: each trail-rescan roll's `trail` (i64), carried by every
+        // segment arm like the HMA/supertrend runs. `trail_cur` is that same
+        // per-bar value keyed by ROLL OP ID, for `OpE::Trail` consumers.
+        let mut tr_lat: Vec<Option<Value>> = vec![None; ntr];
+        let mut trail_cur: Vec<Option<Value>> = vec![None; nops];
         // pair-vector results (vec Arith ops): consumed by lane via `alias`
         let mut vvec: Vec<Option<Value>> = vec![None; nops];
 
@@ -812,10 +875,32 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                 }
             }};
         }
-        // scalar ops in arena order (grouped members already computed)
+        // E9 TWO-PHASE emission order: ROLLS FIRST (sorted by stream, direction,
+        // ascending `look_back`), then every other op in arena order. A roll reads
+        // only its price stream and its own carried state — never another op — so
+        // hoisting them breaks no dependency, while guaranteeing each roll's SEED
+        // is already computed no matter what order the caller listed requests in
+        // (previously a wide roll listed first found no earlier narrower partner
+        // and walked its whole window). Everything else the loop looks up is
+        // keyed by op id (`slot_of_op`, `roll_of`, `hma_of`, `sup_of`, `lag_of`,
+        // `tr_of`), and `ci` advances only for chained `Ema`s, which stay in
+        // phase B — so no other bookkeeping moves. Grouped lane members are
+        // already stepped above, hence the existing `lane_of` skip.
+        let is_roll = |j: usize| matches!(plan.ops[j].e, OpE::Roll { .. });
+        let mut roll_order = mmrolls.clone();
+        roll_order.sort_by_key(|&j| match plan.ops[j].e {
+            OpE::Roll {
+                src,
+                want_max,
+                look_back,
+                ..
+            } => (src, !want_max, look_back),
+            _ => unreachable!(),
+        });
+        let rest = (0..nops).filter(|j| !is_roll(*j));
         let mut sd: Vec<Value> = Vec::with_capacity(nsd);
         let mut ci = 0usize;
-        for j in 0..nops {
+        for j in roll_order.into_iter().chain(rest) {
             if plan.lane_of[j].0 != usize::MAX {
                 continue;
             }
@@ -1070,6 +1155,153 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                     let eps = fb.ins().f64const(f64::EPSILON);
                     sq_lat[sk] = Some(sq2);
                     max_num(&mut fb, sdr, eps)
+                }
+                OpE::Roll {
+                    src,
+                    period,
+                    look_back,
+                    want_max,
+                } => {
+                    let slot = slot_of_op[j];
+                    let prev_val = bp[slot];
+                    let src_v = pv[PRICE - src];
+                    // `>=` for max, `<=` for min — the hand's else-branch
+                    // compares, and the rescan uses the SAME relation so a tie
+                    // always lands on the NEWEST occurrence.
+                    let cc = if want_max {
+                        FloatCC::GreaterThanOrEqual
+                    } else {
+                        FloatCC::LessThanOrEqual
+                    };
+                    let tk = tr_of[j];
+                    let nt = fb.ins().iadd(bp[rpos + tk], one);
+                    let hit = fb.ins().fcmp(cc, src_v, prev_val);
+                    let keep_val = fb.ins().select(hit, src_v, prev_val);
+                    let keep_trail = fb.ins().select(hit, zero, nt);
+                    if b < period as i64 {
+                        // No rescan is reachable in this segment: the trail
+                        // counts at most `b` bars, and the guard needs
+                        // `period <= trail`. So the else-branch IS the whole
+                        // bar — zero extra code over the guard-free shape.
+                        tr_lat[tk] = Some(keep_trail);
+                        trail_cur[j] = Some(keep_trail);
+                        keep_val
+                    } else {
+                        // Guarded segment. The rescan goes out on a side exit
+                        // so an ORDINARY bar keeps its compare + two selects +
+                        // one brif; only the rare expired-max bar walks the
+                        // window. `merge` re-joins the two paths carrying
+                        // (value, trail) as block params, and becomes the
+                        // block every later op of this bar emits into.
+                        let rescan_bb = fb.create_block();
+                        let merge_bb = fb.create_block();
+                        add_params(&mut fb, merge_bb, &[f64_t, i64_t]);
+                        let pc = fb.ins().iconst(i64_t, period as i64);
+                        let due = fb.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, nt, pc);
+                        fb.ins().brif(
+                            due,
+                            rescan_bb,
+                            &ba(&[]),
+                            merge_bb,
+                            &ba(&[keep_val, keep_trail]),
+                        );
+                        fb.switch_to_block(rescan_bb);
+                        // window[k] = bar `i − look_back + k`, so slot k's address is
+                        // this bar's anchor address minus `8·(look_back − k)` — one
+                        // `iadd` per slot, no cursor, no ring store.
+                        let this_bar = fb.ins().iadd(mmroll_base[tk], poff);
+                        let back = fb.ins().iconst(i64_t, -8 * look_back as i64);
+                        let w0 = fb.ins().iadd(this_bar, back);
+                        let lbc = fb.ins().iconst(i64_t, look_back as i64);
+                        // ONE dependent chain, OLDEST slot → NEWEST slot: load, `fcmp`,
+                        // two `select`s (value and slot), next slot. Walking in age
+                        // order with the NON-STRICT compare is what gives the hand's
+                        // newest-occurrence rule — its `find_max_scalar` uses `>=` "to
+                        // get last position" for the same reason — and it is also what
+                        // the register allocator likes: the same walk done in the OTHER
+                        // order (newest → oldest, seeded with a running (value, trail)
+                        // pair, comparing STRICTLY so the order does the tie-breaking)
+                        // emits one FEWER load, one FEWER `isub`, and is bit-exact the
+                        // same, yet measured ~1 cycle per step SLOWER: +36% on a
+                        // standalone `max(20)` (12.73 → 17.29 µs, hand rows within 1%
+                        // of the reference run), +30% on the 2- and 3-link plans. Whether
+                        // the chain started from the `src_v` register or from a load of
+                        // the newest slot made no difference (18.39 vs 17.29), so it is
+                        // the direction, not the seed. Handover §6.13.
+                        macro_rules! walk {
+                            ($base:expr, $n:expr, $nonstrict:expr) => {{
+                                let n: i64 = $n;
+                                let base: Value = $base;
+                                let mut bv = fb.ins().load(f64_t, MemFlagsData::new(), base, 0);
+                                let mut bi = zero;
+                                let mut k: i64 = 1;
+                                while k < n {
+                                    let off = fb.ins().iconst(i64_t, 8 * k);
+                                    let a = fb.ins().iadd(base, off);
+                                    let v = fb.ins().load(f64_t, MemFlagsData::new(), a, 0);
+                                    let c = fb.ins().fcmp($nonstrict, v, bv);
+                                    bv = fb.ins().select(c, v, bv);
+                                    let kc = fb.ins().iconst(i64_t, k);
+                                    bi = fb.ins().select(c, kc, bi);
+                                    k += 1;
+                                }
+                                (bv, bi)
+                            }};
+                        }
+                        let seed = plan.ops[j].seed;
+                        // The walk yields a WINDOW slot, so the trail is
+                        // `look_back − slot` — the hand's
+                        // `trail = i − (search_start + max_idx)`, which is the same
+                        // thing because `search_start = i − look_back`. Convert to the
+                        // TRAIL inside each branch rather than carrying a slot: the
+                        // seeded branch has no slot to carry (the seed's own bar is
+                        // `look_back − trail_n` in this roll's coordinates and the narrow
+                        // roll publishes no index), so trail is the only unit both
+                        // branches agree on.
+                        let (bv, bt) = if seed == usize::MAX {
+                            let (v, i) = walk!(w0, look_back as i64 + 1, cc);
+                            (v, fb.ins().isub(lbc, i))
+                        } else {
+                            // SEEDED walk: the narrower roll (same stream, same
+                            // direction, smaller `look_back`) already covers
+                            // `[i − lb_n ..= i]`, so scan only the older gap and
+                            // compare it against the seed STRICTLY — a gap value EQUAL
+                            // to the seed must not win, because the newest occurrence
+                            // of that value is the seed's own bar, so the wide roll
+                            // inherits both its value and its trail.
+                            let lb_n = match plan.ops[seed].e {
+                                OpE::Roll { look_back, .. } => look_back,
+                                _ => unreachable!(),
+                            };
+                            let sv = scalarize!(seed);
+                            let st = trail_cur[seed]
+                                .expect("jit: a seed roll's trail comes with its value");
+                            let gap = (look_back - lb_n) as i64;
+                            let (gv, gi) = walk!(w0, gap, cc);
+                            let gap_trail = fb.ins().isub(lbc, gi);
+                            let strict = if want_max {
+                                fb.ins().fcmp(FloatCC::GreaterThan, gv, sv)
+                            } else {
+                                fb.ins().fcmp(FloatCC::LessThan, gv, sv)
+                            };
+                            (
+                                fb.ins().select(strict, gv, sv),
+                                fb.ins().select(strict, gap_trail, st),
+                            )
+                        };
+                        fb.ins().jump(merge_bb, &ba(&[bv, bt]));
+                        fb.switch_to_block(merge_bb);
+                        let mp: Vec<Value> = fb.block_params(merge_bb).to_vec();
+                        tr_lat[tk] = Some(mp[1]);
+                        trail_cur[j] = Some(mp[1]);
+                        mp[0]
+                    }
+                }
+                // E9: project a roll's per-bar trail (integer bar count → f64,
+                // exactly the hand's `trail as f64`).
+                OpE::Trail { roll } => {
+                    let t = trail_cur[roll].expect("jit: Trail's roll is emitted first");
+                    fb.ins().fcvt_from_uint(f64_t, t)
                 }
                 OpE::Hma {
                     src,
@@ -1385,6 +1617,9 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
         for k in 0..nsup {
             la.push(t_lat[k].expect("supertrend trend latch carries every segment"));
         }
+        for k in 0..ntr {
+            la.push(tr_lat[k].expect("roll trail carries every segment"));
+        }
         la.push(i1);
         fb.ins().jump(head_bb[s], &ba(&la));
     }
@@ -1444,6 +1679,16 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
             endp[tpos + k],
         );
     }
+    // E9: each trail-rescan roll's `trail` count back to its aux word (the
+    // extremum itself is persisted by the op-value run below).
+    for (k, &o) in mmrolls.iter().enumerate() {
+        st(
+            &mut fb,
+            state,
+            8 * plan.ops[o].aux_word as i64,
+            endp[rpos + k],
+        );
+    }
     for (si, &o) in op_of_slot.iter().enumerate() {
         if matches!(
             plan.ops[o].e,
@@ -1451,6 +1696,7 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                 | OpE::Sma { .. }
                 | OpE::Stddev { .. }
                 | OpE::Wma { .. }
+                | OpE::Roll { .. }
                 | OpE::Wilders { .. }
         ) {
             st(

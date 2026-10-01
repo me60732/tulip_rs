@@ -262,3 +262,70 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for DonchianChannel {
         )
     }
 }
+
+// ── planner recipe (cse) ─────────────────────────────────────────────
+
+impl crate::cse::Planable for DonchianChannel {
+    /// `DONCHIAN` = `(lower, middle, upper)` = `(min, 0.5·(max+min), max)` over a
+    /// `(period, period − 1)` window of high/low (E9 M2). This builds the SAME
+    /// two roll nodes `willr` does, so one query with both advances ONE rolling
+    /// max and ONE rolling min for both indicators (`aroon` deliberately does
+    /// NOT join them — its window is `(period, period)`).
+    ///
+    /// Hand facts: `min_data(options) = period` (an override, not the `+1`
+    /// default) and `cycle` starts at `periods.1 = period − 1`, so all three
+    /// rows print from bar `period − 1` — exactly the roll nodes' defined-from,
+    /// hence plain `iface` sinks with no explicit lead. `middle` is
+    /// `calc_medprice(max, min)` = `0.5 · (max + min)`, i.e. the same
+    /// `Add`-then-`Mul(half, ·)` shape `Medprice::recipe` emits, but over roll
+    /// operands (so it is a different node pair, not a shared one).
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        use crate::cse::{Node, Recipe, Sink};
+        let period = options[0] as u32;
+        let look_back = period - 1;
+        let mut r = Recipe::new();
+        let high = r.add(Node::Input { stream: 0 });
+        let low = r.add(Node::Input { stream: 1 });
+        let mx = r.add(Node::RollMax {
+            src: high,
+            period,
+            look_back,
+        });
+        let mn = r.add(Node::RollMin {
+            src: low,
+            period,
+            look_back,
+        });
+        let sum = r.add(Node::Add { a: mx, b: mn });
+        let half = r.constant(0.5);
+        let mid = r.add(Node::Mul { a: half, b: sum });
+        r.kind = "donchianchannel";
+        r.options = options.to_vec();
+        // hand `State` field order: min_state, max_state
+        r.tail_inputs = vec![mn, mx];
+        r.restorer = Some(restore_state);
+        // hand `Info::outputs` order: lower, middle, upper
+        r.outputs = vec![Sink::iface(mn), Sink::iface(mid), Sink::iface(mx)];
+        r
+    }
+}
+
+/// Rebuild the hand `donchianchannel::State<Warm>` from the two roll chains.
+pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
+    let [crate::cse::ChainState::RollMin {
+        value: min,
+        trail: mt,
+        ..
+    }, crate::cse::ChainState::RollMax {
+        value: max,
+        trail: xt,
+        ..
+    }] = v.as_slice()
+    else {
+        return crate::cse::IndicatorStateBox::Other;
+    };
+    crate::cse::IndicatorStateBox::DonchianChannel(State {
+        min_state: MinState::new(*min, *mt as usize).into_warm(),
+        max_state: MaxState::new(*max, *xt as usize).into_warm(),
+    })
+}

@@ -15,21 +15,27 @@ use tulip_rs::cse::{Planable, Request};
 use tulip_rs::indicator_types::Indicator;
 use tulip_rs::indicators::adx::Adx;
 use tulip_rs::indicators::apo::Apo;
+use tulip_rs::indicators::aroon::Aroon;
+use tulip_rs::indicators::aroonosc::AroonOsc;
 use tulip_rs::indicators::atr::Atr;
 use tulip_rs::indicators::bbands::BBands;
 use tulip_rs::indicators::di::Di;
 use tulip_rs::indicators::dm::Dm;
+use tulip_rs::indicators::donchianchannel::DonchianChannel;
 use tulip_rs::indicators::dx::Dx;
 use tulip_rs::indicators::ema::Ema;
 use tulip_rs::indicators::hma::Hma;
 use tulip_rs::indicators::macd::Macd;
+use tulip_rs::indicators::max::Max;
 use tulip_rs::indicators::medprice::Medprice;
+use tulip_rs::indicators::min::Min;
 use tulip_rs::indicators::natr::Natr;
 use tulip_rs::indicators::ppo::Ppo;
 use tulip_rs::indicators::sma::Sma;
 use tulip_rs::indicators::stddev::StdDev;
 use tulip_rs::indicators::supertrend::SuperTrend;
 use tulip_rs::indicators::wilders::Wilders;
+use tulip_rs::indicators::willr::Willr;
 use tulip_rs::indicators::wma::Wma;
 
 const N: usize = 600;
@@ -209,7 +215,9 @@ fn differential_parity() {
                 "Wilders",
                 1,
                 |q: usize| Request::new().add(Wilders::recipe(&[q as f64]), None),
-                |s: &[&[f64]], pp: usize| Wilders::indicator(&[s[0]], &[pp as f64], None).unwrap().0
+                |s: &[&[f64]], pp: usize| Wilders::indicator(&[s[0]], &[pp as f64], None)
+                    .unwrap()
+                    .0
             );
             chk!(
                 "StdDev",
@@ -225,29 +233,101 @@ fn differential_parity() {
                     .unwrap()
                     .0
             );
+            // E9 trail-rescan rolls: the regimes are the point — `flat`
+            // (every bar ties), `saw` (the extremum repeats every 37 bars)
+            // and `big-lowvar` (1e8 + i%3 ties under a 1-ulp window) all put
+            // the newest-occurrence rule and the rescan schedule under
+            // pressure, which a value-only comparison would never see.
+            chk!(
+                "Max",
+                1,
+                |q: usize| Request::new().add(Max::recipe(&[q as f64]), None),
+                |s: &[&[f64]], pp: usize| Max::indicator(&[s[0]], &[pp as f64], None).unwrap().0
+            );
+            chk!(
+                "Min",
+                1,
+                |q: usize| Request::new().add(Min::recipe(&[q as f64]), None),
+                |s: &[&[f64]], pp: usize| Min::indicator(&[s[0]], &[pp as f64], None).unwrap().0
+            );
+            // E9 M1: the trail consumers. Both rows (down/up) are compared, and
+            // `saw`/`flat`/`big-lowvar` are the regimes where `trail` (the thing
+            // aroon actually prints) is decided by the tie rule.
+            chk!(
+                "Aroon",
+                2,
+                |q: usize| Request::new().add(Aroon::recipe(&[q as f64]), None),
+                |s: &[&[f64]], pp: usize| Aroon::indicator(&[s[0], s[1]], &[pp as f64], None)
+                    .unwrap()
+                    .0
+            );
+            chk!(
+                "AroonOsc",
+                2,
+                |q: usize| Request::new().add(AroonOsc::recipe(&[q as f64]), None),
+                |s: &[&[f64]], pp: usize| AroonOsc::indicator(&[s[0], s[1]], &[pp as f64], None)
+                    .unwrap()
+                    .0
+            );
+            // E9 M2: the (p, p−1)-width range consumers. `flat` is the
+            // degenerate-range guard (max == min → the division must be
+            // discarded for 0.0 by the WhereGe select).
+            chk!(
+                "Willr",
+                3,
+                |q: usize| Request::new().add(Willr::recipe(&[q as f64]), None),
+                |s: &[&[f64]], pp: usize| Willr::indicator(&[s[0], s[1], s[2]], &[pp as f64], None)
+                    .unwrap()
+                    .0
+            );
+            chk!(
+                "DonchianChannel",
+                2,
+                |q: usize| Request::new().add(DonchianChannel::recipe(&[q as f64]), None),
+                |s: &[&[f64]], pp: usize| DonchianChannel::indicator(
+                    &[s[0], s[1]],
+                    &[pp as f64],
+                    None
+                )
+                .unwrap()
+                .0
+            );
             chk!(
                 "Apo",
                 1,
                 |q: usize| Request::new().add(Apo::recipe(&[q as f64, (q + 10) as f64]), None),
-                |s: &[&[f64]], pp: usize| Apo::indicator(&[s[0]], &[pp as f64, (pp + 10) as f64], None)
-                    .unwrap()
-                    .0
+                |s: &[&[f64]], pp: usize| Apo::indicator(
+                    &[s[0]],
+                    &[pp as f64, (pp + 10) as f64],
+                    None
+                )
+                .unwrap()
+                .0
             );
             chk!(
                 "Ppo",
                 1,
                 |q: usize| Request::new().add(Ppo::recipe(&[q as f64, (q + 10) as f64]), None),
-                |s: &[&[f64]], pp: usize| Ppo::indicator(&[s[0]], &[pp as f64, (pp + 10) as f64], None)
-                    .unwrap()
-                    .0
+                |s: &[&[f64]], pp: usize| Ppo::indicator(
+                    &[s[0]],
+                    &[pp as f64, (pp + 10) as f64],
+                    None
+                )
+                .unwrap()
+                .0
             );
             chk!(
                 "Macd",
                 1,
-                |q: usize| Request::new().add(Macd::recipe(&[q as f64, (q + 12) as f64, 9.0]), None),
-                |s: &[&[f64]], pp: usize| Macd::indicator(&[s[0]], &[pp as f64, (pp + 12) as f64, 9.0], None)
-                    .unwrap()
-                    .0
+                |q: usize| Request::new()
+                    .add(Macd::recipe(&[q as f64, (q + 12) as f64, 9.0]), None),
+                |s: &[&[f64]], pp: usize| Macd::indicator(
+                    &[s[0]],
+                    &[pp as f64, (pp + 12) as f64, 9.0],
+                    None
+                )
+                .unwrap()
+                .0
             );
             chk!(
                 "Medprice",
@@ -259,7 +339,9 @@ fn differential_parity() {
                 "Dm",
                 2,
                 |q: usize| Request::new().add(Dm::recipe(&[q as f64]), None),
-                |s: &[&[f64]], pp: usize| Dm::indicator(&[s[0], s[1]], &[pp as f64], None).unwrap().0
+                |s: &[&[f64]], pp: usize| Dm::indicator(&[s[0], s[1]], &[pp as f64], None)
+                    .unwrap()
+                    .0
             );
             chk!(
                 "Atr",
@@ -306,9 +388,13 @@ fn differential_parity() {
                 "SuperTrend",
                 3,
                 |q: usize| Request::new().add(SuperTrend::recipe(&[q as f64, 3.0]), None),
-                |s: &[&[f64]], pp: usize| SuperTrend::indicator(&[s[0], s[1], s[2]], &[pp as f64, 3.0], None)
-                    .unwrap()
-                    .0
+                |s: &[&[f64]], pp: usize| SuperTrend::indicator(
+                    &[s[0], s[1], s[2]],
+                    &[pp as f64, 3.0],
+                    None
+                )
+                .unwrap()
+                .0
             );
         }
     }

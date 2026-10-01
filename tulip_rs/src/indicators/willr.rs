@@ -332,3 +332,85 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Willr {
         )
     }
 }
+
+// ── planner recipe (cse) ─────────────────────────────────────────────
+
+impl crate::cse::Planable for Willr {
+    /// `WILLR` = `100·(max − close) / (max − min)`, zeroed when the range is
+    /// degenerate (E9 M2). Hand facts encoded here:
+    /// * window `(period, period − 1)` — max of HIGH, min of LOW, so this recipe
+    ///   interns onto `donchianchannel`'s / `stoch`'s identical rolls at the same
+    ///   period, but NOT onto `aroon`'s (its window is `(period, period)`).
+    /// * the primary prints from bar `period` (`cycle_willr` starts there, and
+    ///   `min_data = period + 1` sizes the row) — the roll nodes are defined one
+    ///   bar earlier, hence the explicit sink lead;
+    /// * the `min`/`max` optionals print ONE BAR EARLIER (hand `init_state`
+    ///   already stores them at `look_back = period − 1`, then `slice_outputs_start!`
+    ///   offsets the rest), so those sinks take the nodes' own lead;
+    /// * `100.0 * (max − close) / (max − min)` is `Div(Mul(100, Sub), Sub)` —
+    ///   Rust's left-to-right association, NOT `Mul(100, Div)` (different bits);
+    /// * the `(max−min).abs() < f64::EPSILON → 0.0` guard is exactly
+    ///   `WhereGe{a: |max−min|, b: EPSILON, t: div}` — `>=` takes the division,
+    ///   `<` takes the pinned `+0.0` else arm. The division is computed
+    ///   unconditionally (a `select`, both arms live) which is what `di`/`dx`
+    ///   already do: a float divide by zero yields ±inf/NaN and is discarded.
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        use crate::cse::{Node, Recipe, Sink};
+        let period = options[0] as u32;
+        let look_back = period - 1;
+        let mut r = Recipe::new();
+        let high = r.add(Node::Input { stream: 0 });
+        let low = r.add(Node::Input { stream: 1 });
+        let close = r.add(Node::Input { stream: 2 });
+        let mx = r.add(Node::RollMax {
+            src: high,
+            period,
+            look_back,
+        });
+        let mn = r.add(Node::RollMin {
+            src: low,
+            period,
+            look_back,
+        });
+        let dif = r.add(Node::Sub { a: mx, b: mn });
+        let adif = r.add(Node::Abs { src: dif });
+        let mc = r.add(Node::Sub { a: mx, b: close });
+        let c100 = r.constant(100.0);
+        let num = r.add(Node::Mul { a: c100, b: mc });
+        let q = r.add(Node::Div { a: num, b: dif });
+        let eps = r.constant(f64::EPSILON);
+        let wr = r.add(Node::WhereGe {
+            a: adif,
+            b: eps,
+            t: q,
+        });
+        r.kind = "willr";
+        r.options = options.to_vec();
+        r.tail_inputs = vec![mn, mx];
+        r.restorer = Some(restore_state);
+        r.outputs = vec![Sink::iface_lead(wr, period)];
+        r.optional_outputs = vec![Sink::iface(mn), Sink::iface(mx)];
+        r
+    }
+}
+
+/// Rebuild the hand `willr::State<Warm>` from the two roll chains (the
+/// `high`/`low` tails are the engine's host anchor window).
+pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
+    let [crate::cse::ChainState::RollMin {
+        value: min,
+        trail: mt,
+        ..
+    }, crate::cse::ChainState::RollMax {
+        value: max,
+        trail: xt,
+        ..
+    }] = v.as_slice()
+    else {
+        return crate::cse::IndicatorStateBox::Other;
+    };
+    crate::cse::IndicatorStateBox::Willr(State {
+        min_state: MinState::new(*min, *mt as usize).into_warm(),
+        max_state: MaxState::new(*max, *xt as usize).into_warm(),
+    })
+}

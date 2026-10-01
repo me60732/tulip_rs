@@ -160,6 +160,30 @@ impl Request {
                     Node::HtQuadrature { src } => (11, src as u64, 0, 0),
                     Node::Sma { src, period } => (12, src as u64, period as u64, 0),
                     Node::Stddev { src, period } => (13, src as u64, period as u64, 0),
+                    // E9: `period` and `look_back` are INDEPENDENT facts — a
+                    // `(P, P−1)` window and a `(P, P)` window are different
+                    // nodes — so both enter the key (two u32s packed per slot).
+                    Node::RollMax {
+                        src,
+                        period,
+                        look_back,
+                    } => (
+                        24,
+                        src as u64,
+                        (period as u64) | ((look_back as u64) << 32),
+                        0,
+                    ),
+                    Node::RollMin {
+                        src,
+                        period,
+                        look_back,
+                    } => (
+                        25,
+                        src as u64,
+                        (period as u64) | ((look_back as u64) << 32),
+                        0,
+                    ),
+                    Node::Trail { src } => (26, src as u64, 0, 0),
                     Node::Fma { a, b, c } => (14, a as u64, b as u64, c as u64),
                     Node::Sqrt { src } => (15, src as u64, 0, 0),
                     Node::Wma { src, period } => (16, src as u64, period as u64, 0),
@@ -354,6 +378,23 @@ pub enum IndicatorStateBox {
     Wma(crate::indicators::wma::State<Warm>),
     Wilders(crate::indicators::wilders::State<Warm>),
     Hma(crate::indicators::hma::State<Warm>),
+    /// E9 trail-rescan rolls — the hand `{max, trail}` / `{min, trail}`.
+    /// The rescan window is the host `JitState.window` like a rolling sum's
+    /// price tail, so it is NOT in the box.
+    Max(crate::indicators::max::State<Warm>),
+    Min(crate::indicators::min::State<Warm>),
+    /// E9 M1 — the trail consumers: `aroon` (`{min_state, max_state,
+    /// multiplier}`) and `aroonosc` (which wraps the same aroon state).
+    Aroon(crate::indicators::aroon::State<Warm>),
+    AroonOsc(crate::indicators::aroonosc::State<Warm>),
+    /// E9 M2 — same-window consumers: `willr` and `donchianchannel` both carry
+    /// exactly `{min_state, max_state}`, so they restore the same way and (when
+    /// their windows match) read the SAME two roll chains.
+    Willr(crate::indicators::willr::State<Warm>),
+    DonchianChannel(crate::indicators::donchianchannel::State<Warm>),
+    /// E9 M4 — the densest nesting case: three canonical windows per column, so
+    /// the state is six `{value, trail}` pairs with no derived constants.
+    Ichimoku(crate::indicators::ichimoku::State<Warm>),
     Other,
 }
 

@@ -53,6 +53,24 @@ pub enum ChainState {
     Wilders { value: f64, period: u32 },
     /// Rolling `sum` + `sum_sq` (the two recurrences hand stddev carries).
     Stddev { sum: f64, sum_sq: f64, period: u32 },
+    /// Rolling maximum (E9) — the carried extremum + the `trail` (bars since
+    /// its NEWEST occurrence), exactly the hand `max::State{max, trail}`. The
+    /// rescan window is NOT state: it is the host anchor (`JitState.window`),
+    /// same as a rolling sum's price tail.
+    RollMax {
+        value: f64,
+        trail: u64,
+        period: u32,
+        look_back: u32,
+    },
+    /// Rolling minimum (E9) — the mirror of [`ChainState::RollMax`] (hand
+    /// `min::State{min, trail}`).
+    RollMin {
+        value: f64,
+        trail: u64,
+        period: u32,
+        look_back: u32,
+    },
     /// Rolling raw `sum` + the weighted-sum trick line.
     Wma {
         sum: f64,
@@ -97,7 +115,8 @@ pub type StateRestorer = fn(Vec<ChainState>) -> crate::cse::IndicatorStateBox;
 /// `Ema`, `Sub`/`Add`/`Mul`/`Div`/`Max`, `Abs`, `WhereGe` (a `fcmp.ge`+select),
 /// `Const`, the raw `Lag` (a stream delayed `n` bars off the anchor), the
 /// rolling kinds `Sma`/`Stddev`/`Wma` (price-sourced, grouped by
-/// `(src, period)`), the `Wilders` chain (price leaf OR chained over a derived
+/// `(src, period)`), the trail-rescan `RollMax`/`RollMin` (E9 — price-sourced,
+/// carrying a value AND a bar-count trail), the `Wilders` chain (price leaf OR chained over a derived
 /// node — `atr = Wilders(tr)`; `composite` mean/sum, `feed` fold-from-head vs
 /// fold-from-src-lead), the bespoke rolling `Hma` (E3 stage 3 — its own
 /// two-engine + diff-ring state), the bespoke multi-value feedback `SuperTrend`
@@ -224,6 +243,67 @@ pub enum Node {
     /// rolling `sum` and `sum_sq` (`fma` fold, like the hand's init),
     /// `sd = sqrt(sum_sq/P − sma·sma).max(f64::EPSILON)`.
     Stddev { src: Id, period: Id },
+    /// Rolling **maximum** over node `src` — hand `max.rs` (E9), the
+    /// trail-rescan recurrence (a windowed `Max` node, not a fold). Carries
+    /// TWO values: the current max (f64) and the `trail` — bars since the
+    /// NEWEST occurrence of that max (i64). Per bar: `trail += 1`; if
+    /// `period <= trail` the window `[i − look_back ..= i]` is rescanned
+    /// (newest-occurrence index ⇒ `trail = look_back − idx`); else the
+    /// carried value is kept, reset to this bar with `trail = 0` when
+    /// `src[i] >= max`. Tie-breaking is part of the contract: `aroon`
+    /// consumes the *trail*, so the index must be the newest occurrence
+    /// (`rescan_scalar_and_simd_forms_agree_on_extremum_and_index` proves the
+    /// hand's SIMD and scalar forms agree, which is what lets the emitter pick
+    /// either).
+    ///
+    /// `look_back` is a SECOND, independent parameter because the family
+    /// genuinely needs both shapes: standalone `max`/`min` use `(P, P−1)` (a
+    /// P-bar window) while `aroon` uses `(P, P)` (P+1 bars). Deriving one
+    /// from the other would silently merge two different windows into one
+    /// arena node.
+    ///
+    /// The rescan reads the host anchor (`abases[src] + 8·(pmax − k) + poff`),
+    /// so `src` must be a PRICE stream today — a derived src needs E8's
+    /// shift-eval (`Handover` §6.5). No ring words: the window lives in the
+    /// same anchor the rolling prev-reads use, and `pmax` widens to
+    /// `look_back`. Warm-up mirrors the hand's `init_state`: bar 0 seeds the
+    /// value (`trail = 0`), bars `1..lead` fold the compare-and-reset branch
+    /// only (no rescan is reachable before bar `period`). Defined-from =
+    /// `lead(src) + period − 1`; standalone `max`/`min` publish at that lead,
+    /// `aroon` publishes at `period` (the hand's `cycle_*` start bars).
+    /// `RollMin` is the mirror image with `<=`.
+    RollMax {
+        src: Id,
+        period: u32,
+        look_back: u32,
+    },
+    /// Rolling **minimum** over node `src` — the mirror of
+    /// [`Node::RollMax`] (hand `min.rs`: `trail += 1`, rescan when
+    /// `period <= trail`, else reset when `src[i] <= min`). NOTE the hand
+    /// asymmetry the engine deliberately does NOT copy: `Min::indicator`
+    /// seeds with `period` bars while `Max::indicator` uses `period − 1`, so
+    /// the min side re-processes its first printed bar and its trail runs one
+    /// long. That is invisible in the printed value (an oversized trail only
+    /// makes the rescan fire a bar early, and the rescan recomputes the exact
+    /// window extremum), so the planner uses the uniform rule for both and
+    /// `jit_min_matches_hand` pins the equivalence.
+    RollMin {
+        src: Id,
+        period: u32,
+        look_back: u32,
+    },
+    /// The [`RollMax`]/[`RollMin`] `src`'s carried **trail** — bars since the
+    /// NEWEST occurrence of the extremum — projected as an f64 (CLIF
+    /// `fcvt_from_uint`, the hand's `usize as f64`). This is what makes the
+    /// trail a *graph value* instead of a hidden second output: `aroon` is
+    /// `(period − trail) · (100/period)`, so its two lines are ordinary
+    /// `Sub`/`Mul` nodes over a projection, and two requests asking for aroon
+    /// and aroonosc share the rolls, the trails AND the scaled lines exactly
+    /// like any other identical node. Asserted to reference a roll kind at
+    /// build; defined-from = its roll's (`lead(src)`).
+    ///
+    /// [`RollMax`]: Node::RollMax · [`RollMin`]: Node::RollMin
+    Trail { src: Id },
     /// `a * b + c` in ONE rounding — `f64::mul_add` as the hand writes it
     /// (bbands' `std_dev.mul_add(sd, sma)`; never an un-fused mul+add).
     Fma { a: Id, b: Id, c: Id },

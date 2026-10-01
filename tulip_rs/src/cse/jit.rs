@@ -139,6 +139,11 @@ struct Op {
     /// the leader — one sum per group; the other kind becomes a follower
     /// that reads the leader's lines).
     roll_leader: usize,
+    /// E9: for a `Roll` op, the narrower live roll on the SAME stream and
+    /// direction whose per-bar value seeds a gap-only rescan walk (`usize::MAX`
+    /// = walk the whole window, as before). See
+    /// `gap_seeded_rescan_matches_full_walk` for the proof this is exact.
+    seed: usize,
 }
 
 #[derive(Clone)]
@@ -199,6 +204,46 @@ enum OpE {
     /// (sum roll + `sum_sq`, warm segments fold `fma(v,v,sq)` exactly like
     /// the hand's init, steady segments the double-rounded update).
     Stddev { src: usize, period: u32, mult: f64 },
+    /// Rolling max/min over a PRICE `src` (E9) — the trail-rescan recurrence
+    /// (`Node::RollMax`/`RollMin`). TWO carried lines: the extremum rides the
+    /// op's f64 value slot like any chain; the `trail` (bars since the
+    /// NEWEST occurrence) is an i64 in a dedicated loop-param run
+    /// (`ROLL_TRAIL_*`). Per bar: `trail += 1`; if `period <= trail` the
+    /// anchor window `[i − look_back ..= i]` is rescanned (forward with
+    /// `>=`/`<=` so ties yield the newest index) and `trail = look_back − idx`;
+    /// otherwise the carried value survives, replaced by this bar's `src` with
+    /// `trail = 0` when the compare hits. The rescan goes out on a `brif`
+    /// side-exit so an ordinary bar costs one compare + two selects, and in
+    /// segments starting below bar `period` no rescan is reachable at all, so
+    /// the guard is not emitted there. `want_max` picks `>=` vs `<=` — the
+    /// only difference between the two shapes.
+    ///
+    /// Do NOT merge a max/min pair over ONE series into a shared window walk:
+    /// their rescans can never coincide. Both firing at bar `i` means the carried
+    /// max AND min are both exactly `period` bars old, i.e. bar `i − period` is
+    /// both extremum of the previous window ⇒ that window is constant ⇒ every bar
+    /// in it satisfied `x >= max` AND `x <= min`, resetting both trails to 0 ⇒
+    /// neither ever reaches `period`. Measured 0 overlaps in 6692 bars at p=14 (0
+    /// at p=20 and p=52 too — `tulip_test/examples/minmax_probe.rs`), so a
+    /// union-fired walk performs exactly the same NUMBER of walks with the same
+    /// load traffic, but computes both extremums on every one of them: a reduction
+    /// nobody asked for on each fired bar. More ALU, zero saving.
+    Roll {
+        src: usize,
+        period: u32,
+        look_back: u32,
+        want_max: bool,
+    },
+    /// E9: a roll's carried `trail` (bars since the newest occurrence) read as
+    /// a value — `fcvt_from_uint`, the hand's `usize as f64`. Stateless, so it
+    /// owns no slot/word: it is ONE extra instruction at the consumer, and
+    /// because it is an ordinary arena node, `aroon` and `aroonosc` share the
+    /// roll, the projection AND the scaled lines automatically.
+    Trail {
+        /// the referenced roll's op id (SSA order guarantees it is computed
+        /// first in the same block chain).
+        roll: usize,
+    },
     /// `hma(period)` over a PRICE `src` — E3 stage 3, hand `hma.rs` as ONE
     /// bespoke rolling op. Private state (NOT the `(src,period)` group):
     /// two WMA engines (`sum1/ws1` at P — warm ≡ the hand's
@@ -290,6 +335,11 @@ enum OpE {
 /// each (their rolling `sum` is the group leader's, not per-op).
 const ROLLING_AUX_PARAMS: usize = 1;
 const ROLLING_AUX_WORDS: usize = 1;
+/// E9 `RollMax`/`RollMin`: one i64 `trail` loop param + state word each. The
+/// carried extremum needs NOTHING here — it is the op's ordinary f64 value
+/// slot, exactly like an `Ema`'s or `Wilders`' chain value.
+const ROLL_TRAIL_PARAMS: usize = 1;
+const ROLL_TRAIL_WORDS: usize = 1;
 /// `Hma`: 6 carried f64 accumulators `[sum1, ws1, sum2, ws2, wss, ss]` + 1
 /// i64 ring cursor as loop params; state words = `[6 acc + 1 cursor]` plus the
 /// `psqrt` diff-ring words (total `7 + psqrt`).
@@ -526,6 +576,7 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
                 sd_word: 0,
                 aux_word: 0,
                 roll_leader: usize::MAX,
+                seed: usize::MAX,
             });
             node_op[$s][id] = ops.len() - 1;
         }};
@@ -759,6 +810,57 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
                         }
                     );
                 }
+                // E9: the trail-rescan roll. Price-sourced only (the rescan
+                // walks the ANCHOR); a derived src is E8's shift-eval.
+                // `look_back` stays an independent parameter — `(P, P−1)` and
+                // `(P, P)` are different windows and must not intern together.
+                n @ (Node::RollMax { .. } | Node::RollMin { .. }) => {
+                    let (src, period, look_back, want_max) = match n {
+                        Node::RollMax {
+                            src,
+                            period,
+                            look_back,
+                        } => (src, period, look_back, true),
+                        Node::RollMin {
+                            src,
+                            period,
+                            look_back,
+                        } => (src, period, look_back, false),
+                        _ => unreachable!(),
+                    };
+                    let src_op = node_op[s][src as usize];
+                    assert!(
+                        is_price(src_op),
+                        "jit: rolling min/max over a derived src needs E8 shift-eval (Handover §6.5)"
+                    );
+                    assert!(period >= 1, "jit: RollMin/RollMax period must be >= 1");
+                    assert!(
+                        look_back <= period,
+                        "jit: roll look_back {look_back} above period {period} would rescan a \
+                         window wider than the trail guard can ever expire"
+                    );
+                    push!(
+                        s,
+                        id,
+                        OpE::Roll {
+                            src: src_op,
+                            period,
+                            look_back,
+                            want_max,
+                        }
+                    );
+                }
+                // E9: the roll's trail as a graph value. Referenced op must be
+                // a roll — the emitter reads that roll's per-bar trail register,
+                // so an arbitrary `src` would have nothing to project.
+                Node::Trail { src } => {
+                    let roll = node_op[s][src as usize];
+                    assert!(
+                        matches!(ops[roll].e, OpE::Roll { .. }),
+                        "jit: Trail must reference a RollMax/RollMin node"
+                    );
+                    push!(s, id, OpE::Trail { roll });
+                }
                 Node::Fma { a, b, c } => push!(
                     s,
                     id,
@@ -790,6 +892,80 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
             * n_assets,
         "ops.len() must equal the LIVE non-input node count × n_assets (DCE)"
     );
+
+    // ---- E9: seed links (nested windows share one walk) ----
+    // A roll whose window strictly contains another live roll's window on the
+    // SAME stream and direction needs only the GAP beyond the narrower one:
+    // the narrower roll's value at this bar already covers `[i − lb_n ..= i]`,
+    // so the wider rescan walks `[i − lb_w .. i − lb_n − 1]` and seeds its
+    // running extremum with that value. Exact including `trail`, because when
+    // the gap fails to STRICTLY beat the seed, the newest occurrence of the
+    // value is the seed's own bar ⇒ the wider roll inherits `trail_n` — proved
+    // by `gap_seeded_rescan_matches_full_walk`, which also validates the model
+    // against the hand oracle.
+    //
+    // WHY THE SEED IS ALWAYS SAFE TO READ (checked here once, so nobody has to
+    // re-derive it per plan). Two things a link needs: the seed's bars must be
+    // INSIDE the wide window — `lb_n < lb_w` gives that and the gap — and the
+    // seed's value must be a FULL-window maximum, not a warm-up partial. The
+    // second needs no extra condition: the wide roll's rescan branch is only
+    // emitted for bars `b >= period_w = lb_w + 1` (below that the carried trail
+    // cannot reach `period_w`, so the segment has no guard at all), and its
+    // guard fires at `trail >= period_w`; the trail is at most `b`, so the
+    // EARLIEST bar a wide rescan can happen is `lb_w + 1 > lb_n` — by which bar
+    // the narrow roll's own window `[b − lb_n ..= b]` has long been complete.
+    // The same inequality is what keeps the walk's reads inside the chunk:
+    // `b − lb_w >= 1` at the first eligible bar, and a resumed chunk's stitched
+    // window supplies the rest (`pmax >= lb_w`). An earlier draft of this
+    // comment claimed a link could read an "empty region" unless
+    // `lb_w >= 2·lb_n + 1`; that was a bad derivation — the counter-example it
+    // imagined is a bar where the wide roll cannot rescan at all — and the
+    // constraint cost the `aroon(14) ← willr(14)` link, worth 30% on that row.
+    //
+    // The addresses coincide because BOTH rolls read the same anchor for the
+    // same bar (`this_bar = abases[src] + 8·pmax + poff`), not because a caller
+    // happened to line them up — unlike the by-option hand, whose road scheduler
+    // reslices each period's input independently so its lanes' pointers differ
+    // and the nesting must be skipped at runtime ("never assert it", see
+    // `indicators::simd_indicators::max_simd::…has_shorter_neighbor`).
+    // Restricted to a LOWER op id in the past; no longer, because the emitter
+    // now runs a two-phase order (see `codegen::emit`): ALL rolls first, sorted
+    // by (stream, direction, ascending `look_back`), so a seed is always emitted
+    // before whatever links to it regardless of how the caller ordered the
+    // requests. Linking cannot cycle — each link strictly decreases `look_back`.
+    for j in 0..ops.len() {
+        let (src, lb, want_max) = match ops[j].e {
+            OpE::Roll {
+                src,
+                look_back,
+                want_max,
+                ..
+            } => (src, look_back, want_max),
+            _ => continue,
+        };
+        let mut best: Option<(usize, u32)> = None;
+        for k in 0..ops.len() {
+            if k == j {
+                continue;
+            }
+            if let OpE::Roll {
+                src: s2,
+                look_back: lb2,
+                want_max: w2,
+                ..
+            } = ops[k].e
+            {
+                if s2 == src && w2 == want_max && lb2 < lb {
+                    if best.is_none_or(|(_, bl)| lb2 > bl) {
+                        best = Some((k, lb2));
+                    }
+                }
+            }
+        }
+        if let Some((k, _)) = best {
+            ops[j].seed = k;
+        }
+    }
 
     // ---- pass 2: stores/views + state wiring, all by arena id ----
     let mut stores: Vec<SinkSpec> = Vec::new();
@@ -853,6 +1029,8 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
                         | Node::Stddev { period, .. }
                         | Node::Wma { period, .. }
                         | Node::Hma { period, .. }
+                        | Node::RollMax { period, .. }
+                        | Node::RollMin { period, .. }
                         | Node::Wilders { period, .. } => (node_op[st_s][i as usize], period),
                         _ => panic!("jit: `tail_inputs` id {i} must name a state chain"),
                     })
@@ -1050,6 +1228,17 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
                 word_next += SUP_AUX_WORDS;
                 op.roll_leader = usize::MAX;
             }
+            // E9: a trail-rescan roll joins NO group (its "window" is read
+            // from the anchor on the rare rescan bar, not rolled every bar).
+            // Its one aux word is the `trail`; the carried extremum is the
+            // op's ordinary f64 value slot. `look_back` widens the anchor so
+            // the rescan can always reach bar `i − look_back`.
+            OpE::Roll { look_back, .. } => {
+                op.aux_word = word_next;
+                word_next += ROLL_TRAIL_WORDS;
+                op.roll_leader = usize::MAX;
+                pmax = pmax.max(look_back as usize);
+            }
             // E6: a delayed read widens the anchor window to reach `n` bars
             // back; it has no accumulator of its own.
             OpE::Lag { n, .. } => {
@@ -1142,6 +1331,20 @@ impl JitPlan {
     /// when every recipe is single-field (classic/ema/rolling/HMA).
     pub fn n_streams(&self) -> usize {
         self.n_fields * self.nassets
+    }
+
+    /// E9: the seed links this plan actually uses — `(wide roll op, narrow
+    /// seed op)` for every roll whose window strictly contains a narrower live
+    /// roll on the SAME stream and direction (so its rescan walks only the gap).
+    /// Empty when nothing nests: every roll then walks its whole window, as
+    /// before. Introspection, like [`Self::lanes`] / [`Self::vec_subs`] — the
+    /// count, not the values, is what proves a query deduped/shared work.
+    pub fn roll_seeds(&self) -> Vec<(usize, usize)> {
+        self.ops
+            .iter()
+            .enumerate()
+            .filter_map(|(j, o)| (o.seed != usize::MAX).then_some((j, o.seed)))
+            .collect()
     }
 
     /// E2-lite: number of `short − long` subtractions computed as ONE
@@ -1581,6 +1784,30 @@ impl JitPlan {
                 weighted: f64::from_bits(st.words[o.aux_word]),
                 period,
             },
+            // E9: the roll's chain slot holds the extremum, its one aux word
+            // the trail (an integer count, never a bit-pattern).
+            OpE::Roll {
+                want_max,
+                look_back,
+                ..
+            } => {
+                let trail = st.words[o.aux_word];
+                if want_max {
+                    ChainState::RollMax {
+                        value: sum,
+                        trail,
+                        period,
+                        look_back,
+                    }
+                } else {
+                    ChainState::RollMin {
+                        value: sum,
+                        trail,
+                        period,
+                        look_back,
+                    }
+                }
+            }
             OpE::Hma { p2, psqrt, .. } => {
                 let base = o.aux_word;
                 let accs = core::array::from_fn(|m| f64::from_bits(st.words[base + m]));
@@ -2640,6 +2867,685 @@ mod tests {
         }
     }
 
+    /// PRE-FLIGHT proof for the min/max family (E9 M0): the hand rescans its
+    /// window with `find_max_simd::<4>` / `find_min_simd::<4>`, and the engine
+    /// intends to emit a SCALAR `>=`-forward scan. Both must return the
+    /// *newest* occurrence of the extremum, or `aroon` (which consumes the
+    /// trail, not the value) would print a different line. Swept over window
+    /// lengths that cross both chunk boundaries (N=2 and N=4) and over the
+    /// tie shapes that can break an index: plateau at the extremum, extremum
+    /// only at index 0 (the lane the SIMD form skips in `search_window`),
+    /// extremum repeated in the remainder, all-equal, and monotone.
+    #[test]
+    fn rescan_scalar_and_simd_forms_agree_on_extremum_and_index() {
+        use crate::indicators::{max, min};
+        // Deterministic shape sweep — no RNG, every case is hand-checkable.
+        let mut windows: Vec<Vec<f64>> = Vec::new();
+        for len in 1..=40usize {
+            // plateau at the max (newest occurrence is the LAST lane)
+            let mut w = vec![1.0; len];
+            for (i, x) in w.iter_mut().enumerate() {
+                if i >= len / 2 {
+                    *x = 5.0;
+                }
+            }
+            windows.push(w);
+            // extremum ONLY at index 0 — the `search_window = &window[1..]` skip
+            let mut w = vec![0.0; len];
+            w[0] = 9.0;
+            windows.push(w.clone());
+            // extremum repeated across a chunk boundary and in the remainder
+            for off in [len - 1, len / 2, len.saturating_sub(3)] {
+                let mut w = vec![-3.0; len];
+                w[1.min(len - 1)] = 7.0;
+                w[off] = 7.0;
+                windows.push(w);
+            }
+            // strictly monotone up and down
+            windows.push((0..len).map(|i| i as f64).collect());
+            windows.push((0..len).map(|i| (len - i) as f64).collect());
+            // every lane equal
+            windows.push(vec![2.5; len]);
+            // equal values interleaved with a distinct max in the remainder
+            let mut w: Vec<f64> = (0..len).map(|i| (i % 3) as f64).collect();
+            if len > 5 {
+                w[len - 2] = 4.0;
+                w[2] = 4.0;
+            }
+            windows.push(w);
+        }
+        for w in &windows {
+            let scalar = max::find_max_scalar(w);
+            for n in [2usize, 4] {
+                let simd = match n {
+                    2 => max::find_max_simd::<2>(w),
+                    _ => max::find_max_simd::<4>(w),
+                };
+                assert_eq!(
+                    simd, scalar,
+                    "max: N={n} disagrees on window {w:?} (scalar {scalar:?})"
+                );
+            }
+            let scalar = min::find_min_scalar(w);
+            for n in [2usize, 4] {
+                let simd = match n {
+                    2 => min::find_min_simd::<2>(w),
+                    _ => min::find_min_simd::<4>(w),
+                };
+                assert_eq!(
+                    simd, scalar,
+                    "min: N={n} disagrees on window {w:?} (scalar {scalar:?})"
+                );
+            }
+        }
+    }
+
+    /// E9 M0 data shapes for the roll tests. Two of them force the rescan on
+    /// almost EVERY bar (`falling` for max, `rising` for min: the carried
+    /// extremum is always the oldest bar in the window, so the trail hits
+    /// `period` constantly) and one is all ties (`ties`, where the
+    /// newest-occurrence rule is the only thing deciding `trail` — the shapes
+    /// a value-only test would never catch).
+    fn roll_datasets() -> Vec<(&'static str, Vec<f64>)> {
+        vec![
+            ("wiggle", series(500)),
+            ("falling", (0..300).map(|i| -(i as f64)).collect()),
+            ("rising", (0..300).map(|i| i as f64).collect()),
+            ("ties", (0..300).map(|i| ((i * 7) % 11) as f64).collect()),
+            ("flat", vec![3.25; 300]),
+        ]
+    }
+
+    /// E9 M0: the trail-rescan roll standalone, bit-exact vs the hand over
+    /// every data shape × period, then streaming (splits at the first printed
+    /// bar `period−1`, the guard seam `period`, one bar past it, and
+    /// mid-steady) — `run ++ resume == hand` on the same row.
+    ///
+    /// Period ≥ 2 by construction: a period-1 roll publishes from bar 0 while
+    /// its cold seed CONSUMES bar 0, and no seeded op in the engine prints a
+    /// bar it has already folded (a general boundary fact of the phase-split
+    /// emitter, not a roll-specific limit — `seeds_bar0`).
+    #[test]
+    fn jit_max_matches_hand() {
+        roll_parity(true)
+    }
+
+    #[test]
+    fn jit_min_matches_hand() {
+        roll_parity(false)
+    }
+
+    fn roll_parity(want_max: bool) {
+        use crate::indicators::{max::Max, min::Min};
+        let which = if want_max { "max" } else { "min" };
+        // Plan PER PERIOD, not per dataset×period: the compiled loop is
+        // data-length-independent, so rebuilding it per series was pure churn
+        // (each `build` mints a fresh cranelift function in the shared
+        // executable arena — the one thing the suite must not multiply).
+        for period in [2usize, 5, 14, 50] {
+            let opt = [period as f64];
+            let recipe = if want_max {
+                Max::recipe(&opt)
+            } else {
+                Min::recipe(&opt)
+            };
+            let plan = Request::new().add(recipe, None).build();
+            for (shape, data) in roll_datasets() {
+                let n = data.len();
+                let s: [&[f64]; 1] = [data.as_slice()];
+                let hand = if want_max {
+                    Max::indicator(&s, &opt, None).unwrap().0
+                } else {
+                    Min::indicator(&s, &opt, None).unwrap().0
+                };
+                let (res, _) = plan.run(&s);
+                cmp_exact(
+                    res.request(0).output(0),
+                    &hand[0],
+                    &format!("{which} {shape} p{period}"),
+                );
+
+                for split in [period - 1, period, period + 1, n / 3] {
+                    let s1: [&[f64]; 1] = [&data[..split]];
+                    let s2: [&[f64]; 1] = [&data[split..]];
+                    let (h1, qs) = plan.run(&s1);
+                    let (h2, _) = plan.resume(qs, &s2);
+                    let mut c = h1.outputs[0][0].to_vec();
+                    c.extend_from_slice(&h2.outputs[0][0]);
+                    cmp_exact(
+                        &c,
+                        &hand[0],
+                        &format!("{which} {shape} p{period} split{split}"),
+                    );
+                }
+            }
+        }
+    }
+
+    /// E9: `get_states` on the rolls rebuilds the hand `{max, trail}` /
+    /// `{min, trail}`; re-paired with the host anchor window (the rescan window
+    /// the hand `IndicatorState` also holds outside the words), the HAND's
+    /// `batch_indicator` over the rest is bit-exact to its cold full run.
+    /// Max and min ride ONE plan here, so this also proves two trail-carrying
+    /// ops coexist (two i64 params, one shared anchor) without interference.
+    #[test]
+    fn jit_get_states_roll_continues_bit_exact() {
+        use crate::indicator_types::TIndicatorState;
+        use crate::indicators::{
+            max::{IndicatorState as MaxIS, Max},
+            min::{IndicatorState as MinIS, Min},
+        };
+        let data = roll_datasets()[0].1.clone();
+        let p = 14usize;
+        let opt = [p as f64];
+        let s: [&[f64]; 1] = [data.as_slice()];
+        let hand_max = Max::indicator(&s, &opt, None).unwrap().0;
+        let hand_min = Min::indicator(&s, &opt, None).unwrap().0;
+
+        let plan = Request::new()
+            .add(Max::recipe(&opt), None)
+            .add(Min::recipe(&opt), None)
+            .build();
+        assert_eq!(plan.info().0, 2, "one roll op per request");
+
+        let split = 200usize;
+        let s1: [&[f64]; 1] = [&data[..split]];
+        let (_r1, qs) = plan.run(&s1);
+        let states = plan.get_states(&qs);
+        let (IndicatorStateBox::Max(mx), IndicatorStateBox::Min(mn)) = (&states[0], &states[1])
+        else {
+            panic!("roll get_states did not rebuild the hand states");
+        };
+        assert_eq!(
+            qs.window[0].len(),
+            p - 1,
+            "the anchor window is the roll's rescan tail"
+        );
+
+        let tail = &qs.window[0];
+        let s2: [&[f64]; 1] = [&data[split..]];
+        let mut is = MaxIS::new(tail, mx.clone(), (p, p - 1));
+        let cont = is.batch_indicator(&s2, None).unwrap();
+        cmp_exact(
+            &cont[0],
+            &hand_max[0][split - (p - 1)..],
+            "max get_states continuation",
+        );
+
+        let mut is = MinIS::new(tail, mn.clone(), (p, p - 1));
+        let cont = is.batch_indicator(&s2, None).unwrap();
+        cmp_exact(
+            &cont[0],
+            &hand_min[0][split - (p - 1)..],
+            "min get_states continuation",
+        );
+    }
+
+    /// E9: the field axis with TWO rolls bound to DIFFERENT columns — the
+    /// shape `aroon`/`willr`/`donchian` require (max over high, min over low):
+    /// one request, two sinks, `n_fields = 2`, bit-exact against each hand
+    /// indicator on its own column, cold and streamed.
+    ///
+    /// This has to be bound INSIDE the recipe, and that is the point of the
+    /// test: `Max::recipe` and `Min::recipe` each declare `Input{stream: 0}`
+    /// and the merged arena gives every request the same physical column per
+    /// index (a two-request `add(Max).add(Min)` query has `n_streams() == 1`
+    /// and computes BOTH over one series). Field binding is recipe-internal
+    /// today — the gap E8's named columns/`Calc` axis would close.
+    #[test]
+    fn jit_roll_pair_binds_two_fields() {
+        use crate::cse::Recipe;
+        use crate::indicators::{max::Max, min::Min};
+        let period = 14u32;
+        let mut r = Recipe::new();
+        let h = r.add(Node::Input { stream: 0 });
+        let l = r.add(Node::Input { stream: 1 });
+        let mx = r.add(Node::RollMax {
+            src: h,
+            period,
+            look_back: period - 1,
+        });
+        let mn = r.add(Node::RollMin {
+            src: l,
+            period,
+            look_back: period - 1,
+        });
+        r.kind = "roll_pair";
+        r.options = vec![period as f64];
+        r.outputs = vec![Sink::iface(mx), Sink::iface(mn)];
+        let plan = Request::new().add(r, None).build();
+        assert_eq!(plan.n_streams(), 2, "both fields are live");
+        assert_eq!(plan.info().0, 2, "two roll ops, no duplication");
+
+        let hi = series(500);
+        let lo: Vec<f64> = hi
+            .iter()
+            .enumerate()
+            .map(|(i, v)| *v - 1.0 - (i % 4) as f64)
+            .collect();
+        let s: [&[f64]; 2] = [hi.as_slice(), lo.as_slice()];
+        let want_max = Max::indicator(&[hi.as_slice()], &[period as f64], None)
+            .unwrap()
+            .0;
+        let want_min = Min::indicator(&[lo.as_slice()], &[period as f64], None)
+            .unwrap()
+            .0;
+
+        let (res, _) = plan.run(&s);
+        cmp_exact(res.request(0).output(0), &want_max[0], "pair max");
+        cmp_exact(res.request(0).output(1), &want_min[0], "pair min");
+
+        for split in [13usize, 14, 15, 250] {
+            let cut: Vec<&[f64]> = s.iter().map(|x| &x[..split]).collect();
+            let tail: Vec<&[f64]> = s.iter().map(|x| &x[split..]).collect();
+            let (r1, qs) = plan.run(&cut);
+            let r2 = plan.resume(qs, &tail).0;
+            for (row, want) in [(0usize, &want_max[0]), (1, &want_min[0])] {
+                let mut cat = r1.request(0).output(row).to_vec();
+                cat.extend_from_slice(r2.request(0).output(row));
+                cmp_exact(
+                    &cat,
+                    want,
+                    &format!("pair split{split} row{row} (each column on its own roll)"),
+                );
+            }
+        }
+    }
+
+    /// The two scan ORDERS the engine could emit for a rescan produce the same
+    /// `(value, trail)`. FORWARD (what the emitter does): oldest → newest,
+    /// NON-STRICT, carry the window slot, `trail = look_back − slot`. REVERSE (the
+    /// form the by-option hand's `find_max_scalar(window, current)` uses, and the
+    /// shape a chunked scan needs): newest → oldest, STRICT, seeded with a running
+    /// `(value, trail)` pair so the ORDER does the tie-breaking and a win simply
+    /// takes the winner's age — no window coordinates at all, which is why it is
+    /// the natural form for the seed-inheriting gap walk. Kept as a pre-flight for
+    /// that direction of work: the reverse form is bit-equal here yet measured ~1
+    /// cycle/step slower through cranelift (codegen's `walk!` comment has the
+    /// numbers), so equivalence is established independently of the emitter.
+    #[test]
+    fn reverse_walk_matches_forward_walk_including_trail() {
+        #[derive(Clone, Copy, Debug)]
+        enum Dir {
+            Max,
+            Min,
+        }
+        use Dir::*;
+        let better = |d: Dir, a: f64, b: f64| match d {
+            Max => a > b,
+            Min => a < b,
+        };
+
+        // forward: oldest → newest, NON-STRICT, carry the slot, trail = lb − slot.
+        let forward = |w: &[f64], d: Dir| -> (f64, usize) {
+            let lb = w.len() - 1;
+            let mut v = w[0];
+            let mut sl = 0usize;
+            for k in 1..w.len() {
+                let beat = match d {
+                    Max => w[k] >= v,
+                    Min => w[k] <= v,
+                };
+                if beat {
+                    v = w[k];
+                    sl = k;
+                }
+            }
+            (v, lb - sl)
+        };
+
+        // reverse: ages newest → oldest, STRICT, seeded with (value, trail); a win
+        // takes the winner's AGE, so no window coordinates exist to convert.
+        let reverse = |bars: &[f64],
+                       i: usize,
+                       lb: usize,
+                       from_age: usize,
+                       d: Dir,
+                       seed: (f64, usize)|
+         -> (f64, usize) {
+            let mut v = seed.0;
+            let mut t = seed.1;
+            for age in from_age..=lb {
+                let x = bars[i - age];
+                if better(d, x, v) {
+                    v = x;
+                    t = age;
+                }
+            }
+            (v, t)
+        };
+
+        let datasets = vec![
+            (
+                "ties",
+                (0..120usize).map(|k| (k % 5) as f64).collect::<Vec<f64>>(),
+            ),
+            (
+                "plateau",
+                (0..120usize)
+                    .map(|k| if k % 17 < 8 { 3.0 } else { -2.0 })
+                    .collect::<Vec<f64>>(),
+            ),
+            (
+                "rising",
+                (0..120usize).map(|k| k as f64).collect::<Vec<f64>>(),
+            ),
+            (
+                "falling",
+                (0..120usize)
+                    .map(|k| 120.0 - k as f64)
+                    .collect::<Vec<f64>>(),
+            ),
+            ("wiggle", series(120)),
+        ];
+        for (shape, bars) in datasets {
+            for d in [Max, Min] {
+                for lb in [1usize, 2, 3, 7, 13] {
+                    // UNSEEDED: seed = this bar's own price at trail 0, walk ages 1..=lb.
+                    for i in lb..bars.len() {
+                        let full: Vec<f64> = bars[i - lb..=i].to_vec();
+                        let want = forward(&full, d);
+                        let got = reverse(&bars, i, lb, 1, d, (bars[i], 0));
+                        assert_eq!(
+                            (want.0.to_bits(), want.1),
+                            (got.0.to_bits(), got.1),
+                            "{shape} {d:?} lb={lb} bar={i}: unseeded reverse != forward"
+                        );
+                        // SEEDED: the narrow roll's (value, trail) comes from ITS OWN
+                        // forward walk over `[i − lb_n ..= i]`, as the engine carries it.
+                        for lb_n in 0..lb {
+                            let narrow = forward(&bars[i - lb_n..=i], d);
+                            let got = reverse(&bars, i, lb, lb_n + 1, d, narrow);
+                            assert_eq!(
+                                (want.0.to_bits(), want.1),
+                                (got.0.to_bits(), got.1),
+                                "{shape} {d:?} lb={lb} lb_n={lb_n} bar={i}: seeded reverse != full walk"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// E9 seed-link PRE-FLIGHT (before any codegen depends on it): a wide roll
+    /// may rescan by walking ONLY the gap beyond a narrower live roll of the
+    /// same direction on the same stream, seeded with that roll's current
+    /// `(value, trail)`. Claim being proved: this yields the SAME `(value,
+    /// trail)` on every bar as walking the wide window in full.
+    ///
+    /// The tie rule is the whole risk: `trail` counts bars since the NEWEST
+    /// occurrence, so an equal value in the gap must NOT steal the win (the
+    /// newest occurrence is inside the narrow window) — hence strict `>`
+    /// against the seed, and the seed's `trail` carried through unchanged when
+    /// the gap fails to strictly beat it. Swept over every narrow/wide pair
+    /// with `lb_n < lb_w`, both guard conventions (`period = lb+1` canonical and
+    /// `period = lb` like aroon), and shapes built to put equal values in the
+    /// gap, the extremum solely in the gap, and plateaus spanning both.
+    #[test]
+    fn gap_seeded_rescan_matches_full_walk() {
+        // One bar of the recurrence: `Some((value, trail))` from a walk, else
+        // the compare-and-reset branch. `full` walks [i-lb ..= i]; `seeded`
+        // walks only the gap [i-lb_w .. i-lb_n-1] against the seed.
+        fn step(
+            src: &[f64],
+            i: usize,
+            period: usize,
+            lb: usize,
+            want_max: bool,
+            prev: (f64, usize),
+            seed: Option<((f64, usize), usize)>,
+        ) -> (f64, usize) {
+            let (v, mut t) = prev;
+            t += 1;
+            if period > t {
+                // no rescan due: the else-branch only
+                let x = src[i];
+                let hit = if want_max { x >= v } else { x <= v };
+                if hit {
+                    (x, 0)
+                } else {
+                    (v, t)
+                }
+            } else {
+                let (wv, wi) = match seed {
+                    None => {
+                        // FULL walk of the wide window
+                        let mut bv = src[i - lb];
+                        let mut bi = 0usize;
+                        for k in 1..=lb {
+                            let x = src[i - lb + k];
+                            let take = if want_max { x >= bv } else { x <= bv };
+                            if take {
+                                bv = x;
+                                bi = k;
+                            }
+                        }
+                        (bv, bi)
+                    }
+                    Some(((sv, st), lb_n)) => {
+                        // GAP-only walk, seeded by the narrow roll. Indexes are
+                        // positions within the WIDE window, so the seed's own
+                        // index is `lb − its trail`.
+                        let gap = lb - lb_n;
+                        let mut bv = sv;
+                        let mut best_j = None;
+                        for j in 0..gap {
+                            let x = src[i - lb + j];
+                            let take = if want_max { x > bv } else { x < bv };
+                            if take {
+                                bv = x;
+                                best_j = Some(j);
+                            }
+                        }
+                        match best_j {
+                            Some(j) => (bv, j),
+                            // no strict winner ⇒ the newest occurrence is the
+                            // seed's own bar ⇒ same value AND same trail
+                            None => (sv, lb - st),
+                        }
+                    }
+                };
+                (wv, lb - wi)
+            }
+        }
+
+        fn run(
+            src: &[f64],
+            period: usize,
+            lb: usize,
+            want_max: bool,
+            narrow: Option<(&[(f64, usize)], usize)>,
+        ) -> Vec<(f64, usize)> {
+            // bar 0 seeds exactly as the hand's `init_state` does
+            let mut out = Vec::with_capacity(src.len());
+            let mut state = (src[0], 0usize);
+            out.push(state);
+            for i in 1..src.len() {
+                let seed = narrow.map(|(states, lb_n)| (states[i], lb_n));
+                state = step(src, i, period, lb, want_max, state, seed);
+                out.push(state);
+            }
+            out
+        }
+
+        let mut shapes: Vec<Vec<f64>> = Vec::new();
+        let mut s = Vec::with_capacity(400);
+        let mut rng = 0x2545_F491_4F6C_DD1Du64;
+        for _ in 0..400 {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            s.push(((rng % 1000) as f64 - 500.0) / 7.0);
+        }
+        shapes.push(s);
+        shapes.push((0..400).map(|i| i as f64).collect()); // strictly rising
+        shapes.push((0..400).map(|i| -(i as f64)).collect()); // falling
+        shapes.push(vec![3.5; 400]); // all equal: every compare is a tie
+        let mut plateau = vec![1.0; 400];
+        for i in (0..400).step_by(37) {
+            plateau[i.min(399)] = 9.0; // isolated peaks, ties nowhere
+        }
+        shapes.push(plateau.clone());
+        let mut both = plateau;
+        for i in 12..400 {
+            if both[i - 12] == 9.0 {
+                both[i] = 9.0; // a peak replicated into the gap at distance 12
+            }
+        }
+        shapes.push(both);
+        shapes.push((0..400).map(|i| (i % 5) as f64).collect()); // dense ties
+
+        // The model must agree with the real oracle first, or the equivalence
+        // below would only prove two simulations share the same mistake.
+        use crate::indicator_types::Indicator;
+        use crate::indicators::{max::Max, min::Min};
+        for src in &shapes[..3] {
+            let p = 14usize;
+            let n = src.len();
+            let hand = Max::indicator(&[src.as_slice()], &[p as f64], None)
+                .unwrap()
+                .0;
+            let model = run(src, p, p - 1, true, None);
+            for j in 0..hand[0].len() {
+                assert_eq!(
+                    model[p - 1 + j].0.to_bits(),
+                    hand[0][j].to_bits(),
+                    "model max differs from hand at output {j}"
+                );
+            }
+            let hand_min = Min::indicator(&[src.as_slice()], &[p as f64], None)
+                .unwrap()
+                .0;
+            let model_min = run(src, p, p - 1, false, None);
+            for j in 0..hand_min[0].len() {
+                assert_eq!(
+                    model_min[p - 1 + j].0.to_bits(),
+                    hand_min[0][j].to_bits(),
+                    "model min differs from hand at output {j}"
+                );
+            }
+            assert_eq!(hand[0].len(), n - p + 1);
+        }
+
+        for src in &shapes {
+            for lb_n in [1usize, 3, 6, 11, 19] {
+                for lb_w in [lb_n + 1, lb_n + 5, lb_n + 17] {
+                    for want_max in [true, false] {
+                        // canonical guard (period = lb+1) and aroon's early one
+                        for per_delta in [1usize, 0] {
+                            let full_n = run(src, lb_n + per_delta, lb_n, want_max, None);
+                            let full_w = run(src, lb_w + per_delta, lb_w, want_max, None);
+                            let seed_w =
+                                run(src, lb_w + per_delta, lb_w, want_max, Some((&full_n, lb_n)));
+                            for i in 0..src.len() {
+                                assert_eq!(
+                                    (full_w[i].0.to_bits(), full_w[i].1),
+                                    (seed_w[i].0.to_bits(), seed_w[i].1),
+                                    "seeded wide walk differs at bar {i} (lb_n={lb_n} lb_w={lb_w} \
+                                     max={want_max} period_delta={per_delta})"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// E9 M2: the cross-INDICATOR window sharing the family exists for.
+    /// `willr` and `donchian` both build `RollMax{high, p, p−1}` +
+    /// `RollMin{low, p, p−1}` — IDENTICAL node triples — so one query advances
+    /// ONE rolling max and ONE rolling min for both: 10 + 5 ops become 13, not
+    /// 15, and 3 + 3 stores become 4 (donchian's `lower` IS willr's `min`
+    /// mirror, its `upper` IS willr's `max` mirror). Counted, not value-checked:
+    /// a duplicated roll is invisible to value parity.
+    #[test]
+    fn jit_willr_and_donchian_share_both_rolls() {
+        use crate::indicators::donchianchannel::DonchianChannel;
+        use crate::indicators::willr::Willr;
+        let period = 14u32;
+        let opt = [period as f64];
+        let w = Request::new().add_all(Willr::recipe(&opt)).build();
+        let d = Request::new()
+            .add(DonchianChannel::recipe(&opt), None)
+            .build();
+        assert_eq!(w.info(), (10, 3), "willr alone: 2 rolls + 7 math/const ops");
+        assert_eq!(
+            d.info(),
+            (5, 3),
+            "donchian alone: 2 rolls + add + mul + const"
+        );
+
+        let both = Request::new()
+            .add_all(Willr::recipe(&opt))
+            .add(DonchianChannel::recipe(&opt), None)
+            .build();
+        // 2 shared rolls instead of 4 → 13 ops; 4 unique value nodes → 4 stores.
+        assert_eq!(both.info(), (13, 4), "willr + donchian dedup both rolls");
+
+        let hi = series(500);
+        let lo: Vec<f64> = hi.iter().map(|v| v * 0.97 - 2.0).collect();
+        let close: Vec<f64> = (0..hi.len())
+            .map(|i| lo[i] + (hi[i] - lo[i]) * 0.5)
+            .collect();
+        let (high, low) = (hi, lo);
+        let s: [&[f64]; 3] = [high.as_slice(), low.as_slice(), close.as_slice()];
+        let (res, st) = both.run(&s);
+        let wh = Willr::indicator(&s, &opt, Some(&[true, true])).unwrap().0;
+        let dh = DonchianChannel::indicator(&[high.as_slice(), low.as_slice()], &opt, None)
+            .unwrap()
+            .0;
+        cmp_exact(res.request(0).output(0), &wh[0], "willr (shared rolls)");
+        cmp_exact(
+            res.request(1).output(0),
+            &dh[0],
+            "donchian lower (== willr min)",
+        );
+        cmp_exact(
+            res.request(1).output(2),
+            &dh[2],
+            "donchian upper (== willr max)",
+        );
+        // one arena, six slots: the shared rows literally alias.
+        assert!(res.outputs[1][0].shares_data_with(&res.optional[0][0]));
+        assert!(res.outputs[1][2].shares_data_with(&res.optional[0][1]));
+        // and both restorers really fire (not the `Other` fallback).
+        let states = both.get_states(&st);
+        let (IndicatorStateBox::Willr(_), IndicatorStateBox::DonchianChannel(_)) =
+            (&states[0], &states[1])
+        else {
+            panic!("M2: willr/donchian restorers must rebuild the hand states, not fall to Other");
+        };
+    }
+
+    /// E9 M2: the NEGATIVE half of the same rule, which the user's window note
+    /// predicts. `aroon` uses `(period, period)` — a P+1-bar window — so at the
+    /// SAME period it must NOT intern with willr/donchian's `(period, period−1)`
+    /// rolls. If `look_back` were ever derived from `period`, this would silently
+    /// collapse four different windows into two and print wrong aroon lines.
+    #[test]
+    fn jit_aroon_windows_do_not_merge_with_the_p_minus_1_family() {
+        use crate::indicators::aroon::Aroon;
+        use crate::indicators::willr::Willr;
+        let period = 14u32;
+        let opt = [period as f64];
+        let a = Request::new().add(Aroon::recipe(&opt), None).build();
+        let w = Request::new().add_all(Willr::recipe(&opt)).build();
+        let both = Request::new()
+            .add(Aroon::recipe(&opt), None)
+            .add_all(Willr::recipe(&opt))
+            .build();
+        // aroon 10 + willr 10 = 20: NO roll is shared across the two widths.
+        assert_eq!(a.info(), (10, 2));
+        assert_eq!(w.info(), (10, 3));
+        assert_eq!(
+            both.info(),
+            (20, 5),
+            "aroon(p,p) and willr(p,p−1) must keep four separate rolls"
+        );
+    }
+
     /// E6 field axis: MEDPRICE = 0.5·(high+low), the engine's first
     /// MULTI-INPUT indicator (`Input{stream:1}` = low, non-zero stream the
     /// classic path asserted away). Stateless, publishes every bar (lead 0)
@@ -3149,6 +4055,296 @@ mod tests {
             // cold whole-chunk run (this is the cold==resumed invariant).
             assert_eq!(st.words, st_full.words, "{label}: tick state != run");
         }
+    }
+
+    /// E9: `tick` on the trail-rescan roll — the 1-bar streaming path is where
+    /// the anchor contract bites HARDEST for this kind, because a rescan reads
+    /// up to `look_back` bars back while every tick re-stitches
+    /// `window ++ chunk`. Ticks whole series bar-by-bar and asserts each
+    /// published slot equals its cold row (leading `NaN`s stripped) AND that the
+    /// carried words — the extremum AND the `trail` — land exactly on the cold
+    /// run's. Run on a tie-heavy series too: ties are what move `trail`, and
+    /// `trail` is what decides whether a tick rescans.
+    #[test]
+    fn jit_roll_tick_matches_cold_run() {
+        use crate::indicators::{max::Max, min::Min};
+
+        fn slot_rows(res: &Results) -> Vec<Vec<f64>> {
+            let mut v = Vec::new();
+            for r in 0..res.outputs.len() {
+                for row in res.outputs[r].iter() {
+                    v.push(row.to_vec());
+                }
+                for row in res.optional[r].iter() {
+                    v.push(row.to_vec());
+                }
+            }
+            v
+        }
+        fn strip_leading_nan(g: &[f64]) -> &[f64] {
+            let s = g.iter().position(|x| !x.is_nan()).unwrap_or(g.len());
+            &g[s..]
+        }
+
+        let period = 14u32;
+        let datasets = vec![
+            ("wiggle", series(400)),
+            (
+                "ties",
+                (0..400)
+                    .map(|i| ((i * 7) % 11) as f64)
+                    .collect::<Vec<f64>>(),
+            ),
+            ("rising", (0..400).map(|i| i as f64).collect::<Vec<f64>>()),
+        ];
+        for want_max in [true, false] {
+            let which = if want_max { "max" } else { "min" };
+            for (shape, data) in &datasets {
+                let opt = [period as f64];
+                let recipe = if want_max {
+                    Max::recipe(&opt)
+                } else {
+                    Min::recipe(&opt)
+                };
+                let plan = Request::new().add(recipe, None).build();
+                let n = plan.n_slots();
+                assert!(n <= 32, "{which} {shape}: widen the test out buffer");
+                let (res, st_full) = plan.run(&[data.as_slice()]);
+                let expected = slot_rows(&res);
+
+                let mut st = plan.new_state();
+                let mut got: Vec<Vec<f64>> = vec![Vec::new(); n];
+                let mut out = [0.0f64; 32];
+                for v in data {
+                    let bar = [std::slice::from_ref(v)];
+                    plan.tick(&mut st, &bar, &mut out[..n]);
+                    for s in 0..n {
+                        got[s].push(out[s]);
+                    }
+                }
+                for s in 0..n {
+                    assert_eq!(
+                        strip_leading_nan(&got[s]),
+                        expected[s].as_slice(),
+                        "{which} {shape}: slot {s} tick vs cold"
+                    );
+                }
+                assert_eq!(
+                    st.words, st_full.words,
+                    "{which} {shape}: ticked state (value + trail) != cold run"
+                );
+                assert_eq!(
+                    st.window, st_full.window,
+                    "{which} {shape}: ticked anchor window != cold run"
+                );
+            }
+        }
+    }
+
+    /// E9 M1 data pairs `(high, low)`. `rising` makes the rolling MIN always
+    /// stale (rescan nearly every bar) while the MAX is always fresh; `ties`
+    /// puts the newest-occurrence rule under pressure; `flat` pins both trails
+    /// at their maximum. These are the shapes that decide `trail` — which is
+    /// exactly what aroon PRINTS, so a wrong tie index is a wrong row.
+    fn aroon_datasets() -> Vec<(&'static str, Vec<f64>, Vec<f64>)> {
+        let wiggle = series(400);
+        let wlow: Vec<f64> = wiggle.iter().map(|v| v * 0.97 - 2.0).collect();
+        vec![
+            ("wiggle", wiggle.clone(), wlow),
+            (
+                "rising",
+                (0..300).map(|i| i as f64).collect(),
+                (0..300).map(|i| i as f64 - 1.0).collect(),
+            ),
+            (
+                "ties",
+                (0..300).map(|i| 10.0 + ((i * 7) % 11) as f64).collect(),
+                (0..300).map(|i| ((i * 5) % 13) as f64).collect(),
+            ),
+            ("flat", vec![10.0; 300], vec![4.0; 300]),
+        ]
+    }
+
+    /// E9 M1: AROON — the trail-scaled lines over a `RollMax` of high and a
+    /// `RollMin` of low, with the hand's WIDER window (`look_back = period`, so
+    /// P+1 bars) and publish lead `period`. Bit-exact on BOTH rows, every shape
+    /// × period, cold and streamed (splits around the lead and the guard seam).
+    #[test]
+    fn jit_aroon_matches_hand() {
+        use crate::indicators::aroon::Aroon;
+        for period in [7usize, 14, 25] {
+            let opt = [period as f64];
+            let plan = Request::new().add(Aroon::recipe(&opt), None).build();
+            for (shape, high, low) in aroon_datasets() {
+                let n = high.len();
+                let s: [&[f64]; 2] = [high.as_slice(), low.as_slice()];
+                let hand = Aroon::indicator(&s, &opt, None).unwrap().0;
+                assert_eq!(
+                    hand[0].len(),
+                    n - period,
+                    "aroon publishes from bar {period}"
+                );
+                let (res, _) = plan.run(&s);
+                cmp_exact(
+                    res.request(0).output(0),
+                    &hand[0],
+                    &format!("aroon down {shape} p{period}"),
+                );
+                cmp_exact(
+                    res.request(0).output(1),
+                    &hand[1],
+                    &format!("aroon up {shape} p{period}"),
+                );
+
+                for split in [period - 1, period, period + 1, n / 3] {
+                    let c: [&[f64]; 2] = [&high[..split], &low[..split]];
+                    let t: [&[f64]; 2] = [&high[split..], &low[split..]];
+                    let (r1, qs) = plan.run(&c);
+                    let (r2, _) = plan.resume(qs, &t);
+                    for (row, want) in [(0usize, &hand[0]), (1, &hand[1])] {
+                        let mut cat = r1.request(0).output(row).to_vec();
+                        cat.extend_from_slice(r2.request(0).output(row));
+                        cmp_exact(
+                            &cat,
+                            want,
+                            &format!("aroon {shape} p{period} split{split} row{row}"),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// E9 M1: the fusion showcase. `aroonosc` = `up − down` over THE SAME graph,
+    /// so co-requesting them must intern everything: the two rolls, both trail
+    /// projections, both constants, both scaled lines — leaving exactly ONE new
+    /// op (the `fsub`) and ONE new write stream. Value parity CANNOT catch a
+    /// regressed duplicate, so this counts ops.
+    #[test]
+    fn jit_aroonosc_interns_the_whole_aroon_graph() {
+        use crate::indicators::aroon::Aroon;
+        use crate::indicators::aroonosc::AroonOsc;
+        let (_, high, low) = aroon_datasets()[0].clone();
+        let s: [&[f64]; 2] = [high.as_slice(), low.as_slice()];
+        let period = 14usize;
+        let opt = [period as f64];
+
+        let alone = Request::new().add(Aroon::recipe(&opt), None).build();
+        // rolls 2 + trails 2 + consts 2 + subs 2 + muls 2 = 10, two stores.
+        assert_eq!(alone.info(), (10, 2), "aroon alone");
+
+        let both = Request::new()
+            .add(Aroon::recipe(&opt), None)
+            .add_all(AroonOsc::recipe(&opt))
+            .build();
+        // ONE extra op: the oscillator's `fsub`. Its `aroon_down`/`aroon_up`
+        // mirrors are the SAME nodes, so three write streams serve four slots.
+        assert_eq!(both.info(), (11, 3), "aroon + aroonosc share the graph");
+
+        let (res, _) = both.run(&s);
+        let ah = Aroon::indicator(&s, &opt, None).unwrap().0;
+        let oh = AroonOsc::indicator(&s, &opt, Some(&[true, true]))
+            .unwrap()
+            .0;
+        cmp_exact(res.request(0).output(0), &ah[0], "aroon down (w/ osc)");
+        cmp_exact(res.request(0).output(1), &ah[1], "aroon up (w/ osc)");
+        cmp_exact(res.request(1).output(0), &oh[0], "aroonosc");
+        // The osc's two mirrors are DECLARED OPTIONALS, so they live in
+        // `Results::optional` (hand order: down, up) — and because they are the
+        // SAME arena nodes as aroon's own rows, they alias one write stream.
+        cmp_exact(
+            res.optional[1][0].as_slice(),
+            &oh[1],
+            "osc's aroon_down mirror",
+        );
+        cmp_exact(
+            res.optional[1][1].as_slice(),
+            &oh[2],
+            "osc's aroon_up mirror",
+        );
+        assert!(res.outputs[0][0].shares_data_with(&res.optional[1][0]));
+        assert!(res.outputs[0][1].shares_data_with(&res.optional[1][1]));
+
+        // primary-only (optionals off) still matches the hand's `None` call.
+        let plain = Request::new()
+            .add(Aroon::recipe(&opt), None)
+            .add(AroonOsc::recipe(&opt), None)
+            .build();
+        let (pres, _) = plain.run(&s);
+        let ph = AroonOsc::indicator(&s, &opt, None).unwrap().0;
+        cmp_exact(pres.request(1).output(0), &ph[0], "aroonosc primary-only");
+        assert_eq!(
+            pres.optional[1][0].len(),
+            0,
+            "disabled optionals print empty rows"
+        );
+
+        // streamed across the lead + guard seam
+        for split in [period, period + 1, 200] {
+            let c: [&[f64]; 2] = [&high[..split], &low[..split]];
+            let t: [&[f64]; 2] = [&high[split..], &low[split..]];
+            let (r1, qs) = both.run(&c);
+            let (r2, _) = both.resume(qs, &t);
+            let mut dn = r1.request(0).output(0).to_vec();
+            dn.extend_from_slice(r2.request(0).output(0));
+            cmp_exact(&dn, &ah[0], &format!("aroon+osc split{split} down"));
+            let mut up = r1.request(0).output(1).to_vec();
+            up.extend_from_slice(r2.request(0).output(1));
+            cmp_exact(&up, &ah[1], &format!("aroon+osc split{split} up"));
+            let mut oc = r1.request(1).output(0).to_vec();
+            oc.extend_from_slice(r2.request(1).output(0));
+            cmp_exact(&oc, &oh[0], &format!("aroon+osc split{split} osc"));
+            let mut m0 = r1.optional[1][0].to_vec();
+            m0.extend_from_slice(r2.optional[1][0].as_slice());
+            cmp_exact(&m0, &oh[1], &format!("aroon+osc split{split} mirror down"));
+            let mut m1 = r1.optional[1][1].to_vec();
+            m1.extend_from_slice(r2.optional[1][1].as_slice());
+            cmp_exact(&m1, &oh[2], &format!("aroon+osc split{split} mirror up"));
+        }
+    }
+
+    /// E9 M1: `get_states` on aroon rebuilds the hand `{min_state, max_state,
+    /// multiplier}` (the multiplier recomputed from the period, never stored);
+    /// re-paired with the host anchor window — which for aroon is EXACTLY the
+    /// `period` bars of high and low the hand `IndicatorState` keeps — the
+    /// hand's `batch_indicator` continues bit-exactly.
+    #[test]
+    fn jit_get_states_aroon_continues_bit_exact() {
+        use crate::indicator_types::TIndicatorState;
+        use crate::indicators::aroon::{Aroon, IndicatorState as AroonIS};
+        let (_, high, low) = aroon_datasets()[2].clone(); // ties: trails decide
+        let period = 14usize;
+        let opt = [period as f64];
+        let s: [&[f64]; 2] = [high.as_slice(), low.as_slice()];
+        let hand = Aroon::indicator(&s, &opt, None).unwrap().0;
+
+        let plan = Request::new().add(Aroon::recipe(&opt), None).build();
+        let split = 200usize;
+        let c: [&[f64]; 2] = [&high[..split], &low[..split]];
+        let (_r1, qs) = plan.run(&c);
+        let states = plan.get_states(&qs);
+        let IndicatorStateBox::Aroon(restored) = &states[0] else {
+            panic!("aroon get_states did not rebuild the hand state");
+        };
+        assert_eq!(
+            qs.window[0].len(),
+            period,
+            "aroon's anchor window = look_back = period bars per field"
+        );
+
+        let mut is = AroonIS::new(&qs.window[0], &qs.window[1], restored.clone(), period);
+        let t: [&[f64]; 2] = [&high[split..], &low[split..]];
+        let cont = is.batch_indicator(&t, None).unwrap();
+        cmp_exact(
+            &cont[0],
+            &hand[0][split - period..],
+            "aroon get_states continuation (down)",
+        );
+        cmp_exact(
+            &cont[1],
+            &hand[1][split - period..],
+            "aroon get_states continuation (up)",
+        );
     }
 
     /// §1.4 kept contract, persisted: a `JitState` survives a serialize →
