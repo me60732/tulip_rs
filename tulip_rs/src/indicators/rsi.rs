@@ -203,10 +203,13 @@ impl crate::cse::Planable for Rsi {
     ///   engine's mean `Wilders` (product single-rounded, then the fused add).
     /// · `min_data = period + 1`: the first printed bar is one after the seed
     ///   seam, hence the explicit sink lead.
-    /// · the state's `prev_real` (last processed close) is carried as
-    ///   `Ema{period: 1}`: α=1 makes that recurrence the identity, so its chain
-    ///   slot IS the last close — `chain_of` reports chain kinds only, and this
-    ///   keeps `get_states` uniform instead of adding an engine concept.
+    /// · the state's `prev_real` (last processed close) is reported by
+    ///   `Mirror { src: real }` — a copy that keeps its last value in a state
+    ///   word, costing no arithmetic. `chain_of` surfaces chain kinds only, so a
+    ///   bare `Input` cannot be named here; what it previously was named with is
+    ///   `Ema { src: real, period: 1 }`, which really runs the EMA recurrence
+    ///   (α = 1 ⇒ `fmul(x, 1.0)` then `fma(prev, 0.0, ·)`) to hand back the number
+    ///   it started with, and calls it an EMA in a file about RSI.
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
         let period = options[0] as u32;
         let mut r = crate::cse::Recipe::new();
@@ -214,8 +217,25 @@ impl crate::cse::Planable for Rsi {
         let prev = r.add(crate::cse::Node::Lag { src: real, n: 1 });
         let diff = r.add(crate::cse::Node::Sub { a: real, b: prev });
         let zero = r.constant(0.0);
+        // `up_down(value, prev) = [diff.max(0), (-diff).max(0)]`, `diff` above.
+        // Both arms are ordinary `Max` nodes; nothing here is a rewrite of the
+        // hand's shape (the second arm's history is in its own comment).
         let up = r.add(crate::cse::Node::Max { a: diff, b: zero });
-        // `-diff`, exactly and in one op (IEEE subtraction is antisymmetric).
+        // `down` is the hand's own second arm: `(-diff).max(0)`, written
+        // `Max(Sub(prev, real), 0)` because IEEE subtraction is exactly
+        // antisymmetric (`round(b−a) = −round(a−b)`, both operands finite or
+        // infinite), so `prev − real` IS `-diff` to the bit and no `neg` value has
+        // to live anywhere.
+        //
+        // This used to be `down = up − diff`, one guard instead of two (−12% when
+        // each guard was a mispredicting branch, §6.22). It is NOT the same
+        // function: `diff = +∞` gives `up − diff = ∞ − ∞ = NaN` where the hand
+        // writes `(-∞).max(0)` = `+0.0`, and a NaN entering `up_sum`/`down_sum`
+        // poisons every later bar while a zero does not. `up_down_rewrite_proofs`
+        // sweeps ~7,000 movement classes and found it; the price regimes the
+        // parity matrices use never do, because they are finite. With the guard
+        // now one branchless `maxpd` (§6.25) the second arm costs an instruction,
+        // not a branch, so there is nothing left to trade correctness against.
         let neg = r.add(crate::cse::Node::Sub { a: prev, b: real });
         let down = r.add(crate::cse::Node::Max { a: neg, b: zero });
         let up_avg = r.add(crate::cse::Node::Wilders {
@@ -243,14 +263,16 @@ impl crate::cse::Planable for Rsi {
             a: hundred,
             b: ratio,
         });
-        let last_close = r.add(crate::cse::Node::Ema {
-            src: real,
-            period: 1,
-        });
+        // `prev_real` reporting: the hand keeps the last processed close so the
+        // next `calc` can difference against it. The engine's loop already holds
+        // that close in a register (it is the `real` operand of `diff`), so the
+        // mirror only has to hand it to the chunk-exit state store — no extra
+        // load, no arithmetic, and nothing called an EMA that is not one.
+        let prev_real = r.add(crate::cse::Node::Mirror { src: real });
         r.kind = "rsi";
         r.options = options.to_vec();
         // hand `State` field order: the up lane, the down lane, `prev_real`
-        r.tail_inputs = vec![up_avg, down_avg, last_close];
+        r.tail_inputs = vec![up_avg, down_avg, prev_real];
         r.restorer = Some(restore_state);
         r.outputs
             .push(crate::cse::Sink::iface_lead(line, period + 1));
@@ -262,27 +284,29 @@ impl crate::cse::Planable for Rsi {
 /// Wilder state plus `prev_real`. `multiplier_simd` is recomputed from the
 /// period, never stored.
 pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
-    let [crate::cse::ChainState::Wilders {
-        value: up_sum,
-        period,
-    }, crate::cse::ChainState::Wilders {
-        value: down_sum, ..
-    }, crate::cse::ChainState::Ema {
-        value: prev_real, ..
-    }] = v.as_slice()
-    else {
-        return crate::cse::IndicatorStateBox::Other;
+    use crate::cse::ChainState::{Mirror, Wilders};
+    let (up_sum, period, down_sum, prev_real) = match v.as_slice() {
+        // One shape: two mean chains plus the mirrored close. Anything else is a
+        // layout mismatch and must fall to `Other` — rebuilding a state from
+        // misinterpreted words is the failure this whole seam exists to prevent.
+        [Wilders {
+            value: up_sum,
+            period,
+        }, Wilders {
+            value: down_sum, ..
+        }, Mirror { value: prev_real }] => (*up_sum, *period, *down_sum, *prev_real),
+        _ => return crate::cse::IndicatorStateBox::Other,
     };
     // The hand's `State::new` returns `State<Cold>`; `get_states` hands back the
     // warm form, so build it with the same two derived multipliers its
     // `init_state` uses (derivable, therefore never stored).
-    let period = *period as usize;
+    let period = period as usize;
     crate::cse::IndicatorStateBox::Rsi(State::<Warm> {
         wilders_state: WildersSimdState::new(
-            Simd::from_array([*up_sum, *down_sum]),
+            Simd::from_array([up_sum, down_sum]),
             multiplier_simd([period, period]),
         ),
-        prev_real: *prev_real,
+        prev_real,
         state: std::marker::PhantomData,
     })
 }

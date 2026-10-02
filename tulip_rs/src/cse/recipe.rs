@@ -44,6 +44,11 @@ pub type Id = u32;
 /// `Wma` sees the same sum its leader rolled.
 #[derive(Debug, Clone)]
 pub enum ChainState {
+    /// `Node::Mirror` — the last value the node published, with no period
+    /// because there is no recurrence. This is how a hand `State`'s plain price
+    /// field reaches `get_states` (`rsi::prev_real`; cmo's close `period` bars
+    /// back, written `Mirror { src: Lag { .. } }`).
+    Mirror { value: f64 },
     /// A price- or chain-sourced EMA recurrence — one carried value.
     Ema { value: f64, period: u32 },
     /// A rolling-sum SMA — the group `sum` (output = `sum / period`).
@@ -324,11 +329,49 @@ pub enum Node {
     ///
     /// [`RollMax`]: Node::RollMax · [`RollMin`]: Node::RollMin
     Trail { src: Id },
+    /// Latch `src`'s value into a state word so [`get_states`] can report it.
+    /// Evaluates to exactly `src`'s value — it adds **no arithmetic**, no delay and
+    /// no rounding — and its only state is one f64 word written with the chain run
+    /// at chunk exit.
+    ///
+    /// This exists because a hand `State` often carries a plain price the engine
+    /// never models as a recurrence: `rsi::prev_real` is the last close, and
+    /// `cmo::drop_real` is the close `p` bars back (so recipes write
+    /// `Mirror{Lag{real, p}}`). Before it, recipes reached for
+    /// `Ema{src, period: 1}` to get the same word, which is a lie with a price
+    /// tag: it lowers to `prod = src·1.0` then `prev·0.0 + prod`, i.e. two float
+    /// ops per bar plus a loop-carried value, all to copy a number. `Mirror` costs
+    /// one register move and one store per chunk, and — unlike making a `Lag` a
+    /// chain — it touches no plan the indicator did not explicitly opt into.
+    ///
+    /// [`get_states`]: crate::cse::JitPlan::get_states
+    Mirror { src: Id },
     /// `a * b + c` in ONE rounding — `f64::mul_add` as the hand writes it
     /// (bbands' `std_dev.mul_add(sd, sma)`; never an un-fused mul+add).
     Fma { a: Id, b: Id, c: Id },
     /// `sqrt(a)` — IEEE exact square root, `f64::sqrt`.
     Sqrt { src: Id },
+    /// `ln(a)` — the natural log, **expanded by the emitter** into the same
+    /// sequence [`crate::math_simd::ln_unchecked`] computes (bit-exponent range
+    /// reduction, 8-term odd polynomial in `s = (m−1)/(m+1)`, `L2U/L2L` two-term
+    /// reconstruction), on scalar f64 with one branch-free subnormal scale.
+    ///
+    /// WHY INLINE AND NOT A CALL: the engine can call its own Rust functions (see
+    /// Handover §6.19, where the hand's 4-lane scan was called) and it measured
+    /// 12–33% SLOWER, because a call is a clobber barrier — everything live in the
+    /// fused loop spills around it. That tax is paid once per RESCAN there; `ln`
+    /// sits in a per-bar recurrence (`fisher`), so a call would tax every bar. The
+    /// expansion is ~25 straight-line instructions the register allocator keeps in
+    /// place, which is why this is a *node* whose lowering is multi-instruction
+    /// rather than one CLIF op — the same shape as `Hma`/`SuperTrend` being one
+    /// node that owns a whole private engine.
+    ///
+    /// ACCURACY CONTRACT: bit-for-bit equal to `math_simd::ln_unchecked` (same
+    /// constants, same `mul_add` nesting) and within 1e-12 of `f64::ln`, which is
+    /// the tolerance `fisher` is specified against. Domain is positive finite
+    /// input — `fisher`'s `(1+x)/(1−x)` — and NaN/±inf are not modelled, matching
+    /// the SIMD original's `debug_assert` contract.
+    Ln { src: Id },
     /// A floating-point constant leaf, stored as `f64::to_bits()` so `Node`
     /// stays `Eq + Hash` (the CSE key).
     Const { bits: u64 },

@@ -97,7 +97,9 @@ impl Merged {
                     let f = if feed { leads[src as usize] } else { 0 };
                     f + period.saturating_sub(1)
                 }
-                Node::Sqrt { src } => leads[src as usize],
+                Node::Sqrt { src } | Node::Ln { src } | Node::Mirror { src } => {
+                    leads[src as usize]
+                }
                 Node::Fma { a, b, c } => leads[a as usize]
                     .max(leads[b as usize])
                     .max(leads[c as usize]),
@@ -337,7 +339,9 @@ pub(crate) fn remap_node(node: &Node, g: &dyn Fn(Id) -> Id) -> Node {
             look_back,
         },
         Trail { src } => Trail { src: g(src) },
+        Mirror { src } => Mirror { src: g(src) },
         Sqrt { src } => Sqrt { src: g(src) },
+        Ln { src } => Ln { src: g(src) },
         Fma { a, b, c } => Fma {
             a: g(a),
             b: g(b),
@@ -368,6 +372,7 @@ pub(crate) fn node_children(node: &Node, visit: &mut dyn FnMut(Id)) {
         Ema { src, .. }
         | Abs { src }
         | Sqrt { src }
+        | Ln { src }
         | Lag { src, .. }
         | Hma { src, .. }
         | Wma { src, .. }
@@ -377,6 +382,7 @@ pub(crate) fn node_children(node: &Node, visit: &mut dyn FnMut(Id)) {
         | RollMax { src, .. }
         | RollMin { src, .. }
         | Trail { src }
+        | Mirror { src }
         | Wilders { src, .. }
         | SuperSmoother { src, .. }
         | HtInPhase { src }

@@ -228,11 +228,14 @@ impl crate::cse::Planable for Cmo {
     ///   difference rounded first, never an `fma`.
     /// · `min_data = p + 2` while the first PRINTED bar is `p + 1` (the loop runs
     ///   `period..len` over `real[1..]`), hence the explicit sink lead.
-    /// · the state also carries `prev` (last close) and `drop_real` (the close
-    ///   `p` bars back). Both are captured as `Ema{period: 1}` — α = 1 makes that
-    ///   recurrence the identity, so its chain slot holds exactly the input's
-    ///   last value — the second over `Lag{real, period}`. `get_states` therefore
-    ///   needs no new chain kind.
+    /// · the state also carries `prev` (the last close, `State::init_state`'s
+    ///   `real[period]`) and `drop_real` (the close `p` bars back, `real[0]`).
+    ///   Both are `Mirror`s: `prev` mirrors `real`, `drop_real` mirrors the
+    ///   `Lag{real, period}` node — a copy that keeps its last value in a state
+    ///   word, so reporting them adds no arithmetic and no load the loop did not
+    ///   already do. (`Ema{period: 1}` used to stand in for both; α=1 does return
+    ///   its input, but only after running the EMA's multiply and fused add, and
+    ///   `get_states` reported it as an EMA that CMO has never seen.)
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
         let period = options[0] as u32;
         let mut r = crate::cse::Recipe::new();
@@ -240,9 +243,11 @@ impl crate::cse::Planable for Cmo {
         let l1 = r.add(crate::cse::Node::Lag { src: real, n: 1 });
         let diff = r.add(crate::cse::Node::Sub { a: real, b: l1 });
         let zero = r.constant(0.0);
+        // The hand's two arms, unrewritten — see `rsi`'s `down` comment for why
+        // the one-guard form `down = up − diff` was dropped (it yields `∞ − ∞` =
+        // NaN where the hand writes `+0.0`, and a NaN poisons the sum). Interning
+        // makes the shared `Sub{prev, real}`/`Max` free across `rsi`+`cmo`.
         let up = r.add(crate::cse::Node::Max { a: diff, b: zero });
-        // `-diff` in ONE op (IEEE subtraction is antisymmetric, both operands
-        // finite) — and the same node `rsi` builds, so the pair shares it.
         let neg = r.add(crate::cse::Node::Sub { a: l1, b: real });
         let down = r.add(crate::cse::Node::Max { a: neg, b: zero });
         let up_sum = r.add(crate::cse::Node::RollSum {
@@ -272,15 +277,12 @@ impl crate::cse::Planable for Cmo {
             src: real,
             n: period,
         });
-        let prev_close = r.add(crate::cse::Node::Ema {
-            src: real,
-            period: 1,
-        });
-        let drop_close = r.add(crate::cse::Node::Ema { src: lp, period: 1 });
+        let drop_real = r.add(crate::cse::Node::Mirror { src: lp });
+        let prev = r.add(crate::cse::Node::Mirror { src: real });
         r.kind = "cmo";
         r.options = options.to_vec();
-        // hand `State` field order: up_sum, down_sum, prev, drop_real
-        r.tail_inputs = vec![up_sum, down_sum, prev_close, drop_close];
+        // hand `State` field order: up_sum, down_sum, prev, drop_real.
+        r.tail_inputs = vec![up_sum, down_sum, prev, drop_real];
         r.restorer = Some(restore_state);
         r.outputs
             .push(crate::cse::Sink::iface_lead(line, period + 1));
@@ -291,9 +293,9 @@ impl crate::cse::Planable for Cmo {
 /// Rebuild the hand `cmo::State<Warm>`: the two raw sums plus the two lagged
 /// closes its recurrence will need on the next bar.
 pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::IndicatorStateBox {
-    let [crate::cse::ChainState::Sma { sum: up_sum, .. }, crate::cse::ChainState::Sma { sum: down_sum, .. }, crate::cse::ChainState::Ema { value: prev, .. }, crate::cse::ChainState::Ema {
-        value: drop_real, ..
-    }] = v.as_slice()
+    use crate::cse::ChainState::{Mirror, Sma};
+    let [Sma { sum: up_sum, .. }, Sma { sum: down_sum, .. }, Mirror { value: prev }, Mirror { value: drop_real }] =
+        v.as_slice()
     else {
         return crate::cse::IndicatorStateBox::Other;
     };
@@ -304,4 +306,240 @@ pub(crate) fn restore_state(v: Vec<crate::cse::ChainState>) -> crate::cse::Indic
         drop_real: *drop_real,
         state: std::marker::PhantomData,
     })
+}
+
+#[cfg(test)]
+mod up_down_rewrite_proofs {
+    //! `rsi`/`cmo` build their movement pair as `[max(d, 0), max(−d, 0)]`, `d` =
+    //! value − prev — matching [`up_down`] arm for arm. An earlier form collapsed
+    //! the second arm to `down = up − d` to halve the guard count (−12%/−16% when
+    //! each guard was a mispredicting branch, §6.22). That is NOT the same
+    //! function, and this module is the sweep that found it: over ~7,000 movement
+    //! classes the collapsed form returns NaN where the hand writes `+0.0`, and a
+    //! NaN entering a running sum never leaves.
+    //!
+    //! The engine's `Max` is also not Rust's `.max()`: `max_num` emits
+    //! `select(d > 0, d, 0)`, which takes the SECOND operand on a tie or an
+    //! unordered compare, while `f64::max` keeps `self`. That gap is where the two
+    //! forms can still disagree — on the sign of a zero only — so `benign` states
+    //! exactly what is tolerable and the sums test shows it is erased.
+
+    /// The engine's lowering of `Node::Max { a, b }` (`codegen::max_num`'s
+    /// `select(a > b, a, b)`), written independently of it on purpose.
+    fn engine_max(a: f64, b: f64) -> f64 {
+        if a > b {
+            a
+        } else {
+            b
+        }
+    }
+
+    /// Every class the rewrite could care about: both zeros, subnormals at both
+    /// ends, the whole exponent span, the overflow boundary, infinities, both NaN
+    /// shapes, and a deterministic pseudo-random sample of realistic movements.
+    fn domain() -> Vec<f64> {
+        let mut v: Vec<f64> = vec![
+            0.0,
+            -0.0,
+            f64::MIN_POSITIVE,
+            -f64::MIN_POSITIVE,
+            f64::from_bits(1), // 5e-324, the smallest subnormal
+            -f64::from_bits(1),
+            f64::from_bits(f64::MIN_POSITIVE.to_bits() - 1), // largest subnormal
+            -f64::from_bits(f64::MIN_POSITIVE.to_bits() - 1),
+            f64::EPSILON,
+            -f64::EPSILON,
+            1.0,
+            -1.0,
+            f64::MAX,
+            -f64::MAX,
+            f64::MIN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NAN,
+            -f64::NAN,
+            f64::from_bits(0x7ff8_0000_0000_0001),
+            f64::from_bits(0xfff8_0000_0000_0000), // negative quiet NaN
+        ];
+        for k in -1074..1024 {
+            let p = 2.0f64.powi(k);
+            v.push(p);
+            v.push(-p);
+            v.push(p + p);
+            v.push(-(p + p));
+        }
+        // Realistic movements (1e-6 .. 1e6), both signs, plus movements produced
+        // BY a subtraction (the shape the real path takes).
+        let mut state = 0x243f_6a88_85a3_08d3u64; // pi's digits: fixed => reproducible
+        for i in 0..60_000u64 {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let frac = (state >> 11) as f64 / (1u64 << 53) as f64;
+            let magnitude = 10f64.powf(frac * 12.0 - 6.0);
+            let signed = if state & 1 == 0 {
+                magnitude
+            } else {
+                -magnitude
+            };
+            v.push(signed);
+            let other = (i as f64) * 0.01;
+            v.push(signed - other);
+            v.push(other - signed);
+        }
+        v
+    }
+
+    /// The accumulator side of the erasure test: every CLASS, not every value.
+    /// Crossing 60k movements with 60k states is 100M adds in a debug profile
+    /// (minutes), and the property under test — `x + (±0.0)` is `x`, a NaN stays
+    /// a NaN — depends only on the class of `x`.
+    fn sum_domain() -> Vec<f64> {
+        let mut v = vec![
+            0.0,
+            -0.0,
+            f64::MIN_POSITIVE,
+            -f64::MIN_POSITIVE,
+            f64::from_bits(1),
+            -f64::from_bits(1),
+            f64::EPSILON,
+            -f64::EPSILON,
+            1.0,
+            -1.0,
+            f64::MAX,
+            -f64::MAX,
+            f64::MIN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NAN,
+            -f64::NAN,
+        ];
+        for k in -1074..1024 {
+            let p = 2.0f64.powi(k);
+            v.push(p);
+            v.push(-p);
+        }
+        v
+    }
+
+    /// What the recipes actually emit today: the hand's two arms, each a `Max`
+    /// against `+0.0`, the second over `Sub(prev, real)` (`0.0 − d` here, with
+    /// `prev` = 0). Kept separate from `up_down` on purpose: if a future edit
+    /// collapses one arm into the other, this stops agreeing and the tests fail.
+    fn recipe_pair(value: f64, prev: f64) -> [f64; 2] {
+        let diff = value - prev;
+        let up = engine_max(diff, 0.0);
+        let down = engine_max(prev - value, 0.0);
+        [up, down]
+    }
+
+    /// A difference is acceptable ONLY if it is the sign of a zero (`-0.0` vs
+    /// `+0.0`), which no consumer of these two values can observe as anything but
+    /// the same number, or both sides NaN. Anything else — a zero where the hand
+    /// has an infinity, a NaN where it has a number — is a real divergence.
+    fn benign(a: f64, b: f64) -> bool {
+        (a == 0.0 && b == 0.0) || (a.is_nan() && b.is_nan())
+    }
+
+    #[test]
+    fn recipe_pair_matches_the_hand_on_every_class() {
+        let dom = domain();
+        let mut diffs = Vec::new();
+        for &d in &dom {
+            // `up_down(d, 0.0)` reproduces the hand for movement `d`, because
+            // `d − 0.0` is `d` for every class including both zeros and ∞.
+            let hand = super::up_down(d, 0.0);
+            let recipe = recipe_pair(d, 0.0);
+            for k in 0..2 {
+                if hand[k].to_bits() != recipe[k].to_bits() && !benign(hand[k], recipe[k]) {
+                    diffs.push((d, k, hand[k], recipe[k]));
+                }
+            }
+        }
+        assert!(
+            diffs.is_empty(),
+            "{} divergences beyond signed zeros (first 5: {:?})",
+            diffs.len(),
+            &diffs[..diffs.len().min(5)]
+        );
+    }
+
+    #[test]
+    fn the_superseded_one_guard_form_is_what_this_sweep_caught() {
+        // Negative control, so the suite records WHY the second arm exists:
+        // `down = up − diff` agrees with the hand on every finite movement and
+        // then returns NaN at `+∞`, where the hand writes `+0.0`. If a future
+        // "optimization" re-collapses the arms, the first test fails; this one
+        // says what it would break.
+        let caught = |d: f64| {
+            let up = engine_max(d, 0.0);
+            [up, up - d]
+        };
+        for &d in &[f64::INFINITY, f64::NAN, -f64::NAN] {
+            let hand = super::up_down(d, 0.0);
+            let collapsed = caught(d);
+            assert!(
+                !benign(hand[1], collapsed[1]),
+                "expected the one-guard form to diverge at d={d:?}, got hand={:?} \
+                 collapsed={:?} — the sweep's finding no longer holds",
+                hand[1],
+                collapsed[1]
+            );
+        }
+        // …and agrees everywhere the movements are finite, which is exactly why
+        // the price-regime parity matrices never saw it.
+        for &d in &[0.0, -0.0, 1.0, -1.0, f64::MIN_POSITIVE, -1.0e308, 1.0e308] {
+            let hand = super::up_down(d, 0.0);
+            let collapsed = caught(d);
+            assert!(
+                benign(hand[1], collapsed[1]) || hand[1].to_bits() == collapsed[1].to_bits(),
+                "finite case d={d:?} unexpectedly diverges: hand={:?} collapsed={:?}",
+                hand[1],
+                collapsed[1]
+            );
+        }
+    }
+
+    #[test]
+    fn any_signed_zero_difference_is_erased_by_the_sum_it_feeds() {
+        // Neither `up` nor `down` is ever published: both are only CONSUMED by a
+        // running sum (`Wilders`, `RollSum`). So where the pair may differ in the
+        // SIGN of a zero, the sums must still agree bit for bit — or differ only
+        // in a way that cannot propagate. Movements run over the full domain,
+        // accumulator states over every CLASS (`sum_domain`); see its comment for
+        // why the cross product is sized that way.
+        let dom = domain();
+        let sums = sum_domain();
+        let mut bad = Vec::new();
+        for &d in &dom {
+            let hand = super::up_down(d, 0.0);
+            let recipe = recipe_pair(d, 0.0);
+            for &s in &sums {
+                for k in 0..2 {
+                    let a = s + hand[k];
+                    let b = s + recipe[k];
+                    if a.to_bits() != b.to_bits() && !(benign(a, b)) {
+                        bad.push((s, d, k, a, b));
+                    }
+                }
+            }
+        }
+        assert!(
+            bad.is_empty(),
+            "{} sums differ beyond ±0 (first 5: {:?})",
+            bad.len(),
+            &bad[..bad.len().min(5)]
+        );
+    }
+
+    #[test]
+    fn the_sweep_covers_the_classes_it_claims() {
+        // Control: a domain that silently degenerated would prove nothing.
+        let d = domain();
+        assert!(d.iter().any(|&x| x == 0.0 && x.is_sign_negative()));
+        assert!(d.iter().copied().any(f64::is_nan));
+        assert!(d.iter().copied().any(|x| x.is_infinite()));
+        assert!(d.iter().copied().any(f64::is_subnormal));
+        assert!(d.len() > 6_000, "domain unexpectedly small: {}", d.len());
+    }
 }

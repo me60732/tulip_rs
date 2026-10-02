@@ -425,7 +425,7 @@ fn bench_rolling(c: &mut Criterion) {
             black_box(sm.0[0].len() + sd.0[0].len() + bb.0[0].len() + w.0[0].len())
         })
     });
-    g.bench_function("jit_query", |b| {
+    g.bench_function("jit_3_rolling_indicators", |b| {
         b.iter(|| {
             let (res, qs) = plan.run(&inputs);
             black_box((res.outputs[0][0].len(), qs.next_bar()))
@@ -1152,7 +1152,7 @@ fn bench_nested(c: &mut Criterion) {
             black_box(d.0[0].len() + m.0[0].len())
         })
     });
-    g.bench_function("jit_2_windows_1_link", |b| {
+    g.bench_function("jit_donchian20_plus_max50", |b| {
         b.iter(|| {
             let (res, qs) = pair.run(&s);
             black_box((res.outputs[0][0].len(), qs.next_bar()))
@@ -1166,7 +1166,7 @@ fn bench_nested(c: &mut Criterion) {
             black_box(d.0[0].len() + a.0[0].len() + c.0[0].len())
         })
     });
-    g.bench_function("jit_3_windows_2_links", |b| {
+    g.bench_function("jit_3_windows", |b| {
         b.iter(|| {
             let (res, qs) = chain.run(&s);
             black_box((res.outputs[0][0].len(), qs.next_bar()))
@@ -1511,6 +1511,31 @@ fn bench_momentum(c: &mut Criterion) {
                 res.outputs[0][0].len() + res.outputs[1][0].len(),
                 qs.next_bar(),
             ))
+        })
+    });
+    // MARGINAL-CHAIN PROBE (no engine change): one more RSI period doubles the
+    // chained `Wilders` count (2 → 4) and the divides, sharing only the movement
+    // nodes. If cost grows LINEARLY with chain count, the 3.9× deficit is per-chain
+    // register/param pressure — which lane-packing (≈2 uops saved) cannot fix. If
+    // it grows sub-linearly, the chains are cheap and the deficit is elsewhere.
+    let rsi2 = Request::new()
+        .add(Rsi::recipe(&[p]), None)
+        .add(Rsi::recipe(&[21.0]), None)
+        .build();
+    g.bench_function("jit_rsi_two_periods", |b| {
+        b.iter(|| {
+            let (res, qs) = rsi2.run(&one);
+            black_box((
+                res.outputs[0][0].len() + res.outputs[1][0].len(),
+                qs.next_bar(),
+            ))
+        })
+    });
+    g.bench_function("hand_rsi_two_periods", |b| {
+        b.iter(|| {
+            let a = Rsi::indicator(&one, &[p], None).unwrap();
+            let b = Rsi::indicator(&one, &[21.0], None).unwrap();
+            black_box(a.0[0].len() + b.0[0].len())
         })
     });
     g.finish();

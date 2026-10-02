@@ -178,6 +178,13 @@ enum OpE {
     },
     /// `|a|` — CLIF `fabs` over a scalarized operand.
     Abs { src: usize },
+    /// `Node::Mirror` — publish `src` unchanged, keeping the last published value
+    /// in the op's own state slot. Emits **no float op**: the value is whatever
+    /// `scalarize!(src)` already produced (for a price operand that is the bar's
+    /// anchor load the loop performs anyway), and the only state is one f64
+    /// written when the chunk ends. `get_states` reads that slot to rebuild a
+    /// hand `State`'s plain-price field.
+    Mirror { src: usize },
     /// `if a >= b { t } else { 0.0 }` — CLIF `fcmp.ge` feeding a `select`
     /// (the DM+ / DM− mutual exclusion; the `0.0` else arm is a literal, so
     /// no `-0.0`/NaN is ever produced). Operands scalarized like `Arith`.
@@ -304,6 +311,11 @@ enum OpE {
     Fma { a: usize, b: usize, c: usize },
     /// `sqrt(a)` — IEEE exact root.
     Sqrt { src: usize },
+    /// E13 `ln(src)` — PURE op (no carried state, no anchor, no ring) whose
+    /// lowering is a ~25-instruction scalar expansion of `math_simd::ln_unchecked`
+    /// in the emitter. Inlined rather than called for the §6.19 reason: a call is a
+    /// clobber barrier, and `ln` sits on every bar of `fisher`'s recurrence.
+    Ln { src: usize },
     /// A `Node::Const` leaf — materialized, rematerialized by RA at use.
     Const(f64),
     /// `supertrend(period, step)` — the hand's multi-value feedback band
@@ -487,6 +499,13 @@ pub struct JitPlan {
     /// Pure code shape — the STATE LAYOUT IS IDENTICAL, so a `JitState` image is
     /// interchangeable between the two modes and the fingerprint is not tagged.
     vecwalk: bool,
+    /// E13: are the data-dependent float guards bitwise blends (`bitselect`, one
+    /// `maxpd`) instead of `select`, which x64 lowers to a JUMP? Default true;
+    /// `CSE_BRANCHSELECT=1` restores the jump form. Code shape only — every form
+    /// is bit-identical by construction, the state layout does not move, and the
+    /// fingerprint is not tagged. See `compile_request` for the backend reading
+    /// and §6.25 for the A/B.
+    blendguard: bool,
     /// E12: the derived-value rings backing `OpE::RollSum` (empty otherwise).
     rings: Vec<Ring>,
     /// E4: `hash64` of the canonical request bytes this plan was compiled
@@ -555,6 +574,22 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
     // measurable inside ONE binary — the only honest A/B on this box, where the
     // bench binary's text layout moves the hand baselines by up to 37% (§6.14).
     let vecwalk = std::env::var_os("CSE_SCALARWALK").is_none();
+    // E13: guard form, DEFAULT BLENDED for the guards that alternate. A float
+    // `select` on x64 lowers to `Inst::XmmCmove`, and cranelift's own emitter
+    // comment says that "uses jumps" — there is no cmov for XMM — while scalar
+    // `fmax`/`fmin` lower to `XmmMinMaxSeq`, a THREE-way branch. So a guard whose
+    // condition comes from the DATA (`up = max(diff, 0)`, the ±DM exclusion) is an
+    // unpredictable conditional branch once per bar, and real price series
+    // alternate near 50/50: blending it with a vector `bitselect` (which x64 folds
+    // to ONE `maxpd`) measured −27…−55% on those rows. `classic`/`rolling_mixed`/
+    // `range` got 1.4–4.7% SLOWER when blended the same way, because their guard
+    // is an ε-FLOOR that always takes the same arm — so `codegen::clamp_guard`
+    // keeps the branch for a guard against a nonzero positive constant. Shipped
+    // blend + that split; `CSE_BRANCHSELECT=1` restores the jump form everywhere
+    // for A/B, and both paths are green in CI (§6.25). Bit-identical by
+    // construction — the mask is the same comparison — so the state layout does
+    // not move and the fingerprint is not tagged.
+    let blendguard = std::env::var_os("CSE_BRANCHSELECT").is_none();
     let (arena, mut resolved) = merge(&req.recipes);
     // same switch `Request::build` applies — disabled optionals compile to
     // never-print sinks (EMPTY in position, values unchanged elsewhere).
@@ -727,6 +762,13 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
                     s,
                     id,
                     OpE::Abs {
+                        src: node_op[s][src as usize]
+                    }
+                ),
+                Node::Mirror { src } => push!(
+                    s,
+                    id,
+                    OpE::Mirror {
                         src: node_op[s][src as usize]
                     }
                 ),
@@ -952,6 +994,13 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
                         src: node_op[s][src as usize]
                     }
                 ),
+                Node::Ln { src } => push!(
+                    s,
+                    id,
+                    OpE::Ln {
+                        src: node_op[s][src as usize]
+                    }
+                ),
                 other => panic!("jit: node {other:?} is not emittable yet"),
             }
         }
@@ -1108,6 +1157,8 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
                         | Node::RollMax { period, .. }
                         | Node::RollMin { period, .. }
                         | Node::Wilders { period, .. } => (node_op[st_s][i as usize], period),
+                        // A mirror reports a bare value, so it carries no period.
+                        Node::Mirror { .. } => (node_op[st_s][i as usize], 0),
                         _ => panic!("jit: `tail_inputs` id {i} must name a state chain"),
                     })
                     .collect()
@@ -1397,6 +1448,7 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
         n_fields,
         pmax,
         vecwalk,
+        blendguard,
         rings,
         fingerprint,
     };
@@ -1885,6 +1937,11 @@ impl JitPlan {
                 period,
             },
             OpE::Sma { .. } | OpE::RollSum { .. } => ChainState::Sma { sum, period },
+            // The mirror's slot holds the last value its source published — a
+            // plain price, so there is no period to report.
+            OpE::Mirror { .. } => ChainState::Mirror {
+                value: self.ema_of(st, op),
+            },
             OpE::Wilders { .. } => ChainState::Wilders {
                 value: self.ema_of(st, op),
                 period,
@@ -3531,6 +3588,80 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    /// E13 — the inlined `ln` expansion is checked against TWO oracles, because it
+    /// has to satisfy two different promises:
+    /// · **bit-for-bit equal to `math_simd::ln_unchecked`** — that is what makes it
+    ///   *the engine's* `ln` and not a fresh approximation drifting from the SIMD
+    ///   hand path (`fisher_simd` already calls that function).
+    /// · **within 1e-12 of `f64::ln`** — the tolerance the user set for `fisher`,
+    ///   whose scalar oracle uses std's libm log.
+    ///
+    /// Sink lead is 1 rather than 0 so every row comes from the loop (bar 0 is
+    /// evaluated by setup, and a pure op has no carried state to seed from there).
+    #[test]
+    fn jit_ln_expansion_matches_math_simd_and_libm() {
+        use crate::math_simd::ln_unchecked;
+        use std::simd::Simd;
+        let mut data: Vec<f64> = vec![
+            1.0,
+            0.5,
+            2.0,
+            std::f64::consts::E,
+            std::f64::consts::PI,
+            1e-300,
+            1e300,
+            0.9999999,
+            1.0000001,
+            2.5,
+            0.001,
+            1234.5678,
+            1e-12,
+            7.0,
+            0.125,
+            1.4142135623730951, // the √2 fold boundary, just below and above
+            1.4142135623730950,
+            f64::MIN_POSITIVE, // smallest normal: the other side of that scale
+            1e-320,            // subnormal — the 2^54 scale path, not the fast one
+            f64::from_bits(1), // the least subnormal of all
+        ];
+        // `fisher`'s real domain: (1+x)/(1−x) for |x| < 1, both directions.
+        for k in 1..40usize {
+            let x = k as f64 / 40.0;
+            data.push((1.0 + x) / (1.0 - x));
+            data.push((1.0 - x) / (1.0 + x));
+        }
+        let mut r = crate::cse::Recipe::new();
+        let inp = r.add(crate::cse::Node::Input { stream: 0 });
+        let ln = r.add(crate::cse::Node::Ln { src: inp });
+        r.kind = "lnprobe";
+        r.options = vec![];
+        r.outputs.push(crate::cse::Sink::iface_lead(ln, 1));
+        let plan = Request::new().add(r, None).build();
+        let s: [&[f64]; 1] = [data.as_slice()];
+        let (res, _) = plan.run(&s);
+        let got = res.request(0).output(0);
+        assert_eq!(got.len(), data.len() - 1, "rows start at bar 1");
+        for (row, &x) in data.iter().enumerate().skip(1) {
+            let lib = x.ln();
+            // `as_array()[0]` rather than `extract`: on this toolchain
+            // `Simd::extract` is the const-generic swizzle form.
+            let want = unsafe { ln_unchecked::<1>(Simd::splat(x)).as_array()[0] };
+            assert_eq!(
+                got[row - 1].to_bits(),
+                want.to_bits(),
+                "ln({x:?}): engine {:?} != math_simd {:?}",
+                got[row - 1],
+                want
+            );
+            assert!(
+                (got[row - 1] - lib).abs() <= 1e-12 * lib.abs().max(1.0),
+                "ln({x:?}): engine {:?} vs libm {:?} exceeds 1e-12",
+                got[row - 1],
+                lib
+            );
         }
     }
 

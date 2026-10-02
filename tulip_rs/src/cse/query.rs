@@ -189,8 +189,14 @@ impl Request {
                         0,
                     ),
                     Node::Trail { src } => (26, src as u64, 0, 0),
+                    // A copy is not a computation, but it IS a distinct node: two
+                    // mirrors over different sources must not intern together.
+                    Node::Mirror { src } => (29, src as u64, 0, 0),
                     Node::Fma { a, b, c } => (14, a as u64, b as u64, c as u64),
                     Node::Sqrt { src } => (15, src as u64, 0, 0),
+                    // E13: the expanded natural log (tag 28) — a distinct
+                    // computation from every other node, so it needs its own key.
+                    Node::Ln { src } => (28, src as u64, 0, 0),
                     Node::Wma { src, period } => (16, src as u64, period as u64, 0),
                     Node::Hma { src, period } => (17, src as u64, period as u64, 0),
                     Node::Wilders {

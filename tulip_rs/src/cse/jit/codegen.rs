@@ -39,6 +39,68 @@ fn st(fb: &mut FunctionBuilder, base: Value, off: i64, val: Value) {
     fb.ins().store(MemFlagsData::new(), val, addr, 0);
 }
 
+/// Is op `o` a guard FLOOR — a constant strictly greater than `+0.0`?
+///
+/// This splits the two kinds of guard the measured A/B distinguished. A guard
+/// against a NONZERO positive constant (`stddev`'s `max(√var, ε)`, `ppo`'s
+/// denominator floor, `willr`'s `where(h−l ≥ ε, …)`) tests a quantity that is
+/// positive by construction, so its branch always predicts and blending it is
+/// pure extra work: those rows measured **+3…+5% SLOWER** blended. A guard
+/// against EXACTLY `+0.0` (`max(diff, 0)`) or against another VALUE (`tr`'s
+/// max-of-three, the ±DM exclusion) is a sign/magnitude test that alternates with
+/// the data, and blending it measured −27…−55%.
+///
+/// Engine-local and indicator-blind: it inspects the graph, never a recipe kind.
+/// `get` rather than indexing because an operand may be a raw price SLOT (`PRICE − k`,
+/// not an op) — that is never a floor, and must not panic the builder.
+fn clamp_guard(ops: &[Op], o: usize) -> bool {
+    match ops.get(o) {
+        Some(Op {
+            e: OpE::Const(v), ..
+        }) => *v > 0.0,
+        _ => false,
+    }
+}
+
+/// Branchless `a > b ? a : b` in the XMM file only.
+///
+/// `bitselect(bitcast(fcmp(Lt, b2, a2)), a2, b2)` is exactly the tree x64
+/// recognizes as a SINGLE `maxpd a2 b2` (`lower.isle` rule 3, the wasm
+/// `pmin`/`pmax` path), so there is no jump AND no register-file crossing. x86's
+/// `maxpd` returns its SECOND operand when a lane is NaN or the lanes are equal —
+/// which is what `bitselect` over the comparison mask means too — so this agrees
+/// with `select(fcmp(Gt, a, b), a, b)` bit for bit on NaN, both zeros and ±inf.
+fn blend_max(fb: &mut FunctionBuilder, a: Value, b: Value) -> Value {
+    let ty = types::F64X2;
+    let a2 = fb.ins().splat(ty, a);
+    let b2 = fb.ins().splat(ty, b);
+    let lt = fb.ins().fcmp(FloatCC::LessThan, b2, a2);
+    let m = fb.ins().bitcast(ty, MemFlagsData::new(), lt);
+    let r = fb.ins().bitselect(m, a2, b2);
+    fb.ins().extractlane(r, 0)
+}
+
+/// Branchless `a >= b ? t : f`, for a guard whose SELECTED values are not the
+/// compared ones (the ±DM mutual exclusion, `willr`'s divide-by-zero clamp).
+///
+/// No single-instruction recognizer covers this, so the blend stays a bitwise
+/// `andpd`/`andnpd`/`orpd` — but the mask is built by a VECTOR `fcmp`, so it is
+/// already in the XMM file. That is the whole point: a GPR-built mask
+/// (`iselect`→`ineg`→`movq`) measured **+36%** on `jit_atr` and **+34%** on
+/// `jit_query` against the plain jump — the `movq` lands on the critical path —
+/// while this form measured −9% on the same rows.
+fn blend_ge(fb: &mut FunctionBuilder, a: Value, b: Value, t: Value, f: Value) -> Value {
+    let ty = types::F64X2;
+    let a2 = fb.ins().splat(ty, a);
+    let b2 = fb.ins().splat(ty, b);
+    let ge = fb.ins().fcmp(FloatCC::GreaterThanOrEqual, a2, b2);
+    let m = fb.ins().bitcast(ty, MemFlagsData::new(), ge);
+    let t2 = fb.ins().splat(ty, t);
+    let f2 = fb.ins().splat(ty, f);
+    let r = fb.ins().bitselect(m, t2, f2);
+    fb.ins().extractlane(r, 0)
+}
+
 /// `a.max(b)` where `b` is the guard, matching the hand for **every shipped
 /// use**: `di`/`dx` `.max(0.0)`, `ppo`/`stddev` `.max(EPSILON)` all pass a
 /// constant `+0.0`/`+ε` as `b` and a possibly-NaN value as `a` (`0·inf`/`0/0`/
@@ -51,9 +113,16 @@ fn st(fb: &mut FunctionBuilder, base: Value, off: i64, val: Value) {
 /// NaN, and no recipe guards against that (every `b` here is a non-NaN constant
 /// or a finite price). The earlier `bor(fcmp.gt, fcmp.uno)` 4-op form bought
 /// that generality at a cost on the hot `tr` path for no reachable benefit.
-fn max_num(fb: &mut FunctionBuilder, a: Value, b: Value) -> Value {
-    let gt = fb.ins().fcmp(FloatCC::GreaterThan, a, b);
-    fb.ins().select(gt, a, b)
+///
+/// `blend` picks the FORM, never the value: `false` = `select` (which x64 emits
+/// as a JUMP), `true` = [`blend_max`] — bit-identical for every input.
+fn max_num(fb: &mut FunctionBuilder, a: Value, b: Value, blend: bool) -> Value {
+    if blend {
+        blend_max(fb, a, b)
+    } else {
+        let gt = fb.ins().fcmp(FloatCC::GreaterThan, a, b);
+        fb.ins().select(gt, a, b)
+    }
 }
 
 /// Build and define the plan's function; sets `plan.func`.
@@ -83,6 +152,9 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     let f64_t = types::F64;
 
     let nops = plan.ops.len();
+    // E13: guard form for the data-dependent float predicates (copied out so the
+    // op loop reads a local, not `plan`, while `fb` is borrowed).
+    let blendguard = plan.blendguard;
     let nsinks = plan.stores.len();
     let ngroups = plan.groups.len();
     let chained: Vec<usize> = (0..nops)
@@ -171,15 +243,22 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
         }
     }
     for j in 0..nops {
-        if plan.lane_of[j].0 == usize::MAX
-            && (matches!(
-                plan.ops[j].e,
-                OpE::Ema { .. } | OpE::Wilders { .. } | OpE::Roll { .. } | OpE::RollSum { .. }
-            ) || (matches!(
-                plan.ops[j].e,
-                OpE::Sma { .. } | OpE::Stddev { .. } | OpE::Wma { .. }
-            ) && plan.ops[j].roll_leader == j))
-        {
+        // Ungrouped chains get a dedicated f64 value slot: Ema/Wilders/Roll, the
+        // derived rolling sum, the mirror (its slot is the last value its source
+        // published — the only state a `get_states` price field needs), and the
+        // leader of each `(src, period)` rolling group.
+        let is_chain_slot = matches!(
+            plan.ops[j].e,
+            OpE::Ema { .. }
+                | OpE::Wilders { .. }
+                | OpE::Roll { .. }
+                | OpE::RollSum { .. }
+                | OpE::Mirror { .. }
+        ) || (matches!(
+            plan.ops[j].e,
+            OpE::Sma { .. } | OpE::Stddev { .. } | OpE::Wma { .. }
+        ) && plan.ops[j].roll_leader == j);
+        if plan.lane_of[j].0 == usize::MAX && is_chain_slot {
             slot_of_op[j] = ngroups + op_of_slot.len();
             op_of_slot.push(j);
         }
@@ -475,6 +554,10 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
             // bar 1, and the hand's own fold likewise starts at the source's first
             // defined bar, which for a `Lag{1}`-sourced movement IS bar 1).
             OpE::RollSum { .. } => loads[j],
+            // E13: the mirror's slot is not a fold — the loop writes it with the
+            // source's value on the FIRST bar, so a cold chunk's zeroed slot is
+            // never read as a value, and a resumed one survives until then.
+            OpE::Mirror { .. } => loads[j],
             _ => fb.ins().f64const(0.0),
         };
         init.push(v);
@@ -1061,7 +1144,13 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                         // Rust `f64::max`, NOT CLIF `fmax` (NaN-propagating) —
                         // see `max_num`. di/dx guard a possible `0·inf`/`0/0`
                         // NaN with `.max(0.0)`.
-                        ArithKind::Max => max_num(&mut fb, av, bv),
+                        ArithKind::Max => {
+                            // Blend only the sign/magnitude tests; a floor against a
+                            // nonzero positive constant always predicts (see
+                            // `clamp_guard`).
+                            let blend = blendguard && !clamp_guard(&plan.ops, b);
+                            max_num(&mut fb, av, bv, blend)
+                        }
                     }
                 }
                 OpE::Wma {
@@ -1220,7 +1309,10 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                     let sdr = fb.ins().sqrt(sd0);
                     let eps = fb.ins().f64const(f64::EPSILON);
                     sq_lat[sk] = Some(sq2);
-                    max_num(&mut fb, sdr, eps)
+                    // Never blended: this is the floor case by construction (a
+                    // variance clamped to ε), and its ε is a literal, not an op the
+                    // `clamp_guard` predicate could see.
+                    max_num(&mut fb, sdr, eps, false)
                 }
                 OpE::Roll {
                     src,
@@ -1646,6 +1738,89 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                     let cv = scalarize!(c);
                     fb.ins().fma(av, bv, cv)
                 }
+                // E13: `ln` EXPANDED INLINE — the same computation as
+                // `crate::math_simd::ln_unchecked`, on scalars: bit-level exponent
+                // extraction, mantissa renormalised into [√2/2, √2), the 8-term odd
+                // polynomial in s = (m−1)/(m+1), and the L2U/L2L two-term
+                // reconstruction. Straight-line on purpose (the subnormal scale is a
+                // `select`, not a branch) and NOT a call: §6.19 measured a call to our
+                // own code at 12–33% slower because it clobbers every live value, and
+                // `fisher` would pay that on every bar. Instruction order mirrors the
+                // SIMD source (same `mul_add` nesting; `s * poly * 2` as two multiplies)
+                // so the two agree bit-for-bit.
+                OpE::Ln { src } => {
+                    let x = scalarize!(src);
+                    let two54 = fb.ins().f64const(18014398509481984.0);
+                    let sqrt2 = fb.ins().f64const(1.4142135623730950488);
+                    let one_f = fb.ins().f64const(1.0);
+                    let half_f = fb.ins().f64const(0.5);
+                    let two_f = fb.ins().f64const(2.0);
+                    // The scale factor is 2^54, so the exponent is corrected by −54
+                    // (not −1: getting this wrong shows up as exactly 53·ln 2 of drift
+                    // on subnormal inputs, which is what the subnormal test cases pin).
+                    let neg54 = fb.ins().iconst(i64_t, -54);
+                    let sub_min = fb.ins().iconst(i64_t, 0x0010_0000_0000_0000);
+                    let mant_mask = fb.ins().iconst(i64_t, 0x000f_ffff_ffff_ffff);
+                    // Two DIFFERENT 0x3ff constants: the biased-exponent count to
+                    // subtract, and the exponent field of a 1-biased double to OR in.
+                    let exp_bias = fb.ins().iconst(i64_t, 0x3ff);
+                    let mant_bias = fb.ins().iconst(i64_t, 0x3ff0_0000_0000_0000);
+
+                    // Subnormals: scale by 2^54 and take 54 off the exponent.
+                    let ix0 = fb.ins().bitcast(i64_t, MemFlagsData::new(), x);
+                    let is_sub = fb.ins().icmp(IntCC::SignedLessThan, ix0, sub_min);
+                    let xs = fb.ins().fmul(x, two54);
+                    let xn = fb.ins().select(is_sub, xs, x);
+                    let adj = fb.ins().select(is_sub, neg54, zero);
+
+                    let ix = fb.ins().bitcast(i64_t, MemFlagsData::new(), xn);
+                    // x > 0, so the sign bit is clear and a logical shift reads the
+                    // biased exponent out of the top 12 bits.
+                    let sh52 = fb.ins().iconst(i64_t, 52);
+                    let raw_e = fb.ins().ushr(ix, sh52);
+                    let eb = fb.ins().isub(raw_e, exp_bias);
+                    let mut e = fb.ins().iadd(eb, adj);
+                    let im = fb.ins().band(ix, mant_mask);
+                    let mbits = fb.ins().bor(im, mant_bias);
+                    let mut m = fb.ins().bitcast(f64_t, MemFlagsData::new(), mbits);
+
+                    // Fold both halves of the binade into one interval around 1 so s
+                    // stays small: if m ≥ √2, halve m and add one to the exponent.
+                    let hi = fb.ins().fcmp(FloatCC::GreaterThanOrEqual, m, sqrt2);
+                    let mh = fb.ins().fmul(m, half_f);
+                    m = fb.ins().select(hi, mh, m);
+                    let ep = fb.ins().iadd(e, one);
+                    e = fb.ins().select(hi, ep, e);
+
+                    let num = fb.ins().fsub(m, one_f);
+                    let den = fb.ins().fadd(m, one_f);
+                    let s = fb.ins().fdiv(num, den);
+                    let s2 = fb.ins().fmul(s, s);
+                    // Horner over s², innermost C15 outward to C1 = 1.0 — seven
+                    // `fma`s, matching the SIMD `mul_add` chain term for term.
+                    let mut poly = fb.ins().f64const(0.06666_6666_6666_6666_6666_6666_6666_7);
+                    for c in [
+                        0.0769_2307_6923_0769_2307_6923_0769_2308,
+                        0.0909_0909_0909_0909_0909_0909_0909_0909,
+                        0.1111_1111_1111_1111_1111_1111_1111_1111,
+                        0.1428_5714_2857_1428_5714_2857_1428_5714,
+                        0.2,
+                        0.3333_3333_3333_3333_3333_3333_3333_3333,
+                        1.0,
+                    ] {
+                        let cc = fb.ins().f64const(c);
+                        poly = fb.ins().fma(s2, poly, cc);
+                    }
+                    let sp = fb.ins().fmul(s, poly);
+                    let log_m = fb.ins().fmul(sp, two_f);
+                    let ef = fb.ins().fcvt_from_sint(f64_t, e);
+                    // e·L2U + (e·L2L + log(m)): the two-term split is what keeps the
+                    // result accurate across the whole exponent range.
+                    let l2l = fb.ins().f64const(2.3190468138462996e-17);
+                    let lo = fb.ins().fma(ef, l2l, log_m);
+                    let l2u = fb.ins().f64const(0.6931471805599452862);
+                    fb.ins().fma(ef, l2u, lo)
+                }
                 OpE::Sqrt { src } => {
                     let v = scalarize!(src);
                     fb.ins().sqrt(v)
@@ -1661,9 +1836,20 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                     let av = scalarize!(a);
                     let bv = scalarize!(b);
                     let tv = scalarize!(t);
-                    let ge = fb.ins().fcmp(FloatCC::GreaterThanOrEqual, av, bv);
                     let z = fb.ins().f64const(0.0);
-                    fb.ins().select(ge, tv, z)
+                    // The ±DM exclusion compares two DATA values, so it alternates
+                    // and gets the branchless form; `willr`'s `where(h−l ≥ ε, …)` is
+                    // a denominator FLOOR whose branch always predicts, so it keeps
+                    // the jump (`clamp_guard`). Its selected value is not one of the
+                    // compared operands, so no `maxpd` recognizer applies — the mask
+                    // still comes from a vector `fcmp`, which is what keeps the
+                    // register-file crossing off the critical path (`blend_ge`).
+                    if blendguard && !clamp_guard(&plan.ops, b) {
+                        blend_ge(&mut fb, av, bv, tv, z)
+                    } else {
+                        let ge = fb.ins().fcmp(FloatCC::GreaterThanOrEqual, av, bv);
+                        fb.ins().select(ge, tv, z)
+                    }
                 }
                 OpE::Lag { n, .. } => {
                     // Anchor read `n` bars back. `ivar < n` (the front bars of
@@ -1679,6 +1865,15 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                     let warm = fb.ins().icmp(IntCC::SignedLessThan, ivar, guard);
                     let first = lag_clamp[lag_of[j]];
                     fb.ins().select(warm, first, real)
+                }
+                OpE::Mirror { src } => {
+                    // The copy IS the value: `scalarize!` already holds this bar's
+                    // source result in a register (for a price source, the anchor
+                    // load the loop performs anyway), so the only work is handing
+                    // it to the next iteration as this op's carried word.
+                    let v = scalarize!(src);
+                    carry[j] = Some(v);
+                    v
                 }
                 OpE::SuperTrend {
                     atr,
@@ -1869,6 +2064,7 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                 | OpE::Wma { .. }
                 | OpE::Roll { .. }
                 | OpE::RollSum { .. }
+                | OpE::Mirror { .. }
                 | OpE::Wilders { .. }
         ) {
             st(
