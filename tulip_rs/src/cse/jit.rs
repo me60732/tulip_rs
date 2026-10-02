@@ -499,13 +499,6 @@ pub struct JitPlan {
     /// Pure code shape — the STATE LAYOUT IS IDENTICAL, so a `JitState` image is
     /// interchangeable between the two modes and the fingerprint is not tagged.
     vecwalk: bool,
-    /// E13: are the data-dependent float guards bitwise blends (`bitselect`, one
-    /// `maxpd`) instead of `select`, which x64 lowers to a JUMP? Default true;
-    /// `CSE_BRANCHSELECT=1` restores the jump form. Code shape only — every form
-    /// is bit-identical by construction, the state layout does not move, and the
-    /// fingerprint is not tagged. See `compile_request` for the backend reading
-    /// and §6.25 for the A/B.
-    blendguard: bool,
     /// E12: the derived-value rings backing `OpE::RollSum` (empty otherwise).
     rings: Vec<Ring>,
     /// E4: `hash64` of the canonical request bytes this plan was compiled
@@ -574,22 +567,16 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
     // measurable inside ONE binary — the only honest A/B on this box, where the
     // bench binary's text layout moves the hand baselines by up to 37% (§6.14).
     let vecwalk = std::env::var_os("CSE_SCALARWALK").is_none();
-    // E13: guard form, DEFAULT BLENDED for the guards that alternate. A float
-    // `select` on x64 lowers to `Inst::XmmCmove`, and cranelift's own emitter
-    // comment says that "uses jumps" — there is no cmov for XMM — while scalar
-    // `fmax`/`fmin` lower to `XmmMinMaxSeq`, a THREE-way branch. So a guard whose
-    // condition comes from the DATA (`up = max(diff, 0)`, the ±DM exclusion) is an
-    // unpredictable conditional branch once per bar, and real price series
-    // alternate near 50/50: blending it with a vector `bitselect` (which x64 folds
-    // to ONE `maxpd`) measured −27…−55% on those rows. `classic`/`rolling_mixed`/
-    // `range` got 1.4–4.7% SLOWER when blended the same way, because their guard
-    // is an ε-FLOOR that always takes the same arm — so `codegen::clamp_guard`
-    // keeps the branch for a guard against a nonzero positive constant. Shipped
-    // blend + that split; `CSE_BRANCHSELECT=1` restores the jump form everywhere
-    // for A/B, and both paths are green in CI (§6.25). Bit-identical by
-    // construction — the mask is the same comparison — so the state layout does
-    // not move and the fingerprint is not tagged.
-    let blendguard = std::env::var_os("CSE_BRANCHSELECT").is_none();
+    // E13: float guards are bitwise blends, not `select`. On x64 a float
+    // `select` lowers to `Inst::XmmCmove`, and cranelift's own emitter comment
+    // says that "uses jumps" — there is no cmov for XMM — so a guard whose
+    // condition comes from the DATA (`up = max(diff, 0)`, the ±DM exclusion) is
+    // an unpredictable conditional branch once per bar, and real price series
+    // alternate near 50/50. `codegen::blend_max` emits the form x64 folds to one
+    // `maxpd`: −27…−55% on those rows. The exception is structural, not a mode:
+    // `codegen::clamp_guard` keeps the jump for a guard against a NONZERO
+    // positive constant (an ε floor on a denominator/variance), whose branch
+    // always predicts and whose blend measured +1.4…+4.7%. §6.25 is the A/B.
     let (arena, mut resolved) = merge(&req.recipes);
     // same switch `Request::build` applies — disabled optionals compile to
     // never-print sinks (EMPTY in position, values unchanged elsewhere).
@@ -1448,7 +1435,6 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
         n_fields,
         pmax,
         vecwalk,
-        blendguard,
         rings,
         fingerprint,
     };
@@ -3126,6 +3112,148 @@ mod tests {
             ("ties", (0..300).map(|i| ((i * 7) % 11) as f64).collect()),
             ("flat", vec![3.25; 300]),
         ]
+    }
+
+    /// E13 CLASS GATE: one non-finite CLOSE must not make `tr` return NaN.
+    ///
+    /// `tr = max(h−l, |h−prev close|, |l−prev close|)` and the hand writes those
+    /// with `f64::max`, which is maxNum: a NaN operand never decides, so a NaN
+    /// close yields the finite `h − l` and the series RECOVERS on the next bar.
+    /// Neither cheap engine form does — `select(a > b, a, b)` returns `b` (NaN) and
+    /// CLIF `fmax` propagates it — and the NaN then lands in the `Wilders` chain
+    /// that consumes `tr`, where it is permanent. Nothing upstream rules a
+    /// non-finite price out (`validate_inputs` checks LENGTH only), so this is
+    /// reachable from any series carrying a null or an overflow.
+    ///
+    /// This is what `GuardForm::MaxNum` buys, and §6.26 records what it costs.
+    /// Compiled out under `feature = "safe_inputs"`, which declares the caller's
+    /// prices finite and takes the repair branch out of the emitted code.
+    #[cfg(not(feature = "safe_inputs"))]
+    #[test]
+    fn non_finite_close_does_not_poison_true_range() {
+        use crate::indicators::tr::Tr;
+        let poisons = [
+            ("NaN", f64::NAN),
+            ("+inf", f64::INFINITY),
+            ("-inf", f64::NEG_INFINITY),
+        ];
+        for period in [5usize, 14] {
+            let n = period + 20;
+            for pos in 0..n {
+                for (name, poison) in poisons {
+                    let h: Vec<f64> = (0..n).map(|i| 10.0 + ((i * 3) % 7) as f64).collect();
+                    let l: Vec<f64> = (0..n).map(|i| 5.0 + ((i * 2) % 5) as f64).collect();
+                    let mut c: Vec<f64> = (0..n).map(|i| 7.0 + ((i * 5) % 6) as f64).collect();
+                    // Poison the CLOSE only: `h − l` stays finite while `hc` and
+                    // `lc` both go NaN — the shape where "NaN never decides" and
+                    // "NaN propagates" differ.
+                    c[pos] = poison;
+                    let hs: [&[f64]; 3] = [h.as_slice(), l.as_slice(), c.as_slice()];
+                    let hand = Tr::indicator(&hs, &[], None).unwrap().0[0].clone();
+                    let plan = Request::new().add(Tr::recipe(&[]), None).build();
+                    let (res, _) = plan.run(&hs);
+                    let got = res.request(0).output(0);
+                    for i in 0..hand.len().min(got.len()) {
+                        let (a, b) = (hand[i], got[i]);
+                        assert!(
+                            a == b || (a.is_nan() && b.is_nan()),
+                            "tr p{period} {name}@{pos} row{i}: hand={a} jit={b}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// E13 CLASS GATE: the rescan roll vs the hand when the window holds a
+    /// NON-FINITE slot — NaN, `+∞`, `-∞` injected at every position, several
+    /// periods, both directions.
+    ///
+    /// This exists because the vectorised walk and the hand's scan were NOT the
+    /// same function there. The walk gated on `UnorderedOrGreaterThanOrEqual` (a
+    /// NaN looked like an improvement) and reduced the improving pair with CLIF
+    /// `fmax`, which PROPAGATES NaN; the hand's `find_max_simd` gates on ordered
+    /// `simd_ge` and reduces with `Simd::reduce_max`, which IGNORES NaN (measured:
+    /// `reduce_max([1,NaN,3,2]) = 3`). Five poisoned rows disagreed, while the
+    /// scalar walk (`CSE_SCALARWALK=1`: ordered compare + `select`) agreed on all
+    /// of them — which is what localized the bug to the vector path.
+    ///
+    /// Part (1) also pins that the hand's OWN two scan forms agree on these
+    /// classes. If that ever fails, "bit-exact vs the hand" stops being one target
+    /// and this test's premise needs re-arguing, not relaxing.
+    ///
+    /// Compiled out under `feature = "safe_inputs"`, which removes the walk's NaN
+    /// repair by declaration rather than by discovery (§6.27).
+    #[cfg(not(feature = "safe_inputs"))]
+    #[test]
+    fn rolls_match_hand_when_the_window_holds_non_finite_slots() {
+        use crate::indicators::max::{self, Max};
+        use crate::indicators::min::Min;
+        let poisons = [
+            ("NaN", f64::NAN),
+            ("+inf", f64::INFINITY),
+            ("-inf", f64::NEG_INFINITY),
+        ];
+        // (1) The hand's own two scan forms must agree on a poisoned window —
+        // otherwise "the hand" is not one oracle and this test proves nothing.
+        for period in [2usize, 5, 8, 14] {
+            for pos in 0..period {
+                for (name, poison) in poisons {
+                    let mut w: Vec<f64> =
+                        (0..period).map(|i| ((i * 7) % 11) as f64 + 1.0).collect();
+                    w[pos] = poison;
+                    let s = max::find_max_scalar(&w);
+                    let v = max::find_max_simd::<4>(&w);
+                    assert_eq!(
+                        s.1, v.1,
+                        "the hand's own scans pick different positions: p{period} \
+                         {name}@{pos} → {s:?} vs {v:?}"
+                    );
+                    assert!(
+                        s.0 == v.0 || (s.0.is_nan() && v.0.is_nan()),
+                        "the hand's own scans pick different values: p{period} \
+                         {name}@{pos} → {s:?} vs {v:?}"
+                    );
+                }
+            }
+        }
+
+        // (2) Engine vs `indicator()` (which runs the SIMD scan), both directions.
+        for want_max in [true, false] {
+            let which = if want_max { "max" } else { "min" };
+            for period in [2usize, 5, 14] {
+                let opt = [period as f64];
+                let recipe = if want_max {
+                    Max::recipe(&opt)
+                } else {
+                    Min::recipe(&opt)
+                };
+                let plan = Request::new().add(recipe, None).build();
+                for pos in 0..period + 2 {
+                    for (name, poison) in poisons {
+                        let mut data: Vec<f64> = (0..(period + 8))
+                            .map(|i| ((i * 7) % 11) as f64 + 1.0)
+                            .collect();
+                        data[pos] = poison;
+                        let s: [&[f64]; 1] = [data.as_slice()];
+                        let hand = if want_max {
+                            Max::indicator(&s, &opt, None).unwrap().0[0].clone()
+                        } else {
+                            Min::indicator(&s, &opt, None).unwrap().0[0].clone()
+                        };
+                        let (res, _) = plan.run(&s);
+                        let got = res.request(0).output(0);
+                        for i in 0..hand.len().min(got.len()) {
+                            let (h, g) = (hand[i], got[i]);
+                            assert!(
+                                h == g || (h.is_nan() && g.is_nan()),
+                                "{which} p{period} {name}@{pos} row{i}: hand={h} jit={g}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// E9 M0: the trail-rescan roll standalone, bit-exact vs the hand over

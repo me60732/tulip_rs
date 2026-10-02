@@ -120,11 +120,12 @@ fn report(label: &str, plan: &JitPlan) {
         identity_arith(clif)
     );
     // E13: which GUARD form is in the build. On x64 a float `select` becomes a
-    // JUMP (`XmmCmove`), while `bitselect` is a bitwise blend — so this says
-    // whether the blend default is in effect (and that `CSE_BRANCHSELECT=1`
-    // restored the jump), printing in EVERY mode so a zero can never be read as
-    // "no guards" instead of "mode off". The splat count says whether the mask
-    // was built by a vector `fcmp` (the shipped form) or crossed from a GPR.
+    // JUMP (`XmmCmove`), while `bitselect` is a bitwise blend — so this says what
+    // each plan actually got, per guard: sign/magnitude tests blend, ε-floors keep
+    // the jump (`codegen::clamp_guard`). It prints in every plan so a zero can
+    // never be read as "no guards" instead of "all floors". The splat count says
+    // whether a mask was built by a vector `fcmp` (the blend) or crossed from a
+    // GPR (which measured worse than the jump, §6.25).
     let nsel = clif
         .lines()
         .filter(|l| {

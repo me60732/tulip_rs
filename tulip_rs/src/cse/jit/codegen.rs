@@ -39,27 +39,56 @@ fn st(fb: &mut FunctionBuilder, base: Value, off: i64, val: Value) {
     fb.ins().store(MemFlagsData::new(), val, addr, 0);
 }
 
-/// Is op `o` a guard FLOOR — a constant strictly greater than `+0.0`?
-///
-/// This splits the two kinds of guard the measured A/B distinguished. A guard
-/// against a NONZERO positive constant (`stddev`'s `max(√var, ε)`, `ppo`'s
-/// denominator floor, `willr`'s `where(h−l ≥ ε, …)`) tests a quantity that is
-/// positive by construction, so its branch always predicts and blending it is
-/// pure extra work: those rows measured **+3…+5% SLOWER** blended. A guard
-/// against EXACTLY `+0.0` (`max(diff, 0)`) or against another VALUE (`tr`'s
-/// max-of-three, the ±DM exclusion) is a sign/magnitude test that alternates with
-/// the data, and blending it measured −27…−55%.
-///
-/// Engine-local and indicator-blind: it inspects the graph, never a recipe kind.
-/// `get` rather than indexing because an operand may be a raw price SLOT (`PRICE − k`,
-/// not an op) — that is never a floor, and must not panic the builder.
-fn clamp_guard(ops: &[Op], o: usize) -> bool {
+/// Which form a `Node::Max` guard takes: the cheapest one that is still
+/// bit-identical to the hand's `f64::max` (maxNum), chosen from the guard
+/// operand's SHAPE, never from who asked.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum GuardForm {
+    /// `b` is a nonzero positive constant — an ε floor on a denominator or
+    /// variance. `b` cannot be NaN so `select(a > b, a, b)` is maxNum, and the
+    /// predicate always predicts, so the jump is cheaper than blending (§6.25:
+    /// blending these cost +1.4…+4.7%).
+    Floor,
+    /// `b` is a provably non-NaN constant (`max(x, 0.0)`, a sign test that
+    /// alternates): `select(a > b, a, b)` is maxNum and x64 folds the vector form
+    /// to one `maxpd` — branchless AND one instruction.
+    SignTest,
+    /// `b` is a computed value, so it can be NaN while `a` is finite — and only
+    /// a true maxNum matches the hand there. `tr`'s `max(h−l, |h−prev close|)` is
+    /// this case, and a NaN close poisoned the whole series without it.
+    MaxNum,
+}
+
+/// Is op `o` a constant operand, and its value?
+fn const_operand(ops: &[Op], o: usize) -> Option<f64> {
     match ops.get(o) {
         Some(Op {
             e: OpE::Const(v), ..
-        }) => *v > 0.0,
-        _ => false,
+        }) => Some(*v),
+        _ => None,
     }
+}
+
+/// The structural decision behind [`GuardForm`].
+fn guard_form(ops: &[Op], b_op: usize) -> GuardForm {
+    match const_operand(ops, b_op) {
+        // A floor (nonzero positive constant) predicts; `+0.0` is the sign test.
+        Some(v) if v > 0.0 => GuardForm::Floor,
+        Some(_) => GuardForm::SignTest,
+        None => GuardForm::MaxNum,
+    }
+}
+
+/// Is op `o` a guard FLOOR — a constant strictly greater than `+0.0`?
+///
+/// The `WhereGe` site uses this alone: its blend-vs-jump choice is about
+/// PREDICTABILITY (an ε floor always takes the same arm, so blending it measured
+/// +1.4…+4.7%), and correctness needs no help — the predicate is only ever
+/// compared, never returned, so a NaN `b` gives `false` in both forms exactly as
+/// the hand's `if x >= eps` does. `Node::Max` returns its operand, so it needs the
+/// richer [`guard_form`] decision instead.
+fn clamp_guard(ops: &[Op], o: usize) -> bool {
+    matches!(const_operand(ops, o), Some(v) if v > 0.0)
 }
 
 /// Branchless `a > b ? a : b` in the XMM file only.
@@ -101,27 +130,133 @@ fn blend_ge(fb: &mut FunctionBuilder, a: Value, b: Value, t: Value, f: Value) ->
     fb.ins().extractlane(r, 0)
 }
 
-/// `a.max(b)` where `b` is the guard, matching the hand for **every shipped
-/// use**: `di`/`dx` `.max(0.0)`, `ppo`/`stddev` `.max(EPSILON)` all pass a
-/// constant `+0.0`/`+ε` as `b` and a possibly-NaN value as `a` (`0·inf`/`0/0`/
-/// `sqrt(<0)`); `tr`'s maxes take finite price differences as both. The two-op
-/// `select(a > b, a, b)` is `f64::max` for all finite inputs and on the ±0 tie,
-/// and still yields the guard on a NaN first operand — `gt(NaN, b) = false ⇒ b`
-/// — so `di`/`dx` on a zero ATR print `0.0` and `stddev`'s negative-variance
-/// `sqrt` clamps to `EPSILON`. This is also exactly the hand `tr`'s `if x > tr`
-/// reduction. It is NOT general IEEE maxNum: it diverges only when `b` could be
-/// NaN, and no recipe guards against that (every `b` here is a non-NaN constant
-/// or a finite price). The earlier `bor(fcmp.gt, fcmp.uno)` 4-op form bought
-/// that generality at a cost on the hot `tr` path for no reachable benefit.
+/// maxNum/minNum — **the hand's `reduce_max`/`reduce_min` and `f64::max`/`min`,
+/// which a NaN never decides.** Not CLIF `fmax`/`fmin` (those PROPAGATE NaN), and
+/// not [`blend_max`] on its own (its `select(a > b, a, b)` returns `b` when `b` is
+/// NaN, the opposite of the hand). Measured here: `Simd::reduce_max([1,NaN,3,2])
+/// = 3`, `f64::max(5.0, NaN) = 5`, `simd_ge` ordered.
 ///
-/// `blend` picks the FORM, never the value: `false` = `select` (which x64 emits
-/// as a JUMP), `true` = [`blend_max`] — bit-identical for every input.
-fn max_num(fb: &mut FunctionBuilder, a: Value, b: Value, blend: bool) -> Value {
-    if blend {
+/// So `b` is taken exactly when `a < b` ordered, or `a` is NaN. Two spellings,
+/// chosen by WHERE they run — measured same-binary (§6.27):
+/// · [`maxnum_repair`] — `maxpd` for the order plus a repair that only fires on
+///   poisoned data. Wins in the per-bar body: `jit_atr` 8.99 vs 13.03,
+///   `jit_supertrend` 24.87 vs 33.64.
+/// · [`maxnum_blend`] — branchless vector blend, no second branch. Wins in the
+///   walk's already-rare rescan block: `jit_max` 10.40 vs 11.23.
+///
+/// Under `feature = "safe_inputs"` the caller has declared every price finite, so
+/// neither repair is reachable and both collapse to the bare `maxpd`/`minpd`
+/// fold. That is the ONLY thing the feature changes, and it is what
+/// `non_finite_close_does_not_poison_true_range` and
+/// `rolls_match_hand_when_the_window_holds_non_finite_slots` exist to catch
+/// (both are compiled out under the feature, since they assert what it gives up).
+fn maxnum(fb: &mut FunctionBuilder, a: Value, b: Value) -> Value {
+    if cfg!(feature = "safe_inputs") {
         blend_max(fb, a, b)
     } else {
-        let gt = fb.ins().fcmp(FloatCC::GreaterThan, a, b);
-        fb.ins().select(gt, a, b)
+        maxnum_repair(fb, a, b)
+    }
+}
+
+/// `maxpd` + a predicted repair select. Without poisoned data the repair branch
+/// is never taken, so this costs [`blend_max`]'s work plus `ucomisd`/`jp`.
+fn maxnum_repair(fb: &mut FunctionBuilder, a: Value, b: Value) -> Value {
+    let r = blend_max(fb, a, b);
+    let bad = fb.ins().fcmp(FloatCC::Unordered, r, r);
+    fb.ins().select(bad, a, r)
+}
+
+/// The branchless form: two vector compares merged into one mask, applied inside
+/// the XMM file (no `movq` crossing, no branch at all).
+fn maxnum_blend(fb: &mut FunctionBuilder, a: Value, b: Value) -> Value {
+    if cfg!(feature = "safe_inputs") {
+        return blend_max(fb, a, b);
+    }
+    let ty = types::F64X2;
+    let i64x2 = types::I64X2;
+    let a2 = fb.ins().splat(ty, a);
+    let b2 = fb.ins().splat(ty, b);
+    let lt = fb.ins().fcmp(FloatCC::LessThan, a2, b2);
+    let a_nan = fb.ins().fcmp(FloatCC::Unordered, a2, a2);
+    let take = fb.ins().bor(lt, a_nan);
+    let m = fb.ins().bitcast(i64x2, MemFlagsData::new(), take);
+    let x = fb.ins().bitcast(i64x2, MemFlagsData::new(), b2);
+    let y = fb.ins().bitcast(i64x2, MemFlagsData::new(), a2);
+    let r = fb.ins().blendv(m, x, y);
+    let rv = fb.ins().bitcast(ty, MemFlagsData::new(), r);
+    fb.ins().extractlane(rv, 0)
+}
+
+/// [`maxnum`]'s mirror (hand `reduce_min` / `f64::min`).
+fn minnum(fb: &mut FunctionBuilder, a: Value, b: Value) -> Value {
+    let r = blend_min(fb, a, b);
+    if cfg!(feature = "safe_inputs") {
+        return r;
+    }
+    let bad = fb.ins().fcmp(FloatCC::Unordered, r, r);
+    fb.ins().select(bad, a, r)
+}
+
+/// [`maxnum_blend`]'s mirror.
+fn minnum_blend(fb: &mut FunctionBuilder, a: Value, b: Value) -> Value {
+    if cfg!(feature = "safe_inputs") {
+        return blend_min(fb, a, b);
+    }
+    let ty = types::F64X2;
+    let i64x2 = types::I64X2;
+    let a2 = fb.ins().splat(ty, a);
+    let b2 = fb.ins().splat(ty, b);
+    let gt = fb.ins().fcmp(FloatCC::GreaterThan, a2, b2);
+    let a_nan = fb.ins().fcmp(FloatCC::Unordered, a2, a2);
+    let take = fb.ins().bor(gt, a_nan);
+    let m = fb.ins().bitcast(i64x2, MemFlagsData::new(), take);
+    let x = fb.ins().bitcast(i64x2, MemFlagsData::new(), b2);
+    let y = fb.ins().bitcast(i64x2, MemFlagsData::new(), a2);
+    let r = fb.ins().blendv(m, x, y);
+    let rv = fb.ins().bitcast(ty, MemFlagsData::new(), r);
+    fb.ins().extractlane(rv, 0)
+}
+
+/// `a.min(b)` — the `blend_max` recognizer's mirror (`lower.isle:2155`,
+/// `fcmp(LessThan, x, y)` in the mask slot folds to one `minpd x y`).
+fn blend_min(fb: &mut FunctionBuilder, a: Value, b: Value) -> Value {
+    let ty = types::F64X2;
+    let a2 = fb.ins().splat(ty, a);
+    let b2 = fb.ins().splat(ty, b);
+    let lt = fb.ins().fcmp(FloatCC::LessThan, a2, b2);
+    let m = fb.ins().bitcast(ty, MemFlagsData::new(), lt);
+    let r = fb.ins().bitselect(m, a2, b2);
+    fb.ins().extractlane(r, 0)
+}
+
+/// `a.max(b)` where `b` is the guard — the hand's `f64::max`, which is maxNum (a
+/// NaN operand never decides; measured `f64::max(5.0, NaN) = 5`).
+///
+/// Which of the three forms in [`GuardForm`] is used depends on `b`'s shape, and
+/// each is bit-identical to the hand for that shape:
+/// · `b` a nonzero positive constant (`ppo`'s denominator floor, `stddev`'s
+///   variance floor): a floor whose branch always predicts;
+/// · `b` `+0.0` (`di`/`dx`/`rsi`/`cmo` guarding a possible `0·inf`/`0/0`): a sign
+///   test, folded to one `maxpd`;
+/// · `b` a computed VALUE (`tr`'s `max(h−l, |h−prev close|)`, where the second
+///   operand is NaN the moment a close is): true [`maxnum`], because `select` and
+///   CLIF `fmax` both mishandle a NaN `b` — one returns it, the other propagates
+///   it — and `probe_non_finite_price_propagation` showed a single NaN close
+///   poisoning the whole `tr`/ATR chain that way.
+///
+/// A tie returns `b` in the first two forms and is value-identical anyway
+/// (`maxNum(x, x)`); `-0.0` vs `+0.0` differs only in the sign of a zero, which
+/// the sums these feed cannot observe.
+fn max_num(fb: &mut FunctionBuilder, a: Value, b: Value, form: GuardForm) -> Value {
+    match form {
+        // Taking the SECOND operand on a NaN/tie is maxNum exactly because `b` is
+        // a constant and cannot be NaN.
+        GuardForm::Floor => {
+            let gt = fb.ins().fcmp(FloatCC::GreaterThan, a, b);
+            fb.ins().select(gt, a, b)
+        }
+        GuardForm::SignTest => blend_max(fb, a, b),
+        GuardForm::MaxNum => maxnum(fb, a, b),
     }
 }
 
@@ -152,9 +287,6 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     let f64_t = types::F64;
 
     let nops = plan.ops.len();
-    // E13: guard form for the data-dependent float predicates (copied out so the
-    // op loop reads a local, not `plan`, while `fb` is borrowed).
-    let blendguard = plan.blendguard;
     let nsinks = plan.stores.len();
     let ngroups = plan.groups.len();
     let chained: Vec<usize> = (0..nops)
@@ -1141,15 +1273,14 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                         ArithKind::Add => fb.ins().fadd(av, bv),
                         ArithKind::Mul => fb.ins().fmul(av, bv),
                         ArithKind::Div => fb.ins().fdiv(av, bv),
-                        // Rust `f64::max`, NOT CLIF `fmax` (NaN-propagating) —
-                        // see `max_num`. di/dx guard a possible `0·inf`/`0/0`
-                        // NaN with `.max(0.0)`.
+                        // Rust `f64::max` is maxNum, and `max_num`'s two forms
+                        // reproduce it whenever the guard operand cannot be NaN;
+                        // `di`/`dx`/`rsi`/`cmo` guard a `0·inf`/`0/0` against
+                        // `+0.0`, `ppo` floors a ratio denominator at ε.
                         ArithKind::Max => {
-                            // Blend only the sign/magnitude tests; a floor against a
-                            // nonzero positive constant always predicts (see
-                            // `clamp_guard`).
-                            let blend = blendguard && !clamp_guard(&plan.ops, b);
-                            max_num(&mut fb, av, bv, blend)
+                            // Cheapest form that is still the hand's maxNum for
+                            // this guard's shape — see `GuardForm`.
+                            max_num(&mut fb, av, bv, guard_form(&plan.ops, b))
                         }
                     }
                 }
@@ -1309,10 +1440,10 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                     let sdr = fb.ins().sqrt(sd0);
                     let eps = fb.ins().f64const(f64::EPSILON);
                     sq_lat[sk] = Some(sq2);
-                    // Never blended: this is the floor case by construction (a
-                    // variance clamped to ε), and its ε is a literal, not an op the
-                    // `clamp_guard` predicate could see.
-                    max_num(&mut fb, sdr, eps, false)
+                    // A floor by construction (a variance clamped to ε) whose ε is
+                    // a literal here, not an op `guard_form` could inspect — and a
+                    // NaN `sqrt` must yield ε, which the `select` form does.
+                    max_num(&mut fb, sdr, eps, GuardForm::Floor)
                 }
                 OpE::Roll {
                     src,
@@ -1415,18 +1546,20 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                         // has none), and why the running value/index pair stays a
                         // single (scalar, scalar) like the hand's `find_max_simd`.
                         //
-                        // The improvement test is `UGE` with the operands swapped for
-                        // min (`chunk ≤ gmin` ≡ `gmin ≥ chunk`), because x64 lowers the
-                        // unordered-or-greater forms and NOT `ULE`.
+                        // The improvement gate is an ORDERED `>=` with the operands
+                        // swapped for min (`chunk ≤ gmin` ≡ `gmin ≥ chunk`), which is
+                        // exactly the hand's `simd_ge`/`simd_le` gate: a NaN lane
+                        // never counts as an improvement. (x64 has no `ULE` lowering,
+                        // so the swap is also how the min direction is expressed.)
                         //
-                        // NaN is the one place the two walks are NOT interchangeable:
-                        // `fmax`/`fmin` drop a NaN operand, while the scalar chain's
-                        // `fcmp(ge)`/`fcmp(le)` returns false on NaN and so keeps the
-                        // previous best. This matches the engine's standing position on
-                        // price data (see `max_num`: bit-identical for finite prices) and
-                        // the hand's own scalar-vs-SIMD pair already differs the same
-                        // way, but it is why a NaN-tolerant dataset would need the
-                        // scalar walk (`CSE_SCALARWALK=1`) to stay hand-exact.
+                        // The pair reduce is `maxnum`/`minnum`, NOT CLIF `fmax`/`fmin`:
+                        // those PROPAGATE NaN ("if either operand is NaN, return NaN")
+                        // while the hand's `Simd::reduce_max` IGNORES it, and the
+                        // improving chunk can hold one poisoned lane and one real one.
+                        // `blend_max`'s `select(a > b, a, b)` is wrong here too — it
+                        // returns `b` when `b` is NaN. `rolls_match_hand_when_the_
+                        // window_holds_non_finite_slots` is the gate for all of this;
+                        // both walks now agree with the hand on every class.
                         macro_rules! walkv {
                             ($base:expr, $n:expr, $nonstrict:expr, $is_max:expr) => {{
                                 let n: i64 = $n;
@@ -1453,21 +1586,27 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                                     let a = fb.ins().iadd(base, off);
                                     let chunk = fb.ins().load(vty, MemFlagsData::new(), a, 0);
                                     let (ca, cb) = if is_max { (chunk, gv) } else { (gv, chunk) };
-                                    let chg = fb.ins().fcmp(
-                                        FloatCC::UnorderedOrGreaterThanOrEqual,
-                                        ca,
-                                        cb,
-                                    );
+                                    // ORDERED `>=`, exactly the hand's `simd_ge`
+                                    // gate: a NaN lane never counts as an
+                                    // improvement. (An unordered form would make a
+                                    // poisoned slot win the rare path and then the
+                                    // pair reduce below has to un-decide it.)
+                                    let chg = fb.ins().fcmp(FloatCC::GreaterThanOrEqual, ca, cb);
                                     let any = fb.ins().vany_true(chg);
                                     fb.ins()
                                         .brif(any, up_bb, &ba(&[]), mrg_bb, &ba(&[gv, bc, bs]));
                                     fb.switch_to_block(up_bb);
                                     let l0 = fb.ins().extractlane(chunk, 0);
                                     let l1 = fb.ins().extractlane(chunk, 1);
+                                    // Branchless here: this block already runs on
+                                    // only ~6–15% of bars and the repair's extra
+                                    // predicted jump measured worse in the scan
+                                    // (`jit_max` 11.23 vs 10.40), unlike the
+                                    // per-bar body where it wins big.
                                     let nm = if is_max {
-                                        fb.ins().fmax(l0, l1)
+                                        maxnum_blend(&mut fb, l0, l1)
                                     } else {
-                                        fb.ins().fmin(l0, l1)
+                                        minnum_blend(&mut fb, l0, l1)
                                     };
                                     let ng = fb.ins().splat(vty, nm);
                                     let sj = fb.ins().iconst(i64_t, 1 + 2 * j);
@@ -1844,7 +1983,7 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                     // compared operands, so no `maxpd` recognizer applies — the mask
                     // still comes from a vector `fcmp`, which is what keeps the
                     // register-file crossing off the critical path (`blend_ge`).
-                    if blendguard && !clamp_guard(&plan.ops, b) {
+                    if !clamp_guard(&plan.ops, b) {
                         blend_ge(&mut fb, av, bv, tv, z)
                     } else {
                         let ge = fb.ins().fcmp(FloatCC::GreaterThanOrEqual, av, bv);
@@ -1912,14 +2051,17 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                         let notcd = fb.ins().bnot(cd);
                         let held = fb.ins().band(trend0, notcd);
                         let trend = fb.ins().bor(cu, held);
-                        // Band clamps stay raw `fmax`/`fmin` (not `max_num`):
-                        // both operands are finite — `med ± step·atr` and the
-                        // carried band, over finite OHLC with no division — so
-                        // maxNum and the NaN-propagating form are bit-identical
-                        // here. The hand-parity bug (§2.1) needs the NaN guard
-                        // only where a `0·inf`/`0/0` can appear.
-                        let lb_clamp = fb.ins().fmax(prev_lb, lb_raw);
-                        let ub_clamp = fb.ins().fmin(prev_ub, ub_raw);
+                        // The hand writes these as `f64::max`/`f64::min`, which are
+                        // maxNum/minNum: a NaN operand never decides. CLIF `fmax`
+                        // PROPAGATES NaN, so while both bands are finite on clean
+                        // data they are not equal in general — once a NaN price
+                        // poisons the carried `prev_lb`, the hand's max recovers to
+                        // the fresh finite band on the next bar and `fmax` does not.
+                        // `maxnum`/`minnum` (the `maxpd` + predicted-repair form)
+                        // match the hand and cost no vector-round-trip blend; in
+                        // the per-bar body this beat the branchless blend by ~30%.
+                        let lb_clamp = maxnum(&mut fb, prev_lb, lb_raw);
+                        let ub_clamp = minnum(&mut fb, prev_ub, ub_raw);
                         let st = fb.ins().select(trend, lb_clamp, ub_clamp);
                         let n_lb = fb.ins().select(trend, lb_clamp, lb_raw);
                         let n_ub = fb.ins().select(trend, ub_raw, ub_clamp);

@@ -47,13 +47,25 @@ tulip_rs_shared = "0.1.0"
 
 [features]
 #default = []
-default = ["simd_options", "simd_assets"] #, "candle_deep_analysis"]
+default = ["simd_options", "simd_assets", "safe_inputs"] #, "candle_deep_analysis"]
 portable_simd = []
 simd_options = []
 simd_assets = []
 # Lane-width cap reserved for a future lane-packed JIT (vector `fma` groups,
 # `cse/jit.rs` step E1); nothing reads it yet.
 avx512 = []
+# Declares the price series trustworthy: finite (no NaN/±inf) and `low <= open /
+# close / high` with `high >= low`. The JIT then drops the NaN repairs it puts on
+# VALUE guards (`GuardForm::MaxNum` collapses to one `maxpd`), worth ~12-15% on
+# `tr`/ATR/SuperTrend, and the non-finite class tests are compiled out because
+# they assert the behaviour this feature gives up.
+#
+# It deliberately does NOT remove the ε floors: a FLAT bar (`high == low`, legal
+# data) still makes `willr`/`donchian` compute `0/0`, and a negative variance is a
+# rounding artifact of `stddev`'s formula rather than bad input. Zero prices are
+# impossible per the data contract, but those guards are a predicted branch that
+# costs nothing, so the feature does not touch them either.
+safe_inputs = []
 
 # TODO figure out how to do a deep analysis to eliminate pattern clashes and pull out only one match, would be a cool feature
 # candle_deep_analysis = []
