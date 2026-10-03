@@ -7,8 +7,7 @@ use std::simd::Simd;
 
 use crate::indicators::ad::{Ad, Indicator};
 use crate::indicators::adosc::{
-    Adosc, multiplier, validate_options as vo, IndicatorState, State,
-    INPUTS, OPTIONS,
+    multiplier, validate_options as vo, Adosc, IndicatorState, State, INPUTS, OPTIONS,
 };
 use crate::indicators::ema::Ema;
 use crate::indicators::simd_indicators::adosc_simd::{SimdState, TState};

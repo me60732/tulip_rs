@@ -2,7 +2,9 @@
 mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicator_types::IndicatorByOptions;
-    use tulip_rs::indicators::fosc::{Fosc, Indicator, TIndicatorState, IndicatorState, INPUTS, OPTIONS};
+    use tulip_rs::indicators::fosc::{
+        Fosc, Indicator, IndicatorState, TIndicatorState, INPUTS, OPTIONS,
+    };
     use tulip_test::c_bindings::{
         ti_fosc, ti_fosc_start, ti_linreg, ti_linreg_start, ti_linregintercept,
         ti_linregintercept_start, ti_linregslope, ti_linregslope_start, ti_tsf, ti_tsf_start,

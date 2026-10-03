@@ -5,8 +5,8 @@
 //! contiguous ordered window for min/max SIMD scans.
 
 use crate::indicators::simd_indicators::{
-    max_simd::{find_max_scalar, assets::SimdState as MaxState},
-    min_simd::{find_min_scalar, assets::SimdState as MinState},
+    max_simd::{assets::SimdState as MaxState, find_max_scalar},
+    min_simd::{assets::SimdState as MinState, find_min_scalar},
     simd_types::UsizeConstants,
 };
 use crate::indicators::{

@@ -6,9 +6,9 @@ use crate::indicators::simd_indicators::ema_simd::SimdState as EmaSimdState;
 pub(crate) use crate::indicators::simd_indicators::by_option::apo::indicator_by_options;
 
 pub use crate::indicator_types::{TSimdState, TState};
-use std::simd::Simd;
 use crate::indicators::apo::State;
 use crate::types::Warm;
+use std::simd::Simd;
 
 /// SIMD-parallel state for computing the Absolute Price Oscillator (APO) across `N` assets
 /// simultaneously. Each field is a SIMD vector where lane `i` corresponds to asset `i`.
@@ -28,13 +28,10 @@ impl<const N: usize> TState for SimdState<N> {
     type Outputs = Simd<f64, N>;
 
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        real: Self::Inputs<'a>,
-    ) -> Self::Outputs {
+    fn calc<'a>(&mut self, real: Self::Inputs<'a>) -> Self::Outputs {
         let short_ema = self.short_ema.calc(real);
         let long_ema = self.long_ema.calc(real);
-    
+
         short_ema - long_ema
     }
 }

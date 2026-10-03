@@ -6,10 +6,7 @@ use std::simd::Simd;
 use crate::indicators::simd_indicators::supertrend_simd::{SimdState, TSimdState, TState};
 use crate::indicators::{
     medprice::Medprice,
-    supertrend::{
-        SuperTrend, Indicator, validate_options, IndicatorState, State, INPUTS,
-        OPTIONS,
-    },
+    supertrend::{validate_options, Indicator, IndicatorState, State, SuperTrend, INPUTS, OPTIONS},
     tr::Tr,
 };
 

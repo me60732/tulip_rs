@@ -1,7 +1,9 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::macd::{Indicator, IndicatorByOptions, Macd, TIndicatorState, INPUTS, OPTIONS, IndicatorState};
+    use tulip_rs::indicators::macd::{
+        Indicator, IndicatorByOptions, IndicatorState, Macd, TIndicatorState, INPUTS, OPTIONS,
+    };
     use tulip_test::c_bindings::{ti_ema, ti_ema_start, ti_macd, ti_macd_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 

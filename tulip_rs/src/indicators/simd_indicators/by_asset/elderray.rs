@@ -5,11 +5,9 @@ use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
-use crate::indicators::elderray::{
-    Elderray, Indicator, IndicatorState, INPUTS, OPTIONS, State
-};
+use crate::indicators::elderray::{Elderray, Indicator, IndicatorState, State, INPUTS, OPTIONS};
 //use crate::indicators::ad::output_length;
-use crate::indicators::simd_indicators::elderray_simd::{TSimdState, TState, SimdState};
+use crate::indicators::simd_indicators::elderray_simd::{SimdState, TSimdState, TState};
 
 /// SIMD driver that advances Elder-ray across `N` asset lanes per scheduling epoch.
 struct ElderRayDriver {

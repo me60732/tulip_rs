@@ -15,8 +15,7 @@ use std::simd::{Simd, StdFloat};
 pub mod assets {
     use super::*;
     use crate::indicators::simd_indicators::{
-        max_simd::assets::SimdState as MaxSimdState,
-        min_simd::assets::SimdState as MinSimdState,
+        max_simd::assets::SimdState as MaxSimdState, min_simd::assets::SimdState as MinSimdState,
     };
 
     pub struct SimdState<const N: usize> {
@@ -76,8 +75,7 @@ pub mod assets {
 pub mod options {
     use super::*;
     use crate::indicators::simd_indicators::{
-        max_simd::options::SimdState as MaxSimdState,
-        min_simd::options::SimdState as MinSimdState,
+        max_simd::options::SimdState as MaxSimdState, min_simd::options::SimdState as MinSimdState,
     };
     pub struct SimdState<const N: usize> {
         min_state: MinSimdState<N>,

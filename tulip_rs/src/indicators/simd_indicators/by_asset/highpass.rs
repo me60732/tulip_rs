@@ -1,8 +1,6 @@
-use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
+use crate::indicators::highpass::{HighPass, Indicator, IndicatorState, State, INPUTS, OPTIONS};
 use crate::indicators::simd_indicators::highpass_simd::{SimdState, TSimdState, TState};
-use crate::indicators::highpass::{
-    HighPass, Indicator, IndicatorState, State, INPUTS, OPTIONS,
-};
+use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;

@@ -1,8 +1,8 @@
+pub use crate::indicator_types::{TSimdState, TState};
 use crate::indicators::pvi::IndicatorState as State;
 #[cfg(feature = "simd_assets")]
 pub(crate) use crate::indicators::simd_indicators::by_asset::pvi::indicator_by_assets;
 use std::simd::{cmp::SimdPartialOrd, *};
-pub use crate::indicator_types::{TSimdState, TState};
 /// SIMD-parallel state for the Positive Volume Index (PVI) indicator, holding `N` lanes of per-asset state.
 pub struct SimdState<const N: usize> {
     pvi: Simd<f64, N>,
@@ -11,7 +11,7 @@ pub struct SimdState<const N: usize> {
 }
 impl<const N: usize> TSimdState for SimdState<N> {
     type ScalarState = State;
-    
+
     crate::simd_state_impl!(
          sub: [],
          scalar: [pvi, close, volume]
@@ -20,7 +20,7 @@ impl<const N: usize> TSimdState for SimdState<N> {
 impl<const N: usize> TState for SimdState<N> {
     type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>);
     type Outputs = Simd<f64, N>;
-    
+
     #[inline(always)]
     fn calc<'a>(&mut self, (close, volume): Self::Inputs<'a>) -> Self::Outputs {
         // Create a mask for where volume < state.volume
@@ -33,4 +33,3 @@ impl<const N: usize> TState for SimdState<N> {
         self.pvi
     }
 }
-

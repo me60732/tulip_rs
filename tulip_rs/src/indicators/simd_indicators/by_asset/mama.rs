@@ -1,6 +1,6 @@
 use crate::common_simd::assets::validate_inputs;
 use crate::indicators::mama::{
-    Mama, Indicator, validate_options, IndicatorState, State, INPUTS, OPTIONS,
+    validate_options, Indicator, IndicatorState, Mama, State, INPUTS, OPTIONS,
 };
 use crate::indicators::simd_indicators::mama_simd::{SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};

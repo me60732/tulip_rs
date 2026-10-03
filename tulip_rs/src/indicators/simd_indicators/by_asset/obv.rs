@@ -1,8 +1,6 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::assets::validate_inputs;
-use crate::indicators::obv::{
-    Obv, Indicator, State, INPUTS, OPTIONS,
-};
+use crate::indicators::obv::{Indicator, Obv, State, INPUTS, OPTIONS};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;
@@ -47,7 +45,6 @@ impl Driver<State> for ObvDriver {
             );
             let obv = state.calc(inputs);
 
-            
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, i,
                 output_ptrs => obv

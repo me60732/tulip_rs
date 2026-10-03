@@ -5,9 +5,7 @@ use crate::types::{IndicatorError, Warm};
 use crate::indicators::dema::Dema;
 use crate::indicators::ema::Ema;
 use crate::indicators::simd_indicators::tema_simd::{SimdState, TSimdState, TState};
-use crate::indicators::tema::{
-    Tema, Indicator, IndicatorState, State, INPUTS, OPTIONS,
-};
+use crate::indicators::tema::{Indicator, IndicatorState, State, Tema, INPUTS, OPTIONS};
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
 
@@ -108,11 +106,7 @@ pub(crate) fn indicator_by_assets<const N: usize>(
             )
         };
 
-        let state = State::init_state(
-            inputs[i][0],
-            period,
-            (&mut dema_line, &mut ema_line),
-        );
+        let state = State::init_state(inputs[i][0], period, (&mut dema_line, &mut ema_line));
         let asset_inputs = vec![inputs[i][0]];
         let mut starts = [0; 3];
         (starts[1], starts[2]) = crate::slice_outputs_start!(tema_capacity, dema_line, ema_line);

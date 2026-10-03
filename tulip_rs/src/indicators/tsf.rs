@@ -25,8 +25,8 @@ pub struct IndicatorState {
 pub struct State<S = Cold> {
     pub linreg_state: LinregState<S>,
     pub sum_x: f64,
-    pub per: f64, 
-    pub inv_n: f64
+    pub per: f64,
+    pub inv_n: f64,
 }
 
 impl State<Cold> {
@@ -36,7 +36,7 @@ impl State<Cold> {
             linreg_state,
             sum_x,
             per,
-            inv_n
+            inv_n,
         }
     }
 }
@@ -45,7 +45,9 @@ impl TState for State<Warm> {
     type Outputs = (f64, f64, f64, f64);
     #[inline(always)]
     fn calc<'a>(&mut self, (prev_value, value): Self::Inputs<'a>) -> Self::Outputs {
-        let (linreg, slope, intercept) = self.linreg_state.calc((prev_value, value, (self.sum_x, self.per, self.inv_n)));
+        let (linreg, slope, intercept) =
+            self.linreg_state
+                .calc((prev_value, value, (self.sum_x, self.per, self.inv_n)));
         //let tsf = intercept + slope * (period + 1) as f64;
         let tsf = slope.mul_add(self.linreg_state.n + 1.0, intercept);
         (tsf, linreg, slope, intercept)

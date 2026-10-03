@@ -1,8 +1,8 @@
 //use crate::common::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::volatility_simd::{ TSimdState, TState, assets::SimdState};
+use crate::indicators::simd_indicators::volatility_simd::{assets::SimdState, TSimdState, TState};
 use crate::indicators::volatility::{
-    Volatility, Indicator, IndicatorState, State, INPUTS, OPTIONS,
+    Indicator, IndicatorState, State, Volatility, INPUTS, OPTIONS,
 };
 use crate::types::{IndicatorError, Warm};
 use crate::{common::validate_options, common_simd::assets::validate_inputs};

@@ -2,7 +2,9 @@
 mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicator_types::IndicatorByOptions;
-    use tulip_rs::indicators::stochrsi::{Indicator, StochRsi, TIndicatorState, IndicatorState, OPTIONS, INPUTS};
+    use tulip_rs::indicators::stochrsi::{
+        Indicator, IndicatorState, StochRsi, TIndicatorState, INPUTS, OPTIONS,
+    };
     use tulip_test::c_bindings::{ti_rsi, ti_rsi_start, ti_stochrsi, ti_stochrsi_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
     const EPSILON: f64 = 1e-10;

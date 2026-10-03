@@ -1,6 +1,4 @@
-use crate::indicators::kama::{
-    Kama, Indicator, IndicatorState, State, INPUTS, OPTIONS,
-};
+use crate::indicators::kama::{Indicator, IndicatorState, Kama, State, INPUTS, OPTIONS};
 use crate::indicators::simd_indicators::kama_simd::{SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::{IndicatorError, Warm};
@@ -35,7 +33,6 @@ impl Driver<State<Warm>> for KamaDriver {
         let input_ptrs = crate::extract_input_ptrs!(inputs, N, input_ptrs);
         let (kama_line_ptr, ef_line_ptr) =
             crate::extract_output_ptrs!(outputs, N, kama_line_ptr, ef_line_ptr);
-
 
         // Optimized main loop with minimal overhead
         for (j, i) in (self.period..len).enumerate() {
@@ -122,7 +119,7 @@ pub(crate) fn indicator_by_assets<const N: usize>(
             asset_inputs,
             asset_outputs,
             i,
-            period+1,
+            period + 1,
             period,
             state,
             None,
@@ -138,11 +135,7 @@ pub(crate) fn indicator_by_assets<const N: usize>(
 
     let mut states = Vec::with_capacity(N);
     for (i, state) in final_states.into_iter().enumerate() {
-        states.push(IndicatorState::new(
-            inputs[i][0],
-            period,
-            state,
-        ));
+        states.push(IndicatorState::new(inputs[i][0], period, state));
     }
     Ok((output_buffers, states))
 }

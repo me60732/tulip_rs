@@ -29,7 +29,7 @@ pub struct SimdState<const N: usize> {
 
 impl<const N: usize> TSimdState for SimdState<N> {
     type ScalarState = State;
-    
+
     crate::simd_state_impl!(
          sub: [(hd: HdSimdState<N>)],
          scalar: [it_prev, it_prev2, alpha]
@@ -38,7 +38,7 @@ impl<const N: usize> TSimdState for SimdState<N> {
 impl<const N: usize> TState for SimdState<N> {
     type Inputs<'a> = Simd<f64, N>;
     type Outputs = Simd<f64, N>;
-    
+
     #[inline(always)]
     fn calc(&mut self, real: Simd<f64, N>) -> Simd<f64, N> {
         let dc = self.hd.calc(real);
@@ -68,4 +68,3 @@ impl<const N: usize> TState for SimdState<N> {
         it
     }
 }
-

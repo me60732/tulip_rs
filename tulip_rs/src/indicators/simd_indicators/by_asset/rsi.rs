@@ -1,7 +1,5 @@
 //use crate::common::validate_inputs;
-use crate::indicators::rsi::{
-    Rsi, Indicator, IndicatorState, State, INPUTS, OPTIONS,
-};
+use crate::indicators::rsi::{Indicator, IndicatorState, Rsi, State, INPUTS, OPTIONS};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::simd_indicators::rsi_simd::{SimdState, TSimdState, TState};
 use crate::types::{IndicatorError, Warm};
@@ -78,7 +76,7 @@ pub(crate) fn indicator_by_assets<const N: usize>(
     let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut output_buffers = Vec::with_capacity(N);
     let period = options[0] as usize;
-    
+
     for i in 0..N {
         let asset_inputs = vec![inputs[i][0]];
         let rsi_line = {

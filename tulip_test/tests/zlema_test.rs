@@ -2,7 +2,9 @@
 mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicator_types::IndicatorByOptions;
-    use tulip_rs::indicators::zlema::{Indicator, TIndicatorState, Zlema, IndicatorState, INPUTS, OPTIONS};
+    use tulip_rs::indicators::zlema::{
+        Indicator, IndicatorState, TIndicatorState, Zlema, INPUTS, OPTIONS,
+    };
     use tulip_test::c_bindings::{ti_zlema, ti_zlema_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 

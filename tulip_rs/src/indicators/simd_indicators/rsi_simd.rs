@@ -4,15 +4,16 @@ pub(crate) use crate::indicators::simd_indicators::by_asset::rsi::indicator_by_a
 #[cfg(feature = "simd_options")]
 pub(crate) use crate::indicators::simd_indicators::by_option::rsi::indicator_by_options;
 
+pub use crate::indicator_types::{TSimdState, TState};
 use crate::indicators::rsi::State;
 use crate::indicators::simd_indicators::{
-    cmo_simd::up_down_simd, simd_types::F64Constants, 
+    cmo_simd::up_down_simd,
+    simd_types::F64Constants,
     wilders_simd::{calc_simd as calc_wilders, SimdState as WildersSimdState},
 };
 use crate::types::Warm;
-use std::simd::Simd;
-pub use crate::indicator_types::{TSimdState, TState};
 use std::ops::{Deref, DerefMut};
+use std::simd::Simd;
 /// SIMD-parallel state for the Relative Strength Index (RSI) indicator, holding `N` lanes of per-asset state.
 pub struct SimdState<const N: usize> {
     pub up_sum: WildersSimdState<N>,
@@ -21,10 +22,14 @@ pub struct SimdState<const N: usize> {
 }
 impl<const N: usize> Deref for SimdState<N> {
     type Target = WildersSimdState<N>;
-    fn deref(&self) -> &Self::Target { &self.up_sum }
+    fn deref(&self) -> &Self::Target {
+        &self.up_sum
+    }
 }
 impl<const N: usize> DerefMut for SimdState<N> {
-    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.up_sum }
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.up_sum
+    }
 }
 impl<const N: usize> TSimdState for SimdState<N> {
     type ScalarState = State<Warm>;
@@ -44,7 +49,13 @@ impl<const N: usize> TSimdState for SimdState<N> {
             inv_multiplier[i] = states[i].wilders_state.inv_multiplier[0];
         }
         Self {
-            up_sum: WildersSimdState::new(Simd::from_array(up_sum), (Simd::from_array(multiplier), Simd::from_array(inv_multiplier))),
+            up_sum: WildersSimdState::new(
+                Simd::from_array(up_sum),
+                (
+                    Simd::from_array(multiplier),
+                    Simd::from_array(inv_multiplier),
+                ),
+            ),
             down_sum: Simd::from_array(down_sum),
             prev_real: Simd::from_array(prev_real),
         }
@@ -69,10 +80,7 @@ impl<const N: usize> TState for SimdState<N> {
     type Inputs<'a> = Simd<f64, N>;
     type Outputs = Simd<f64, N>;
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        cur_real: Self::Inputs<'a>,
-    ) -> Self::Outputs {
+    fn calc<'a>(&mut self, cur_real: Self::Inputs<'a>) -> Self::Outputs {
         let (up, down) = up_down_simd(cur_real, self.prev_real);
         let up_sum = self.up_sum.calc(up);
         self.down_sum = calc_wilders(self.down_sum, down, (self.multiplier, self.inv_multiplier));

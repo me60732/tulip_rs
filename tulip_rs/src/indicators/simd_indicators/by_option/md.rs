@@ -1,6 +1,6 @@
 use crate::types::IndicatorError;
 
-use crate::indicators::md::{Md, Indicator, IndicatorState, INPUTS, OPTIONS};
+use crate::indicators::md::{Indicator, IndicatorState, Md, INPUTS, OPTIONS};
 
 /// Computes the Mean Deviation (MD) for `N` independent option sets by running the scalar
 /// indicator once per option set.

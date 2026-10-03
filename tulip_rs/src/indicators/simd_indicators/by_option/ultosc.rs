@@ -4,10 +4,7 @@ use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::simd_indicators::ultosc_simd::options::{SimdState, TState};
 use crate::indicators::{
     tr::Tr,
-    ultosc::{
-        Ultosc, Indicator, validate_options as vo, IndicatorState, State, INPUTS,
-        OPTIONS,
-    },
+    ultosc::{validate_options as vo, Indicator, IndicatorState, State, Ultosc, INPUTS, OPTIONS},
 };
 use crate::types::{IndicatorError, Warm};
 

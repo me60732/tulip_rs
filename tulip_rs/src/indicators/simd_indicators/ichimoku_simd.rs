@@ -17,8 +17,7 @@ use std::simd::Simd;
 pub mod assets {
     use super::*;
     use crate::indicators::simd_indicators::{
-        max_simd::assets::SimdState as MaxSimdState,
-        min_simd::assets::SimdState as MinSimdState,
+        max_simd::assets::SimdState as MaxSimdState, min_simd::assets::SimdState as MinSimdState,
     };
 
     pub struct SimdState<const N: usize> {
@@ -90,8 +89,7 @@ pub mod assets {
 pub mod options {
     use super::*;
     use crate::indicators::simd_indicators::{
-        max_simd::options::SimdState as MaxSimdState,
-        min_simd::options::SimdState as MinSimdState,
+        max_simd::options::SimdState as MaxSimdState, min_simd::options::SimdState as MinSimdState,
     };
 
     pub struct SimdState<const N: usize> {
@@ -109,34 +107,28 @@ pub mod options {
              scalar: []
         );
     }
-    
 
     impl<const N: usize> TState for SimdState<N> {
-        type Inputs<'a> = ([*const f64; N], [*const f64; N], Simd<usize, N>, Simd<usize, N>, Simd<usize, N>, Simd<usize, N>);
+        type Inputs<'a> = (
+            [*const f64; N],
+            [*const f64; N],
+            Simd<usize, N>,
+            Simd<usize, N>,
+            Simd<usize, N>,
+            Simd<usize, N>,
+        );
         type Outputs = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
         #[inline(always)]
         fn calc(
             &mut self,
-            (high, low, i, short_look_back, long_look_back, ultra_look_back): Self::Inputs<'_>
+            (high, low, i, short_look_back, long_look_back, ultra_look_back): Self::Inputs<'_>,
         ) -> Self::Outputs {
-            let (short_min, _) = self
-                .short_min_state
-                .calc((low, i, short_look_back));
-            let (short_max, _) = self
-                .short_max_state
-                .calc((high, i, short_look_back));
-            let (medium_min, _) = self
-                .medium_min_state
-                .calc((low, i, long_look_back));
-            let (medium_max, _) =
-                self.medium_max_state
-                    .calc((high, i, long_look_back));
-            let (long_min, _) = self
-                .long_min_state
-                .calc((low, i, ultra_look_back));
-            let (long_max, _) = self
-                .long_max_state
-                .calc((high, i, ultra_look_back));
+            let (short_min, _) = self.short_min_state.calc((low, i, short_look_back));
+            let (short_max, _) = self.short_max_state.calc((high, i, short_look_back));
+            let (medium_min, _) = self.medium_min_state.calc((low, i, long_look_back));
+            let (medium_max, _) = self.medium_max_state.calc((high, i, long_look_back));
+            let (long_min, _) = self.long_min_state.calc((low, i, ultra_look_back));
+            let (long_max, _) = self.long_max_state.calc((high, i, ultra_look_back));
 
             let half = Simd::splat(0.5_f64);
             let conversion = half * (short_min + short_max);

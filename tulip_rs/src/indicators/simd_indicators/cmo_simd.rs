@@ -28,10 +28,7 @@ impl<const N: usize> TState for SimdState<N> {
     type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>);
     type Outputs = Simd<f64, N>;
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        (cur_real, old_real): Self::Inputs<'a>,
-    ) -> Simd<f64, N> {
+    fn calc<'a>(&mut self, (cur_real, old_real): Self::Inputs<'a>) -> Simd<f64, N> {
         let (old_up, old_down) = up_down_simd(old_real, self.drop_real);
         self.drop_real = old_real;
         let (up, down) = up_down_simd(cur_real, self.prev);

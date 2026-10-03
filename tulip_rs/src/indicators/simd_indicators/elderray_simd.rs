@@ -5,12 +5,12 @@ pub(crate) use crate::indicators::simd_indicators::by_asset::elderray::indicator
 pub(crate) use crate::indicators::simd_indicators::by_option::elderray::indicator_by_options;
 
 pub use crate::indicator_types::{TSimdState, TState};
-use crate::indicators::simd_indicators::ema_simd::SimdState as EmaSimdState;
 use crate::indicators::elderray::State;
+use crate::indicators::simd_indicators::ema_simd::SimdState as EmaSimdState;
 use crate::types::Warm;
 
-use std::simd::Simd;
 use std::ops::{Deref, DerefMut};
+use std::simd::Simd;
 #[repr(transparent)]
 pub struct SimdState<const N: usize>(pub EmaSimdState<N>);
 impl<const N: usize> Deref for SimdState<N> {
@@ -30,12 +30,9 @@ impl<const N: usize> TState for SimdState<N> {
     type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
     type Outputs = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        (high, low, close): Self::Inputs<'a>
-    ) -> Self::Outputs {
+    fn calc<'a>(&mut self, (high, low, close): Self::Inputs<'a>) -> Self::Outputs {
         let ema = self.0.calc(close);
-    
+
         (high - ema, low - ema, ema)
     }
 }
@@ -50,4 +47,3 @@ impl<const N: usize> TSimdState for SimdState<N> {
         self.0.write_states(&mut inner)
     }
 }
-

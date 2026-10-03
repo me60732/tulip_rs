@@ -6,8 +6,8 @@ pub(crate) use crate::indicators::simd_indicators::by_asset::cybercycle::indicat
 pub(crate) use crate::indicators::simd_indicators::by_option::cybercycle::indicator_by_options;
 use crate::indicators::simd_indicators::simd_types::F64Constants;
 use crate::ring_buffer::fixed_single_buffer::{FixedRingBuffer, FixedSimdRingBuffer};
-use std::simd::{Simd, StdFloat};
 use crate::types::Warm;
+use std::simd::{Simd, StdFloat};
 /// SIMD-parallel state for the Ehlers CyberCycle across `N` assets simultaneously.
 ///
 /// Mirrors [`State`] but packs `N` independent assets into each SIMD vector,
@@ -128,4 +128,3 @@ impl<const N: usize> TState for SimdState<N> {
         cycle
     }
 }
-

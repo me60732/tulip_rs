@@ -270,4 +270,3 @@ pub(crate) fn calc_md_simd<const N: usize>(slice: &[f64], sma: f64, multiplier: 
 pub fn calc_md(real: &[f64], sma: f64, multiplier: f64) -> f64 {
     real.iter().map(|&x| (x - sma).abs()).sum::<f64>() * multiplier
 }
-

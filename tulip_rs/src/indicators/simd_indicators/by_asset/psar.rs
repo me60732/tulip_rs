@@ -1,6 +1,6 @@
 use crate::types::IndicatorError;
 
-use crate::indicators::psar::{Psar, Indicator, IndicatorState, INPUTS, OPTIONS};
+use crate::indicators::psar::{Indicator, IndicatorState, Psar, INPUTS, OPTIONS};
 
 /// Calculates the Parabolic SAR (PSAR) for `N` assets by calling the scalar
 /// [`indicator`] function for each asset independently.

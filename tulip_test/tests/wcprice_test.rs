@@ -422,8 +422,9 @@ mod tests {
         let options: [f64; 0] = [];
 
         // Run original state
-        let (_outputs_first, mut original_state) = WcPrice::indicator(&inputs_first, &options, None)
-            .expect("Rust WCPRICE indicator failed");
+        let (_outputs_first, mut original_state) =
+            WcPrice::indicator(&inputs_first, &options, None)
+                .expect("Rust WCPRICE indicator failed");
 
         // Serialize and deserialize
         let bytes = encode_to_vec(&original_state, standard()).expect("serialize");

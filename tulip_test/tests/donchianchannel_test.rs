@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests {
-    
-    
+
     use tulip_rs::indicators::donchianchannel::{
         DonchianChannel, Indicator, IndicatorByOptions, IndicatorState, TIndicatorState, INPUTS,
     };

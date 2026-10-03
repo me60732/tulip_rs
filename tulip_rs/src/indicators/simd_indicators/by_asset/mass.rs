@@ -1,7 +1,5 @@
 //use crate::common::validate_inputs;
-use crate::indicators::mass::{
-    Mass, Indicator, IndicatorState, State, INPUTS, OPTIONS,
-};
+use crate::indicators::mass::{Indicator, IndicatorState, Mass, State, INPUTS, OPTIONS};
 use crate::indicators::simd_indicators::mass_simd::{asset::SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::{IndicatorError, Warm};
@@ -26,7 +24,6 @@ impl Driver<State<Warm>> for MassDriver {
     ) {
         let mut state = SimdState::<N>::from_states(&mut states);
         let len = inputs[0][0].len();
-
 
         //collect outputs
         let mass_line_ptr = crate::extract_output_ptrs!(outputs, N, mass_line_ptr);
@@ -92,12 +89,7 @@ pub(crate) fn indicator_by_assets<const N: usize>(
             crate::uninit_vec!(f64, capacity)
         };
 
-        let (start, state) = State::init_state(
-            inputs[i][0],
-            inputs[i][1],
-            period,
-            &mut mass_line,
-        );
+        let (start, state) = State::init_state(inputs[i][0], inputs[i][1], period, &mut mass_line);
 
         let mut output_buffer = vec![mass_line];
 

@@ -1,10 +1,10 @@
+pub use crate::indicator_types::{TSimdState, TState};
 #[cfg(feature = "simd_assets")]
 pub(crate) use crate::indicators::simd_indicators::by_asset::tr::indicator_by_assets;
-use std::simd::{num::SimdFloat, Simd};
-pub use crate::indicator_types::{TState, TSimdState};
 pub use crate::indicators::tr::State;
+use std::simd::{num::SimdFloat, Simd};
 pub struct SimdState<const N: usize> {
-    pub prev_close: Simd<f64, N>
+    pub prev_close: Simd<f64, N>,
 }
 impl<const N: usize> TState for SimdState<N> {
     type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
@@ -13,7 +13,7 @@ impl<const N: usize> TState for SimdState<N> {
     #[inline(always)]
     fn calc(
         &mut self,
-        (high, low, close): (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>)
+        (high, low, close): (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
     ) -> Simd<f64, N> {
         let true_low = low.simd_min(self.prev_close);
         let true_high = high.simd_max(self.prev_close);

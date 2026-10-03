@@ -86,15 +86,20 @@ pub mod options {
             self.0.write_states(&mut inner)
         }
     }
-    
+
     impl<const N: usize> TState for SimdState<N> {
-        type Inputs<'a> = ([*const f64; N], [*const f64; N], Simd<usize, N>, Simd<usize, N>);
+        type Inputs<'a> = (
+            [*const f64; N],
+            [*const f64; N],
+            Simd<usize, N>,
+            Simd<usize, N>,
+        );
         type Outputs = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
-        
+
         #[inline(always)]
         fn calc(
             self: &mut Self,
-            inputs: Self::Inputs<'_>
+            inputs: Self::Inputs<'_>,
         ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
             let (aroon_down, aroon_up) = self.0.calc(inputs);
 

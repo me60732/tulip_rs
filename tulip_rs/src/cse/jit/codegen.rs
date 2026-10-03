@@ -429,6 +429,20 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
             // guard-free one-bar segment at their first printed bar; `aroon`
             // (lead = period) starts guarded.
             OpE::Roll { period, .. } => Some(period as u64),
+            // E6: a `Lag` clamps bars `< n` to the stream's first sample, so its
+            // guard (`ivar < n`) is reachable in only the first `n` bars. Cutting
+            // the segment line at `n` makes the predicate a COMPILE-TIME choice per
+            // segment — every later segment emits the anchor read alone, which is
+            // the hand's plain `prev` with no test. A Lag-consuming plan
+            // (rsi/cmo/tr/adx/ppo/vhf/stochrsi) would otherwise carry an `icmp` +
+            // `select` and the clamp value itself through every bar of the loop.
+            OpE::Lag { n, .. } => {
+                if n > 0 {
+                    Some(n as u64)
+                } else {
+                    None
+                }
+            }
             _ => None,
         }))
         .collect();
@@ -2169,13 +2183,26 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                     // `tr[0] = high[0] − low[0]` and `Atr`'s Wilders seed is
                     // bit-exact. Every consumer publishes at lead `>= n`, so a
                     // standalone `tr` never stores a clamped bar.
+                    //
+                    // The clamp is only reachable below bar `n`, and `n` is a
+                    // segment boundary (see `bounds` above), so a segment that
+                    // starts at or after `n` needs NO predicate at all: the
+                    // anchor read is the whole bar, exactly the hand's `prev`.
+                    // Measured same-binary against keeping the predicate on every
+                    // segment: `jit_vhf` −17.5%, `jit_stochrsi` −10.8%, `jit_cmo`
+                    // −2.3%, `jit_atr` −1.0%, `jit_rsi` flat (§6.31). The bars that
+                    // still need the clamp keep it — the first segment only.
                     let base = lag_base[lag_of[j]];
                     let addr = fb.ins().iadd(base, poff);
                     let real = fb.ins().load(f64_t, MemFlagsData::new(), addr, 0);
-                    let guard = fb.ins().iconst(i64_t, n as i64);
-                    let warm = fb.ins().icmp(IntCC::SignedLessThan, ivar, guard);
-                    let first = lag_clamp[lag_of[j]];
-                    fb.ins().select(warm, first, real)
+                    if b >= n as i64 {
+                        real
+                    } else {
+                        let guard = fb.ins().iconst(i64_t, n as i64);
+                        let warm = fb.ins().icmp(IntCC::SignedLessThan, ivar, guard);
+                        let first = lag_clamp[lag_of[j]];
+                        fb.ins().select(warm, first, real)
+                    }
                 }
                 OpE::Mirror { src } => {
                     // The copy IS the value: `scalarize!` already holds this bar's

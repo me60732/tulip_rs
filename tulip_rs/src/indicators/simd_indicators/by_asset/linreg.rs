@@ -1,7 +1,5 @@
 //use crate::common::validate_inputs;
-use crate::indicators::linreg::{
-    Linreg, Indicator, IndicatorState, State, INPUTS, OPTIONS,
-};
+use crate::indicators::linreg::{Indicator, IndicatorState, Linreg, State, INPUTS, OPTIONS};
 use crate::indicators::simd_indicators::linreg_simd::{SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::{IndicatorError, Warm};
@@ -61,7 +59,7 @@ impl Driver<State<Warm>, ((f64, f64, f64), (f64, f64))> for LinregDriver {
                 (
                     Simd::from_array(sum_x),
                     Simd::from_array(per),
-                    Simd::from_array(inv_n)
+                    Simd::from_array(inv_n),
                 )
             };
             // Optimization 3: Simplified main loop with pre-computed offsets
@@ -71,9 +69,9 @@ impl Driver<State<Warm>, ((f64, f64, f64), (f64, f64))> for LinregDriver {
                     prev_real @ j+1,//i + 1 - self.period
                     real @ i
                 );
-    
+
                 let (linreg, slope, intercept) = state.calc((prev_val, value, f_params));
-    
+
                 // Store results using pre-computed pointers
                 crate::write_simd_at_indices!(N, j,
                     linreg_line_ptr => linreg
@@ -93,10 +91,7 @@ impl Driver<State<Warm>, ((f64, f64, f64), (f64, f64))> for LinregDriver {
                         y_coef[lane] = p_params.1;
                     }
                 }
-                (
-                    Simd::from_array(xy_coef),
-                    Simd::from_array(y_coef)
-                )
+                (Simd::from_array(xy_coef), Simd::from_array(y_coef))
             };
             // Optimization 3: Simplified main loop with pre-computed offsets
             for (j, i) in (self.period..len).enumerate() {
@@ -105,9 +100,9 @@ impl Driver<State<Warm>, ((f64, f64, f64), (f64, f64))> for LinregDriver {
                     prev_real @ j+1,//i + 1 - self.period
                     real @ i
                 );
-    
+
                 let linreg = state.partial_calc((prev_val, value, p_params));
-    
+
                 // Store results using pre-computed pointers
                 crate::write_simd_at_indices!(N, j,
                     linreg_line_ptr => linreg
@@ -145,7 +140,8 @@ pub(crate) fn indicator_by_assets<const N: usize>(
     validate_inputs::<INPUTS>(inputs, Linreg::min_data(options))?;
     validate_options(options)?;
     let period = options[0] as usize;
-    let mut params: [((f64, f64, f64), (f64, f64)); N] = std::array::from_fn(|_| ((0.0, 0.0, 0.0), (0.0, 0.0)));
+    let mut params: [((f64, f64, f64), (f64, f64)); N] =
+        std::array::from_fn(|_| ((0.0, 0.0, 0.0), (0.0, 0.0)));
     let mut road_train = PrimeMover::<N, State<Warm>, ((f64, f64, f64), (f64, f64))>::new();
     let mut want_optional_outputs = (false, false, false);
     let mut output_buffers = Vec::with_capacity(N);
@@ -218,7 +214,7 @@ pub(crate) fn indicator_by_assets<const N: usize>(
             unsafe { inputs.get_unchecked(i).get_unchecked(0) },
             period,
             params[i].0,
-            params[i].1
+            params[i].1,
         ));
     }
     Ok((output_buffers, states))

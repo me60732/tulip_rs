@@ -165,7 +165,7 @@ pub(crate) fn indicator_by_options<const N: usize>(
             start,
             0,
             state,
-            None
+            None,
         ));
         output_buffers.push(output_buffer);
     }

@@ -1,14 +1,13 @@
 #[cfg(test)]
 mod tests {
-    
-    
+
     use float_cmp::approx_eq;
     use tulip_rs::indicator_types::IndicatorByOptions;
     use tulip_rs::indicators::dm::{Dm, Indicator, IndicatorState, TIndicatorState, INPUTS};
     use tulip_test::c_bindings::{ti_dm, ti_dm_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
     //use vector_ta::indicators::dm::{dm, DmInput, DmParams};
-    
+
     const CHUNK_SIZE: usize = 100;
     const EPSILON: f64 = 1e-10;
     const HIGH: [f64; 15] = [
@@ -234,10 +233,10 @@ mod tests {
                     .iter()
                     //.rev()
                     .take(output_len_rust)
-                    .zip(outputs[0].iter()/*.rev()*/)
+                    .zip(outputs[0].iter() /*.rev()*/)
                     .enumerate()
                 {
-                    let index = i;//output_len_rust - i - 1;
+                    let index = i; //output_len_rust - i - 1;
 
                     // Fail test if Rust has NaN
                     if rust_val.is_nan() {
@@ -267,7 +266,11 @@ mod tests {
 
                     if !approx_eq!(f64, c_val, rust_val, epsilon = EPSILON) {
                         let start = if index < 10 { 0 } else { index - 10 };
-                        let end = if index < output_len_rust - 10 { index + 10 } else { output_len_rust - 1 };
+                        let end = if index < output_len_rust - 10 {
+                            index + 10
+                        } else {
+                            output_len_rust - 1
+                        };
                         let d_index = index - options[0] as usize;
                         let d_start = if d_index > 1 { d_index - 1 } else { 0 };
                         let d_end = d_index;

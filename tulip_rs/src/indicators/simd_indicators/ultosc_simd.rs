@@ -48,9 +48,10 @@ pub mod assets {
 
             let buffer_refs: [&MultiBuffer<2, f64, Warm>; N] =
                 core::array::from_fn(|i| &states[i].buffer);
-            let buffer = <MultiBuffer<2, Simd<f64, N>, Warm> as SimdRingBuffer<2, N>>::from_f64_buffers(
-                buffer_refs,
-            );
+            let buffer =
+                <MultiBuffer<2, Simd<f64, N>, Warm> as SimdRingBuffer<2, N>>::from_f64_buffers(
+                    buffer_refs,
+                );
 
             let mut bp_short_sum = [0.0; N];
             let mut bp_medium_sum = [0.0; N];
@@ -145,7 +146,6 @@ pub mod assets {
             (((first + second + third) * UltoscF64Constants::DIV), tr, bp)
         }
     }
-
 }
 
 pub mod options {
@@ -260,26 +260,21 @@ pub mod options {
                 states[i].prev_close = self.prev_close;
             }
         }
-
     }
     impl<const N: usize> TState for SimdState<N> {
         type Inputs<'a> = (f64, f64, f64);
         type Outputs = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
-        
+
         #[inline(always)]
-        fn calc<'a>(
-            &mut self,
-            (high, low, close): Self::Inputs<'a>
-        ) -> Self::Outputs {
+        fn calc<'a>(&mut self, (high, low, close): Self::Inputs<'a>) -> Self::Outputs {
             let (short_period, medium_period, long_period) = self.periods;
             let true_low = low.min(self.prev_close);
             let true_high = high.max(self.prev_close);
             let bp = close - true_low;
             let tr = true_high - true_low;
 
-            let [bp_long_old, tr_long_old] = self
-                .buffer
-                .push_with_info_periods([bp, tr], long_period);
+            let [bp_long_old, tr_long_old] =
+                self.buffer.push_with_info_periods([bp, tr], long_period);
             let bp = Simd::splat(bp);
             let tr = Simd::splat(tr);
 

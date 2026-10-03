@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests {
-    
-    
+
     use float_cmp::approx_eq;
     use tulip_rs::indicators::pvi::{Indicator, IndicatorState as PviState, Pvi, TIndicatorState};
     use tulip_test::c_bindings::{ti_pvi, ti_pvi_start};

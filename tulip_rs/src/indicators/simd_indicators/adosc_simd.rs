@@ -1,12 +1,12 @@
-pub use crate::indicator_types::{TState, TSimdState};
-use crate::indicators::adosc::State as State;
+pub use crate::indicator_types::{TSimdState, TState};
+use crate::indicators::adosc::State;
+#[cfg(feature = "simd_assets")]
+pub(crate) use crate::indicators::simd_indicators::by_asset::adosc::indicator_by_assets;
 use crate::indicators::simd_indicators::{
     ad_simd::SimdState as AdSimdState, ema_simd::SimdState as EmaSimdState,
 };
-use std::simd::Simd;
 use crate::types::Warm;
-#[cfg(feature = "simd_assets")]
-pub(crate) use crate::indicators::simd_indicators::by_asset::adosc::indicator_by_assets;
+use std::simd::Simd;
 
 #[cfg(feature = "simd_options")]
 pub(crate) use crate::indicators::simd_indicators::by_option::adosc::indicator_by_options;
@@ -45,7 +45,7 @@ impl<const N: usize> TSimdState for SimdState<N> {
             long_inv_multiplier[i] = long_im;
             long_ema[i] = long;
         }
-        let ad =  AdSimdState::from_states(&mut ad_refs);
+        let ad = AdSimdState::from_states(&mut ad_refs);
         Self {
             ad,
             short_ema: EmaSimdState::new(
@@ -70,7 +70,7 @@ impl<const N: usize> TSimdState for SimdState<N> {
         let short_ema = self.short_ema.ema.to_array();
         let long_ema = self.long_ema.ema.to_array();
         let mut ad_refs = Vec::with_capacity(N);
-        
+
         for (i, state) in states.iter_mut().enumerate() {
             let [short, long] = state.ema_state.ema.as_mut_array();
             *short = short_ema[i];
@@ -79,7 +79,6 @@ impl<const N: usize> TSimdState for SimdState<N> {
         }
         self.ad.write_states(&mut ad_refs);
     }
-    
 }
 
 impl<const N: usize> TState for SimdState<N> {
@@ -87,11 +86,7 @@ impl<const N: usize> TState for SimdState<N> {
     type Outputs = Simd<f64, N>;
 
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        inputs: Self::Inputs<'a>,
-    ) -> Self::Outputs {
-
+    fn calc<'a>(&mut self, inputs: Self::Inputs<'a>) -> Self::Outputs {
         let ad = self.ad.calc(inputs);
         let short_ema = self.short_ema.calc(ad);
         let long_ema = self.long_ema.calc(ad);

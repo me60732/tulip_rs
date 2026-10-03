@@ -3,7 +3,7 @@ mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicator_types::IndicatorByOptions;
     use tulip_rs::indicators::smaenvelope::{
-        Indicator, IndicatorState, SmaEnvelope, TIndicatorState, OPTIONS, INPUTS
+        Indicator, IndicatorState, SmaEnvelope, TIndicatorState, INPUTS, OPTIONS,
     };
     use tulip_test::database::{get_all_stock_data, init_database_data};
 

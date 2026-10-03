@@ -32,16 +32,13 @@ pub mod assets {
         );
     }
     /// Trait providing the unchecked per-asset SIMD VHF computation.
-    
+
     impl<const N: usize> TState for SimdState<N> {
         type Inputs<'a> = (Simd<f64, N>, [*const f64; N], usize, usize);
         type Outputs = Simd<f64, N>;
 
         #[inline(always)]
-        fn calc(
-            &mut self,
-            (value, real, look_back, i): Self::Inputs<'_>
-        ) -> Self::Outputs {
+        fn calc(&mut self, (value, real, look_back, i): Self::Inputs<'_>) -> Self::Outputs {
             let new = (value - self.prev_real).abs();
             self.sum += new - self.buffer.push_with_info(new);
             self.prev_real = value;
@@ -80,26 +77,23 @@ pub mod options {
             buf: [(buffer: UnsyncBuffer<N, f64, Warm>, from_f64_buffers)]
         );
     }
-    
+
     impl<const N: usize> TState for SimdState<N> {
-        type Inputs<'a> = (Simd<f64, N>, [*const f64; N], Simd<usize, N>, Simd<usize, N>);
+        type Inputs<'a> = (
+            Simd<f64, N>,
+            [*const f64; N],
+            Simd<usize, N>,
+            Simd<usize, N>,
+        );
         type Outputs = Simd<f64, N>;
 
-        
         #[inline(always)]
-        fn calc(
-            &mut self,
-            (value, real, look_back, i): Self::Inputs<'_>
-        ) -> Self::Outputs {
+        fn calc(&mut self, (value, real, look_back, i): Self::Inputs<'_>) -> Self::Outputs {
             let new = (value - self.prev_real).abs();
             self.sum += new - self.buffer.push_with_info(new);
             self.prev_real = value;
-            let (min, _) = self
-                .min_state
-                .calc_w_current((real, i, look_back, value));
-            let (max, _) = self
-                .max_state
-                .calc_w_current((real, i, look_back, value));
+            let (min, _) = self.min_state.calc_w_current((real, i, look_back, value));
+            let (max, _) = self.max_state.calc_w_current((real, i, look_back, value));
 
             (max - min) / self.sum.simd_max(Simd::splat(f64::EPSILON))
         }

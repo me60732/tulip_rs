@@ -6,9 +6,7 @@ use crate::types::{IndicatorError, Warm};
 //use std::simd::cmp::SimdPartialOrd;
 use std::simd::Simd;
 
-use crate::indicators::ema::{
-    Ema, Indicator, IndicatorState, INPUTS, OPTIONS, State
-};
+use crate::indicators::ema::{Ema, Indicator, IndicatorState, State, INPUTS, OPTIONS};
 //use crate::indicators::ad::output_length;
 use crate::indicators::simd_indicators::ema_simd::{SimdState, TSimdState, TState};
 

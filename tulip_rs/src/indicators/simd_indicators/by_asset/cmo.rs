@@ -1,9 +1,7 @@
 //use crate::common::validate_inputs;
 use crate::common::validate_options;
 use crate::common_simd::assets::validate_inputs;
-use crate::indicators::cmo::{
-    Cmo, Indicator, IndicatorState, State, INPUTS, OPTIONS,
-};
+use crate::indicators::cmo::{Cmo, Indicator, IndicatorState, State, INPUTS, OPTIONS};
 use crate::indicators::simd_indicators::cmo_simd::{SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::{IndicatorError, Warm};
@@ -116,7 +114,7 @@ pub(crate) fn indicator_by_assets<const N: usize>(
             asset_inputs,
             asset_outputs,
             i,
-            period+1,
+            period + 1,
             period,
             state,
             None,
@@ -124,9 +122,7 @@ pub(crate) fn indicator_by_assets<const N: usize>(
         output_buffers.push(output_buffer);
     }
 
-    let mut driver = CmoDriver {
-        period
-    };
+    let mut driver = CmoDriver { period };
     let states_vec = road_train.drive(&mut driver);
 
     let mut states = Vec::with_capacity(N);

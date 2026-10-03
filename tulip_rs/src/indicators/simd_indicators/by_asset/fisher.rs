@@ -4,10 +4,8 @@ use crate::common_simd::assets::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::{IndicatorError, Warm};
 
-use crate::indicators::fisher::{
-    Fisher, Indicator, IndicatorState, State, INPUTS, OPTIONS,
-};
-use crate::indicators::simd_indicators::fisher_simd::{TSimdState, TState, assets::SimdState};
+use crate::indicators::fisher::{Fisher, Indicator, IndicatorState, State, INPUTS, OPTIONS};
+use crate::indicators::simd_indicators::fisher_simd::{assets::SimdState, TSimdState, TState};
 use std::simd::Simd;
 /// SIMD driver that advances the Fisher Transform (fisher) across `N` asset lanes
 /// per scheduling epoch.
@@ -49,7 +47,7 @@ impl Driver<State<Warm>> for FisherDriver {
                 signal_line_ptr => signal
             );
         }
-        
+
         // Update states efficiently
         state.write_states(&mut states);
     }

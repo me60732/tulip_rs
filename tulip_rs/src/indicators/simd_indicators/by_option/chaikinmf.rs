@@ -1,8 +1,6 @@
 use crate::common_simd::options::{validate_inputs, validate_options};
-use crate::indicators::chaikinmf::{
-    ChaikinMf, Indicator, IndicatorState, State, INPUTS, OPTIONS,
-};
-use crate::indicators::simd_indicators::chaikinmf_simd::{TState, options::SimdState};
+use crate::indicators::chaikinmf::{ChaikinMf, Indicator, IndicatorState, State, INPUTS, OPTIONS};
+use crate::indicators::simd_indicators::chaikinmf_simd::{options::SimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::{IndicatorError, Warm};
 

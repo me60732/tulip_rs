@@ -122,10 +122,9 @@ fn build<const W: usize>(ctx: &Context, name: &str) -> Built {
     let ptr = ctx.ptr_type(AddressSpace::from(0u16));
     let vd = f64t.vec_type(W as u32);
 
-    let fty = ctx.void_type().fn_type(
-        &[ptr.into(), ptr.into(), i64t.into(), ptr.into()],
-        false,
-    );
+    let fty = ctx
+        .void_type()
+        .fn_type(&[ptr.into(), ptr.into(), i64t.into(), ptr.into()], false);
     let f = module.add_function(name, fty, None);
     // Pin host vector ISA explicitly (same CPUID truth cranelift-native
     // feeds its ISA): AVX2 + FMA on this box.
@@ -184,8 +183,12 @@ fn build<const W: usize>(ctx: &Context, name: &str) -> Built {
     }
     for j in 0..NPAIRS {
         init.push(
-            bd.build_load(ptr, byte_gep!(outs, i64t.const_int(j as u64 * 8, false)), "row")
-                .unwrap(),
+            bd.build_load(
+                ptr,
+                byte_gep!(outs, i64t.const_int(j as u64 * 8, false)),
+                "row",
+            )
+            .unwrap(),
         );
     }
     init.push(i64t.const_zero().as_basic_value_enum());
@@ -226,9 +229,7 @@ fn build<const W: usize>(ctx: &Context, name: &str) -> Built {
         .unwrap();
     let zeros: Vec<_> = (0..W).map(|_| i32t.const_zero()).collect();
     let mask = VectorType::const_vector(&zeros);
-    let pv = bd
-        .build_shuffle_vector(t0v, t0v, mask, "splat")
-        .unwrap();
+    let pv = bd.build_shuffle_vector(t0v, t0v, mask, "splat").unwrap();
 
     let fma = Intrinsic::find("llvm.fma")
         .unwrap()
@@ -246,7 +247,11 @@ fn build<const W: usize>(ctx: &Context, name: &str) -> Built {
                         1.0 // pad: inv 1  (prev*1 + price*0 = prev, frozen)
                     }
                 } else {
-                    let per = if half == 0 { PROBE_S[pair] } else { PROBE_L[pair] };
+                    let per = if half == 0 {
+                        PROBE_S[pair]
+                    } else {
+                        PROBE_L[pair]
+                    };
                     let (m, i) = mult_inv(per);
                     if which == 0 {
                         m
@@ -322,8 +327,12 @@ fn build<const W: usize>(ctx: &Context, name: &str) -> Built {
 
     module.verify().expect("probe module invalid");
     let asm_path = format!("/tmp/probe_w{W}.s");
-    tm.write_to_file(&module, inkwell::targets::FileType::Assembly, std::path::Path::new(&asm_path))
-        .expect("emit asm");
+    tm.write_to_file(
+        &module,
+        inkwell::targets::FileType::Assembly,
+        std::path::Path::new(&asm_path),
+    )
+    .expect("emit asm");
     let ee = module
         .create_jit_execution_engine(OptimizationLevel::Aggressive)
         .expect("jit engine");
@@ -347,7 +356,11 @@ fn call_fma<'ctx>(
         b.as_basic_value_enum().into(),
         c.as_basic_value_enum().into(),
     ];
-    match bd.build_call(fma, &args, "fma").unwrap().try_as_basic_value() {
+    match bd
+        .build_call(fma, &args, "fma")
+        .unwrap()
+        .try_as_basic_value()
+    {
         ValueKind::Basic(b) => b.into_vector_value(),
         _ => panic!("fma call must produce a value"),
     }
@@ -401,7 +414,11 @@ fn run_reuse(address: usize, close: &[f64], sc: &mut Scratch) {
             tab.as_mut_ptr(),
         )
     };
-    black_box((sc.state[0], sc.rows[0][0], sc.rows[NPAIRS - 1][close.len() - 1]));
+    black_box((
+        sc.state[0],
+        sc.rows[0][0],
+        sc.rows[NPAIRS - 1][close.len() - 1],
+    ));
 }
 
 fn main() {
@@ -422,8 +439,7 @@ fn main() {
         };
         let rows = run_once(built.address, &close);
         let exact = rows.iter().zip(&reference).all(|(a, b)| {
-            a.len() == b.len()
-                && a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits())
+            a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits())
         });
         let mut sc = Scratch::new(&close);
         for _ in 0..50 {
@@ -446,7 +462,10 @@ fn main() {
     }
     let w2 = results[0].1;
     let w4 = results[1].1;
-    println!("\nprize of 4 lanes: {:.1}% on the probe loop", (1.0 - w4 / w2) * 100.0);
+    println!(
+        "\nprize of 4 lanes: {:.1}% on the probe loop",
+        (1.0 - w4 / w2) * 100.0
+    );
 
     // live cranelift comparison, same process, same series
     use tulip_rs::cse::{Planable, Request};
@@ -479,7 +498,11 @@ fn main() {
     let twin_us = t.elapsed().as_secs_f64() * 1e6 / ROUNDS as f64;
     println!(
         "{:<10}{:>12.0}µs{:>10.2}µs{:>9.2}{:>12}",
-        "clif-twin", twin_compile, twin_us, twin_us * 1000.0 / BARS as f64, "suite ✅"
+        "clif-twin",
+        twin_compile,
+        twin_us,
+        twin_us * 1000.0 / BARS as f64,
+        "suite ✅"
     );
     let dense = Request::new()
         .add(Apo::recipe(&[5.0, 8.0]), None)

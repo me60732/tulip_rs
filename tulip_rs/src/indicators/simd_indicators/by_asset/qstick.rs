@@ -1,6 +1,6 @@
 use crate::types::IndicatorError;
 
-use crate::indicators::qstick::{QStick, Indicator, IndicatorState, INPUTS, OPTIONS};
+use crate::indicators::qstick::{Indicator, IndicatorState, QStick, INPUTS, OPTIONS};
 
 /// Calculates the Qstick Indicator (QSTICK) for `N` assets by calling the scalar
 /// [`indicator`] function for each asset independently.

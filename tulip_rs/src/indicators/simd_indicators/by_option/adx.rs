@@ -4,12 +4,12 @@ use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
+use crate::indicators::simd_indicators::adx_simd::{SimdState, TSimdState, TState};
 use crate::indicators::{
     adx::{Adx, Indicator, IndicatorState, State, INPUTS, OPTIONS},
     dx::Dx,
-    tr::Tr
+    tr::Tr,
 };
-use crate::indicators::simd_indicators::adx_simd::{SimdState, TSimdState, TState};
 
 /// SIMD driver that advances the Average Directional Index (ADX) across `N` option-set lanes
 /// per scheduling epoch.
@@ -33,7 +33,7 @@ impl Driver<State<Warm>> for AdxDriver {
     ) {
         let mut state = SimdState::<N>::from_states(&mut states);
         let len = outputs[0][0].len();
-       
+
         let (has_optional, want_dx, want_atr, want_tr) = self.want_optional_outputs;
         //collect outputs
         let (adx_line_ptr, dx_line_ptr, atr_line_ptr, tr_line_ptr) = crate::extract_output_ptrs!(

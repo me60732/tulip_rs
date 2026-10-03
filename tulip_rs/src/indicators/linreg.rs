@@ -80,7 +80,6 @@ pub struct State<S = Cold> {
     pub(crate) state: std::marker::PhantomData<S>,
 }
 impl State<Cold> {
-
     pub fn init_state(data: &[f64], period: usize) -> (State<Warm>, (f64, f64, f64), (f64, f64)) {
         let (mut sum_x, mut sum_xx, mut sum_y, mut sum_xy) = (0.0, 0.0, 0.0, 0.0);
         if data.len() >= period - 1 {
@@ -176,7 +175,7 @@ fn cycle_linreg(
         for (j, i) in (period - 1..real.len()).enumerate() {
             let (prev_value, value) = unsafe { (*real.get_unchecked(j), *real.get_unchecked(i)) };
             let (linreg, slope, intercept) = state.calc((prev_value, value, f_params));
-    
+
             unsafe { *linreg_line.get_unchecked_mut(j) = linreg };
             crate::store_optional_outputs!(j,
                 want_slope, slope_line => slope,
@@ -187,7 +186,7 @@ fn cycle_linreg(
         for (j, i) in (period - 1..real.len()).enumerate() {
             let (prev_value, value) = unsafe { (*real.get_unchecked(j), *real.get_unchecked(i)) };
             let linreg = state.partial_calc((prev_value, value, p_params));
-    
+
             unsafe { *linreg_line.get_unchecked_mut(j) = linreg };
         }
     }

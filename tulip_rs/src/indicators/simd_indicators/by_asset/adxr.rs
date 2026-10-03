@@ -4,14 +4,13 @@ use crate::types::{IndicatorError, Warm};
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
 
-use crate::indicators::{
-    adxr::{Adxr, Indicator, IndicatorState, State, INPUTS, OPTIONS},
-    adx::Adx,
-    dx::Dx,
-    tr::Tr
-};
 use crate::indicators::simd_indicators::adxr_simd::assets::{SimdState, TSimdState, TState};
-
+use crate::indicators::{
+    adx::Adx,
+    adxr::{Adxr, Indicator, IndicatorState, State, INPUTS, OPTIONS},
+    dx::Dx,
+    tr::Tr,
+};
 
 /// SIMD driver that advances the Average Directional Movement Rating (ADXR) across `N` asset
 /// lanes per scheduling epoch.
@@ -109,7 +108,7 @@ pub(crate) fn indicator_by_assets<const N: usize>(
     validate_inputs::<INPUTS>(inputs, Adxr::min_data(options))?;
     validate_options(options)?;
     let period = options[0] as usize;
-    
+
     let mut road_train = PrimeMover::<N, State<Warm>>::new();
     let mut want_optional_outputs = (false, false, false, false, false);
     let mut output_buffers = Vec::with_capacity(N);

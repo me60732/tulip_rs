@@ -3,11 +3,11 @@ use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
-use crate::indicators::{
-    natr::{Natr, Indicator, IndicatorState, State, INPUTS, OPTIONS},
-    tr::Tr
-};
 use crate::indicators::simd_indicators::natr_simd::{SimdState, TSimdState, TState};
+use crate::indicators::{
+    natr::{Indicator, IndicatorState, Natr, State, INPUTS, OPTIONS},
+    tr::Tr,
+};
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 
 /// SIMD driver that advances the Normalized Average True Range (NATR) across `N` asset lanes per scheduling epoch.

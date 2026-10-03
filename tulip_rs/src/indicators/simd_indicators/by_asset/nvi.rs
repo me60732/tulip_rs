@@ -1,8 +1,6 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::assets::validate_inputs;
-use crate::indicators::nvi::{
-    Nvi, Indicator, State, INPUTS, OPTIONS,
-};
+use crate::indicators::nvi::{Indicator, Nvi, State, INPUTS, OPTIONS};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;
 use std::simd::Simd;

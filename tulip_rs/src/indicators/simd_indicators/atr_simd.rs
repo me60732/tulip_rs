@@ -11,8 +11,8 @@ use crate::indicators::{
         tr_simd::SimdState as TrSimdState, wilders_simd::SimdState as WildersSimdState,
     },
 };
-use std::simd::Simd;
 use crate::types::Warm;
+use std::simd::Simd;
 /// SIMD-parallel state for computing the Average True Range (ATR) across `N` assets
 /// simultaneously. Each field is a SIMD vector where lane `i` corresponds to asset `i`.
 pub struct SimdState<const N: usize> {

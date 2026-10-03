@@ -287,4 +287,3 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Trima {
         )
     }
 }
-

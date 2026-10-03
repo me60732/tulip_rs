@@ -15,9 +15,9 @@ mod imports {
 }
 use crate::types::Warm;
 pub mod asset {
-    use std::simd::{Select, cmp::SimdPartialEq};
+    use std::simd::{cmp::SimdPartialEq, Select};
 
-use super::imports::*;
+    use super::imports::*;
     use super::*;
 
     use crate::ring_buffer::single_buffer::generic_buffer::{SimdBuffer, SimdRingBuffer};
@@ -50,20 +50,23 @@ use super::imports::*;
             let old = self.buffer.push_with_info(typprice);
 
             let (md, sma) = self.md_state.calc((typprice, old, self.buffer.get_slice()));
-            
+
             //let cci = (typprice - sma) / (F64Constants::ZERO15 * md);
-            let cci = md.simd_eq(F64Constants::ZERO).select(F64Constants::ZERO, (typprice - sma) / (F64Constants::ZERO15 * md));
+            let cci = md.simd_eq(F64Constants::ZERO).select(
+                F64Constants::ZERO,
+                (typprice - sma) / (F64Constants::ZERO15 * md),
+            );
             (cci, sma, md, typprice)
         }
     }
 }
 
 pub(crate) mod options {
-    use std::simd::{Select, cmp::SimdPartialEq};
     use super::imports::*;
     use super::*;
     use crate::indicators::{md::calc_md_simd, typprice::calc as typprice_calc};
     use crate::ring_buffer::unsync_multi_buffer::multi_buffer::UnsyncBuffer;
+    use std::simd::{cmp::SimdPartialEq, Select};
 
     /// SIMD-parallel state for computing the CCI across `N` option lanes simultaneously.
     /// Uses per-lane ring buffers of potentially different periods stored in an `UnsyncBuffer`.
@@ -111,7 +114,10 @@ pub(crate) mod options {
             }
 
             //let cci = (typprice - sma) / (F64Constants::ZERO15 * md);
-            let cci = md.simd_eq(F64Constants::<N>::ZERO).select(F64Constants::<N>::ZERO, (typprice - sma) / (F64Constants::ZERO15 * md));
+            let cci = md.simd_eq(F64Constants::<N>::ZERO).select(
+                F64Constants::<N>::ZERO,
+                (typprice - sma) / (F64Constants::ZERO15 * md),
+            );
             (cci, sma, md, typprice)
         }
     }

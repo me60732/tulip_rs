@@ -4,8 +4,7 @@ use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::simd_indicators::vidya_simd::{SimdState, TSimdState, TState};
 use crate::indicators::stddev::StdDev;
 use crate::indicators::vidya::{
-    Vidya, Indicator, validate_options, IndicatorState, State, INPUTS,
-    OPTIONS,
+    validate_options, Indicator, IndicatorState, State, Vidya, INPUTS, OPTIONS,
 };
 use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
@@ -29,7 +28,6 @@ impl Driver<State<Warm>> for VidyaDriver {
         let (short_period, long_period) = self.periods;
         let mut state = SimdState::from_states(&mut states);
 
-        
         let (has_optional, want_short_sma, want_long_sma, want_short_sd, want_long_sd) =
             self.want_optional_outputs;
         // Pre-compute pointers for maximum efficiency
@@ -57,8 +55,7 @@ impl Driver<State<Warm>> for VidyaDriver {
                 short_value @ i-short_period,
                 long_value @ j
             );
-            let (vidya, short_sma, long_sma, short_sd, long_sd) =
-                state.calc(inputs);
+            let (vidya, short_sma, long_sma, short_sd, long_sd) = state.calc(inputs);
 
             // Direct SIMD store if possible, otherwise individual stores
             crate::write_simd_at_indices!(N, j,

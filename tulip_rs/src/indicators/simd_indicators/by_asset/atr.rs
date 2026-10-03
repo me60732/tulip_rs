@@ -2,9 +2,7 @@
 use crate::common::validate_options;
 use crate::common_simd::assets::validate_inputs;
 use crate::indicator_types::TSimdState;
-use crate::indicators::atr::{
-    Atr, Indicator, TState, IndicatorState, State, INPUTS, OPTIONS,
-};
+use crate::indicators::atr::{Atr, Indicator, IndicatorState, State, TState, INPUTS, OPTIONS};
 use crate::indicators::simd_indicators::atr_simd::SimdState;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::tr::Tr;

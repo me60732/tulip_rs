@@ -145,15 +145,15 @@ extern "C" {
         options: *const TI_REAL,
         outputs: *mut *mut TI_REAL,
     ) -> i32;
-     // Linear Intercept (LINREG)
-     pub fn ti_linregintercept_start(options: *const TI_REAL) -> i32;
-     pub fn ti_linregintercept(
-         size: i32,
-         inputs: *const *const TI_REAL,
-         options: *const TI_REAL,
-         outputs: *mut *mut TI_REAL,
-     ) -> i32;
- // Linear Regression (LINREG)
+    // Linear Intercept (LINREG)
+    pub fn ti_linregintercept_start(options: *const TI_REAL) -> i32;
+    pub fn ti_linregintercept(
+        size: i32,
+        inputs: *const *const TI_REAL,
+        options: *const TI_REAL,
+        outputs: *mut *mut TI_REAL,
+    ) -> i32;
+    // Linear Regression (LINREG)
     pub fn ti_linregslope_start(options: *const TI_REAL) -> i32;
     pub fn ti_linregslope(
         size: i32,
@@ -343,22 +343,22 @@ extern "C" {
         options: *const TI_REAL,
         outputs: *mut *mut TI_REAL,
     ) -> i32;
-     //dm
-     pub fn ti_dm_start(options: *const TI_REAL) -> i32;
-     pub fn ti_dm(
-         size: i32,
-         inputs: *const *const TI_REAL,
-         options: *const TI_REAL,
-         outputs: *mut *mut TI_REAL,
-     ) -> i32;
-      //dx
-      pub fn ti_dx_start(options: *const TI_REAL) -> i32;
-      pub fn ti_dx(
-          size: i32,
-          inputs: *const *const TI_REAL,
-          options: *const TI_REAL,
-          outputs: *mut *mut TI_REAL,
-      ) -> i32;
+    //dm
+    pub fn ti_dm_start(options: *const TI_REAL) -> i32;
+    pub fn ti_dm(
+        size: i32,
+        inputs: *const *const TI_REAL,
+        options: *const TI_REAL,
+        outputs: *mut *mut TI_REAL,
+    ) -> i32;
+    //dx
+    pub fn ti_dx_start(options: *const TI_REAL) -> i32;
+    pub fn ti_dx(
+        size: i32,
+        inputs: *const *const TI_REAL,
+        options: *const TI_REAL,
+        outputs: *mut *mut TI_REAL,
+    ) -> i32;
     //emv
     pub fn ti_emv_start(options: *const TI_REAL) -> i32;
     pub fn ti_emv(
@@ -375,14 +375,14 @@ extern "C" {
         options: *const TI_REAL,
         outputs: *mut *mut TI_REAL,
     ) -> i32;
-     //mass
-     pub fn ti_mass_start(options: *const TI_REAL) -> i32;
-     pub fn ti_mass(
-         size: i32,
-         inputs: *const *const TI_REAL,
-         options: *const TI_REAL,
-         outputs: *mut *mut TI_REAL,
-     ) -> i32;
+    //mass
+    pub fn ti_mass_start(options: *const TI_REAL) -> i32;
+    pub fn ti_mass(
+        size: i32,
+        inputs: *const *const TI_REAL,
+        options: *const TI_REAL,
+        outputs: *mut *mut TI_REAL,
+    ) -> i32;
     //max
     pub fn ti_max_start(options: *const TI_REAL) -> i32;
     pub fn ti_max(
@@ -487,14 +487,14 @@ extern "C" {
         options: *const TI_REAL,
         outputs: *mut *mut TI_REAL,
     ) -> i32;
-     //ultosc
-     pub fn ti_ultosc_start(options: *const TI_REAL) -> i32;
-     pub fn ti_ultosc(
-         size: i32,
-         inputs: *const *const TI_REAL,
-         options: *const TI_REAL,
-         outputs: *mut *mut TI_REAL,
-     ) -> i32;
+    //ultosc
+    pub fn ti_ultosc_start(options: *const TI_REAL) -> i32;
+    pub fn ti_ultosc(
+        size: i32,
+        inputs: *const *const TI_REAL,
+        options: *const TI_REAL,
+        outputs: *mut *mut TI_REAL,
+    ) -> i32;
     //ultosc
     pub fn ti_vhf_start(options: *const TI_REAL) -> i32;
     pub fn ti_vhf(
@@ -591,7 +591,7 @@ extern "C" {
         options: *const TI_REAL,
         outputs: *mut *mut TI_REAL,
     ) -> i32;
-    
+
     // fisher
     pub fn ti_fisher_start(options: *const TI_REAL) -> i32;
     pub fn ti_fisher(

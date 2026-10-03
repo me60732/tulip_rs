@@ -2,7 +2,7 @@
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::simd_indicators::wilders_simd::{SimdState, TSimdState};
 use crate::indicators::wilders::{
-    Wilders, Indicator, IndicatorState, INPUTS, OPTIONS, State, TState
+    Indicator, IndicatorState, State, TState, Wilders, INPUTS, OPTIONS,
 };
 use crate::types::{IndicatorError, Warm};
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
@@ -69,7 +69,6 @@ pub(crate) fn indicator_by_assets<const N: usize>(
     validate_options(options)?;
     let period = options[0] as usize;
 
-
     let mut road_train = PrimeMover::<N, State<Warm>>::new();
 
     let mut output_buffers = Vec::with_capacity(N);
@@ -80,10 +79,7 @@ pub(crate) fn indicator_by_assets<const N: usize>(
         let capacity = Wilders::output_length(inputs[i][0].len(), options);
         let wilders_line = crate::uninit_vec!(f64, capacity);
 
-        let state = State::init_state(
-            inputs[i][0],
-            period,
-        );
+        let state = State::init_state(inputs[i][0], period);
 
         let mut output_buffer = vec![wilders_line];
 
@@ -97,7 +93,7 @@ pub(crate) fn indicator_by_assets<const N: usize>(
                 let output_buffer = &mut output_buffer[j];
                 asset_outputs.push(std::slice::from_raw_parts_mut(
                     output_buffer.as_mut_ptr(), //slice from
-                    output_buffer.len(),           // slice to
+                    output_buffer.len(),        // slice to
                 ));
             }
         }

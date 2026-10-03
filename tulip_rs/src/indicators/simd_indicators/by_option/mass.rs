@@ -1,8 +1,6 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::options::{validate_inputs, validate_options};
-use crate::indicators::mass::{
-    Mass, Indicator, IndicatorState, State, INPUTS, OPTIONS,
-};
+use crate::indicators::mass::{Indicator, IndicatorState, Mass, State, INPUTS, OPTIONS};
 use crate::indicators::simd_indicators::mass_simd::{option::SimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::{IndicatorError, Warm};
@@ -83,12 +81,7 @@ pub(crate) fn indicator_by_options<const N: usize>(
             crate::uninit_vec!(f64, capacity)
         };
 
-        let (start, state) = State::init_state(
-            inputs[0],
-            inputs[1],
-            periods[i],
-            &mut mass_line,
-        );
+        let (start, state) = State::init_state(inputs[0], inputs[1], periods[i], &mut mass_line);
 
         let mut output_buffer = vec![mass_line];
 

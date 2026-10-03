@@ -1,8 +1,6 @@
 //use crate::common::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::vwma::{
-    Vwma, Indicator, IndicatorState, State, INPUTS, OPTIONS,
-};
+use crate::indicators::vwma::{Indicator, IndicatorState, State, Vwma, INPUTS, OPTIONS};
 use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 //use crate::indicators::ad::output_length;

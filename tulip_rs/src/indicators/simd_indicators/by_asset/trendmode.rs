@@ -2,7 +2,7 @@ use crate::common_simd::assets::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::simd_indicators::trendmode_simd::{assets::SimdState, TSimdState, TState};
 use crate::indicators::trendmode::{
-    validate_options, Indicator, IndicatorState, TrendMode, INPUTS, OPTIONS, State
+    validate_options, Indicator, IndicatorState, State, TrendMode, INPUTS, OPTIONS,
 };
 use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;

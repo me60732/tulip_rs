@@ -7,9 +7,9 @@ pub(crate) use crate::indicators::simd_indicators::by_option::willr::indicator_b
 pub use crate::indicator_types::{TSimdState, TState};
 
 use crate::indicators::willr::State;
-use std::simd::{cmp::SimdPartialOrd, Select, Simd};
 /// SIMD-parallel state for the Williams %R indicator, holding `N` lanes of per-asset state.
 use crate::types::Warm;
+use std::simd::{cmp::SimdPartialOrd, Select, Simd};
 pub mod assets {
     //! Per-asset road SIMD helpers for the Williams %R indicator.
     use super::*;
@@ -32,19 +32,12 @@ pub mod assets {
     impl<const N: usize> TState for SimdState<N> {
         type Inputs<'a> = ([*const f64; N], [*const f64; N], Simd<f64, N>, usize, usize);
         type Outputs = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
-        
+
         #[inline(always)]
-        fn calc(
-            &mut self,
-            (high, low, close, i, look_back): Self::Inputs<'_>
-        ) -> Self::Outputs {
+        fn calc(&mut self, (high, low, close, i, look_back): Self::Inputs<'_>) -> Self::Outputs {
             // Update the minimum and maximum for the rolling window.
-            let (min, _) = self
-                .min_state
-                .calc((low, i, look_back));
-            let (max, _) = self
-                .max_state
-                .calc((high, i, look_back));
+            let (min, _) = self.min_state.calc((low, i, look_back));
+            let (max, _) = self.max_state.calc((high, i, look_back));
 
             let mm = max - min;
             (
@@ -76,14 +69,17 @@ pub mod options {
     }
 
     impl<const N: usize> TState for SimdState<N> {
-        type Inputs<'a> = ([*const f64; N], [*const f64; N], Simd<f64, N>, Simd<usize, N>, Simd<usize, N>);
+        type Inputs<'a> = (
+            [*const f64; N],
+            [*const f64; N],
+            Simd<f64, N>,
+            Simd<usize, N>,
+            Simd<usize, N>,
+        );
         type Outputs = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
-        
+
         #[inline(always)]
-        fn calc(
-            &mut self,
-            (high, low, close, i, look_back): Self::Inputs<'_>,
-        ) -> Self::Outputs {
+        fn calc(&mut self, (high, low, close, i, look_back): Self::Inputs<'_>) -> Self::Outputs {
             // Update the minimum and maximum for the rolling window.
             let (min, _) = self.min_state.calc((low, i, look_back));
             let (max, _) = self.max_state.calc((high, i, look_back));

@@ -4,10 +4,8 @@ use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
 use crate::common_simd::options::{validate_inputs, validate_options};
-use crate::indicators::mfi::{
-    Mfi, Indicator, State, INPUTS, OPTIONS, IndicatorState
-};
-use crate::indicators::simd_indicators::mfi_simd::{TState, options::SimdState};
+use crate::indicators::mfi::{Indicator, IndicatorState, Mfi, State, INPUTS, OPTIONS};
+use crate::indicators::simd_indicators::mfi_simd::{options::SimdState, TState};
 
 /// SIMD driver for the Money Flow Index (MFI) indicator, processing `N` option-set lanes per scheduling epoch.
 struct MfiDriver {

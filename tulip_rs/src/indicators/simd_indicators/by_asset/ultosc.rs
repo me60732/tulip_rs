@@ -3,10 +3,7 @@ use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::simd_indicators::ultosc_simd::assets::{SimdState, TSimdState, TState};
 use crate::indicators::{
     tr::Tr,
-    ultosc::{
-        Ultosc, Indicator, validate_options, IndicatorState, State, INPUTS,
-        OPTIONS,
-    },
+    ultosc::{validate_options, Indicator, IndicatorState, State, Ultosc, INPUTS, OPTIONS},
 };
 use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
@@ -49,8 +46,7 @@ impl Driver<State<Warm>> for UltoscDriver {
                 close @ close_ptrs
             );
 
-            let (ultosc, tr, bp) =
-                state.calc((high, low, close, short_period, medium_period));
+            let (ultosc, tr, bp) = state.calc((high, low, close, short_period, medium_period));
 
             crate::write_simd_at_indices!(N, i,
                 ultosc_line_ptr => ultosc

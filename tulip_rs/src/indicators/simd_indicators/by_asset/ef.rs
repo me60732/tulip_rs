@@ -1,6 +1,4 @@
-use crate::indicators::ef::{
-    Ef, Indicator, IndicatorState, INPUTS, OPTIONS, State
-};
+use crate::indicators::ef::{Ef, Indicator, IndicatorState, State, INPUTS, OPTIONS};
 use crate::indicators::simd_indicators::ef_simd::{SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::{IndicatorError, Warm};
@@ -104,7 +102,7 @@ pub(crate) fn indicator_by_assets<const N: usize>(
             asset_inputs,
             asset_outputs,
             i,
-            period+1,
+            period + 1,
             period,
             state,
             None,

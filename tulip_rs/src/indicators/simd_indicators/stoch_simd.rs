@@ -42,20 +42,11 @@ pub mod assets {
         );
     }
     impl<const N: usize> TState for SimdState<N> {
-        type Inputs<'a> = (
-            [*const f64; N],
-            [*const f64; N],
-            Simd<f64, N>,
-            usize,
-            usize,
-        );
+        type Inputs<'a> = ([*const f64; N], [*const f64; N], Simd<f64, N>, usize, usize);
         type Outputs = (Simd<f64, N>, Simd<f64, N>);
 
         #[inline(always)]
-        fn calc(
-            &mut self,
-            (high, low, close, i, look_back): Self::Inputs<'_>
-        ) -> Self::Outputs {
+        fn calc(&mut self, (high, low, close, i, look_back): Self::Inputs<'_>) -> Self::Outputs {
             let kfast = {
                 let (min, _) = self.min_state.calc((low, i, look_back));
                 let (max, _) = self.max_state.calc((high, i, look_back));

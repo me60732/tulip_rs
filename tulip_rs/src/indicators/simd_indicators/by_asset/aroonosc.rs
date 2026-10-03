@@ -1,9 +1,7 @@
 //use crate::common::validate_inputs;
 use crate::common::validate_options;
 use crate::common_simd::assets::validate_inputs;
-use crate::indicators::aroonosc::{
-    AroonOsc, Indicator, IndicatorState, State, INPUTS, OPTIONS,
-};
+use crate::indicators::aroonosc::{AroonOsc, Indicator, IndicatorState, State, INPUTS, OPTIONS};
 use crate::indicators::simd_indicators::aroonosc_simd::{assets::SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::{IndicatorError, Warm};

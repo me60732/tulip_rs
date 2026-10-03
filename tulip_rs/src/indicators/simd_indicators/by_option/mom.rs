@@ -1,6 +1,6 @@
 use crate::types::IndicatorError;
 
-use crate::indicators::mom::{Mom, Indicator, IndicatorState, INPUTS, OPTIONS};
+use crate::indicators::mom::{Indicator, IndicatorState, Mom, INPUTS, OPTIONS};
 
 /// Calculates the Momentum (MOM) indicator for one asset with `N` different option sets.
 ///

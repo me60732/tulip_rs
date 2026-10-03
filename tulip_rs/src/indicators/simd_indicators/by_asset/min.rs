@@ -1,7 +1,5 @@
 //use crate::common::validate_inputs;
-use crate::indicators::min::{
-    Min, Indicator, IndicatorState, State, INPUTS, OPTIONS,
-};
+use crate::indicators::min::{Indicator, IndicatorState, Min, State, INPUTS, OPTIONS};
 use crate::indicators::simd_indicators::min_simd::{assets::SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::{IndicatorError, Warm};
@@ -10,7 +8,7 @@ use crate::{common::validate_options, common_simd::assets::validate_inputs};
 /// SIMD driver that advances the Minimum Value (min) across `N` asset lanes per scheduling
 /// epoch.
 struct MinDriver {
-    look_back: usize
+    look_back: usize,
 }
 
 impl Driver<State<Warm>> for MinDriver {
@@ -32,16 +30,15 @@ impl Driver<State<Warm>> for MinDriver {
         let real_ptrs = crate::extract_input_ptrs!(inputs, N, real_ptrs);
         let mut state = SimdState::<N>::from_states(&mut states);
 
-
         for (j, i) in (self.look_back..len).enumerate() {
-            let (min, _) =  state.calc((real_ptrs, i, self.look_back));
+            let (min, _) = state.calc((real_ptrs, i, self.look_back));
 
             // Store results using pre-computed pointers
             crate::write_simd_at_indices!(N, j,
                 min_line_ptr => min
             );
         }
-        
+
         // Update states efficiently
         state.write_states(&mut states);
     }
@@ -115,7 +112,9 @@ pub(crate) fn indicator_by_assets<const N: usize>(
         output_buffers.push(output_buffer);
     }
 
-    let mut driver = MinDriver { look_back: periods.1 };
+    let mut driver = MinDriver {
+        look_back: periods.1,
+    };
     let states_vec = road_train.drive(&mut driver);
     let mut states = Vec::with_capacity(N);
     for (i, state) in states_vec.into_iter().enumerate() {

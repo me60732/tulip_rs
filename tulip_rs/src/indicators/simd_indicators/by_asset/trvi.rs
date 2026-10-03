@@ -1,16 +1,16 @@
 //use crate::common::validate_inputs;
 use crate::common::validate_options;
 use crate::common_simd::assets::validate_inputs;
+pub use crate::indicator_types::{Indicator, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::types::{IndicatorError, Warm};
-use std::simd::Simd;
-pub use crate::indicator_types::{TSimdState, TState, Indicator};
 use crate::indicators::simd_indicators::trvi_simd::assets::SimdState;
 use crate::indicators::{
     ema::Ema,
     tr::Tr,
-    trvi::{Trvi, IndicatorState, State, INPUTS, OPTIONS},
+    trvi::{IndicatorState, State, Trvi, INPUTS, OPTIONS},
 };
+use crate::types::{IndicatorError, Warm};
+use std::simd::Simd;
 
 /// SIMD driver that advances the True Range Volatility Indicator (TRVI) across `N` asset lanes
 /// per scheduling epoch.
@@ -32,7 +32,7 @@ impl Driver<State<Warm>> for TrviDriver {
     ) {
         let mut state = SimdState::<N>::from_states(&mut states);
         let len = inputs[0][0].len();
-        
+
         //collect outputs
         let (trvi_line_ptr, tr_line_ptr, ema_line_ptr) =
             crate::extract_output_ptrs!(outputs, N, trvi, tr, ema);

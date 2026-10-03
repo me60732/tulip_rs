@@ -48,11 +48,11 @@ pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 use crate::indicators::hilberttransform::ht_kernel;
 use crate::indicators::simd_indicators::hilberttransform_simd::ht_kernel_base as ht_kernel_q_simd;
+use crate::math::atan_fast;
 use crate::ring_buffer::fixed_single_buffer::FixedRingBuffer;
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 use std::simd::Simd;
-use crate::math::atan_fast;
 
 /// Number of input price series required by this indicator.
 pub const INPUTS: usize = 1;

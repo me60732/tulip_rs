@@ -4,8 +4,8 @@ pub(crate) use crate::indicators::simd_indicators::by_asset::supersmoother::indi
 pub(crate) use crate::indicators::simd_indicators::by_option::supersmoother::indicator_by_options;
 use crate::indicators::supersmoother::State;
 
-use std::simd::{Simd, StdFloat};
 pub use crate::indicator_types::{TSimdState, TState};
+use std::simd::{Simd, StdFloat};
 /// SIMD-parallel state for computing the Ehlers Super Smoother across `N` assets simultaneously.
 /// Each field is a SIMD vector where lane `i` holds the filter state for asset `i`.
 pub struct SimdState<const N: usize> {
@@ -27,19 +27,18 @@ impl<const N: usize> TSimdState for SimdState<N> {
          sub: [],
          scalar: [y1, y2, prev_real]
     );
-
 }
 impl<const N: usize> TState for SimdState<N> {
     type Inputs<'a> = Simd<f64, N>;
     type Outputs = Simd<f64, N>;
 
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        real: Self::Inputs<'a>,
-    ) -> Self::Outputs {
+    fn calc<'a>(&mut self, real: Self::Inputs<'a>) -> Self::Outputs {
         // Ehlers: (b0/2) * (real + prev_real) + a1*y1 + a2*y2
-        let y = self.b0.mul_add(real + self.prev_real, self.a1.mul_add(self.y1, self.a2 * self.y2));
+        let y = self.b0.mul_add(
+            real + self.prev_real,
+            self.a1.mul_add(self.y1, self.a2 * self.y2),
+        );
         self.y2 = self.y1;
         self.y1 = y;
         self.prev_real = real;

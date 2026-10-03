@@ -1,9 +1,7 @@
 //use crate::common::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::vhf_simd::{TSimdState, assets::SimdState, TState};
-use crate::indicators::vhf::{
-    Vhf, Indicator, IndicatorState, State, INPUTS, OPTIONS,
-};
+use crate::indicators::simd_indicators::vhf_simd::{assets::SimdState, TSimdState, TState};
+use crate::indicators::vhf::{Indicator, IndicatorState, State, Vhf, INPUTS, OPTIONS};
 use crate::types::{IndicatorError, Warm};
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;
@@ -28,7 +26,7 @@ impl Driver<State<Warm>> for VhfDriver {
         let real_ptrs = crate::extract_input_ptrs!(inputs, N, real_ptrs);
         let mut state = SimdState::from_states(&mut states);
         cycle::<N>(real_ptrs, len, self.period, &mut state, vhf_line_ptr);
-        
+
         // Update states efficiently
         state.write_states(&mut states);
     }

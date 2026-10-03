@@ -536,12 +536,7 @@ mod tests {
         let volume: Vec<f64> = (0..600).map(|i| 1_000_000.0 + (i as f64) * 137.0).collect();
 
         let mid = close.len() - 50;
-        let inputs_first = [
-            &high[..mid],
-            &low[..mid],
-            &close[..mid],
-            &volume[..mid],
-        ];
+        let inputs_first = [&high[..mid], &low[..mid], &close[..mid], &volume[..mid]];
         // vwap OPTIONS = [] (0-arity)
         let options: [f64; 0] = [];
 
@@ -556,12 +551,7 @@ mod tests {
         assert_eq!(consumed, bytes.len());
 
         // Second slice for batch_indicator
-        let inputs_second = [
-            &high[mid..],
-            &low[mid..],
-            &close[mid..],
-            &volume[mid..],
-        ];
+        let inputs_second = [&high[mid..], &low[mid..], &close[mid..], &volume[mid..]];
 
         // Batch indicator on both states
         let original_batch = original_state

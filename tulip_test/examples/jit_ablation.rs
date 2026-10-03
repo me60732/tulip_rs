@@ -55,9 +55,7 @@ fn main() {
         .add(Ema::recipe(&[12.0]), None)
         .add(Ema::recipe(&[26.0]), None)
         .build();
-    let apo = Request::new()
-        .add(Apo::recipe(&[12.0, 26.0]), None)
-        .build();
+    let apo = Request::new().add(Apo::recipe(&[12.0, 26.0]), None).build();
     let apo_ppo = Request::new()
         .add(Apo::recipe(&[12.0, 26.0]), None)
         .add(Ppo::recipe(&[12.0, 26.0]), None)
@@ -120,7 +118,11 @@ fn main() {
         .add(Macd::recipe(&[12.0, 26.0, 9.0]), None)
         .add(Ppo::recipe(&[12.0, 26.0]), None)
         .build_assets(8);
-    println!("assets8 lanes: {:?} ({} vector subs)", lanes8.lanes(), lanes8.vec_subs());
+    println!(
+        "assets8 lanes: {:?} ({} vector subs)",
+        lanes8.lanes(),
+        lanes8.vec_subs()
+    );
     time("7 jit assets8 lanes", || {
         let ss: Vec<&[f64]> = (0..8).map(|_| close.as_slice()).collect();
         let (r, q) = lanes8.run_assets(&ss);

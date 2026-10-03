@@ -1,7 +1,9 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::vidya::{Indicator, IndicatorByOptions, TIndicatorState, Vidya, INPUTS, OPTIONS, IndicatorState};
+    use tulip_rs::indicators::vidya::{
+        Indicator, IndicatorByOptions, IndicatorState, TIndicatorState, Vidya, INPUTS, OPTIONS,
+    };
     use tulip_test::c_bindings::{
         ti_sma, ti_sma_start, ti_stddev, ti_stddev_start, ti_vidya, ti_vidya_start,
     };

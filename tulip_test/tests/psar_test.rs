@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests {
-    
-    
+
     use float_cmp::approx_eq;
     use tulip_rs::indicators::psar::{
         Indicator, IndicatorByOptions, IndicatorState as PsarState, Psar, TIndicatorState,

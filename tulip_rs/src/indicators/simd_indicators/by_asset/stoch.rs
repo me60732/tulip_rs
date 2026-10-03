@@ -34,7 +34,7 @@ impl Driver<State<Warm>> for StochDriver {
             d_line_ptr,
             len,
         );
-        
+
         // Update states efficiently
         state.write_states(&mut states);
     }

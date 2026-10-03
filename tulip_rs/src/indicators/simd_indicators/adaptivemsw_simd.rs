@@ -5,8 +5,8 @@ use crate::indicators::msw;
 pub(crate) use crate::indicators::simd_indicators::by_asset::adaptivemsw::indicator_by_assets;
 use crate::indicators::simd_indicators::homodynediscriminator_simd::SimdState as HdSimdState;
 use crate::ring_buffer::fixed_single_buffer::FixedMirrorBuffer;
-use std::simd::Simd;
 use crate::types::Warm;
+use std::simd::Simd;
 /// SIMD-parallel state for the Adaptive MESA Sine Wave across `N` assets simultaneously.
 ///
 /// The Homodyne Discriminator pipeline runs fully in SIMD across all `N` lanes,
@@ -55,7 +55,6 @@ impl<const N: usize> SimdState<N> {
         }
         TSimdState::write_states(&self.hd, &mut hd_refs);
     }
-
 }
 
 impl<const N: usize> TSimdState for SimdState<N> {

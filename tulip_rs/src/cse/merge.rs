@@ -204,6 +204,311 @@ impl Merged {
             .map(|root| buckets[&root].clone())
             .collect()
     }
+
+    /// # Lane regions — the STRUCTURAL packing question
+    ///
+    /// Packing is decided here, on the merged graph, by ONE question: **which
+    /// nodes do the same arithmetic?** No indicator identity is consulted, and
+    /// there is no per-kind rule to maintain — an `Ema` and a `Wilders` are not
+    /// two packing rules, they are node shapes that answer that question the
+    /// same way for their own reasons.
+    ///
+    /// Matching shapes is necessary but not sufficient, and the difference
+    /// decides whether packing pays:
+    ///
+    /// · Same arithmetic AND same inputs ⇒ `intern` already merged them into
+    ///   ONE node. There is nothing to pack — the work is already done once.
+    /// · Same arithmetic, DIFFERENT inputs, ONE operation deep (`a − b` and
+    ///   nothing else shared) ⇒ packing **loses**. The lanes must be assembled
+    ///   with `insertlane` and split again with `extractlane` every bar to buy
+    ///   one vector op; two scalar ops were cheaper.
+    /// · Same arithmetic, DIFFERENT inputs, and the shape sits in a TALLER run
+    ///   of aligned shapes ⇒ packing **wins, even though the inputs come from
+    ///   different sources**, because the value crosses the lane boundary once
+    ///   for the whole run instead of once per level.
+    ///
+    /// So the run counts INSTRUCTIONS, not levels — [`LaneRegion::shared_ops`].
+    /// A shape with NO children (`Input`/`Const`) is a BOUNDARY and never
+    /// a region: two input streams are two lanes of *reading*, not two lanes of
+    /// work.
+    /// That is why `Apo(12, 26)` — one arithmetic LEVEL, two different periods —
+    /// is worth packing while a lone shared subtraction is not: the level itself is
+    /// a GROUP of two instructions (`x · mult`, then `fma(prev, inv, ·)`), so the
+    /// run already holds ≥ 2 shared instructions. Counting LEVELS would call that
+    /// unpaklable, which is why the run is measured in instructions.
+    ///
+    /// So the criterion is ONE count, not two conditions:
+    ///
+    /// ```text
+    /// shared_ops(shape) = own_ops(shape) + max{ shared_ops(child) : child is itself shared }
+    /// packable          = shared_ops >= 2
+    /// ```
+    ///
+    /// A child whose shape is UNIQUE stops the run: it is either a deduped shared
+    /// node (better than packing — the work is already done once) or a boundary
+    /// (`Input`/`Const`), and a region must COMPUTE something, which is exactly
+    /// `own_ops > 0`.
+    ///
+    /// Magnitudes (every `period`, `Lag n`, the input `stream`, `Const` bits) are
+    /// deliberately EXCLUDED from the shape: differing magnitudes are legal per
+    /// lane, since the emitter builds one constant vector holding both. What the
+    /// formula key DOES carry is the instruction sequence — see [`lane_formula`].
+    ///
+    /// A candidate report only: the emitter consumes nothing from this yet, and
+    /// [`LaneRegion::uniform_warmup`] reports the legality an emission must still
+    /// check for itself (one segment structure has to serve every lane) without
+    /// pretending the shape analysis decided it.
+    pub fn lane_regions(&self) -> Vec<LaneRegion> {
+        let leads = self.leads();
+        // Shape ids are discovered bottom-up (arena order ⇒ children first), so a
+        // parent's id always exceeds its children's and the run pass can walk ids
+        // in increasing order.
+        let mut ids: HashMap<(u8, Vec<u32>), u32> = HashMap::new();
+        let mut sig = Vec::with_capacity(self.nodes.len());
+        let mut kids: Vec<Vec<u32>> = Vec::with_capacity(self.nodes.len());
+        let mut formula_of: Vec<u8> = Vec::with_capacity(self.nodes.len());
+        let mut ops_of: Vec<u8> = Vec::with_capacity(self.nodes.len());
+        let mut warm_of: Vec<u8> = Vec::with_capacity(self.nodes.len());
+        for node in &self.nodes {
+            let (formula, ops) = lane_formula(node);
+            let warm = lane_warmup(node);
+            let mut ch: Vec<u32> = Vec::new();
+            node_children(node, &mut |c| ch.push(sig[c as usize]));
+            // Sorted ⇒ operand ORDER is not part of the shape. `Sub(real, lag)`
+            // and `Sub(lag, real)` are the same arithmetic over swapped inputs,
+            // and the swap costs nothing to realize: it is absorbed into which
+            // value goes into lane 0 of each operand vector.
+            ch.sort_unstable();
+            let id = match ids.get(&(formula, ch.clone())) {
+                Some(&v) => v,
+                None => {
+                    let v = ids.len() as u32;
+                    ids.insert((formula, ch.clone()), v);
+                    v
+                }
+            };
+            sig.push(id);
+            kids.push(ch);
+            // Recorded per NODE (all lanes of a shape agree by construction — the
+            // key is derived from these values).
+            formula_of.push(formula);
+            ops_of.push(ops);
+            warm_of.push(warm);
+        }
+
+        // Lane lists per shape, in arena order (deterministic: a Vec, and the
+        // scan above is ordered).
+        let mut lanes: HashMap<u32, Vec<Id>> = HashMap::new();
+        for (i, &s) in sig.iter().enumerate() {
+            lanes.entry(s).or_default().push(i as Id);
+        }
+        // A region must do arithmetic: `own_ops > 0` excludes both the boundary
+        // leaves and the zero-cost copies/projections (`Mirror`, `Lag`).
+        let shared: Vec<u32> = {
+            let mut v: Vec<u32> = ids
+                .values()
+                .copied()
+                .filter(|&s| {
+                    let l = &lanes[&s];
+                    l.len() >= 2 && ops_of[l[0] as usize] > 0
+                })
+                .collect();
+            v.sort_unstable();
+            v
+        };
+
+        // Instructions per bar across the whole aligned run.
+        let mut run: HashMap<u32, usize> = HashMap::new();
+        for &s in &shared {
+            let first = lanes[&s][0] as usize;
+            let mut best = 0usize;
+            for &c in &kids[first] {
+                if shared.binary_search(&c).is_ok() {
+                    best = best.max(run.get(&c).copied().unwrap_or(0));
+                }
+            }
+            run.insert(s, best + ops_of[first] as usize);
+        }
+
+        let mut out: Vec<LaneRegion> = shared
+            .iter()
+            .filter(|&&s| run[&s] >= 2)
+            .map(|&s| {
+                let l = &lanes[&s];
+                let first = l[0] as usize;
+                // LEGALITY, reported not enforced: every lane must be servable by
+                // ONE segment structure — same warm-up policy, and (where that
+                // policy has a fold phase) the same defining bar.
+                let lead = leads[first];
+                let warm = warm_of[first];
+                let uniform_warmup = l.iter().all(|&i| {
+                    // `warm == 0` ⇒ no fold phase ⇒ lanes may publish on different
+                    // bars and still run one loop.
+                    warm_of[i as usize] == warm && (warm == 0 || leads[i as usize] == lead)
+                });
+                LaneRegion {
+                    shape: s,
+                    formula: formula_of[first],
+                    ops: ops_of[first],
+                    lanes: l.clone(),
+                    shared_ops: run[&s],
+                    uniform_warmup,
+                }
+            })
+            .collect();
+        out.sort_by_key(|r| (r.shape, r.lanes[0]));
+        out
+    }
+}
+
+/// A set of arena nodes doing the SAME arithmetic over DIFFERENT sources, shared
+/// across at least two per-bar instructions — the unit the lane packer would
+/// claim. Produced by [`Merged::lane_regions`], which returns only the packable
+/// ones, so every value here is a candidate and nothing is a rejection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaneRegion {
+    /// Stable id of the shape within this graph (NOT an arena id).
+    pub shape: u32,
+    /// Formula id from [`lane_formula`] — the instruction sequence, NOT a kind.
+    /// Two different `Node` variants with the same id are the same math (that is
+    /// the point: `Ema` and a mean `Wilders` share one).
+    pub formula: u8,
+    /// Instructions this shape performs per bar on its own.
+    pub ops: u8,
+    /// The nodes sharing the arithmetic, in arena order ⇒ lane 0, lane 1, …
+    /// A run longer than the backend's lane ceiling splits into pairs in this
+    /// order, deterministically.
+    pub lanes: Vec<Id>,
+    /// Instructions per bar across the whole aligned run — the count that pays
+    /// for one pack/unpack at each end. Always ≥ 2 in a returned region.
+    pub shared_ops: usize,
+    /// Every lane can be served by ONE segment structure: same warm-up policy, and
+    /// same defining bar where that policy has a fold phase (see [`lane_warmup`]).
+    /// A region can be worth packing and still not be legal AS IS — an `Ema` lane
+    /// beside a `Wilders` lane computes the same steady `fma` but warms up
+    /// differently. This is the first gate the emission has to clear.
+    pub uniform_warmup: bool,
+}
+
+/// The node's ARITHMETIC shape: `(formula id, steady-state instructions per bar)`.
+///
+/// **The planner and optimizer see the math, never the indicator.** A `Node`
+/// variant is shorthand for a formula the recipe expanded into the graph, so the
+/// shape key must be the expansion, not the spelling — otherwise this pass is
+/// just the old per-kind rule with a new hat. The motivating case:
+///
+/// ```text
+/// ema::calc      prev_ema.mul_add(inv_multiplier,  value * multiplier)
+/// wilders::calc  wilders  .mul_add(     multiplier, value * inv_multiplier)
+/// ```
+///
+/// Both ARE `fma(state, c0, mul(x, c1))`: one `fmul`, one `fma`, in the same
+/// order, differing only in WHICH NUMBER lands in which slot. Magnitudes are not
+/// part of a shape (the emitter builds one constant vector holding both lanes),
+/// so `Ema` and a mean `Wilders` are the SAME formula and pack as two lanes of
+/// one instruction sequence — invisible to any key that names the kind.
+///
+/// The instruction count is what makes the rule one rule instead of two: a chain
+/// is itself a GROUP of nodes, so a pair of chains already holds ≥ 2 shared
+/// instructions and earns an assembly, while a pair of lone `Sub`s holds one and
+/// does not.
+///
+/// Splitting rules — a formula differs when the INSTRUCTION SEQUENCE differs, not
+/// when a number does:
+/// · `Wilders::composite` folds `fma(state, c0, x)` with no multiply → 1 instr.
+/// · `RollSum{mean:true}` and `Sma` both roll the sum then scale it → SAME
+///   formula, two spellings, exactly as Ema/Wilders.
+/// · `RollMax`/`RollMin` need different per-lane predicates, so they cannot share
+///   one vector compare → separate formulas.
+/// · `Fma` is one fused instruction, so it is NOT the Ema pair (which is two).
+/// · `Lag`/`Mirror` are a load and a copy: no shared arithmetic at all, count 0.
+/// · `Wilders::feed` decides WHEN folding starts. That is warm-up policy, not
+///   steady math, so it does not split the shape — it is folded into
+///   [`LaneRegion::uniform_warmup`] for the legality check instead.
+///
+/// Exhaustive with NO wildcard: a new `Node` variant fails to compile here, in
+/// the same way `remap_node`/`node_children`/`leads` already do, so it cannot
+/// silently become unpaklable. Counts for the bespoke multi-value ops (Hma,
+/// SuperTrend, the filters) are steady-state instruction counts read off their
+/// `codegen.rs` arms; they only ever need to clear the ≥ 2 threshold, so exactness
+/// there is not load-bearing.
+fn lane_formula(node: &Node) -> (u8, u8) {
+    use Node::*;
+    match *node {
+        // Leaves: boundaries, not work. Same formula whatever value or stream
+        // they name, so a run may permute between lanes over them.
+        Input { .. } => (1, 0),
+        Const { .. } => (2, 0),
+        // `fma(state, c0, mul(x, c1))` — the Ema/Wilders identity, one formula.
+        Ema { .. } => (3, 2),
+        Wilders {
+            composite: false, ..
+        } => (3, 2),
+        Wilders {
+            composite: true, ..
+        } => (4, 1),
+        Sub { .. } => (5, 1),
+        Add { .. } => (6, 1),
+        Mul { .. } => (7, 1),
+        Div { .. } => (8, 1),
+        Abs { .. } => (9, 1),
+        // An anchor read: a load, and not vectorizable (two lanes come from
+        // different pointers), so it never earns an assembly on its own.
+        Lag { .. } => (10, 0),
+        Max { .. } => (11, 1),
+        WhereGe { .. } => (12, 2),
+        WhereLt { .. } => (13, 2),
+        // `sum += x − old` then an optional scale: the Sma/RollSum identity.
+        RollSum { mean: false, .. } => (14, 2),
+        RollSum { mean: true, .. } => (15, 3),
+        Sma { .. } => (15, 3),
+        RollMax { .. } => (16, 4),
+        RollMin { .. } => (17, 4),
+        // Projections/copies: one conversion, or none.
+        Trail { .. } => (18, 1),
+        Mirror { .. } => (19, 0),
+        Ln { .. } => (20, 1),
+        Sqrt { .. } => (21, 1),
+        // One fused instruction — deliberately NOT formula 3.
+        Fma { .. } => (22, 1),
+        Hma { .. } => (23, 8),
+        Stddev { .. } => (24, 6),
+        Wma { .. } => (25, 5),
+        HighPass { .. } => (26, 4),
+        SuperSmoother { .. } => (27, 5),
+        HtInPhase { .. } => (28, 4),
+        HtQuadrature { .. } => (29, 4),
+        SuperTrend { .. } => (30, 6),
+    }
+}
+
+/// Warm-up POLICY bits — whether a node's per-bar ARITHMETIC changes before it is
+/// warm. Not part of the shape (it is not steady-state math); it feeds
+/// [`LaneRegion::uniform_warmup`], the legality gate an emission must clear.
+///
+/// The distinction that matters is between a node that merely PUBLISHES later and
+/// one that COMPUTES differently while warming up:
+/// · a price-sourced `Ema` steps the same `fma` from its seed on every bar, so two
+///   of different periods have different `lead`s but IDENTICAL per-bar arithmetic
+///   — and since store gating is per SINK, they still share one loop. That is
+///   `Apo(12, 26)`, which the emitter packs today and measured a win: requiring
+///   equal leads there would be simply wrong.
+/// · `Wilders`, `Sma`/`Stddev`/`Wma`/`RollSum` FOLD a running sum until their seam
+///   and then switch step, and the trail rolls guard a rescan that is unreachable
+///   before bar `period`. Those need the segment cut at a different bar, so lanes
+///   must also agree on `lead` (checked by the caller, which knows the bit is the
+///   "has a fold phase" kind).
+/// · `Wilders::feed` additionally ignores its source until the source publishes,
+///   which is a different predicate in the body, so it splits the policy.
+fn lane_warmup(node: &Node) -> u8 {
+    use Node::*;
+    match *node {
+        Ema { .. } => 0,
+        Wilders { feed, .. } => 1 | ((feed as u8) << 1),
+        Sma { .. } | Stddev { .. } | Wma { .. } | RollSum { .. } => 2,
+        RollMax { .. } | RollMin { .. } => 3,
+        _ => 0,
+    }
 }
 
 /// Where one input recipe landed in the merged arena: its state wiring and
@@ -483,6 +788,7 @@ mod tests {
     use crate::cse::Planable;
     use crate::indicators::adx::Adx;
     use crate::indicators::apo::Apo;
+    use crate::indicators::ema::Ema;
     use crate::indicators::macd::Macd;
     use crate::indicators::natr::Natr;
     use crate::indicators::ppo::Ppo;
@@ -663,5 +969,237 @@ mod tests {
             "periods 5,6,8,9,10,11,12,23,24,25,26 over the single close Input"
         );
         assert_eq!(m.nodes.len(), crate::cse::DENSE_NODES);
+    }
+
+    /// `lane_formula` id → a name, for report lines only. `IIR2` is the
+    /// `Ema`/mean-`Wilders` identity, `Roll3` the `Sma`/`RollSum{mean}` one.
+    fn formula_name(f: u8) -> &'static str {
+        [
+            "?",
+            "Input",
+            "Const",
+            "IIR2",
+            "IIR1",
+            "Sub",
+            "Add",
+            "Mul",
+            "Div",
+            "Abs",
+            "Lag",
+            "Max",
+            "WhereGe",
+            "WhereLt",
+            "Roll2",
+            "Roll3",
+            "RollMax",
+            "RollMin",
+            "Trail",
+            "Mirror",
+            "Ln",
+            "Sqrt",
+            "Fma",
+            "Hma",
+            "Stddev",
+            "Wma",
+            "HighPass",
+            "SuperSmoother",
+            "HtInPhase",
+            "HtQuadrature",
+            "SuperTrend",
+        ][f as usize]
+    }
+
+    fn lane_report(m: &Merged) -> String {
+        let mut out = String::new();
+        let mut rs = m.lane_regions();
+        rs.sort_by_key(|r| (r.shared_ops, r.formula));
+        for r in rs.iter().rev() {
+            out.push_str(&format!(
+                "    {:<12} lanes={} own_ops={} run_ops={}{}\n",
+                formula_name(r.formula),
+                r.lanes.len(),
+                r.ops,
+                r.shared_ops,
+                if r.uniform_warmup {
+                    ""
+                } else {
+                    "  (warm-up differs: not packable AS IS)"
+                },
+            ));
+        }
+        out
+    }
+
+    /// The rule the user set: packing is a property of the MERGED GRAPH, decided
+    /// by shared arithmetic and how many instructions that sharing runs over —
+    /// never by node kind. This prints what the pass finds across the families
+    /// that currently lose to the hand, so the theory can be reviewed against the
+    /// graph before any emission consumes it
+    /// (`cargo test -p tulip_rs cse::merge -- --nocapture`).
+    #[test]
+    fn lane_regions_report_the_shared_shapes() {
+        use crate::indicators::cmo::Cmo;
+        use crate::indicators::di::Di;
+        use crate::indicators::rsi::Rsi;
+        use crate::indicators::willr::Willr;
+        let cases: Vec<(String, Vec<Recipe>)> = vec![
+            ("rsi(14)".into(), vec![Rsi::recipe(&[14.0])]),
+            ("cmo(14)".into(), vec![Cmo::recipe(&[14.0])]),
+            ("di(14)".into(), vec![Di::recipe(&[14.0])]),
+            ("willr(14)".into(), vec![Willr::recipe(&[14.0])]),
+            (
+                "rsi+cmo".into(),
+                vec![Rsi::recipe(&[14.0]), Cmo::recipe(&[14.0])],
+            ),
+            ("apo(12,26)".into(), vec![Apo::recipe(&[12.0, 26.0])]),
+            ("adx(14)".into(), vec![Adx::recipe(&[14.0])]),
+            (
+                "ema(9)+wilders(9)".into(),
+                vec![
+                    Ema::recipe(&[9.0]),
+                    crate::indicators::wilders::Wilders::recipe(&[9.0]),
+                ],
+            ),
+        ];
+        for (name, recipes) in cases {
+            let (m, _) = merge(&recipes);
+            print!("=== {name} ({} nodes)\n{}", m.nodes.len(), lane_report(&m));
+        }
+    }
+
+    /// THE point of keying on the expansion instead of the `Node` variant:
+    /// `ema::calc` and `wilders::calc` are one instruction sequence
+    /// (`fma(state, c0, mul(x, c1))`) with the two magnitudes in swapped slots,
+    /// and magnitudes are not part of a shape. So a chain spelled `Ema` and a
+    /// chain spelled `Wilders` are TWO LANES OF ONE FORMULA — a share no
+    /// kind-keyed rule can see, and the reason "ema packs / wilders packs" was
+    /// the wrong decomposition.
+    #[test]
+    fn lane_regions_see_ema_and_wilders_as_one_formula() {
+        use crate::indicators::wilders::Wilders;
+        let (m, _) = merge(&[Ema::recipe(&[9.0]), Wilders::recipe(&[9.0])]);
+        let iir = m
+            .lane_regions()
+            .into_iter()
+            .find(|r| r.formula == 3)
+            .expect("an Ema and a mean Wilders over the same source are ONE shape");
+        assert_eq!(iir.lanes.len(), 2, "one region, two lanes");
+        assert_eq!(iir.ops, 2, "fmul + fma per bar, per lane");
+        assert_eq!(iir.shared_ops, 2, "the chain alone amortizes one assembly");
+        assert!(
+            iir.lanes
+                .iter()
+                .all(|&i| matches!(m.nodes[i as usize], Node::Ema { .. } | Node::Wilders { .. })),
+            "the lanes are the two spellings: {:?}",
+            iir.lanes
+        );
+        let kinds: Vec<&str> = iir
+            .lanes
+            .iter()
+            .map(|&i| match m.nodes[i as usize] {
+                Node::Ema { .. } => "Ema",
+                Node::Wilders { .. } => "Wilders",
+                _ => "?",
+            })
+            .collect();
+        assert_eq!(
+            kinds,
+            vec!["Ema", "Wilders"],
+            "one lane of each spelling — cross-kind packing, found structurally"
+        );
+        // They earn the pack, but they do NOT yet share a loop: `Ema` steps from
+        // its seed while a price-sourced `Wilders` FOLDS a running sum to the
+        // seam, so the warm-up policy differs and one segment structure cannot
+        // serve both as it stands. Reported, not hidden — this is the gate the
+        // emission has to clear before claiming this region.
+        assert!(
+            !iir.uniform_warmup,
+            "Ema and Wilders agree in steady math but differ in warm-up policy"
+        );
+    }
+
+    /// `rsi`'s gain/loss pair, and the case that makes the instruction count mean
+    /// something: the shared movement subtraction is ONE instruction with nothing
+    /// else shared under it, so it is not offered at all.
+    #[test]
+    fn lane_regions_find_the_rsi_up_down_run() {
+        use crate::indicators::rsi::Rsi;
+        let (m, _) = merge(&[Rsi::recipe(&[14.0])]);
+        let at = |f: u8| m.lane_regions().into_iter().find(|r| r.formula == f);
+        // `diff = real − lag` and `neg = lag − real`: SAME arithmetic, operands
+        // swapped, different sources — so they share a shape DESPITE the swap
+        // (operand order is not part of a shape). But one `fsub` does not pay for
+        // an assembly, so the pass must NOT offer it.
+        assert!(
+            at(5).is_none(),
+            "the lone shared Sub (1 instruction) must not be offered for packing"
+        );
+        // Both guards: one `fcmp`+`select` pair of their own, sitting on the
+        // shared Sub, so the run is 2 instructions wide.
+        let max = at(11).expect("the two Max guards share a shape");
+        assert_eq!(max.lanes.len(), 2);
+        assert_eq!(max.ops, 1, "the guard itself is one vector op");
+        assert_eq!(max.shared_ops, 2, "its own op + the shared Sub's");
+        // Both smoothers, spelled `Wilders`: two instructions each, on top of the
+        // guard run ⇒ a 4-instruction run for one pack/unpack.
+        let iir = at(3).expect("the two Wilders share a shape");
+        assert_eq!(iir.lanes.len(), 2);
+        assert_eq!(iir.ops, 2, "fmul + fma");
+        assert_eq!(iir.shared_ops, 4, "Wilders(2) + Max(1) + Sub(1)");
+        assert!(iir.uniform_warmup, "both arms: same period, same feed");
+    }
+
+    /// `willr` is the control on the pass: its two rolls go over DIFFERENT
+    /// streams and need opposite predicates, so they are not one formula, and
+    /// nothing else in it is done twice. A pass that invented regions here would
+    /// be pattern-matching indicators, not reading math.
+    #[test]
+    fn lane_regions_find_nothing_to_pack_in_willr() {
+        use crate::indicators::willr::Willr;
+        let (m, _) = merge(&[Willr::recipe(&[14.0])]);
+        assert!(
+            m.lane_regions().is_empty(),
+            "willr rolls max-of-high and min-of-low: different formulas, and no \
+             other shape appears twice — got {:?}",
+            m.lane_regions()
+        );
+    }
+
+    /// A query with no parallel ARITHMETIC proposes nothing: every shape is
+    /// either unique (so `intern` already did the sharing) or a boundary slot
+    /// with nothing to compute — two input streams are two lanes of *reading*,
+    /// not two lanes of work.
+    #[test]
+    fn lane_regions_report_nothing_when_interning_already_did_the_work() {
+        use crate::indicators::medprice::Medprice;
+        let (m, _) = merge(&[Medprice::recipe(&[])]);
+        assert!(
+            m.lane_regions().is_empty(),
+            "medprice is 0.5·(high+low) over two DIFFERENT streams — one node \
+             per arithmetic shape, and its two `Input`s are boundaries, not a \
+             region: {:?}",
+            m.lane_regions()
+        );
+    }
+
+    /// Periods are magnitudes, not shape: `Apo(12, 26)` is TWO instances of the
+    /// same formula over the same source. It earns its pack on the chain's OWN
+    /// two instructions — no second rule about carrying state is needed, which is
+    /// what made the single criterion possible.
+    #[test]
+    fn lane_regions_pack_a_chain_pair_on_its_own_instruction_count() {
+        let (m, _) = merge(&[Apo::recipe(&[12.0, 26.0])]);
+        let ema = m
+            .lane_regions()
+            .into_iter()
+            .find(|r| r.formula == 3)
+            .expect("ema12 and ema26 are one formula with different periods");
+        assert_eq!(ema.lanes.len(), 2);
+        assert_eq!(ema.ops, 2, "the step is a group: fmul then fma");
+        assert_eq!(
+            ema.shared_ops, 2,
+            "the run stops at the chain — `close` is one deduped node"
+        );
+        assert!(ema.uniform_warmup, "both are price-sourced Emas");
     }
 }

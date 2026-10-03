@@ -1,6 +1,6 @@
 use crate::common_simd::assets::validate_inputs;
 use crate::indicators::instantaneoustrendline::{
-    InstantaneousTrendline as IT, Indicator, IndicatorState, State, INPUTS, OPTIONS,
+    Indicator, IndicatorState, InstantaneousTrendline as IT, State, INPUTS, OPTIONS,
 };
 use crate::indicators::simd_indicators::instantaneoustrendline_simd::{
     SimdState, TSimdState, TState,

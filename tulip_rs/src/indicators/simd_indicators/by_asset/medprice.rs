@@ -1,6 +1,6 @@
 use crate::types::IndicatorError;
 
-use crate::indicators::medprice::{Medprice, Indicator, IndicatorState, INPUTS, OPTIONS};
+use crate::indicators::medprice::{Indicator, IndicatorState, Medprice, INPUTS, OPTIONS};
 
 /// Calculates the Median Price (MEDPRICE) for `N` assets by calling the scalar
 /// [`indicator`] function for each asset independently.

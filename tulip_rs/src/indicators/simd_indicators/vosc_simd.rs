@@ -1,15 +1,15 @@
 #[cfg(feature = "simd_assets")]
 pub(crate) use crate::indicators::simd_indicators::by_asset::vosc::indicator_by_assets;
 
+pub use crate::indicator_types::{TSimdState, TState};
 #[cfg(feature = "simd_options")]
 pub(crate) use crate::indicators::simd_indicators::by_option::vosc::indicator_by_options;
 use crate::indicators::simd_indicators::{
     simd_types::F64Constants, sma_simd::SimdState as SmaSimdState,
 };
 use crate::indicators::vosc::State;
-pub use crate::indicator_types::{TSimdState, TState};
-use std::simd::{cmp::SimdPartialEq, *};
 use crate::types::Warm;
+use std::simd::{cmp::SimdPartialEq, *};
 
 /// SIMD-parallel state for the Volume Oscillator (VOSC) indicator, holding `N` lanes of per-asset state.
 pub struct SimdState<const N: usize> {
@@ -44,10 +44,7 @@ impl<const N: usize> TState for SimdState<N> {
     ///
     /// A tuple `(vosc, fast_sma, slow_sma)` for all `N` lanes.
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        vols: Self::Inputs<'a>,
-    ) -> Self::Outputs {
+    fn calc<'a>(&mut self, vols: Self::Inputs<'a>) -> Self::Outputs {
         let fast_sma = self.short_state.calc((vols.0, vols.1));
         let slow_sma = self.long_state.calc((vols.0, vols.2));
 
@@ -65,4 +62,3 @@ impl<const N: usize> TState for SimdState<N> {
         )
     }
 }
-

@@ -1,6 +1,6 @@
 use crate::types::IndicatorError;
 
-use crate::indicators::typprice::{Typprice, Indicator, IndicatorState, INPUTS, OPTIONS};
+use crate::indicators::typprice::{Indicator, IndicatorState, Typprice, INPUTS, OPTIONS};
 
 /// Calculates the Typical Price (TYPPRICE) for `N` assets by calling the scalar
 /// [`indicator`] function for each asset independently.

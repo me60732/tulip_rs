@@ -6,9 +6,7 @@ use crate::types::{IndicatorError, Warm};
 //use std::simd::cmp::SimdPartialOrd;
 use std::simd::Simd;
 
-use crate::indicators::dema::{
-    Dema, Indicator, IndicatorState, State, INPUTS, OPTIONS,
-};
+use crate::indicators::dema::{Dema, Indicator, IndicatorState, State, INPUTS, OPTIONS};
 use crate::indicators::ema::Ema;
 use crate::indicators::simd_indicators::dema_simd::{SimdState, TSimdState, TState};
 
@@ -32,7 +30,6 @@ impl Driver<State<Warm>> for DemaDriver {
     ) {
         let len = inputs[0][0].len();
         let mut state = SimdState::from_states(&mut states);
-
 
         // Pre-compute pointers for maximum efficiency
         let input_ptrs = crate::extract_input_ptrs!(inputs, N, input_ptrs);

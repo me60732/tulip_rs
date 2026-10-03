@@ -3,10 +3,7 @@ use crate::common_simd::assets::validate_inputs;
 use crate::indicators::simd_indicators::ao_simd::{SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::{
-    ao::{
-        Ao, Indicator, IndicatorState, State, INPUTS, LONG_PERIOD, OPTIONS,
-        SHORT_PERIOD
-    },
+    ao::{Ao, Indicator, IndicatorState, State, INPUTS, LONG_PERIOD, OPTIONS, SHORT_PERIOD},
     sma::Sma,
 };
 use crate::types::{IndicatorError, Warm};

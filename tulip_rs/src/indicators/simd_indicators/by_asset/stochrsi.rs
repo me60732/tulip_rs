@@ -1,9 +1,9 @@
 //use crate::common::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
-use crate::indicators::simd_indicators::stochrsi_simd::{TSimdState, TState, assets::SimdState};
+use crate::indicators::simd_indicators::stochrsi_simd::{assets::SimdState, TSimdState, TState};
 use crate::indicators::{
     rsi::Rsi,
-    stochrsi::{StochRsi, Indicator, IndicatorState, State, INPUTS, OPTIONS},
+    stochrsi::{Indicator, IndicatorState, State, StochRsi, INPUTS, OPTIONS},
 };
 use crate::types::{IndicatorError, Warm};
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
@@ -148,7 +148,7 @@ pub(crate) fn indicator_by_assets<const N: usize>(
 
     let mut driver = StochrsiDriver {
         period,
-        want_optional_outputs
+        want_optional_outputs,
     };
     let states_vec = road_train.drive(&mut driver);
 

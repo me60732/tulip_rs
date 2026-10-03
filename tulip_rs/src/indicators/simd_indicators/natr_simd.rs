@@ -8,9 +8,9 @@ pub use crate::indicators::{
     natr::State,
     simd_indicators::atr_simd::{SimdState as AtrSimdState, TSimdState, TState},
 };
+use crate::types::Warm;
 use std::ops::{Deref, DerefMut};
 use std::simd::Simd;
-use crate::types::Warm;
 #[repr(transparent)]
 pub struct SimdState<const N: usize>(pub AtrSimdState<N>);
 impl<const N: usize> Deref for SimdState<N> {

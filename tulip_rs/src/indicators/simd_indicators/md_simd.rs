@@ -7,8 +7,7 @@ pub(crate) use crate::indicators::simd_indicators::by_option::md::indicator_by_o
 use crate::types::Warm;
 pub mod imports {
     pub(crate) use crate::indicators::{
-        md::State,
-        simd_indicators::sma_simd::SimdState as SmaSimdState,
+        md::State, simd_indicators::sma_simd::SimdState as SmaSimdState,
     };
     pub use std::ops::{Deref, DerefMut};
     pub(crate) use std::simd::{num::SimdFloat, Simd};

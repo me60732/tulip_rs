@@ -5,13 +5,10 @@ pub(crate) use crate::indicators::simd_indicators::by_asset::dpo::indicator_by_a
 pub(crate) use crate::indicators::simd_indicators::by_option::dpo::indicator_by_options;
 
 pub use crate::indicator_types::{TSimdState, TState};
-use crate::indicators::{
-    simd_indicators::sma_simd::SimdState as SmaSimdState,
-    dpo::State,
-};
+use crate::indicators::{dpo::State, simd_indicators::sma_simd::SimdState as SmaSimdState};
 use crate::types::Warm;
-use std::simd::Simd;
 use std::ops::{Deref, DerefMut};
+use std::simd::Simd;
 
 #[repr(transparent)]
 pub struct SimdState<const N: usize>(pub SmaSimdState<N>);
@@ -44,12 +41,8 @@ impl<const N: usize> TState for SimdState<N> {
     type Outputs = (Simd<f64, N>, Simd<f64, N>);
 
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        (value, prev_value, dpo_price): Self::Inputs<'a>
-    ) -> Self::Outputs {
+    fn calc<'a>(&mut self, (value, prev_value, dpo_price): Self::Inputs<'a>) -> Self::Outputs {
         let sma = self.0.calc((value, prev_value));
         (dpo_price - sma, sma)
     }
 }
-

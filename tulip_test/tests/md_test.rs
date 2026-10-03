@@ -2,7 +2,9 @@
 mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicator_types::IndicatorByOptions;
-    use tulip_rs::indicators::md::{Indicator, Md, TIndicatorState, INPUTS, OPTIONS, IndicatorState};
+    use tulip_rs::indicators::md::{
+        Indicator, IndicatorState, Md, TIndicatorState, INPUTS, OPTIONS,
+    };
     use tulip_test::c_bindings::{ti_md, ti_md_start, ti_sma, ti_sma_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
 

@@ -1,9 +1,7 @@
 //use crate::common::validate_inputs;
 use crate::common::validate_options;
 use crate::common_simd::assets::validate_inputs;
-use crate::indicators::fosc::{
-    Fosc, Indicator, IndicatorState, State, INPUTS, OPTIONS,
-};
+use crate::indicators::fosc::{Fosc, Indicator, IndicatorState, State, INPUTS, OPTIONS};
 pub(crate) use crate::indicators::simd_indicators::fosc_simd::{SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::tsf::Tsf;
@@ -57,8 +55,7 @@ impl Driver<State<Warm>> for FoscDriver {
                 prev_real @ j + 1,
                 real @ i
             );
-            let (fosc, tsf, linreg, slope, intercept) =
-                state.calc(inputs);
+            let (fosc, tsf, linreg, slope, intercept) = state.calc(inputs);
 
             crate::write_simd_at_indices!(N, j,
                 fosc_line_ptr => fosc

@@ -248,7 +248,7 @@ impl<const B: usize, T: BufferElement + SimdElement> UnsyncBuffer<B, T, Warm> {
         self.update_internals_unchecked();
         replaced
     }
-    
+
     #[inline(always)]
     pub fn get_slice(&self, lane: usize) -> &[T] {
         &self.vals[lane]

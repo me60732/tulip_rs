@@ -1,6 +1,6 @@
 use crate::types::IndicatorError;
 
-use crate::indicators::psar::{Psar, Indicator, IndicatorState, INPUTS, OPTIONS};
+use crate::indicators::psar::{Indicator, IndicatorState, Psar, INPUTS, OPTIONS};
 
 /// Calculates the Parabolic SAR (PSAR) indicator for one asset with `N` different option sets.
 ///

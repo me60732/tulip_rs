@@ -6,8 +6,8 @@ pub(crate) use crate::indicators::simd_indicators::by_asset::homodynediscriminat
 use crate::indicators::simd_indicators::hilberttransform_simd::{ht_kernel, ht_kernel_pair};
 use crate::math_simd::trig::simd_atan;
 use crate::ring_buffer::fixed_single_buffer::{FixedRingBuffer, FixedSimdRingBuffer};
-use std::simd::{cmp::SimdPartialEq, num::SimdFloat, Select, Simd, StdFloat};
 use crate::types::Warm;
+use std::simd::{cmp::SimdPartialEq, num::SimdFloat, Select, Simd, StdFloat};
 /// SIMD-parallel state for the Ehlers Homodyne Discriminator across `N` assets simultaneously.
 ///
 /// Mirrors [`State`] but packs `N` independent assets into each SIMD vector,
@@ -55,18 +55,20 @@ impl<const N: usize> TSimdState for SimdState<N> {
     fn from_states(states: &mut [&mut State]) -> Self {
         // Each iq1_buf slot is Simd<f64, 2>: lane 0 = i1, lane 1 = q1.
         // Extract them into two separate scalar ring buffers per asset.
-        let i1_scalar: [FixedRingBuffer<f64, 7, Warm>; N] = std::array::from_fn(|j| FixedRingBuffer {
-            vals: std::array::from_fn(|k| states[j].iq1_buf.vals[k].to_array()[0]),
-            index: states[j].iq1_buf.index,
-            count: states[j].iq1_buf.count,
-            state: std::marker::PhantomData::<Warm>
-        });
-        let q1_scalar: [FixedRingBuffer<f64, 7, Warm>; N] = std::array::from_fn(|j| FixedRingBuffer {
-            vals: std::array::from_fn(|k| states[j].iq1_buf.vals[k].to_array()[1]),
-            index: states[j].iq1_buf.index,
-            count: states[j].iq1_buf.count,
-            state: std::marker::PhantomData::<Warm>
-        });
+        let i1_scalar: [FixedRingBuffer<f64, 7, Warm>; N] =
+            std::array::from_fn(|j| FixedRingBuffer {
+                vals: std::array::from_fn(|k| states[j].iq1_buf.vals[k].to_array()[0]),
+                index: states[j].iq1_buf.index,
+                count: states[j].iq1_buf.count,
+                state: std::marker::PhantomData::<Warm>,
+            });
+        let q1_scalar: [FixedRingBuffer<f64, 7, Warm>; N] =
+            std::array::from_fn(|j| FixedRingBuffer {
+                vals: std::array::from_fn(|k| states[j].iq1_buf.vals[k].to_array()[1]),
+                index: states[j].iq1_buf.index,
+                count: states[j].iq1_buf.count,
+                state: std::marker::PhantomData::<Warm>,
+            });
 
         let price_refs: [&FixedRingBuffer<f64, 4, Warm>; N] =
             std::array::from_fn(|j| &states[j].price_buf);
@@ -122,7 +124,7 @@ impl<const N: usize> TSimdState for SimdState<N> {
                 }),
                 index: i1_bufs[j].index,
                 count: i1_bufs[j].count,
-                state: std::marker::PhantomData::<Warm>
+                state: std::marker::PhantomData::<Warm>,
             };
             state.i2_prev = i2_arr[j];
             state.q2_prev = q2_arr[j];

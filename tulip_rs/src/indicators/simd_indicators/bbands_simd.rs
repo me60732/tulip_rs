@@ -1,27 +1,24 @@
+pub use crate::indicator_types::{TSimdState, TState};
+use crate::indicators::bbands::State;
 #[cfg(feature = "simd_assets")]
 pub(crate) use crate::indicators::simd_indicators::by_asset::bbands::indicator_by_assets;
+#[cfg(feature = "simd_options")]
+pub(crate) use crate::indicators::simd_indicators::by_option::bbands::indicator_by_options;
 /// Re-uses [`stddev_simd::SimdState`] as the state for Bollinger Bands since the rolling
 /// standard deviation and SMA are the core calculations needed.
 use crate::indicators::simd_indicators::stddev_simd::SimdState as StddevSimdState;
-pub use crate::indicator_types::{TState, TSimdState};
-use crate::indicators::bbands::State;
-#[cfg(feature = "simd_options")]
-pub(crate) use crate::indicators::simd_indicators::by_option::bbands::indicator_by_options;
 use crate::types::Warm;
 use std::simd::Simd;
 pub struct SimdState<const N: usize> {
     pub stddev_state: StddevSimdState<N>,
-    pub std_dev: Simd<f64, N>
+    pub std_dev: Simd<f64, N>,
 }
 
 impl<const N: usize> TState for SimdState<N> {
     type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>);
     type Outputs = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        inputs: Self::Inputs<'a>
-    ) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
+    fn calc<'a>(&mut self, inputs: Self::Inputs<'a>) -> (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>) {
         let (sd, sma) = self.stddev_state.calc(inputs);
 
         let per = self.std_dev * sd;
@@ -31,7 +28,7 @@ impl<const N: usize> TState for SimdState<N> {
         let lower_band = sma - per;
         (lower_band, sma, upper_band)
     }
-}   
+}
 impl<const N: usize> TSimdState for SimdState<N> {
     type ScalarState = State<Warm>;
     crate::simd_state_from_state!(

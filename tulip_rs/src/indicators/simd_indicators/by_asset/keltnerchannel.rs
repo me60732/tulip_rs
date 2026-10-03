@@ -1,6 +1,8 @@
 use crate::types::IndicatorError;
 
-use crate::indicators::keltnerchannel::{KeltnerChannel, Indicator, IndicatorState, INPUTS, OPTIONS};
+use crate::indicators::keltnerchannel::{
+    Indicator, IndicatorState, KeltnerChannel, INPUTS, OPTIONS,
+};
 
 // Change these lines in by_asset/keltnerchannel.rs:
 

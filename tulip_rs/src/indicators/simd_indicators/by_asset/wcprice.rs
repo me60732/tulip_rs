@@ -1,6 +1,6 @@
 use crate::types::IndicatorError;
 
-use crate::indicators::wcprice::{WcPrice, Indicator, IndicatorState, INPUTS, OPTIONS};
+use crate::indicators::wcprice::{Indicator, IndicatorState, WcPrice, INPUTS, OPTIONS};
 
 /// Calculates the Weighted Close Price (WCPRICE) for `N` assets by calling the scalar
 /// [`indicator`] function for each asset independently.

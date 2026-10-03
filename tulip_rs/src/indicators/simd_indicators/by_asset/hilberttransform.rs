@@ -2,9 +2,7 @@ use crate::indicators::simd_indicators::hilberttransform_simd::{SimdState, TSimd
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::{
     highpass::HighPass,
-    hilberttransform::{
-        HilbertTransform, Indicator, IndicatorState, State, INPUTS, OPTIONS,
-    },
+    hilberttransform::{HilbertTransform, Indicator, IndicatorState, State, INPUTS, OPTIONS},
     roofingfilter::RoofingFilter,
 };
 use crate::types::{IndicatorError, Warm};
@@ -33,7 +31,6 @@ impl Driver<State<Warm>> for HilbertDriver {
         let len = inputs[0][0].len();
 
         let mut state = SimdState::from_states(&mut states);
-
 
         let real_ptrs = crate::extract_input_ptrs!(inputs, N, real);
         let (p_line, q_line, rf_line, hp_line) =
@@ -107,11 +104,7 @@ pub(crate) fn indicator_by_assets<const N: usize>(
             )
         };
 
-        let state = State::init_state(
-            inputs[i][0],
-            periods,
-            (&mut rf_line, &mut hp_line),
-        );
+        let state = State::init_state(inputs[i][0], periods, (&mut rf_line, &mut hp_line));
         if i == 0 {
             want_optional_outputs = crate::calc_want_flags!(rf_line, hp_line);
         }

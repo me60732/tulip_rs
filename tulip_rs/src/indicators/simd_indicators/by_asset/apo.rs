@@ -1,7 +1,6 @@
 use crate::common_simd::assets::validate_inputs;
 use crate::indicators::apo::{
-    validate_options, IndicatorState, INPUTS,
-    OPTIONS, State, Apo, Indicator
+    validate_options, Apo, Indicator, IndicatorState, State, INPUTS, OPTIONS,
 };
 use crate::indicators::ema::Ema;
 use crate::indicators::simd_indicators::apo_simd::{SimdState, TSimdState, TState};

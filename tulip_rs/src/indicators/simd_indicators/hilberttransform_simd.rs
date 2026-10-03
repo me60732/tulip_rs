@@ -5,11 +5,11 @@ pub(crate) use crate::indicators::simd_indicators::by_asset::hilberttransform::i
 #[cfg(feature = "simd_options")]
 pub(crate) use crate::indicators::simd_indicators::by_option::hilberttransform::indicator_by_options;
 
+pub use crate::indicator_types::{TSimdState, TState};
 use crate::indicators::simd_indicators::roofingfilter_simd::SimdState as RfSimdState;
 use crate::ring_buffer::fixed_single_buffer::{FixedRingBuffer, FixedSimdRingBuffer};
-use std::simd::{Simd, StdFloat};
-pub use crate::indicator_types::{TSimdState, TState};
 use crate::types::Warm;
+use std::simd::{Simd, StdFloat};
 /// Pre-broadcast SIMD constants for the seven-tap Hilbert kernel.
 ///
 /// Stores [`C0`]–[`C3`] as `Simd::splat` values so that per-bar coefficient
@@ -91,7 +91,7 @@ pub struct SimdState<const N: usize> {
 
 impl<const N: usize> TSimdState for SimdState<N> {
     type ScalarState = State;
-    
+
     /// Gathers `N` scalar [`State`] references into a single [`SimdState`],
     /// packing each asset's ring buffer and roofing-filter state into their
     /// respective SIMD lanes.
@@ -121,7 +121,6 @@ impl<const N: usize> TSimdState for SimdState<N> {
         }
         self.rf_state.write_states(&mut rf_refs);
     }
-
 }
 impl<const N: usize> SimdState<N> {
     /// Applies the seven-tap Hilbert kernel across all `N` assets simultaneously.

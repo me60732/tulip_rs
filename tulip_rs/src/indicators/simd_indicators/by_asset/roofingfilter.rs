@@ -1,8 +1,8 @@
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::simd_indicators::roofingfilter_simd::{SimdState, TSimdState, TState};
 use crate::indicators::{
-    roofingfilter::{RoofingFilter, Indicator, IndicatorState, State, INPUTS, OPTIONS},
-    highpass::HighPass
+    highpass::HighPass,
+    roofingfilter::{Indicator, IndicatorState, RoofingFilter, State, INPUTS, OPTIONS},
 };
 use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
@@ -10,7 +10,7 @@ use std::simd::Simd;
 
 /// SIMD driver that advances the Ehlers Roofing Filter across `N` asset lanes per scheduling epoch.
 struct RoofingDriver {
-    want_optional_outputs: bool
+    want_optional_outputs: bool,
 }
 
 impl Driver<State> for RoofingDriver {
@@ -87,7 +87,7 @@ pub(crate) fn indicator_by_assets<const N: usize>(
                 crate::init_optional_outputs_eff!(
                     optional_outputs, &[false],
                     hp_line: HighPass::output_length(len, &[options[1]])
-                )
+                ),
             )
         };
 
@@ -121,7 +121,9 @@ pub(crate) fn indicator_by_assets<const N: usize>(
         output_buffers.push(output_buffer);
     }
 
-    let mut driver = RoofingDriver { want_optional_outputs };
+    let mut driver = RoofingDriver {
+        want_optional_outputs,
+    };
     let states = road_train.drive(&mut driver);
 
     Ok((output_buffers, states))

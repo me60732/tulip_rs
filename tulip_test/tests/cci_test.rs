@@ -2,7 +2,7 @@
 mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicators::cci::{
-        Cci, Indicator, IndicatorByOptions, IndicatorState, TIndicatorState, INPUTS
+        Cci, Indicator, IndicatorByOptions, IndicatorState, TIndicatorState, INPUTS,
     };
     use tulip_test::c_bindings::{
         ti_cci, ti_cci_start, ti_md, ti_md_start, ti_sma, ti_sma_start, ti_typprice,

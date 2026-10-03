@@ -30,8 +30,8 @@ pub(crate) use crate::indicators::simd_indicators::by_option::trendmode::indicat
 
 pub use crate::indicator_types::{TSimdState, TState};
 
-use std::simd::{cmp::SimdPartialOrd, num::SimdFloat, Select, Simd};
 use crate::types::Warm;
+use std::simd::{cmp::SimdPartialOrd, num::SimdFloat, Select, Simd};
 /// Shared post-CC TrendMode pipeline used by both `assets` and `options` modes.
 ///
 /// Updates the decaying peak envelope and returns the TrendMode classification
@@ -79,8 +79,6 @@ pub mod assets {
     }
 
     impl<const N: usize> SimdState<N> {
-   
-
         /// One bar of TrendMode for N assets simultaneously (fixed α).
         ///
         /// HD and CC run in SIMD using the multipliers already on `self.cc` (gathered
@@ -153,8 +151,8 @@ pub mod assets {
 
 /// SIMD state for 1 asset with `N` different α values (used by `indicator_by_options`).
 pub mod options {
-    use super::Warm;
     use super::trendmode_pipeline;
+    use super::Warm;
     use crate::indicator_types::{TSimdState, TState};
     use crate::indicators::homodynediscriminator;
     use crate::indicators::simd_indicators::cybercycle_simd::SimdState as CcSimdState;
@@ -182,7 +180,6 @@ pub mod options {
     }
 
     impl<const N: usize> SimdState<N> {
-
         /// One bar of TrendMode for N α-option lanes simultaneously (fixed α).
         ///
         /// HD advances once (shared price, via `real[0]`). CC runs in SIMD using the

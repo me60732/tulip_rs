@@ -5,13 +5,10 @@ pub(crate) use crate::indicators::simd_indicators::by_asset::qstick::indicator_b
 pub(crate) use crate::indicators::simd_indicators::by_option::qstick::indicator_by_options;
 
 pub use crate::indicator_types::{TSimdState, TState};
+use crate::indicators::{qstick::State, simd_indicators::sma_simd::SimdState as SmaSimdState};
 use crate::types::Warm;
-use crate::indicators::{
-    simd_indicators::sma_simd::SimdState as SmaSimdState,
-    qstick::State
-};
-use std::simd::Simd;
 use std::ops::{Deref, DerefMut};
+use std::simd::Simd;
 
 #[repr(transparent)]
 pub struct SimdState<const N: usize>(pub SmaSimdState<N>);
@@ -45,9 +42,8 @@ impl<const N: usize> TState for SimdState<N> {
     #[inline(always)]
     fn calc<'a>(
         &mut self,
-        (open, close, prev_open, prev_close): Self::Inputs<'a>
+        (open, close, prev_open, prev_close): Self::Inputs<'a>,
     ) -> Self::Outputs {
-        self.0.calc((open-close, prev_open-prev_close))
+        self.0.calc((open - close, prev_open - prev_close))
     }
 }
-

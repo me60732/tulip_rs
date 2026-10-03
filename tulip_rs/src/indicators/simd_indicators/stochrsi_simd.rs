@@ -12,10 +12,10 @@ use crate::types::Warm;
 use std::simd::{cmp::SimdPartialOrd, Select, Simd};
 pub mod assets {
     use super::*;
-    use crate::ring_buffer::multi_buffer::multi_mirror_buffer::MultiMirrorBuffer;
     use crate::indicators::simd_indicators::{
         max_simd::assets::SimdState as MaxSimdState, min_simd::assets::SimdState as MinSimdState,
     };
+    use crate::ring_buffer::multi_buffer::multi_mirror_buffer::MultiMirrorBuffer;
     /// SIMD-parallel state for computing the Stochastic RSI across `N` assets simultaneously.
     /// Each field is a SIMD vector where lane `i` corresponds to asset `i`.
     pub struct SimdState<const N: usize> {
@@ -38,19 +38,12 @@ pub mod assets {
         type Inputs<'a> = (Simd<f64, N>, usize);
         type Outputs = (Simd<f64, N>, Simd<f64, N>);
         #[inline(always)]
-        fn calc(
-            &mut self,
-            (real, period): Self::Inputs<'_>,
-        ) -> Self::Outputs {
+        fn calc(&mut self, (real, period): Self::Inputs<'_>) -> Self::Outputs {
             let rsi = self.rsi_state.calc(real);
             self.buffer.push(rsi.to_array());
 
-            let (min, _) = self
-                .buffer
-                .min(&mut self.min_state, rsi, period);
-            let (max, _) = self
-                .buffer
-                .max(&mut self.max_state, rsi, period);
+            let (min, _) = self.buffer.min(&mut self.min_state, rsi, period);
+            let (max, _) = self.buffer.max(&mut self.max_state, rsi, period);
 
             let kdif = max - min;
 
@@ -65,12 +58,12 @@ pub mod assets {
 
 pub mod options {
     use super::*;
+    use crate::indicators::simd_indicators::{
+        max_simd::options::SimdState as MaxSimdState, min_simd::options::SimdState as MinSimdState,
+    };
     use crate::{
         indicator_types::TSimdState,
         ring_buffer::unsync_multi_buffer::unsync_mirror_buffer::UnsyncMirrorBuffer,
-    };
-    use crate::indicators::simd_indicators::{
-        max_simd::options::SimdState as MaxSimdState, min_simd::options::SimdState as MinSimdState,
     };
     /// SIMD-parallel state for computing the Stochastic RSI across `N` option sets simultaneously.
     /// Each field is a SIMD vector where lane `i` corresponds to option set `i`.

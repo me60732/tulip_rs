@@ -5,17 +5,17 @@ use crate::indicators::simd_indicators::{
     ef_simd::SimdState as EfSimdState, simd_types::F64Constants,
 };
 
+pub use crate::indicator_types::{TSimdState, TState};
 #[cfg(feature = "simd_options")]
 pub(crate) use crate::indicators::simd_indicators::by_option::kama::indicator_by_options;
-pub use crate::indicator_types::{TSimdState, TState};
-use std::simd::{Simd, StdFloat};
 use crate::types::Warm;
+use std::simd::{Simd, StdFloat};
 /// SIMD-parallel state for computing the Kaufman Adaptive Moving Average (KAMA) across `N` assets simultaneously.
 /// Each field is a SIMD vector where lane `i` corresponds to asset `i`.
 pub struct SimdState<const N: usize> {
     pub ef_state: EfSimdState<N>,
-    pub fast_ema:  Simd<f64, N>,
-    pub slow_ema:  Simd<f64, N>,
+    pub fast_ema: Simd<f64, N>,
+    pub slow_ema: Simd<f64, N>,
     pub kama: Simd<f64, N>,
 }
 impl<const N: usize> TSimdState for SimdState<N> {
@@ -33,11 +33,7 @@ impl<const N: usize> TState for SimdState<N> {
     type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>);
     type Outputs = (Simd<f64, N>, Simd<f64, N>);
     #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        (value, last_value): Self::Inputs<'a>
-    ) -> Self::Outputs {
-
+    fn calc<'a>(&mut self, (value, last_value): Self::Inputs<'a>) -> Self::Outputs {
         let efficiency_ratio = self.ef_state.calc((value, last_value));
 
         let smoothing_constant = {

@@ -1,6 +1,6 @@
 use crate::common_simd::assets::validate_inputs;
 use crate::indicators::cybercycle::{
-    Cybercycle, Indicator, validate_options, IndicatorState, State, INPUTS, OPTIONS,
+    validate_options, Cybercycle, Indicator, IndicatorState, State, INPUTS, OPTIONS,
 };
 use crate::indicators::simd_indicators::cybercycle_simd::{SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};

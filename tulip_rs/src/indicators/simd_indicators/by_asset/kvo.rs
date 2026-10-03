@@ -4,10 +4,7 @@ use crate::indicators::simd_indicators::kvo_simd::{SimdState, TSimdState, TState
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::{
     ema::Ema,
-    kvo::{
-        Kvo, Indicator, validate_options, IndicatorState, State, INPUTS,
-        OPTIONS,
-    },
+    kvo::{validate_options, Indicator, IndicatorState, Kvo, State, INPUTS, OPTIONS},
 };
 use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;

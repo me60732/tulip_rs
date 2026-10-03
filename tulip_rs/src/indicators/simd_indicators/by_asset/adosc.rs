@@ -2,10 +2,7 @@
 use crate::common_simd::assets::validate_inputs;
 use crate::indicator_types::TSimdState;
 use crate::indicators::ad::{Ad, Indicator};
-use crate::indicators::adosc::{
-    Adosc, IndicatorState, State, INPUTS,
-    OPTIONS, validate_options
-};
+use crate::indicators::adosc::{validate_options, Adosc, IndicatorState, State, INPUTS, OPTIONS};
 use crate::indicators::ema::Ema;
 use crate::indicators::simd_indicators::adosc_simd::{SimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
@@ -77,7 +74,6 @@ impl Driver<State<Warm>, ()> for AdoscDriver {
                     want_ad, ad_line_ptr => state.ad.ad
                 );
             }
-            
         }
 
         // Update states efficiently

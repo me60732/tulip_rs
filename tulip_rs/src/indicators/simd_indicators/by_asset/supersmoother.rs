@@ -1,7 +1,7 @@
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::simd_indicators::supersmoother_simd::{SimdState, TSimdState, TState};
 use crate::indicators::supersmoother::{
-    SuperSmoother, Indicator, IndicatorState, State, INPUTS, OPTIONS,
+    Indicator, IndicatorState, State, SuperSmoother, INPUTS, OPTIONS,
 };
 use crate::types::IndicatorError;
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
@@ -25,7 +25,6 @@ impl Driver<State> for SuperSmootherDriver {
         let len = inputs[0][0].len();
 
         let mut state = SimdState::<N>::from_states(&mut states);
-
 
         let real_ptrs = crate::extract_input_ptrs!(inputs, N, real);
         let super_line_ptr = crate::extract_output_ptrs!(outputs, N, super_line);

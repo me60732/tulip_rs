@@ -5,8 +5,8 @@ pub(crate) use crate::indicators::simd_indicators::by_asset::zlema::indicator_by
 pub(crate) use crate::indicators::simd_indicators::by_option::zlema::indicator_by_options;
 
 pub use crate::indicator_types::{TSimdState, TState};
-use crate::types::Warm;
 use crate::indicators::zlema::State;
+use crate::types::Warm;
 use std::simd::{Simd, StdFloat};
 
 /// SIMD-parallel state for the Zero-Lag Exponential Moving Average (ZLEMA) indicator, holding `N` lanes of per-asset state.
@@ -30,7 +30,7 @@ impl<const N: usize> TSimdState for SimdState<N> {
 impl<const N: usize> TState for SimdState<N> {
     type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>);
     type Outputs = Simd<f64, N>;
-    
+
     #[inline(always)]
     fn calc<'a>(&mut self, (current, lagged): Self::Inputs<'a>) -> Self::Outputs {
         let adjusted = current + (current - lagged);
@@ -39,4 +39,3 @@ impl<const N: usize> TState for SimdState<N> {
         self.zlema
     }
 }
-

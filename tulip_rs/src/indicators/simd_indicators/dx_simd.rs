@@ -10,9 +10,9 @@ pub(crate) use crate::indicators::simd_indicators::by_option::dx::indicator_by_o
 
 use crate::indicators::dx::State;
 use crate::indicators::simd_indicators::simd_types::F64Constants;
+use crate::types::Warm;
 use std::ops::{Deref, DerefMut};
 use std::simd::{num::SimdFloat, Simd};
-use crate::types::Warm;
 #[repr(transparent)]
 pub struct SimdState<const N: usize>(pub DiSimdState<N>);
 impl<const N: usize> Deref for SimdState<N> {

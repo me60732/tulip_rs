@@ -1,9 +1,7 @@
 //use crate::common::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::simd_indicators::zlema_simd::{SimdState, TSimdState, TState};
-use crate::indicators::zlema::{
-    Zlema, Indicator, IndicatorState, State, INPUTS, OPTIONS,
-};
+use crate::indicators::zlema::{Indicator, IndicatorState, State, Zlema, INPUTS, OPTIONS};
 use crate::types::{IndicatorError, Warm};
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;

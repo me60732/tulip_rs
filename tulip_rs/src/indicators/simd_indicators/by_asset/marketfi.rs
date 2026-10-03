@@ -1,6 +1,6 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::assets::validate_inputs;
-use crate::indicators::marketfi::{Marketfi, Indicator, IndicatorState, INPUTS, OPTIONS};
+use crate::indicators::marketfi::{Indicator, IndicatorState, Marketfi, INPUTS, OPTIONS};
 use crate::indicators::simd_indicators::marketfi_simd::calc_simd;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::IndicatorError;

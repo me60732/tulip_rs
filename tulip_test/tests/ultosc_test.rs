@@ -957,11 +957,7 @@ mod tests {
         let low: Vec<f64> = close.iter().map(|&c| c - 2.0).collect();
 
         let mid = close.len() - 50;
-        let inputs_first = [
-            &high[..mid],
-            &low[..mid],
-            &close[..mid],
-        ];
+        let inputs_first = [&high[..mid], &low[..mid], &close[..mid]];
         // ultosc OPTIONS_LIST[0] = [7.0,14.0,28.0]
         let options: [f64; 3] = [7.0, 14.0, 28.0];
 
@@ -976,11 +972,7 @@ mod tests {
         assert_eq!(consumed, bytes.len());
 
         // Second slice for batch_indicator
-        let inputs_second = [
-            &high[mid..],
-            &low[mid..],
-            &close[mid..],
-        ];
+        let inputs_second = [&high[mid..], &low[mid..], &close[mid..]];
 
         // Batch indicator on both states
         let original_batch = original_state

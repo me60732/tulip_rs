@@ -5,11 +5,9 @@ use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
-use crate::indicators::simd_indicators::cci_simd::{TSimdState, TState, asset::SimdState};
+use crate::indicators::simd_indicators::cci_simd::{asset::SimdState, TSimdState, TState};
 use crate::indicators::{
-    cci::{
-        Cci, Indicator, IndicatorState, State, INPUTS, OPTIONS,
-    },
+    cci::{Cci, Indicator, IndicatorState, State, INPUTS, OPTIONS},
     md::Md,
 };
 

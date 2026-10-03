@@ -1,11 +1,11 @@
 //use crate::common::validate_inputs;
 use crate::common_simd::assets::validate_inputs;
 use crate::indicators::bbands::{
-    BBands, Indicator, validate_options, IndicatorState, State, INPUTS, OPTIONS,
+    validate_options, BBands, Indicator, IndicatorState, State, INPUTS, OPTIONS,
 };
 
-use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::simd_indicators::bbands_simd::{SimdState, TSimdState, TState};
+use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
@@ -49,8 +49,7 @@ impl Driver<State<Warm>> for BbandsDriver {
                 old_vals @ j
             );
 
-            let (lower_band, middle_band, upper_band) =
-                state.calc(inputs);
+            let (lower_band, middle_band, upper_band) = state.calc(inputs);
 
             crate::write_simd_at_indices!(N, j,
                 lower_band_ptr => lower_band,
@@ -136,9 +135,7 @@ pub(crate) fn indicator_by_assets<const N: usize>(
         output_buffers.push(output_buffer);
     }
 
-    let mut driver = BbandsDriver {
-        period
-    };
+    let mut driver = BbandsDriver { period };
     let states_vec = road_train.drive(&mut driver);
 
     let mut states = Vec::with_capacity(N);
@@ -151,4 +148,3 @@ pub(crate) fn indicator_by_assets<const N: usize>(
     }
     Ok((output_buffers, states))
 }
-

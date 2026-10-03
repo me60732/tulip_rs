@@ -7,8 +7,8 @@ pub(crate) use crate::indicators::simd_indicators::by_option::vidya::indicator_b
 
 pub use crate::indicator_types::{TSimdState, TState};
 use crate::indicators::vidya::State;
-use std::simd::{Simd, StdFloat};
 use crate::types::Warm;
+use std::simd::{Simd, StdFloat};
 /// SIMD-parallel state for the Variable Index Dynamic Average (VIDYA) indicator, holding `N` lanes of per-asset state.
 pub struct SimdState<const N: usize> {
     pub short_state: StddevSimdState<N>,
@@ -26,18 +26,19 @@ impl<const N: usize> TSimdState for SimdState<N> {
          sub: [(short_state: StddevSimdState<N>), (long_state: StddevSimdState<N>)],
          scalar: [prev_vidya]
     );
-
 }
 impl<const N: usize> TState for SimdState<N> {
     type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
-    type Outputs = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
-    
-    #[inline(always)]
-    fn calc<'a>(
-        &mut self,
-        (value, short_value, long_value): Self::Inputs<'a>
-    ) -> Self::Outputs {
+    type Outputs = (
+        Simd<f64, N>,
+        Simd<f64, N>,
+        Simd<f64, N>,
+        Simd<f64, N>,
+        Simd<f64, N>,
+    );
 
+    #[inline(always)]
+    fn calc<'a>(&mut self, (value, short_value, long_value): Self::Inputs<'a>) -> Self::Outputs {
         let (sd_short, sma_short) = self.short_state.calc((value, short_value));
 
         // Compute long-term STDDEV.
@@ -51,4 +52,3 @@ impl<const N: usize> TState for SimdState<N> {
         (self.prev_vidya, sma_short, sma_long, sd_short, sd_long)
     }
 }
-

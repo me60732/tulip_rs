@@ -5,14 +5,8 @@ use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::types::{IndicatorError, Warm};
 use std::simd::Simd;
 
-use crate::indicators::cvi::{
-    Cvi, Indicator, IndicatorState, State, INPUTS,
-    OPTIONS,
-};
-use crate::indicators::simd_indicators::cvi_simd::{
-    assets::SimdState,
-    TSimdState, TState
-};
+use crate::indicators::cvi::{Cvi, Indicator, IndicatorState, State, INPUTS, OPTIONS};
+use crate::indicators::simd_indicators::cvi_simd::{assets::SimdState, TSimdState, TState};
 
 /// SIMD driver that advances the Chaikin Volatility (CVI) across `N` asset lanes per scheduling
 /// epoch.
@@ -32,7 +26,6 @@ impl Driver<State<Warm>> for CviDriver {
     ) {
         let mut state = SimdState::<N>::from_states(&mut states);
         let len = inputs[0][0].len();
-
 
         //collect outputs
         let cvi_line_ptr = crate::extract_output_ptrs!(outputs, N, cvi_line_ptr);

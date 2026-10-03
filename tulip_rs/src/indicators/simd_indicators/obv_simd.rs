@@ -2,9 +2,9 @@ use crate::indicators::obv::IndicatorState as State;
 #[cfg(feature = "simd_assets")]
 pub(crate) use crate::indicators::simd_indicators::by_asset::obv::indicator_by_assets;
 
+pub use crate::indicator_types::{TSimdState, TState};
 use crate::indicators::simd_indicators::simd_types::F64Constants;
 use std::simd::{cmp::SimdPartialOrd, *};
-pub use crate::indicator_types::{TSimdState, TState};
 /// SIMD-parallel state for the On Balance Volume (OBV) indicator, holding `N` lanes of per-asset state.
 pub struct SimdState<const N: usize> {
     pub obv: Simd<f64, N>,
@@ -20,7 +20,7 @@ impl<const N: usize> TSimdState for SimdState<N> {
 impl<const N: usize> TState for SimdState<N> {
     type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>);
     type Outputs = Simd<f64, N>;
-    
+
     #[inline(always)]
     fn calc<'a>(&mut self, (close, volume): Self::Inputs<'a>) -> Self::Outputs {
         // More careful branch-free approach

@@ -5,10 +5,10 @@ pub(crate) use crate::indicators::simd_indicators::by_asset::donchianchannel::in
 #[cfg(feature = "simd_options")]
 pub(crate) use crate::indicators::simd_indicators::by_option::donchianchannel::indicator_by_options;
 
-use crate::indicators::simd_indicators::medprice_simd::calc_simd as calc_medprice_simd;
-use std::simd::Simd;
 pub use crate::indicator_types::{TSimdState, TState};
+use crate::indicators::simd_indicators::medprice_simd::calc_simd as calc_medprice_simd;
 use crate::types::Warm;
+use std::simd::Simd;
 
 /// SIMD-parallel state for computing the Donchian Channel indicator across `N` assets or option-sets simultaneously.
 /// Wraps dedicated min/max ring-buffer SIMD states, one per lane.
@@ -30,22 +30,15 @@ pub mod assets {
              scalar: []
         );
     }
-    
+
     impl<const N: usize> TState for SimdState<N> {
         type Inputs<'a> = ([*const f64; N], [*const f64; N], usize, usize);
         type Outputs = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
-        
+
         #[inline(always)]
-        fn calc(
-            &mut self,
-            (high_ptrs, low_ptrs, i, look_back): Self::Inputs<'_>
-        ) -> Self::Outputs {
-            let (min, _) = self
-                .min_state
-                .calc((low_ptrs, i, look_back));
-            let (max, _) = self
-                .max_state
-                .calc((high_ptrs, i, look_back));
+        fn calc(&mut self, (high_ptrs, low_ptrs, i, look_back): Self::Inputs<'_>) -> Self::Outputs {
+            let (min, _) = self.min_state.calc((low_ptrs, i, look_back));
+            let (max, _) = self.max_state.calc((high_ptrs, i, look_back));
 
             let middle = calc_medprice_simd(max, min);
 
@@ -72,14 +65,16 @@ pub mod options {
     }
 
     impl<const N: usize> TState for SimdState<N> {
-        type Inputs<'a> = ([*const f64; N], [*const f64; N], Simd<usize, N>, Simd<usize, N>);
+        type Inputs<'a> = (
+            [*const f64; N],
+            [*const f64; N],
+            Simd<usize, N>,
+            Simd<usize, N>,
+        );
         type Outputs = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
-        
+
         #[inline(always)]
-        fn calc(
-            &mut self,
-            (high_ptrs, low_ptrs, i, look_back): Self::Inputs<'_>,
-        ) -> Self::Outputs {
+        fn calc(&mut self, (high_ptrs, low_ptrs, i, look_back): Self::Inputs<'_>) -> Self::Outputs {
             let (min, _) = self.min_state.calc((low_ptrs, i, look_back));
             let (max, _) = self.max_state.calc((high_ptrs, i, look_back));
 

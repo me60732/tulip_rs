@@ -3,7 +3,9 @@ mod tests {
     use float_cmp::approx_eq;
     use tulip_rs::indicator_types::IndicatorByOptions;
     use tulip_rs::indicators::ef::Ef;
-    use tulip_rs::indicators::kama::{Indicator, Kama, TIndicatorState, INPUTS, OPTIONS, IndicatorState};
+    use tulip_rs::indicators::kama::{
+        Indicator, IndicatorState, Kama, TIndicatorState, INPUTS, OPTIONS,
+    };
     use tulip_test::c_bindings::{ti_kama, ti_kama_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
     const CHUNK_SIZE: usize = 100;

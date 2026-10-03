@@ -1,7 +1,9 @@
 #[cfg(test)]
 mod tests {
     use float_cmp::approx_eq;
-    use tulip_rs::indicators::rsi::{Indicator, IndicatorByOptions, Rsi, TIndicatorState, IndicatorState, INPUTS, OPTIONS};
+    use tulip_rs::indicators::rsi::{
+        Indicator, IndicatorByOptions, IndicatorState, Rsi, TIndicatorState, INPUTS, OPTIONS,
+    };
     use tulip_test::c_bindings::{ti_rsi, ti_rsi_start};
     use tulip_test::database::{get_all_stock_data, init_database_data};
     const EPSILON: f64 = 1e-8;

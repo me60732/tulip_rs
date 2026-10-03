@@ -24,10 +24,13 @@ impl<const N: usize> TSimdState for SimdState<N> {
         sub: [],
         scalar: [sum_y, sum_xy, n]
     );
-    
 }
 impl<const N: usize> TState for SimdState<N> {
-    type Inputs<'a> = (Simd<f64, N>, Simd<f64, N>, (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>));
+    type Inputs<'a> = (
+        Simd<f64, N>,
+        Simd<f64, N>,
+        (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>),
+    );
     type Outputs = (Simd<f64, N>, Simd<f64, N>, Simd<f64, N>);
     /// Computes one linear regression step across `N` lanes using SIMD parallelism.
     ///
@@ -37,7 +40,10 @@ impl<const N: usize> TState for SimdState<N> {
     ///
     /// Returns `(linreg, slope, intercept)`.
     #[inline(always)]
-    fn calc<'a>(&mut self, (prev_value, value, (sum_x, per, inv_n)): Self::Inputs<'a>) -> Self::Outputs {
+    fn calc<'a>(
+        &mut self,
+        (prev_value, value, (sum_x, per, inv_n)): Self::Inputs<'a>,
+    ) -> Self::Outputs {
         // FMA: (value * period) + sum_xy
         self.sum_xy = value.mul_add(self.n, self.sum_xy);
         self.sum_y += value;
@@ -58,7 +64,11 @@ impl<const N: usize> SimdState<N> {
     #[inline(always)]
     pub fn partial_calc(
         &mut self,
-        (prev_value, value, (xy_coef, y_coef)): (Simd<f64, N>, Simd<f64, N>, (Simd<f64, N>, Simd<f64, N>)),
+        (prev_value, value, (xy_coef, y_coef)): (
+            Simd<f64, N>,
+            Simd<f64, N>,
+            (Simd<f64, N>, Simd<f64, N>),
+        ),
     ) -> Simd<f64, N> {
         self.sum_xy = value.mul_add(self.n, self.sum_xy);
         self.sum_y += value;

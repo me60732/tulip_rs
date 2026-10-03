@@ -133,9 +133,7 @@ pub(crate) fn indicator_by_assets<const N: usize>(
 
     for i in 0..N {
         let [high, low, close] = *inputs[i];
-        let asset_inputs = vec![
-            high, low, close
-        ];
+        let asset_inputs = vec![high, low, close];
 
         let (long_line, short_line, (atr_line, mut tr_line, mut min_line, mut max_line)) = {
             let len = high.len();

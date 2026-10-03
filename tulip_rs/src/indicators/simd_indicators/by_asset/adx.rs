@@ -1,11 +1,11 @@
 //use crate::common::validate_inputs;
+use crate::indicators::simd_indicators::adx_simd::{SimdState, TSimdState, TState};
+use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::{
     adx::{Adx, Indicator, IndicatorState, State, INPUTS, OPTIONS},
     dx::Dx,
-    tr::Tr
+    tr::Tr,
 };
-use crate::indicators::simd_indicators::adx_simd::{SimdState, TSimdState, TState};
-use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 
 use crate::types::{IndicatorError, Warm};
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
@@ -32,7 +32,7 @@ impl Driver<State<Warm>> for AdxDriver {
     ) {
         let mut state = SimdState::<N>::from_states(&mut states);
         let len = inputs[0][0].len();
-        
+
         let (has_optional, want_dx, want_atr, want_tr) = self.want_optional_outputs;
         //collect outputs
         let (adx_line_ptr, dx_line_ptr, atr_line_ptr, tr_line_ptr) = crate::extract_output_ptrs!(

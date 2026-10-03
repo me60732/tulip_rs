@@ -1,14 +1,8 @@
 //use crate::common::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::simd_indicators::trix_simd::{SimdState, TSimdState, TState};
-use crate::indicators::trix::{
-    Trix, Indicator, IndicatorState, State, INPUTS, OPTIONS,
-};
-use crate::indicators::{
-    dema::Dema,
-    ema::Ema,
-    tema::Tema,
-};
+use crate::indicators::trix::{Indicator, IndicatorState, State, Trix, INPUTS, OPTIONS};
+use crate::indicators::{dema::Dema, ema::Ema, tema::Tema};
 use crate::types::{IndicatorError, Warm};
 use crate::{common::validate_options, common_simd::assets::validate_inputs};
 use std::simd::Simd;

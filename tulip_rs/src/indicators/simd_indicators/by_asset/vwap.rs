@@ -2,9 +2,7 @@
 use crate::common_simd::assets::validate_inputs;
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};
 use crate::indicators::simd_indicators::vwap_simd::{SimdState, TSimdState, TState};
-use crate::indicators::vwap::{
-    Vwap, Indicator, IndicatorState as State, INPUTS, OPTIONS,
-};
+use crate::indicators::vwap::{Indicator, IndicatorState as State, Vwap, INPUTS, OPTIONS};
 use crate::types::IndicatorError;
 use std::simd::Simd;
 /// SIMD driver that advances the VWAP indicator across `N` asset lanes per scheduling epoch.

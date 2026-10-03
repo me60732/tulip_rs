@@ -2,8 +2,7 @@
 use crate::common_simd::assets::validate_inputs;
 use crate::indicators::ema::Ema;
 use crate::indicators::ppo::{
-    Ppo, Indicator, validate_options, State, INPUTS,
-    OPTIONS, IndicatorState
+    validate_options, Indicator, IndicatorState, Ppo, State, INPUTS, OPTIONS,
 };
 use crate::indicators::simd_indicators::ppo_simd::{SimdState, TSimdState, TState};
 use crate::indicators::simd_indicators::road_train::{Asset, Driver, PrimeMover};

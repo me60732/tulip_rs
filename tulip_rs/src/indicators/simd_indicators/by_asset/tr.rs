@@ -1,6 +1,6 @@
 use crate::types::IndicatorError;
 
-use crate::indicators::tr::{Tr, IndicatorState, Indicator, INPUTS, OPTIONS};
+use crate::indicators::tr::{Indicator, IndicatorState, Tr, INPUTS, OPTIONS};
 
 /// Calculates the True Range (TR) for `N` assets by calling the scalar
 /// [`indicator`] function for each asset independently.

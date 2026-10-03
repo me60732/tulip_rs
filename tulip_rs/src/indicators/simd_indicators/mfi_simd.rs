@@ -8,9 +8,7 @@ pub use crate::indicator_types::{TSimdState, TState};
 pub(crate) mod imports {
     pub(crate) use crate::indicators::mfi::IndicatorState as State;
     pub(crate) use crate::indicators::simd_indicators::simd_types::F64Constants;
-    pub(crate) use crate::ring_buffer::multi_buffer::multi_buffer::{
-        MultiBuffer, SimdRingBuffer,
-    };
+    pub(crate) use crate::ring_buffer::multi_buffer::multi_buffer::{MultiBuffer, SimdRingBuffer};
     pub(crate) use std::simd::{cmp::SimdPartialOrd, num::SimdFloat, Select, Simd};
 }
 pub use crate::types::Warm;
@@ -36,9 +34,10 @@ pub mod assets {
         fn from_states(states: &mut [&mut State]) -> Self {
             let buffer_refs: [&MultiBuffer<2, f64, Warm>; N] =
                 core::array::from_fn(|i| &states[i].buffer);
-            let buffer = <MultiBuffer<2, Simd<f64, N>, Warm> as SimdRingBuffer<2, N>>::from_f64_buffers(
-                buffer_refs,
-            );
+            let buffer =
+                <MultiBuffer<2, Simd<f64, N>, Warm> as SimdRingBuffer<2, N>>::from_f64_buffers(
+                    buffer_refs,
+                );
 
             let mut typprice = [0.0; N];
             let mut pos_sum = [0.0; N];
