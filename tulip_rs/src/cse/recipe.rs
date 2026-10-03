@@ -117,8 +117,8 @@ impl ChainState {
 pub type StateRestorer = fn(Vec<ChainState>) -> crate::cse::IndicatorStateBox;
 
 /// A primitive the node graph can contain. The executor emits `Input`,
-/// `Ema`, `Sub`/`Add`/`Mul`/`Div`/`Max`, `Abs`, `WhereGe` (a `fcmp.ge`+select),
-/// `Const`, the raw `Lag` (a stream delayed `n` bars off the anchor), the
+/// `Ema`, `Sub`/`Add`/`Mul`/`Div`/`Max`, `Abs`, `WhereGe` (a `fcmp.ge`+select)
+/// and its `<`-form mirror `WhereLt`, `Const`, the raw `Lag` (a stream delayed `n` bars off the anchor), the
 /// rolling kinds `Sma`/`Stddev`/`Wma` (price-sourced, grouped by
 /// `(src, period)`), the trail-rescan `RollMax`/`RollMin` (E9 — price-sourced,
 /// carrying a value AND a bar-count trail), the `Wilders` chain (price leaf OR chained over a derived
@@ -173,6 +173,26 @@ pub enum Node {
     /// ordered `>=` false → `0.0` (Rust `>=` is identical, and prices are
     /// finite so it never fires).
     WhereGe { a: Id, b: Id, t: Id },
+    /// `if a < b { 0.0 } else { t }` — the exact mirror of [`Node::WhereGe`],
+    /// and the shape the HAND actually writes for a denominator guard: `stochrsi`'s
+    /// and `willr`'s `if range < f64::EPSILON { 0.0 } else { div }`.
+    ///
+    /// On every ORDERED pair it agrees with `WhereGe` (`a < b` ⇔ `!(a >= b)`), so
+    /// on finite prices the two are interchangeable. They differ in the ONE case
+    /// that matters and that `WhereGe` gets wrong here: an IEEE compare is false
+    /// in BOTH directions for a NaN operand, so the hand's `<` test falls to the
+    /// ELSE arm and propagates the division's NaN, while `WhereGe`'s false branch
+    /// is the pinned `+0.0` — swallowing the NaN. `stochrsi` reaches that case for
+    /// real: on a FLAT series RSI is exactly `0/0 = NaN`, so its `max − min` is
+    /// NaN, and the parity test (hand NaN vs engine `0.0`) failed until this node
+    /// replaced the `0 − maxNum(0 − kdif, −∞)` mapping in its recipe.
+    ///
+    /// Lowered as an ordered `fcmp.lt` feeding a CLIF `select` with the `+0.0` on
+    /// the TRUE arm; because a float `select` emits `XmmCmove` (a branch, not a
+    /// cmov — §6.25), this is the hand's predicted `if/else` bit-for-bit. Unlike
+    /// `WhereGe` it has no branchless form: its only consumers are `< ε` floor
+    /// guards whose branch always predicts, so a blend would be pure overhead.
+    WhereLt { a: Id, b: Id, t: Id },
     /// `hma(period)` over node `src` — hand `hma.rs` as ONE bespoke rolling
     /// op (E3 stage 3): two private WMA engines (P and P/2 — the second's
     /// init window is OFFSET `[P−P/2 .. P−1]`, so it cannot share a
@@ -267,7 +287,34 @@ pub enum Node {
     /// construction; the `v − old` term is folded away until the window is
     /// full, which is also what makes bar 0's (clamped, hence zero) movement
     /// term harmless for `cmo`.
-    RollSum { src: Id, period: Id, mean: bool },
+    ///
+    /// `skip` is how many of the source's PUBLISHED values the hand throws away
+    /// before it starts folding. It is not cosmetic: the window at a given bar is
+    /// the same set either way (the ring drops by absolute bar), but a fold that
+    /// begins earlier reaches that set through extra add/subtract rounds, and
+    /// floating-point addition is not associative. Measured on `stoch`-shaped
+    /// windows, starting two bars early changed **60% of the sums' bits** — so a
+    /// hand that seeds its rolling window late needs the matching `skip`, and one
+    /// that does not (cmo, whose early terms are exact zeros) leaves it 0.
+    /// The warm boundary moves with it: the first full window ends at
+    /// `lead(src) + skip + period − 1`.
+    ///
+    /// `steady_from` is the same kind of fact about the ARITHMETIC rather than the
+    /// window. A hand that seeds in its own init loop often folds as
+    /// `sum += v; sum -= old` — two roundings — while its steady loop writes
+    /// `sum += v - old`, one rounding of the pair first. `stoch` is the case that
+    /// differs (its init loop keeps running past the point where the ring starts
+    /// evicting), and it is worth an ulp: measured, `14/3/3` slow %K came out
+    /// one bit low from the first evicting init bar. `0` (the default, and what
+    /// `cmo` and stoch's %D use) means "the steady form always", which is the
+    /// behaviour every other sum-shaped hand has.
+    RollSum {
+        src: Id,
+        period: u32,
+        mean: bool,
+        skip: u32,
+        steady_from: u32,
+    },
     /// Rolling **maximum** over node `src` — hand `max.rs` (E9), the
     /// trail-rescan recurrence (a windowed `Max` node, not a fold). Carries
     /// TWO values: the current max (f64) and the `trail` — bars since the

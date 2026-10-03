@@ -189,6 +189,12 @@ enum OpE {
     /// (the DM+ / DM− mutual exclusion; the `0.0` else arm is a literal, so
     /// no `-0.0`/NaN is ever produced). Operands scalarized like `Arith`.
     WhereGe { a: usize, b: usize, t: usize },
+    /// `if a < b { 0.0 } else { t }` — the `<`-form mirror of [`OpE::WhereGe`]
+    /// (CLIF `fcmp.lt` feeding a `select` with the `+0.0` on the TRUE arm). The
+    /// hand's denominator guard (`if range < ε { 0.0 } else { div }` in stochrsi
+    /// and willr): a NaN operand makes BOTH compares false, so unlike `WhereGe`
+    /// this falls to the division and propagates its NaN, exactly as the hand does.
+    WhereLt { a: usize, b: usize, t: usize },
     /// A raw price stream delayed `n` bars (E6). No accumulator — it loads
     /// through the anchor like the rolling prev-reads; the guard `ivar < n`
     /// (only reachable at global bars `< n`, never published) yields `0.0`.
@@ -217,7 +223,15 @@ enum OpE {
     /// is what lets `cmo`/`stoch`/`vhf` roll over computed series. Asserted
     /// NON-price at build: a price-sourced sum belongs to the anchor-reading
     /// `Sma` group, which shares one roll per `(src, period)` and needs no ring.
-    RollSum { src: usize, period: u32, mean: bool },
+    RollSum {
+        src: usize,
+        period: u32,
+        mean: bool,
+        /// Absolute bar from which the hand's STEADY recurrence applies; before
+        /// it (and after the window is full) the hand's seeding loop subtracts as
+        /// its own statement. 0 = steady everywhere, the common case.
+        steady: u32,
+    },
     /// `stddev(period)` over a PRICE `src` — hand `Stddev::calc` op-for-op
     /// (sum roll + `sum_sq`, warm segments fold `fma(v,v,sq)` exactly like
     /// the hand's init, steady segments the double-rounded update).
@@ -745,6 +759,15 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
                         t: node_op[s][t as usize],
                     }
                 ),
+                Node::WhereLt { a, b, t } => push!(
+                    s,
+                    id,
+                    OpE::WhereLt {
+                        a: node_op[s][a as usize],
+                        b: node_op[s][b as usize],
+                        t: node_op[s][t as usize],
+                    }
+                ),
                 Node::Abs { src } => push!(
                     s,
                     id,
@@ -880,7 +903,13 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
                 // anchor read that `Sma` uses, so this is the arm that lifts the
                 // "rolling over a derived src" gate for the sum-shaped consumers
                 // (`cmo`, `stoch`, `vhf`).
-                Node::RollSum { src, period, mean } => {
+                Node::RollSum {
+                    src,
+                    period,
+                    mean,
+                    steady_from,
+                    ..
+                } => {
                     let src_op = node_op[s][src as usize];
                     assert!(
                         !is_price(src_op),
@@ -888,6 +917,10 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
                          `RollSum` is for derived sources only"
                     );
                     assert!(period >= 1, "jit: RollSum period must be >= 1");
+                    // `skip` is not lowered into the op: the emitter derives the
+                    // fold's first bar from the op's lead (`lead − period + 1`),
+                    // which `merge::leads` already moved by `skip`. `steady_from`
+                    // is a pure arithmetic boundary, so it does travel.
                     push!(
                         s,
                         id,
@@ -895,6 +928,7 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
                             src: src_op,
                             period,
                             mean,
+                            steady: steady_from,
                         }
                     );
                 }
@@ -933,10 +967,10 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
                         _ => unreachable!(),
                     };
                     let src_op = node_op[s][src as usize];
-                    assert!(
-                        is_price(src_op),
-                        "jit: rolling min/max over a derived src needs E8 shift-eval (Handover §6.5)"
-                    );
+                    // E13: a roll may now source a DERIVED node (`stochrsi` rolls over
+                    // the RSI line). Price sources read their window off the host
+                    // anchor; a derived source has no anchor, so it gets a ring of the
+                    // source's own recent NODE-VALUES — the `RollSum` mechanism (§6.29).
                     assert!(period >= 1, "jit: RollMin/RollMax period must be >= 1");
                     assert!(
                         look_back <= period,
@@ -1066,7 +1100,11 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
                 ..
             } = ops[k].e
             {
-                if s2 == src && w2 == want_max && lb2 < lb {
+                // Ring-backed (derived source) rolls are not linkable yet: the gap
+                // walk is the other place that would need ring addressing, and a
+                // derived pair in one plan is `stochrsi`'s max+min, whose scans
+                // anti-correlate anyway (§6.28) — so there is nothing to gain here.
+                if is_price(s2) && s2 == src && w2 == want_max && lb2 < lb {
                     if best.is_none_or(|(_, bl)| lb2 > bl) {
                         best = Some((k, lb2));
                     }
@@ -1299,17 +1337,22 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
     // walked one at a time.
     let mut rings: Vec<Ring> = Vec::new();
     for op in ops.iter() {
-        if let OpE::RollSum { src, period, .. } = op.e {
-            if let Some(r) = rings.iter_mut().find(|r| r.src == src) {
-                r.lag = r.lag.max(period);
-            } else {
-                rings.push(Ring {
-                    src,
-                    base: 0,
-                    cap: 0,
-                    lag: period,
-                });
-            }
+        // A roll's window must hold `look_back + 1` slots AND the current bar's
+        // value, which is written before the walk reads it: hence `+ 2`.
+        let (src, lag) = match op.e {
+            OpE::RollSum { src, period, .. } => (src, period),
+            OpE::Roll { src, look_back, .. } if !is_price(src) => (src, look_back + 2),
+            _ => continue,
+        };
+        if let Some(r) = rings.iter_mut().find(|r| r.src == src) {
+            r.lag = r.lag.max(lag);
+        } else {
+            rings.push(Ring {
+                src,
+                base: 0,
+                cap: 0,
+                lag,
+            });
         }
     }
     for r in rings.iter_mut() {
@@ -1371,11 +1414,20 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
             // Its one aux word is the `trail`; the carried extremum is the
             // op's ordinary f64 value slot. `look_back` widens the anchor so
             // the rescan can always reach bar `i − look_back`.
-            OpE::Roll { look_back, .. } => {
+            OpE::Roll { src, look_back, .. } => {
                 op.aux_word = word_next;
                 word_next += ROLL_TRAIL_WORDS;
                 op.roll_leader = usize::MAX;
-                pmax = pmax.max(look_back as usize);
+                if is_price(src) {
+                    pmax = pmax.max(look_back as usize);
+                } else {
+                    // Ring-backed: the window is the source's own ring, so the
+                    // host anchor needs no slack for it and no stitch grows.
+                    op.ring = rings
+                        .iter()
+                        .position(|r| r.src == src)
+                        .expect("ring built for every derived roll source above");
+                }
             }
             // E6: a delayed read widens the anchor window to reach `n` bars
             // back; it has no accumulator of its own.
@@ -2317,7 +2369,7 @@ mod tests {
             n_sub, 2,
             "ONE Sub shared by apo line, macd line, ppo numerator — plus hist"
         );
-        assert_eq!(nops, 10);
+        assert_eq!(nops, crate::cse::CLASSIC_OPS);
         // E2c: 11 request SLOTS collapse to 6 unique write-streams —
         // ema12 (×3 optionals), ema26 (×3, min lead 25 + windows), line
         // (apo ≡ macd primaries), ratio, signal, hist.

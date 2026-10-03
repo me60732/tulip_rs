@@ -28,6 +28,31 @@ mod recipe;
 
 pub mod jit;
 
+/// Graph/plan sizes the unit tests pin, keyed on the data-trustworthiness
+/// feature. `Ppo` emits no divisor guard when prices are declared finite and
+/// non-zero (`feature = "safe_inputs"`, see `Cargo.toml`), so its `Max` node and
+/// the `ε` `Const` feeding it leave every count: the classic apo+ppo+macd graph
+/// is 2 nodes smaller, the fused loop 2 ops shorter, and the dense dashboard
+/// (two `Ppo`s at different periods, so two guards and ONE shared `ε`) is 3
+/// nodes smaller.
+///
+/// Shared in one place so each canary stays EXACT in both configurations — an
+/// expectation relaxed to `<=` would stop detecting the accidental de-dup or the
+/// duplicated guard it exists to catch.
+#[cfg(test)]
+pub(crate) const CLASSIC_NODES: usize = if cfg!(feature = "safe_inputs") { 9 } else { 11 };
+/// [`CLASSIC_NODES`]'s fused-op count.
+#[cfg(test)]
+pub(crate) const CLASSIC_OPS: usize = if cfg!(feature = "safe_inputs") { 8 } else { 10 };
+/// The dense dashboard's merged node count (two `Ppo`s ⇒ two guards, one shared
+/// `ε`).
+#[cfg(test)]
+pub(crate) const DENSE_NODES: usize = if cfg!(feature = "safe_inputs") {
+    27
+} else {
+    30
+};
+
 pub use cache::cached_plan;
 pub use jit::{JitPlan, JitState};
 pub use merge::{merge, Merged, Resolved};

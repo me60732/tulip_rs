@@ -350,10 +350,16 @@ impl crate::cse::Planable for Willr {
     /// * `100.0 * (max − close) / (max − min)` is `Div(Mul(100, Sub), Sub)` —
     ///   Rust's left-to-right association, NOT `Mul(100, Div)` (different bits);
     /// * the `(max−min).abs() < f64::EPSILON → 0.0` guard is exactly
-    ///   `WhereGe{a: |max−min|, b: EPSILON, t: div}` — `>=` takes the division,
-    ///   `<` takes the pinned `+0.0` else arm. The division is computed
-    ///   unconditionally (a `select`, both arms live) which is what `di`/`dx`
-    ///   already do: a float divide by zero yields ±inf/NaN and is discarded.
+    ///   `WhereLt{a: |max−min|, b: EPSILON, t: div}` — the hand's own `<` form:
+    ///   `< ε` takes the pinned `+0.0`, `>=` (the else arm) takes the division. It
+    ///   is `WhereLt` and not `WhereGe` for the flat/NaN case the hand reaches: an
+    ///   IEEE compare is false in BOTH directions for NaN, so `< ε` falls to the
+    ///   division and propagates its NaN as the hand does, where `WhereGe`'s false
+    ///   arm is `+0.0` and would swallow it. (On the finite prices willr rolls over
+    ///   the two agree — `|max−min| ≥ 0` — so this pins a latent divergence rather
+    ///   than changing any printed value.) The division is still computed
+    ///   unconditionally (a `select`, both arms live), as `di`/`dx` already do: a
+    ///   float divide by zero yields ±inf/NaN and is discarded.
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
         use crate::cse::{Node, Recipe, Sink};
         let period = options[0] as u32;
@@ -379,7 +385,7 @@ impl crate::cse::Planable for Willr {
         let num = r.add(Node::Mul { a: c100, b: mc });
         let q = r.add(Node::Div { a: num, b: dif });
         let eps = r.constant(f64::EPSILON);
-        let wr = r.add(Node::WhereGe {
+        let wr = r.add(Node::WhereLt {
             a: adif,
             b: eps,
             t: q,

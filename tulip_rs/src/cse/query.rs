@@ -153,6 +153,7 @@ impl Request {
                     Node::Div { a, b } => (5, a as u64, b as u64, 0),
                     Node::Max { a, b } => (6, a as u64, b as u64, 0),
                     Node::WhereGe { a, b, t } => (22, a as u64, b as u64, t as u64),
+                    Node::WhereLt { a, b, t } => (30, a as u64, b as u64, t as u64),
                     Node::Const { bits } => (7, bits, 0, 0),
                     Node::HighPass { input, period } => (8, input as u64, period as u64, 0),
                     Node::SuperSmoother { src, period } => (9, src as u64, period as u64, 0),
@@ -160,10 +161,22 @@ impl Request {
                     Node::HtQuadrature { src } => (11, src as u64, 0, 0),
                     Node::Sma { src, period } => (12, src as u64, period as u64, 0),
                     // E12: the mean/raw switch changes the emitted value, so it
-                    // enters the key alongside the period.
-                    Node::RollSum { src, period, mean } => {
-                        (27, src as u64, (period as u64) | ((mean as u64) << 32), 0)
-                    }
+                    // enters the key alongside the period; E13 adds `skip`, which
+                    // moves the fold's start and therefore the accumulator's exact
+                    // rounding path (measured: a two-bar-early start changes 60% of
+                    // window sums in the last bits — see `Node::RollSum`'s doc).
+                    Node::RollSum {
+                        src,
+                        period,
+                        mean,
+                        skip,
+                        steady_from,
+                    } => (
+                        27,
+                        src as u64,
+                        (period as u64) | ((mean as u64) << 32),
+                        (skip as u64) | ((steady_from as u64) << 32),
+                    ),
                     Node::Stddev { src, period } => (13, src as u64, period as u64, 0),
                     // E9: `period` and `look_back` are INDEPENDENT facts — a
                     // `(P, P−1)` window and a `(P, P)` window are different
@@ -658,8 +671,10 @@ mod tests {
             "ema requests must add ZERO nodes to the classic graph"
         );
         assert_eq!(
-            classic_nodes, 11,
-            "classic graph: chains, the shared line Sub, the ppo guard chain, signal + hist"
+            classic_nodes,
+            crate::cse::CLASSIC_NODES,
+            "classic graph: chains, the shared line Sub, ppo's divisor guard when \
+             prices are not declared safe, signal + hist"
         );
         let (res, qs) = plan.run(&s);
 

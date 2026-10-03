@@ -317,3 +317,109 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Stoch {
         )
     }
 }
+
+// ── planner recipe (cse) ─────────────────────────────────────────────
+
+impl crate::cse::Planable for Stoch {
+    /// `STOCH(k, k_slow, d)` = slow %K (a `k_slow`-bar mean of fast %K) and %D (a
+    /// `d`-bar mean of slow %K), where fast %K is the hand's `calc_kfast`:
+    ///
+    /// ```text
+    /// kfast = 100 · (close − min) / max(max − min, ε)     rolls = (k, k−1)
+    /// ```
+    ///
+    /// Hand facts encoded here, all read off `State::init_state`/`calc_chuncked`:
+    /// · the two rolls are the SAME nodes `willr`/`donchian`/`max`/`min` declare —
+    ///   `(k_period, k_period − 1)` over high and low — so a dashboard asking for
+    ///   `stoch` and `willr` walks each column's window ONCE.
+    /// · the divisor guard is `(max − min).max(f64::EPSILON)`: a `Max` against a
+    ///   positive constant, NOT `willr`'s `WhereLt`. It floors rather than
+    ///   substituting a whole result, so a flat bar (`max == min`, legal data)
+    ///   yields `100·(close−min)/ε` here — a huge number, not `0.0` — and that is
+    ///   what the hand prints, so the engine must not "improve" it.
+    /// · `100.0 * (close − min) / den` is left-associative: `Div(Mul(100, sub))`,
+    ///   not `Mul(100, Div)` (different bits).
+    /// · slow %K is a mean (`k_sum · 1/k_slow`, the hand's `multiplier`), so both
+    ///   smoothers are `RollSum{mean: true}` — the class E12 opened.
+    /// · **the %K fold starts two bars after fast %K first exists.** The hand
+    ///   seeds its roll states with `init_state(low, k_period + 1)` and begins the
+    ///   loop at `i = k_period + 1`, so the first two published kfast values are
+    ///   discarded and never enter `k_sum`. Hence `skip: 2` — and it is not
+    ///   cosmetic: the ring drops by absolute bar, so the window at each printed
+    ///   bar is the same set either way, but a fold that starts early reaches it
+    ///   through extra add/subtract rounds, which is not the same float
+    ///   (measured: two bars early flips 60% of the sums' last bits).
+    /// · leads, verified against `::indicator()` row counts on four option sets:
+    ///   fast %K exists at bar `k−1` (the roll), slow %K prints at `k + k_slow`,
+    ///   %D at `k + k_slow + d`. The `skip` already moved the %K node's lead to
+    ///   `k + k_slow`, so its sink needs no override; %D's natural lead is one bar
+    ///   early (the hand buffers `d` %K values before its first write), so that
+    ///   sink carries the explicit lead. `min_data = k + k_slow + d + 1` matches.
+    ///
+    /// `get_states` is DEFERRED (the plan runs and resumes bit-exact without it):
+    /// the hand `State` holds two `Buffer`s — `prev_k` and `prev_d` — and those are
+    /// exactly the rings `RollSum` already keeps in the state image, so the export
+    /// is the `ChainState::Hma{ring, cursor}` precedent applied to `RollSum`, not a
+    /// new mechanism. `k_sum`/`d_sum` and the two roll states are already
+    /// reportable chain values.
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        use crate::cse::{Node, Recipe, Sink};
+        let k_period = options[0] as u32;
+        let k_slow = options[1] as u32;
+        let d_period = options[2] as u32;
+        let look_back = k_period.saturating_sub(1);
+
+        let mut r = Recipe::new();
+        let high = r.add(Node::Input { stream: 0 });
+        let low = r.add(Node::Input { stream: 1 });
+        let close = r.add(Node::Input { stream: 2 });
+        let mx = r.add(Node::RollMax {
+            src: high,
+            period: k_period,
+            look_back,
+        });
+        let mn = r.add(Node::RollMin {
+            src: low,
+            period: k_period,
+            look_back,
+        });
+        let dif = r.add(Node::Sub { a: mx, b: mn });
+        let eps = r.constant(f64::EPSILON);
+        let den = r.add(Node::Max { a: dif, b: eps });
+        let mc = r.add(Node::Sub { a: close, b: mn });
+        let c100 = r.constant(100.0);
+        let num = r.add(Node::Mul { a: c100, b: mc });
+        let kfast = r.add(Node::Div { a: num, b: den });
+        // Slow %K: the hand discards fast %K's first two published values
+        // (its roll seeding), hence `skip: 2`.
+        let k_line = r.add(Node::RollSum {
+            src: kfast,
+            period: k_slow,
+            mean: true,
+            skip: 2,
+            // The hand's init loop runs to bar `k + k_slow + d − 1`, past the
+            // first full window, and inside it the eviction subtracts as its own
+            // statement — so the steady `sum += v - old` only begins at
+            // `k + k_slow + d`, exactly where %D starts printing.
+            steady_from: k_period + k_slow + d_period,
+        });
+        // %D: a mean of the slow %K line, folding from that line's first
+        // published bar — the hand's `prev_d` receives exactly those, and its
+        // init loop never evicts, so the steady form applies throughout.
+        let d_line = r.add(Node::RollSum {
+            src: k_line,
+            period: d_period,
+            mean: true,
+            skip: 0,
+            steady_from: 0,
+        });
+
+        r.kind = "stoch";
+        r.options = options.to_vec();
+        r.outputs = vec![
+            Sink::iface(k_line),
+            Sink::iface_lead(d_line, k_period + k_slow + d_period),
+        ];
+        r
+    }
+}

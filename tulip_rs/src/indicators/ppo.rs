@@ -90,11 +90,22 @@ impl TState for State<Warm> {
         let short_ema = self.short_ema.calc(real);
         let long_ema = self.long_ema.calc(real);
 
-        (
-            (short_ema - long_ema) * 100.0 / long_ema.max(f64::EPSILON),
-            short_ema,
-            long_ema,
-        )
+        #[cfg(feature = "safe_inputs")]
+        {
+            (
+                (short_ema - long_ema) * 100.0 / long_ema,
+                short_ema,
+                long_ema,
+            )
+        }
+        #[cfg(not(feature = "safe_inputs"))]
+        {
+            (
+                (short_ema - long_ema) * 100.0 / long_ema.max(f64::EPSILON),
+                short_ema,
+                long_ema,
+            )
+        }
     }
 }
 
@@ -234,6 +245,15 @@ impl Planable for Ppo {
     /// hand's exact evaluation order: `((s − l) * 100.0) / l_c`.
     /// Reassociating to `(s − l) * (100.0 / l_c)` would change the bits
     /// (MATHEMATICAL_ENGINE §5).
+    ///
+    /// Under `feature = "safe_inputs"` (on by default) the `Max` node is not
+    /// emitted at all and the divisor is the raw `ema_l`, mirroring
+    /// `State::calc`'s own `#[cfg]` arm — a zero price is excluded by the data
+    /// contract, so the floor cannot fire. That is the ONLY structural
+    /// difference between the two configurations of this recipe, and both are
+    /// tested: `classic`'s apo/ppo/macd parity and the dedup counts hold either
+    /// way, with one fewer op (the `Max` and its `ε` constant) when the data is
+    /// declared trustworthy.
     fn recipe(options: &[f64]) -> Recipe {
         let short = options[0] as u32;
         let long = options[1] as u32;
@@ -247,8 +267,20 @@ impl Planable for Ppo {
         let s = r.sub_at::<Ema>(&[short as f64], &[close]);
         let l = r.sub_at::<Ema>(&[long as f64], &[close]);
         let line = r.add(Node::Sub { a: s, b: l });
-        let eps = r.constant(f64::EPSILON);
-        let l_c = r.add(Node::Max { a: l, b: eps });
+        // The divisor guard follows `State::calc` exactly, including under
+        // `feature = "safe_inputs"`, where the hand divides by the raw long EMA:
+        // a zero price cannot occur, so `max(ema_l, ε)` is dead code there. The
+        // recipe MUST match the hand here or the parity matrices diverge — with
+        // the floor compiled out on one side and present on the other, `ppo`
+        // would disagree by the smallest possible amount (a divisor of ε instead
+        // of 0) at exactly the bars nobody generates on purpose.
+        #[cfg(feature = "safe_inputs")]
+        let l_c = l;
+        #[cfg(not(feature = "safe_inputs"))]
+        let l_c = {
+            let eps = r.constant(f64::EPSILON);
+            r.add(Node::Max { a: l, b: eps })
+        };
         let c100 = r.constant(100.0);
         let num = r.add(Node::Mul { a: line, b: c100 });
         let ratio = r.add(Node::Div { a: num, b: l_c });

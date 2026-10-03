@@ -89,9 +89,14 @@ mod tests {
     fn cached_plan_hits_return_the_same_plan() {
         let a = cached_plan(&apo(), 1);
         let b = cached_plan(&apo(), 1);
-        assert!(Arc::ptr_eq(&a, &b), "identical shapes must dedup to one compile");
+        assert!(
+            Arc::ptr_eq(&a, &b),
+            "identical shapes must dedup to one compile"
+        );
         // ...and it runs: bit-for-bit the freshly-built answer
-        let c: Vec<f64> = (0..200).map(|i| (i as f64 * 0.7).sin() * 10.0 + 100.0).collect();
+        let c: Vec<f64> = (0..200)
+            .map(|i| (i as f64 * 0.7).sin() * 10.0 + 100.0)
+            .collect();
         let s: [&[f64]; 1] = [c.as_slice()];
         let (r1, _) = a.run(&s);
         let (r2, _) = apo().build().run(&s);
@@ -111,26 +116,40 @@ mod tests {
         assert!(!Arc::ptr_eq(&a, &b));
         assert_ne!(a.fingerprint(), b.fingerprint());
         // recipe ORDER changes arena ids ⇒ different plan
-        let ab = Request::new().add_all(Apo::recipe(&[12.0, 26.0])).add_all(Ppo::recipe(&[12.0, 26.0]));
-        let ba = Request::new().add_all(Ppo::recipe(&[12.0, 26.0])).add_all(Apo::recipe(&[12.0, 26.0]));
-        assert_ne!(cached_plan(&ab, 1).fingerprint(), cached_plan(&ba, 1).fingerprint());
+        let ab = Request::new()
+            .add_all(Apo::recipe(&[12.0, 26.0]))
+            .add_all(Ppo::recipe(&[12.0, 26.0]));
+        let ba = Request::new()
+            .add_all(Ppo::recipe(&[12.0, 26.0]))
+            .add_all(Apo::recipe(&[12.0, 26.0]));
+        assert_ne!(
+            cached_plan(&ab, 1).fingerprint(),
+            cached_plan(&ba, 1).fingerprint()
+        );
         // period values, too
         assert_ne!(
             cached_plan(&Request::new().add_all(Apo::recipe(&[12.0, 26.0])), 1).fingerprint(),
             cached_plan(&Request::new().add_all(Apo::recipe(&[12.0, 26.1])), 1).fingerprint()
         );
         // ...and the asset-lane count
-        assert_ne!(cached_plan(&ab, 1).fingerprint(), cached_plan(&ab, 2).fingerprint());
+        assert_ne!(
+            cached_plan(&ab, 1).fingerprint(),
+            cached_plan(&ab, 2).fingerprint()
+        );
     }
 
     #[test]
     fn foreign_state_cannot_resume_a_different_plan() {
         let small = cached_plan(&apo(), 1);
         let big = cached_plan(
-            &Request::new().add_all(Apo::recipe(&[12.0, 26.0])).add_all(Ppo::recipe(&[12.0, 26.0])),
+            &Request::new()
+                .add_all(Apo::recipe(&[12.0, 26.0]))
+                .add_all(Ppo::recipe(&[12.0, 26.0])),
             1,
         );
-        let c: Vec<f64> = (0..200).map(|i| (i as f64 * 0.7).sin() * 10.0 + 100.0).collect();
+        let c: Vec<f64> = (0..200)
+            .map(|i| (i as f64 * 0.7).sin() * 10.0 + 100.0)
+            .collect();
         let s: [&[f64]; 1] = [c.as_slice()];
         let (_res, st) = small.run(&s);
         // st's plan_key belongs to `small`'s arena — handing it to `big`
@@ -139,13 +158,18 @@ mod tests {
         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             big.resume(st, &s);
         }));
-        assert!(r.is_err(), "fingerprint assert must reject mismatched JitState");
+        assert!(
+            r.is_err(),
+            "fingerprint assert must reject mismatched JitState"
+        );
     }
 
     #[test]
     fn cached_plans_stream_normally() {
         let p = cached_plan(&apo(), 1);
-        let c: Vec<f64> = (0..300).map(|i| (i as f64 * 0.7).sin() * 10.0 + 100.0).collect();
+        let c: Vec<f64> = (0..300)
+            .map(|i| (i as f64 * 0.7).sin() * 10.0 + 100.0)
+            .collect();
         let s1: [&[f64]; 1] = [&c[..140]];
         let s2: [&[f64]; 1] = [&c[140..]];
         let (h1, qs) = p.run(&s1);

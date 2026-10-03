@@ -234,3 +234,78 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Vhf {
         )
     }
 }
+
+// ── planner recipe (cse) ─────────────────────────────────────────────
+
+impl crate::cse::Planable for Vhf {
+    /// `VHF(p)` = `(max − min) / max(Σ|Δclose|, ε)` over a `p`-bar window — the
+    /// ratio of the range the price actually covered to the distance it travelled,
+    /// so a straight trend scores high and a choppy one low.
+    ///
+    /// Hand facts encoded here, read off `State::init_state`/`calc`:
+    /// · the numerator is the SAME `(p, p−1)` `RollMax`/`RollMin` pair `willr`
+    ///   declares over one stream, so `vhf` + `willr` in one query walks each
+    ///   window once;
+    /// · the denominator is a plain SUM, not a mean — `RollSum{mean: false}`, like
+    ///   `cmo` (the hand's `self.sum`, maintained by `sum += new − old`);
+    /// · its source is `|real − prev_real|`, a DERIVED node: the leaving term
+    ///   cannot come from the host price anchor, so this is the third consumer of
+    ///   the ring-backed `RollSum` and needs no new mechanism — the ring holds the
+    ///   absolute bar's `Abs` value and drops it `p` bars later;
+    /// · **no `skip`/`steady_from` here, unlike `stoch`.** The hand's init sums
+    ///   `|Δ|` for bars `1..=period` and the buffer is exactly `period` wide, so
+    ///   the window is complete at the same bar it first publishes and the loop
+    ///   never subtracts during seeding; and the first movement is at bar 1, which
+    ///   is the source's own lead. Both recurrences therefore coincide, so every
+    ///     default holds;
+    /// · the divisor floor is `(sum).max(f64::EPSILON)` — a `Max` against a
+    ///   positive constant (`GuardForm::Floor`), not `willr`'s `WhereLt`: an
+    ///   unchanging series divides by ε rather than printing `0.0`;
+    /// · `init_state` writes `indicator_line[0]` at bar `period` and `cycle` runs
+    ///   from `period + 1`, so the first printed bar is `period` — which is
+    ///   already the `Div`'s computed lead (`max(roll lead p−1, sum lead p)`), so
+    ///   the sink needs no override.
+    ///
+    /// `get_states` is DEFERRED, same shape as `stoch`'s: the hand state's
+    /// `buffer` is the `RollSum`'s own ring, so the export is the
+    /// `ChainState::Hma{ring, cursor}` precedent rather than a new mechanism, and
+    /// `prev_real` is a `Mirror` once that lands. Running and resuming are
+    /// bit-exact without it.
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        use crate::cse::{Node, Recipe, Sink};
+        let period = options[0] as u32;
+        let look_back = period.saturating_sub(1);
+
+        let mut r = Recipe::new();
+        let real = r.add(Node::Input { stream: 0 });
+        let mx = r.add(Node::RollMax {
+            src: real,
+            period,
+            look_back,
+        });
+        let mn = r.add(Node::RollMin {
+            src: real,
+            period,
+            look_back,
+        });
+        let prev = r.add(Node::Lag { src: real, n: 1 });
+        let diff = r.add(Node::Sub { a: real, b: prev });
+        let travel = r.add(Node::Abs { src: diff });
+        let sum = r.add(Node::RollSum {
+            src: travel,
+            period,
+            mean: false,
+            skip: 0,
+            steady_from: 0,
+        });
+        let range = r.add(Node::Sub { a: mx, b: mn });
+        let eps = r.constant(f64::EPSILON);
+        let den = r.add(Node::Max { a: sum, b: eps });
+        let line = r.add(Node::Div { a: range, b: den });
+
+        r.kind = "vhf";
+        r.options = options.to_vec();
+        r.outputs.push(Sink::iface(line));
+        r
+    }
+}

@@ -44,8 +44,17 @@ fn classic_compile_size_is_bounded() {
     println!("classic: chains={chains} packed={packed} ops={ops} stores={stores} clif={lines}");
     // CSE'd shape is 11 nodes / 3 chains / one fused pair group — these are the
     // §4-identity invariants; if DCE/interning regress, op or store counts move.
+    // `Ppo`'s divisor guard (`Max` + its `ε` `Const`) is not emitted when prices
+    // are declared trustworthy, so the pinned counts are feature-keyed — the same
+    // pair lives in `cse/mod.rs` as `CLASSIC_OPS`/`DENSE_NODES` for the unit
+    // tests (an integration test can't reach crate-private items, hence the
+    // duplication; change both together).
     assert_eq!(chains, 3, "ema12, ema26, macd signal");
-    assert_eq!(ops, 10, "classic fused op count (DCE-primed canary)");
+    assert_eq!(
+        ops,
+        if cfg!(feature = "safe_inputs") { 8 } else { 10 },
+        "classic fused op count (DCE-primed canary)"
+    );
     assert!(lines < 400, "classic CLIF blew past its canary: {lines}");
 }
 

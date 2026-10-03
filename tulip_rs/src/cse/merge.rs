@@ -46,6 +46,9 @@ impl Merged {
                 Node::WhereGe { a, b, t } => leads[a as usize]
                     .max(leads[b as usize])
                     .max(leads[t as usize]),
+                Node::WhereLt { a, b, t } => leads[a as usize]
+                    .max(leads[b as usize])
+                    .max(leads[t as usize]),
                 Node::Abs { src } => leads[src as usize],
                 // A delayed read of a stream first has a value once the
                 // stream is `n` bars old.
@@ -60,12 +63,13 @@ impl Merged {
                     .max(leads[close as usize]),
                 Node::Sma { src, period }
                 | Node::Stddev { src, period }
-                | Node::Wma { src, period }
+                | Node::Wma { src, period } => leads[src as usize] + period.saturating_sub(1),
                 // E12: same boundary — the window is `period` wide, so the first
-                // full one ends at `lead(src) + period − 1`.
-                | Node::RollSum { src, period, .. } => {
-                    leads[src as usize] + period.saturating_sub(1)
-                }
+                // full one ends at `lead(src) + period − 1`; E13's `skip` pushes
+                // it out further by the values the hand discards before folding.
+                Node::RollSum {
+                    src, period, skip, ..
+                } => leads[src as usize] + skip + period.saturating_sub(1),
                 // E9 trail-rescan roll: the carried extremum is meaningful
                 // from bar 0, but the WINDOW the hand's rescan walks needs
                 // `period` bars to exist, so the warm boundary is the same
@@ -97,9 +101,7 @@ impl Merged {
                     let f = if feed { leads[src as usize] } else { 0 };
                     f + period.saturating_sub(1)
                 }
-                Node::Sqrt { src } | Node::Ln { src } | Node::Mirror { src } => {
-                    leads[src as usize]
-                }
+                Node::Sqrt { src } | Node::Ln { src } | Node::Mirror { src } => leads[src as usize],
                 Node::Fma { a, b, c } => leads[a as usize]
                     .max(leads[b as usize])
                     .max(leads[c as usize]),
@@ -250,7 +252,7 @@ fn remap(node: &Node, l2g: &[Id]) -> Node {
 /// The one child-id-remapping truth, shared by merge (local→global) and
 /// [`Recipe::sub`](crate::cse::Recipe::sub) (sub-local→parent-local graft).
 /// **Refs (→ `g`):** `Ema{src}`, `Sub/Add/Mul/Div/Max{a,b}`, `WhereGe{a,b,t}`,
-/// `Abs/Lag/Sqrt{src}`, `Sma/Stddev/Wma/Hma{src,period}`, `Wilders{..}`,
+/// `WhereLt{a,b,t}`, `Abs/Lag/Sqrt{src}`, `Sma/Stddev/Wma/Hma{src,period}`, `Wilders{..}`,
 /// `SuperTrend{atr,med,close}`, `Fma{a,b,c}`, `HighPass/SuperSmoother`,
 /// `Ht*{src}`. **Params (copy):** `Input{stream}`, `Const{bits}`, every
 /// `period`, `Lag{n}`, `SuperTrend{step_bits}`.
@@ -268,6 +270,11 @@ pub(crate) fn remap_node(node: &Node, g: &dyn Fn(Id) -> Id) -> Node {
         Mul { a, b } => Mul { a: g(a), b: g(b) },
         Div { a, b } => Div { a: g(a), b: g(b) },
         WhereGe { a, b, t } => WhereGe {
+            a: g(a),
+            b: g(b),
+            t: g(t),
+        },
+        WhereLt { a, b, t } => WhereLt {
             a: g(a),
             b: g(b),
             t: g(t),
@@ -311,10 +318,18 @@ pub(crate) fn remap_node(node: &Node, g: &dyn Fn(Id) -> Id) -> Node {
             src: g(src),
             period,
         },
-        RollSum { src, period, mean } => RollSum {
+        RollSum {
+            src,
+            period,
+            mean,
+            skip,
+            steady_from,
+        } => RollSum {
             src: g(src),
             period,
             mean,
+            skip,
+            steady_from,
         },
         Stddev { src, period } => Stddev {
             src: g(src),
@@ -392,6 +407,11 @@ pub(crate) fn node_children(node: &Node, visit: &mut dyn FnMut(Id)) {
             visit(*b);
         }
         WhereGe { a, b, t } => {
+            visit(*a);
+            visit(*b);
+            visit(*t);
+        }
+        WhereLt { a, b, t } => {
             visit(*a);
             visit(*b);
             visit(*t);
@@ -546,12 +566,26 @@ mod tests {
             Ppo::recipe(&[12.0, 26.0]),
             Macd::recipe(&[12.0, 26.0, 9.0]),
         ]);
-        assert_eq!(m.nodes.len(), 11, "one shared graph, no duplicates");
+        assert_eq!(
+            m.nodes.len(),
+            crate::cse::CLASSIC_NODES,
+            "one shared graph, no duplicates"
+        );
         let n = |p: fn(&Node) -> bool| m.nodes.iter().filter(|n| p(n)).count();
         assert_eq!(n(|x| matches!(x, Node::Ema { .. })), 3, "e12, e26, sig");
         assert_eq!(n(|x| matches!(x, Node::Sub { .. })), 2, "line + hist");
-        assert_eq!(n(|x| matches!(x, Node::Const { .. })), 2, "eps, 100");
-        assert_eq!(n(|x| matches!(x, Node::Max { .. })), 1);
+        // ppo's divisor guard: `Const ε` + `Max`, both absent under
+        // `safe_inputs` (see `cse/mod.rs`). Counted separately from the graph
+        // size so a lost node is still attributable.
+        assert_eq!(
+            n(|x| matches!(x, Node::Const { .. })),
+            if cfg!(feature = "safe_inputs") { 1 } else { 2 },
+            "100, plus eps when the guard exists"
+        );
+        assert_eq!(
+            n(|x| matches!(x, Node::Max { .. })),
+            if cfg!(feature = "safe_inputs") { 0 } else { 1 }
+        );
         assert_eq!(n(|x| matches!(x, Node::Mul { .. })), 1);
         assert_eq!(n(|x| matches!(x, Node::Div { .. })), 1);
 
@@ -628,6 +662,6 @@ mod tests {
             n_price_emas, 11,
             "periods 5,6,8,9,10,11,12,23,24,25,26 over the single close Input"
         );
-        assert_eq!(m.nodes.len(), 30);
+        assert_eq!(m.nodes.len(), crate::cse::DENSE_NODES);
     }
 }

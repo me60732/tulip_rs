@@ -432,6 +432,25 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
             _ => None,
         }))
         .collect();
+    // E13: a `RollSum` whose hand discards the source's first values before
+    // folding (`skip > 0`) needs the segment cut AT that bar too — the fold
+    // decision is made per segment at compile time, so without this boundary the
+    // bars between the segment start and the fold start would all be skipped.
+    for op in plan.ops.iter() {
+        if let OpE::RollSum { period, steady, .. } = op.e {
+            let fold_from = op.lead as i64 - period as i64 + 1;
+            if fold_from > 0 {
+                bounds.push(fold_from as u64);
+            }
+            // The add-then-subtract → steady switch needs its own segment too.
+            // It usually lands AFTER this op's warm boundary (stoch: the hand's
+            // init loop runs to bar `k + k_slow + d − 1`, past the first full
+            // window at `k + k_slow`), so it cannot be gated on `<= lead`.
+            if (steady as i64) > fold_from.max(0) {
+                bounds.push(steady as u64);
+            }
+        }
+    }
     // E3 stage 3 seams per HMA: engine-2 fold start, the fill (trick)
     // start, and the output start. The store's own lead covers the last
     // one while the sink prints, but the plan may hold the HMA value with
@@ -679,8 +698,18 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
             // loop folds the source node-value from bar 0.
             OpE::Wilders { .. } => loads[j],
             // E9: cold chunk — bar 0 seeds the extremum exactly as the hand's
-            // `init_state` opens (`max = real[0]` / `min = real[0]`, trail 0).
-            OpE::Roll { src, .. } => fb.ins().select(is_seeded, loads[j], p0[PRICE - src]),
+            // `init_state` opens (`max = real[0]` / `min = real[0]`, trail 0). A
+            // DERIVED roll has no price stream to read bar 0 from, so it seeds
+            // from the source's own bar-0 value — already computed above, since
+            // ops follow arena order and a node's source always precedes it.
+            OpE::Roll { src, .. } => {
+                let seed = if src > PRICE - na {
+                    p0[PRICE - src]
+                } else {
+                    init[src]
+                };
+                fb.ins().select(is_seeded, loads[j], seed)
+            }
             // E12: the derived rolling sum carries from state — a cold chunk's
             // slot is zero-initialized and bar 0 is NOT added (the loop starts at
             // bar 1, and the hand's own fold likewise starts at the source's first
@@ -857,7 +886,16 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                 OpE::Roll { src, .. } => src,
                 _ => unreachable!(),
             };
-            mmroll_base.push(fb.ins().iadd(abases[PRICE - src], pmax8));
+            // A ring-backed (derived-source) roll never reads the anchor — its
+            // walk goes through the source's ring — so it needs no anchor base.
+            // The slot is still filled (index by `tr_of[j]` must stay aligned);
+            // nothing reads it, so hand it the state pointer.
+            let base = if src < PRICE - na {
+                state
+            } else {
+                fb.ins().iadd(abases[PRICE - src], pmax8)
+            };
+            mmroll_base.push(base);
         }
     }
     let mut vbases: Vec<Value> = Vec::with_capacity(nroll);
@@ -1053,6 +1091,29 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
         let mut ring_done = vec![false; nring];
         let mut ring_mask: Vec<Option<Value>> = vec![None; nring];
         let mut ring_base8: Vec<Option<Value>> = vec![None; nring];
+        // Emit this bar's ring slot store, once per ring per segment. Both the
+        // `RollSum` and the `Roll` lowering call THIS, because a source can back
+        // both kinds at once (rings are grouped by source) and whichever runs
+        // first for the segment has to lay down the bytes every later reader sees.
+        macro_rules! ring_write {
+            ($ri:expr, $src_v:expr, $ivar:expr) => {{
+                let ri: usize = $ri;
+                if !ring_done[ri] {
+                    let ring = &plan.rings[ri];
+                    let mask = fb.ins().iconst(i64_t, (ring.cap - 1) as i64);
+                    let b8 = fb.ins().iconst(i64_t, 8 * ring.base as i64);
+                    let wslot = fb.ins().band($ivar, mask);
+                    let woff = fb.ins().imul(wslot, eight);
+                    let waddr = fb.ins().iadd(b8, woff);
+                    let wa = fb.ins().iadd(state, waddr);
+                    st(&mut fb, wa, 0, $src_v);
+                    ring_mask[ri] = Some(mask);
+                    ring_base8[ri] = Some(b8);
+                    ring_done[ri] = true;
+                }
+            }};
+        }
+
         let mut sq_lat: Vec<Option<Value>> = vec![None; nsq];
         // E3 stage 3: HMA's six accumulators + ring cursor are carried
         // by EVERY segment arm (each phase updates a subset, but the
@@ -1114,8 +1175,17 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
         // `tr_of`), and `ci` advances only for chained `Ema`s, which stay in
         // phase B — so no other bookkeeping moves. Grouped lane members are
         // already stepped above, hence the existing `lane_of` skip.
-        let is_roll = |j: usize| matches!(plan.ops[j].e, OpE::Roll { .. });
-        let mut roll_order = mmrolls.clone();
+        // A RING-BACKED (derived-source) roll is NOT hoisted: it reads its own
+        // source's value for this bar, so it must follow that op, and it never
+        // takes part in a seed link — which was the only reason rolls go first
+        // (§6.29). Anchor rolls keep phase 1 for exactly that reason.
+        let is_roll =
+            |j: usize| matches!(plan.ops[j].e, OpE::Roll { .. }) && plan.ops[j].ring == usize::MAX;
+        let mut roll_order = mmrolls
+            .iter()
+            .copied()
+            .filter(|&j| is_roll(j))
+            .collect::<Vec<_>>();
         roll_order.sort_by_key(|&j| match plan.ops[j].e {
             OpE::Roll {
                 src,
@@ -1350,28 +1420,29 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                 // of the host price anchor — slots are `bar & mask` off the
                 // ABSOLUTE bar counter, so there is no cursor to carry and a
                 // resumed chunk continues the window by construction.
-                OpE::RollSum { src, period, mean } => {
+                OpE::RollSum {
+                    src,
+                    period,
+                    mean,
+                    steady,
+                } => {
                     let slot = slot_of_op[j];
                     let prev_sum = bp[slot];
                     let src_v = scalarize!(src);
                     let ivar = bp[ipos];
                     let ri = plan.ops[j].ring;
-                    let ring = &plan.rings[ri];
-                    if !ring_done[ri] {
-                        let mask = fb.ins().iconst(i64_t, (ring.cap - 1) as i64);
-                        let b8 = fb.ins().iconst(i64_t, 8 * ring.base as i64);
-                        let wslot = fb.ins().band(ivar, mask);
-                        let woff = fb.ins().imul(wslot, eight);
-                        let waddr = fb.ins().iadd(b8, woff);
-                        let wa = fb.ins().iadd(state, waddr);
-                        st(&mut fb, wa, 0, src_v);
-                        ring_mask[ri] = Some(mask);
-                        ring_base8[ri] = Some(b8);
-                        ring_done[ri] = true;
-                    }
+                    ring_write!(ri, src_v, ivar);
                     let mask = ring_mask[ri].expect("ring written by its first consumer");
                     let b8 = ring_base8[ri].expect("ring base alongside its mask");
-                    let sum2 = if b <= plan.ops[j].lead as i64 {
+                    // First bar the hand folds at: its warm-up discards `skip`
+                    // published values, and starting earlier would reach the same
+                    // window through different add/subtract rounds (measured: 60%
+                    // of windows differ in the last bits). `merge::leads` moved
+                    // this op's lead by `skip`, so it is derivable here.
+                    let fold_from = plan.ops[j].lead as i64 - period as i64 + 1;
+                    let sum2 = if b < fold_from {
+                        prev_sum
+                    } else if b <= plan.ops[j].lead as i64 {
                         // Window still filling: nothing has fallen out yet, so the
                         // fold is a plain accumulate (and the ring slot for `i−P`
                         // has not been written — reading it would be garbage).
@@ -1384,10 +1455,21 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                         let raddr = fb.ins().iadd(b8, roff);
                         let ra = fb.ins().iadd(state, raddr);
                         let old = fb.ins().load(f64_t, MemFlagsData::new(), ra, 0);
-                        // The hand's `sum += v - old`: the difference is rounded
-                        // FIRST, so this is `fadd` of an `fsub`, never an `fma`.
-                        let net = fb.ins().fsub(src_v, old);
-                        fb.ins().fadd(prev_sum, net)
+                        if b < steady as i64 {
+                            // The hand's SEEDING loop, which adds and then
+                            // subtracts as separate statements — two roundings,
+                            // where the steady loop's `sum += v - old` has one.
+                            // Worth an ulp: `stoch`'s slow %K differs by exactly
+                            // one bit from its first evicting init bar without it.
+                            let added = fb.ins().fadd(prev_sum, src_v);
+                            fb.ins().fsub(added, old)
+                        } else {
+                            // The hand's `sum += v - old`: the difference is
+                            // rounded FIRST, so this is `fadd` of an `fsub`, never
+                            // an `fma`.
+                            let net = fb.ins().fsub(src_v, old);
+                            fb.ins().fadd(prev_sum, net)
+                        }
                     };
                     carry[j] = Some(sum2);
                     if mean {
@@ -1453,7 +1535,25 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                 } => {
                     let slot = slot_of_op[j];
                     let prev_val = bp[slot];
-                    let src_v = pv[PRICE - src];
+                    // Price sources load the bar from the stream pointer; a derived
+                    // source (ring-backed) is the op's value this bar, already
+                    // computed by an earlier op in this same body.
+                    let ring_backed = plan.ops[j].ring != usize::MAX;
+                    let src_v = if ring_backed {
+                        scalarize!(src)
+                    } else {
+                        pv[PRICE - src]
+                    };
+                    let ivar = bp[ipos];
+                    if ring_backed {
+                        // Write THIS bar's source value before any walk can read the
+                        // ring, so slot `i & mask` is current. The address math is
+                        // hoisted once per ring per segment (`ring_done`), exactly as
+                        // `RollSum` does, and the store lives in the loop body — so it
+                        // runs once per bar for the ring's first consumer.
+                        let ri = plan.ops[j].ring;
+                        ring_write!(ri, src_v, ivar);
+                    }
                     // `>=` for max, `<=` for min — the hand's else-branch
                     // compares, and the rescan uses the SAME relation so a tie
                     // always lands on the NEWEST occurrence.
@@ -1560,6 +1660,48 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                         // returns `b` when `b` is NaN. `rolls_match_hand_when_the_
                         // window_holds_non_finite_slots` is the gate for all of this;
                         // both walks now agree with the hand on every class.
+                        // RING-ADDRESSED walk, for a derived roll source. Slot `k` of
+                        // the window holds bar `i − look_back + k`, so its address is
+                        // `ring_base + 8·((i − (look_back − k)) & mask)` — 4 integer
+                        // ops per slot where the anchor needs 1 (`base + 8k` is a
+                        // constant offset). The wrap is also why it cannot be two
+                        // lanes wide: whether a slot pair straddles the boundary
+                        // depends on `i`, so a vector load is not always legal. §6.17's
+                        // vector win therefore does not transfer here (§6.29), and
+                        // making it transfer — by writing the ring twice so a window
+                        // is one contiguous run — measured a 0.7% LOSS standalone and
+                        // a 3.3% win fused (§6.30): the copy is charged to every bar
+                        // to save integer ops on the ~6–15% of bars that rescan.
+                        macro_rules! walkr {
+                            ($rb:expr, $m:expr, $lb:expr, $n:expr, $nonstrict:expr) => {{
+                                let rb: Value = $rb;
+                                let m: Value = $m;
+                                let lb: i64 = $lb;
+                                let n: i64 = $n;
+                                let bc0 = fb.ins().iconst(i64_t, lb);
+                                let rp0 = fb.ins().isub(ivar, bc0);
+                                let sl0 = fb.ins().band(rp0, m);
+                                let of0 = fb.ins().imul(sl0, eight);
+                                let a0 = fb.ins().iadd(rb, of0);
+                                let mut bv = fb.ins().load(f64_t, MemFlagsData::new(), a0, 0);
+                                let mut bi = zero;
+                                let mut k: i64 = 1;
+                                while k < n {
+                                    let bc = fb.ins().iconst(i64_t, lb - k);
+                                    let rp = fb.ins().isub(ivar, bc);
+                                    let sl = fb.ins().band(rp, m);
+                                    let of = fb.ins().imul(sl, eight);
+                                    let a = fb.ins().iadd(rb, of);
+                                    let v = fb.ins().load(f64_t, MemFlagsData::new(), a, 0);
+                                    let c = fb.ins().fcmp($nonstrict, v, bv);
+                                    bv = fb.ins().select(c, v, bv);
+                                    let kc = fb.ins().iconst(i64_t, k);
+                                    bi = fb.ins().select(c, kc, bi);
+                                    k += 1;
+                                }
+                                (bv, bi)
+                            }};
+                        }
                         macro_rules! walkv {
                             ($base:expr, $n:expr, $nonstrict:expr, $is_max:expr) => {{
                                 let n: i64 = $n;
@@ -1653,7 +1795,17 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                         // roll publishes no index), so trail is the only unit both
                         // branches agree on.
                         let (bv, bt) = if seed == usize::MAX {
-                            let (v, i) = if plan.vecwalk {
+                            let (v, i) = if ring_backed {
+                                let ri = plan.ops[j].ring;
+                                let rbase = fb.ins().iadd(
+                                    state,
+                                    ring_base8[ri]
+                                        .expect("ring base emitted with this roll's ring store"),
+                                );
+                                let m =
+                                    ring_mask[ri].expect("ring mask emitted alongside its base");
+                                walkr!(rbase, m, look_back as i64, look_back as i64 + 1, cc)
+                            } else if plan.vecwalk {
                                 walkv!(w0, look_back as i64 + 1, cc, want_max)
                             } else {
                                 walk!(w0, look_back as i64 + 1, cc)
@@ -1989,6 +2141,26 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                         let ge = fb.ins().fcmp(FloatCC::GreaterThanOrEqual, av, bv);
                         fb.ins().select(ge, tv, z)
                     }
+                }
+                OpE::WhereLt { a, b, t } => {
+                    // `if a < b { 0.0 } else { t }` — the hand's denominator guard
+                    // (`stochrsi`/`willr`'s `if range < ε { 0.0 } else { div }`).
+                    // The `+0.0` is on the TRUE arm, so a NaN operand — false for
+                    // BOTH IEEE directions — takes the ELSE (the division) and
+                    // propagates its NaN, exactly as the hand does; this is the
+                    // divergence `WhereGe` cannot express (its false arm is `0.0`).
+                    //
+                    // No branchless form: both consumers compare against an ε
+                    // constant, so the branch always predicts and a `blendv` mask
+                    // crossing the register file would be pure overhead. A float
+                    // `select` already emits a branch here (`XmmCmove`, §6.25), so
+                    // this is the hand's `if/else` bit-for-bit.
+                    let av = scalarize!(a);
+                    let bv = scalarize!(b);
+                    let tv = scalarize!(t);
+                    let z = fb.ins().f64const(0.0);
+                    let lt = fb.ins().fcmp(FloatCC::LessThan, av, bv);
+                    fb.ins().select(lt, z, tv)
                 }
                 OpE::Lag { n, .. } => {
                     // Anchor read `n` bars back. `ivar < n` (the front bars of

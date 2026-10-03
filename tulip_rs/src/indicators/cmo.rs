@@ -254,11 +254,19 @@ impl crate::cse::Planable for Cmo {
             src: up,
             period,
             mean: false,
+            // cmo folds from the source's first published bar: its `Lag` clamp
+            // makes bar 0's movement an exact +0.0, so an early start adds zeros
+            // and cannot change the bits (`stoch` is the case that needs `skip`).
+            // Its init loop never evicts, so the steady form applies throughout.
+            skip: 0,
+            steady_from: 0,
         });
         let down_sum = r.add(crate::cse::Node::RollSum {
             src: down,
             period,
             mean: false,
+            skip: 0,
+            steady_from: 0,
         });
         // `100.0 * (up_sum - down_sum) / (up_sum + down_sum)` parses left to
         // right, so the DIVIDE's numerator is the already-scaled difference.

@@ -35,8 +35,11 @@ use tulip_rs::indicators::ppo::Ppo;
 use tulip_rs::indicators::rsi::Rsi;
 use tulip_rs::indicators::sma::Sma;
 use tulip_rs::indicators::stddev::StdDev;
+use tulip_rs::indicators::stoch::Stoch;
+use tulip_rs::indicators::stochrsi::StochRsi;
 use tulip_rs::indicators::supertrend::SuperTrend;
 use tulip_rs::indicators::tr::Tr;
+use tulip_rs::indicators::vhf::Vhf;
 use tulip_rs::indicators::wilders::Wilders;
 use tulip_rs::indicators::willr::Willr;
 use tulip_rs::indicators::wma::Wma;
@@ -1595,6 +1598,179 @@ macro_rules! bench_list {
     };
 }
 
+/// STOCH standalone and fused with WILLR. The fusion here is the expensive kind
+/// of sharing: both requests want the SAME `(14, 13)` max-of-high and min-of-low
+/// rolls, and a roll is a rescan rather than a fold — so the merged plan must
+/// walk each column ONCE, and the op-count assert below is what proves it did.
+fn bench_stoch(c: &mut Criterion) {
+    let (hi, lo, cl) = hlc(0);
+    let three: [&[f64]; 3] = [hi.as_slice(), lo.as_slice(), cl.as_slice()];
+    let opt = [14.0, 3.0, 3.0];
+    let stoch = Request::new().add(Stoch::recipe(&opt), None).build();
+    let willr = Request::new().add(Willr::recipe(&[14.0]), None).build();
+    let both = Request::new()
+        .add(Stoch::recipe(&opt), None)
+        .add(Willr::recipe(&[14.0]), None)
+        .build();
+    assert_eq!(both.n_streams(), 3, "both read high/low/close");
+    let (so, _) = stoch.info();
+    let (wo, _) = willr.info();
+    let (mo, msinks) = both.info();
+    assert!(
+        mo < so + wo,
+        "stoch+willr must share both rolls: merged {mo} vs {so}+{wo} = {}",
+        so + wo
+    );
+    assert_eq!(msinks, 3, "k, d and willr each print once");
+    let mut g = c.benchmark_group("stoch");
+    g.sample_size(20);
+    g.bench_function("hand_stoch", |b| {
+        b.iter(|| {
+            let r = Stoch::indicator(&three, &opt, None).unwrap();
+            black_box(r.0[0].len() + r.0[1].len())
+        })
+    });
+    g.bench_function("jit_stoch", |b| {
+        b.iter(|| {
+            let (res, qs) = stoch.run(&three);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    g.bench_function("hand_stoch_plus_willr", |b| {
+        b.iter(|| {
+            let a = Stoch::indicator(&three, &opt, None).unwrap();
+            let w = Willr::indicator(&three, &[14.0], None).unwrap();
+            black_box(a.0[0].len() + w.0[0].len())
+        })
+    });
+    g.bench_function("jit_stoch_plus_willr_shared", |b| {
+        b.iter(|| {
+            let (res, qs) = both.run(&three);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    g.finish();
+}
+
+/// VHF standalone and fused with RSI. This is the GENUINE share, not the
+/// `vhf`+`max` pairing this group first used: `max`/`min` roll over the raw price
+/// column while VHF rolls over `|Δclose|` — a computed series — so the two had
+/// nothing to coalesce but the input stream (the old assert passed on that one
+/// interned `Input` node alone, which is meaningless). VHF and RSI, though, both
+/// want the same `Sub(real, Lag(real, 1))` movement: VHF takes its absolute value
+/// and rolls the sum, RSI guards it ±into its Wilder pair. So the merged plan
+/// resolves the `Lag` and the movement `Sub` ONCE — the op-count assert is the
+/// proof, and `hand_vhf_plus_rsi` is the two-pass alternative a dashboard paying
+/// for both would otherwise run.
+fn bench_vhf(c: &mut Criterion) {
+    let cl = close(0);
+    let one: [&[f64]; 1] = [cl.as_slice()];
+    let p = 14.0f64;
+    let vhf = Request::new().add(Vhf::recipe(&[p]), None).build();
+    let rsi = Request::new().add(Rsi::recipe(&[p]), None).build();
+    let both = Request::new()
+        .add(Vhf::recipe(&[p]), None)
+        .add(Rsi::recipe(&[p]), None)
+        .build();
+    assert_eq!(both.n_streams(), 1, "both read `real`");
+    let (vo, _) = vhf.info();
+    let (ro, _) = rsi.info();
+    let (bo, bsinks) = both.info();
+    assert!(
+        bo < vo + ro,
+        "vhf+rsi must share the movement subgraph (Lag + Δ): merged {bo} vs {vo}+{ro} = {}",
+        vo + ro
+    );
+    assert_eq!(bsinks, 2, "one row per request");
+    let mut g = c.benchmark_group("vhf");
+    g.sample_size(20);
+    g.bench_function("hand_vhf", |b| {
+        b.iter(|| {
+            let r = Vhf::indicator(&one, &[p], None).unwrap();
+            black_box(r.0[0].len())
+        })
+    });
+    g.bench_function("jit_vhf", |b| {
+        b.iter(|| {
+            let (res, qs) = vhf.run(&one);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    g.bench_function("hand_vhf_plus_rsi", |b| {
+        b.iter(|| {
+            let a = Vhf::indicator(&one, &[p], None).unwrap();
+            let r = Rsi::indicator(&one, &[p], None).unwrap();
+            black_box(a.0[0].len() + r.0[0].len())
+        })
+    });
+    g.bench_function("jit_vhf_plus_rsi_shared", |b| {
+        b.iter(|| {
+            let (res, qs) = both.run(&one);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    g.finish();
+}
+
+/// STOCHRSI standalone and fused with CMO. NOT with RSI: the RSI line is
+/// `stochrsi`'s OWN optional output (`sub_at::<Rsi>`), so asking for a standalone
+/// RSI alongside it is a freebie within one request — an artifact, not a fusion
+/// win (the same rule the `momentum` group holds rsi+cmo to). The genuine merge is
+/// `stochrsi + cmo`: both roll off the SAME `Sub(real, Lag(real, 1))` movement
+/// subgraph (the up/down `Max` guards), cmo summing it, stochrsi feeding it into
+/// RSI then a stochastic window — so the merged plan resolves the movement ONCE.
+/// The rolls stochrsi adds are the first derived-source (ring-backed) rolls in the
+/// family (§6.29), so this group doubles as the perf read on the masked ring walk.
+fn bench_stochrsi(c: &mut Criterion) {
+    let series = close(0);
+    let one: [&[f64]; 1] = [series.as_slice()];
+    let p = 14.0f64;
+    let stochrsi = Request::new().add(StochRsi::recipe(&[p]), None).build();
+    let cmo = Request::new().add(Cmo::recipe(&[p]), None).build();
+    let both = Request::new()
+        .add(StochRsi::recipe(&[p]), None)
+        .add(Cmo::recipe(&[p]), None)
+        .build();
+    assert_eq!(both.n_streams(), 1, "both read `real`");
+    let (so, _) = stochrsi.info();
+    let (co, _) = cmo.info();
+    let (bo, bsinks) = both.info();
+    assert!(
+        bo < so + co,
+        "stochrsi+cmo must share the movement subgraph: merged {bo} vs {so}+{co} = {}",
+        so + co
+    );
+    assert_eq!(bsinks, 2, "stochrsi row + cmo row, primary only");
+    let mut g = c.benchmark_group("stochrsi");
+    g.sample_size(20);
+    g.bench_function("hand_stochrsi", |b| {
+        b.iter(|| {
+            let r = StochRsi::indicator(&one, &[p], None).unwrap();
+            black_box(r.0[0].len())
+        })
+    });
+    g.bench_function("jit_stochrsi", |b| {
+        b.iter(|| {
+            let (res, qs) = stochrsi.run(&one);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    g.bench_function("hand_stochrsi_plus_cmo", |b| {
+        b.iter(|| {
+            let s = StochRsi::indicator(&one, &[p], None).unwrap();
+            let c = Cmo::indicator(&one, &[p], None).unwrap();
+            black_box(s.0[0].len() + c.0[0].len())
+        })
+    });
+    g.bench_function("jit_stochrsi_plus_cmo_shared", |b| {
+        b.iter(|| {
+            let (res, qs) = both.run(&one);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    g.finish();
+}
+
 bench_list! {
     "prepare" => bench_prepare,
     "classic" => bench_classic,
@@ -1614,6 +1790,9 @@ bench_list! {
     "minmax" => bench_minmax,
     "aroon" => bench_aroon,
     "range" => bench_range,
+    "stoch" => bench_stoch,
+    "vhf" => bench_vhf,
+    "stochrsi" => bench_stochrsi,
     "nested" => bench_nested,
     "nested4" => bench_nested4,
     "rolling_mixed" => bench_rolling_mixed,

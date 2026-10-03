@@ -65,9 +65,336 @@ fn hlc_pairs() -> Vec<(&'static str, Vec<f64>, Vec<f64>)> {
     ]
 }
 
+/// `(high, low, close)` triples for the smoothed range consumers. A FLAT stretch
+/// is included as a first-class shape, not an edge case: `high == low == open ==
+/// close` for a run of bars is legal data, and it is exactly where `stoch`'s
+/// `max(max − min, ε)` divisor floor fires.
+fn ohlc_sets(n: usize) -> Vec<(&'static str, Vec<f64>, Vec<f64>, Vec<f64>)> {
+    let w = series(n);
+    let wh: Vec<f64> = w.clone();
+    let wl: Vec<f64> = w.iter().map(|v| v * 0.97 - 2.0).collect();
+    let wc: Vec<f64> = wh.iter().zip(&wl).map(|(h, l)| (h + l) / 2.0).collect();
+
+    let rh: Vec<f64> = (0..n).map(|i| 50.0 + i as f64).collect();
+    let rl: Vec<f64> = rh.iter().map(|v| v - 3.0).collect();
+    let rc: Vec<f64> = rh.iter().zip(&rl).map(|(h, l)| (h + l) / 2.0).collect();
+
+    let th: Vec<f64> = (0..n).map(|i| 100.0 + ((i * 7) % 11) as f64).collect();
+    let tl: Vec<f64> = (0..n).map(|i| 95.0 + ((i * 5) % 7) as f64).collect();
+    let tc: Vec<f64> = th.clone(); // close pinned to the high: a tie-heavy %K
+
+    let fh: Vec<f64> = vec![10.0; n];
+    let fl: Vec<f64> = vec![10.0; n];
+    let fc: Vec<f64> = vec![10.0; n];
+
+    // A flat RUN inside an otherwise live series (bars 100..140).
+    let (mh, ml, mc) = (th.clone(), tl.clone(), tc.clone());
+    let (mut xh, mut xl, mut xc) = (mh, ml, mc);
+    for i in 100..140 {
+        xh[i] = 98.0;
+        xl[i] = 98.0;
+        xc[i] = 98.0;
+    }
+
+    vec![
+        ("wiggle", wh, wl, wc),
+        ("rising", rh, rl, rc),
+        ("ties", th, tl, tc),
+        ("flat", fh, fl, fc),
+        ("flat-run", xh, xl, xc),
+    ]
+}
+
+/// STOCH: fast %K (canonical rolls + the ε floor) → slow %K → %D, i.e. the first
+/// consumer of NESTED `RollSum`s (%D's source is itself a ring-backed sum), and
+/// the first user of `RollSum{skip}` (the hand throws away fast %K's first two
+/// published values, which changes the accumulator's bits, not just its
+/// timing). Bit-exact cold AND across chunk splits, over five shapes including a
+/// flat stretch.
+#[test]
+fn stoch_matches_hand_and_resume() {
+    use tulip_rs::indicators::stoch::Stoch;
+    let n = 400usize;
+    for [k, ks, d] in [
+        [14.0, 3.0, 3.0],
+        [5.0, 3.0, 3.0],
+        [9.0, 6.0, 5.0],
+        [3.0, 1.0, 1.0],
+        [2.0, 1.0, 1.0],
+        [20.0, 5.0, 3.0],
+    ] {
+        let opt = [k, ks, d];
+        let plan = Request::new().add(Stoch::recipe(&opt), None).build();
+        for (name, high, low, close) in ohlc_sets(n) {
+            let s: [&[f64]; 3] = [&high, &low, &close];
+            let hand = Stoch::indicator(&s, &opt, None).unwrap().0;
+            let got = plan.run(&s).0;
+            for row in 0..2 {
+                cmp_exact(
+                    got.request(0).output(row),
+                    &hand[row],
+                    &format!("stoch {name} k{k}/ks{ks}/d{d} row{row}"),
+                );
+            }
+            // Split at the two leads and around them: the first emitted %K bar
+            // and the first emitted %D bar are where `skip` and the explicit
+            // sink lead are load-bearing.
+            let k_first = (k + ks) as usize;
+            let d_first = (k + ks + d) as usize;
+            for split in [k_first - 1, k_first, k_first + 1, d_first, n / 3, n - 1] {
+                if split < 1 || split >= n {
+                    continue;
+                }
+                let c: [&[f64]; 3] = [&high[..split], &low[..split], &close[..split]];
+                let t: [&[f64]; 3] = [&high[split..], &low[split..], &close[split..]];
+                let (r1, qs) = plan.run(&c);
+                let (r2, _) = plan.resume(qs, &t);
+                for row in 0..2 {
+                    let mut got = r1.request(0).output(row).to_vec();
+                    got.extend_from_slice(r2.request(0).output(row));
+                    cmp_exact(
+                        &got,
+                        &hand[row],
+                        &format!("stoch {name} k{k}/ks{ks}/d{d} row{row} split{split}"),
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// VHF: the third consumer of the ring-backed `RollSum` (its source is
+/// `|Δclose|`, a derived node) and the case where the ε floor genuinely fires —
+/// a FLAT series has `Σ|Δ| == 0`, so the hand divides by ε rather than printing
+/// `0.0`, and the engine must do the same. Bit-exact cold and across splits.
+#[test]
+fn vhf_matches_hand_and_resume() {
+    use tulip_rs::indicators::vhf::Vhf;
+    let n = 400usize;
+    let smooth: Vec<f64> = (0..n).map(|i| 100.0 + i as f64 * 0.01).collect();
+    let saw: Vec<f64> = (0..n).map(|i| 100.0 + ((i % 23) as f64) * 0.7).collect();
+    let wig = series(n);
+    let flat: Vec<f64> = vec![10.0; n];
+    let data: [(&str, &Vec<f64>); 4] = [
+        ("smooth", &smooth),
+        ("saw", &saw),
+        ("wiggle", &wig),
+        ("flat", &flat),
+    ];
+    for p in [2usize, 5, 14, 40] {
+        let opt = [p as f64];
+        let plan = Request::new().add(Vhf::recipe(&opt), None).build();
+        for (name, s) in data {
+            let one: [&[f64]; 1] = [s.as_slice()];
+            let hand = Vhf::indicator(&one, &opt, None).unwrap().0;
+            cmp_exact(
+                plan.run(&one).0.request(0).output(0),
+                &hand[0],
+                &format!("vhf {name} p{p}"),
+            );
+            for split in [p, p + 1, p + 2, n / 3, n - 1] {
+                if split < 1 || split >= n {
+                    continue;
+                }
+                let c: [&[f64]; 1] = [&s[..split]];
+                let t: [&[f64]; 1] = [&s[split..]];
+                let (r1, qs) = plan.run(&c);
+                let (r2, _) = plan.resume(qs, &t);
+                let mut got = r1.request(0).output(0).to_vec();
+                got.extend_from_slice(r2.request(0).output(0));
+                cmp_exact(&got, &hand[0], &format!("vhf {name} p{p} split{split}"));
+            }
+        }
+    }
+}
+
+/// VHF's numerator roll is the SAME node `MAX` declares at the same period (both
+/// over `real`), so a query asking for both must build one roll. `vhf` also has
+/// a min roll `MAX` has no counterpart for, so the merged plan is strictly
+/// smaller than the sum but not by the whole pair.
+#[test]
+fn vhf_plus_max_interns_the_high_roll() {
+    use tulip_rs::indicators::max::Max;
+    use tulip_rs::indicators::vhf::Vhf;
+    let solo_vhf = Request::new().add(Vhf::recipe(&[14.0]), None).build();
+    let solo_max = Request::new().add(Max::recipe(&[14.0]), None).build();
+    let both = Request::new()
+        .add(Vhf::recipe(&[14.0]), None)
+        .add(Max::recipe(&[14.0]), None)
+        .build();
+    let (vo, _) = solo_vhf.info();
+    let (mo, _) = solo_max.info();
+    let (bo, bsinks) = both.info();
+    assert!(
+        bo < vo + mo,
+        "the shared RollMax must be interned: merged {bo} vs {vo}+{mo} = {}",
+        vo + mo
+    );
+    assert_eq!(bsinks, 2, "one row per request");
+
+    let n = 300usize;
+    let s = series(n);
+    let one: [&[f64]; 1] = [s.as_slice()];
+    let vhand = Vhf::indicator(&one, &[14.0], None).unwrap().0;
+    let mhand = Max::indicator(&one, &[14.0], None).unwrap().0;
+    let got = both.run(&one).0;
+    cmp_exact(got.request(0).output(0), &vhand[0], "vhf-in-combo");
+    cmp_exact(got.request(1).output(0), &mhand[0], "max-in-combo");
+}
+
+/// STOCHRSI: the first roll over a DERIVED source — its window is the RSI line,
+/// which has no host anchor, so the rescan walks a ring with masked addressing.
+/// Primary row AND the optional RSI row are checked, cold and across splits, and
+/// the flat-series shape is included because a constant RSI makes `max − min`
+/// exactly zero (the `kdif < ε` arm).
+#[test]
+fn stochrsi_matches_hand_and_resume() {
+    use tulip_rs::indicators::stochrsi::StochRsi;
+    let n = 400usize;
+    let smooth: Vec<f64> = (0..n).map(|i| 100.0 + i as f64 * 0.01).collect();
+    let saw: Vec<f64> = (0..n).map(|i| 100.0 + ((i % 23) as f64) * 0.7).collect();
+    let wig = series(n);
+    let flat: Vec<f64> = vec![10.0; n];
+    let rising: Vec<f64> = (0..n).map(|i| 50.0 + i as f64).collect();
+    let data: [(&str, &Vec<f64>); 5] = [
+        ("smooth", &smooth),
+        ("saw", &saw),
+        ("wiggle", &wig),
+        ("flat", &flat),
+        ("rising", &rising),
+    ];
+    for p in [3usize, 5, 14, 25] {
+        let opt = [p as f64];
+        let plan = Request::new()
+            .add(StochRsi::recipe(&opt), Some(&[true]))
+            .build();
+        for (name, s) in data {
+            let one: [&[f64]; 1] = [s.as_slice()];
+            let hand = StochRsi::indicator(&one, &opt, Some(&[true])).unwrap().0;
+            let got = plan.run(&one).0;
+            cmp_exact(
+                got.request(0).output(0),
+                &hand[0],
+                &format!("stochrsi {name} p{p}"),
+            );
+            cmp_exact(
+                got.request(0).optional(0),
+                &hand[1],
+                &format!("stochrsi {name} p{p} rsi row"),
+            );
+            let first = 2 * p;
+            for split in [first - 1, first, first + 1, p * 3, n / 3, n - 1] {
+                if split < 1 || split >= n {
+                    continue;
+                }
+                let c: [&[f64]; 1] = [&s[..split]];
+                let t: [&[f64]; 1] = [&s[split..]];
+                let (r1, qs) = plan.run(&c);
+                let (r2, _) = plan.resume(qs, &t);
+                for row in 0..2 {
+                    let mut g = if row == 0 {
+                        r1.request(0).output(0).to_vec()
+                    } else {
+                        r1.request(0).optional(0).to_vec()
+                    };
+                    g.extend_from_slice(if row == 0 {
+                        r2.request(0).output(0)
+                    } else {
+                        r2.request(0).optional(0)
+                    });
+                    cmp_exact(
+                        &g,
+                        &hand[row],
+                        &format!("stochrsi {name} p{p} row{row} split{split}"),
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// RSI and STOCHRSI in one query: stochrsi composes RSI's graph via `sub_at`, so
+/// every node up to the RSI line must intern — the sharing proof, and both RSI
+/// rows must come out identical (the "two ATR rows" pattern applied here).
+#[test]
+fn rsi_plus_stochrsi_interns_the_wilder_pair() {
+    use tulip_rs::indicators::stochrsi::StochRsi;
+    let opt = [14.0];
+    let solo_rsi = Request::new().add(Rsi::recipe(&opt), None).build();
+    let solo_sr = Request::new()
+        .add(StochRsi::recipe(&opt), Some(&[false]))
+        .build();
+    let both = Request::new()
+        .add(Rsi::recipe(&opt), None)
+        .add(StochRsi::recipe(&opt), Some(&[false]))
+        .build();
+    let (ro, _) = solo_rsi.info();
+    let (so, _) = solo_sr.info();
+    let (bo, bsinks) = both.info();
+    assert!(
+        bo < ro + so,
+        "stochrsi must reuse rsi's whole chain: merged {bo} vs {ro}+{so} = {}",
+        ro + so
+    );
+    assert_eq!(bsinks, 2, "rsi row + stochrsi row, primary only");
+
+    let n = 400usize;
+    let s = series(n);
+    let one: [&[f64]; 1] = [s.as_slice()];
+    let rhand = Rsi::indicator(&one, &opt, None).unwrap().0;
+    let got = both.run(&one).0;
+    cmp_exact(got.request(0).output(0), &rhand[0], "rsi in combo");
+    let shand = StochRsi::indicator(&one, &opt, None).unwrap().0;
+    cmp_exact(got.request(1).output(0), &shand[0], "stochrsi in combo");
+}
+
+/// STOCH shares its fast-%K rolls with WILLR at the same period, so a query
+/// asking for both must walk each column's window ONCE — the interning proof,
+/// in the family where it matters most (the rolls are the expensive part).
+#[test]
+fn stoch_plus_willr_interns_both_rolls() {
+    use tulip_rs::indicators::stoch::Stoch;
+    let opt = [14.0, 3.0, 3.0];
+    let solo_stoch = Request::new().add(Stoch::recipe(&opt), None).build();
+    let solo_willr = Request::new().add(Willr::recipe(&[14.0]), None).build();
+    let merged = Request::new()
+        .add(Stoch::recipe(&opt), None)
+        .add(Willr::recipe(&[14.0]), None)
+        .build();
+    let (so, _) = solo_stoch.info();
+    let (wo, _) = solo_willr.info();
+    let (mo, msinks) = merged.info();
+    assert!(
+        mo < so + wo,
+        "the two rolls must be shared: merged {mo} ops vs solo {so} + willr {wo}"
+    );
+    // willr's stream is (high, low, close) like stoch's, so the merge is real.
+    assert!(msinks >= 3, "k, d and willr all print: {msinks} stores");
+
+    let n = 300usize;
+    let (name, high, low, close) = &ohlc_sets(n)[0];
+    let s: [&[f64]; 3] = [high.as_slice(), low.as_slice(), close.as_slice()];
+    let shand = Stoch::indicator(&s, &opt, None).unwrap().0;
+    let whand = Willr::indicator(&s, &[14.0], None).unwrap().0;
+    let got = merged.run(&s).0;
+    for row in 0..2 {
+        cmp_exact(
+            got.request(0).output(row),
+            &shand[row],
+            &format!("stoch-in-combo {name} row{row}"),
+        );
+    }
+    cmp_exact(
+        got.request(1).output(0),
+        &whand[0],
+        &format!("willr-in-combo {name}"),
+    );
+}
+
 /// Adds `close` for willr. `flat-range` is the degenerate case the hand's guard
 /// exists for: max == min exactly, so `dif = 0` → the division yields ±inf and
-/// the `WhereGe` select must discard it for `0.0` on EVERY bar.
+/// the `WhereLt` guard's `< ε` test is true on EVERY bar, pinning the result to
+/// `+0.0` and discarding the ±inf.
 fn datasets() -> Vec<(&'static str, Vec<f64>, Vec<f64>, Vec<f64>)> {
     let mut out = Vec::new();
     for (shape, high, low) in hlc_pairs() {
