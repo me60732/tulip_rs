@@ -13,6 +13,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tulip_rs::cse::{JitPlan, Node, Planable, Recipe, Request, Sink};
 use tulip_rs::indicator_types::{Indicator, IndicatorByOptions, TIndicatorState};
 use tulip_rs::indicators::adx::Adx;
+use tulip_rs::indicators::ao::Ao;
 use tulip_rs::indicators::apo::Apo;
 use tulip_rs::indicators::aroon::Aroon;
 use tulip_rs::indicators::aroonosc::AroonOsc;
@@ -24,6 +25,7 @@ use tulip_rs::indicators::dm::Dm;
 use tulip_rs::indicators::donchianchannel::DonchianChannel;
 use tulip_rs::indicators::dx::Dx;
 use tulip_rs::indicators::ema::Ema;
+use tulip_rs::indicators::fisher::Fisher;
 use tulip_rs::indicators::hma::Hma;
 use tulip_rs::indicators::ichimoku::Ichimoku;
 use tulip_rs::indicators::macd::Macd;
@@ -1771,6 +1773,91 @@ fn bench_stochrsi(c: &mut Criterion) {
     g.finish();
 }
 
+/// The three medprice consumers fused: `fisher` (RollMin/RollMax + IirClamped/Iir
+/// over the window), `supertrend` (the feedback band), and `ao` (two RollSums) all
+/// read the SAME interned `0.5·(high+low)` `Medprice` node — a `sub::<Medprice>`
+/// in AO/`supertrend` and a structurally-identical `Mul(0.5, Add(h,l))` in fisher,
+/// so CSE emits `med` ONCE per bar and feeds all three chains. This is the payoff
+/// the shared-derived-chain design is for, and it spans three DIFFERENT op families
+/// (a trail-rescan roll, an IIR recurrence, a rolling sum) off one derived value.
+///
+/// Primary-only (`add(_, None)`) on both sides: the hand runs three full
+/// `::indicator` passes (each recomputing medprice + its own rolling), the fused
+/// loop runs one. The fusion is asserted, not assumed: the merged op count must be
+/// strictly below the three solos' sum (the shared med Add/Mul/Half intern once).
+fn bench_fisher_st_ao(c: &mut Criterion) {
+    let (hi, lo, cl) = hlc(0);
+    // fisher and ao read high/low only (2 streams); supertrend also needs close
+    // (3). Each solo plan must run on its own arity or `run` asserts `n_streams`.
+    let two: [&[f64]; 2] = [hi.as_slice(), lo.as_slice()];
+    let three: [&[f64]; 3] = [hi.as_slice(), lo.as_slice(), cl.as_slice()];
+    let fisher = Request::new().add(Fisher::recipe(&[14.0]), None).build();
+    let st = Request::new()
+        .add(SuperTrend::recipe(&[14.0, 3.0]), None)
+        .build();
+    let ao = Request::new().add(Ao::recipe(&[]), None).build();
+    let all3 = Request::new()
+        .add(Fisher::recipe(&[14.0]), None)
+        .add(SuperTrend::recipe(&[14.0, 3.0]), None)
+        .add(Ao::recipe(&[]), None)
+        .build();
+    assert_eq!(all3.n_streams(), 3, "high/low/close in the fused plan");
+    let (fo, _) = fisher.info();
+    let (sto, _) = st.info();
+    let (ao_o, _) = ao.info();
+    let (allo, sinks) = all3.info();
+    assert!(
+        allo < fo + sto + ao_o,
+        "fisher+supertrend+ao must share the medprice subgraph: merged {allo} vs {} + {} + {}",
+        fo,
+        sto,
+        ao_o
+    );
+    assert_eq!(sinks, 4, "fisher(2 primaries) + supertrend(1) + ao(1)");
+
+    let mut g = c.benchmark_group("fisher_st_ao");
+    g.sample_size(20);
+    g.bench_function("hand_fisher", |b| {
+        b.iter(|| {
+            let s = Fisher::indicator(&two, &[14.0], None).unwrap();
+            black_box(s.0[0].len())
+        })
+    });
+    g.bench_function("jit_fisher", |b| {
+        b.iter(|| {
+            let (res, qs) = fisher.run(&two);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    g.bench_function("hand_supertrend", |b| {
+        b.iter(|| {
+            let s = SuperTrend::indicator(&three, &[14.0, 3.0], None).unwrap();
+            black_box(s.0[0].len())
+        })
+    });
+    g.bench_function("hand_ao", |b| {
+        b.iter(|| {
+            let s = Ao::indicator(&two, &[], None).unwrap();
+            black_box(s.0[0].len())
+        })
+    });
+    g.bench_function("hand_all3", |b| {
+        b.iter(|| {
+            let f = Fisher::indicator(&two, &[14.0], None).unwrap();
+            let s = SuperTrend::indicator(&three, &[14.0, 3.0], None).unwrap();
+            let a = Ao::indicator(&two, &[], None).unwrap();
+            black_box((f.0[0].len(), s.0[0].len(), a.0[0].len()))
+        })
+    });
+    g.bench_function("jit_all3_shared", |b| {
+        b.iter(|| {
+            let (res, qs) = all3.run(&three);
+            black_box((res.outputs[0][0].len(), qs.next_bar()))
+        })
+    });
+    g.finish();
+}
+
 bench_list! {
     "prepare" => bench_prepare,
     "classic" => bench_classic,
@@ -1793,6 +1880,7 @@ bench_list! {
     "stoch" => bench_stoch,
     "vhf" => bench_vhf,
     "stochrsi" => bench_stochrsi,
+    "fisher_st_ao" => bench_fisher_st_ao,
     "nested" => bench_nested,
     "nested4" => bench_nested4,
     "rolling_mixed" => bench_rolling_mixed,
