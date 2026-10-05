@@ -267,3 +267,96 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Fisher {
         )
     }
 }
+
+/// The canonical node graph for `fisher`, mirroring [`State::calc_fisher`] op for
+/// op: `med = 0.5·(high+low)`; a `(period, period−1)` min/max over the DERIVED
+/// `med` (the §6.36 cold seed makes the first window include bar 0); `inner =
+/// (med−min)/max(max−min,1e-3) − 0.5`; `val1` with the clamp folded IN
+/// ([`Node::IirClamped`]); `fish = 0.5·(ln((1+val1)/(1−val1)) + prev_fish)`
+/// ([`Node::Iir`]); `signal = prev_fish` ([`Node::Prev`]). Chains idle below
+/// `feed = lead(src)`, matching the hand's first `calc_fisher` at bar `period−1`.
+/// 1e-12 relative vs the hand scalar (`Node::Ln` = `ln_unchecked`); byte-exact
+/// cold-vs-resume.
+impl crate::cse::Planable for Fisher {
+    fn recipe(options: &[f64]) -> crate::cse::Recipe {
+        use crate::cse::{Node, Recipe, Sink};
+        let period = options[0] as u32;
+        let mut r = Recipe::new();
+
+        let hi = r.add(Node::Input { stream: 0 });
+        let lo = r.add(Node::Input { stream: 1 });
+
+        // med = 0.5 · (high + low), the hand's `medprice::calc`.
+        let sum = r.add(Node::Add { a: hi, b: lo });
+        let half = r.add(Node::Const {
+            bits: 0.5f64.to_bits(),
+        });
+        let med = r.add(Node::Mul { a: half, b: sum });
+
+        // window min/max over the derived `med` (`look_back = period − 1`).
+        let mn = r.add(Node::RollMin {
+            src: med,
+            period,
+            look_back: period - 1,
+        });
+        let mx = r.add(Node::RollMax {
+            src: med,
+            period,
+            look_back: period - 1,
+        });
+
+        // mm = max(mx − mn, 1e-3); inner = (med − mn) / mm − 0.5.
+        let eps = r.add(Node::Const {
+            bits: 0.001f64.to_bits(),
+        });
+        let range = r.add(Node::Sub { a: mx, b: mn });
+        let mm = r.add(Node::Max { a: range, b: eps });
+        let diff = r.add(Node::Sub { a: med, b: mn });
+        let ratio = r.add(Node::Div { a: diff, b: mm });
+        let inner = r.add(Node::Sub { a: ratio, b: half });
+
+        // clamp thresholds/values as `Const` children, before the node that uses
+        // them. val1 = 0.66·inner + 0.67·prev, then the hand's if/elif clamp.
+        let hi_t = r.add(Node::Const {
+            bits: 0.99f64.to_bits(),
+        });
+        let hi_v = r.add(Node::Const {
+            bits: 0.999f64.to_bits(),
+        });
+        let lo_t = r.add(Node::Const {
+            bits: (-0.99f64).to_bits(),
+        });
+        let lo_v = r.add(Node::Const {
+            bits: (-0.999f64).to_bits(),
+        });
+        let val1 = r.add(Node::IirClamped {
+            src: inner,
+            a_bits: 0.66f64.to_bits(),
+            b_bits: 0.67f64.to_bits(),
+            hi_t,
+            hi_v,
+            lo_t,
+            lo_v,
+        });
+
+        // fish = 0.5·(ln((1+val1)/(1−val1)) + prev_fish); signal = prev_fish.
+        let one = r.add(Node::Const {
+            bits: 1.0f64.to_bits(),
+        });
+        let numer = r.add(Node::Add { a: one, b: val1 });
+        let denom = r.add(Node::Sub { a: one, b: val1 });
+        let ln_arg = r.add(Node::Div { a: numer, b: denom });
+        let ln = r.add(Node::Ln { src: ln_arg });
+        let fish = r.add(Node::Iir {
+            src: ln,
+            a_bits: 0.5f64.to_bits(),
+            b_bits: 0.5f64.to_bits(),
+        });
+        let signal = r.add(Node::Prev { src: fish });
+
+        r.kind = "fisher";
+        r.options = vec![period as f64];
+        r.outputs = vec![Sink::iface(fish), Sink::iface(signal)];
+        r
+    }
+}

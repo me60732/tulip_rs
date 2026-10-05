@@ -210,6 +210,33 @@ impl Request {
                     // E13: the expanded natural log (tag 28) — a distinct
                     // computation from every other node, so it needs its own key.
                     Node::Ln { src } => (28, src as u64, 0, 0),
+                    // E15: general recurrence — coefficients are part of identity.
+                    Node::Iir {
+                        src,
+                        a_bits,
+                        b_bits,
+                    } => (31, src as u64, a_bits, b_bits),
+                    // Clamped recurrence: coefficients bit-exact (full x/y); ids
+                    // fold into z (plan-CACHE fingerprint; intern keys on Node).
+                    Node::IirClamped {
+                        src,
+                        a_bits,
+                        b_bits,
+                        hi_t,
+                        hi_v,
+                        lo_t,
+                        lo_v,
+                    } => (
+                        32,
+                        a_bits,
+                        b_bits,
+                        (src as u64)
+                            ^ ((hi_t as u64) << 7)
+                            ^ ((hi_v as u64) << 15)
+                            ^ ((lo_t as u64) << 23)
+                            ^ ((lo_v as u64) << 31),
+                    ),
+                    Node::Prev { src } => (33, src as u64, 0, 0),
                     Node::Wma { src, period } => (16, src as u64, period as u64, 0),
                     Node::Hma { src, period } => (17, src as u64, period as u64, 0),
                     Node::Wilders {

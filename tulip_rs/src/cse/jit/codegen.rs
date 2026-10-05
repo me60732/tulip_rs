@@ -386,6 +386,8 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                 | OpE::Roll { .. }
                 | OpE::RollSum { .. }
                 | OpE::Mirror { .. }
+                | OpE::Iir { .. }
+                | OpE::IirClamped { .. }
         ) || (matches!(
             plan.ops[j].e,
             OpE::Sma { .. } | OpE::Stddev { .. } | OpE::Wma { .. }
@@ -410,6 +412,9 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                 feed,
                 ..
             } if feed > 0 => Some(feed),
+            // E15: a recurrence idles below `feed` then steps — cut the segment
+            // line there so `b < feed` is compile-time per segment.
+            OpE::Iir { feed, .. } | OpE::IirClamped { feed, .. } if feed > 0 => Some(feed),
             // E3: rings fold while filling (bars <= lead) and trick once
             // the oldest slot is real (bars >= lead+1).
             OpE::Sma { .. } | OpE::Stddev { .. } | OpE::RollSum { .. } => Some(op.lead + 1),
@@ -682,6 +687,21 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
     }
     let end_abs = fb.ins().iadd(next_bar, len);
     let mut init: Vec<Value> = Vec::with_capacity(nops);
+    // The value of operand `o` AT BAR 0. A price stream reads the chunk's first
+    // sample (`p0`); any other op reads its already-computed `init` entry — arena
+    // order guarantees a producer precedes its consumers, so `init[o]` is valid.
+    // Used to materialize a DERIVED roll's bar-0 source value (see the `Roll`
+    // arm), which recursion resolves through arithmetic operands.
+    macro_rules! b0 {
+        ($o:expr) => {{
+            let o = $o;
+            if o > PRICE - na {
+                p0[PRICE - o]
+            } else {
+                init[o]
+            }
+        }};
+    }
     for j in 0..nops {
         let v = match plan.ops[j].e {
             OpE::Ema {
@@ -714,8 +734,8 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
             // E9: cold chunk — bar 0 seeds the extremum exactly as the hand's
             // `init_state` opens (`max = real[0]` / `min = real[0]`, trail 0). A
             // DERIVED roll has no price stream to read bar 0 from, so it seeds
-            // from the source's own bar-0 value — already computed above, since
-            // ops follow arena order and a node's source always precedes it.
+            // from the source's own bar-0 value — computed by the algebraic arms
+            // below, since ops follow arena order and a node's source precedes it.
             OpE::Roll { src, .. } => {
                 let seed = if src > PRICE - na {
                     p0[PRICE - src]
@@ -733,6 +753,72 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
             // source's value on the FIRST bar, so a cold chunk's zeroed slot is
             // never read as a value, and a resumed one survives until then.
             OpE::Mirror { .. } => loads[j],
+            // E15: a recurrence's cold value is the hand's initial state (0.0 = the
+            // zeroed slot); it idles below `feed`, not seed-from-source. A resumed
+            // chunk re-reads the persisted value (end_bb store, Iir arms there).
+            OpE::Iir { .. } | OpE::IirClamped { .. } => loads[j],
+            // The pure algebraic / mask nodes: their bar-0 VALUE is what a
+            // derived roll seeds its carried extremum from (see the `Roll` arm),
+            // so they cannot fall to `0.0`. Any `Roll` in the plan sets
+            // `seeds_bar0`, and a cold chunk then never re-evaluates bar 0 in the
+            // loop — a phantom `0.0` here IS the hand's `real[0]`, so it poisons
+            // `RollMin` (whose `≤ 0.0` compare never hits) for every published
+            // warm-up bar until the first rescan overwrites it. Evaluate each with
+            // the loop's exact helpers over its operands' bar-0 values (`b0!`), so
+            // the result is bit-identical to what the first loop bar would compute.
+            OpE::Const(v) => fb.ins().f64const(v),
+            OpE::Arith {
+                op,
+                a,
+                b,
+                vec: false,
+            } => {
+                let av = b0!(a);
+                let bv = b0!(b);
+                match op {
+                    ArithKind::Sub => fb.ins().fsub(av, bv),
+                    ArithKind::Add => fb.ins().fadd(av, bv),
+                    ArithKind::Mul => fb.ins().fmul(av, bv),
+                    ArithKind::Div => fb.ins().fdiv(av, bv),
+                    ArithKind::Max => max_num(&mut fb, av, bv, guard_form(&plan.ops, b)),
+                }
+            }
+            OpE::Abs { src } => fb.ins().fabs(b0!(src)),
+            OpE::Sqrt { src } => fb.ins().sqrt(b0!(src)),
+            OpE::Fma { a, b, c } => {
+                let av = b0!(a);
+                let bv = b0!(b);
+                let cv = b0!(c);
+                fb.ins().fma(av, bv, cv)
+            }
+            OpE::WhereGe { a, b, t } => {
+                let av = b0!(a);
+                let bv = b0!(b);
+                let tv = b0!(t);
+                let z = fb.ins().f64const(0.0);
+                if !clamp_guard(&plan.ops, b) {
+                    blend_ge(&mut fb, av, bv, tv, z)
+                } else {
+                    let ge = fb.ins().fcmp(FloatCC::GreaterThanOrEqual, av, bv);
+                    fb.ins().select(ge, tv, z)
+                }
+            }
+            OpE::WhereLt { a, b, t } => {
+                let av = b0!(a);
+                let bv = b0!(b);
+                let tv = b0!(t);
+                let z = fb.ins().f64const(0.0);
+                let lt = fb.ins().fcmp(FloatCC::LessThan, av, bv);
+                fb.ins().select(lt, z, tv)
+            }
+            // Ops with no defined bar-0 value in the hand's own sense (they are
+            // guarded to 0 at the front bars, or carry from state): `Lag` reads
+            // `n` bars back, `Trail` is the roll's trail count, both 0 at bar 0;
+            // the chain kinds read their state slot. A derived roll sourced
+            // directly off one of these (or off `Ln`, whose expansion needs the
+            // loop's `zero`/`one`/type locals) is not expressible in any recipe —
+            // the min/max window always runs over an arithmetic/derived series —
+            // so the `0.0` here is the hand's value, not a phantom.
             _ => fb.ins().f64const(0.0),
         };
         init.push(v);
@@ -2273,6 +2359,71 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                     }
                 }
                 OpE::Const(v) => fb.ins().f64const(v),
+                // E15: recurrence `fma(prev, b, src·a)` — hand's `a.mul_add(src,
+                // b·prev)` (`b·prev` a rounded `fmul`). ONE slot; idle below `feed`
+                // (compile-time per segment), step from it. Bit-equal to the hand's
+                // `0.5*(ln+prev)` for normals (round(0.5·s) == 0.5·round(s)).
+                OpE::Iir {
+                    src,
+                    a,
+                    b: b_coef,
+                    feed,
+                } => {
+                    let slot = slot_of_op[j];
+                    let prev = bp[slot];
+                    if b < feed as i64 {
+                        prev
+                    } else {
+                        let src_v = scalarize!(src);
+                        let ac = fb.ins().f64const(a);
+                        let bc = fb.ins().f64const(b_coef);
+                        let pv = fb.ins().fmul(prev, bc);
+                        fb.ins().fma(src_v, ac, pv)
+                    }
+                }
+                // [`OpE::Iir`] + the clamp in the hand's `if/elif` order (a NaN `r`
+                // fails both ordered compares and survives, matching the hand).
+                OpE::IirClamped {
+                    src,
+                    a,
+                    b: b_coef,
+                    feed,
+                    hi_t,
+                    hi_v,
+                    lo_t,
+                    lo_v,
+                } => {
+                    let slot = slot_of_op[j];
+                    let prev = bp[slot];
+                    if b < feed as i64 {
+                        prev
+                    } else {
+                        let src_v = scalarize!(src);
+                        let ac = fb.ins().f64const(a);
+                        let bc = fb.ins().f64const(b_coef);
+                        let pv = fb.ins().fmul(prev, bc);
+                        let r = fb.ins().fma(src_v, ac, pv);
+                        let ht = scalarize!(hi_t);
+                        let hv = scalarize!(hi_v);
+                        let lt = scalarize!(lo_t);
+                        let lv = scalarize!(lo_v);
+                        let lo = fb.ins().fcmp(FloatCC::LessThan, r, lt);
+                        let onlo = fb.ins().select(lo, lv, r);
+                        let hi = fb.ins().fcmp(FloatCC::GreaterThan, r, ht);
+                        fb.ins().select(hi, hv, onlo)
+                    }
+                }
+                // E15: a chain's carried-IN value from its loop param (analogue of
+                // [`OpE::Trail`]); owns no slot. A lane-grouped chain would hold its
+                // prev in a vector lane (not emitted) — hard panic, not silent wrong.
+                OpE::Prev { chain } => {
+                    assert!(
+                        plan.lane_of[chain].0 == usize::MAX,
+                        "jit: Prev of a lane-grouped chain is not emitted (needs a group-lane extract)"
+                    );
+                    let slot = slot_of_op[chain];
+                    bp[slot]
+                }
             };
             cur[j] = Some(newv);
         }
@@ -2407,6 +2558,11 @@ pub(super) fn emit(plan: &mut JitPlan, fc: TargetFrontendConfig) {
                 | OpE::RollSum { .. }
                 | OpE::Mirror { .. }
                 | OpE::Wilders { .. }
+                // E15: the recurrences carry ONE f64 like the chains above; omitting
+                // them here silently drops their value at the chunk seam, so a
+                // resumed chunk restarts the recurrence cold.
+                | OpE::Iir { .. }
+                | OpE::IirClamped { .. }
         ) {
             st(
                 &mut fb,

@@ -419,6 +419,24 @@ pub enum Node {
     /// input — `fisher`'s `(1+x)/(1−x)` — and NaN/±inf are not modelled, matching
     /// the SIMD original's `debug_assert` contract.
     Ln { src: Id },
+    /// E15: general single-pole IIR with explicit weights — `out = src·a + prev·b`
+    /// (the hand's `a.mul_add(src, b·prev)`). ONE f64; idles at `0.0` below
+    /// `feed = lead(src)`. `a_bits`/`b_bits` are raw `f64` bits (CSE key).
+    Iir { src: Id, a_bits: u64, b_bits: u64 },
+    /// [`Node::Iir`] + the hand's clamp folded into the carried value (its
+    /// `if/elif` order). Thresholds are `Const` children (values ride the key).
+    IirClamped {
+        src: Id,
+        a_bits: u64,
+        b_bits: u64,
+        hi_t: Id,
+        hi_v: Id,
+        lo_t: Id,
+        lo_v: Id,
+    },
+    /// A chain's carried-IN value (`prev`, before this bar) — reads the chain's
+    /// slot, emits nothing (analogue of [`Node::Trail`]).
+    Prev { src: Id },
     /// A floating-point constant leaf, stored as `f64::to_bits()` so `Node`
     /// stays `Eq + Hash` (the CSE key).
     Const { bits: u64 },

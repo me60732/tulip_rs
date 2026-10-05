@@ -102,6 +102,11 @@ impl Merged {
                     f + period.saturating_sub(1)
                 }
                 Node::Sqrt { src } | Node::Ln { src } | Node::Mirror { src } => leads[src as usize],
+                // E15: recurrence defined once its source is (seam lead(src));
+                // IirClamped's Const children are lead 0; Prev shares its chain.
+                Node::Iir { src, .. } | Node::IirClamped { src, .. } | Node::Prev { src } => {
+                    leads[src as usize]
+                }
                 Node::Fma { a, b, c } => leads[a as usize]
                     .max(leads[b as usize])
                     .max(leads[c as usize]),
@@ -479,6 +484,11 @@ fn lane_formula(node: &Node) -> (u8, u8) {
         HtInPhase { .. } => (28, 4),
         HtQuadrature { .. } => (29, 4),
         SuperTrend { .. } => (30, 6),
+        // E15: Iir = Ema/mean-Wilders 2-op shape (id 3); IirClamped = +clamp (5);
+        // Prev = slot read (0).
+        Iir { .. } => (3, 2),
+        IirClamped { .. } => (33, 5),
+        Prev { .. } => (32, 0),
     }
 }
 
@@ -662,6 +672,33 @@ pub(crate) fn remap_node(node: &Node, g: &dyn Fn(Id) -> Id) -> Node {
         Mirror { src } => Mirror { src: g(src) },
         Sqrt { src } => Sqrt { src: g(src) },
         Ln { src } => Ln { src: g(src) },
+        Iir {
+            src,
+            a_bits,
+            b_bits,
+        } => Iir {
+            src: g(src),
+            a_bits,
+            b_bits,
+        },
+        IirClamped {
+            src,
+            a_bits,
+            b_bits,
+            hi_t,
+            hi_v,
+            lo_t,
+            lo_v,
+        } => IirClamped {
+            src: g(src),
+            a_bits,
+            b_bits,
+            hi_t: g(hi_t),
+            hi_v: g(hi_v),
+            lo_t: g(lo_t),
+            lo_v: g(lo_v),
+        },
+        Prev { src } => Prev { src: g(src) },
         Fma { a, b, c } => Fma {
             a: g(a),
             b: g(b),
@@ -705,6 +742,8 @@ pub(crate) fn node_children(node: &Node, visit: &mut dyn FnMut(Id)) {
         | Mirror { src }
         | Wilders { src, .. }
         | SuperSmoother { src, .. }
+        | Iir { src, .. }
+        | Prev { src }
         | HtInPhase { src }
         | HtQuadrature { src } => visit(*src),
         Sub { a, b } | Add { a, b } | Mul { a, b } | Div { a, b } | Max { a, b } => {
@@ -725,6 +764,21 @@ pub(crate) fn node_children(node: &Node, visit: &mut dyn FnMut(Id)) {
             visit(*a);
             visit(*b);
             visit(*c);
+        }
+        // src plus the four threshold/value Const children (all graph edges).
+        IirClamped {
+            src,
+            hi_t,
+            hi_v,
+            lo_t,
+            lo_v,
+            ..
+        } => {
+            visit(*src);
+            visit(*hi_t);
+            visit(*hi_v);
+            visit(*lo_t);
+            visit(*lo_v);
         }
         HighPass { input, .. } => visit(*input),
         SuperTrend {

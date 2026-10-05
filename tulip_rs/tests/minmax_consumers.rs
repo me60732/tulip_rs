@@ -877,6 +877,98 @@ fn cmo_get_states_continues_bit_exact() {
     );
 }
 
+/// A DERIVED roll whose source is a pure-arithmetic node (here `medprice`, a
+/// `Mul(Add(high,low), 0.5)`) seeds its carried extremum from that source's
+/// BAR-0 value. A cold chunk containing any roll never re-evaluates bar 0 in the
+/// loop (`codegen`'s `seeds_bar0`), so the init pass must materialize the source's
+/// value at bar 0 rather than leave it on the arithmetic catch-all `0.0`.
+///
+/// A phantom `0.0` is invisible to `RollMax` (its `src ≥ prev` compare hits on the
+/// first real bar and self-heals) but PERSISTS for `RollMin` (`src ≤ 0.0` never
+/// fires for a positive/ordinary series) until the first rescan overwrites it —
+/// exactly the asymmetry `fisher`'s `(med − min)/(max − min)` ran into. `stochrsi`
+/// masks it only because its first rescan lands after its publish lead, so a
+/// synthetic derived roll that publishes at bar `period − 1` is what makes it
+/// visible. Min AND max over the derived source, cold and resumed, on shapes
+/// including a flat/all-equal one.
+#[test]
+fn derived_roll_seeds_from_arith_source_bar0() {
+    use tulip_rs::cse::{Node, Recipe, Sink};
+
+    let period = 14u32;
+    let mut r = Recipe::new();
+    let h = r.add(Node::Input { stream: 0 });
+    let l = r.add(Node::Input { stream: 1 });
+    let sum = r.add(Node::Add { a: h, b: l });
+    let half = r.add(Node::Const {
+        bits: 0.5f64.to_bits(),
+    });
+    let med = r.add(Node::Mul { a: sum, b: half });
+    let mn = r.add(Node::RollMin {
+        src: med,
+        period,
+        look_back: period - 1,
+    });
+    let mx = r.add(Node::RollMax {
+        src: med,
+        period,
+        look_back: period - 1,
+    });
+    r.kind = "derived_roll_med";
+    r.options = vec![period as f64];
+    r.outputs = vec![Sink::iface(mn), Sink::iface(mx)];
+    let plan = Request::new().add(r, None).build();
+    assert_eq!(plan.n_streams(), 2, "high and low are both live");
+
+    // Hand oracle: medprice, then a plain window min/max from bar `period − 1`.
+    let lead = period as usize - 1;
+    let oracle = |high: &[f64], low: &[f64]| -> (Vec<f64>, Vec<f64>) {
+        let med: Vec<f64> = high.iter().zip(low).map(|(a, b)| (a + b) * 0.5).collect();
+        let mut mins = Vec::with_capacity(med.len().saturating_sub(lead));
+        let mut maxs = Vec::with_capacity(mins.len());
+        for i in lead..med.len() {
+            let w = &med[i - lead..=i];
+            mins.push(w.iter().copied().fold(f64::INFINITY, f64::min));
+            maxs.push(w.iter().copied().fold(f64::NEG_INFINITY, f64::max));
+        }
+        (mins, maxs)
+    };
+
+    for (name, high, low) in hlc_pairs() {
+        let n = high.len();
+        let (wmin, wmax) = oracle(&high, &low);
+        let s: [&[f64]; 2] = [&high, &low];
+        let got = plan.run(&s).0;
+        cmp_exact(
+            got.request(0).output(0),
+            &wmin,
+            &format!("{name} derived min"),
+        );
+        cmp_exact(
+            got.request(0).output(1),
+            &wmax,
+            &format!("{name} derived max"),
+        );
+
+        // Split before, at, and after the first published bar: the bar-0 seed is
+        // load-bearing exactly when the first chunk reaches bar 0.
+        for split in [lead - 1, lead, lead + 1, n / 3, n - 1] {
+            if split < 1 || split >= n {
+                continue;
+            }
+            let c: [&[f64]; 2] = [&high[..split], &low[..split]];
+            let t: [&[f64]; 2] = [&high[split..], &low[split..]];
+            let (r1, qs) = plan.run(&c);
+            let (r2, _) = plan.resume(qs, &t);
+            for (row, want) in [(0usize, &wmin), (1, &wmax)] {
+                let mut cat = r1.request(0).output(row).to_vec();
+                cat.extend_from_slice(r2.request(0).output(row));
+                cmp_exact(&cat, want, &format!("{name} derived row{row} split{split}"));
+            }
+        }
+    }
+}
+
 /// E12 kept contract, `RSI`: its state is ONE hand `WildersSimdState<2>` rebuilt
 /// from the engine's two mean chains plus `prev_real` from the identity chain,
 /// and the continuation must be bit-exact from there.

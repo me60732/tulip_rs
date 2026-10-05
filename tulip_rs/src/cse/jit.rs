@@ -330,6 +330,29 @@ enum OpE {
     /// in the emitter. Inlined rather than called for the §6.19 reason: a call is a
     /// clobber barrier, and `ln` sits on every bar of `fisher`'s recurrence.
     Ln { src: usize },
+    /// E15 `Node::Iir` — single-pole recurrence, explicit weights, ONE value slot.
+    /// `feed` = `lead(src)`: idles at cold `0.0` below it, steps from it up.
+    Iir {
+        src: usize,
+        a: f64,
+        b: f64,
+        feed: u64,
+    },
+    /// E15 `Node::IirClamped` — [`OpE::Iir`] + the hand clamp folded in; thresholds
+    /// are resolved `Const` op ids.
+    IirClamped {
+        src: usize,
+        a: f64,
+        b: f64,
+        feed: u64,
+        hi_t: usize,
+        hi_v: usize,
+        lo_t: usize,
+        lo_v: usize,
+    },
+    /// E15 `Node::Prev` — a chain's carried-IN value (`bp[slot_of_op[chain]]`), owns
+    /// no slot, emits no op (the read analogue of [`OpE::Trail`]).
+    Prev { chain: usize },
     /// A `Node::Const` leaf — materialized, rematerialized by RA at use.
     Const(f64),
     /// `supertrend(period, step)` — the hand's multi-value feedback band
@@ -1022,6 +1045,67 @@ fn compile_request(req: &Request, n_assets: usize) -> JitPlan {
                         src: node_op[s][src as usize]
                     }
                 ),
+                Node::Iir {
+                    src,
+                    a_bits,
+                    b_bits,
+                } => {
+                    let src_op = node_op[s][src as usize];
+                    assert!(!is_price(src_op), "jit: Iir must source a derived node");
+                    push!(
+                        s,
+                        id,
+                        OpE::Iir {
+                            src: src_op,
+                            a: f64::from_bits(a_bits),
+                            b: f64::from_bits(b_bits),
+                            feed: leads[src as usize] as u64,
+                        }
+                    );
+                }
+                Node::IirClamped {
+                    src,
+                    a_bits,
+                    b_bits,
+                    hi_t,
+                    hi_v,
+                    lo_t,
+                    lo_v,
+                } => {
+                    let src_op = node_op[s][src as usize];
+                    assert!(
+                        !is_price(src_op),
+                        "jit: IirClamped must source a derived node"
+                    );
+                    push!(
+                        s,
+                        id,
+                        OpE::IirClamped {
+                            src: src_op,
+                            a: f64::from_bits(a_bits),
+                            b: f64::from_bits(b_bits),
+                            feed: leads[src as usize] as u64,
+                            hi_t: node_op[s][hi_t as usize],
+                            hi_v: node_op[s][hi_v as usize],
+                            lo_t: node_op[s][lo_t as usize],
+                            lo_v: node_op[s][lo_v as usize],
+                        }
+                    );
+                }
+                Node::Prev { src } => {
+                    let chain = node_op[s][src as usize];
+                    assert!(
+                        matches!(
+                            ops[chain].e,
+                            OpE::Ema { .. }
+                                | OpE::Wilders { .. }
+                                | OpE::Iir { .. }
+                                | OpE::IirClamped { .. }
+                        ),
+                        "jit: Prev must reference a chain kind"
+                    );
+                    push!(s, id, OpE::Prev { chain });
+                }
                 other => panic!("jit: node {other:?} is not emittable yet"),
             }
         }
@@ -1939,10 +2023,19 @@ impl JitPlan {
         for ((sc, win), chunk) in st.scratch.iter_mut().zip(st.window.iter_mut()).zip(series) {
             let w_old = win.len();
             sc.clear();
-            sc.reserve_exact(w + chunk.len());
+            // Real zero lead-in of `w − w_old` so the returned anchor is the buffer's
+            // OWN start (never a pointer below the owned Vec). index_of(bar) =
+            // (bar − start) + w still lands on window/chunk; a rescan reaching back
+            // further than a short prior window reads the in-bounds zero pad instead
+            // of unrelated heap. Those bars precede the window ⇒ guarded out at every
+            // published bar, so results stay byte-identical — this removes a latent
+            // page-straddle under-read (Handover §6.38).
+            let pad = w.saturating_sub(w_old);
+            sc.reserve_exact(pad + w_old + chunk.len());
+            sc.resize(pad, 0.0);
             sc.extend_from_slice(win);
             sc.extend_from_slice(chunk);
-            out.push((sc.as_ptr() as usize - 8 * (w - w_old)) as *const f64);
+            out.push(sc.as_ptr());
             let n = w.min(sc.len());
             let tail_start = sc.len() - n;
             win.clear();
@@ -3843,6 +3936,47 @@ mod tests {
                 lib
             );
         }
+    }
+
+    /// How far the engine's `Ln` can be from libm, and so how far `fisher` can ever
+    /// be from the hand's SCALAR `calc_fisher`: that calls `f64::ln()`, while
+    /// `math_simd::ln_unchecked` is what `Node::Ln` reproduces bit-for-bit (proved
+    /// by `jit_ln_matches_math_simd_ln`) — the portable `std::simd` crate has no
+    /// `ln`, which is why the project supplies one. Measured here: 28 of 84 values
+    /// on fisher's own domain differ, worst 148 ULP. Hence fisher is held to 1e-12
+    /// RELATIVE parity, the same tolerance the hand's own
+    /// `tulip_test/tests/fisher_test.rs` uses between its scalar and SIMD fishers.
+    ///
+    /// Asserted as a BOUND, never as "these differ": if upstream `std::simd` lands
+    /// an `ln` and the project adopts it, this should fall to 0 without failing.
+    #[test]
+    fn ln_port_vs_libm_ulp_distance_on_fisher_domain() {
+        use std::simd::Simd;
+        let mut vals: Vec<f64> = vec![0.9999999, 1.0000001, 2.5, 0.001, 7.0, 0.125];
+        for k in 1..40usize {
+            let x = k as f64 / 40.0;
+            vals.push((1.0 + x) / (1.0 - x));
+            vals.push((1.0 - x) / (1.0 + x));
+        }
+        let (mut worst, mut differing) = (0u64, 0usize);
+        for &v in &vals {
+            let lib = v.ln();
+            let ported =
+                unsafe { crate::math_simd::ln_unchecked::<1>(Simd::splat(v)).as_array()[0] };
+            let d = (lib.to_bits() as i64 - ported.to_bits() as i64).wrapping_abs() as u64;
+            if d != 0 {
+                differing += 1;
+            }
+            worst = worst.max(d);
+        }
+        println!(
+            "ln port vs libm over {} fisher-domain values: {differing} differ, worst {worst} ulp",
+            vals.len()
+        );
+        assert!(
+            worst <= 200,
+            "ported ln drifted {worst} ulp from libm on the fisher domain"
+        );
     }
 
     /// E9 seed-link PRE-FLIGHT (before any codegen depends on it): a wide roll
