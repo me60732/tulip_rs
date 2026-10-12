@@ -2,6 +2,31 @@ use bigdecimal::BigDecimal;
 use sqlx::{PgPool, Row};
 use std::env;
 const LIMIT: i64 = 6705; //7500;
+
+/// The 4-asset set the whole suite was built against — what every test and
+/// benchmark sees. NOT switched: the 8-asset set is ADDITIVE (see
+/// [`STOCKS_8`] + [`init_database_data_8`]), so existing consumers never
+/// observe a different `stocks().len()` than before.
+const STOCKS_4: [(&str, &str); 4] = [
+    ("BHP", "ASX"),
+    ("CBA", "ASX"),
+    ("AAPL", "NYSE"),
+    ("MSFT", "NYSE"),
+];
+/// The full 8-asset set the DB holds. Only the CSE asset-lane benches opt
+/// into it (2 lots of 4 through ONE plan via `try_run_assets::<4>` × 2);
+/// everything else keeps [`STOCKS_4`]. First four == [`STOCKS_4`] order.
+const STOCKS_8: [(&str, &str); 8] = [
+    ("BHP", "ASX"),
+    ("CBA", "ASX"),
+    ("AAPL", "NYSE"),
+    ("MSFT", "NYSE"),
+    ("MYR", "ASX"),
+    ("NAB", "ASX"),
+    ("NVDA", "NYSE"),
+    ("BA", "NYSE"),
+];
+
 #[derive(Debug, Clone)]
 pub struct EodData {
     pub code: String,
@@ -76,21 +101,24 @@ pub async fn fetch_eod_data(
     Ok(data)
 }
 
-// Function to get multiple stocks data
+/// The 4-asset fetch the whole suite uses — unchanged list, unchanged order.
 pub async fn fetch_multiple_stocks_data(
 ) -> Result<Vec<(String, Vec<EodData>)>, Box<dyn std::error::Error>> {
-    let pool = get_database_pool().await?;
+    fetch_stocks_set(&STOCKS_4).await
+}
 
-    let stocks = vec![
-        ("BHP", "ASX"),
-        ("CBA", "ASX"),
-        ("AAPL", "NYSE"),
-        ("MSFT", "NYSE"),
-        /*("MYR", "ASX"),
-        ("NAB", "ASX"),
-        ("NVDA", "NYSE"),
-        ("BA", "NYSE"),*/
-    ];
+/// The FULL 8-asset set — opt-in for the CSE asset-lane benches only (2
+/// lots of 4 through one plan). Callers must tolerate fewer than 8 entries
+/// if a ticker has no rows (the loop skips empties).
+pub async fn fetch_all_stocks_data(
+) -> Result<Vec<(String, Vec<EodData>)>, Box<dyn std::error::Error>> {
+    fetch_stocks_set(&STOCKS_8).await
+}
+
+async fn fetch_stocks_set(
+    stocks: &[(&str, &str)],
+) -> Result<Vec<(String, Vec<EodData>)>, Box<dyn std::error::Error>> {
+    let pool = get_database_pool().await?;
 
     let mut all_data = Vec::new();
 
@@ -144,94 +172,124 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 use tokio::runtime::Runtime;
 
-// Global storage for database data - using OnceLock for thread safety
+// Global storage for database data — ONE OnceLock PER SET. The 4-asset lock
+// backs every existing consumer (unchanged); the 8-asset lock is ADDITIVE,
+// used only by the CSE asset-lane benches (2 lots of 4 through one plan).
 static STOCK_DATA: OnceLock<Vec<(String, Vec<EodData>)>> = OnceLock::new();
+static STOCK_DATA_8: OnceLock<Vec<(String, Vec<EodData>)>> = OnceLock::new();
 
-/// Initialize database data once.
+const SYMBOLS_4: [&str; 4] = ["BHP_ASX", "CBA_ASX", "AAPL_NYSE", "MSFT_NYSE"];
+const SYMBOLS_8: [&str; 8] = [
+    "BHP_ASX",
+    "CBA_ASX",
+    "AAPL_NYSE",
+    "MSFT_NYSE",
+    "MYR_ASX",
+    "NAB_ASX",
+    "NVDA_NYSE",
+    "BA_NYSE",
+];
+
+/// Initialize the 4-asset database data once — what all tests and benchmarks
+/// use.
 ///
 /// When `BENCHMARK_LOG_TO_DB` is not `"1"` (e.g. in CI), the real database is
 /// skipped and synthetic data is returned instead — the standard 15-point test
-/// arrays repeated 100 times (1 500 rows) under the symbol `"SYNTHETIC"`.
-/// This keeps all `_database` tests running and exercising real code paths
-/// without needing a live PostgreSQL connection.
+/// arrays repeated 100 times (1 500 rows) per symbol. This keeps all
+/// `_database` tests running and exercising real code paths without needing a
+/// live PostgreSQL connection.
 pub fn init_database_data() {
     STOCK_DATA.get_or_init(|| {
         if !crate::benchmark_logger::should_log_to_db() {
-            // Build synthetic EodData from the canonical hardcoded test arrays.
-            const OPEN: [f64; 15] = [
-                81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25, 84.03, 85.45,
-                86.18, 88.00, 87.60,
-            ];
-            const HIGH: [f64; 15] = [
-                82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58,
-                86.98, 88.00, 87.87,
-            ];
-            const LOW: [f64; 15] = [
-                81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39,
-                85.76, 87.17, 87.01,
-            ];
-            const CLOSE: [f64; 15] = [
-                81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54,
-                86.89, 87.77, 87.29,
-            ];
-            const VOLUME: [f64; 15] = [
-                5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0, 3798000.0, 3936200.0,
-                4732000.0, 4841300.0, 3915300.0, 6830800.0, 6694100.0, 5293600.0, 7985800.0,
-                4807900.0,
-            ];
-
-            let base_date = chrono::NaiveDate::from_ymd_opt(2020, 1, 1).unwrap();
-
-            // Mirror the 4 symbols the real DB query returns so that tests
-            // which index stock_data[0..3] always find all 4 entries.
-            let symbols = ["BHP_ASX", "CBA_ASX", "AAPL_NYSE", "MSFT_NYSE"];
-            let mut all_stocks: Vec<(String, Vec<EodData>)> = Vec::with_capacity(4);
-
-            for symbol in symbols {
-                let mut eod_data: Vec<EodData> = Vec::with_capacity(15 * 100);
-                for rep in 0..100_i64 {
-                    for i in 0..15_usize {
-                        eod_data.push(EodData {
-                            code: symbol.to_string(),
-                            ts: base_date + chrono::Duration::days(rep * 15 + i as i64),
-                            open: OPEN[i],
-                            high: HIGH[i],
-                            low: LOW[i],
-                            close: CLOSE[i],
-                            volume: VOLUME[i],
-                        });
-                    }
-                }
-                all_stocks.push((symbol.to_string(), eod_data));
-            }
-
-            println!(
-                "Using synthetic data: {} stocks, {} data points each",
-                all_stocks.len(),
-                15 * 100
-            );
-            return all_stocks;
+            return synthetic_stocks(&SYMBOLS_4);
         }
-
         let rt = Runtime::new().expect("Failed to create Tokio runtime");
         match rt.block_on(fetch_multiple_stocks_data()) {
-            Ok(data) => {
-                if data.is_empty() {
-                    panic!("No stock data found in database!");
-                }
-
-                println!("Loaded {} stocks for benchmarking:", data.len());
-                for (name, eod_data) in &data {
-                    println!("  {}: {} data points", name, eod_data.len());
-                }
-
-                data
-            }
-            Err(e) => {
-                panic!("Failed to fetch stock data: {}", e);
-            }
+            Ok(data) => report_loaded(data),
+            Err(e) => panic!("Failed to fetch stock data: {}", e),
         }
     });
+}
+
+/// Initialize the FULL 8-asset set in its OWN lock (`get_all_stock_data_8`).
+/// Calling this does not change what `init_database_data` /
+/// `get_all_stock_data` return — the 4-asset suite is untouched by design.
+pub fn init_database_data_8() {
+    STOCK_DATA_8.get_or_init(|| {
+        if !crate::benchmark_logger::should_log_to_db() {
+            return synthetic_stocks(&SYMBOLS_8);
+        }
+        let rt = Runtime::new().expect("Failed to create Tokio runtime");
+        match rt.block_on(fetch_all_stocks_data()) {
+            Ok(data) => report_loaded(data),
+            Err(e) => panic!("Failed to fetch 8-stock data: {}", e),
+        }
+    });
+}
+
+fn report_loaded(data: Vec<(String, Vec<EodData>)>) -> Vec<(String, Vec<EodData>)> {
+    if data.is_empty() {
+        panic!("No stock data found in database!");
+    }
+    println!("Loaded {} stocks for benchmarking:", data.len());
+    for (name, eod_data) in &data {
+        println!("  {}: {} data points", name, eod_data.len());
+    }
+    data
+}
+
+/// Synthetic fallback: the canonical 15-point test arrays repeated 100×
+/// (1 500 rows) per symbol, mirroring the requested symbol set so both the
+/// 4- and 8-asset locks can run DB-less.
+fn synthetic_stocks(symbols: &[&str]) -> Vec<(String, Vec<EodData>)> {
+    const OPEN: [f64; 15] = [
+        81.85, 81.20, 81.55, 82.91, 83.10, 83.41, 82.71, 82.70, 84.20, 84.25, 84.03, 85.45, 86.18,
+        88.00, 87.60,
+    ];
+    const HIGH: [f64; 15] = [
+        82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98,
+        88.00, 87.87,
+    ];
+    const LOW: [f64; 15] = [
+        81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76,
+        87.17, 87.01,
+    ];
+    const CLOSE: [f64; 15] = [
+        81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89,
+        87.77, 87.29,
+    ];
+    const VOLUME: [f64; 15] = [
+        5653100.0, 6447400.0, 7690900.0, 3831400.0, 4455100.0, 3798000.0, 3936200.0, 4732000.0,
+        4841300.0, 3915300.0, 6830800.0, 6694100.0, 5293600.0, 7985800.0, 4807900.0,
+    ];
+
+    let base_date = chrono::NaiveDate::from_ymd_opt(2020, 1, 1).unwrap();
+    let mut all_stocks: Vec<(String, Vec<EodData>)> = Vec::with_capacity(symbols.len());
+
+    for symbol in symbols {
+        let mut eod_data: Vec<EodData> = Vec::with_capacity(15 * 100);
+        for rep in 0..100_i64 {
+            for i in 0..15_usize {
+                eod_data.push(EodData {
+                    code: symbol.to_string(),
+                    ts: base_date + chrono::Duration::days(rep * 15 + i as i64),
+                    open: OPEN[i],
+                    high: HIGH[i],
+                    low: LOW[i],
+                    close: CLOSE[i],
+                    volume: VOLUME[i],
+                });
+            }
+        }
+        all_stocks.push((symbol.to_string(), eod_data));
+    }
+
+    println!(
+        "Using synthetic data: {} stocks, {} data points each",
+        all_stocks.len(),
+        15 * 100
+    );
+    all_stocks
 }
 
 /// Get input arrays for testing - uses database data if available, falls back to test data
@@ -313,6 +371,14 @@ pub fn get_input_arrays(requested_inputs: &[&str]) -> HashMap<String, Vec<f64>> 
 /// Get all stock data for multi-stock benchmarking
 pub fn get_all_stock_data() -> Option<&'static Vec<(String, Vec<EodData>)>> {
     STOCK_DATA.get()
+}
+
+/// The FULL 8-asset set for the CSE asset-lane benches (call
+/// [`init_database_data_8`] first). `None` if the 8-set was never
+/// initialized — the lane benches must tolerate < 8 entries (a ticker with
+/// no rows is skipped by the fetch), never index blindly.
+pub fn get_all_stock_data_8() -> Option<&'static Vec<(String, Vec<EodData>)>> {
+    STOCK_DATA_8.get()
 }
 
 /*/// A streaming wrapper that provides both stack-allocated batches and heap-allocated remainder.

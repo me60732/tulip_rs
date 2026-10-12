@@ -426,112 +426,12 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Ichimoku {
 // ── planner recipe (cse) ─────────────────────────────────────────────
 
 impl crate::cse::Planable for Ichimoku {
-    /// `ICHIMOKU` — six rolls (short / medium / ultra × max / min) over high and
-    /// low, plus four `0.5·(x + y)` combines (E9 M4). It is the family's densest
-    /// nesting case: three strictly increasing windows per column, so each
-    /// column chains twice and the rescans cost `s`, `l − s`, `2l − l` loads
-    /// instead of `s + l + 2l` (for 9/26: 9 + 17 + 26 rather than 9 + 26 + 52).
-    ///
-    /// Hand facts encoded here:
-    /// * every window is CANONICAL `(period, period − 1)` —
-    ///   `(s, s−1) (l, l−1) (2l, 2l−1)` — so unlike `aroon` no early guard here;
-    /// * publish leads come from `slot_lengths`, NOT from each node's
-    ///   defined-from: conversion prints from bar `s−1`, base from `l−1`, and
-    ///   BOTH spans from `2l−1`. `span_a = 0.5·(conversion + base)` is
-    ///   computable from `l−1`; the hand withholds it to `2l−1` on purpose
-    ///   (Senkou Span A's own warm-up convention), which is a sink-lead fact —
-    ///   `iface_lead` clamps UP to defined-from, so a later lead is legal and
-    ///   no padding feature is needed;
-    /// * `lagging_span` is a verbatim clone of the caller's `close`, enters no
-    ///   loop, and is therefore NOT declared here — the hand exposes it as an
-    ///   optional so the CALLER can decline the copy, and the engine has no
-    ///   business cloning a column the caller already owns. Consequence worth
-    ///   knowing: the plan reads only 2 fields, i.e. ichimoku's math never
-    ///   touches close, so `n_streams()` is `2 · nassets` (the hand's `INPUTS`
-    ///   is 3 only because of that optional).
-    /// * the `+long_period` / `−long_period` `DisplayGroup` offsets are
-    ///   presentation metadata applied by the display layer; they are not data
-    ///   shifts and the planner never sees them.
+    /// The graph is leaf data — `crate::cse::recipes::ichimoku` (six
+    /// canonical rolls narrow→wide, the four half-sum combines, leads from
+    /// `slot_lengths`; `lagging_span` stays a caller-side clone the engine
+    /// never performs).
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        use crate::cse::{Node, Recipe, Sink};
-        let short = options[0] as u32;
-        let medium = options[1] as u32;
-        let long = medium * 2;
-        let mut r = Recipe::new();
-        let high = r.add(Node::Input { stream: 0 });
-        let low = r.add(Node::Input { stream: 1 });
-
-        // Narrow → wide on purpose: the planner links each roll to the widest
-        // still-narrower roll on the same column and direction, so this order
-        // also matches the arena's.
-        let s_min = r.add(Node::RollMin {
-            src: low,
-            period: short,
-            look_back: short - 1,
-        });
-        let s_max = r.add(Node::RollMax {
-            src: high,
-            period: short,
-            look_back: short - 1,
-        });
-        let m_min = r.add(Node::RollMin {
-            src: low,
-            period: medium,
-            look_back: medium - 1,
-        });
-        let m_max = r.add(Node::RollMax {
-            src: high,
-            period: medium,
-            look_back: medium - 1,
-        });
-        let l_min = r.add(Node::RollMin {
-            src: low,
-            period: long,
-            look_back: long - 1,
-        });
-        let l_max = r.add(Node::RollMax {
-            src: high,
-            period: long,
-            look_back: long - 1,
-        });
-
-        let half = r.constant(0.5);
-        let conv_sum = r.add(Node::Add { a: s_min, b: s_max });
-        let conversion = r.add(Node::Mul {
-            a: half,
-            b: conv_sum,
-        });
-        let base_sum = r.add(Node::Add { a: m_min, b: m_max });
-        let base = r.add(Node::Mul {
-            a: half,
-            b: base_sum,
-        });
-        let span_a_sum = r.add(Node::Add {
-            a: conversion,
-            b: base,
-        });
-        let span_a = r.add(Node::Mul {
-            a: half,
-            b: span_a_sum,
-        });
-        let span_b_sum = r.add(Node::Add { a: l_min, b: l_max });
-        let span_b = r.add(Node::Mul {
-            a: half,
-            b: span_b_sum,
-        });
-
-        r.kind = "ichimoku";
-        r.options = options.to_vec();
-        // hand `State` field order
-        r.tail_inputs = vec![s_min, s_max, m_min, m_max, l_min, l_max];
-        r.restorer = Some(restore_state);
-        r.outputs = vec![
-            Sink::iface_lead(conversion, short - 1),
-            Sink::iface_lead(base, medium - 1),
-            Sink::iface_lead(span_a, long - 1),
-            Sink::iface_lead(span_b, long - 1),
-        ];
-        r
+        crate::cse::recipes::ichimoku(options)
     }
 }
 

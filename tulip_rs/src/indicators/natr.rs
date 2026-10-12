@@ -217,41 +217,10 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Natr {
 // ── planner recipe (cse) ─────────────────────────────────────────────
 
 impl crate::cse::Planable for Natr {
-    /// `NATR(p)` = `atr(p) / close · 100`, wrapping the SAME mean-chained
-    /// `Wilders(tr)` ATR node `Atr::recipe` builds. The `tr` graph is composed
-    /// from `Tr` via [`Recipe::sub`](crate::cse::Recipe::sub) (one source of
-    /// truth), and natr's own mean-`Wilders(tr)` is structurally identical to
-    /// atr's so CSE dedups the WHOLE atr chain (natr==atr, proven by the
-    /// order-independence test). Exact op order `(atr / close) * 100.0` (hand
-    /// `calc`). Publish lead = `period`; mirrors [atr, tr] (both shared).
+    /// The graph is leaf data — `crate::cse::recipes::natr`: wraps the SAME
+    /// mean-`Wilders(tr)` ATR node `atr` builds (dedups to one chain), then
+    /// the exact hand op order `(atr / close) * 100.0`; mirrors `[atr, tr]`.
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        let period = options[0] as u32;
-        let mut r = crate::cse::Recipe::new();
-        let close = r.add(crate::cse::Node::Input { stream: 2 });
-        // Compose atr wholesale: its primary is the mean-ATR chain, and atr
-        // exposes `tr` as its own optional — so natr mirrors both with zero
-        // re-derived math (this is the "sub exposes its optionals" rule).
-        let atr = r.sub_graph::<Atr>(&[period as f64], &[0, 1, 2]);
-        let atr_id = atr.primary;
-        let tr = atr.optional_at(0);
-        let ratio = r.add(crate::cse::Node::Div {
-            a: atr_id,
-            b: close,
-        });
-        let hundred = r.constant(100.0);
-        let natr = r.add(crate::cse::Node::Mul {
-            a: ratio,
-            b: hundred,
-        });
-        r.kind = "natr";
-        r.options = options.to_vec();
-        r.outputs.push(crate::cse::Sink::iface_lead(natr, period));
-        // Hand optional_outputs order: [atr, tr]. Both nodes come straight
-        // from the composed Atr (its primary + its exposed `tr`) — identical
-        // arena nodes to standalone Atr/adx, so fully shared.
-        r.optional_outputs
-            .push(crate::cse::Sink::iface_lead(atr_id, period));
-        r.optional_outputs.push(crate::cse::Sink::iface_lead(tr, 1));
-        r
+        crate::cse::recipes::natr(options)
     }
 }

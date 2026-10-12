@@ -1,5 +1,5 @@
 use crate::common::validate_inputs;
-use crate::cse::{Node, Planable, Recipe, Sink};
+use crate::cse::{ChainStateEma, Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -168,43 +168,14 @@ pub fn multiplier(short_period: usize, long_period: usize) -> ((f64, f64), (f64,
 pub struct Apo;
 
 impl Planable for Apo {
-    /// `Apo(s, l) ≡ ema_s(close) − ema_l(close)` written entirely as nodes:
-    /// the two `Ema`s plus the `Sub` of their values. That `Sub` node is the
-    /// §4 identity — MACD's line and PPO's numerator declare the same key
-    /// and `merge` interns them into ONE arena node (one `fsub` in the
-    /// fused loop, up to three consumers).
-    ///
-    /// SSA order matches [`Apo`]'s `TState::calc` (short advanced before
-    /// long). Publish leads from `output_length`/`min_data`: primary from
-    /// bar `long-1`, the two EMA passthroughs from their defined-from
-    /// (`short-1`, `long-1`) — exactly the capacities
-    /// [`Apo::indicator`] allocates for `Some(&[true, true])`.
+    /// The graph is leaf data — `crate::cse::recipes::apo`: two `Ema`s over
+    /// close plus the line `Sub`, which is the §4 identity node — MACD's
+    /// line and PPO's numerator declare the same key and `merge` interns ONE
+    /// arena node for all three. SSA order matches `TState::calc` (short
+    /// advanced before long); leads per `output_length`/`min_data` (see the
+    /// leaf doc).
     fn recipe(options: &[f64]) -> Recipe {
-        let short = options[0] as u32;
-        let long = options[1] as u32;
-
-        let mut r = Recipe::new();
-        let close = r.add(Node::Input { stream: 0 });
-        // The two EMA SUB-INDICATORS over `close` (Apo = short_ema − long_ema),
-        // composed via `sub_at` so `Ema::recipe` is their single source of
-        // truth. The grafted node has the SAME intern key as before, so the
-        // §4 identity (apo line ≡ macd_line ≡ ppo numerator) is unchanged.
-        let s = r.sub_at::<Ema>(&[short as f64], &[close]);
-        let l = r.sub_at::<Ema>(&[long as f64], &[close]);
-        let line = r.add(Node::Sub { a: s, b: l });
-
-        r.kind = "apo";
-        r.options = options.to_vec();
-        r.tail_inputs = vec![s, l];
-        r.restorer = Some(restore_state);
-        r.outputs.push(Sink::iface_lead(line, long - 1));
-        // optional_outputs in Info order: short_ema, long_ema — node
-        // mirrors. PUBLISH leads are hand facts, not defined-from: the short
-        // line is `Ema::output_length` (lead = period), the long reuses the
-        // primary capacity (lead = long-1 = defined-from → fallback).
-        r.optional_outputs.push(Sink::iface_lead(s, short));
-        r.optional_outputs.push(Sink::iface(l));
-        r
+        crate::cse::recipes::apo(options)
     }
 }
 

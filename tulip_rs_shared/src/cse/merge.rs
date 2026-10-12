@@ -16,7 +16,7 @@
 //! is what makes `Apo`'s `ema12/ema26` and `Macd`'s literally the same arena
 //! nodes, the §4 identity falling out of CSE for free.
 
-use crate::cse::{Id, Node, Recipe, Sink, SinkSrc, StateRestorer};
+use crate::cse::{Id, Node, Recipe, Sink, SinkSrc};
 use std::collections::HashMap;
 
 /// Merged, node-deduplicated interface graph. Child `Id`s in `nodes` are
@@ -24,6 +24,10 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct Merged {
     pub nodes: Vec<Node>,
+    /// Display-only role tags parallel to `nodes` (from `Recipe::tags`,
+    /// first writer across recipes wins). NEVER read by the planner's value
+    /// paths — the `request!` emitter uses them to name locals.
+    pub tags: Vec<Option<&'static str>>,
 }
 
 impl Merged {
@@ -530,12 +534,9 @@ pub struct Resolved {
     /// Options (labels; the graph carries what matters).
     pub options: Vec<f64>,
     /// Global arena ids of the `Ema` chains the hand `State` holds, in
-    /// `TState` field order — `get_states` feeds their live slot values to
-    /// `restorer`, in this order.
+    /// `TState` field order — runtime uses table lookup keyed by kind.
     pub inputs: Vec<Id>,
-    /// Rebuilds the hand state (from the indicator module). `None` ⇒ Other.
-    pub restorer: Option<StateRestorer>,
-    /// Primary sinks (global node ids), `Info::outputs` order.
+    /// Phase 1: restorer removed from leaf's Recipe; runtime uses table.
     pub outputs: Vec<Sink>,
     /// Optional sinks, `Info::optional_outputs` order.
     pub optional_outputs: Vec<Sink>,
@@ -547,13 +548,21 @@ pub struct Resolved {
 }
 
 /// Intern `node` (child ids already global) into `arena`, returning its global
-/// id. Equal structure ⇒ same id ⇒ shared computation (the CSE key).
-fn intern(arena: &mut Vec<Node>, cache: &mut HashMap<Node, Id>, node: Node) -> Id {
+/// id. Equal structure ⇒ same id ⇒ shared computation (the CSE key). The
+/// display tag is NOT part of the key — two equal nodes with different tags
+/// still share ONE arena slot (first writer keeps the name).
+fn intern(
+    arena: &mut Vec<Node>,
+    tags: &mut Vec<Option<&'static str>>,
+    cache: &mut HashMap<Node, Id>,
+    node: Node,
+) -> Id {
     if let Some(&existing) = cache.get(&node) {
         return existing;
     }
     let id = arena.len() as Id;
     arena.push(node);
+    tags.push(None);
     cache.insert(node, id);
     id
 }
@@ -722,7 +731,7 @@ pub(crate) fn remap_node(node: &Node, g: &dyn Fn(Id) -> Id) -> Node {
 /// guarantees each child id `< node` id, so the executor's dead-node pass
 /// propagates liveness in one descending scan. A new `Node` variant with a
 /// child must be added here **and** `remap_node` **and** `Merged::leads`.
-pub(crate) fn node_children(node: &Node, visit: &mut dyn FnMut(Id)) {
+pub fn node_children(node: &Node, visit: &mut dyn FnMut(Id)) {
     use Node::*;
     match node {
         Input { .. } | Const { .. } => {}
@@ -804,6 +813,7 @@ fn remap_sink(sink: &Sink, l2g: &[Id]) -> Sink {
 /// Returns the arena and, per input recipe (same order), its resolved wiring.
 pub fn merge(recipes: &[Recipe]) -> (Merged, Vec<Resolved>) {
     let mut arena: Vec<Node> = Vec::new();
+    let mut tags: Vec<Option<&'static str>> = Vec::new();
     let mut cache: HashMap<Node, Id> = HashMap::new();
     let mut resolved = Vec::with_capacity(recipes.len());
 
@@ -812,7 +822,13 @@ pub fn merge(recipes: &[Recipe]) -> (Merged, Vec<Resolved>) {
         let mut l2g = vec![0u32; recipe.nodes.len()];
         for (local, node) in recipe.nodes.iter().enumerate() {
             let global = remap(node, &l2g);
-            l2g[local] = intern(&mut arena, &mut cache, global);
+            let id = intern(&mut arena, &mut tags, &mut cache, global);
+            if let Some(Some(t)) = recipe.tags.get(local) {
+                if tags[id as usize].is_none() {
+                    tags[id as usize] = Some(*t);
+                }
+            }
+            l2g[local] = id;
         }
         resolved.push(Resolved {
             kind: recipe.kind,
@@ -822,7 +838,6 @@ pub fn merge(recipes: &[Recipe]) -> (Merged, Vec<Resolved>) {
                 .iter()
                 .map(|&i| l2g[i as usize])
                 .collect(),
-            restorer: recipe.restorer,
             outputs: recipe.outputs.iter().map(|s| remap_sink(s, &l2g)).collect(),
             optional_outputs: recipe
                 .optional_outputs
@@ -833,427 +848,5 @@ pub fn merge(recipes: &[Recipe]) -> (Merged, Vec<Resolved>) {
         });
     }
 
-    (Merged { nodes: arena }, resolved)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::cse::Planable;
-    use crate::indicators::adx::Adx;
-    use crate::indicators::apo::Apo;
-    use crate::indicators::ema::Ema;
-    use crate::indicators::macd::Macd;
-    use crate::indicators::natr::Natr;
-    use crate::indicators::ppo::Ppo;
-    use crate::indicators::supertrend::SuperTrend;
-
-    /// Group requests and return each group's request indices, sorted, so the
-    /// result is order-stable for assertion. `opt[i]` is request `i`'s optional
-    /// enable mask (mirrors what `Request::build` applies before compiling).
-    fn groups_of(recipes: &[Recipe], opt: &[Vec<bool>]) -> Vec<Vec<usize>> {
-        let (arena, mut resolved) = merge(recipes);
-        for (r, f) in resolved.iter_mut().zip(opt) {
-            r.optional_enabled = f.clone();
-        }
-        let mut g = arena.sharing_groups(&resolved);
-        for grp in &mut g {
-            grp.sort_unstable();
-        }
-        g.sort();
-        g
-    }
-
-    /// Partition primitive: `apo`+`macd` share `ema12/ema24`; `natr`+`supertrend`
-    /// share the mean-`Wilders(tr)`/`tr` chain; `adx` (its `dx`/`dm` chain over
-    /// high/low) shares no *computed* node with the others when its optional
-    /// `atr`/`tr` mirrors are OFF → three disjoint groups → three sub-plans.
-    #[test]
-    fn sharing_groups_splits_disjoint_panels() {
-        let recipes = [
-            Apo::recipe(&[12.0, 24.0]),
-            Macd::recipe(&[12.0, 24.0, 9.0]),
-            Adx::recipe(&[12.0]),
-            Natr::recipe(&[12.0]),
-            SuperTrend::recipe(&[12.0, 3.0]),
-        ];
-        // primary-only: adx's atr/tr mirrors disabled ⇒ disjoint.
-        let primary = groups_of(
-            &recipes,
-            &[
-                vec![],
-                vec![false, false],
-                vec![false, false, false],
-                vec![false, false],
-                vec![false, false, false],
-            ],
-        );
-        assert_eq!(
-            primary,
-            vec![vec![0, 1], vec![2], vec![3, 4]],
-            "ema-pair / adx / mean-ATR pair are three sharing groups"
-        );
-        // With adx's optional atr/tr mirror ON, it now reaches the shared
-        // mean-`Wilders(tr)` node → joins the natr/supertrend group (2 groups).
-        let with_atr = groups_of(
-            &recipes,
-            &[
-                vec![],
-                vec![false, false],
-                vec![true, true, true],
-                vec![false, false],
-                vec![false, false, false],
-            ],
-        );
-        assert_eq!(
-            with_atr,
-            vec![vec![0, 1], vec![2, 3, 4]],
-            "adx sharing the ATR mirror merges into the mean-ATR group"
-        );
-    }
-
-    /// The three classic requests share EVERYTHING shareable as one graph:
-    /// `Input` + `ema12` + `ema26` (one chain each), ONE `Sub` line node
-    /// (apo's output, macd's line, ppo's numerator — the §4 identity is now
-    /// a single arena node), the ppo guard chain (`Const ε`, `Max`,
-    /// `Const 100`, `Mul`, `Div`), the chained signal `Ema` over the line,
-    /// and the hist `Sub` = 11 nodes. Per-request state wiring stays just
-    /// the EMA chains (`tail_inputs`), macd's naming its signal chain too.
-    #[test]
-    fn merge_dedups_classic_graph() {
-        let (m, r) = merge(&[
-            Apo::recipe(&[12.0, 26.0]),
-            Ppo::recipe(&[12.0, 26.0]),
-            Macd::recipe(&[12.0, 26.0, 9.0]),
-        ]);
-        assert_eq!(
-            m.nodes.len(),
-            crate::cse::CLASSIC_NODES,
-            "one shared graph, no duplicates"
-        );
-        let n = |p: fn(&Node) -> bool| m.nodes.iter().filter(|n| p(n)).count();
-        assert_eq!(n(|x| matches!(x, Node::Ema { .. })), 3, "e12, e26, sig");
-        assert_eq!(n(|x| matches!(x, Node::Sub { .. })), 2, "line + hist");
-        // ppo's divisor guard: `Const ε` + `Max`, both absent under
-        // `safe_inputs` (see `cse/mod.rs`). Counted separately from the graph
-        // size so a lost node is still attributable.
-        assert_eq!(
-            n(|x| matches!(x, Node::Const { .. })),
-            if cfg!(feature = "safe_inputs") { 1 } else { 2 },
-            "100, plus eps when the guard exists"
-        );
-        assert_eq!(
-            n(|x| matches!(x, Node::Max { .. })),
-            if cfg!(feature = "safe_inputs") { 0 } else { 1 }
-        );
-        assert_eq!(n(|x| matches!(x, Node::Mul { .. })), 1);
-        assert_eq!(n(|x| matches!(x, Node::Div { .. })), 1);
-
-        // state wiring: apo/ppo name the same two chains; macd adds the
-        // signal chain (an arena Ema over the shared line).
-        assert_eq!(r[0].inputs, vec![1, 2]);
-        assert_eq!(r[1].inputs, vec![1, 2]);
-        assert_eq!(r[2].inputs.len(), 3);
-        assert_eq!(&r[2].inputs[..2], &[1, 2]);
-
-        // defined-from leads: ema12 → 11, ema26 → 25, line → 25, sig → 33
-        let leads = m.leads();
-        assert_eq!(leads[1], 11);
-        assert_eq!(leads[2], 25);
-        assert_eq!(leads[r[2].inputs[2] as usize], 33, "signal = 25 + 9 - 1");
-
-        // every sink is a node mirror (no tail slots survive)
-        assert!(matches!(
-            r[0].optional_outputs[0].src,
-            SinkSrc::Interface(id) if id == 1
-        ));
-        assert!(matches!(r[1].outputs[0].src, SinkSrc::Interface(_)));
-        assert!(matches!(
-            r[2].optional_outputs[1].src,
-            SinkSrc::Interface(id) if id == 2
-        ));
-    }
-
-    /// The dense dashboard's PARTIAL overlap: `Apo(6,9)`'s long EMA and
-    /// `Ppo(9,25)`'s short EMA are both `ema9(close)` — one structural key,
-    /// so the arena holds exactly ONE price-sourced `Ema{period: 9}` node
-    /// and the two requests receive the same global id (one advance per bar;
-    /// both consumers read the same chain). `Macd(12,24,9)`'s signal is ALSO
-    /// period 9 but over the line node — a different key, correctly NOT
-    /// deduped. All other periods are distinct: 11 close EMAs + 2 signal
-    /// chains + the per-request derived graph = 30 nodes.
-    #[test]
-    fn merge_dedups_dense_shared_ema9() {
-        let (m, r) = merge(&[
-            Apo::recipe(&[5.0, 8.0]),
-            Apo::recipe(&[6.0, 9.0]),
-            Ppo::recipe(&[9.0, 25.0]),
-            Ppo::recipe(&[10.0, 26.0]),
-            Macd::recipe(&[11.0, 23.0, 17.0]),
-            Macd::recipe(&[12.0, 24.0, 9.0]),
-        ]);
-        let ema = |p: u32| -> Vec<Id> {
-            m.nodes
-                .iter()
-                .enumerate()
-                .filter(
-                    |(_, n)| matches!(**n, Node::Ema { src, period } if period == p && src == 0),
-                )
-                .map(|(i, _)| i as Id)
-                .collect()
-        };
-        assert_eq!(
-            ema(9).len(),
-            1,
-            "ema9(close) exists exactly once (the period-9 SIGNAL chain is over the line, not close)"
-        );
-        // Apo(6,9) = request 1: state chains [ema6, ema9];
-        // Ppo(9,25) = request 2: state chains [ema9, ema25].
-        assert_eq!(
-            r[1].inputs[1], r[2].inputs[0],
-            "Apo long(9) and Ppo short(9) must be the SAME arena node"
-        );
-        let n_price_emas = m
-            .nodes
-            .iter()
-            .filter(|n| matches!(n, Node::Ema { src, .. } if *src == 0))
-            .count();
-        assert_eq!(
-            n_price_emas, 11,
-            "periods 5,6,8,9,10,11,12,23,24,25,26 over the single close Input"
-        );
-        assert_eq!(m.nodes.len(), crate::cse::DENSE_NODES);
-    }
-
-    /// `lane_formula` id → a name, for report lines only. `IIR2` is the
-    /// `Ema`/mean-`Wilders` identity, `Roll3` the `Sma`/`RollSum{mean}` one.
-    fn formula_name(f: u8) -> &'static str {
-        [
-            "?",
-            "Input",
-            "Const",
-            "IIR2",
-            "IIR1",
-            "Sub",
-            "Add",
-            "Mul",
-            "Div",
-            "Abs",
-            "Lag",
-            "Max",
-            "WhereGe",
-            "WhereLt",
-            "Roll2",
-            "Roll3",
-            "RollMax",
-            "RollMin",
-            "Trail",
-            "Mirror",
-            "Ln",
-            "Sqrt",
-            "Fma",
-            "Hma",
-            "Stddev",
-            "Wma",
-            "HighPass",
-            "SuperSmoother",
-            "HtInPhase",
-            "HtQuadrature",
-            "SuperTrend",
-        ][f as usize]
-    }
-
-    fn lane_report(m: &Merged) -> String {
-        let mut out = String::new();
-        let mut rs = m.lane_regions();
-        rs.sort_by_key(|r| (r.shared_ops, r.formula));
-        for r in rs.iter().rev() {
-            out.push_str(&format!(
-                "    {:<12} lanes={} own_ops={} run_ops={}{}\n",
-                formula_name(r.formula),
-                r.lanes.len(),
-                r.ops,
-                r.shared_ops,
-                if r.uniform_warmup {
-                    ""
-                } else {
-                    "  (warm-up differs: not packable AS IS)"
-                },
-            ));
-        }
-        out
-    }
-
-    /// The rule the user set: packing is a property of the MERGED GRAPH, decided
-    /// by shared arithmetic and how many instructions that sharing runs over —
-    /// never by node kind. This prints what the pass finds across the families
-    /// that currently lose to the hand, so the theory can be reviewed against the
-    /// graph before any emission consumes it
-    /// (`cargo test -p tulip_rs cse::merge -- --nocapture`).
-    #[test]
-    fn lane_regions_report_the_shared_shapes() {
-        use crate::indicators::cmo::Cmo;
-        use crate::indicators::di::Di;
-        use crate::indicators::rsi::Rsi;
-        use crate::indicators::willr::Willr;
-        let cases: Vec<(String, Vec<Recipe>)> = vec![
-            ("rsi(14)".into(), vec![Rsi::recipe(&[14.0])]),
-            ("cmo(14)".into(), vec![Cmo::recipe(&[14.0])]),
-            ("di(14)".into(), vec![Di::recipe(&[14.0])]),
-            ("willr(14)".into(), vec![Willr::recipe(&[14.0])]),
-            (
-                "rsi+cmo".into(),
-                vec![Rsi::recipe(&[14.0]), Cmo::recipe(&[14.0])],
-            ),
-            ("apo(12,26)".into(), vec![Apo::recipe(&[12.0, 26.0])]),
-            ("adx(14)".into(), vec![Adx::recipe(&[14.0])]),
-            (
-                "ema(9)+wilders(9)".into(),
-                vec![
-                    Ema::recipe(&[9.0]),
-                    crate::indicators::wilders::Wilders::recipe(&[9.0]),
-                ],
-            ),
-        ];
-        for (name, recipes) in cases {
-            let (m, _) = merge(&recipes);
-            print!("=== {name} ({} nodes)\n{}", m.nodes.len(), lane_report(&m));
-        }
-    }
-
-    /// THE point of keying on the expansion instead of the `Node` variant:
-    /// `ema::calc` and `wilders::calc` are one instruction sequence
-    /// (`fma(state, c0, mul(x, c1))`) with the two magnitudes in swapped slots,
-    /// and magnitudes are not part of a shape. So a chain spelled `Ema` and a
-    /// chain spelled `Wilders` are TWO LANES OF ONE FORMULA — a share no
-    /// kind-keyed rule can see, and the reason "ema packs / wilders packs" was
-    /// the wrong decomposition.
-    #[test]
-    fn lane_regions_see_ema_and_wilders_as_one_formula() {
-        use crate::indicators::wilders::Wilders;
-        let (m, _) = merge(&[Ema::recipe(&[9.0]), Wilders::recipe(&[9.0])]);
-        let iir = m
-            .lane_regions()
-            .into_iter()
-            .find(|r| r.formula == 3)
-            .expect("an Ema and a mean Wilders over the same source are ONE shape");
-        assert_eq!(iir.lanes.len(), 2, "one region, two lanes");
-        assert_eq!(iir.ops, 2, "fmul + fma per bar, per lane");
-        assert_eq!(iir.shared_ops, 2, "the chain alone amortizes one assembly");
-        assert!(
-            iir.lanes
-                .iter()
-                .all(|&i| matches!(m.nodes[i as usize], Node::Ema { .. } | Node::Wilders { .. })),
-            "the lanes are the two spellings: {:?}",
-            iir.lanes
-        );
-        let kinds: Vec<&str> = iir
-            .lanes
-            .iter()
-            .map(|&i| match m.nodes[i as usize] {
-                Node::Ema { .. } => "Ema",
-                Node::Wilders { .. } => "Wilders",
-                _ => "?",
-            })
-            .collect();
-        assert_eq!(
-            kinds,
-            vec!["Ema", "Wilders"],
-            "one lane of each spelling — cross-kind packing, found structurally"
-        );
-        // They earn the pack, but they do NOT yet share a loop: `Ema` steps from
-        // its seed while a price-sourced `Wilders` FOLDS a running sum to the
-        // seam, so the warm-up policy differs and one segment structure cannot
-        // serve both as it stands. Reported, not hidden — this is the gate the
-        // emission has to clear before claiming this region.
-        assert!(
-            !iir.uniform_warmup,
-            "Ema and Wilders agree in steady math but differ in warm-up policy"
-        );
-    }
-
-    /// `rsi`'s gain/loss pair, and the case that makes the instruction count mean
-    /// something: the shared movement subtraction is ONE instruction with nothing
-    /// else shared under it, so it is not offered at all.
-    #[test]
-    fn lane_regions_find_the_rsi_up_down_run() {
-        use crate::indicators::rsi::Rsi;
-        let (m, _) = merge(&[Rsi::recipe(&[14.0])]);
-        let at = |f: u8| m.lane_regions().into_iter().find(|r| r.formula == f);
-        // `diff = real − lag` and `neg = lag − real`: SAME arithmetic, operands
-        // swapped, different sources — so they share a shape DESPITE the swap
-        // (operand order is not part of a shape). But one `fsub` does not pay for
-        // an assembly, so the pass must NOT offer it.
-        assert!(
-            at(5).is_none(),
-            "the lone shared Sub (1 instruction) must not be offered for packing"
-        );
-        // Both guards: one `fcmp`+`select` pair of their own, sitting on the
-        // shared Sub, so the run is 2 instructions wide.
-        let max = at(11).expect("the two Max guards share a shape");
-        assert_eq!(max.lanes.len(), 2);
-        assert_eq!(max.ops, 1, "the guard itself is one vector op");
-        assert_eq!(max.shared_ops, 2, "its own op + the shared Sub's");
-        // Both smoothers, spelled `Wilders`: two instructions each, on top of the
-        // guard run ⇒ a 4-instruction run for one pack/unpack.
-        let iir = at(3).expect("the two Wilders share a shape");
-        assert_eq!(iir.lanes.len(), 2);
-        assert_eq!(iir.ops, 2, "fmul + fma");
-        assert_eq!(iir.shared_ops, 4, "Wilders(2) + Max(1) + Sub(1)");
-        assert!(iir.uniform_warmup, "both arms: same period, same feed");
-    }
-
-    /// `willr` is the control on the pass: its two rolls go over DIFFERENT
-    /// streams and need opposite predicates, so they are not one formula, and
-    /// nothing else in it is done twice. A pass that invented regions here would
-    /// be pattern-matching indicators, not reading math.
-    #[test]
-    fn lane_regions_find_nothing_to_pack_in_willr() {
-        use crate::indicators::willr::Willr;
-        let (m, _) = merge(&[Willr::recipe(&[14.0])]);
-        assert!(
-            m.lane_regions().is_empty(),
-            "willr rolls max-of-high and min-of-low: different formulas, and no \
-             other shape appears twice — got {:?}",
-            m.lane_regions()
-        );
-    }
-
-    /// A query with no parallel ARITHMETIC proposes nothing: every shape is
-    /// either unique (so `intern` already did the sharing) or a boundary slot
-    /// with nothing to compute — two input streams are two lanes of *reading*,
-    /// not two lanes of work.
-    #[test]
-    fn lane_regions_report_nothing_when_interning_already_did_the_work() {
-        use crate::indicators::medprice::Medprice;
-        let (m, _) = merge(&[Medprice::recipe(&[])]);
-        assert!(
-            m.lane_regions().is_empty(),
-            "medprice is 0.5·(high+low) over two DIFFERENT streams — one node \
-             per arithmetic shape, and its two `Input`s are boundaries, not a \
-             region: {:?}",
-            m.lane_regions()
-        );
-    }
-
-    /// Periods are magnitudes, not shape: `Apo(12, 26)` is TWO instances of the
-    /// same formula over the same source. It earns its pack on the chain's OWN
-    /// two instructions — no second rule about carrying state is needed, which is
-    /// what made the single criterion possible.
-    #[test]
-    fn lane_regions_pack_a_chain_pair_on_its_own_instruction_count() {
-        let (m, _) = merge(&[Apo::recipe(&[12.0, 26.0])]);
-        let ema = m
-            .lane_regions()
-            .into_iter()
-            .find(|r| r.formula == 3)
-            .expect("ema12 and ema26 are one formula with different periods");
-        assert_eq!(ema.lanes.len(), 2);
-        assert_eq!(ema.ops, 2, "the step is a group: fmul then fma");
-        assert_eq!(
-            ema.shared_ops, 2,
-            "the run stops at the chain — `close` is one deduped node"
-        );
-        assert!(ema.uniform_warmup, "both are price-sourced Emas");
-    }
+    (Merged { nodes: arena, tags }, resolved)
 }

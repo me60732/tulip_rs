@@ -8,7 +8,7 @@ use crate::indicators::ema::{Ema, State as EmaState};
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
-use crate::cse::{Node, Planable, Recipe, Sink};
+use crate::cse::{ChainStateEma, Planable, Recipe};
 /// Number of input price series required by this indicator.
 pub const INPUTS: usize = 1;
 
@@ -90,22 +90,11 @@ impl TState for State<Warm> {
         let short_ema = self.short_ema.calc(real);
         let long_ema = self.long_ema.calc(real);
 
-        #[cfg(feature = "safe_inputs")]
-        {
-            (
-                (short_ema - long_ema) * 100.0 / long_ema,
-                short_ema,
-                long_ema,
-            )
-        }
-        #[cfg(not(feature = "safe_inputs"))]
-        {
-            (
-                (short_ema - long_ema) * 100.0 / long_ema.max(f64::EPSILON),
-                short_ema,
-                long_ema,
-            )
-        }
+        (
+            (short_ema - long_ema) * 100.0 / long_ema,
+            short_ema,
+            long_ema,
+        )
     }
 }
 
@@ -238,67 +227,15 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Ppo {
 }
 
 impl Planable for Ppo {
-    /// `Ppo(s, l)  ≡  (ema_s − ema_l) * 100.0 / max(ema_l, EPSILON)` written
-    /// entirely as nodes: the `Sub` of the raw EMAs (the SAME arena node
-    /// APO and MACD declare — `merge` interns one numerator for all three),
-    /// a `Max` guard feeding ONLY the divisor, then `Mul`/`Div` in the
-    /// hand's exact evaluation order: `((s − l) * 100.0) / l_c`.
-    /// Reassociating to `(s − l) * (100.0 / l_c)` would change the bits
-    /// (MATHEMATICAL_ENGINE §5).
-    ///
-    /// Under `feature = "safe_inputs"` (on by default) the `Max` node is not
-    /// emitted at all and the divisor is the raw `ema_l`, mirroring
-    /// `State::calc`'s own `#[cfg]` arm — a zero price is excluded by the data
-    /// contract, so the floor cannot fire. That is the ONLY structural
-    /// difference between the two configurations of this recipe, and both are
-    /// tested: `classic`'s apo/ppo/macd parity and the dedup counts hold either
-    /// way, with one fewer op (the `Max` and its `ε` constant) when the data is
-    /// declared trustworthy.
+    /// The graph is leaf data — `crate::cse::recipes::ppo`:
+    /// `(ema_s − ema_l) * 100.0 / ema_l` in the hand's exact evaluation
+    /// order (reassociating would change the bits, MATHEMATICAL_ENGINE §5);
+    /// the numerator `Sub` is the §4 identity node apo/macd share. The
+    /// divisor is the RAW `ema_l` — the old `safe_inputs` `max(ema_l, ε)`
+    /// floor retired with the JIT (2026-10-12); a zero price is excluded by
+    /// the data contract.
     fn recipe(options: &[f64]) -> Recipe {
-        let short = options[0] as u32;
-        let long = options[1] as u32;
-
-        let mut r = Recipe::new();
-        let close = r.add(Node::Input { stream: 0 });
-        // The two EMA SUB-INDICATORS over `close`, composed via `sub_at`
-        // (Ema::recipe = single source of truth; ppo depends on the EMAs, not
-        // Apo). Same intern keys → the `(s − l)` numerator still shares ONE node
-        // with apo/macd (§4).
-        let s = r.sub_at::<Ema>(&[short as f64], &[close]);
-        let l = r.sub_at::<Ema>(&[long as f64], &[close]);
-        let line = r.add(Node::Sub { a: s, b: l });
-        // The divisor guard follows `State::calc` exactly, including under
-        // `feature = "safe_inputs"`, where the hand divides by the raw long EMA:
-        // a zero price cannot occur, so `max(ema_l, ε)` is dead code there. The
-        // recipe MUST match the hand here or the parity matrices diverge — with
-        // the floor compiled out on one side and present on the other, `ppo`
-        // would disagree by the smallest possible amount (a divisor of ε instead
-        // of 0) at exactly the bars nobody generates on purpose.
-        #[cfg(feature = "safe_inputs")]
-        let l_c = l;
-        #[cfg(not(feature = "safe_inputs"))]
-        let l_c = {
-            let eps = r.constant(f64::EPSILON);
-            r.add(Node::Max { a: l, b: eps })
-        };
-        let c100 = r.constant(100.0);
-        let num = r.add(Node::Mul { a: line, b: c100 });
-        let ratio = r.add(Node::Div { a: num, b: l_c });
-
-        r.kind = "ppo";
-        r.options = options.to_vec();
-        r.tail_inputs = vec![s, l];
-        r.restorer = Some(restore_state);
-        // publish lead = min_data - 1 = options[1] (output_length = data_len -
-        // min_data + 1, right-aligned); the ratio node is DEFINED at long-1
-        // but the hand capacity starts it one bar later.
-        r.outputs.push(Sink::iface_lead(ratio, long));
-        // optional_outputs: both RAW EMA mirrors — short at hand
-        // `Ema::output_length` capacity (lead = short), long at the primary
-        // capacity (explicit lead `long`, hand `slot_lengths` fact).
-        r.optional_outputs.push(Sink::iface_lead(s, short));
-        r.optional_outputs.push(Sink::iface_lead(l, long));
-        r
+        crate::cse::recipes::ppo(options)
     }
 }
 

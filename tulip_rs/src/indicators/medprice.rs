@@ -111,20 +111,9 @@ impl Indicator<INPUTS, OPTIONS> for Medprice {
 // ── planner recipe (cse) ─────────────────────────────────────────────
 
 impl crate::cse::Planable for Medprice {
-    /// `MEDPRICE` = `0.5 · (high + low)` — the engine's FIRST multi-input
-    /// indicator (E6 field axis): `Input{stream:0}` = high, `Input{stream:1}`
-    /// = low, one `Add` + one `Mul`, no warmup, no history (stateless, every
-    /// bar publishes). Proves the `(field, asset)` stream slotting end-to-end.
+    /// The graph is leaf data — `crate::cse::recipes::medprice`
+    /// (`0.5 · (high + low)`, stateless, every bar publishes).
     fn recipe(_options: &[f64]) -> crate::cse::Recipe {
-        let mut r = crate::cse::Recipe::new();
-        let high = r.add(crate::cse::Node::Input { stream: 0 });
-        let low = r.add(crate::cse::Node::Input { stream: 1 });
-        let sum = r.add(crate::cse::Node::Add { a: high, b: low });
-        let half = r.constant(0.5);
-        let med = r.add(crate::cse::Node::Mul { a: half, b: sum });
-        r.kind = "medprice";
-        r.options = Vec::new();
-        r.outputs.push(crate::cse::Sink::iface(med));
-        r
+        crate::cse::recipes::medprice(_options)
     }
 }

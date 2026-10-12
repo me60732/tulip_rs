@@ -10,8 +10,6 @@ use crate::indicators::simd_indicators::{
     ema_simd::SimdState as EmaSimdState, simd_types::F64Constants,
 };
 use crate::types::Warm;
-#[cfg(not(feature = "safe_inputs"))]
-use std::simd::num::SimdFloat;
 use std::simd::Simd;
 
 /// SIMD-parallel state for the Percentage Price Oscillator (PPO) indicator, holding `N` lanes of per-asset state.
@@ -34,25 +32,13 @@ impl<const N: usize> TState for SimdState<N> {
     fn calc<'a>(&mut self, real: Self::Inputs<'a>) -> Self::Outputs {
         let short_ema = self.short_ema.calc(real);
         let long_ema = self.long_ema.calc(real);
-        // Clamp guards ONLY the divisor (matches the scalar `Ppo::State::calc`
-        // exactly, per lane); the subtraction reads the raw EMAs.
-
-        #[cfg(feature = "safe_inputs")]
-        {
-            (
-                (short_ema - long_ema) * F64Constants::HUNDRED / long_ema,
-                short_ema,
-                long_ema,
-            )
-        }
-        #[cfg(not(feature = "safe_inputs"))]
-        {
-            (
-                (short_ema - long_ema) * F64Constants::HUNDRED
-                    / long_ema.simd_max(F64Constants::EPSILON),
-                short_ema,
-                long_ema,
-            )
-        }
+        // The divisor is the RAW long EMA per lane — matches the scalar
+        // `Ppo::State::calc` (the `safe_inputs` ε floor retired with the
+        // JIT; a zero price is excluded by the data contract).
+        (
+            (short_ema - long_ema) * F64Constants::HUNDRED / long_ema,
+            short_ema,
+            long_ema,
+        )
     }
 }

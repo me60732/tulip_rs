@@ -291,7 +291,6 @@ impl crate::cse::Planable for Cmo {
         r.options = options.to_vec();
         // hand `State` field order: up_sum, down_sum, prev, drop_real.
         r.tail_inputs = vec![up_sum, down_sum, prev, drop_real];
-        r.restorer = Some(restore_state);
         r.outputs
             .push(crate::cse::Sink::iface_lead(line, period + 1));
         r

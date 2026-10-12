@@ -326,28 +326,10 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Max {
 // ── planner recipe (cse) ─────────────────────────────────────────────
 
 impl crate::cse::Planable for Max {
-    /// `MAX(p)` = the hand's trail-rescan rolling maximum over one stream
-    /// (E9). Hand facts encoded here: `periods = (p, p−1)`, so the rescan
-    /// window is `p` bars; the first printed bar is `p−1`, which is exactly
-    /// the node's defined-from, so the sink needs no explicit lead; the state
-    /// is `{max, trail}` plus a `real` tail of `p−1` bars — that tail is the
-    /// engine's host anchor window (the rescan reads it from there), not the
-    /// restorer's business, same split as `Sma`.
+    /// The graph is leaf data — `crate::cse::recipes::max` (the trail-rescan
+    /// roll, canonical `(p, p−1)` window, no explicit sink lead).
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        let period = options[0] as u32;
-        let mut r = crate::cse::Recipe::new();
-        let real = r.add(crate::cse::Node::Input { stream: 0 });
-        let m = r.add(crate::cse::Node::RollMax {
-            src: real,
-            period,
-            look_back: period.saturating_sub(1),
-        });
-        r.kind = "max";
-        r.options = options.to_vec();
-        r.tail_inputs = vec![m];
-        r.restorer = Some(restore_state);
-        r.outputs.push(crate::cse::Sink::iface(m));
-        r
+        crate::cse::recipes::max(options)
     }
 }
 

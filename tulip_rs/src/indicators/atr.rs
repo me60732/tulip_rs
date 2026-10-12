@@ -7,7 +7,6 @@ pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TS
 use crate::indicators::tr::{State as TrState, Tr};
 pub use crate::indicators::wilders::multiplier;
 use crate::indicators::wilders::State as WildersState;
-use crate::indicators::wilders::Wilders;
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
 
@@ -227,30 +226,10 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Atr {
 // ── planner recipe (cse) ─────────────────────────────────────────────
 
 impl crate::cse::Planable for Atr {
-    /// `ATR(p)` = **`Wilders` over `tr`** — literally composed. `Tr` as a
-    /// sub-recipe, then `sub_at::<Wilders>` binds the standalone `Wilders`
-    /// indicator's price input to that `tr` node — so the ONLY difference from
-    /// the `wilders` indicator is the source, and the mean-Wilders chain has
-    /// ONE source of truth (shared with natr/adx/supertrend via CSE). The `Lag`
-    /// clamp makes `tr[0] = high[0] − low[0]` (hand `init_state`'s bar-0 term),
-    /// so the mean seed `Σ tr[0..p] / p` is bit-exact, then steady
-    /// `wilders::calc`. Publish lead = `period`.
+    /// The graph is leaf data — `crate::cse::recipes::atr`: the tr subgraph
+    /// over streams (high, low, close) plus the one mean-`Wilders` chain
+    /// node, shared with natr/supertrend/adx by CSE key.
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        let period = options[0] as u32;
-        let mut r = crate::cse::Recipe::new();
-        // Tr's declared inputs are (high, low, close) → parent streams 0/1/2.
-        let tr = r.sub::<Tr>(&[], &[0, 1, 2]);
-        // Atr = Wilders(tr): the standalone wilders chain with its price input
-        // bound to the tr node (composite/feed come from Wilders' own recipe).
-        let w = r.sub_at::<Wilders>(&[period as f64], &[tr]);
-        r.kind = "atr";
-        r.options = options.to_vec();
-        r.outputs.push(crate::cse::Sink::iface_lead(w, period));
-        // Hand `Info::optional_outputs = ["tr"]`. Declaring it here means a
-        // consumer that composes atr via `sub_graph::<Atr>` gets `tr` for free
-        // (the sub exposes exactly its own optionals) — that is where adx's /
-        // natr's / supertrend's `tr` comes from, never a re-derived copy.
-        r.optional_outputs.push(crate::cse::Sink::iface_lead(tr, 1));
-        r
+        crate::cse::recipes::atr(options)
     }
 }

@@ -1,0 +1,2158 @@
+//! Pattern -> straight-line Rust source. One function per pattern; the
+//! steady loop is emitted in ARENA ORDER (dependency-correct by SSA
+//! construction), one statement per slot: `Simd<f64, 2>` pair steps extract
+//! both lanes to `x{k}` locals, scalar chains and glue read only earlier
+//! slots, every number comes from `Values` by slot — params stay runtime.
+
+use crate::cse::planner::{Kind, Pattern};
+use proc_macro2::TokenStream;
+use quote::{format_ident, quote};
+use std::collections::HashMap;
+
+struct Classified {
+    groups: Vec<(usize, usize, usize)>, // (k0, k1, stream) pair groups
+    slot_group: HashMap<usize, (usize, bool)>, // slot -> (group, is_lane1)
+    scalars: HashMap<usize, Scalar>,    // Ema slots kept scalar
+}
+
+enum Scalar {
+    Price(usize),
+    Chain(usize),
+}
+#[cfg(debug_assertions)]
+impl std::fmt::Debug for Scalar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Scalar::Price(s) => write!(f, "Price({})", s),
+            Scalar::Chain(a) => write!(f, "Chain({})", a),
+        }
+    }
+}
+
+fn classify(p: &Pattern) -> Classified {
+    let mut c = Classified {
+        groups: vec![],
+        slot_group: HashMap::new(),
+        scalars: HashMap::new(),
+    };
+    let mut k = 0;
+    while k + 1 < p.nodes.len() {
+        let (x, y) = (&p.nodes[k], &p.nodes[k + 1]);
+        if x.kind == Kind::Ema
+            && y.kind == Kind::Ema
+            && p.nodes[x.a].kind == Kind::Input
+            && p.nodes[y.a].kind == Kind::Input
+            && x.a == y.a
+        {
+            c.groups.push((k, k + 1, x.a)); // SOURCE SLOT id, as in classify_packed
+            c.slot_group.insert(k, (c.groups.len() - 1, false));
+            c.slot_group.insert(k + 1, (c.groups.len() - 1, true));
+            k += 2;
+            continue;
+        }
+        k += 1;
+    }
+    for (k, node) in p.nodes.iter().enumerate() {
+        if node.kind == Kind::Ema && !c.slot_group.contains_key(&k) {
+            c.scalars.insert(
+                k,
+                if p.nodes[node.a].kind == Kind::Input {
+                    Scalar::Price(p.nodes[node.a].a)
+                } else {
+                    Scalar::Chain(node.a)
+                },
+            );
+        }
+    }
+    c
+}
+
+/// Packed classify: group same-SOURCE chains into 4/2 lane groups — Ema
+/// and Wilders over any shared source node (price Input or a derived node
+/// like `tr`), Sma over price Inputs only. Remainder single slots stay
+/// scalar (the measured rule: +6.6% packed on `sma_six`, per-shape).
+fn classify_packed(p: &Pattern) -> Classified {
+    let mut c = Classified {
+        groups: vec![],
+        slot_group: HashMap::new(),
+        scalars: HashMap::new(),
+    };
+
+    // Bucket by (kind, SOURCE SLOT). Ema/Wilders pack over any source node
+    // (price Input or a shared derived node like `tr` — lanes of one
+    // formula reading ONE src value, e.g. atr_multi's three Wilders over
+    // the interned tr node); Sma packs only price-sourced (its step reads
+    // the stream `t − p` back, derived sources would need the host anchor).
+    let mut buckets: std::collections::HashMap<(Kind, usize), Vec<usize>> =
+        std::collections::HashMap::new();
+    for (k, node) in p.nodes.iter().enumerate() {
+        let packable = match node.kind {
+            Kind::Ema | Kind::Wilders => true,
+            Kind::Sma => p.nodes[node.a].kind == Kind::Input,
+            _ => false,
+        };
+        if packable {
+            buckets.entry((node.kind, node.a)).or_default().push(k);
+        }
+    }
+
+    // DEBUG: print bucket contents for packed patterns
+    if std::env::var("CSE_FUSED_DEBUG").is_ok() && p.packed {
+        eprintln!("classify_packed buckets:");
+        for (key, slots) in &buckets {
+            eprintln!("  bucket {:?}: {:?}", key, slots);
+        }
+        eprintln!(
+            "  total EMA slots: {}",
+            buckets.values().map(|v| v.len()).sum::<usize>()
+        );
+    }
+
+    // Process buckets in kind-then-stream order, chunk into 4/2 groups
+    let mut bucket_keys: Vec<(Kind, usize)> = buckets.keys().copied().collect();
+    bucket_keys.sort_by_key(|(kind, stream)| (*kind as u8, *stream));
+
+    let mut group_idx = 0usize;
+    for key in bucket_keys {
+        let src = key.1;
+        let mut slots = buckets.remove(&key).unwrap_or_default();
+        if slots.is_empty() {
+            continue;
+        }
+        // DEBUG: print slots before chunking
+        if std::env::var("CSE_FUSED_DEBUG").is_ok() && p.packed {
+            eprintln!(
+                "classify_packed stream {} slots before chunking: {:?}",
+                src, slots
+            );
+        }
+        // Greedy chunking: prefer 4, then 2, remainder scalar
+        while slots.len() >= 4 {
+            let k0 = slots[0];
+            let k1 = slots[1];
+            let k2 = slots[2];
+            let k3 = slots[3];
+            if std::env::var("CSE_FUSED_DEBUG").is_ok() && p.packed {
+                eprintln!(
+                    "classify_packed created 4-lane group {} with slots [{},{},{},{}]",
+                    group_idx, k0, k1, k2, k3
+                );
+            }
+            c.groups.push((k0, k1, src));
+            // All 4 slots are part of this group; only k0 triggers the statement
+            c.slot_group.insert(k0, (group_idx, false));
+            c.slot_group.insert(k1, (group_idx, true));
+            c.slot_group.insert(k2, (group_idx, true));
+            c.slot_group.insert(k3, (group_idx, true));
+            slots = slots[4..].to_vec();
+            group_idx += 1;
+        }
+        while slots.len() >= 2 {
+            let k0 = slots[0];
+            let k1 = slots[1];
+            if std::env::var("CSE_FUSED_DEBUG").is_ok() && p.packed {
+                eprintln!(
+                    "classify_packed created 2-lane group {} with slots [{},{}]",
+                    group_idx, k0, k1
+                );
+            }
+            c.groups.push((k0, k1, src));
+            c.slot_group.insert(k0, (group_idx, false));
+            c.slot_group.insert(k1, (group_idx, true));
+            slots = slots[2..].to_vec();
+            group_idx += 1;
+        }
+        // Remaining single slots go to scalars (Ema chains only — a
+        // leftover Sma slot takes its scalar ROLL path from `roll_hoists`,
+        // never a chain scalar hoist).
+        for k in &slots {
+            if p.nodes[*k].kind == Kind::Ema {
+                c.scalars.insert(
+                    *k,
+                    if p.nodes[*k].kind == Kind::Ema && p.nodes[p.nodes[*k].a].kind == Kind::Input {
+                        Scalar::Price(p.nodes[p.nodes[*k].a].a)
+                    } else {
+                        Scalar::Chain(p.nodes[*k].a)
+                    },
+                );
+            }
+        }
+    }
+
+    // Add any remaining EMA nodes that weren't grouped (chained EMAs)
+    for (k, node) in p.nodes.iter().enumerate() {
+        if node.kind == Kind::Ema && !c.slot_group.contains_key(&k) && !c.scalars.contains_key(&k) {
+            c.scalars.insert(
+                k,
+                if p.nodes[node.a].kind == Kind::Input {
+                    Scalar::Price(p.nodes[node.a].a)
+                } else {
+                    Scalar::Chain(node.a)
+                },
+            );
+        }
+    }
+
+    // Add Wilders to scalars (never packed in this task)
+    for (k, node) in p.nodes.iter().enumerate() {
+        if node.kind == Kind::Wilders
+            && !c.slot_group.contains_key(&k)
+            && !c.scalars.contains_key(&k)
+        {
+            c.scalars.insert(
+                k,
+                if p.nodes[node.a].kind == Kind::Input {
+                    Scalar::Price(p.nodes[node.a].a)
+                } else {
+                    Scalar::Chain(node.a)
+                },
+            );
+        }
+    }
+
+    c
+}
+
+/// value expression of a slot's current-bar value (uniform `x{k}` binding).
+fn ev(i: usize, idents: &[String]) -> TokenStream {
+    let id = format_ident!("{}", idents[i]);
+    quote! { #id }
+}
+
+/// Build identifier for a slot based on its optional name.
+/// Sanitize: lowercase, non-alphanumeric→`_`, leading digit→prefix `_`.
+/// Deduplicate: on collision append `_{k}` to the LATER node's ident.
+fn build_idents(pattern: &Pattern) -> Vec<String> {
+    let mut idents: Vec<String> = Vec::with_capacity(pattern.nodes.len());
+    let mut used: HashMap<String, usize> = HashMap::new();
+
+    // Rust keywords that need suffix
+    const RUST_KEYWORDS: &[&str] = &[
+        "type", "const", "let", "if", "else", "match", "loop", "move", "ref", "mut", "fn", "pub",
+        "use", "mod", "self", "super", "crate", "as", "in", "box", "where", "dyn", "async",
+        "await", "static", "extern", "unsafe", "struct", "enum", "impl", "trait", "virtual",
+        "final", "macro", "return", "yield", "break", "continue",
+    ];
+
+    for (i, opt_name) in pattern.names.iter().enumerate() {
+        let ident = if let Some(name) = opt_name {
+            // Sanitize: lowercase
+            let mut s = name.to_lowercase();
+
+            // Replace non-alphanumeric with _
+            s = s
+                .chars()
+                .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+                .collect::<String>();
+
+            // If starts with digit, prefix with _
+            if s.starts_with(|c: char| c.is_ascii_digit()) {
+                s.insert(0, '_');
+            }
+
+            // If is a Rust keyword, append _
+            if RUST_KEYWORDS.contains(&s.as_str()) {
+                s.push('_');
+            }
+
+            s
+        } else {
+            format!("x{}", i)
+        };
+
+        // Deduplicate: on collision, append _{k} where k is the next available
+        let base = ident.clone();
+        let mut final_ident = ident;
+        while used.contains_key(&final_ident) {
+            final_ident = format!("{}_{}", base, used[&base]);
+            used.insert(base.clone(), used[&base] + 1);
+        }
+        used.insert(final_ident.clone(), 1);
+        idents.push(final_ident);
+    }
+
+    idents
+}
+
+pub fn expand(patterns: &[Pattern]) -> TokenStream {
+    assert!(!patterns.is_empty(), "request!: no patterns given");
+    for a in 0..patterns.len() {
+        for b in (a + 1)..patterns.len() {
+            if patterns[a].nodes == patterns[b].nodes && patterns[a].sinks == patterns[b].sinks {
+                // Allow twin scalar+packed patterns (same arena, different packed flag)
+                if patterns[a].packed == patterns[b].packed {
+                    panic!(
+                        "request!: patterns {:?} and {:?} have identical arenas — one template serves both",
+                        patterns[a].name, patterns[b].name
+                    );
+                }
+            }
+        }
+    }
+    let sigs: Vec<TokenStream> = patterns.iter().map(sig_const).collect();
+    let fns: Vec<TokenStream> = patterns.iter().map(run_fn).collect();
+    // Asset-lane kernels (`<name>_assets<const L>`): the non-packed twins —
+    // the asset axis IS the lane axis for these shapes; period-packing per
+    // asset would vectorize the same work twice. Bit-equal to the scalar
+    // kernel per asset (pinned by `*_assets_match_scalar` registry tests).
+    let asset_pats: Vec<&Pattern> = patterns.iter().filter(|p| !p.packed).collect();
+    let asset_fns: Vec<TokenStream> = asset_pats.iter().map(|p| run_assets_fn(p)).collect();
+    let asset_calls: Vec<TokenStream> = asset_pats
+        .iter()
+        .map(|p| {
+            let f = format_ident!("{}_assets", p.name);
+            let s = format_ident!("SIG_{}", p.name);
+            quote! { if *sig == #s { return Some(#f::<L>(vals, streams)); } }
+        })
+        .collect();
+    let idents: Vec<_> = patterns
+        .iter()
+        .map(|p| format_ident!("{}", &p.name))
+        .collect();
+    let sig_idents: Vec<_> = idents.iter().map(|n| format_ident!("SIG_{n}")).collect();
+
+    let out = quote! {
+        #( #sigs )*
+        #( #fns )*
+        #( #asset_fns )*
+
+        /// Dispatch: `Some(rows)` when the runtime-erased shape equals a
+        /// generated pattern; `None` -> caller falls back (tier 2/3).
+        pub fn try_run(
+            sig: &crate::cse::Signature,
+            vals: &crate::cse::Values,
+            streams: &[&[f64]],
+        ) -> Option<Vec<crate::cse::query::RowRef>> {
+            #(
+                if *sig == #sig_idents {
+                    return Some(#idents(vals, streams));
+                }
+            )*
+            None
+        }
+
+        /// Asset-lane dispatch: `L` assets through ONE `(sig, vals)` — the
+        /// `indicator_by_assets` shape for merged patterns. Rows per asset
+        /// in sink order; `None` for an unregistered signature.
+        pub fn try_run_assets<const L: usize>(
+            sig: &crate::cse::Signature,
+            vals: &crate::cse::Values,
+            streams: &[&[&[f64]]; L],
+        ) -> Option<Vec<Vec<crate::cse::query::RowRef>>> {
+            #( #asset_calls )*
+            None
+        }
+    };
+    if std::env::var("CSE_FUSED_DUMP").is_ok() {
+        let _ = std::fs::write("/tmp/cse_fused_expanded.rs", out.to_string());
+    }
+    out
+}
+
+fn sig_const(p: &Pattern) -> TokenStream {
+    let name = format_ident!("SIG_{}", p.name);
+    let kinds: Vec<u8> = p.nodes.iter().map(|x| x.kind.tag()).collect();
+    let a: Vec<u32> = p.nodes.iter().map(|x| x.a as u32).collect();
+    let b: Vec<u32> = p.nodes.iter().map(|x| x.b as u32).collect();
+    // For SuperTrend, Fma, and the Where guards, c is the third operand id;
+    // for others it's 0
+    let c: Vec<u32> = p
+        .nodes
+        .iter()
+        .map(|x| {
+            if matches!(
+                x.kind,
+                Kind::SuperTrend | Kind::Fma | Kind::WhereGe | Kind::WhereLt
+            ) {
+                x.c.unwrap_or(0) as u32
+            } else {
+                0u32
+            }
+        })
+        .collect();
+    let sinks: Vec<u32> = p.sinks.iter().map(|s| *s as u32).collect();
+    // Compute n_streams from Input nodes (max stream index + 1)
+    let max_stream = p
+        .nodes
+        .iter()
+        .filter_map(|n| {
+            if matches!(n.kind, Kind::Input) {
+                Some(n.a)
+            } else {
+                None
+            }
+        })
+        .fold(0usize, |acc, s| acc.max(s));
+    let n_streams = max_stream as u32 + 1;
+    quote! {
+        pub const #name: crate::cse::Signature = crate::cse::Signature::build(
+            &[#(#kinds),*],
+            &[#(#a),*],
+            &[#(#b),*],
+            &[#(#c),*],
+            &[#(#sinks),*],
+            #n_streams,
+        );
+    }
+}
+
+fn run_fn(p: &Pattern) -> TokenStream {
+    let name = format_ident!("{}", p.name);
+    let sig = format_ident!("SIG_{}", name);
+
+    // Build idents for display-only naming (role names or fallback x{k})
+    let idents = build_idents(p);
+
+    // Use packed classify if this pattern is packed; otherwise use standard pair classify
+    let mut c = if p.packed {
+        classify_packed(p)
+    } else {
+        classify(p)
+    };
+    if std::env::var("CSE_FUSED_PAIR").is_err() && !p.packed {
+        // pairing is opt-IN for now: extraction cost exceeded the packed-fma
+        // saving on the measured trio; the machinery stays for lane-widening
+        // (M2/GPU). Un-paired Ema slots fall back to scalar chains.
+        c.groups.clear();
+        c.slot_group.clear();
+    }
+    // After clearing slot_group, add all remaining EMA slots to scalars
+    for (k, node) in p.nodes.iter().enumerate() {
+        if node.kind == Kind::Ema && !c.slot_group.contains_key(&k) && !c.scalars.contains_key(&k) {
+            c.scalars.insert(
+                k,
+                if p.nodes[node.a].kind == Kind::Input {
+                    Scalar::Price(p.nodes[node.a].a)
+                } else {
+                    Scalar::Chain(node.a)
+                },
+            );
+        }
+    }
+    // Add Wilders slots to scalars for hoisting (they need st[] carry like Ema)
+    for (k, node) in p.nodes.iter().enumerate() {
+        if node.kind == Kind::Wilders
+            && !c.slot_group.contains_key(&k)
+            && !c.scalars.contains_key(&k)
+        {
+            c.scalars.insert(
+                k,
+                if p.nodes[node.a].kind == Kind::Input {
+                    Scalar::Price(p.nodes[node.a].a)
+                } else {
+                    Scalar::Chain(node.a)
+                },
+            );
+        }
+    }
+
+    // ---- steady-loop hoists ----
+    let mut pair_hoists = Vec::new();
+    for (gi, (k0, k1, _stream)) in c.groups.iter().enumerate() {
+        let g = format_ident!("g{gi}");
+        let gm = format_ident!("g{gi}_m");
+        let gi_v = format_ident!("g{gi}_i");
+        let (k0, k1) = (*k0, *k1);
+        // For 4-lane groups: hoist all 4 slots; for 2-lane: just the pair
+        // Find all slots in this group by scanning slot_group
+        let mut group_slots: Vec<usize> = c
+            .slot_group
+            .iter()
+            .filter(|(_, (g, _))| *g == gi)
+            .map(|(s, _)| *s)
+            .collect();
+        group_slots.sort();
+        if std::env::var("CSE_FUSED_DEBUG").is_ok() && p.packed {
+            eprintln!(
+                "codegen hoist for group {}: k0={},k1={}, group_slots={:?}, w={}",
+                gi,
+                k0,
+                k1,
+                group_slots,
+                group_slots.len()
+            );
+        }
+        let w = group_slots.len();
+        let is_sma = p.nodes[k0].kind == Kind::Sma;
+        match w {
+            4 if is_sma => {
+                let k2 = group_slots[2];
+                let k3 = group_slots[3];
+                // Sma lanes: carry = the window SUM, `gm` = the `1/p`
+                // multipliers; the step needs no invms vector (add/sub
+                // formula, see the group statement).
+                pair_hoists.push(quote! {
+                    let mut #g = Simd::<f64, 4>::from_array([st[#k0], st[#k1], st[#k2], st[#k3]]);
+                    let #gm = Simd::<f64, 4>::from_array([vals.mults[#k0], vals.mults[#k1], vals.mults[#k2], vals.mults[#k3]]);
+                });
+            }
+            4 => {
+                let k2 = group_slots[2];
+                let k3 = group_slots[3];
+                if std::env::var("CSE_FUSED_DEBUG").is_ok() && p.packed {
+                    eprintln!(
+                        "codegen hoist 4-lane: k0={},k1={},k2={},k3={}",
+                        k0, k1, k2, k3
+                    );
+                }
+                pair_hoists.push(quote! {
+                    let mut #g = Simd::<f64, 4>::from_array([st[#k0], st[#k1], st[#k2], st[#k3]]);
+                    let #gm = Simd::<f64, 4>::from_array([vals.mults[#k0], vals.mults[#k1], vals.mults[#k2], vals.mults[#k3]]);
+                    let #gi_v = Simd::<f64, 4>::from_array([vals.invms[#k0], vals.invms[#k1], vals.invms[#k2], vals.invms[#k3]]);
+                });
+            }
+            _ if is_sma => {
+                pair_hoists.push(quote! {
+                    let mut #g = Simd::<f64, 2>::from_array([st[#k0], st[#k1]]);
+                    let #gm = Simd::<f64, 2>::from_array([vals.mults[#k0], vals.mults[#k1]]);
+                });
+            }
+            _ => {
+                pair_hoists.push(quote! {
+                    let mut #g = Simd::from_array([st[#k0], st[#k1]]);
+                    let #gm = Simd::from_array([vals.mults[#k0], vals.mults[#k1]]);
+                    let #gi_v = Simd::from_array([vals.invms[#k0], vals.invms[#k1]]);
+                });
+            }
+        }
+    }
+    let mut scalar_hoists = Vec::new();
+    for k in c.scalars.keys() {
+        // Get the node's ident at slot k
+        let ident_k = idents[*k].clone();
+        // Scalar carry/params should be {ident}_carry, {ident}_mult, {ident}_inv
+        let ck = format_ident!("{}_carry", ident_k);
+        let mk = format_ident!("{}_mult", ident_k);
+        let ik = format_ident!("{}_inv", ident_k);
+        let ki = *k;
+        scalar_hoists.push(quote! {
+            let mut #ck = st[#ki];
+            let #mk = vals.mults[#ki];
+            let #ik = vals.invms[#ki];
+        });
+    }
+    // SuperTrend band state hoists: prev_st=stb[k], prev_ub=stc_ub[k],
+    // prev_lb=stlb[k], and the carried trend bool in the node's OWN st[k]
+    // slot as 1.0/0.0 (st nodes carry no chain value) — same convention as
+    // kernel::exec's K_SUPERTREND arm, so the warm->steady handoff is exact.
+    let mut stb_hoists = Vec::new();
+    let mut stc_ub_hoists = Vec::new();
+    let mut stc_lb_hoists = Vec::new();
+    let mut st_trend_hoists = Vec::new();
+    let mut st_step_hoists = Vec::new();
+    for (k, node) in p.nodes.iter().enumerate() {
+        if node.kind == Kind::SuperTrend {
+            let kib = format_ident!("stb{k}");
+            let kic_ub = format_ident!("stcub{k}");
+            let kic_lb = format_ident!("stclb{k}");
+            let kit = format_ident!("tr{k}");
+            let ki = k;
+            stb_hoists.push(quote! { let mut #kib = stb[#ki]; });
+            stc_ub_hoists.push(quote! { let mut #kic_ub = stc_ub[#ki]; });
+            stc_lb_hoists.push(quote! { let mut #kic_lb = stlb[#ki]; });
+            st_trend_hoists.push(quote! { let mut #kit = st[#ki]; });
+            let sk = format_ident!("st_step{k}");
+            st_step_hoists.push(quote! { let #sk = vals.st_step[#ki]; });
+        }
+    }
+    // Rolling carry/params hoists (Sma/Stddev/Wma): the window step needs
+    // the sum carry, its runtime params, and a BASE POINTER to the leaving
+    // bar (`prevp` = the pre-sliced stream pointer moved back one period,
+    // so the steady leaving read is `prevp.add(i)` — one add, one load,
+    // the hand's `real[j]` shape exactly).
+    let mut roll_hoists = Vec::new();
+    for (k, node) in p.nodes.iter().enumerate() {
+        if matches!(
+            node.kind,
+            Kind::Sma | Kind::Stddev | Kind::Wma | Kind::RollMax | Kind::RollMin
+        ) {
+            if !matches!(p.nodes[node.a].kind, Kind::Input) {
+                panic!(
+                    "request!: rolling node {k} over a derived source is not emittable (needs the host anchor)"
+                );
+            }
+            let ident_k = idents[k].clone();
+            let ck = format_ident!("{}_carry", ident_k);
+            let pk = format_ident!("{}_p", ident_k);
+            let ki = k;
+            let sp = format_ident!("s{}", p.nodes[node.a].a);
+            if matches!(node.kind, Kind::RollMax | Kind::RollMin) {
+                // Trail-rescan roll: value+trail carries, the trigger p, the
+                // window (`look_back + 1`), and a WINDOW BASE POINTER —
+                // `wb = s0.sub(look_back)` so the rescan slice at steady bar
+                // i is `from_raw_parts(wb.add(i), win)`: the hand's
+                // `real[i − lb ..= i]`, one add one slice, zero re-clamps.
+                let tc = format_ident!("{}_trail", ident_k);
+                let lb = format_ident!("{}_lb", ident_k);
+                let win = format_ident!("{}_win", ident_k);
+                let wb = format_ident!("{}_wb", ident_k);
+                roll_hoists.push(quote! {
+                    let mut #ck = st[#ki];
+                    let mut #tc = trail[#ki];
+                    let #pk = vals.periods[#ki] as usize;
+                    let #lb = vals.roll_lb[#ki] as usize;
+                    let #win = #lb + 1usize;
+                    let #wb = unsafe { #sp.sub(#lb) };
+                });
+                continue;
+            }
+            roll_hoists.push(quote! {
+                let mut #ck = st[#ki];
+                let #pk = vals.periods[#ki] as usize;
+            });
+            let mk = format_ident!("{}_mult", ident_k);
+            let pv = format_ident!("{}_prevp", ident_k);
+            roll_hoists.push(quote! {
+                let #mk = vals.mults[#ki];
+                let #pv = unsafe { #sp.sub(#pk) };
+            });
+            match node.kind {
+                Kind::Stddev => {
+                    let sq = format_ident!("{}_sq", ident_k);
+                    roll_hoists.push(quote! { let mut #sq = sumsq[#ki]; });
+                }
+                Kind::Wma => {
+                    let wc = format_ident!("{}_weighted", ident_k);
+                    let nk = format_ident!("{}_n", ident_k);
+                    let wgt = format_ident!("{}_wgt", ident_k);
+                    roll_hoists.push(quote! {
+                        let mut #wc = wsum[#ki];
+                        let #nk = vals.periods[#ki] as f64;
+                        let #wgt = vals.mults[#ki];
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut lead_hoists = Vec::new();
+    for s in 0..p.sinks.len() {
+        // Sink slot s points to node p.sinks[s]; use that node's ident + suffix _{s}
+        let sink_node = p.sinks[s];
+        let ident_s = idents[sink_node].clone();
+        let l = format_ident!("{}_{}", ident_s, s);
+        let s_idx = s; // capture the value
+        lead_hoists.push(quote! { let #l = vals.sink_lead[#s_idx] as usize; });
+    }
+    // Input base pointers hoisted: steady-loop reads are unchecked raw loads
+    // (the slice index's bounds check is provably-always-true to no one but
+    // us — n is the min stream length — so LLVM keeps it).
+    let mut used_streams: Vec<usize> = Vec::new();
+    for sc in c.scalars.values() {
+        if let Scalar::Price(s) = sc {
+            if !used_streams.contains(s) {
+                used_streams.push(*s);
+            }
+        }
+    }
+    for (_k0, _, src_slot) in &c.groups {
+        // The group statement reads the SOURCE NODE's bound local; the
+        // raw stream pointer is only needed when that source is an Input
+        // (a price-sourced chain). Derived sources (e.g. `tr`) pull their
+        // streams through the generic per-node scan below.
+        if p.nodes[*src_slot].kind == Kind::Input {
+            let s = p.nodes[*src_slot].a;
+            if !used_streams.contains(&s) {
+                used_streams.push(s);
+            }
+        }
+    }
+    // Collect streams from nodes that read Inputs directly (Lag, Abs, Sub, etc.)
+    for (_k, node) in p.nodes.iter().enumerate() {
+        if matches!(node.kind, Kind::Input | Kind::Const) {
+            continue; // leaf nodes don't read
+        }
+        // Check if this node reads from an Input (a and b)
+        let a_is_input = p
+            .nodes
+            .get(node.a)
+            .map(|n| matches!(n.kind, Kind::Input))
+            .unwrap_or(false);
+        let b_is_input = p
+            .nodes
+            .get(node.b)
+            .map(|n| matches!(n.kind, Kind::Input))
+            .unwrap_or(false);
+        if a_is_input {
+            let stream = p.nodes[node.a].a;
+            if !used_streams.contains(&stream) {
+                used_streams.push(stream);
+            }
+        }
+        if b_is_input {
+            let stream = p.nodes[node.b].a;
+            if !used_streams.contains(&stream) {
+                used_streams.push(stream);
+            }
+        }
+        // SuperTrend has a third input (close)
+        if node.kind == Kind::SuperTrend {
+            if let Some(c) = node.c {
+                let c_is_input = p
+                    .nodes
+                    .get(c)
+                    .map(|n| matches!(n.kind, Kind::Input))
+                    .unwrap_or(false);
+                if c_is_input {
+                    let stream = p.nodes[c].a;
+                    if !used_streams.contains(&stream) {
+                        used_streams.push(stream);
+                    }
+                }
+            }
+        }
+    }
+    let stream_hoists: Vec<TokenStream> = used_streams
+        .iter()
+        .map(|s| {
+            let sp = format_ident!("s{}", s);
+            // Pre-sliced like the hand (`real = &inputs[0][start..]`): the
+            // steady loop reads from an already-advanced base, index `i` only.
+            quote! { let #sp = unsafe { streams[#s].as_ptr().add(gate) }; }
+        })
+        .collect();
+    let stream_ptr = |s: usize| {
+        let sp = format_ident!("s{}", s);
+        quote! { unsafe { *#sp.add(i) } }
+    };
+
+    // ---- steady-loop body, arena order ----
+    let mut body = Vec::new();
+    for (k, node) in p.nodes.iter().enumerate() {
+        let xk = format_ident!("{}", idents[k]);
+        match node.kind {
+            Kind::Input => {
+                // Read from the appropriate stream pointer
+                let stream = node.a;
+                let srcp = stream_ptr(stream);
+                body.push(quote! { let #xk = #srcp; });
+            }
+            Kind::Const => { /* hoisted below */ }
+            Kind::Ema => {
+                if let Some(&(gi, lane1)) = c.slot_group.get(&k) {
+                    // For packed mode: lane1=false means this is the first statement of a group
+                    // (which binds all lanes); lane1=true means skip (bound by first statement)
+                    if lane1 {
+                        continue; // bound with lane0's statement
+                    }
+                    let (k0, k1, _stream) = c.groups[gi];
+                    let ga = format_ident!("ga{gi}");
+                    let (k0, k1) = (k0, k1);
+                    let g = format_ident!("g{gi}");
+                    let gm = format_ident!("g{gi}_m");
+                    let gi_v = format_ident!("g{gi}_i");
+                    // Determine width by scanning slot_group for all slots in this group
+                    let mut group_slots: Vec<usize> = c
+                        .slot_group
+                        .iter()
+                        .filter(|(_, (g, _))| *g == gi)
+                        .map(|(s, _)| *s)
+                        .collect();
+                    group_slots.sort();
+                    let w = group_slots.len();
+                    match w {
+                        4 => {
+                            let k2 = group_slots[2];
+                            let k3 = group_slots[3];
+                            // Lane value binds x{k0}/x{k1}/x{k2}/x{k3} must become the idents
+                            let x0 = format_ident!("{}", idents[k0]);
+                            let x1 = format_ident!("{}", idents[k1]);
+                            let x2 = format_ident!("{}", idents[k2]);
+                            let x3 = format_ident!("{}", idents[k3]);
+                            // Splat the bound input local (one load per stream per bar)
+                            // — same source-slot reference rule as the scalar arms.
+                            let srcp = ev(p.nodes[k0].a, &idents);
+                            body.push(quote! {
+                                #g = #g.mul_add(#gi_v, Simd::<f64, 4>::splat(#srcp) * #gm);
+                                let #ga = #g.to_array();
+                                let #x0 = #ga[0];
+                                let #x1 = #ga[1];
+                                let #x2 = #ga[2];
+                                let #x3 = #ga[3];
+                            });
+                        }
+                        _ => {
+                            // Lane value binds x{k0}/x{k1} must become the idents
+                            let x0 = format_ident!("{}", idents[k0]);
+                            let x1 = format_ident!("{}", idents[k1]);
+                            // Splat the bound input local (one load per stream per bar)
+                            // — same source-slot reference rule as the scalar arms.
+                            let srcp = ev(p.nodes[k0].a, &idents);
+                            body.push(quote! {
+                                #g = #g.mul_add(#gi_v, Simd::splat(#srcp) * #gm);
+                                let #ga = #g.to_array();
+                                let #x0 = #ga[0];
+                                let #x1 = #ga[1];
+                            });
+                        }
+                    }
+                } else {
+                    // Get the node's ident at slot k for scalar hoists
+                    let ident_k = idents[k].clone();
+                    let ck = format_ident!("{}_carry", ident_k);
+                    let src = match c.scalars.get(&k) {
+                        Some(_) => {
+                            // consumers reference the source SLOT's bound local
+                            // (Inputs emit theirs first — one load per stream per
+                            // bar, no re-derived load expressions; the old
+                            // Scalar::Price path re-emitted the raw load and line
+                            // 493 even passed a slot id where a stream was read).
+                            let e = ev(node.a, &idents);
+                            quote! { #e }
+                        }
+                        None => panic!(
+                            "run_fn EMA: scalars key {} not found (len={})",
+                            k,
+                            c.scalars.len()
+                        ),
+                    };
+                    let mk = format_ident!("{}_mult", ident_k);
+                    let ik = format_ident!("{}_inv", ident_k);
+                    body.push(quote! {
+                        let #xk = { #ck = #ck.mul_add(#ik, #src * #mk); #ck };
+                    });
+                }
+            }
+            Kind::Sub | Kind::Add | Kind::Mul | Kind::Div | Kind::Max => {
+                let (ea, eb) = (ev(node.a, &idents), ev(node.b, &idents));
+                let stmt = match node.kind {
+                    Kind::Sub => quote! { let #xk = #ea - #eb; },
+                    Kind::Add => quote! { let #xk = #ea + #eb; },
+                    Kind::Mul => quote! { let #xk = #ea * #eb; },
+                    Kind::Div => quote! { let #xk = #ea / #eb; },
+                    Kind::Max => quote! { let #xk = #ea.max(#eb); },
+                    _ => unreachable!(),
+                };
+                body.push(stmt);
+            }
+            Kind::Abs => {
+                let ea = ev(node.a, &idents);
+                body.push(quote! { let #xk = #ea.abs(); });
+            }
+            Kind::Fma => {
+                // single-rounded: one `mul_add`, matching kernel K_FMA and
+                // the hand's `x.mul_add(y, z)` (bbands' band edges).
+                let (ea, eb, ec) = (
+                    ev(node.a, &idents),
+                    ev(node.b, &idents),
+                    ev(node.c.expect("Fma: c operand"), &idents),
+                );
+                body.push(quote! { let #xk = #ea.mul_add(#eb, #ec); });
+            }
+            Kind::Lag => {
+                // steady read is one bar back: `s{stream}[i-1]`
+                let stream = p.nodes[node.a].a;
+                let sp = format_ident!("s{}", stream);
+                body.push(quote! { let #xk = unsafe { *#sp.add(i).sub(1) }; });
+            }
+            Kind::Sma => {
+                // hand `cycle_sma` step verbatim: `sum += real[i] −
+                // real[i−p]`, value `sum · (1/p)`. Carries/params are the
+                // hoisted per-node locals; `prevp.add(i)` is the leaving
+                // bar (one add, one load). Packed groups (sma_six_p) step
+                // the lane SUMS as one SIMD vector; the per-lane leaving
+                // loads stay scalar (each lane has its own period), and
+                // the VALUES extract once for the row stores.
+                if let Some(&(gi, lane1)) = c.slot_group.get(&k) {
+                    if lane1 {
+                        continue; // bound by lane0's group statement
+                    }
+                    let mut gslots: Vec<usize> = c
+                        .slot_group
+                        .iter()
+                        .filter(|(_, (g, _))| *g == gi)
+                        .map(|(s, _)| *s)
+                        .collect();
+                    gslots.sort();
+                    let w = gslots.len();
+                    let g = format_ident!("g{gi}");
+                    let gm = format_ident!("g{gi}_m");
+                    let ga = format_ident!("ga{gi}");
+                    let gv = format_ident!("gv{gi}");
+                    let price = ev(node.a, &idents);
+                    let prevs: Vec<TokenStream> = gslots
+                        .iter()
+                        .map(|s| {
+                            let pv = format_ident!("{}_prevp", idents[*s]);
+                            quote! { unsafe { *#pv.add(i) } }
+                        })
+                        .collect();
+                    let binds: Vec<TokenStream> = (0..w)
+                        .map(|l| {
+                            let id = format_ident!("{}", idents[gslots[l]]);
+                            quote! { let #id = #ga[#l]; }
+                        })
+                        .collect();
+                    let ty = if w == 4 {
+                        quote! { Simd::<f64, 4> }
+                    } else {
+                        quote! { Simd::<f64, 2> }
+                    };
+                    body.push(quote! {
+                        #g = #g + (#ty::splat(#price) - #ty::from_array([#(#prevs),*]));
+                        let #gv = #g * #gm;
+                        let #ga = #gv.to_array();
+                        #( #binds )*
+                    });
+                } else {
+                    let ident_k = idents[k].clone();
+                    let ck = format_ident!("{}_carry", ident_k);
+                    let mk = format_ident!("{}_mult", ident_k);
+                    let pv = format_ident!("{}_prevp", ident_k);
+                    let src = ev(node.a, &idents);
+                    body.push(quote! {
+                        let #xk = {
+                            let prev = unsafe { *#pv.add(i) };
+                            #ck = #ck + (#src - prev);
+                            #ck * #mk
+                        };
+                    });
+                }
+            }
+            Kind::Stddev => {
+                // hand `stddev::State::calc` op for op: sma step, mean,
+                // sum-of-squares step, two-moment variance in the hand's
+                // association, flat-floor sqrt. ONE prev load, bound local.
+                let ident_k = idents[k].clone();
+                let ck = format_ident!("{}_carry", ident_k);
+                let sq = format_ident!("{}_sq", ident_k);
+                let mk = format_ident!("{}_mult", ident_k);
+                let pv = format_ident!("{}_prevp", ident_k);
+                let src = ev(node.a, &idents);
+                body.push(quote! {
+                    let #xk = {
+                        let prev = unsafe { *#pv.add(i) };
+                        #ck = #ck + (#src - prev);
+                        let mean = #ck * #mk;
+                        #sq = #sq + #src.mul_add(#src, -(prev * prev));
+                        let var = #sq.mul_add(#mk, -(mean * mean));
+                        var.sqrt().max(f64::EPSILON)
+                    };
+                });
+            }
+            Kind::Wma => {
+                // hand `wma::State::calc` order EXACTLY: weighted drops
+                // the PRE-update window sum, the sum steps, the entering
+                // bar lands at weight `n`, one multiply by the weight
+                // reciprocal.
+                let ident_k = idents[k].clone();
+                let ck = format_ident!("{}_carry", ident_k);
+                let wc = format_ident!("{}_weighted", ident_k);
+                let nk = format_ident!("{}_n", ident_k);
+                let wgt = format_ident!("{}_wgt", ident_k);
+                let pv = format_ident!("{}_prevp", ident_k);
+                let src = ev(node.a, &idents);
+                body.push(quote! {
+                    let #xk = {
+                        let prev = unsafe { *#pv.add(i) };
+                        #wc = #wc - #ck;
+                        #ck = #ck + (#src - prev);
+                        #wc = #wc + #src * #nk;
+                        #wc * #wgt
+                    };
+                });
+            }
+            Kind::Trail => {
+                // The roll's carried trail projected as a value (aroon's
+                // `(p − trail)` arithmetic consumes it downstream). No own
+                // carry: the ident of the ROLL node resolves the trail slot.
+                let roll_ident = format_ident!("{}_trail", idents[node.a]);
+                body.push(quote! { let #xk = #roll_ident as f64; });
+            }
+            Kind::WhereGe => {
+                let (ea, eb, ec) = (
+                    ev(node.a, &idents),
+                    ev(node.b, &idents),
+                    ev(node.c.expect("WhereGe: t operand"), &idents),
+                );
+                body.push(quote! {
+                    let #xk = if #ea >= #eb { #ec } else { 0.0 };
+                });
+            }
+            Kind::WhereLt => {
+                // the hand's denominator-guard form (identical NaN
+                // behaviour): `<` takes the pinned zero, else the value.
+                let (ea, eb, ec) = (
+                    ev(node.a, &idents),
+                    ev(node.b, &idents),
+                    ev(node.c.expect("WhereLt: t operand"), &idents),
+                );
+                body.push(quote! {
+                    let #xk = if #ea < #eb { 0.0 } else { #ec };
+                });
+            }
+            Kind::RollMax => {
+                let ident_k = idents[k].clone();
+                let vc = format_ident!("{}_carry", ident_k);
+                let tc = format_ident!("{}_trail", ident_k);
+                let pk = format_ident!("{}_p", ident_k);
+                let win = format_ident!("{}_win", ident_k);
+                let wb = format_ident!("{}_wb", ident_k);
+                let src = ev(node.a, &idents);
+                body.push(quote! {
+                    let #xk = {
+                        #tc = #tc + 1;
+                        if #pk <= #tc {
+                            let w = unsafe {
+                                ::core::slice::from_raw_parts(#wb.add(i), #win)
+                            };
+                            let (rv, ri) =
+                                crate::indicators::max::find_max_simd::<4>(w);
+                            #vc = rv;
+                            #tc = #win - 1 - ri;
+                        } else {
+                            let current = #src;
+                            if current >= #vc {
+                                #vc = current;
+                                #tc = 0;
+                            }
+                        }
+                        #vc
+                    };
+                });
+            }
+            Kind::RollMin => {
+                let ident_k = idents[k].clone();
+                let vc = format_ident!("{}_carry", ident_k);
+                let tc = format_ident!("{}_trail", ident_k);
+                let pk = format_ident!("{}_p", ident_k);
+                let win = format_ident!("{}_win", ident_k);
+                let wb = format_ident!("{}_wb", ident_k);
+                let src = ev(node.a, &idents);
+                body.push(quote! {
+                    let #xk = {
+                        #tc = #tc + 1;
+                        if #pk <= #tc {
+                            let w = unsafe {
+                                ::core::slice::from_raw_parts(#wb.add(i), #win)
+                            };
+                            let (rv, ri) =
+                                crate::indicators::min::find_min_simd::<4>(w);
+                            #vc = rv;
+                            #tc = #win - 1 - ri;
+                        } else {
+                            let current = #src;
+                            if current <= #vc {
+                                #vc = current;
+                                #tc = 0;
+                            }
+                        }
+                        #vc
+                    };
+                });
+            }
+            Kind::Wilders => {
+                // Wilders steady step mirrors kernel's K_WILDERS mean mode:
+                // `st[k] = st[k].mul_add(vals.mults[k], val * vals.invms[k])`
+                // — the EMA step with the two magnitudes in SWAPPED slots
+                // (the one-formula identity), so a Wilders bucket packs like
+                // an Ema group with that order preserved (lane values of a
+                // shared derived source — atr_multi's three chains over one
+                // `tr` node — read `ev(src)` exactly like price chains).
+                if let Some(&(gi, lane1)) = c.slot_group.get(&k) {
+                    if lane1 {
+                        continue; // bound with lane0's group statement
+                    }
+                    let mut group_slots: Vec<usize> = c
+                        .slot_group
+                        .iter()
+                        .filter(|(_, (g, _))| *g == gi)
+                        .map(|(s, _)| *s)
+                        .collect();
+                    group_slots.sort();
+                    let w = group_slots.len();
+                    let g = format_ident!("g{gi}");
+                    let gm = format_ident!("g{gi}_m");
+                    let gi_v = format_ident!("g{gi}_i");
+                    let ga = format_ident!("ga{gi}");
+                    let srcp = ev(node.a, &idents);
+                    if w == 4 {
+                        let x0 = format_ident!("{}", idents[group_slots[0]]);
+                        let x1 = format_ident!("{}", idents[group_slots[1]]);
+                        let x2 = format_ident!("{}", idents[group_slots[2]]);
+                        let x3 = format_ident!("{}", idents[group_slots[3]]);
+                        body.push(quote! {
+                            #g = #g.mul_add(#gm, Simd::<f64, 4>::splat(#srcp) * #gi_v);
+                            let #ga = #g.to_array();
+                            let #x0 = #ga[0];
+                            let #x1 = #ga[1];
+                            let #x2 = #ga[2];
+                            let #x3 = #ga[3];
+                        });
+                    } else {
+                        let x0 = format_ident!("{}", idents[group_slots[0]]);
+                        let x1 = format_ident!("{}", idents[group_slots[1]]);
+                        body.push(quote! {
+                            #g = #g.mul_add(#gm, Simd::splat(#srcp) * #gi_v);
+                            let #ga = #g.to_array();
+                            let #x0 = #ga[0];
+                            let #x1 = #ga[1];
+                        });
+                    }
+                } else {
+                    // All Wilders now have scalar hoists via the extended scalars map
+                    // Get the node's ident at slot k for scalar hoists
+                    let ident_k = idents[k].clone();
+                    let ck = format_ident!("{}_carry", ident_k);
+                    let chain_v = ev(node.a, &idents);
+                    let mk = format_ident!("{}_mult", ident_k);
+                    let ik = format_ident!("{}_inv", ident_k);
+                    body.push(quote! {
+                        let #xk = { #ck = #ck.mul_add(#mk, #chain_v * #ik); #ck };
+                    });
+                }
+            }
+            Kind::SuperTrend => {
+                // SuperTrend steady step — transcribes kernel::exec's
+                // K_SUPERTREND arm exactly (which transcribes the hand
+                // `calc_st`): atr=a, medprice=b, close=c; carries prev_st,
+                // prev_ub, prev_lb in locals, trend in tr{k} (from st[k]).
+                let atr_v = ev(node.a, &idents);
+                let med_v = ev(node.b, &idents);
+                let close_v = if let Some(c) = node.c {
+                    ev(c, &idents)
+                } else {
+                    panic!("SuperTrend: close input not set");
+                };
+                let step = format_ident!("st_step{k}");
+                let stb_prev = format_ident!("stb{k}");
+                let stc_ub = format_ident!("stcub{k}");
+                let stc_lb = format_ident!("stclb{k}");
+                let tr = format_ident!("tr{k}");
+                // The node's VALUE binding must be its ident
+                let xk_ident = format_ident!("{}", idents[k]);
+                body.push(quote! {
+                    let w = #step * #atr_v;
+                    let mut ub = #med_v + w;
+                    let mut lb = #med_v - w;
+                    let crosses_up = #close_v > #stb_prev;
+                    let crosses_down = #close_v < #stb_prev;
+                    let trend = crosses_up || (#tr != 0.0 && !crosses_down);
+                    let #xk_ident = if trend {
+                        lb = #stc_lb.max(lb);
+                        lb
+                    } else {
+                        ub = #stc_ub.min(ub);
+                        ub
+                    };
+                    #tr = if trend { 1.0 } else { 0.0 };
+                    #stb_prev = #xk_ident;
+                    #stc_lb = lb;
+                    #stc_ub = ub;
+                });
+            }
+        }
+    }
+    let mut const_hoists = Vec::new();
+    for (k, node) in p.nodes.iter().enumerate() {
+        if node.kind == Kind::Const {
+            // Hoisted const uses its ident directly
+            let xk = format_ident!("{}", idents[k]);
+            const_hoists.push(quote! { let #xk = vals.consts[#k]; });
+        }
+    }
+
+    // ---- arena dedup setup (group sinks by node id) ----
+    // Group sinks by the node they store to (p.sinks[i] is a node index).
+    // The map holds the GROUP INDEX (not the leader's sink index — the two
+    // diverge as soon as a duplicate sink precedes a later new group, and
+    // the re-lookup `group_members[g]` would read out of range; found while
+    // building the asset emitter, where it fired on `sma_six`-shaped sink
+    // orders). Behavior for every shipped pattern is identical: members[0]
+    // is still the group's leader sink.
+    let mut node_first_sink: std::collections::HashMap<usize, usize> =
+        std::collections::HashMap::new();
+    let mut group_members: Vec<Vec<usize>> = Vec::new();
+    for (sidx, &node_idx) in p.sinks.iter().enumerate() {
+        let g = match node_first_sink.get(&node_idx) {
+            Some(&g) => g,
+            None => {
+                let g = group_members.len();
+                node_first_sink.insert(node_idx, g);
+                group_members.push(Vec::new());
+                g
+            }
+        };
+        group_members[g].push(sidx);
+    }
+    // Now: G groups, each with leader (first appearance) and members
+    let ng = group_members.len();
+
+    // ---- per-group min lead computation (runtime) ----
+    let mut group_minl: Vec<TokenStream> = Vec::new();
+    for (gidx, members) in group_members.iter().enumerate() {
+        // Group g points to sink node p.sinks[members[0]]; use that ident as minl suffix
+        let leader = members[0];
+        let leader_sink_node = p.sinks[leader];
+        // Group min uses ident + gidx suffix per task requirement
+        let ident_g = idents[leader_sink_node].clone();
+        let g = format_ident!("minl_{}_{}", ident_g, gidx);
+        // Sink leads use ident + s suffix (per sink slot)
+        let l_leader = format_ident!("{}_{}", idents[p.sinks[leader]], leader);
+        if members.len() == 1 {
+            // Single member: min is just its lead
+            group_minl.push(quote! { let #g = #l_leader; });
+        } else {
+            // Multiple members: fold min over all members' leads
+            let mut min_expr = quote! { #l_leader };
+            for &m in &members[1..] {
+                // Build l_m using the node's ident
+                let m_sink_node = p.sinks[m];
+                let m_ident = idents[m_sink_node].clone();
+                let l_m = format_ident!("{}_{}", m_ident, m);
+                min_expr = quote! { #min_expr.min(#l_m) };
+            }
+            group_minl.push(quote! { let #g = #min_expr; });
+        }
+    }
+
+    // ---- per-group want hoists — OPTIONAL-only groups need a runtime flag.
+    // A group with any PRIMARY member is always stored (primaries are always
+    // wanted), so it gets neither hoist nor guard. The steady loop is then
+    // EMITTED TWICE (see `steady` below): `any_opt` picks the copy at
+    // runtime — the primary-only path keeps exactly its pre-flags store set
+    // with zero per-bar branches (per-bar `if want` guards cost ~2 cyc/bar:
+    // LLVM will not unswitch three independent guards, measured 15.3→19.0).
+    let mut group_is_optional: Vec<bool> = Vec::new();
+    let mut group_want: Vec<TokenStream> = Vec::new();
+    for (gidx, members) in group_members.iter().enumerate() {
+        let optional = members.iter().all(|s| !p.sink_is_primary[*s]);
+        group_is_optional.push(optional);
+        if !optional {
+            continue;
+        }
+        let gwant = format_ident!("want{}", gidx);
+        let mut want_expr = quote! { false };
+        for &m in members.iter() {
+            want_expr = quote! { #want_expr | vals.sink_want[#m] };
+        }
+        group_want.push(quote! { let #gwant = #want_expr; });
+    }
+    let opt_group_ids: Vec<usize> = group_is_optional
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| **o)
+        .map(|(g, _)| g)
+        .collect();
+
+    // ---- per-group row size (runtime) - computed after n is known ----
+    let mut group_rsz: Vec<TokenStream> = Vec::new();
+    for (gidx, members) in group_members.iter().enumerate() {
+        // Group min uses ident + gidx suffix per task requirement
+        let g = format_ident!("minl_{}_{}", idents[p.sinks[members[0]]], gidx);
+        // Keep rsz as plain numeric per task requirement
+        let rsz_g = format_ident!("rsz{}", gidx);
+        group_rsz.push(quote! { let #rsz_g = n.saturating_sub(#g); });
+    }
+
+    // ---- arena offsets (computed from row sizes) ----
+    let mut off_decl: Vec<TokenStream> = Vec::new();
+    if ng > 0 {
+        // Keep off and rsz as plain numeric per task requirement
+        // Arena offsets: off0=0, off1=off0+rsz0, etc.
+        for gidx in 0..ng {
+            let off_g = format_ident!("off{}", gidx);
+            if gidx == 0 {
+                off_decl.push(quote! { let #off_g = 0usize; });
+            } else {
+                let prev = gidx - 1;
+                let off_prev = format_ident!("off{}", prev);
+                let rsz_prev = format_ident!("rsz{}", prev);
+                off_decl.push(quote! { let #off_g = #off_prev + #rsz_prev; });
+            }
+        }
+    }
+
+    // Total arena size - compute from group 0's ident
+    let total_expr = if ng == 0 {
+        quote! { 0usize }
+    } else {
+        // Get the ident for group 0 (unused, kept for readability)
+        let _leader0 = group_members[0][0];
+        let _ident0 = idents[p.sinks[_leader0]].clone();
+        // Initialize acc with "rsz0" (plain numeric per task requirement)
+        let rsz_ident_0 = format_ident!("rsz0");
+        let mut acc = quote! { #rsz_ident_0 };
+        for gidx in 1..ng {
+            // Get the ident for group gidx
+            let _leader_gidx = group_members[gidx][0];
+            let _ident_gidx = idents[p.sinks[_leader_gidx]].clone();
+            // Keep rsz as plain numeric per task requirement
+            let rsz_gidx = format_ident!("rsz{}", gidx);
+            acc = quote! { #acc + #rsz_gidx };
+        }
+        quote! { #acc }
+    };
+
+    // Arena allocation (exact jit.rs pattern)
+    let arena_alloc = if ng == 0 {
+        quote! {
+            let arc: std::sync::Arc<[std::mem::MaybeUninit<f64>]> = std::sync::Arc::new_uninit_slice(0usize);
+            let base: *mut f64 = std::ptr::null_mut();
+            let arena: std::sync::Arc<[f64]> = unsafe { arc.assume_init() };
+        }
+    } else {
+        quote! {
+            let total = #total_expr;
+            let mut arc: std::sync::Arc<[std::mem::MaybeUninit<f64>]> =
+                std::sync::Arc::new_uninit_slice(total);
+            let base: *mut f64 = if total == 0 {
+                std::ptr::null_mut()
+            } else {
+                // uniquely owned (fresh, refcount 1) => `get_mut` yields the slice;
+                // the compiled loop writes through `base` while it is the only
+                // holder, exactly as the former `Rc` did. `Arc` only so the
+                // resulting `Results` is `Send` (threading across symbols, §3.3).
+                std::sync::Arc::get_mut(&mut arc)
+                    .expect("fresh arena is uniquely owned")
+                    .as_mut_ptr()
+                    .cast::<f64>()
+            };
+            let arena: std::sync::Arc<[f64]> = unsafe { arc.assume_init() };
+        }
+    };
+
+    // ---- warm exec ptrs setup (per-sink, aliased via arena) ----
+    let mut warm_ptrs: Vec<TokenStream> = Vec::new();
+    for sidx in 0..p.sinks.len() {
+        let gidx = group_members
+            .iter()
+            .enumerate()
+            .find_map(|(g, members)| {
+                if members.contains(&sidx) {
+                    Some(g)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        // Get the ident for this group
+        let leader_g = group_members[gidx][0];
+        let ident_g = idents[p.sinks[leader_g]].clone();
+        let g = format_ident!("minl_{}_{}", ident_g, gidx);
+        // Keep off as plain numeric per task requirement
+        let off_g = format_ident!("off{}", gidx);
+        // Build sink lead var name using the node's ident
+        let sink_node_sidx = p.sinks[sidx];
+        let ident_s = idents[sink_node_sidx].clone();
+        let l_s = format_ident!("{}_{}", ident_s, sidx);
+        // ptr = base + off_g + (lead_s - minl_g): this sink's window inside
+        // the shared group row.
+        warm_ptrs.push(quote! {
+            ptrs[#sidx] = unsafe { base.add(#off_g + (#l_s - #g)) };
+        });
+    }
+
+    // ---- steady loop: group store pointers (hoisted once per group) ----
+    let mut group_stores: Vec<TokenStream> = Vec::new();
+    for (gidx, members) in group_members.iter().enumerate() {
+        let leader = members[0];
+        let ident_g = idents[p.sinks[leader]].clone();
+        let q_g = format_ident!("row_{}_{}", ident_g, gidx);
+        // Keep off as plain numeric per task requirement
+        let off_g = format_ident!("off{}", gidx);
+        let g_minl = format_ident!("minl_{}_{}", ident_g, gidx);
+        // Pre-advanced past the warm region AND the group's lead (the hand's
+        // `slice_outputs_start!` equivalent): the steady store is `q.add(i)`.
+        group_stores.push(quote! {
+            let #q_g = unsafe { base.add(#off_g + (gate - #g_minl)) };
+        });
+    }
+
+    // ---- steady stores: ONE PER GROUP (the dedup: sinks sharing a node —
+    // e.g. apo line and macd line are both node 3 — share one physical row
+    // and one store, aliased downstream by window offsets). Groups split on
+    // role: primary-member groups store unconditionally; optional-only
+    // groups are want-guarded and appear ONLY in the any_opt loop copy.
+    let mut always_stores: Vec<TokenStream> = Vec::new();
+    let mut opt_stores: Vec<TokenStream> = Vec::new();
+    for (gidx, members) in group_members.iter().enumerate() {
+        let leader = members[0];
+        let ident_g = idents[p.sinks[leader]].clone();
+        let e = ev(p.sinks[members[0]], &idents);
+        let q_g = format_ident!("row_{}_{}", ident_g, gidx);
+        if group_is_optional[gidx] {
+            let want_g = format_ident!("want{}", gidx);
+            opt_stores.push(quote! { unsafe { if #want_g { *#q_g.add(i) = #e; } } });
+        } else {
+            always_stores.push(quote! { unsafe { *#q_g.add(i) = #e; } });
+        }
+    }
+
+    // ---- return RowRef windows per sink (in sink order) ----
+    let mut row_refs: Vec<TokenStream> = Vec::new();
+    for sidx in 0..p.sinks.len() {
+        let gidx = group_members
+            .iter()
+            .enumerate()
+            .find_map(|(g, members)| {
+                if members.contains(&sidx) {
+                    Some(g)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        // Keep off and rsz as plain numeric per task requirement
+        let leader_g = group_members[gidx][0];
+        let ident_g = idents[p.sinks[leader_g]].clone();
+        let off_g = format_ident!("off{}", gidx);
+        let rsz_g = format_ident!("rsz{}", gidx);
+        let g_minl = format_ident!("minl_{}_{}", ident_g, gidx);
+        // Build sink lead var name using the node's ident
+        let sink_node_sidx = p.sinks[sidx];
+        let ident_s = idents[sink_node_sidx].clone();
+        let l_s = format_ident!("{}_{}", ident_s, sidx);
+        // Disabled sinks get zero-length windows (is_empty() == true)
+        row_refs.push(quote! {
+            if vals.sink_want[#sidx] {
+                crate::cse::query::RowRef::window(
+                    &arena,
+                    #off_g + (#l_s - #g_minl),
+                    #rsz_g.saturating_sub(#l_s - #g_minl)
+                )
+            } else {
+                crate::cse::query::RowRef::window(&arena, 0, 0) // disabled: empty row
+            }
+        });
+    }
+
+    // Early return case (n==0): build empty arena with zero-length windows
+    let mut zero_row_refs: Vec<TokenStream> = Vec::new();
+    for _sidx in 0..p.sinks.len() {
+        zero_row_refs.push(quote! { crate::cse::query::RowRef::window(&arena, 0, 0) });
+    }
+    let early_return = quote! {
+        let arc: std::sync::Arc<[std::mem::MaybeUninit<f64>]> = std::sync::Arc::new_uninit_slice(0usize);
+        let arena: std::sync::Arc<[f64]> = unsafe { arc.assume_init() };
+        return vec![
+            #(#zero_row_refs),*
+        ];
+    };
+
+    // ---- steady loop: ONE specialized copy for the common primary-only
+    // path (no flag loads, no branches, store set identical to the
+    // pre-flags kernel), one copy with want-guarded optional stores. The
+    // choice is one runtime branch OUTSIDE the loop (WYSIWYG: the guards we
+    // measured as +2 cyc/bar when left inside). ----
+    let steady = if opt_group_ids.is_empty() {
+        quote! {
+            for i in 0..(n - gate) {
+                #( #body )*
+                #( #always_stores )*
+            }
+        }
+    } else {
+        let mut any_opt = quote! { false };
+        for &g in &opt_group_ids {
+            let w = format_ident!("want{}", g);
+            any_opt = quote! { #any_opt | #w };
+        }
+        let body_plain = body.clone();
+        let stores_plain = always_stores.clone();
+        quote! {
+            let any_opt = #any_opt;
+            if any_opt {
+                for i in 0..(n - gate) {
+                    #( #body )*
+                    #( #always_stores )*
+                    #( #opt_stores )*
+                }
+            } else {
+                for i in 0..(n - gate) {
+                    #( #body_plain )*
+                    #( #stores_plain )*
+                }
+            }
+        }
+    };
+
+    quote! {
+        #[allow(unused_variables, unused_mut)]
+        pub fn #name(vals: &crate::cse::Values, streams: &[&[f64]]) -> Vec<crate::cse::query::RowRef> {
+            use ::std::simd::Simd;
+            #[allow(unused_imports)]
+            use ::std::simd::num::SimdFloat;
+            #[allow(unused_imports)]
+            use ::std::simd::StdFloat;
+            let n = streams.iter().map(|s| s.len()).min().unwrap_or(0);
+            let gate = (vals.max_gate as usize + 1).min(n);
+
+            if n == 0 {
+                #early_return
+            }
+
+            // Per-sink leads (hoisted once per request).
+            #( #lead_hoists )*
+            // Per-group min lead computation
+            #( #group_minl )*
+            // Per-group want hoists (runtime, before steady loop)
+            #( #group_want )*
+            // Per-group row size (depends on n)
+            #( #group_rsz )*
+
+            // Arena offsets (computed from row sizes)
+            #( #off_decl )*
+
+            // Arena allocation
+            #arena_alloc
+
+            let mut ptrs: [*mut f64; crate::cse::MAX_SINKS] = [::core::ptr::null_mut(); crate::cse::MAX_SINKS];
+            #(
+                #warm_ptrs
+            )*
+
+            // Steady loop hoists (stream pointers)
+            #( #stream_hoists )*
+
+            let mut st = [0.0f64; crate::cse::MAX];
+            let mut stb = [0.0f64; crate::cse::MAX]; // SuperTrend prev_st
+            let mut stc_ub = [0.0f64; crate::cse::MAX]; // SuperTrend prev_ub
+            let mut stlb = [0.0f64; crate::cse::MAX]; // SuperTrend prev_lb
+            let mut sumsq = [0.0f64; crate::cse::MAX]; // Stddev sum-of-squares carry
+            let mut wsum = [0.0f64; crate::cse::MAX]; // Wma weighted-sum carry
+            let mut trail = [0usize; crate::cse::MAX]; // roll trail carry
+            let mut v = [0.0f64; crate::cse::MAX];
+            // Warm-up bars: shared interpreter, cold path once per request.
+            crate::cse::kernel::exec::<#sig, true>(vals, streams, 0, gate, &mut st, &mut stb, &mut stc_ub, &mut stlb, &mut sumsq, &mut wsum, &mut trail, &mut v, &mut ptrs, &vals.sink_lead);
+            if gate >= n {
+                return vec![#(#row_refs),*];
+            }
+
+            // Steady loop: group store pointers (hoisted once per group before loop)
+            #( #group_stores )*
+            #( #pair_hoists )*
+            #( #scalar_hoists )*
+            #( #stb_hoists )*
+            #( #stc_ub_hoists )*
+            #( #stc_lb_hoists )*
+            #( #st_trend_hoists )*
+            #( #st_step_hoists )*
+            #( #roll_hoists )*
+            #( #const_hoists )*
+
+            #steady
+            vec![#(#row_refs),*]
+        }
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// M2 — the asset axis: `<name>_assets<const L>`, L assets through ONE
+// (Signature, Values). `by_assets` layout for inputs (asset-major,
+// field-minor, `&[&[&[f64]]; L]`) and rows out (`Vec<Vec<RowRef>>` per
+// asset, sink order). Every per-bar linear operation (chains, glue, sums,
+// fma/selects) becomes a `Simd<f64, L>` lane step — NO cross-lane
+// extraction anywhere, the condition packing needed to win. Branchy
+// per-lane kinds keep exactness by construction: rolls rescan the lanes a
+// bitmask says need it, through the same `find_*_simd::<4>` the scalar path
+// and the hand use; the Supertrend block becomes the branchless
+// all-selects form of the same formula (selects compute both arms, pick
+// one — bit-identical). Warm bars run the existing scalar `exec` once per
+// asset (the warm path stays ONE authority), each asset's carry arrays then
+// gathering into the lane vectors. `Values` is asset-invariant — one plan
+// serves every L; a lane kernel equals the scalar kernel per asset bit for
+// bit (registry-pinned), so this axis can never fork results.
+// ──────────────────────────────────────────────────────────────────────────
+fn run_assets_fn(p: &Pattern) -> TokenStream {
+    let name = format_ident!("{}_assets", p.name);
+    let sig = format_ident!("SIG_{}", p.name);
+    let idents = build_idents(p);
+
+    // ---- sink groups (same pure computation as the scalar kernel) ----
+    let mut node_first_sink: std::collections::HashMap<usize, usize> =
+        std::collections::HashMap::new();
+    let mut group_members: Vec<Vec<usize>> = Vec::new();
+    let mut group_of: Vec<usize> = Vec::new();
+    for (sidx, &node_idx) in p.sinks.iter().enumerate() {
+        let g = match node_first_sink.get(&node_idx) {
+            Some(&g) => g,
+            None => {
+                let g = group_members.len();
+                node_first_sink.insert(node_idx, g);
+                group_members.push(Vec::new());
+                g
+            }
+        };
+        group_members[g].push(sidx);
+        group_of.push(g);
+    }
+    let ng = group_members.len();
+
+    // ---- per-sink lead hoists + per-group min-lead / want / rsz / offs ----
+    let mut lead_hoists: Vec<TokenStream> = Vec::new();
+    for s in 0..p.sinks.len() {
+        let sink_node = p.sinks[s];
+        let ident_s = idents[sink_node].clone();
+        let l = format_ident!("{}_{}", ident_s, s);
+        lead_hoists.push(quote! { let #l = vals.sink_lead[#s] as usize; });
+    }
+    let mut group_minl: Vec<TokenStream> = Vec::new();
+    let mut group_is_optional: Vec<bool> = Vec::new();
+    let mut group_want: Vec<TokenStream> = Vec::new();
+    let mut group_rsz: Vec<TokenStream> = Vec::new();
+    let mut off_decl: Vec<TokenStream> = Vec::new();
+    for (gidx, members) in group_members.iter().enumerate() {
+        let leader = members[0];
+        let ident_g = idents[p.sinks[leader]].clone();
+        let g = format_ident!("minl_{}_{}", ident_g, gidx);
+        let l_leader = format_ident!("{}_{}", ident_g, leader);
+        if members.len() == 1 {
+            group_minl.push(quote! { let #g = #l_leader; });
+        } else {
+            let mut min_expr = quote! { #l_leader };
+            for &m in &members[1..] {
+                let m_ident = idents[p.sinks[m]].clone();
+                let l_m = format_ident!("{}_{}", m_ident, m);
+                min_expr = quote! { #min_expr.min(#l_m) };
+            }
+            group_minl.push(quote! { let #g = #min_expr; });
+        }
+        let optional = members.iter().all(|s| !p.sink_is_primary[*s]);
+        group_is_optional.push(optional);
+        if optional {
+            let gwant = format_ident!("want{}", gidx);
+            let mut want_expr = quote! { false };
+            for &m in members.iter() {
+                want_expr = quote! { #want_expr | vals.sink_want[#m] };
+            }
+            group_want.push(quote! { let #gwant = #want_expr; });
+        }
+        let rsz_g = format_ident!("rsz{}", gidx);
+        group_rsz.push(quote! { let #rsz_g = n.saturating_sub(#g); });
+        let off_g = format_ident!("off{}", gidx);
+        if gidx == 0 {
+            off_decl.push(quote! { let #off_g = 0usize; });
+        } else {
+            let off_prev = format_ident!("off{}", gidx - 1);
+            let rsz_prev = format_ident!("rsz{}", gidx - 1);
+            off_decl.push(quote! { let #off_g = #off_prev + #rsz_prev; });
+        }
+    }
+    let opt_group_ids: Vec<usize> = group_is_optional
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| **o)
+        .map(|(g, _)| g)
+        .collect();
+    let total_expr = if ng == 0 {
+        quote! { 0usize }
+    } else {
+        let mut acc = quote! { rsz0 };
+        for gidx in 1..ng {
+            let rsz_gidx = format_ident!("rsz{}", gidx);
+            acc = quote! { #acc + #rsz_gidx };
+        }
+        acc
+    };
+
+    // ---- stream base arrays (one per Input slot actually read) ----
+    let mut used_slots: Vec<usize> = Vec::new();
+    for node in &p.nodes {
+        if node.kind == Kind::Input && !used_slots.contains(&node.a) {
+            used_slots.push(node.a);
+        }
+    }
+    let stream_arr_hoists: Vec<TokenStream> = used_slots
+        .iter()
+        .map(|s| {
+            let sfa = format_ident!("sp{}", s);
+            quote! {
+                let #sfa: [*const f64; L] = std::array::from_fn(
+                    |a| unsafe { streams[a][#s].as_ptr().add(gate) },
+                );
+            }
+        })
+        .collect();
+    let stream_slot = |slot_src: usize| -> usize { p.nodes[slot_src].a };
+
+    // ---- carry/param lane hoists, arena order ----
+    let mut carry_hoists: Vec<TokenStream> = Vec::new();
+    for (k, node) in p.nodes.iter().enumerate() {
+        let ident_k = idents[k].clone();
+        let ki = k;
+        match node.kind {
+            Kind::Ema | Kind::Wilders => {
+                let ck = format_ident!("{}_carry", ident_k);
+                let mk = format_ident!("{}_mult", ident_k);
+                let ik = format_ident!("{}_inv", ident_k);
+                carry_hoists.push(quote! {
+                    let mut #ck = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
+                    let #mk = Simd::<f64, L>::splat(vals.mults[#ki]);
+                    let #ik = Simd::<f64, L>::splat(vals.invms[#ki]);
+                });
+            }
+            Kind::Sma | Kind::Stddev | Kind::Wma => {
+                let ck = format_ident!("{}_carry", ident_k);
+                let mk = format_ident!("{}_mult", ident_k);
+                let pk = format_ident!("{}_p", ident_k);
+                let pv = format_ident!("{}_prevp", ident_k);
+                let s = stream_slot(node.a);
+                let sfa = format_ident!("sp{}", s);
+                // exec's `st[k]` IS the window SUM for these kinds (fold bars
+                // emit 0 but accumulate into st), and `sumsq`/`wsum` are
+                // exec-maintained too — the per-asset warm left them exact,
+                // so the lane seeds straight from those arrays.
+                carry_hoists.push(quote! {
+                    let mut #ck = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
+                    let #mk = Simd::<f64, L>::splat(vals.mults[#ki]);
+                    let #pk = vals.periods[#ki] as usize;
+                    let #pv: [*const f64; L] = std::array::from_fn(|a| unsafe { #sfa[a].sub(#pk) });
+                });
+                if node.kind == Kind::Stddev {
+                    let sq = format_ident!("{}_sq", ident_k);
+                    carry_hoists.push(quote! {
+                        let mut #sq = Simd::<f64, L>::from_array(std::array::from_fn(|a| sumsqw[a][#ki]));
+                    });
+                }
+                if node.kind == Kind::Wma {
+                    let wc = format_ident!("{}_weighted", ident_k);
+                    let nk = format_ident!("{}_n", ident_k);
+                    let wgt = format_ident!("{}_wgt", ident_k);
+                    carry_hoists.push(quote! {
+                        let mut #wc = Simd::<f64, L>::from_array(std::array::from_fn(|a| wsumw[a][#ki]));
+                        let #nk = Simd::<f64, L>::splat(vals.periods[#ki] as f64);
+                        let #wgt = Simd::<f64, L>::splat(vals.mults[#ki]);
+                    });
+                }
+            }
+            Kind::RollMax | Kind::RollMin => {
+                let ck = format_ident!("{}_carry", ident_k);
+                let tc = format_ident!("{}_trail", ident_k);
+                let pk = format_ident!("{}_p", ident_k);
+                let lb = format_ident!("{}_lb", ident_k);
+                let wn = format_ident!("{}_win", ident_k);
+                let wb = format_ident!("{}_wb", ident_k);
+                let s = stream_slot(node.a);
+                let sfa = format_ident!("sp{}", s);
+                carry_hoists.push(quote! {
+                    let mut #ck = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
+                    let mut #tc: Simd<usize, L> = Simd::from_array(std::array::from_fn(|a| trailw[a][#ki]));
+                    let #pk = vals.periods[#ki] as usize;
+                    let #lb = vals.roll_lb[#ki] as usize;
+                    let #wn = #lb + 1usize;
+                    let #wb: [*const f64; L] = std::array::from_fn(|a| unsafe { #sfa[a].sub(#lb) });
+                });
+            }
+            Kind::SuperTrend => {
+                let stb = format_ident!("stb{}", k);
+                let stc_ub = format_ident!("stcub{}", k);
+                let stc_lb = format_ident!("stclb{}", k);
+                let tr = format_ident!("tr{}", k);
+                let step = format_ident!("st_step{}", k);
+                carry_hoists.push(quote! {
+                    let mut #stb = Simd::<f64, L>::from_array(std::array::from_fn(|a| stbw[a][#ki]));
+                    let mut #stc_ub = Simd::<f64, L>::from_array(std::array::from_fn(|a| stcubw[a][#ki]));
+                    let mut #stc_lb = Simd::<f64, L>::from_array(std::array::from_fn(|a| stlbw[a][#ki]));
+                    let mut #tr = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
+                    let #step = Simd::<f64, L>::splat(vals.st_step[#ki]);
+                });
+            }
+            _ => {}
+        }
+    }
+    let mut const_hoists: Vec<TokenStream> = Vec::new();
+    for (k, node) in p.nodes.iter().enumerate() {
+        if node.kind == Kind::Const {
+            let xk = format_ident!("{}", idents[k]);
+            const_hoists.push(quote! { let #xk = Simd::<f64, L>::splat(vals.consts[#k]); });
+        }
+    }
+
+    // ---- steady body, lane form, arena order ----
+    let mut body: Vec<TokenStream> = Vec::new();
+    for (k, node) in p.nodes.iter().enumerate() {
+        let xk = format_ident!("{}", idents[k]);
+        let ea = ev(node.a, &idents);
+        let eb = ev(node.b, &idents);
+        match node.kind {
+            Kind::Input => {
+                // `node.a` IS the stream slot for an Input node (the scalar
+                // arm reads `s{node.a}` directly) — `gather(node.a)` would
+                // double-index it as a node reference.
+                let sfa = format_ident!("sp{}", node.a);
+                body.push(quote! {
+                    let #xk = Simd::<f64, L>::from_array(std::array::from_fn(
+                        |a| unsafe { *#sfa[a].add(i) },
+                    ));
+                });
+            }
+            Kind::Const => {}
+            Kind::Ema => {
+                let ck = format_ident!("{}_carry", idents[k]);
+                let mk = format_ident!("{}_mult", idents[k]);
+                let ik = format_ident!("{}_inv", idents[k]);
+                body.push(quote! {
+                    let #xk = { #ck = #ck.mul_add(#ik, #ea * #mk); #ck };
+                });
+            }
+            Kind::Wilders => {
+                let ck = format_ident!("{}_carry", idents[k]);
+                let mk = format_ident!("{}_mult", idents[k]);
+                let ik = format_ident!("{}_inv", idents[k]);
+                body.push(quote! {
+                    let #xk = { #ck = #ck.mul_add(#mk, #ea * #ik); #ck };
+                });
+            }
+            Kind::Sub => body.push(quote! { let #xk = #ea - #eb; }),
+            Kind::Add => body.push(quote! { let #xk = #ea + #eb; }),
+            Kind::Mul => body.push(quote! { let #xk = #ea * #eb; }),
+            Kind::Div => body.push(quote! { let #xk = #ea / #eb; }),
+            Kind::Max => body.push(quote! { let #xk = #ea.simd_max(#eb); }),
+            Kind::Abs => body.push(quote! { let #xk = #ea.abs(); }),
+            Kind::Fma => {
+                let ec = ev(node.c.expect("Fma: c operand"), &idents);
+                body.push(quote! { let #xk = #ea.mul_add(#eb, #ec); });
+            }
+            Kind::Lag => {
+                let s = stream_slot(node.a);
+                let sfa = format_ident!("sp{}", s);
+                body.push(quote! {
+                    let #xk = Simd::<f64, L>::from_array(std::array::from_fn(
+                        |a| unsafe { *#sfa[a].add(i).sub(1) },
+                    ));
+                });
+            }
+            Kind::WhereGe => {
+                let ec = ev(node.c.expect("WhereGe: t operand"), &idents);
+                body.push(quote! {
+                    let #xk = #ea.simd_ge(#eb).select(#ec, Simd::<f64, L>::splat(0.0f64));
+                });
+            }
+            Kind::WhereLt => {
+                let ec = ev(node.c.expect("WhereLt: t operand"), &idents);
+                body.push(quote! {
+                    let #xk = #ea.simd_lt(#eb).select(Simd::<f64, L>::splat(0.0f64), #ec);
+                });
+            }
+            Kind::Sma => {
+                let ck = format_ident!("{}_carry", idents[k]);
+                let mk = format_ident!("{}_mult", idents[k]);
+                let pv = format_ident!("{}_prevp", idents[k]);
+                body.push(quote! {
+                    let #xk = {
+                        let prev = Simd::<f64, L>::from_array(std::array::from_fn(
+                            |a| unsafe { *#pv[a].add(i) },
+                        ));
+                        #ck = #ck + (#ea - prev);
+                        #ck * #mk
+                    };
+                });
+            }
+            Kind::Stddev => {
+                let ck = format_ident!("{}_carry", idents[k]);
+                let sq = format_ident!("{}_sq", idents[k]);
+                let mk = format_ident!("{}_mult", idents[k]);
+                let pv = format_ident!("{}_prevp", idents[k]);
+                body.push(quote! {
+                    let #xk = {
+                        let prev = Simd::<f64, L>::from_array(std::array::from_fn(
+                            |a| unsafe { *#pv[a].add(i) },
+                        ));
+                        #ck = #ck + (#ea - prev);
+                        let mean = #ck * #mk;
+                        #sq = #sq + #ea.mul_add(#ea, -(prev * prev));
+                        let var = #sq.mul_add(#mk, -(mean * mean));
+                        var.sqrt().simd_max(Simd::<f64, L>::splat(f64::EPSILON))
+                    };
+                });
+            }
+            Kind::Wma => {
+                let ck = format_ident!("{}_carry", idents[k]);
+                let wc = format_ident!("{}_weighted", idents[k]);
+                let nk = format_ident!("{}_n", idents[k]);
+                let wgt = format_ident!("{}_wgt", idents[k]);
+                let pv = format_ident!("{}_prevp", idents[k]);
+                body.push(quote! {
+                    let #xk = {
+                        let prev = Simd::<f64, L>::from_array(std::array::from_fn(
+                            |a| unsafe { *#pv[a].add(i) },
+                        ));
+                        #wc = #wc - #ck;
+                        #ck = #ck + (#ea - prev);
+                        #wc = #wc + #ea * #nk;
+                        #wc * #wgt
+                    };
+                });
+            }
+            Kind::RollMax | Kind::RollMin => {
+                let vc = format_ident!("{}_carry", idents[k]);
+                let tc = format_ident!("{}_trail", idents[k]);
+                let wb = format_ident!("{}_wb", idents[k]);
+                let wn = format_ident!("{}_win", idents[k]);
+                let pk = format_ident!("{}_p", idents[k]);
+                let is_max = node.kind == Kind::RollMax;
+                let finder = if is_max {
+                    quote! { crate::indicators::max::find_max_simd::<4> }
+                } else {
+                    quote! { crate::indicators::min::find_min_simd::<4> }
+                };
+                let ge_or_le = if is_max {
+                    quote! { simd_ge }
+                } else {
+                    quote! { simd_le }
+                };
+                body.push(quote! {
+                    let #xk = {
+                        #tc = #tc + Simd::<usize, L>::splat(1usize);
+                        let resc = Simd::<usize, L>::splat(#pk).simd_le(#tc);
+                        let fold = #ea.#ge_or_le(#vc);
+                        let mut nv = fold.select(#ea, #vc);
+                        let mut nt = fold.select(Simd::<usize, L>::splat(0usize), #tc);
+                        let mask = resc.to_bitmask();
+                        if mask != 0 {
+                            let mut va = nv.to_array();
+                            let mut ta = nt.to_array();
+                            let mut lane = 0usize;
+                            while lane < L {
+                                if mask & (1u64 << lane) != 0 {
+                                    let w = unsafe {
+                                        ::core::slice::from_raw_parts(#wb[lane].add(i), #wn)
+                                    };
+                                    let (rv, ri) = #finder(w);
+                                    va[lane] = rv;
+                                    ta[lane] = #wn - 1 - ri;
+                                }
+                                lane += 1;
+                            }
+                            nv = Simd::<f64, L>::from_array(va);
+                            nt = Simd::<usize, L>::from_array(ta);
+                        }
+                        #vc = nv;
+                        #tc = nt;
+                        #vc
+                    };
+                });
+            }
+            Kind::Trail => {
+                let roll_tc = format_ident!("{}_trail", idents[node.a]);
+                body.push(quote! {
+                    let #xk = Simd::<f64, L>::from_array(#roll_tc.to_array().map(|t| t as f64));
+                });
+            }
+            Kind::SuperTrend => {
+                let stb = format_ident!("stb{}", k);
+                let stc_ub = format_ident!("stcub{}", k);
+                let stc_lb = format_ident!("stclb{}", k);
+                let tr = format_ident!("tr{}", k);
+                let step = format_ident!("st_step{}", k);
+                let ec = ev(node.c.expect("SuperTrend: close operand"), &idents);
+                // The branchless form of the SAME block the scalar kernel
+                // runs: every value each branch could produce is computed,
+                // selects pick per lane. max/min/select are exact, so the
+                // lanes agree bit-for-bit with the scalar branch version.
+                body.push(quote! {
+                    let w = #step * #ea;
+                    let ub0 = #eb + w;
+                    let lb0 = #eb - w;
+                    let crosses_up = #ec.simd_gt(#stb);
+                    let crosses_down = #ec.simd_lt(#stb);
+                    let trend = crosses_up
+                        | (#tr.simd_ne(Simd::<f64, L>::splat(0.0f64)) & !crosses_down);
+                    let lb_c = #stc_lb.simd_max(lb0);
+                    let ub_c = #stc_ub.simd_min(ub0);
+                    let stv = trend.select(lb_c, ub_c);
+                    let #xk = stv;
+                    #tr = trend.select(Simd::<f64, L>::splat(1.0f64), Simd::<f64, L>::splat(0.0f64));
+                    #stb = stv;
+                    #stc_lb = trend.select(lb_c, lb0);
+                    #stc_ub = trend.select(ub0, ub_c);
+                });
+            }
+        }
+    }
+
+    // ---- lane store arrays + scatter stores ----
+    let mut row_arrays: Vec<TokenStream> = Vec::new();
+    let mut always_stores: Vec<TokenStream> = Vec::new();
+    let mut opt_stores: Vec<TokenStream> = Vec::new();
+    for (gidx, members) in group_members.iter().enumerate() {
+        let leader = members[0];
+        let ident_g = idents[p.sinks[leader]].clone();
+        let q_g = format_ident!("row_{}_{}", ident_g, gidx);
+        let off_g = format_ident!("off{}", gidx);
+        let g_minl = format_ident!("minl_{}_{}", ident_g, gidx);
+        row_arrays.push(quote! {
+            let #q_g: [*mut f64; L] = std::array::from_fn(|a| unsafe {
+                base.add(a * total + #off_g + (gate - #g_minl))
+            });
+        });
+        let e = ev(p.sinks[leader], &idents);
+        let scatter = quote! {
+            {
+                let va = #e.to_array();
+                let mut lane = 0usize;
+                while lane < L {
+                    unsafe { *#q_g[lane].add(i) = va[lane]; }
+                    lane += 1;
+                }
+            }
+        };
+        if group_is_optional[gidx] {
+            let want_g = format_ident!("want{}", gidx);
+            opt_stores.push(quote! { if #want_g { #scatter } });
+        } else {
+            always_stores.push(scatter);
+        }
+    }
+
+    // ---- RowRef windows per asset (one shared arena, asset-major) ----
+    let mut row_refs: Vec<TokenStream> = Vec::new();
+    for sidx in 0..p.sinks.len() {
+        let gidx = group_of[sidx];
+        let leader = group_members[gidx][0];
+        let ident_g = idents[p.sinks[leader]].clone();
+        let off_g = format_ident!("off{}", gidx);
+        let rsz_g = format_ident!("rsz{}", gidx);
+        let g_minl = format_ident!("minl_{}_{}", ident_g, gidx);
+        let l_s = format_ident!("{}_{}", idents[p.sinks[sidx]], sidx);
+        row_refs.push(quote! {
+            if vals.sink_want[#sidx] {
+                crate::cse::query::RowRef::window(
+                    &arena,
+                    a * total + #off_g + (#l_s - #g_minl),
+                    #rsz_g.saturating_sub(#l_s - #g_minl),
+                )
+            } else {
+                crate::cse::query::RowRef::window(&arena, 0, 0)
+            }
+        });
+    }
+    let n_sinks = p.sinks.len();
+    let warm_ptrs: Vec<TokenStream> = (0..n_sinks)
+        .map(|sidx| {
+            let gidx = group_of[sidx];
+            let leader = group_members[gidx][0];
+            let ident_g = idents[p.sinks[leader]].clone();
+            let off_g = format_ident!("off{}", gidx);
+            let g = format_ident!("minl_{}_{}", ident_g, gidx);
+            let l_s = format_ident!("{}_{}", idents[p.sinks[sidx]], sidx);
+            quote! {
+                ptrs[#sidx] = unsafe { base.add(a * total + (#off_g + (#l_s - #g))) };
+            }
+        })
+        .collect();
+
+    let steady = if opt_group_ids.is_empty() {
+        quote! {
+            for i in 0..(n - gate) {
+                #( #body )*
+                #( #always_stores )*
+            }
+        }
+    } else {
+        let mut any_opt = quote! { false };
+        for &g in &opt_group_ids {
+            let w = format_ident!("want{}", g);
+            any_opt = quote! { #any_opt | #w };
+        }
+        let body_plain = body.clone();
+        let stores_plain = always_stores.clone();
+        quote! {
+            let any_opt = #any_opt;
+            if any_opt {
+                for i in 0..(n - gate) {
+                    #( #body )*
+                    #( #always_stores )*
+                    #( #opt_stores )*
+                }
+            } else {
+                for i in 0..(n - gate) {
+                    #( #body_plain )*
+                    #( #stores_plain )*
+                }
+            }
+        }
+    };
+
+    quote! {
+        #[allow(unused_variables, unused_mut, unused_parens, clippy::needless_range_loop)]
+        pub fn #name<const L: usize>(
+            vals: &crate::cse::Values,
+            streams: &[&[&[f64]]; L],
+        ) -> Vec<Vec<crate::cse::query::RowRef>> {
+            use ::std::simd::Simd;
+            #[allow(unused_imports)]
+            use ::std::simd::num::{SimdFloat, SimdInt};
+            #[allow(unused_imports)]
+            use ::std::simd::Select;
+            #[allow(unused_imports)]
+            use ::std::simd::cmp::{SimdPartialEq, SimdPartialOrd};
+            #[allow(unused_imports)]
+            use ::std::simd::StdFloat;
+            let n = streams
+                .iter()
+                .flat_map(|ass| ass.iter().map(|s| s.len()))
+                .min()
+                .unwrap_or(0);
+            let gate = (vals.max_gate as usize + 1).min(n);
+            #( #lead_hoists )*
+            #( #group_minl )*
+            #( #group_want )*
+            #( #group_rsz )*
+            #( #off_decl )*
+            let total = #total_expr;
+            let total_all = total * L;
+            let mut arc: std::sync::Arc<[std::mem::MaybeUninit<f64>]> =
+                std::sync::Arc::new_uninit_slice(total_all);
+            let base: *mut f64 = if total_all == 0 {
+                std::ptr::null_mut()
+            } else {
+                std::sync::Arc::get_mut(&mut arc)
+                    .expect("fresh arena is uniquely owned")
+                    .as_mut_ptr()
+                    .cast::<f64>()
+            };
+            let arena: std::sync::Arc<[f64]> = unsafe { arc.assume_init() };
+            // Warm [0, gate): the SAME scalar interpreter, once per asset —
+            // the seed/lead authority stays single, per-asset carries land in
+            // the Vec below for the lane gather.
+            let mut stw: Vec<[f64; crate::cse::MAX]> = vec![[0.0f64; crate::cse::MAX]; L];
+            let mut stbw: Vec<[f64; crate::cse::MAX]> = vec![[0.0f64; crate::cse::MAX]; L];
+            let mut stcubw: Vec<[f64; crate::cse::MAX]> = vec![[0.0f64; crate::cse::MAX]; L];
+            let mut stlbw: Vec<[f64; crate::cse::MAX]> = vec![[0.0f64; crate::cse::MAX]; L];
+            let mut sumsqw: Vec<[f64; crate::cse::MAX]> = vec![[0.0f64; crate::cse::MAX]; L];
+            let mut wsumw: Vec<[f64; crate::cse::MAX]> = vec![[0.0f64; crate::cse::MAX]; L];
+            let mut trailw: Vec<[usize; crate::cse::MAX]> = vec![[0usize; crate::cse::MAX]; L];
+            if n > 0 {
+                for a in 0..L {
+                    let mut ptrs: [*mut f64; crate::cse::MAX_SINKS] =
+                        [::core::ptr::null_mut(); crate::cse::MAX_SINKS];
+                    #( #warm_ptrs )*
+                    let mut v = [0.0f64; crate::cse::MAX];
+                    crate::cse::kernel::exec::<#sig, true>(
+                        vals,
+                        streams[a],
+                        0,
+                        gate,
+                        &mut stw[a],
+                        &mut stbw[a],
+                        &mut stcubw[a],
+                        &mut stlbw[a],
+                        &mut sumsqw[a],
+                        &mut wsumw[a],
+                        &mut trailw[a],
+                        &mut v,
+                        &mut ptrs,
+                        &vals.sink_lead,
+                    );
+                }
+            }
+            if gate >= n {
+                return std::array::from_fn::<Vec<crate::cse::query::RowRef>, L, _>(|a| {
+                    vec![#( #row_refs ),*]
+                })
+                .to_vec();
+            }
+            #( #stream_arr_hoists )*
+            #( #row_arrays )*
+            #( #carry_hoists )*
+            #( #const_hoists )*
+            #steady
+            std::array::from_fn::<Vec<crate::cse::query::RowRef>, L, _>(|a| {
+                vec![#( #row_refs ),*]
+            })
+            .to_vec()
+        }
+    }
+}

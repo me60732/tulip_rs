@@ -328,32 +328,11 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Min {
 // ── planner recipe (cse) ─────────────────────────────────────────────
 
 impl crate::cse::Planable for Min {
-    /// `MIN(p)` — the mirror of [`Max::recipe`](super::Max::recipe) (E9).
-    ///
-    /// The one hand asymmetry the planner deliberately does NOT copy:
-    /// `Min::indicator` warms up with `period` bars (`State::init_state(real,
-    /// periods.0)`) while `Max::indicator` uses `period − 1`, so the min side
-    /// re-processes its first printed bar and its trail runs one bar long.
-    /// That is invisible in the printed value — an oversized trail only makes
-    /// the rescan fire a bar EARLIER, and the rescan recomputes the exact
-    /// window minimum — so the engine uses the uniform rule for both and
-    /// `jit_min_matches_hand` pins the equivalence (including the
-    /// plateau/tie shapes where the schedule would show).
+    /// The graph is leaf data — `crate::cse::recipes::min` (the mirror of
+    /// `max`; the hand init-bar asymmetry is value-invisible, the uniform
+    /// rule is pinned by parity).
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        let period = options[0] as u32;
-        let mut r = crate::cse::Recipe::new();
-        let real = r.add(crate::cse::Node::Input { stream: 0 });
-        let m = r.add(crate::cse::Node::RollMin {
-            src: real,
-            period,
-            look_back: period.saturating_sub(1),
-        });
-        r.kind = "min";
-        r.options = options.to_vec();
-        r.tail_inputs = vec![m];
-        r.restorer = Some(restore_state);
-        r.outputs.push(crate::cse::Sink::iface(m));
-        r
+        crate::cse::recipes::min(options)
     }
 }
 

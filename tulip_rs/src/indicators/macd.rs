@@ -5,7 +5,7 @@ pub use crate::indicator_types::IndicatorByOptions;
 pub use crate::indicator_types::SimdIndicatorResult;
 pub use crate::indicator_types::{Indicator, IndicatorResult, TIndicatorState, TState};
 
-use crate::cse::{Node, Planable, Recipe, Sink};
+use crate::cse::{ChainStateEma, Planable, Recipe};
 use crate::indicators::ema::{Ema, State as EmaState};
 use crate::types::{Cold, DisplayGroup, DisplayType, IndicatorError, IndicatorType, Info, Warm};
 use serde::{Deserialize, Serialize};
@@ -177,64 +177,13 @@ fn cycle_macd(
 pub struct Macd;
 
 impl Planable for Macd {
-    /// `Macd(s, l, g)`:
-    /// ```text
-    ///   ema_s(close)  ema_l(close)
-    ///          \        /
-    ///           sub  = macd_line   ( == Apo(s, l) )
-    ///          /        \
-    ///   ema_g(macd_line)  \   = signal_line
-    ///          \            /
-    ///            sub        = histogram
-    /// ```
-    ///
-    /// SSA order matches [`Macd`]'s `TState::calc` (`short_ema`, `long_ema`,
-    /// `macd_value`, `signal`, then `histogram`). The `Ema{period: s}` and
-    /// `Ema{period: l}` nodes over `Input{0}` are *the same CSE keys* as
-    /// [`Apo::recipe`](super::apo::Apo::recipe), and the `macd_line` node
-    /// `sub(s, l)` is `Apo`'s result — the engine §4 identity `Apo ≡ macd_line`.
+    /// The graph is leaf data — `crate::cse::recipes::macd`: the close EMAs
+    /// and line `Sub` are the SAME CSE keys as [`Apo::recipe`](super::apo::Apo::recipe)
+    /// (the §4 identity), the signal is an `Ema` *of the line node* (chained
+    /// recurrence — fed the line's REPORTED bars, seeded from the first,
+    /// bit-for-bit `Macd::init_state`), and the histogram is one more `Sub`.
     fn recipe(options: &[f64]) -> Recipe {
-        let short = options[0] as u32;
-        let long = options[1] as u32;
-        let signal_period = options[2] as u32;
-
-        let mut r = Recipe::new();
-        let real = r.add(Node::Input { stream: 0 });
-        // Three EMA SUB-INDICATORS (short/long over close, signal over the
-        // line) composed via `sub_at` — Ema::recipe is their single source of
-        // truth; macd depends on the EMAs, not on Apo. The grafted nodes carry
-        // the same intern keys, so the §4 identity (this line ≡ apo line ≡ ppo
-        // numerator) still interns to one `fsub`.
-        let s = r.sub_at::<Ema>(&[short as f64], &[real]);
-        let l = r.sub_at::<Ema>(&[long as f64], &[real]);
-        // The line Sub is the SAME node APO declares (and PPO's numerator) —
-        // merge interns one `fsub` for all three (§4 identity). The signal
-        // is an `Ema` *of that node*: the engine's chained-recurrence rule
-        // feeds it exactly the line's REPORTED bars (lead `long-1`), seeded
-        // from the first — bit-for-bit `Macd::init_state`. The arena lead
-        // formula gives it `long-1 + sp-1` = the hand's 33.
-        let line = r.add(Node::Sub { a: s, b: l });
-        let sig = r.sub_at::<Ema>(&[signal_period as f64], &[line]);
-        let hist = r.add(Node::Sub { a: line, b: sig });
-
-        r.kind = "macd";
-        r.options = options.to_vec();
-        // The hand State's three chains, in TState field order.
-        r.tail_inputs = vec![s, l, sig];
-        r.restorer = Some(restore_state);
-        // outputs in Info order: macd_line, signal, histogram — publish leads
-        // = hand slot_lengths offsets (25 / 33 / 33 for 12/26/9).
-        r.outputs.push(Sink::iface_lead(line, long - 1));
-        r.outputs
-            .push(Sink::iface_lead(sig, long + signal_period - 2));
-        r.outputs
-            .push(Sink::iface_lead(hist, long + signal_period - 2));
-        // optional_outputs in Info order: short_ema, long_ema — node
-        // mirrors with hand `Ema::output_length` capacities ⇒ publish leads
-        // are the periods (defined-from + 1), declared explicitly.
-        r.optional_outputs.push(Sink::iface_lead(s, short));
-        r.optional_outputs.push(Sink::iface_lead(l, long));
-        r
+        crate::cse::recipes::macd(options)
     }
 }
 

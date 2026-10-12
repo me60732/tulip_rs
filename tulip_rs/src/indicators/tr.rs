@@ -151,28 +151,9 @@ impl Indicator<INPUTS, OPTIONS> for Tr {
 // ── planner recipe (cse) ─────────────────────────────────────────────
 
 impl crate::cse::Planable for Tr {
-    /// `TR` = `max(high−low, |high−prevClose|, |low−prevClose|)`, the E6
-    /// multi-input leaf: three price streams (`high`/`low`/`close`),
-    /// `prevClose` via `Lag(close,1)` (the anchor, not a state), `Abs` +
-    /// two `Max`. Stateless and pure-recipe — the SAME nodes `Atr`'s
-    /// Wilders chain feeds on, so a dashboard sharing TR with ATR/natr rolls
-    /// it once. Publish lead = 1 (hand `output_length = len − 1`).
+    /// The graph is leaf data — `crate::cse::recipes::tr` (the true-range
+    /// chain the whole ATR family shares; stateless, publish lead 1).
     fn recipe(_options: &[f64]) -> crate::cse::Recipe {
-        let mut r = crate::cse::Recipe::new();
-        let high = r.add(crate::cse::Node::Input { stream: 0 });
-        let low = r.add(crate::cse::Node::Input { stream: 1 });
-        let close = r.add(crate::cse::Node::Input { stream: 2 });
-        let pc = r.add(crate::cse::Node::Lag { src: close, n: 1 });
-        let range = r.add(crate::cse::Node::Sub { a: high, b: low });
-        let h_pc = r.add(crate::cse::Node::Sub { a: high, b: pc });
-        let hc = r.add(crate::cse::Node::Abs { src: h_pc });
-        let l_pc = r.add(crate::cse::Node::Sub { a: low, b: pc });
-        let lc = r.add(crate::cse::Node::Abs { src: l_pc });
-        let m1 = r.add(crate::cse::Node::Max { a: range, b: hc });
-        let tr = r.add(crate::cse::Node::Max { a: m1, b: lc });
-        r.kind = "tr";
-        r.options = Vec::new();
-        r.outputs.push(crate::cse::Sink::iface_lead(tr, 1));
-        r
+        crate::cse::recipes::tr(_options)
     }
 }

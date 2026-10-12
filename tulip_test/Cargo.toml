@@ -32,12 +32,8 @@ kand = "0.2"
 vector-ta = { version = "0.3", features = [] } #["nightly-avx"] }
 
 [features]
-default = ["safe_inputs"]
+default = []
 talib = []
-# Passthrough so benches/examples here can measure the library's trustworthy-data
-# mode (`tulip_rs/Cargo.toml` documents what it does and, just as importantly,
-# what it refuses to skip).
-safe_inputs = ["tulip_rs/safe_inputs"]
 
 [[bench]]
 name = "benchmark_cybercycle"
@@ -417,7 +413,7 @@ name = "benchmark_ichimoku"
 harness = false
 
 [[bench]]
-name = "benchmark_cse"
+name = "benchmark_fused"
 harness = false
 
 #[[bench]]

@@ -336,67 +336,12 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Willr {
 // ── planner recipe (cse) ─────────────────────────────────────────────
 
 impl crate::cse::Planable for Willr {
-    /// `WILLR` = `100·(max − close) / (max − min)`, zeroed when the range is
-    /// degenerate (E9 M2). Hand facts encoded here:
-    /// * window `(period, period − 1)` — max of HIGH, min of LOW, so this recipe
-    ///   interns onto `donchianchannel`'s / `stoch`'s identical rolls at the same
-    ///   period, but NOT onto `aroon`'s (its window is `(period, period)`).
-    /// * the primary prints from bar `period` (`cycle_willr` starts there, and
-    ///   `min_data = period + 1` sizes the row) — the roll nodes are defined one
-    ///   bar earlier, hence the explicit sink lead;
-    /// * the `min`/`max` optionals print ONE BAR EARLIER (hand `init_state`
-    ///   already stores them at `look_back = period − 1`, then `slice_outputs_start!`
-    ///   offsets the rest), so those sinks take the nodes' own lead;
-    /// * `100.0 * (max − close) / (max − min)` is `Div(Mul(100, Sub), Sub)` —
-    ///   Rust's left-to-right association, NOT `Mul(100, Div)` (different bits);
-    /// * the `(max−min).abs() < f64::EPSILON → 0.0` guard is exactly
-    ///   `WhereLt{a: |max−min|, b: EPSILON, t: div}` — the hand's own `<` form:
-    ///   `< ε` takes the pinned `+0.0`, `>=` (the else arm) takes the division. It
-    ///   is `WhereLt` and not `WhereGe` for the flat/NaN case the hand reaches: an
-    ///   IEEE compare is false in BOTH directions for NaN, so `< ε` falls to the
-    ///   division and propagates its NaN as the hand does, where `WhereGe`'s false
-    ///   arm is `+0.0` and would swallow it. (On the finite prices willr rolls over
-    ///   the two agree — `|max−min| ≥ 0` — so this pins a latent divergence rather
-    ///   than changing any printed value.) The division is still computed
-    ///   unconditionally (a `select`, both arms live), as `di`/`dx` already do: a
-    ///   float divide by zero yields ±inf/NaN and is discarded.
+    /// The graph is leaf data — `crate::cse::recipes::willr` (canonical
+    /// `(p, p−1)` rolls sharing donchian's/stoch's at the same period, the
+    /// hand's `WhereLt` ε-guard, primaries from `period`, min/max optionals
+    /// one bar earlier at the nodes' own lead).
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        use crate::cse::{Node, Recipe, Sink};
-        let period = options[0] as u32;
-        let look_back = period - 1;
-        let mut r = Recipe::new();
-        let high = r.add(Node::Input { stream: 0 });
-        let low = r.add(Node::Input { stream: 1 });
-        let close = r.add(Node::Input { stream: 2 });
-        let mx = r.add(Node::RollMax {
-            src: high,
-            period,
-            look_back,
-        });
-        let mn = r.add(Node::RollMin {
-            src: low,
-            period,
-            look_back,
-        });
-        let dif = r.add(Node::Sub { a: mx, b: mn });
-        let adif = r.add(Node::Abs { src: dif });
-        let mc = r.add(Node::Sub { a: mx, b: close });
-        let c100 = r.constant(100.0);
-        let num = r.add(Node::Mul { a: c100, b: mc });
-        let q = r.add(Node::Div { a: num, b: dif });
-        let eps = r.constant(f64::EPSILON);
-        let wr = r.add(Node::WhereLt {
-            a: adif,
-            b: eps,
-            t: q,
-        });
-        r.kind = "willr";
-        r.options = options.to_vec();
-        r.tail_inputs = vec![mn, mx];
-        r.restorer = Some(restore_state);
-        r.outputs = vec![Sink::iface_lead(wr, period)];
-        r.optional_outputs = vec![Sink::iface(mn), Sink::iface(mx)];
-        r
+        crate::cse::recipes::willr(options)
     }
 }
 

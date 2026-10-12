@@ -248,27 +248,10 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Wma {
 // ── planner recipe (cse) ─────────────────────────────────────────────
 
 impl crate::cse::Planable for Wma {
-    /// `WMA(p)` — one trick node sharing its window GROUP with any
-    /// `Sma`/`Stddev` of the same `(src, p)` (one raw sum, one ring, one
-    /// cursor; WMA adds only its weighted-sum line — the SMA multiply
-    /// happens only when an `Sma`/`Stddev` line demands it). The optional
-    /// SMA line is the shared `Sma` node. Lead = `period` (hand reports
-    /// `len - period` rows: init folds bars 0..p-1, first value published
-    /// at bar p per the hand's cycle bounds).
+    /// The graph is leaf data — `crate::cse::recipes::wma` (the trick node
+    /// plus the shared `Sma` mirror, leads `period`).
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        let period = options[0] as u32;
-        let mut r = crate::cse::Recipe::new();
-        let close = r.add(crate::cse::Node::Input { stream: 0 });
-        let w = r.add(crate::cse::Node::Wma { src: close, period });
-        let m = r.add(crate::cse::Node::Sma { src: close, period });
-        r.kind = "wma";
-        r.options = options.to_vec();
-        r.tail_inputs = vec![w];
-        r.restorer = Some(restore_state);
-        r.outputs.push(crate::cse::Sink::iface_lead(w, period));
-        r.optional_outputs
-            .push(crate::cse::Sink::iface_lead(m, period));
-        r
+        crate::cse::recipes::wma(options)
     }
 }
 

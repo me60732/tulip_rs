@@ -1,27 +1,24 @@
-//! `Request` → `JitPlan` → `run`/`resume`/`get_states` — the query surface
-//! for the JIT executor (planner-owned interface compiled into one fused
-//! machine loop, closed tail set inlined as CLIF ops).
+//! `Request` → merged arena → fused kernel — the query surface.
 //!
 //! * [`Request`] builds the recipe list. `add(recipe, None)` mirrors hand
 //!   `::indicator(None)` (primary-only: disabled optionals print EMPTY arrays
-//!   in position, their sinks are excluded from emission and from
-//!   `first_bar`-independent lead clamping); `add(recipe, Some(&flags))` turns
-//!   optionals on per `Info::optional_outputs`, and [`Request::add_all`] is the
-//!   explicit all-on form.
-//! * [`Request::build`] merges (CSE) the interface graphs, bakes leads, and
-//!   compiles the plan with Cranelift. Immutable, data-length-independent;
-//!   build once per query SHAPE and cache (compile ≈ 0.4ms — the
-//!   `prepare_plan`/`jit_compile` split), then run per asset.
-//! * [`crate::cse::JitPlan::get_states`] reconstitutes the hand
-//!   `IndicatorState`s from the compiled chain state — the one-way export
-//!   the DB/FFI paths use, never on the hot path.
+//!   in position, their stores are gated by `Values.sink_want` at runtime);
+//!   `add(recipe, Some(&flags))` turns optionals on per
+//!   `Info::optional_outputs`, and [`Request::add_all`] is the explicit
+//!   all-on form.
+//! * [`crate::cse::erase_request`] merges (CSE) the interface graphs, bakes
+//!   leads and want-bits into `Signature`/`Values` — the dispatch key plus
+//!   the runtime bindings for the macro-fused kernels (tier 1, see
+//!   `proposals/Macro_Cse_Engine/`), the fallback yardsticks for hand and
+//!   interpreter, and the input for the routing decision.
+//! * The retired Cranelift JIT (`Request::build` → `JitPlan`) now lives in
+//!   the top-level `old_jit/` archive; `get_states`/`resume` parity ports to
+//!   the kernel registry as M1 (ROADMAP).
 //!
-//! The engine itself ([`crate::cse::jit`]) documents the §5.3 gating /
-//! streaming invariants; the parity tests here pin them against the hand
-//! indicators (`::indicator()` + `batch_indicator` streaming).
+//! The parity tests pin streaming invariants against the hand indicators
+//! (integration suite: `tulip_test/tests/cse_kernel_registry_test.rs`).
 
-use crate::cse::jit::JitPlan;
-use crate::cse::{Node, Recipe, Sink, SinkSrc};
+use crate::cse::{ChainState, Node, Recipe, Sink, SinkSrc};
 use crate::indicators::ema::State as EmaState;
 use crate::types::Warm;
 use std::sync::Arc;
@@ -84,43 +81,13 @@ impl Request {
         arena.sharing_groups(&resolved)
     }
 
-    /// Merge (CSE) the interface graphs, bake leads, apply the optional
-    /// switch, and compile the fused JIT loop. Panics on arena shapes the
-    /// emitter does not cover yet (reserved node kinds, unknown tail kinds)
-    /// — those recipes are the emitter's next coverage, not a fallback path.
-    pub fn build(self) -> JitPlan {
-        JitPlan::compile(&self)
-    }
-
-    /// E2: compile an ASSET-LANE plan — the arena replicates over
-    /// `n_assets` price streams (one query shape, many symbols), so the
-    /// per-bar math steps pairs of assets per `f64x2` group and one fused
-    /// loop advances every symbol's chains, lines, and signals together.
-    /// Feed it via [`JitPlan::run_assets`]/`advance_assets`; all streams
-    /// carry the same bar count (hand `indicator_by_assets` contract).
-    pub fn build_assets(self, n_assets: usize) -> JitPlan {
-        JitPlan::compile_assets(&self, n_assets)
-    }
-
-    /// E4: [`Self::build`] through the process-wide plan cache — identical
-    /// query shapes compile ONCE (~0.4ms) and are then shared as cheap
-    /// `Arc<JitPlan>` handles (~µs lookup). Same bytes ⇒ same plan: the
-    /// cache is content-addressed, so `Arc::ptr_eq` identifies a shape.
-    pub fn build_cached(self) -> Arc<JitPlan> {
-        super::cache::cached_plan(&self, 1)
-    }
-
-    /// E4: [`Self::build_assets`] through the plan cache.
-    pub fn build_assets_cached(self, n_assets: usize) -> Arc<JitPlan> {
-        super::cache::cached_plan(&self, n_assets)
-    }
-
-    /// E4: deterministic canonical encoding of EVERYTHING that affects
-    /// compilation (Handover §4: "serialize the `Request`" — this is that
-    /// key). Recipe order, node fields, sink leads, the optional switch,
-    /// restorer PRESENCE (not its address — keeps the fingerprint stable
-    /// across process restarts), and the asset-lane count. Two requests
-    /// with equal bytes merge to equal arenas: same ids, same plan.
+    /// Deterministic canonical encoding of EVERYTHING that affects a plan
+    /// (Handover §4: "serialize the `Request`" — this is that key). Recipe
+    /// order, node fields, sink leads, and the optional switch. Reserved for
+    /// the ROUTER's plan cache (R2): the fused kernels are compile-time
+    /// registry entries, so nothing calls this yet — the JIT-era
+    /// content-addressed `Arc<JitPlan>` cache retired with the engine.
+    #[allow(dead_code)]
     pub(crate) fn canonical_bytes(&self, n_assets: usize) -> Vec<u8> {
         fn u64b(b: &mut Vec<u8>, v: u64) {
             b.extend_from_slice(&v.to_le_bytes());
@@ -276,7 +243,6 @@ impl Request {
             for &t in &r.tail_inputs {
                 u64b(&mut b, t as u64);
             }
-            b.push(r.restorer.is_some() as u8);
             u64b(&mut b, r.outputs.len() as u64);
             for o in &r.outputs {
                 sinkb(&mut b, o);
@@ -457,294 +423,39 @@ pub enum IndicatorStateBox {
     Other,
 }
 
-// ---------------------------------------------------------------------------
-// tests
-// ---------------------------------------------------------------------------
+/// Rebuild one hand `IndicatorState` from its arena chain states — the
+/// signature every indicator's `restore_state` matches.
+pub type StateRestorer = fn(Vec<ChainState>) -> IndicatorStateBox;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::cse::Planable;
-    use crate::indicator_types::Indicator;
-    use crate::indicators::apo::Apo;
-    use crate::indicators::ema::Ema;
-    use crate::indicators::macd::Macd;
-    use crate::indicators::ppo::Ppo;
-
-    const APO: [f64; 2] = [12.0, 26.0];
-    const MACD: [f64; 3] = [12.0, 26.0, 9.0];
-    const PPO: [f64; 2] = [12.0, 26.0];
-
-    fn series(n: usize) -> Vec<f64> {
-        (0..n)
-            .map(|i| ((i as f64 * 0.7).sin() * 10.0 + 100.0) * (1.0 + (i % 7) as f64 * 0.0003))
-            .collect()
-    }
-
-    fn cmp_exact(a: &[f64], b: &[f64], what: &str) {
-        assert_eq!(a.len(), b.len(), "{what}: len {} vs {}", a.len(), b.len());
-        for i in 0..a.len() {
-            assert_eq!(
-                a[i].to_bits(),
-                b[i].to_bits(),
-                "{what}: mismatch at {i}: {:?} vs {:?}",
-                a[i],
-                b[i]
-            );
-        }
-    }
-
-    fn classic_request() -> Request {
-        Request::new()
-            .add_all(Apo::recipe(&APO))
-            .add_all(Ppo::recipe(&PPO))
-            .add_all(Macd::recipe(&MACD))
-    }
-
-    /// THE parity gate: one `run` of the classic merged query == the three
-    /// hand `::indicator()` calls, bit-for-bit, primaries AND every optional
-    /// line (with flags on), on a long series.
-    #[test]
-    fn query_matches_hand_indicators() {
-        let close = series(5000);
-        let s: [&[f64]; 1] = [close.as_slice()];
-        let plan = classic_request().build();
-        let (res, _) = plan.run(&s);
-
-        let flags = Some(&[true, true][..]);
-        let apo = Apo::indicator(&s, &APO, flags).unwrap().0;
-        let ppo = Ppo::indicator(&s, &PPO, flags).unwrap().0;
-        let macd = Macd::indicator(&s, &MACD, flags).unwrap().0;
-
-        // apo: [line] + optional [short, long]
-        cmp_exact(res.request(0).output(0), &apo[0], "apo_line");
-        cmp_exact(res.request(0).optional(0), &apo[1], "apo_short_opt");
-        cmp_exact(res.request(0).optional(1), &apo[2], "apo_long_opt");
-        // ppo: [ppo] + optional [short, long] — both raw EMA mirrors now
-        // (the hand clamp guards only the divisor)
-        cmp_exact(res.request(1).output(0), &ppo[0], "ppo_line");
-        cmp_exact(res.request(1).optional(0), &ppo[1], "ppo_short_opt");
-        cmp_exact(res.request(1).optional(1), &ppo[2], "ppo_long_opt");
-        // macd: [line, signal, hist] + optional [short, long]
-        cmp_exact(res.request(2).output(0), &macd[0], "macd_line");
-        cmp_exact(res.request(2).output(1), &macd[1], "macd_signal");
-        cmp_exact(res.request(2).output(2), &macd[2], "macd_hist");
-        cmp_exact(res.request(2).optional(0), &macd[3], "macd_short_opt");
-        cmp_exact(res.request(2).optional(1), &macd[4], "macd_long_opt");
-    }
-
-    /// Streaming contract: 90/140 splits AND a short first chunk
-    /// re-concatenate to the single full run, bit-exact, primary+optional.
-    #[test]
-    fn query_streaming_matches_full_run() {
-        let close = series(500);
-        let s_all: [&[f64]; 1] = [close.as_slice()];
-        let plan = classic_request().build();
-        let (full, _) = plan.run(&s_all);
-
-        // Splits include every phase boundary of this plan's leads
-        // (mirrors 12, primaries 25/26, signal 33) — boundary arithmetic is
-        // exactly where chunking bugs live.
-        for split in [90usize, 140, 20, 33, 25, 12, 13, 26, 27, 34] {
-            let s1: [&[f64]; 1] = [&close[..split]];
-            let s2: [&[f64]; 1] = [&close[split..]];
-            let (head, qs) = plan.run(&s1);
-            let (tail, _) = plan.resume(qs, &s2);
-            for req in 0..full.outputs.len() {
-                for out in 0..full.outputs[req].len() {
-                    let mut c = head.outputs[req][out].to_vec();
-                    c.extend_from_slice(&tail.outputs[req][out]);
-                    cmp_exact(
-                        &c,
-                        &full.outputs[req][out],
-                        &format!("split{split} primary"),
-                    );
-                }
-                for out in 0..full.optional[req].len() {
-                    let mut c = head.optional[req][out].to_vec();
-                    c.extend_from_slice(&tail.optional[req][out]);
-                    cmp_exact(
-                        &c,
-                        &full.optional[req][out],
-                        &format!("split{split} optional"),
-                    );
-                }
-            }
-        }
-    }
-
-    /// The optional-output switch: `None` matches hand primary-only calls,
-    /// disabled slots are EMPTY in position, enabled/primary values are
-    /// bit-identical to the all-on run.
-    #[test]
-    fn optional_switch_prunes_emission_not_values() {
-        let close = series(500);
-        let s: [&[f64]; 1] = [close.as_slice()];
-
-        let (all, _) = classic_request().build().run(&s);
-        let none_plan = Request::new()
-            .add(Apo::recipe(&APO), None)
-            .add(Ppo::recipe(&PPO), None)
-            .add(Macd::recipe(&MACD), None)
-            .build();
-        let (rn, _) = none_plan.run(&s);
-
-        // hand parity in primary-only mode
-        let apo = Apo::indicator(&s, &APO, None).unwrap().0;
-        let ppo = Ppo::indicator(&s, &PPO, None).unwrap().0;
-        let macd = Macd::indicator(&s, &MACD, None).unwrap().0;
-        cmp_exact(rn.request(0).output(0), &apo[0], "hand_apo");
-        cmp_exact(rn.request(1).output(0), &ppo[0], "hand_ppo");
-        cmp_exact(rn.request(2).output(0), &macd[0], "hand_macd_line");
-        cmp_exact(rn.request(2).output(1), &macd[1], "hand_macd_signal");
-        cmp_exact(rn.request(2).output(2), &macd[2], "hand_macd_hist");
-
-        for req in 0..3 {
-            for out in 0..rn.optional[req].len() {
-                assert!(
-                    rn.optional[req][out].is_empty(),
-                    "req {req} opt {out} disabled must print EMPTY"
-                );
-                assert!(!all.optional[req][out].is_empty(), "all-on opt empty");
-            }
-            for out in 0..all.outputs[req].len() {
-                cmp_exact(
-                    &rn.outputs[req][out],
-                    &all.outputs[req][out],
-                    "primary invariance",
-                );
-            }
-        }
-
-        // partial: macd long_ema off only — everything else keeps its all-on bits
-        let part = Request::new()
-            .add(Apo::recipe(&APO), None)
-            .add(Ppo::recipe(&PPO), None)
-            .add(Macd::recipe(&MACD), Some(&[true, false]))
-            .build();
-        let (rp, _) = part.run(&s);
-        cmp_exact(
-            rp.request(2).optional(0),
-            all.request(2).optional(0),
-            "macd_short_enabled_eq_all",
-        );
-        assert!(rp.request(2).optional(1).is_empty(), "macd_long disabled");
-    }
-
-    /// `get_states` reconstitutes each hand `State` from its arena chains
-    /// through the INDICATOR's own restorer (`Recipe::restorer`) — the
-    /// engine assembles no state structs and knows no indicator fields
-    /// (shared arena node ⇒ identical chains across the three requests:
-    /// one authority per node).
-    #[test]
-    fn get_states_restores_via_indicator_restorers() {
-        let close = series(500);
-        let s: [&[f64]; 1] = [close.as_slice()];
-        let plan = classic_request().build();
-        let (res, qs) = plan.run(&s);
-        let states = plan.get_states(&qs);
-
-        let (IndicatorStateBox::Apo(ap), IndicatorStateBox::Ppo(pp), IndicatorStateBox::Macd(mc)) =
-            (&states[0], &states[1], &states[2])
-        else {
-            panic!(
-                "hand states not rebuilt: {:?}",
-                states
-                    .iter()
-                    .map(|s| matches!(s, IndicatorStateBox::Other))
-                    .collect::<Vec<_>>()
-            )
-        };
-        // interface fields == final reported EMA optional line
-        assert_eq!(
-            ap.short_ema.ema.to_bits(),
-            res.request(0).optional(0).last().unwrap().to_bits(),
-            "ema12 field vs published"
-        );
-        assert_eq!(
-            ap.long_ema.ema.to_bits(),
-            res.request(0).optional(1).last().unwrap().to_bits(),
-            "ema26 field vs published"
-        );
-        // same arena node, one authority: all three requests see identical state
-        assert_eq!(pp.short_ema.ema.to_bits(), ap.short_ema.ema.to_bits());
-        assert_eq!(mc.short_ema.ema.to_bits(), ap.short_ema.ema.to_bits());
-        assert_eq!(mc.long_ema.ema.to_bits(), ap.long_ema.ema.to_bits());
-        // macd's signal is TAIL state — must equal the last published signal line
-        assert_eq!(
-            mc.signal_state.ema.to_bits(),
-            res.request(2).output(1).last().unwrap().to_bits(),
-            "tail-private signal vs published"
-        );
-    }
-
-    /// The dedup showcase: adding `Ema` requests to the classic query grows
-    /// the arena by NOTHING — the nodes merge into the chains apo/ppo/macd
-    /// already advance. Parity vs hand `Ema::indicator` (values AND length),
-    /// one-authority identity with apo's optional mirrors, streaming
-    /// concat, and `get_states` exporting the interface node itself.
-    #[test]
-    fn ema_lines_piggyback_shared_nodes() {
-        let close = series(500);
-        let s: [&[f64]; 1] = [close.as_slice()];
-        let plan = classic_request()
-            .add(Ema::recipe(&[12.0]), None)
-            .add(Ema::recipe(&[26.0]), None)
-            .build();
-        let classic_nodes = classic_request().build().arena().nodes.len();
-        assert_eq!(
-            plan.arena().nodes.len(),
-            classic_nodes,
-            "ema requests must add ZERO nodes to the classic graph"
-        );
-        assert_eq!(
-            classic_nodes,
-            crate::cse::CLASSIC_NODES,
-            "classic graph: chains, the shared line Sub, ppo's divisor guard when \
-             prices are not declared safe, signal + hist"
-        );
-        let (res, qs) = plan.run(&s);
-
-        let e12 = Ema::indicator(&s, &[12.0], None).unwrap().0;
-        let e26 = Ema::indicator(&s, &[26.0], None).unwrap().0;
-        cmp_exact(res.request(3).output(0), &e12[0], "ema12_line");
-        cmp_exact(res.request(4).output(0), &e26[0], "ema26_line");
-        // One authority per node: the piggybacked line IS apo's optional
-        // mirror, byte for byte (classic uses `.add` ⇒ optionals all on).
-        cmp_exact(
-            res.request(3).output(0),
-            res.request(0).optional(0),
-            "ema12_eq_apo_short_opt",
-        );
-        // The long slot on apo reuses the PRIMARY capacity (hand `Apo` fact,
-        // lead = long-1), so it prints one earlier bar; from bar `long` on
-        // the same arena node agrees bit-exactly with the standalone line.
-        cmp_exact(
-            &res.request(0).optional(1)[1..],
-            res.request(4).output(0),
-            "ema26_eq_apo_long_opt_tail",
-        );
-
-        // Streaming contract on the mirror request too.
-        let split = 90;
-        let s1: [&[f64]; 1] = [&close[..split]];
-        let s2: [&[f64]; 1] = [&close[split..]];
-        let (h1, qs1) = plan.run(&s1);
-        let (h2, _) = plan.resume(qs1, &s2);
-        let mut c = h1.outputs[3][0].to_vec();
-        c.extend_from_slice(&h2.outputs[3][0]);
-        cmp_exact(&c, res.request(3).output(0), "ema12_streamed");
-
-        // `get_states`: a mirror request exports the interface node itself,
-        // and it must equal the published last value.
-        let states = plan.get_states(&qs);
-        let IndicatorStateBox::Ema(st12) = &states[3] else {
-            panic!("ema interface state not rebuilt");
-        };
-        assert_eq!(
-            st12.ema.to_bits(),
-            res.request(3).output(0).last().unwrap().to_bits(),
-            "exported node state vs published"
-        );
+/// The kind → restorer table. Phase 1 of "recipes as data" removed the
+/// `Recipe.restorer` field (the leaf crate cannot type a runtime restorer),
+/// so the recipe's identity stays a string and this table resolves it.
+/// The entries are EXACTLY the 18 kinds whose recipes set
+/// `r.restorer = Some(restore_state)` at the pre-JIT-retirement HEAD
+/// (`git grep "r.restorer = Some"`) — a phantom entry here would claim the
+/// engine can rebuild a hand state it has no wiring for, changing
+/// `get_states` behavior; unknown kinds fall to `None`, mirroring the old
+/// absent-field path (caller yields `IndicatorStateBox::Other`).
+pub fn restorer_for(kind: &str) -> Option<StateRestorer> {
+    match kind {
+        "ema" => Some(crate::indicators::ema::restore_state),
+        "apo" => Some(crate::indicators::apo::restore_state),
+        "macd" => Some(crate::indicators::macd::restore_state),
+        "ppo" => Some(crate::indicators::ppo::restore_state),
+        "wilders" => Some(crate::indicators::wilders::restore_state),
+        "sma" => Some(crate::indicators::sma::restore_state),
+        "stddev" => Some(crate::indicators::stddev::restore_state),
+        "wma" => Some(crate::indicators::wma::restore_state),
+        "hma" => Some(crate::indicators::hma::restore_state),
+        "max" => Some(crate::indicators::max::restore_state),
+        "min" => Some(crate::indicators::min::restore_state),
+        "aroon" => Some(crate::indicators::aroon::restore_state),
+        "aroonosc" => Some(crate::indicators::aroonosc::restore_state),
+        "willr" => Some(crate::indicators::willr::restore_state),
+        "donchianchannel" => Some(crate::indicators::donchianchannel::restore_state),
+        "ichimoku" => Some(crate::indicators::ichimoku::restore_state),
+        "rsi" => Some(crate::indicators::rsi::restore_state),
+        "cmo" => Some(crate::indicators::cmo::restore_state),
+        _ => None,
     }
 }

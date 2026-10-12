@@ -248,30 +248,11 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for AroonOsc {
 // ── planner recipe (cse) ─────────────────────────────────────────────
 
 impl crate::cse::Planable for AroonOsc {
-    /// `AROONOSC` = `aroon_up − aroon_down`, built on
-    /// [`aroon::aroon_graph`](super::aroon::aroon_graph) so EVERY node it emits
-    /// is byte-identical to aroon's. Co-requested with `Aroon`, the arena
-    /// interns the whole shape: one `RollMax` over high, one `RollMin` over
-    /// low, both trail projections and both scaled lines are shared, and the
-    /// oscillator costs one extra `fsub` + one store — the family's fusion
-    /// showcase (the hand runs a second full pass over both series).
+    /// The graph is leaf data — `crate::cse::recipes::aroonosc` (the osc
+    /// `Sub` over the byte-identical interned aroon graph; one extra fsub +
+    /// store when co-requested with `Aroon` — the fusion showcase).
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        let period = options[0] as u32;
-        let mut r = crate::cse::Recipe::new();
-        let g = super::aroon::aroon_graph(&mut r, period);
-        let osc = r.add(crate::cse::Node::Sub { a: g.up, b: g.down });
-        r.kind = "aroonosc";
-        r.options = options.to_vec();
-        r.tail_inputs = vec![g.min_roll, g.max_roll];
-        r.restorer = Some(restore_state);
-        r.outputs = vec![crate::cse::Sink::iface_lead(osc, period)];
-        // hand `Info::optional_outputs` order: [aroon_down, aroon_up]; both
-        // print from bar `period` (one `cycle` writes all three).
-        r.optional_outputs = vec![
-            crate::cse::Sink::iface_lead(g.down, period),
-            crate::cse::Sink::iface_lead(g.up, period),
-        ];
-        r
+        crate::cse::recipes::aroonosc(options)
     }
 }
 

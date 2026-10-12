@@ -249,82 +249,13 @@ impl IndicatorByOptions<INPUTS, OPTIONS> for Aroon {
 
 // ── planner recipe (cse) ─────────────────────────────────────────────
 
-/// The aroon node graph, with its roll nodes handed back so callers can name
-/// them as `tail_inputs`. `Aroon::recipe` and `AroonOsc::recipe` BOTH build
-/// through this, emitting byte-identical nodes — the arena's interning then
-/// collapses them, so one `RollMax`/`RollMin` pair, one trail projection pair
-/// and one scaled-line pair serve both indicators (aroonosc costs exactly one
-/// extra `fsub` + one store). This is the "if the math matches, it's shared"
-/// rule with the source of truth kept in one place.
-pub(crate) struct AroonLines {
-    pub down: u32,
-    pub up: u32,
-    pub min_roll: u32,
-    pub max_roll: u32,
-}
-
-pub(crate) fn aroon_graph(r: &mut crate::cse::Recipe, period: u32) -> AroonLines {
-    use crate::cse::Node;
-    let high = r.add(Node::Input { stream: 0 });
-    let low = r.add(Node::Input { stream: 1 });
-    // AROON's window is `period + 1` bars: the hand calls
-    // `min_state.calc((low, i, (period, period)))` — look_back EQUAL to period,
-    // unlike standalone `max`/`min`/`willr`/`donchian` which use `period − 1`.
-    // That is why `look_back` is its own parameter: deriving it from `period`
-    // would intern two different windows as one node.
-    let max_roll = r.add(Node::RollMax {
-        src: high,
-        period,
-        look_back: period,
-    });
-    let min_roll = r.add(Node::RollMin {
-        src: low,
-        period,
-        look_back: period,
-    });
-    let tmax = r.add(Node::Trail { src: max_roll });
-    let tmin = r.add(Node::Trail { src: min_roll });
-    let p = r.constant(period as f64);
-    let mult = r.constant(multiplier(period as usize));
-    // hand `calc_aroon`: `(period - trail) as f64 * multiplier` — an integer
-    // subtract then ONE conversion. Done as float over the projected trail it is
-    // bit-identical (both operands are exact integers < 2^53).
-    let up_gap = r.add(Node::Sub { a: p, b: tmax });
-    let up = r.add(Node::Mul { a: up_gap, b: mult });
-    let down_gap = r.add(Node::Sub { a: p, b: tmin });
-    let down = r.add(Node::Mul {
-        a: down_gap,
-        b: mult,
-    });
-    AroonLines {
-        down,
-        up,
-        min_roll,
-        max_roll,
-    }
-}
-
 impl crate::cse::Planable for Aroon {
-    /// `AROON` = the two trail-scaled lines over a rolling max of high and a
-    /// rolling min of low (E9 M1 — the family's first `Trail` consumer).
-    /// Hand facts: `min_data = period + 1` (the trait default), so both lines
-    /// publish from bar `period` — the roll nodes are defined one bar earlier,
-    /// hence the explicit sink leads.
+    /// The graph is leaf data — `crate::cse::recipes::aroon` (the two
+    /// `(p, p)`-window rolls, their trails, and the trail-scaled lines;
+    /// publish leads `period`). `aroon_graph` lives in the leaf and is
+    /// shared byte-identically by `aroonosc`.
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        let period = options[0] as u32;
-        let mut r = crate::cse::Recipe::new();
-        let g = aroon_graph(&mut r, period);
-        r.kind = "aroon";
-        r.options = options.to_vec();
-        // hand `State` field order: min_state THEN max_state
-        r.tail_inputs = vec![g.min_roll, g.max_roll];
-        r.restorer = Some(restore_state);
-        let lead = period;
-        r.outputs = vec![
-            crate::cse::Sink::iface_lead(g.down, lead),
-            crate::cse::Sink::iface_lead(g.up, lead),
-        ];
-        r
+        crate::cse::recipes::aroon(options)
     }
 }
 

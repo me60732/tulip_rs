@@ -29,48 +29,30 @@ targets = [
 # No dependencies needed for the simple file scanning build script
 
 [dependencies]
-# The CSE planner's executor (`cse/jit.rs`): every query compiles to one
-# fused machine loop on the native ISA (FMA/AVX2). Required, not optional —
-# the JIT is the engine.
-cranelift = "0.136.1"
-cranelift-jit = "0.136.1"
-cranelift-module = "0.136.1"
-cranelift-native = "0.136.1"
 serde = { version = "1.0.225", features = ["derive"] }
 serde_json = "1.0.145"
-tulip_rs_macros = "0.1.0"
-tulip_rs_shared = "0.1.0"
-
-#tulip_rs_macros = { path = "../tulip_rs_macros", version = "0.1.0" }
-#tulip_rs_shared = { path = "../tulip_rs_shared", version = "0.1.0" }
-
+# `request!()` (compile-time CSE -> straight-line fused Rust kernels — the
+# JIT's pipeline, emitting Rust source instead of CLIF) and the candlestick
+# `pattern_template` both live here now; the old `cse_fused` proc-macro
+# crate was merged into this one (2026-10-12).
+tulip_rs_macros = { path = "../tulip_rs_macros", version = "0.1.0" }
+tulip_rs_shared = { path = "../tulip_rs_shared", version = "0.1.0" }
 
 [features]
 #default = []
-default = ["simd_options", "simd_assets", "safe_inputs"] #, "candle_deep_analysis"]
+default = ["simd_options", "simd_assets"] #, "candle_deep_analysis"]
 portable_simd = []
 simd_options = []
 simd_assets = []
 # Lane-width cap reserved for a future lane-packed JIT (vector `fma` groups,
 # `cse/jit.rs` step E1); nothing reads it yet.
 avx512 = []
-# Declares the price series trustworthy: finite (no NaN/±inf), never 0.0, and
-# `low <= open / close / high` with `high >= low` — the import filter's contract.
-# Two things follow, and BOTH sides must move together or parity diverges by
-# design rather than by bug:
-#  · the JIT drops the NaN repairs on VALUE guards (`GuardForm::MaxNum` collapses
-#    to one `maxpd`) — worth ~12-15% on `tr`/ATR/SuperTrend;
-#  · `Ppo` emits no `max(ema_l, ε)` divisor floor, in `State::calc` and in
-#    `Ppo::recipe` alike (2 fewer ops, 263 → 243 CLIF lines on `classic`).
-# The non-finite class tests are `#[cfg]`-ed out, since they assert precisely the
-# behaviour this feature gives up.
-#
-# What it still does NOT remove: the `high − low >= ε` floors in
-# `willr`/`donchian`/`stoch` and `stddev`'s `max(√var, ε)`. A FLAT bar
-# (`high == low == open == close`) is legal, rare-but-real data, so those `0/0`
-# cases survive any "clean prices" assumption; and a negative variance is a
-# rounding artifact of the two-moment formula, not of the input.
-safe_inputs = []
+# The `safe_inputs` data-trust feature died with the JIT (2026-10-12): the
+# macro engine assumes the guard-free graph everywhere (the `Ppo` divisor
+# floor is gone from hand, SIMD, and recipes alike — see
+# `src/cse/mod.rs`), and a zero price is excluded by the import filter's
+# data contract. The non-finite class tests it used to `#[cfg]` out are
+# archived in `old_jit/`.
 
 # TODO figure out how to do a deep analysis to eliminate pattern clashes and pull out only one match, would be a cool feature
 # candle_deep_analysis = []

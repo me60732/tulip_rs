@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = [
+    "tulip_rs_shared",
+    "tulip_rs_macros",
     "tulip_rs",
     "tulip_test",
 ]

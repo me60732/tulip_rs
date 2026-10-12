@@ -1,5 +1,5 @@
 use crate::common::{validate_inputs, validate_options};
-use crate::cse::{Node, Planable, Recipe, Sink};
+use crate::cse::{ChainStateEma, Planable, Recipe};
 #[cfg(feature = "simd_options")]
 pub use crate::indicator_types::IndicatorByOptions;
 #[cfg(any(feature = "simd_assets", feature = "simd_options"))]
@@ -81,27 +81,12 @@ impl State<Cold> {
 pub struct Ema;
 
 impl Planable for Ema {
-    /// `Ema(p)` is one node — the request mirrors it. In a merged query the
-    /// CSE key `Ema{src: close, period: p}` dedups into the chain
-    /// apo/ppo/macd already advance ⇒ the extra line is one gated store in
-    /// the fused loop, zero extra recurrence.
-    ///
-    /// Publish lead = `period`: the hand defaults (`min_data = period + 1`,
-    /// `output_length = len - period`) report from bar `period` — one bar
-    /// after the node's defined-from `period-1` (the seed bar is not
-    /// published) — the same lead the apo/ppo/macd optional EMA mirrors
-    /// already use.
+    /// The graph is leaf data — `crate::cse::recipes::ema` (one chain node
+    /// mirroring its line; publish lead `period`, see the leaf doc). In a
+    /// merged query the CSE key `Ema{src: close, period: p}` dedups into
+    /// the chains apo/ppo/macd already advance.
     fn recipe(options: &[f64]) -> Recipe {
-        let period = options[0] as u32;
-        let mut r = Recipe::new();
-        let close = r.add(Node::Input { stream: 0 });
-        let e = r.add(Node::Ema { src: close, period });
-        r.kind = "ema";
-        r.options = options.to_vec();
-        r.tail_inputs = vec![e];
-        r.restorer = Some(restore_state);
-        r.outputs.push(Sink::iface_lead(e, period));
-        r
+        crate::cse::recipes::ema(options)
     }
 }
 
@@ -194,8 +179,8 @@ pub fn calc(value: f64, prev_ema: f64, multiplier: f64, inv_multiplier: f64) -> 
     prev_ema.mul_add(inv_multiplier, value * multiplier)
 }
 
-#[inline(always)]
-pub fn multiplier(period: usize) -> (f64, f64) {
-    let per = 2.0 / (period as f64 + 1.0);
-    (per, 1.0 - per)
-}
+/// `(2/(p+1), 1 − 2/(p+1))` — the EMA step pair, in the leaf vocabulary
+/// (`tulip_rs_shared::cse::multipliers`) so runtime and build-time planner
+/// share one formula; re-exported here so every hand/SIMD consumer keeps
+/// its `ema::multiplier` path.
+pub use tulip_rs_shared::cse::multipliers::ema_multiplier as multiplier;

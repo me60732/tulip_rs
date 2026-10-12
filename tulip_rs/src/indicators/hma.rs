@@ -308,7 +308,6 @@ impl crate::cse::Planable for Hma {
         r.kind = "hma";
         r.options = options.to_vec();
         r.tail_inputs = vec![h];
-        r.restorer = Some(restore_state);
         r.outputs
             .push(crate::cse::Sink::iface_lead(h, period + psqrt));
         r

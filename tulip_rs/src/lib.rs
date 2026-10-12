@@ -1,5 +1,6 @@
 #![allow(clippy::all)]
 #![feature(portable_simd)]
+#![feature(adt_const_params)]
 
 pub mod candle_indicators;
 pub mod common;

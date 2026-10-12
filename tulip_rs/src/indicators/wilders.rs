@@ -77,26 +77,11 @@ impl TIndicatorState<1> for IndicatorState {
 // ── planner recipe (cse) ─────────────────────────────────────────────
 
 impl crate::cse::Planable for Wilders {
-    /// `WILDERS(p)` — one decayed-average node, `INPUTS=1` (the engine's
-    /// only buildable ADX-family leaf pre-multi-input). Warm = fold the
-    /// first `p` into a mean seed; steady = `w·(p−1)/p + v·(1/p)`. Publish
-    /// lead = `period` (hand reports `len − period` rows, `min_data = p+1`).
+    /// The graph is leaf data — `crate::cse::recipes::wilders` (one
+    /// mean-mode decayed-average node over `Input{0}`, publish lead
+    /// `period`).
     fn recipe(options: &[f64]) -> crate::cse::Recipe {
-        let period = options[0] as u32;
-        let mut r = crate::cse::Recipe::new();
-        let close = r.add(crate::cse::Node::Input { stream: 0 });
-        let w = r.add(crate::cse::Node::Wilders {
-            src: close,
-            period,
-            composite: false,
-            feed: false,
-        });
-        r.kind = "wilders";
-        r.options = options.to_vec();
-        r.tail_inputs = vec![w];
-        r.restorer = Some(restore_state);
-        r.outputs.push(crate::cse::Sink::iface_lead(w, period));
-        r
+        crate::cse::recipes::wilders(options)
     }
 }
 
@@ -122,11 +107,10 @@ impl TState for State<Warm> {
     }
 }
 
-#[inline(always)]
-pub fn multiplier(period: usize) -> (f64, f64) {
-    let multiplier = ((period - 1) as f64) / period as f64;
-    (multiplier, 1.0 - multiplier)
-}
+/// `((p−1)/p, 1/p)` — the Wilders step pair, in the leaf vocabulary
+/// (`tulip_rs_shared::cse::multipliers`); re-exported here to keep every
+/// consumer's `wilders::multiplier` path.
+pub use tulip_rs_shared::cse::multipliers::wilders_multiplier as multiplier;
 
 pub struct Wilders;
 
