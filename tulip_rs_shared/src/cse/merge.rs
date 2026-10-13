@@ -26,7 +26,7 @@ pub struct Merged {
     pub nodes: Vec<Node>,
     /// Display-only role tags parallel to `nodes` (from `Recipe::tags`,
     /// first writer across recipes wins). NEVER read by the planner's value
-    /// paths — the `request!` emitter uses them to name locals.
+    /// paths — the `kernel!` emitter uses them to name locals.
     pub tags: Vec<Option<&'static str>>,
 }
 

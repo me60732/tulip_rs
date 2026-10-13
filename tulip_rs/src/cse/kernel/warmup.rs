@@ -1,13 +1,11 @@
-//! The specialized fused interpreter: `run::<SIG>` walks a [`Signature`]'s
-//! SSA arena per bar with a scratch array the size of the pattern — with the
-//! signature a const generic, LLVM unrolls the loop, folds every `match` to
-//! one arm per slot, SROAs the scratch into registers, and hoists the
-//! [`Values`] loads (loop-invariant) — the same straight-line loop the JIT
-//! emitted at runtime, emitted by the optimizer at compile time instead.
-//!
-//! M0 scope: single cold run of a whole series (`run`), scalar (one asset);
-//! typed-state resume and `get_states` are M1, `L > 1` lanes M2 — the body
-//! below is what both wrap.
+//! The warm-phase machine: `exec::<SIG, WARM>` — the const-generic per-bar
+//! interpreter over a [`Signature`]'s SSA arena, embedded by the emitter as
+//! EVERY generated kernel's `[0, gate)` prologue (chain seeds, Wilders mean
+//! seams, SuperTrend feed idling, roll trails, lead-gated head stores).
+//! The steady bars are always the generated straight-line loop; nothing in
+//! this crate runs the full series through `exec` any more (the retired
+//! `run` wrapper and its bench rows were removed 2026-10-12 — the parity
+//! gate is generated-kernel-vs-hand, the hand being the spec).
 //!
 //! Bit-exact forms (mirroring the hand modules, the spec per doctrine):
 //! * `Ema`: `prev.mul_add(inv, src * mult)` — `ema::calc` exactly; seed =
@@ -82,83 +80,19 @@ fn roll_step<const MAXD: bool>(
     }
 }
 
-/// Run pattern `SIG` over `streams` (M0 patterns are single-stream). Returns
-/// one row per sink, in arena sink order, each `n − lead` long — the hand
-/// rows' exact shape and values.
-pub fn run<const SIG: Signature>(vals: &Values, streams: &[&[f64]]) -> Vec<Vec<f64>> {
-    let n = streams.iter().map(|s| s.len()).min().unwrap_or(0);
-    let gate = (vals.max_gate as usize + 1).min(n);
-    // Build rows per sink: disabled sinks get zero-length empty Vec
-    let mut out: Vec<Vec<f64>> = (0..SIG.n_sinks as usize)
-        .map(|s| {
-            if vals.sink_want[s] {
-                let len = n.saturating_sub(vals.sink_lead[s] as usize);
-                crate::uninit_vec!(f64, len)
-            } else {
-                Vec::new() // disabled sink: zero-length empty row
-            }
-        })
-        .collect();
-    if n == 0 {
-        return out;
-    }
-    // Established idiom (by_asset drivers): the driver writes through raw
-    // row pointers while the Vecs below own them; every index [0, len) is
-    // written exactly once (warm covers t < lead rows' heads, steady the
-    // tail — t-lead is surjective over each row by construction).
-    let mut ptrs: [*mut f64; MAX_SINKS] = [std::ptr::null_mut(); MAX_SINKS];
-    for (s, row) in out.iter_mut().enumerate() {
-        if vals.sink_want[s] && !row.is_empty() {
-            ptrs[s] = row.as_mut_ptr();
-        }
-        // disabled sinks: ptr stays null_mut; exec guards skip deref
-    }
-    let mut st = [0.0f64; MAX];
-    let mut stb = [0.0f64; MAX]; // SuperTrend prev_st
-    let mut stc_ub = [0.0f64; MAX]; // SuperTrend prev_ub
-    let mut stlb = [0.0f64; MAX]; // SuperTrend prev_lb
-    let mut sumsq = [0.0f64; MAX]; // Stddev sum-of-squares carry
-    let mut wsum = [0.0f64; MAX]; // Wma weighted-sum carry
-    let mut trail = [0usize; MAX]; // roll trail carry
-    let mut v = [0.0f64; MAX];
-    // Warm: [0, gate) — seeds and per-sink lead gates live here (all chain
-    // feeds are <= max_gate < gate, so the steady loop below needs neither).
-    exec::<SIG, true>(
-        vals,
-        streams,
-        0,
-        gate,
-        &mut st,
-        &mut stb,
-        &mut stc_ub,
-        &mut stlb,
-        &mut sumsq,
-        &mut wsum,
-        &mut trail,
-        &mut v,
-        &mut ptrs,
-        &vals.sink_lead,
-    );
-    // Steady: [gate, n) — every sink publishes, every chain steps.
-    exec::<SIG, false>(
-        vals,
-        streams,
-        gate,
-        n,
-        &mut st,
-        &mut stb,
-        &mut stc_ub,
-        &mut stlb,
-        &mut sumsq,
-        &mut wsum,
-        &mut trail,
-        &mut v,
-        &mut ptrs,
-        &vals.sink_lead,
-    );
-    out
-}
-
+/// The warm-phase machine. `exec::<SIG, WARM>` steps bars `[t0, t1)` of
+/// pattern `SIG` against `Values`, writing carries (`st/stb/stc_ub/stlb/
+/// sumsq/wsum/trail`), per-bar node values (`v`), and lead-gated stores
+/// (`out` when `WARM`). It is NOT a runtime steady path: every generated
+/// kernel embeds exactly one `exec::<SIG, true>` call for bars `[0, gate)`
+/// — cold-seed semantics (chain seeds, seams like the Wilders mean landing
+/// at `feed + p − 1`, SuperTrend idling before its feed, roll trails,
+/// per-sink publish gating) live HERE, once, so no warm/steady drift can
+/// exist between engines and the correctness bar is the simple one the
+/// parity gates use: **generated kernel == hand `::indicator()`** (the hand
+/// is the spec; the former full-series `run` oracle was retired with the
+/// interpreter-as-referee idea, 2026-10-12). The per-kind arms below also
+/// remain the vocabulary reference for what the emitter can lower.
 #[inline(always)]
 pub fn exec<const SIG: Signature, const WARM: bool>(
     vals: &Values,

@@ -374,27 +374,27 @@ fn lanes_atr_natr_match_hand() {
     }
 }
 
-/// Three-way probe (interpreter / scalar kernel / lane kernel) on the
-/// natr+supertrend shape — localizes any divergence to one engine.
+/// Hand-oracle pin for the SuperTrend pattern on DISTINCT valid OHLC —
+/// the registry's hand parity for natr+st feeds `[s,s,s]` copies, which are
+/// blind to band/TR wiring; here the lane kernel is pinned to the hand on
+/// real (high, low, close) triples, one phase per asset.
 #[test]
-fn lanes_natr_st_three_way() {
+fn lanes_natr_st_match_hand() {
     let req = Request::new()
         .add(Natr::recipe(&[14.0]), None)
         .add(SuperTrend::recipe(&[14.0, 3.0]), None);
-    let h = hi(1);
-    let l = lo(3);
-    let c = price(0);
-    let asset = [h.as_slice(), l.as_slice(), c.as_slice()];
-    let one: [&[&[f64]]; 1] = [&asset];
-    let (_a, sig, vals, _o) = erase_request(&req).unwrap();
-    let interp = tulip_rs::cse::kernel::run::<SIG_natr_supertrend_shared_p>(&vals, &asset);
-    let sc = try_run(&sig, &vals, &asset).expect("scalar hit");
-    let lane = run_assets_registered(&req, &one).expect("lane hit");
-    for row in 0..interp.len() {
-        let ip: &[f64] = interp[row].as_slice();
-        let ln: &[f64] = lane.per_asset[0].rows[row].as_slice();
-        assert_eq!(ln, ip, "row {row} lane vs interpreter");
-        let scv: &[f64] = sc[row].as_slice();
-        assert_eq!(scv, ip, "row {row} scalar vs interpreter");
+    let (h, l, c) = (hi(1), lo(1), price(1));
+    let (h2, l2, c2) = (hi(3), lo(3), price(3));
+    let a0 = [h.as_slice(), l.as_slice(), c.as_slice()];
+    let a1 = [h2.as_slice(), l2.as_slice(), c2.as_slice()];
+    let assets: [[&[f64]; 3]; 2] = [a0, a1];
+    let la: [&[&[f64]]; 2] = [&assets[0], &assets[1]];
+    let out = run_assets_registered(&req, &la).expect("lane hit");
+    for (k, asset) in assets.iter().enumerate() {
+        let (nr, _) = Natr::indicator(asset, &[14.0], None).unwrap();
+        let (st, _) = SuperTrend::indicator(asset, &[14.0, 3.0], None).unwrap();
+        // sinks: [natr, …, …, supertrend] primaries (see registry None-flag test)
+        assert_eq!(out.per_asset[k].rows[0].as_slice(), nr[0], "natr lane {k}");
+        assert_eq!(out.per_asset[k].rows[3].as_slice(), st[0], "st lane {k}");
     }
 }

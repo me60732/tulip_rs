@@ -49,31 +49,6 @@ mod tests {
         );
     }
 
-    /// The generated steady loop and the tier-2 interpreter, same template,
-    /// same data — must agree row for row (belt for the pairing pass).
-    #[test]
-    fn generated_matches_interpreter() {
-        let (_a, sig, vals, _) = erase_request(&apo_ppo_macd_shared_sl_req()).unwrap();
-        let data = [
-            wiggle(),
-            series(650, |i| 100.0 + i as f64 * 0.05),
-            series(680, |_| 100.0),
-        ];
-        for s in &data {
-            let streams = [s.as_slice()];
-            let gen = try_run(&sig, &vals, &streams).expect("apo_ppo_macd_shared_sl hit");
-            let interp = tulip_rs::cse::kernel::run::<SIG_apo_ppo_macd_shared_sl>(&vals, &streams);
-            // Compare via as_slice() since gen is Vec<RowRef>, interp is Vec<Vec<f64>>
-            for (g_row, i_row) in gen.iter().zip(interp.iter()) {
-                assert_eq!(
-                    g_row.as_slice(),
-                    i_row.as_slice(),
-                    "generated != interpreter on a series"
-                );
-            }
-        }
-    }
-
     /// Bit-exact vs hand on the classic trio — the whole M0 claim in one test.
     #[test]
     fn apo_ppo_macd_shared_sl_bit_exact() {
@@ -279,34 +254,6 @@ mod tests {
         }
     }
 
-    /// Generated steady loop and tier-2 interpreter agree on ATR family.
-    #[test]
-    fn atr_natr_shared_p_generated_matches_interpreter() {
-        use tulip_rs::cse::kernel::run;
-        let req = Request::new()
-            .add(tulip_rs::indicators::atr::Atr::recipe(&[14.0]), None)
-            .add(tulip_rs::indicators::natr::Natr::recipe(&[14.0]), None);
-        let (_a, sig, vals, _) = erase_request(&req).unwrap();
-        let data = [
-            wiggle(),
-            series(650, |i| 100.0 + i as f64 * 0.05),
-            series(680, |_| 100.0), // FLAT
-        ];
-        for s in &data {
-            let streams = [s.as_slice(), s.as_slice(), s.as_slice()];
-            let gen = try_run(&sig, &vals, &streams).expect("atr hit");
-            let interp = run::<SIG_atr_natr_shared_p>(&vals, &streams);
-            // Compare via as_slice() since gen is Vec<RowRef>, interp is Vec<Vec<f64>>
-            for (g_row, i_row) in gen.iter().zip(interp.iter()) {
-                assert_eq!(
-                    g_row.as_slice(),
-                    i_row.as_slice(),
-                    "generated != interpreter on ATR"
-                );
-            }
-        }
-    }
-
     /// Same template serves different periods — atr(9) should share SIG_atr_natr_shared_p with atr(14).
     #[test]
     fn atr_natr_shared_p_same_kernel_different_params() {
@@ -462,34 +409,6 @@ mod tests {
             a.rows[1].is_empty() && !b.rows[1].is_empty(),
             "want bits differ"
         );
-    }
-
-    /// Generated steady loop and tier-2 interpreter agree on natr+supertrend.
-    #[test]
-    fn natr_supertrend_shared_p_generated_matches_interpreter() {
-        use tulip_rs::cse::kernel::run;
-        let req = Request::new()
-            .add(tulip_rs::indicators::natr::Natr::recipe(&[14.0]), None)
-            .add(SuperTrend::recipe(&[14.0, 3.0]), None);
-        let (_a, sig, vals, _) = erase_request(&req).unwrap();
-        let data = [
-            wiggle(),
-            series(650, |i| 100.0 + i as f64 * 0.05),
-            series(680, |_| 100.0), // FLAT
-        ];
-        for s in &data {
-            let streams = [s.as_slice(), s.as_slice(), s.as_slice()];
-            let gen = try_run(&sig, &vals, &streams).expect("natr_supertrend hit");
-            let interp = run::<SIG_natr_supertrend_shared_p>(&vals, &streams);
-            // Compare via as_slice() since gen is Vec<RowRef>, interp is Vec<Vec<f64>>
-            for (g_row, i_row) in gen.iter().zip(interp.iter()) {
-                assert_eq!(
-                    g_row.as_slice(),
-                    i_row.as_slice(),
-                    "generated != interpreter on natr+supertrend"
-                );
-            }
-        }
     }
 
     /// Same template serves different periods AND steps — natr(9)+supertrend(9,
@@ -732,28 +651,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn sma_stddev_generated_matches_interpreter() {
-        let (_a, sig, vals, _) = erase_request(&sma_stddev_req(Some(&[true]))).unwrap();
-        let data = [
-            wiggle(),
-            series(650, |i| 100.0 + i as f64 * 0.05),
-            series(680, |_| 100.0),
-        ];
-        for s in &data {
-            let streams = [s.as_slice()];
-            let gen = try_run(&sig, &vals, &streams).expect("sma_stddev hit");
-            let interp = tulip_rs::cse::kernel::run::<SIG_sma_stddev_shared_p>(&vals, &streams);
-            for (g_row, i_row) in gen.iter().zip(interp.iter()) {
-                assert_eq!(
-                    g_row.as_slice(),
-                    i_row.as_slice(),
-                    "generated != interpreter"
-                );
-            }
-        }
-    }
-
     /// Params stay runtime: different periods route to the SAME kernel.
     #[test]
     fn sma_stddev_same_kernel_different_params() {
@@ -861,22 +758,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn bbands_generated_matches_interpreter() {
-        let (_a, sig, vals, _) = erase_request(&bbands_req(None)).unwrap();
-        let s = wiggle();
-        let streams = [s.as_slice()];
-        let gen = try_run(&sig, &vals, &streams).expect("bbands_wma hit");
-        let interp = tulip_rs::cse::kernel::run::<SIG_bbands_wma_shared_p>(&vals, &streams);
-        for (g_row, i_row) in gen.iter().zip(interp.iter()) {
-            assert_eq!(
-                g_row.as_slice(),
-                i_row.as_slice(),
-                "generated != interpreter"
-            );
-        }
-    }
-
     // ── sma + wma (the honest MA pair) & the 6-SMA wide shape ───────────
 
     use tulip_rs::indicators::wma::Wma;
@@ -963,22 +844,6 @@ mod tests {
             .add(Wma::recipe(&[9.0]), None);
         let s = wiggle();
         assert!(run_registered(&req, &[s.as_slice()]).is_none());
-    }
-
-    #[test]
-    fn sma_wma_generated_matches_interpreter() {
-        let (_a, sig, vals, _) = erase_request(&sma_wma_req(Some(&[true]))).unwrap();
-        let s = wiggle();
-        let streams = [s.as_slice()];
-        let gen = try_run(&sig, &vals, &streams).expect("sma_wma hit");
-        let interp = tulip_rs::cse::kernel::run::<SIG_sma_wma_shared_p>(&vals, &streams);
-        for (g_row, i_row) in gen.iter().zip(interp.iter()) {
-            assert_eq!(
-                g_row.as_slice(),
-                i_row.as_slice(),
-                "generated != interpreter"
-            );
-        }
     }
 
     #[test]
@@ -1141,24 +1006,6 @@ mod tests {
             run_registered(&atr_multi_req(14.0, 14.0, 21.0), &streams).is_none(),
             "p1 == p2 erases to a smaller arena — must not hit the multi pattern"
         );
-    }
-
-    #[test]
-    fn atr_multi_generated_matches_interpreter() {
-        let s = wiggle();
-        let hi: Vec<f64> = s.iter().map(|v| v + 1.0).collect();
-        let lo: Vec<f64> = s.iter().map(|v| v - 0.5).collect();
-        let streams = [hi.as_slice(), lo.as_slice(), s.as_slice()];
-        let (_a, sig, vals, _) = erase_request(&atr_multi_req(9.0, 14.0, 21.0)).unwrap();
-        let gen = try_run(&sig, &vals, &streams).expect("atr_multi hit");
-        let interp = tulip_rs::cse::kernel::run::<SIG_atr_multi>(&vals, &streams);
-        for (g_row, i_row) in gen.iter().zip(interp.iter()) {
-            assert_eq!(
-                g_row.as_slice(),
-                i_row.as_slice(),
-                "generated != interpreter"
-            );
-        }
     }
 
     // ── the trail-rescan hub ────────────────────────────────────────────
@@ -1327,48 +1174,6 @@ mod tests {
                     ichi[row].as_slice(),
                     "ichimoku {name}"
                 );
-            }
-        }
-    }
-
-    #[test]
-    fn hub_generated_matches_interpreter() {
-        let s = wiggle();
-        let hi: Vec<f64> = s.iter().map(|v| v + 1.0).collect();
-        let lo: Vec<f64> = s.iter().map(|v| v - 0.5).collect();
-        let one = [s.as_slice()];
-        let two = [hi.as_slice(), lo.as_slice()];
-        let three = [hi.as_slice(), lo.as_slice(), s.as_slice()];
-        {
-            let (_a, sig, vals, _) = erase_request(&max_min_req()).unwrap();
-            let gen = try_run(&sig, &vals, &one).expect("max_min hit");
-            let interp = tulip_rs::cse::kernel::run::<SIG_max_min_shared_p>(&vals, &one);
-            for (g, i) in gen.iter().zip(interp.iter()) {
-                assert_eq!(g.as_slice(), i.as_slice(), "max_min interp drift");
-            }
-        }
-        {
-            let (_a, sig, vals, _) = erase_request(&aroon_osc_req(Some(&[true, true]))).unwrap();
-            let gen = try_run(&sig, &vals, &two).expect("aroon_osc hit");
-            let interp = tulip_rs::cse::kernel::run::<SIG_aroon_osc_shared_p>(&vals, &two);
-            for (g, i) in gen.iter().zip(interp.iter()) {
-                assert_eq!(g.as_slice(), i.as_slice(), "aroon_osc interp drift");
-            }
-        }
-        {
-            let (_a, sig, vals, _) = erase_request(&willr_donch_req(None)).unwrap();
-            let gen = try_run(&sig, &vals, &three).expect("willr_donch hit");
-            let interp = tulip_rs::cse::kernel::run::<SIG_willr_donchian_shared_p>(&vals, &three);
-            for (g, i) in gen.iter().zip(interp.iter()) {
-                assert_eq!(g.as_slice(), i.as_slice(), "willr_donch interp drift");
-            }
-        }
-        {
-            let (_a, sig, vals, _) = erase_request(&ichimoku_req()).unwrap();
-            let gen = try_run(&sig, &vals, &two).expect("ichimoku hit");
-            let interp = tulip_rs::cse::kernel::run::<SIG_ichimoku_s_m>(&vals, &two);
-            for (g, i) in gen.iter().zip(interp.iter()) {
-                assert_eq!(g.as_slice(), i.as_slice(), "ichimoku interp drift");
             }
         }
     }

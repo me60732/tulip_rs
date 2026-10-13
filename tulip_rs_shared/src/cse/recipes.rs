@@ -2,14 +2,14 @@
 //! indicators describe, as plain leaf functions.
 //!
 //! One source of truth per graph: the runtime `Planable` impls in the
-//! indicator modules are one-line forwarders here, and the `request!`
+//! indicator modules are one-line forwarders here, and the `kernel!`
 //! generator calls `merge()` over these SAME functions at expansion — the
 //! macro-side transcribed planner mirror is deleted, so a recipe edit can
 //! no longer drift into a wrong `Signature` (the drift class the old
 //! `*_sig_derived` tests existed to catch).
 //!
 //! Params arrive as plain `f64`s in `options` exactly like `Planable::recipe`
-//! — at macro expansion the `request!` pattern names become distinct
+//! — at macro expansion the `kernel!` pattern names become distinct
 //! SENTINEL values (dedup by identity, never baked numbers; runtime periods
 //! bind through `Values`). The role tags (`r.tag(…)`) are display-only
 //! locals for the emitter: the first recipe to declare a node names it, as

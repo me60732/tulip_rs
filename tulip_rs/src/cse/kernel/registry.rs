@@ -1,13 +1,11 @@
-//! The template registry: `request!` compiles the patterns (CSE at macro
-//! expansion, straight-line steady loops) + dispatch. A miss is `None` —
-//! tier-2/3 territory by design, never a runtime compile.
+//! The generated kernel registry — the single `kernel!` call site.
+//!
+//! Expansion (compile time, per pattern): `pub const SIG_<name>` erased
+//! shapes, straight-line scalar kernels, `_assets<const L>` lane kernels for
+//! the non-packed patterns, and the `try_run`/`try_run_assets` dispatchers.
+//! A miss is `None` — tier-2/3 territory by design, never a runtime compile.
 
-use crate::cse::merge::merge;
-use crate::cse::query::{Request, RowRef};
-use crate::cse::signature::{erase, Signature, SinkOwner, Values};
-
-// Generate the fused pattern registry at module level.
-tulip_rs_macros::request! {
+tulip_rs_macros::kernel! {
     // The classic sharing graph: apo+ppo+macd on one (s,l) pair, signal g.
     apo_ppo_macd_shared_sl: Apo(s, l), Ppo(s, l), Macd(s, l, g);
     //apo_ppo_macd_shared_sl_p: packed Apo(s, l), Ppo(s, l), Macd(s, l, g);
@@ -73,82 +71,4 @@ tulip_rs_macros::request! {
     // The densest hub: six rolls (two columns × three windows), four
     // combines, one pass.
     ichimoku_s_m: Ichimoku(s, m);
-}
-
-/// Result rows in arena-sink order + the regrouping map.
-///
-/// A disabled optional sink produces a zero-length `RowRef` (`is_empty() == true`);
-/// it never reads and its store is guarded by `sink_want`. The contract mirrors the
-/// hand's `Vec::new()` rows for disabled optionals.
-pub struct Outcome {
-    pub rows: Vec<RowRef>,
-    pub owners: Vec<SinkOwner>,
-    /// Erased-shape hash of the pattern that served the request (telemetry).
-    pub fp: u64,
-}
-
-/// Merge a request, apply its per-optional flags to the resolved sinks (the
-/// JIT's `build` does the same; `merge` itself defaults all-on), and erase.
-pub fn erase_request(
-    req: &Request,
-) -> Option<(crate::cse::Merged, Signature, Values, Vec<SinkOwner>)> {
-    let (arena, mut resolved) = merge(&req.recipes);
-    for (r, flags) in resolved.iter_mut().zip(req.opt_flags.iter()) {
-        if flags.len() == r.optional_enabled.len() {
-            r.optional_enabled = flags.clone();
-        }
-    }
-    let leads = arena.leads();
-    // erase now RECORDS optional flags as want bits instead of filtering sinks
-    let (sig, vals, owners) = erase(&arena, &resolved, &leads)?;
-    Some((arena, sig, vals, owners))
-}
-
-/// Attempt to serve `req` from the generated registry. `None` = no pattern
-/// matches (unsupported nodes, unregistered shape, > cap sizes).
-pub fn run_registered(req: &Request, streams: &[&[f64]]) -> Option<Outcome> {
-    let (_arena, sig, vals, owners) = erase_request(req)?;
-    let rows = try_run(&sig, &vals, streams)?;
-    Some(Outcome {
-        rows,
-        owners,
-        fp: sig.hash(),
-    })
-}
-
-/// Result of an **asset-lane** request: one plan, L assets, per-asset
-/// [`Outcome`]s (the [`run_registered`] shape stretched across N assets).
-pub struct AssetsOutcome {
-    /// Lane `a`'s fused result — same owned-row type as the scalar path
-    /// because the lane kernel produces the same buffers, L-wide.
-    pub per_asset: Vec<Outcome>,
-}
-
-/// Run a [`Request`] through the **lane kernels**: one `(Signature, Values)`
-/// plan drives all `L` assets inside a single generated function.
-/// `assets[a]` is that asset's stream tuple — the same layout
-/// `Request::new` takes. Returns `None` if no registered pattern matches,
-/// exactly like [`run_registered`].
-///
-/// This is the `indicator_by_assets` shape with the planner's dedup kept:
-/// L assets × M indicators that share recurrences run as one fused, SIMD
-/// pass — which per-indicator SIMD cannot do (it dedups nothing across
-/// indicators). Resume/`get_states` is M1.
-pub fn run_assets_registered<const L: usize>(
-    req: &Request,
-    assets: &[&[&[f64]]; L],
-) -> Option<AssetsOutcome> {
-    let (_arena, sig, vals, owners) = erase_request(req)?;
-    let per_asset = try_run_assets::<L>(&sig, &vals, assets)?;
-    let fp = sig.hash();
-    Some(AssetsOutcome {
-        per_asset: per_asset
-            .into_iter()
-            .map(|rows| Outcome {
-                rows,
-                owners: owners.clone(),
-                fp,
-            })
-            .collect(),
-    })
 }

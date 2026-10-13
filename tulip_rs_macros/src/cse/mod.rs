@@ -1,7 +1,7 @@
-//! `request!` — the JIT's pipeline, emitting Rust instead of CLIF.
+//! `kernel!` — the JIT's pipeline, emitting Rust instead of CLIF.
 //!
 //! ```text
-//! tulip_rs_macros::request! {
+//! tulip_rs_macros::kernel! {
 //!     apo_ppo_macd_shared_sl: Apo(s, l), Ppo(s, l), Macd(s, l, g);
 //!     apo_ppo_shared_sl: Apo(s, l), Ppo(s, l);
 //!     atr_natr_shared_p: Atr(p), Natr(p);
@@ -58,7 +58,7 @@ impl Parse for RecipeIn {
                     other => {
                         return Err(syn::Error::new(
                             other.span(),
-                            "request!: args are names or numeric literals",
+                            "kernel!: args are names or numeric literals",
                         ))
                     }
                 }
@@ -119,11 +119,11 @@ impl Parse for PatternIn {
     }
 }
 
-struct RequestInput {
+struct KernelInput {
     patterns: Vec<PatternIn>,
 }
 
-impl Parse for RequestInput {
+impl Parse for KernelInput {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut patterns = Vec::new();
         while !input.is_empty() {
@@ -131,14 +131,14 @@ impl Parse for RequestInput {
             let _semi: Token![;] = input.parse()?;
             patterns.push(p);
         }
-        Ok(RequestInput { patterns })
+        Ok(KernelInput { patterns })
     }
 }
 
-/// Entry body for [`crate::request`] (the root forwards here — proc-macro
+/// Entry body for [`crate::kernel`] (the root forwards here — proc-macro
 /// attributes must sit at the crate root).
-pub(crate) fn request_impl(input: TokenStream) -> TokenStream {
-    let req = parse_macro_input!(input as RequestInput);
+pub(crate) fn kernel_impl(input: TokenStream) -> TokenStream {
+    let req = parse_macro_input!(input as KernelInput);
     let mut patterns: Vec<Pattern> = Vec::new();
     for p in &req.patterns {
         let recipes: Vec<(String, Vec<Arg>)> = p

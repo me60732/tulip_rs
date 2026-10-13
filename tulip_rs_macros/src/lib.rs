@@ -6,10 +6,12 @@
 //! * [`candlestick`](candlestick) — the `#[pattern_template]` attribute
 //!   macro generating the const pattern definitions in each candlestick
 //!   pattern module; the build script scans them into the registry.
-//! * [`cse`](cse) — the `request!` macro: recipe graphs → CSE merge →
+//! * [`cse`](cse) — the `kernel!` macro: recipe graphs → CSE merge →
 //!   straight-line fused Rust kernels, emitted at compile time (the JIT's
 //!   pipeline, emitting Rust instead of CLIF; the engine superseded it,
-//!   archived in the top-level `old_jit/`).
+//!   archived in the top-level `old_jit/`). NAMED FOR WHAT IT IS: kernel
+//!   GENERATION. The runtime `Request` (tulip_rs::cse) is the routing
+//!   side — erase + dispatch; the two names must never blur.
 //!
 //! The shared vocabulary both families and the runtime consume is
 //! `tulip_rs_shared` (`candlestick/` encodings, `cse/` recipe graph).
@@ -34,6 +36,6 @@ pub fn pattern_template(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// Recipe graphs → CSE merge → straight-line fused Rust kernels + the
 /// `SIG_*` consts + `try_run` dispatch, expanded at compile time.
 #[proc_macro]
-pub fn request(input: TokenStream) -> TokenStream {
-    cse::request_impl(input)
+pub fn kernel(input: TokenStream) -> TokenStream {
+    cse::kernel_impl(input)
 }

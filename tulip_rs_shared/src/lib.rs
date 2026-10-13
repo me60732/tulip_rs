@@ -2,7 +2,7 @@
 //!
 //! The dependency-graph LEAF for `tulip_rs`: pure data + const-evaluable
 //! helpers, depended on by the runtime crate, the build scripts, the
-//! proc-macro crate (`tulip_rs_macros` — `pattern_template` + `request!`),
+//! proc-macro crate (`tulip_rs_macros` — `pattern_template` + `kernel!`),
 //! and downstream apps. Nothing here may depend on any other workspace
 //! crate.
 #![feature(adt_const_params, min_adt_const_params)]

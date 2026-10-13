@@ -275,7 +275,7 @@ pub struct Recipe {
     pub nodes: Vec<Node>,
     /// Display-only role tags, parallel to `nodes` (first non-`None` writer
     /// wins, see [`Recipe::tag`]). NEVER part of an intern key, the merged
-    /// graph identity, or any `Signature` — they exist so the `request!`
+    /// graph identity, or any `Signature` — they exist so the `kernel!`
     /// emitter can name generated locals (`ema_short`, `signal`, `tr`) from
     /// the recipe data itself instead of a transcribed table.
     pub tags: Vec<Option<&'static str>>,

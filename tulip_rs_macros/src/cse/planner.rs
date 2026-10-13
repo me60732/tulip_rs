@@ -1,4 +1,4 @@
-//! The macro-side expansion (Phase 2 of "recipes as data"): `request!`
+//! The macro-side expansion (Phase 2 of "recipes as data"): `kernel!`
 //! pattern args → the REAL leaf recipe graphs
 //! (`tulip_rs_shared::cse::recipes`) → the SAME `merge()` the runtime
 //! planner runs → the arena converted into the emitter's [`Pattern`].
@@ -29,7 +29,7 @@ use tulip_rs_shared::cse::recipes;
 use tulip_rs_shared::cse::Recipe;
 use tulip_rs_shared::cse::SinkSrc;
 
-/// A `request!` pattern argument: a NAME symbol (dedup identity only) or a
+/// A `kernel!` pattern argument: a NAME symbol (dedup identity only) or a
 /// literal value (participates in dedup by equality, like the runtime).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Arg {
@@ -162,7 +162,7 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
         // identity): reject it loudly, as the old planner template did.
         if rid == "Supertrend" {
             if let Some(Arg::Name(step)) = args.get(1) {
-                panic!("request!: Supertrend step must be a literal, got name `{step}`");
+                panic!("kernel!: Supertrend step must be a literal, got name `{step}`");
             }
         }
         let opts: Vec<f64> = args
@@ -171,7 +171,7 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
                 Arg::Lit(v) => {
                     assert!(
                         v.abs() < SENTINEL_BASE,
-                        "request!: literal {v} reaches the name-sentinel band"
+                        "kernel!: literal {v} reaches the name-sentinel band"
                     );
                     *v
                 }
@@ -201,7 +201,7 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
             "Willr" => recipes::willr(&opts),
             "DonchianChannel" => recipes::donchianchannel(&opts),
             "Ichimoku" => recipes::ichimoku(&opts),
-            other => panic!("request!: unknown recipe {other}"),
+            other => panic!("kernel!: unknown recipe {other}"),
         };
         built.push(r);
     }
@@ -247,7 +247,7 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
                 atr, med, close, ..
             } => ANode::new_three(Kind::SuperTrend, atr as usize, med as usize, close as usize),
             other => {
-                panic!("request!: arena node `{other:?}` is not covered by the fused emitter yet")
+                panic!("kernel!: arena node `{other:?}` is not covered by the fused emitter yet")
             }
         };
         nodes.push(a);
@@ -397,4 +397,3 @@ mod tests {
         assert_eq!(groups[1].0, 2);
     }
 }
-

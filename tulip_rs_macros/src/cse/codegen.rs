@@ -275,14 +275,14 @@ fn build_idents(pattern: &Pattern) -> Vec<String> {
 }
 
 pub fn expand(patterns: &[Pattern]) -> TokenStream {
-    assert!(!patterns.is_empty(), "request!: no patterns given");
+    assert!(!patterns.is_empty(), "kernel!: no patterns given");
     for a in 0..patterns.len() {
         for b in (a + 1)..patterns.len() {
             if patterns[a].nodes == patterns[b].nodes && patterns[a].sinks == patterns[b].sinks {
                 // Allow twin scalar+packed patterns (same arena, different packed flag)
                 if patterns[a].packed == patterns[b].packed {
                     panic!(
-                        "request!: patterns {:?} and {:?} have identical arenas — one template serves both",
+                        "kernel!: patterns {:?} and {:?} have identical arenas — one template serves both",
                         patterns[a].name, patterns[b].name
                     );
                 }
@@ -568,7 +568,7 @@ fn run_fn(p: &Pattern) -> TokenStream {
         ) {
             if !matches!(p.nodes[node.a].kind, Kind::Input) {
                 panic!(
-                    "request!: rolling node {k} over a derived source is not emittable (needs the host anchor)"
+                    "kernel!: rolling node {k} over a derived source is not emittable (needs the host anchor)"
                 );
             }
             let ident_k = idents[k].clone();

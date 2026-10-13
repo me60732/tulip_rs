@@ -1,4 +1,4 @@
-//! Macro-fused-kernel bench — hand vs generated vs interpreter, classic
+//! Macro-fused-kernel bench — hand vs generated, classic
 //! sharing graph (macd+apo+ppo) + apo+ppo pair + ATR family + wide-pairing
 //! proof shape, ONE binary (the layout rule: only same-run ratios are
 //! quotable). Single asset, primary-only (the bench conventions:
@@ -9,9 +9,11 @@
 //! and Handover §6.42, re-measurable by restoring the archive if ever needed.
 //!
 //! Naming convention — `<engine>_<scope>_<shape>`:
-//!   engine   hand | generated (the `request!` macro's straight-line kernel)
-//!            | interpreter (const-generic executor, kept as warm path +
-//!            cross-check oracle)
+//!   engine   hand | generated (the `kernel!` macro's straight-line kernel;
+//!            its warm `[0, gate)` prologue runs the const-generic `exec`
+//!            inside every such call). Interpreter-as-engine rows retired
+//!            2026-10-12 — nothing may run a whole series through `exec`;
+//!            parity is gated against the hand.
 //!   scope    runonly = plan resolved OUTSIDE the timed loop, the timed call
 //!            is dispatch + kernel over the FULL series [0, n) — cold run
 //!            every iteration (the warm phase is included; this is NOT
@@ -135,18 +137,6 @@ fn bench_fused(c: &mut Criterion) {
             black_box(out.rows[0].len() + out.rows[3].len())
         })
     });
-    // INTERPRETER (const-generic match loop), plan hoisted: same shapes,
-    // no specialization (per-sink flag checks stay per bar) — kept as the
-    // warm path + parity oracle.
-    g.bench_function("interpreter_runonly_apo_ppo_macd_shared_sl", |b| {
-        b.iter(|| {
-            let out = tulip_rs::cse::kernel::run::<{ tulip_rs::cse::SIG_apo_ppo_macd_shared_sl }>(
-                &vals, &inputs,
-            );
-            black_box(out[0].len() + out[3].len())
-        })
-    });
-
     // Pair shapes (apo+ppo): 2 chains, 2 distinct sink nodes.
     g.bench_function("hand_runonly_apo_ppo_shared_sl", |b| {
         b.iter(|| {
@@ -208,20 +198,6 @@ fn bench_fused(c: &mut Criterion) {
             black_box(acc)
         })
     });
-    ga.bench_function("interpreter_scan_apo_ppo_macd_shared_sl", |b| {
-        b.iter(|| {
-            let mut acc = 0usize;
-            for inputs in &all_inputs {
-                let out =
-                    tulip_rs::cse::kernel::run::<{ tulip_rs::cse::SIG_apo_ppo_macd_shared_sl }>(
-                        &vals, inputs,
-                    );
-                acc += out[0].len() + out[3].len();
-            }
-            black_box(acc)
-        })
-    });
-
     // Pair shapes over the same 4-asset scan.
     ga.bench_function("hand_scan_apo_ppo_shared_sl", |b| {
         b.iter(|| {
@@ -316,15 +292,6 @@ fn bench_fused_atr(c: &mut Criterion) {
             black_box(rows[0].len() + rows[2].len())
         })
     });
-    g.bench_function("interpreter_runonly_atr_natr_shared_p", |b| {
-        b.iter(|| {
-            let out = tulip_rs::cse::kernel::run::<{ tulip_rs::cse::SIG_atr_natr_shared_p }>(
-                &vals_ap, &three,
-            );
-            black_box(out[0].len() + out[2].len())
-        })
-    });
-
     // supertrend solo: hand only (no generated template registered).
     g.bench_function("hand_runonly_supertrend", |b| {
         b.iter(|| {
