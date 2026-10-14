@@ -28,6 +28,7 @@ use tulip_rs_shared::cse::recipe::Node;
 use tulip_rs_shared::cse::recipes;
 use tulip_rs_shared::cse::Recipe;
 use tulip_rs_shared::cse::SinkSrc;
+use tulip_rs_shared::cse::{Plan, MAX};
 
 /// A `kernel!` pattern argument: a NAME symbol (dedup identity only) or a
 /// literal value (participates in dedup by equality, like the runtime).
@@ -183,6 +184,69 @@ pub struct Pattern {
     /// If true, same-source Ema chains run as SIMD lane groups (4-wide
     /// then 2-wide, remainder scalar). Chained EMAs and Wilders stay scalar.
     pub packed: bool,
+    /// The planner's lowering plan: ring-group partition and class, plus the
+    /// `Price`/`Chain` stream mode — the layout facts the renderers READ
+    /// instead of re-deriving from arena kinds. Derived from this arena's own
+    /// kind/edge arrays through `lowering::Plan::compute`, the same function
+    /// `Signature::build` (the `SIG_*` const) and runtime `erase` publish
+    /// through, so expansion and runtime cannot disagree — the sig-consistency
+    /// tests compare these fields as part of full struct equality.
+    pub plan: Plan,
+    /// The sink partition: which sinks share ONE physical output row. Two
+    /// sinks share a row iff they store the same arena node (the dedup that
+    /// makes a mirror free — the trio's apo line and macd line are one row,
+    /// one store per bar). Group `i`'s `members[0]` is its leader; `group_of`
+    /// maps a sink index to its GROUP index (never the leader's sink index —
+    /// the two diverge as soon as a duplicate sink precedes a later new
+    /// group, and reading one as the other indexes out of range).
+    pub sink_plan: SinkPlan,
+}
+
+/// The planner's output-row partition, read by BOTH renderers in place of
+/// each building its own. Derived from `sinks`/`sink_is_primary` alone, so
+/// the scalar and lane kernels cannot disagree about how many rows exist,
+/// who leads them, or which are optional-only.
+#[derive(Clone, Debug)]
+pub struct SinkPlan {
+    /// Sink indices per group, in first-appearance order.
+    pub groups: Vec<Vec<usize>>,
+    /// Sink index → group index.
+    pub group_of: Vec<usize>,
+    /// Per group: true = every member is a declared OPTIONAL sink, so the
+    /// row's store is want-guarded; false = a PRIMARY member stores
+    /// unconditionally.
+    pub optional: Vec<bool>,
+}
+
+/// Partition sinks by the arena node they store to, in first-appearance
+/// order. The one implementation of the row-dedup rule; `expand` attaches the
+/// result to the pattern and both renderers read it.
+pub fn partition_sinks(sinks: &[usize], sink_is_primary: &[bool]) -> SinkPlan {
+    let mut by_node: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    let mut group_of: Vec<usize> = Vec::with_capacity(sinks.len());
+    for (sidx, &node_idx) in sinks.iter().enumerate() {
+        let g = match by_node.get(&node_idx) {
+            Some(&g) => g,
+            None => {
+                let g = groups.len();
+                by_node.insert(node_idx, g);
+                groups.push(Vec::new());
+                g
+            }
+        };
+        groups[g].push(sidx);
+        group_of.push(g);
+    }
+    let optional = groups
+        .iter()
+        .map(|members| members.iter().all(|s| !sink_is_primary[*s]))
+        .collect();
+    SinkPlan {
+        groups,
+        group_of,
+        optional,
+    }
 }
 
 /// Build one pattern from `(recipe-id, args)` in request order: construct
@@ -342,6 +406,32 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
         }
     }
 
+    // The lowering plan: the ring partition/class and the `Price`/`Chain`
+    // stream mode, derived from THIS arena's own kind/edge arrays through the
+    // one function `Signature::build` runs when it emits the `SIG_*` const and
+    // `erase` runs at runtime. Expansion, key, and runtime binding are then
+    // one fact seen three times — the renderers read `plan` instead of
+    // re-scanning arena kinds for a layout decision.
+    assert!(
+        nodes.len() <= MAX,
+        "kernel!: arena of {} nodes exceeds MAX ({})",
+        nodes.len(),
+        MAX
+    );
+    let mut kinds = [0u8; MAX];
+    let mut a_slots = [0u32; MAX];
+    for (k, node) in nodes.iter().enumerate() {
+        kinds[k] = node.kind.tag();
+        a_slots[k] = node.a as u32;
+    }
+    let plan = Plan::compute(&kinds, &a_slots, nodes.len());
+
+    // The output-row partition (which sinks share one physical row), computed
+    // here so both renderers read ONE structure instead of each building its
+    // own — the scalar renderer used to rebuild it and then re-derive group
+    // membership twice more by scanning every group's member list.
+    let sink_plan = partition_sinks(&sinks, &sink_is_primary);
+
     Pattern {
         name: name.to_string(),
         nodes,
@@ -349,6 +439,8 @@ pub fn expand(name: &str, items: &[(String, Vec<Arg>)], packed: bool) -> Pattern
         sinks,
         sink_is_primary,
         packed,
+        plan,
+        sink_plan,
     }
 }
 

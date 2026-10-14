@@ -40,8 +40,8 @@ fn classify(p: &Pattern) -> Classified {
         let (x, y) = (&p.nodes[k], &p.nodes[k + 1]);
         if x.kind == Kind::Ema
             && y.kind == Kind::Ema
-            && p.nodes[x.a].kind == Kind::Input
-            && p.nodes[y.a].kind == Kind::Input
+            && p.plan.is_price_src(k)
+            && p.plan.is_price_src(k + 1)
             && x.a == y.a
         {
             c.groups.push((k, k + 1, x.a)); // SOURCE SLOT id, as in classify_packed
@@ -56,7 +56,7 @@ fn classify(p: &Pattern) -> Classified {
         if node.kind == Kind::Ema && !c.slot_group.contains_key(&k) {
             c.scalars.insert(
                 k,
-                if p.nodes[node.a].kind == Kind::Input {
+                if p.plan.is_price_src(k) {
                     Scalar::Price(p.nodes[node.a].a)
                 } else {
                     Scalar::Chain(node.a)
@@ -88,7 +88,7 @@ fn classify_packed(p: &Pattern) -> Classified {
     for (k, node) in p.nodes.iter().enumerate() {
         let packable = match node.kind {
             Kind::Ema | Kind::Wilders => true,
-            Kind::Sma => p.nodes[node.a].kind == Kind::Input,
+            Kind::Sma => p.plan.is_price_src(k),
             _ => false,
         };
         if packable {
@@ -169,7 +169,7 @@ fn classify_packed(p: &Pattern) -> Classified {
             if p.nodes[*k].kind == Kind::Ema {
                 c.scalars.insert(
                     *k,
-                    if p.nodes[*k].kind == Kind::Ema && p.nodes[p.nodes[*k].a].kind == Kind::Input {
+                    if p.plan.is_price_src(*k) {
                         Scalar::Price(p.nodes[p.nodes[*k].a].a)
                     } else {
                         Scalar::Chain(p.nodes[*k].a)
@@ -184,7 +184,7 @@ fn classify_packed(p: &Pattern) -> Classified {
         if node.kind == Kind::Ema && !c.slot_group.contains_key(&k) && !c.scalars.contains_key(&k) {
             c.scalars.insert(
                 k,
-                if p.nodes[node.a].kind == Kind::Input {
+                if p.plan.is_price_src(k) {
                     Scalar::Price(p.nodes[node.a].a)
                 } else {
                     Scalar::Chain(node.a)
@@ -201,7 +201,7 @@ fn classify_packed(p: &Pattern) -> Classified {
         {
             c.scalars.insert(
                 k,
-                if p.nodes[node.a].kind == Kind::Input {
+                if p.plan.is_price_src(k) {
                     Scalar::Price(p.nodes[node.a].a)
                 } else {
                     Scalar::Chain(node.a)
@@ -433,7 +433,7 @@ fn run_fn(p: &Pattern) -> TokenStream {
         if node.kind == Kind::Ema && !c.slot_group.contains_key(&k) && !c.scalars.contains_key(&k) {
             c.scalars.insert(
                 k,
-                if p.nodes[node.a].kind == Kind::Input {
+                if p.plan.is_price_src(k) {
                     Scalar::Price(p.nodes[node.a].a)
                 } else {
                     Scalar::Chain(node.a)
@@ -449,7 +449,7 @@ fn run_fn(p: &Pattern) -> TokenStream {
         {
             c.scalars.insert(
                 k,
-                if p.nodes[node.a].kind == Kind::Input {
+                if p.plan.is_price_src(k) {
                     Scalar::Price(p.nodes[node.a].a)
                 } else {
                     Scalar::Chain(node.a)
@@ -653,9 +653,13 @@ fn run_fn(p: &Pattern) -> TokenStream {
             node.kind,
             Kind::Sma | Kind::Stddev | Kind::Wma | Kind::RollMax | Kind::RollMin
         ) {
-            let derived_roll = matches!(node.kind, Kind::RollMax | Kind::RollMin)
-                && !matches!(p.nodes[node.a].kind, Kind::Input);
-            if !matches!(p.nodes[node.a].kind, Kind::Input) && !derived_roll {
+            // Ring-vs-pointer is the published plan's fact, not a kind scan:
+            // an extremum over a DERIVED source is ring-backed, one over a
+            // price stream keeps the pointer form. A Sma/Stddev/Wma over a
+            // derived source has no ring AND no stream slice to walk, so it
+            // stays unemittable (needs the host anchor).
+            let derived_roll = p.plan.is_ring(k);
+            if !p.plan.is_price_src(k) && !derived_roll {
                 panic!(
                     "kernel!: rolling node {k} over a derived source is not emittable (needs the host anchor)"
                 );
@@ -788,12 +792,14 @@ fn run_fn(p: &Pattern) -> TokenStream {
             }
         }
     }
-    for (_k0, _, src_slot) in &c.groups {
+    for (k0, _, src_slot) in &c.groups {
         // The group statement reads the SOURCE NODE's bound local; the
         // raw stream pointer is only needed when that source is an Input
         // (a price-sourced chain). Derived sources (e.g. `tr`) pull their
-        // streams through the generic per-node scan below.
-        if p.nodes[*src_slot].kind == Kind::Input {
+        // streams through the generic per-node scan below. The mode is the
+        // plan's published fact read at the group's first member (all
+        // members share the source, so any one answers for the group).
+        if p.plan.is_price_src(*k0) {
             let s = p.nodes[*src_slot].a;
             if !used_streams.contains(&s) {
                 used_streams.push(s);
@@ -1221,7 +1227,7 @@ fn run_fn(p: &Pattern) -> TokenStream {
                 let pk = format_ident!("{}_p", ident_k);
                 let src = ev(node.a, &idents);
                 let is_max = node.kind == Kind::RollMax;
-                if !matches!(p.nodes[node.a].kind, Kind::Input) {
+                if p.plan.is_ring(k) {
                     // EXTREMUM RING step (fisher): feed the group (idempotent
                     // — one push per src per bar, shared with any sums), then
                     // the same trail machine as the pointer arm. The rescan
@@ -1452,29 +1458,16 @@ fn run_fn(p: &Pattern) -> TokenStream {
         }
     }
 
-    // ---- arena dedup setup (group sinks by node id) ----
-    // Group sinks by the node they store to (p.sinks[i] is a node index).
-    // The map holds the GROUP INDEX (not the leader's sink index — the two
-    // diverge as soon as a duplicate sink precedes a later new group, and
-    // the re-lookup `group_members[g]` would read out of range; found while
-    // building the asset emitter, where it fired on `sma_six`-shaped sink
-    // orders). Behavior for every shipped pattern is identical: members[0]
-    // is still the group's leader sink.
-    let mut node_first_sink: std::collections::HashMap<usize, usize> =
-        std::collections::HashMap::new();
-    let mut group_members: Vec<Vec<usize>> = Vec::new();
-    for (sidx, &node_idx) in p.sinks.iter().enumerate() {
-        let g = match node_first_sink.get(&node_idx) {
-            Some(&g) => g,
-            None => {
-                let g = group_members.len();
-                node_first_sink.insert(node_idx, g);
-                group_members.push(Vec::new());
-                g
-            }
-        };
-        group_members[g].push(sidx);
-    }
+    // ---- arena dedup setup: the planner's sink partition ----
+    // Sinks sharing a node share ONE physical row (`apo` line ≡ `macd` line
+    // in the trio: 5 sinks, 4 rows, 4 stores per bar). `group_members[g][0]`
+    // is the group's leader sink; `group_of` maps sink → GROUP index (the
+    // leader's SINK index would diverge the moment a duplicate precedes a new
+    // group — the bug that once made `group_members[g]` read out of range).
+    // Both renderers read this one structure; neither rebuilds it.
+    let group_members = &p.sink_plan.groups;
+    let group_of = &p.sink_plan.group_of;
+    let group_is_optional = &p.sink_plan.optional;
     // Now: G groups, each with leader (first appearance) and members
     let ng = group_members.len();
 
@@ -1513,12 +1506,9 @@ fn run_fn(p: &Pattern) -> TokenStream {
     // runtime — the primary-only path keeps exactly its pre-flags store set
     // with zero per-bar branches (per-bar `if want` guards cost ~2 cyc/bar:
     // LLVM will not unswitch three independent guards, measured 15.3→19.0).
-    let mut group_is_optional: Vec<bool> = Vec::new();
     let mut group_want: Vec<TokenStream> = Vec::new();
     for (gidx, members) in group_members.iter().enumerate() {
-        let optional = members.iter().all(|s| !p.sink_is_primary[*s]);
-        group_is_optional.push(optional);
-        if !optional {
+        if !group_is_optional[gidx] {
             continue;
         }
         let gwant = format_ident!("want{}", gidx);
@@ -1615,17 +1605,7 @@ fn run_fn(p: &Pattern) -> TokenStream {
     // ---- warm exec ptrs setup (per-sink, aliased via arena) ----
     let mut warm_ptrs: Vec<TokenStream> = Vec::new();
     for sidx in 0..p.sinks.len() {
-        let gidx = group_members
-            .iter()
-            .enumerate()
-            .find_map(|(g, members)| {
-                if members.contains(&sidx) {
-                    Some(g)
-                } else {
-                    None
-                }
-            })
-            .unwrap();
+        let gidx = group_of[sidx];
         // Get the ident for this group
         let leader_g = group_members[gidx][0];
         let ident_g = idents[p.sinks[leader_g]].clone();
@@ -1682,17 +1662,7 @@ fn run_fn(p: &Pattern) -> TokenStream {
     // ---- return RowRef windows per sink (in sink order) ----
     let mut row_refs: Vec<TokenStream> = Vec::new();
     for sidx in 0..p.sinks.len() {
-        let gidx = group_members
-            .iter()
-            .enumerate()
-            .find_map(|(g, members)| {
-                if members.contains(&sidx) {
-                    Some(g)
-                } else {
-                    None
-                }
-            })
-            .unwrap();
+        let gidx = group_of[sidx];
         // Keep off and rsz as plain numeric per task requirement
         let leader_g = group_members[gidx][0];
         let ident_g = idents[p.sinks[leader_g]].clone();
@@ -1868,24 +1838,13 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
     let sig = format_ident!("SIG_{}", p.name);
     let idents = build_idents(p);
 
-    // ---- sink groups (same pure computation as the scalar kernel) ----
-    let mut node_first_sink: std::collections::HashMap<usize, usize> =
-        std::collections::HashMap::new();
-    let mut group_members: Vec<Vec<usize>> = Vec::new();
-    let mut group_of: Vec<usize> = Vec::new();
-    for (sidx, &node_idx) in p.sinks.iter().enumerate() {
-        let g = match node_first_sink.get(&node_idx) {
-            Some(&g) => g,
-            None => {
-                let g = group_members.len();
-                node_first_sink.insert(node_idx, g);
-                group_members.push(Vec::new());
-                g
-            }
-        };
-        group_members[g].push(sidx);
-        group_of.push(g);
-    }
+    // ---- sink groups: the planner's partition, the SAME structure the scalar
+    // renderer reads (`Pattern::sink_plan`). One implementation of the
+    // row-dedup rule, so the two kernels cannot disagree about how many rows
+    // exist, who leads each one, or which are optional-only.
+    let group_members = &p.sink_plan.groups;
+    let group_of = &p.sink_plan.group_of;
+    let group_is_optional = &p.sink_plan.optional;
     let ng = group_members.len();
 
     // ---- per-sink lead hoists + per-group min-lead / want / rsz / offs ----
@@ -1897,7 +1856,6 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
         lead_hoists.push(quote! { let #l = vals.sink_lead[#s] as usize; });
     }
     let mut group_minl: Vec<TokenStream> = Vec::new();
-    let mut group_is_optional: Vec<bool> = Vec::new();
     let mut group_want: Vec<TokenStream> = Vec::new();
     let mut group_rsz: Vec<TokenStream> = Vec::new();
     let mut off_decl: Vec<TokenStream> = Vec::new();
@@ -1917,9 +1875,9 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
             }
             group_minl.push(quote! { let #g = #min_expr; });
         }
-        let optional = members.iter().all(|s| !p.sink_is_primary[*s]);
-        group_is_optional.push(optional);
-        if optional {
+        // Optionality is the planner's fact for this group (every member an
+        // optional sink), read from the shared partition — not recomputed here.
+        if group_is_optional[gidx] {
             let gwant = format_ident!("want{}", gidx);
             let mut want_expr = quote! { false };
             for &m in members.iter() {
@@ -2030,7 +1988,7 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                 let tc = format_ident!("{}_trail", ident_k);
                 let pk = format_ident!("{}_p", ident_k);
                 let lb = format_ident!("{}_lb", ident_k);
-                if !matches!(p.nodes[node.a].kind, Kind::Input) {
+                if p.plan.is_ring(k) {
                     // Derived source: EXTREMUM RING lane hoist (fisher). The
                     // group coordinates are ARENA facts — one (leader, cap)
                     // pair drives all L ring instances; carries seed from
@@ -2199,56 +2157,41 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
         }
     }
 
-    // Batched lane ring engine (2026-10-13, LANDED; per-GROUP layout split
-    // 2026-10-14): the per-asset warmed `ringw` rings are REPLAYED once at
-    // the seam into ONE of TWO authorities chosen by GROUP CLASS. A pure-SUM
-    // group takes `SimdRingSet<L>` — the VECTOR-ELEMENT layout (one ring,
-    // slots are whole `Simd<f64, L>` bars, the hand's `cvi_simd` assets shape
-    // and its `Buffer<Cold, Vector<f64>>` sums): one non-mirror store per
-    // bar, the leave as ONE vector read, no `[f64; L]` gather/scatter at
-    // either end. A group containing a `RollMax`/`RollMin` stays lane-major
-    // (`RingSetL`, `MultiMirrorBuffer` per group) because its rescan triggers
-    // are per-lane and fire on different bars — only that walk needs one
-    // lane's contiguous mirror window, which the vector layout cannot give
-    // (the user's rule: mirror buffers are min/max's, sums never rescan).
-    // Measured the same day as the landing: ao lanes 236→147.5 µs, fisher
-    // 540→494, fused ao+fisher 778→548.6 — the fused pattern now BEATS the
-    // hand pair (548.6 vs 607.9). Replay leaders mirror `erase`'s table
-    // exactly (first roll over an interned src — sums AND derived extrema
-    // share it), O(cap·L) per group at the seam. HMA's of-one window stays
-    // on the per-asset `ringw` (the batched form measured +48% slower
-    // there — see the HMA arm comment).
-    let mut extrema_src: Vec<usize> = Vec::new();
-    for node in p.nodes.iter() {
-        if matches!(node.kind, Kind::RollMax | Kind::RollMin)
-            && !matches!(p.nodes[node.a].kind, Kind::Input)
-            && !extrema_src.contains(&node.a)
-        {
-            extrema_src.push(node.a);
-        }
-    }
+    // The batched lane ring engine: the per-asset warmed `ringw` rings are
+    // REPLAYED once at the seam into ONE OF TWO authorities, chosen by the
+    // group class the planner publishes on the key (`p.plan`, the same
+    // `lowering::ring_facts` that `Signature::build` and `erase` run — this
+    // renderer reads the decision, it does not make one):
+    // * a pure-SUM group takes `SimdRingSet<L>` — the VECTOR-ELEMENT layout
+    //   (slots are whole `Simd<f64, L>` bars, the hand's `cvi_simd` assets
+    //   shape): ONE non-mirror store per group per bar, the leave as ONE
+    //   vector read, no `[f64; L]` gather/scatter at either end. Legal because
+    //   the LOCKSTEP invariant holds: same bar, same age, same cap in every
+    //   lane.
+    // * a group carrying a `RollMax`/`RollMin` stays lane-major (`RingSetL`,
+    //   one `MultiMirrorBuffer` per group) — its rescan triggers are per-lane
+    //   and fire on different bars, and only that walk needs one lane's
+    //   contiguous mirror window, which the vector layout cannot give. Mirror
+    //   law: only min/max buffers mirror; sums never rescan. Measured at the
+    //   split's landing: ao lanes 236→147.5 µs, fisher 540→494, fused
+    //   ao+fisher 778→548.6 vs the hand pair's 607.9.
+    // The replay walks the DISTINCT GROUP LEADERS in arena order (first roll
+    // over an interned src — sums and derived extrema share one leader), O
+    // (cap·L) per group at the seam. The HMA machine's of-one √p window stays
+    // on the per-asset `ringw` (class `BESPOKE`): the batched form measured
+    // +48 % slower there (hma lanes 166.9 vs 113.3 µs, same-binary A/B) —
+    // batching pays where the L× protocol calls dominate, not where one
+    // scalar push inlines into the consumer's bespoke tail.
+    let groups: Vec<usize> = p
+        .plan
+        .leaders(p.nodes.len())
+        .into_iter()
+        .filter(|&k| p.plan.is_batched(k))
+        .collect();
     let mut ring_replay: Vec<TokenStream> = Vec::new();
     {
-        let mut seen_src: Vec<usize> = Vec::new();
-        for (k, node) in p.nodes.iter().enumerate() {
-            let (src, lo) = match node.kind {
-                Kind::RollSum => (node.a, quote! { vals.feeds[#k] as usize }),
-                Kind::RollMax | Kind::RollMin if !matches!(p.nodes[node.a].kind, Kind::Input) => {
-                    (node.a, quote! { vals.feeds[#k] as usize })
-                }
-                // HMA deliberately ABSENT: its ring is a of-one window
-                // (m = trunc √p, tiny) fed once per bar by one node — the
-                // batched ringb measured +48 % SLOWER there (hma lanes
-                // 166.9 vs 113.3 µs, same-binary A/B), while the per-lane
-                // scalar pushes inline into the bespoke tail. It keeps the
-                // warmed per-asset `ringw` rings and feeds them forward.
-                _ => continue,
-            };
-            if seen_src.contains(&src) {
-                continue;
-            }
-            seen_src.push(src);
-            let replay = if extrema_src.contains(&src) {
+        for &k in &groups {
+            let replay = if p.plan.is_rescan(k) {
                 quote! { ringb.feed_batch(g, cap, gate - 1 - age, v); }
             } else {
                 quote! {
@@ -2259,7 +2202,7 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                 {
                     let g = #k;
                     let cap = vals.ring_cap[g] as usize;
-                    let lo = #lo;
+                    let lo = vals.feeds[#k] as usize;
                     if gate > lo {
                         let nrep = std::cmp::min(cap, gate - lo);
                         for age in (0..nrep).rev() {
@@ -2272,22 +2215,21 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
             });
         }
         let mut decls: Vec<TokenStream> = Vec::new();
-        if seen_src.iter().any(|s| extrema_src.contains(s)) {
+        if groups.iter().any(|&g| p.plan.takes_mirror(g)) {
             decls.push(quote! {
                 let mut ringb = crate::cse::kernel::warmup::RingSetL::<L>::new();
             });
-            // Same seam transition as the sums: the replay has filled every
-            // rescan-capable group, so the steady loop drives `Warm`
-            // (`feed_batch` loses `cap`, the eviction loses its `Option` and
-            // the arm its per-bar `expect`). `window()` is unaffected —
-            // `get_slices_by_period` is in MultiMirrorBuffer's SHARED
-            // `impl<B, S, T>` block, so the mirror's contiguous per-lane
-            // slice survives the fill-state change.
+            // The replay has filled every rescan-capable group, so the steady
+            // loop drives `Warm` (`feed_batch` loses `cap`, the eviction loses
+            // its `Option` and the arm its per-bar `expect`). `window()` is
+            // unaffected — `get_slices_by_period` is in MultiMirrorBuffer's
+            // SHARED `impl<B, S, T>` block, so the mirror's contiguous
+            // per-lane slice survives the fill-state change.
             ring_replay.push(quote! {
                 let mut ringb = ringb.into_warm();
             });
         }
-        if seen_src.iter().any(|s| !extrema_src.contains(s)) {
+        if groups.iter().any(|&g| p.plan.is_lockstep(g)) {
             decls.push(quote! {
                 let mut rings = crate::cse::kernel::warmup::SimdRingSet::<L>::new();
             });
@@ -2368,22 +2310,25 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                 });
             }
             Kind::RollSum => {
-                // Lane ring step — ONE group op per bar, on the authority
-                // chosen by GROUP CLASS. Pure-sum group (the common case: a
-                // `RollSum` group is only shared with another `RollSum`): the
-                // VECTOR-ELEMENT `rings` — one non-mirror store, the leave as
-                // ONE vector read, no `to_array`/`from_array` at either end.
-                // A group that also carries a `RollMax`/`RollMin` must stay
-                // on the lane-major `ringb`: its rescan needs one lane's
-                // contiguous mirror window, and the vector layout cannot give
-                // a per-lane slice. Cap owner leaves by eviction, a shorter
-                // sibling by age `p` — the hoisted flag, no per-bar compare.
+                // Lane ring step — ONE group op per bar, on the authority the
+                // published group class selects (`p.plan`, the same
+                // `lowering::ring_facts` the `SIG_*` const and `erase` run —
+                // the renderer reads the decision, it makes none). Pure-sum
+                // group (the common case: a `RollSum` group is only shared
+                // with another `RollSum`): the VECTOR-ELEMENT `rings` — one
+                // non-mirror store, the leave as ONE vector read, no
+                // `to_array`/`from_array` at either end. A group that also
+                // carries a `RollMax`/`RollMin` stays on the lane-major
+                // `ringb`: its rescan needs one lane's contiguous mirror
+                // window, and the vector layout cannot give a per-lane slice.
+                // Cap owner leaves by eviction, a shorter sibling by age `p` —
+                // the hoisted flag, no per-bar compare.
                 let ck = format_ident!("{}_carry", idents[k]);
                 let mk = format_ident!("{}_mult", idents[k]);
                 let pk = format_ident!("{}_p", idents[k]);
                 let gk = format_ident!("{}_grp", idents[k]);
                 let evi = format_ident!("{}_evi", idents[k]);
-                let step = if extrema_src.contains(&node.a) {
+                let step = if p.plan.is_rescan(k) {
                     quote! {
                         let #xk = {
                             ringb.feed_batch(#gk, gate + i, #ea.to_array());
@@ -2600,7 +2545,7 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                 } else {
                     quote! { simd_le }
                 };
-                if !matches!(p.nodes[node.a].kind, Kind::Input) {
+                if p.plan.is_ring(k) {
                     // Derived source (fisher): each lane's OWN ring instance
                     // feeds once per bar (idempotent per instance — sibling
                     // members calling is the arena's normal), then the

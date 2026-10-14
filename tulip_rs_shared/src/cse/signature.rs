@@ -108,6 +108,17 @@ pub struct Signature {
     pub n_streams: u32,
     pub n_sinks: u32,
     pub sink_src: [u32; MAX_SINKS],
+    /// The published ring-group class at each ring-backed slot
+    /// (`RCLASS_NONE` elsewhere) — the layout fact the lowering planner
+    /// derives from `kinds`/`a` in `lowering::ring_facts`. Part of the key,
+    /// so two arenas that erase equal MUST lower identically: the emitters
+    /// read this instead of scanning node kinds for a layout decision.
+    pub ring_class: [u8; MAX],
+    /// Each ring-backed slot's group LEADER slot — the slot whose
+    /// `Values::ring_cap` sizes the shared ring. The same one derivation;
+    /// `erase` binds `Values::ring_of` from it, so the key and the runtime
+    /// binding are one fact seen twice, never two derivations.
+    pub ring_leader: [u32; MAX],
 }
 
 impl core::fmt::Debug for Signature {
@@ -134,6 +145,8 @@ impl Signature {
             n_streams: 0,
             n_sinks: 0,
             sink_src: [0; MAX_SINKS],
+            ring_class: [crate::cse::lowering::RCLASS_NONE; MAX],
+            ring_leader: [0; MAX],
         }
     }
     /// Const constructor for registry literals: copy the live heads of the
@@ -169,6 +182,14 @@ impl Signature {
         }
         s.n_sinks = S as u32;
         s.n_streams = n_streams;
+        // The layout plan is DERIVED here, not passed in: a registry literal
+        // cannot be built whose published plan disagrees with its own arena
+        // edges, because there is no second implementation to disagree with.
+        // `erase` fills the same fields through the same function, so the
+        // sig-consistency tests are an equality check on one derivation.
+        let (class, leader) = crate::cse::lowering::ring_facts(&s.kinds, &s.a, L);
+        s.ring_class = class;
+        s.ring_leader = leader;
         s
     }
     /// Canonical byte view — the dispatch hash's input.
@@ -293,9 +314,6 @@ pub fn erase(
     if arena.nodes.len() > MAX || resolved.is_empty() {
         return None;
     }
-    // Ring-group leader table: src slot → first roll slot over it (arena
-    // order is deterministic, so the groups are a function of the structure).
-    let mut ring_leaders: Vec<(Id, usize)> = Vec::new();
     for (k, node) in arena.nodes.iter().enumerate() {
         // K_IIRCLAMPED's two extra Const refs (lo_t/lo_v) travel through
         // these locals: the refs ARE structure — two arenas wired
@@ -363,23 +381,15 @@ pub fn erase(
             } => {
                 let derived = !matches!(arena.nodes[src as usize], Node::Input { .. });
                 if derived {
-                    // EXTREMUM RING (the fourth ring shape, fisher 2026-10-13):
-                    // the rescan window cannot be a stream slice, so the src
-                    // column rides the SAME group table as the ring sums —
-                    // one push per group per bar, cap = max period across ALL
-                    // rolls over the src (sums and extrema share it; a
-                    // fisher+ao co-request feeds medprice ONCE). The rescan
-                    // reads ages `0..=look_back` (never past the cap).
+                    // EXTREMUM RING (the fourth ring shape): the rescan window
+                    // cannot be a stream slice, so the src column rides the
+                    // SAME group the ring sums do — one push per group per bar,
+                    // cap = max period across ALL rolls over the src (sums and
+                    // extrema share it; a fisher+ao co-request feeds medprice
+                    // ONCE). The group's leader and class are the published
+                    // plan's fact (bound after this loop); the rescan reads
+                    // ages `0..=look_back` (never past the cap).
                     vals.feeds[k] = leads[src as usize];
-                    let leader = match ring_leaders.iter().position(|(s, _)| *s == src) {
-                        Some(i) => ring_leaders[i].1,
-                        None => {
-                            ring_leaders.push((src, k));
-                            k
-                        }
-                    };
-                    vals.ring_of[k] = leader as u32;
-                    vals.ring_cap[leader] = vals.ring_cap[leader].max(period);
                 }
                 // Pointer form (price-sourced) keeps its trail-rescan straight
                 // off the stream (the hand's `max.rs` window shape).
@@ -453,9 +463,9 @@ pub fn erase(
                 vals.st_step[k] = m;
                 vals.consts[k] = m * (m + 1.0) / 2.0;
                 vals.feeds[k] = leads[src as usize];
-                // Its diff ring is a group of one, keyed on the node itself.
-                vals.ring_of[k] = k as u32;
-                vals.ring_cap[k] = m as u32;
+                // Its diff ring is a group of one keyed on the node itself —
+                // the published plan says so (class `BESPOKE`, leader = slot);
+                // `lag_n` (= trunc √p) is what sizes it, bound after this loop.
                 (K_HMA, src, 0, 0)
             }
             Node::Fma { a: x, b: y, c: z } => (K_FMA, x, y, z),
@@ -526,26 +536,18 @@ pub fn erase(
             } => {
                 // Ring-backed rolling sum — derived sources included (that is
                 // its whole point vs `Sma`). The ring is shared per src via
-                // the group table; leave = eviction at the group cap, age read
-                // below it (see `ring_cap` docs). `skip`/`steady_from` are
-                // VALUES, not structure: one RollSum kind covers both shapes,
-                // the emitter's warm regions (fold/seam/init/steady) read the
-                // two numbers per bar. Stoch's slow %K was the unlocking pair.
+                // the published plan (bound after this loop); leave =
+                // eviction at the group cap, age read below it (see `ring_cap`
+                // docs). `skip`/`steady_from` are VALUES, not structure: one
+                // RollSum kind covers both shapes, the emitter's warm regions
+                // (fold/seam/init/steady) read the two numbers per bar.
+                // Stoch's slow %K was the unlocking pair.
                 vals.periods[k] = period;
                 vals.mults[k] = if mean { 1.0 / period as f64 } else { 1.0 };
                 vals.skip[k] = skip;
                 vals.steady_from[k] = steady_from;
                 // The fold starts the bar the source first defines.
                 vals.feeds[k] = leads[src as usize];
-                let leader = match ring_leaders.iter().position(|(s, _)| *s == src) {
-                    Some(i) => ring_leaders[i].1,
-                    None => {
-                        ring_leaders.push((src, k));
-                        k
-                    }
-                };
-                vals.ring_of[k] = leader as u32;
-                vals.ring_cap[leader] = vals.ring_cap[leader].max(period);
                 (K_ROLLSUM, src, 0, 0)
             }
             _ => return None, // bespoke/rolling/feedback: later milestones
@@ -558,6 +560,28 @@ pub fn erase(
         sig.e[k] = ee;
     }
     sig.len = arena.nodes.len() as u32;
+
+    // The published lowering plan: the ring partition, each member's leader
+    // and each group's class, derived from the key's own arrays by the ONE
+    // function `Signature::build` runs for the generated const. `Values`
+    // binds from the same table, so the dispatch key and the runtime binding
+    // are one fact seen twice — never a renderer-side re-scan. Capacity
+    // (= max member period; the HMA machine's own √p window) stays a VALUE.
+    let (class, leader) = crate::cse::lowering::ring_facts(&sig.kinds, &sig.a, sig.len as usize);
+    sig.ring_class = class;
+    sig.ring_leader = leader;
+    for k in 0..sig.len as usize {
+        if class[k] == crate::cse::lowering::RCLASS_NONE {
+            continue;
+        }
+        vals.ring_of[k] = leader[k];
+        let cap = if sig.kinds[k] == K_HMA {
+            vals.lag_n[k]
+        } else {
+            vals.periods[k]
+        };
+        vals.ring_cap[leader[k] as usize] = vals.ring_cap[leader[k] as usize].max(cap);
+    }
 
     // Sinks: request order, primaries then enabled optionals (the Results
     // order the JIT uses); effective lead = explicit-or-node-defined-from,

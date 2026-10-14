@@ -34,11 +34,17 @@
 // `Planable`, `merge`, `Signature`/`Values`/`erase`); see ROADMAP R1 for
 // the graph migration (Phase 2).
 
+pub mod lowering;
 pub mod merge;
 pub mod multipliers;
 pub mod recipe;
 pub mod recipes;
 pub mod signature;
+
+// Root re-export: the published layout classes ride the same vocabulary the
+// emitters and `erase` already share (the plan is a function of `Signature`,
+// never a second arena).
+pub use lowering::*;
 
 // Root re-exports: the moved files import each other through `crate::cse::…`
 // paths (exactly as they did inside `tulip_rs`), and consumers in BOTH crates
