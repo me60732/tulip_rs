@@ -674,14 +674,12 @@ fn run_fn(p: &Pattern) -> TokenStream {
                 let tc = format_ident!("{}_trail", ident_k);
                 let lbk = format_ident!("{}_lb", ident_k);
                 let gk = format_ident!("{}_grp", ident_k);
-                let cp = format_ident!("{}_cap", ident_k);
                 roll_hoists.push(quote! {
                     let mut #ck = st[#ki];
                     let mut #tc = trail[#ki];
                     let #pk = vals.periods[#ki] as usize;
                     let #lbk = vals.roll_lb[#ki] as usize;
                     let #gk = vals.ring_of[#ki] as usize;
-                    let #cp = vals.ring_cap[#gk] as usize;
                 });
                 continue;
             }
@@ -1119,7 +1117,6 @@ fn run_fn(p: &Pattern) -> TokenStream {
                 let mk = format_ident!("{}_mult", ident_k);
                 let pk = format_ident!("{}_p", ident_k);
                 let gk = format_ident!("{}_grp", ident_k);
-                let cp = format_ident!("{}_cap", ident_k);
                 let evi = format_ident!("{}_evi", ident_k);
                 let src = ev(node.a, &idents);
                 body.push(quote! {
@@ -1127,11 +1124,13 @@ fn run_fn(p: &Pattern) -> TokenStream {
                         let x = #src;
                         // One push per group per bar (idempotent feed —
                         // exec's warm phase obeys the same rule); then the
-                        // hand's post-push read: eviction for the cap
-                        // owner, age read for shorter siblings.
-                        rings.feed(#gk, #cp, gate + i, x);
+                        // hand's post-push read: eviction for the cap owner,
+                        // age read for shorter siblings. The authority is
+                        // `Warm` past the seam, so the eviction is a bare f64
+                        // — no `Option`, no per-bar `expect`, no fill branch.
+                        rings.feed(#gk, gate + i, x);
                         let leave = if #evi {
-                            rings.evicted(#gk).expect("cap roll steps on an evicting bar")
+                            rings.evicted(#gk)
                         } else {
                             rings.at(#gk, #pk)
                         };
@@ -1158,7 +1157,7 @@ fn run_fn(p: &Pattern) -> TokenStream {
                     format_ident!("{ik}_mp"),
                     format_ident!("{ik}_ww"),
                 );
-                let (mm, mm1) = (format_ident!("{ik}_m"), format_ident!("{ik}_m1s"));
+                let mm1 = format_ident!("{ik}_m1s");
                 let (pv1, pv2) = (format_ident!("{ik}_pv1"), format_ident!("{ik}_pv2"));
                 let src = ev(node.a, &idents);
                 let ki = k;
@@ -1178,7 +1177,7 @@ fn run_fn(p: &Pattern) -> TokenStream {
                         let diff = 2.0 * o2 - o1;
                         #wss += diff * #mp;
                         #ss += diff;
-                        rings.feed(#ki, #mm, gate + i, diff);
+                        rings.feed(#ki, gate + i, diff);
                         let out = #wss / #ww;
                         #wss -= #ss;
                         #ss -= rings.at(#ki, #mm1);
@@ -1232,7 +1231,6 @@ fn run_fn(p: &Pattern) -> TokenStream {
                     // `trail = lb − ri` rule cannot drift by construction.
                     let lbk = format_ident!("{}_lb", ident_k);
                     let gk = format_ident!("{}_grp", ident_k);
-                    let cp = format_ident!("{}_cap", ident_k);
                     let finder = if is_max {
                         quote! { crate::indicators::max::find_max_simd::<4> }
                     } else {
@@ -1246,7 +1244,7 @@ fn run_fn(p: &Pattern) -> TokenStream {
                     body.push(quote! {
                         let #xk = {
                             let current = #src;
-                            rings.feed(#gk, #cp, gate + i, current);
+                            rings.feed(#gk, gate + i, current);
                             #tc = #tc + 1;
                             if #pk <= #tc {
                                 let (rv, ri) = #finder(rings.window(#gk, #lbk + 1));
@@ -1822,6 +1820,13 @@ fn run_fn(p: &Pattern) -> TokenStream {
             if gate >= n {
                 return vec![#(#row_refs),*];
             }
+            // Fill-state transition at the seam: `exec` ran the warm bars on
+            // the `Cold` authority (correct — that IS warmup), and every
+            // steady bar from here drives `Warm`. `into_warm` debug-asserts
+            // each group `is_full`, so the fullness this path always assumed
+            // (the arm-level `.expect` never fired) is now checked once at the
+            // seam instead of branched on every bar.
+            let mut rings = rings.into_warm();
 
             // Steady loop: group store pointers (hoisted once per group before loop)
             #( #group_stores )*
@@ -2034,14 +2039,12 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                     // reads each lane's OWN contiguous mirror slice through
                     // `RingSetL::window` — the hand `min_chuncked` shape.
                     let gk = format_ident!("{}_grp", ident_k);
-                    let cp = format_ident!("{}_cap", ident_k);
                     carry_hoists.push(quote! {
                         let mut #ck = Simd::<f64, L>::from_array(std::array::from_fn(|a| stw[a][#ki]));
                         let mut #tc: Simd<usize, L> = Simd::from_array(std::array::from_fn(|a| trailw[a][#ki]));
                         let #pk = vals.periods[#ki] as usize;
                         let #lb = vals.roll_lb[#ki] as usize;
                         let #gk = vals.ring_of[#ki] as usize;
-                        let #cp = vals.ring_cap[#gk] as usize;
                     });
                     continue;
                 }
@@ -2273,10 +2276,30 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
             decls.push(quote! {
                 let mut ringb = crate::cse::kernel::warmup::RingSetL::<L>::new();
             });
+            // Same seam transition as the sums: the replay has filled every
+            // rescan-capable group, so the steady loop drives `Warm`
+            // (`feed_batch` loses `cap`, the eviction loses its `Option` and
+            // the arm its per-bar `expect`). `window()` is unaffected —
+            // `get_slices_by_period` is in MultiMirrorBuffer's SHARED
+            // `impl<B, S, T>` block, so the mirror's contiguous per-lane
+            // slice survives the fill-state change.
+            ring_replay.push(quote! {
+                let mut ringb = ringb.into_warm();
+            });
         }
         if seen_src.iter().any(|s| !extrema_src.contains(s)) {
             decls.push(quote! {
                 let mut rings = crate::cse::kernel::warmup::SimdRingSet::<L>::new();
+            });
+            // The seam replay has filled every pure-sum group, so the steady
+            // loop drives the WARM authority: `into_full` makes fullness a
+            // type-level fact, which is what lets `feed` drop the `cap`
+            // argument and the eviction drop its `Option` (so the arm below
+            // drops a per-bar `expect`). In a debug build a group the replay
+            // left short — gate - lo < cap — trips `into_full`'s assert
+            // instead of quietly reading a zero slot.
+            ring_replay.push(quote! {
+                let mut rings = rings.into_warm();
             });
         }
         ring_replay.splice(0..0, decls);
@@ -2359,16 +2382,13 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                 let mk = format_ident!("{}_mult", idents[k]);
                 let pk = format_ident!("{}_p", idents[k]);
                 let gk = format_ident!("{}_grp", idents[k]);
-                let cp = format_ident!("{}_cap", idents[k]);
                 let evi = format_ident!("{}_evi", idents[k]);
                 let step = if extrema_src.contains(&node.a) {
                     quote! {
                         let #xk = {
-                            ringb.feed_batch(#gk, #cp, gate + i, #ea.to_array());
+                            ringb.feed_batch(#gk, gate + i, #ea.to_array());
                             let leaves = if #evi {
-                                ringb
-                                    .evicted_batch(#gk)
-                                    .expect("cap roll steps on an evicting bar")
+                                ringb.evicted_batch(#gk)
                             } else {
                                 ringb.at_batch(#gk, #pk)
                             };
@@ -2377,13 +2397,14 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                         };
                     }
                 } else {
+                    // The WARM authority: fullness is a type-level fact, so
+                    // `feed` needs no `cap` and the eviction is a bare vector
+                    // — no `Option` tag, no per-bar `expect`, no panic path.
                     quote! {
                         let #xk = {
-                            rings.feed(#gk, #cp, gate + i, #ea);
+                            rings.feed(#gk, gate + i, #ea);
                             let leaves = if #evi {
-                                rings
-                                    .evicted(#gk)
-                                    .expect("cap roll steps on an evicting bar")
+                                rings.evicted(#gk)
                             } else {
                                 rings.at(#gk, #pk)
                             };
@@ -2589,11 +2610,10 @@ fn run_assets_fn(p: &Pattern) -> TokenStream {
                     // — the hand `min_chuncked` mask dispatch; same finder,
                     // same `trail = lb − ri` rule, cannot drift.
                     let gk = format_ident!("{}_grp", idents[k]);
-                    let cp = format_ident!("{}_cap", idents[k]);
                     let lbk = format_ident!("{}_lb", idents[k]);
                     body.push(quote! {
                         let #xk = {
-                            ringb.feed_batch(#gk, #cp, gate + i, #ea.to_array());
+                            ringb.feed_batch(#gk, gate + i, #ea.to_array());
                             #tc = #tc + Simd::<usize, L>::splat(1usize);
                             let resc = Simd::<usize, L>::splat(#pk).simd_le(#tc);
                             let fold = #ea.#ge_or_le(#vc);

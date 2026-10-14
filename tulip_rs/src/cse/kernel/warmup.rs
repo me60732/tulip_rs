@@ -21,10 +21,11 @@ use crate::cse::signature::{
     K_SQRT, K_STDDEV, K_SUB, K_SUPERTREND, K_TRAIL, K_WHEREGE, K_WHERELT, K_WILDERS, K_WMA, MAX,
     MAX_SINKS,
 };
+use crate::ring_buffer::buffer::BufferElement;
 use crate::ring_buffer::multi_buffer::multi_mirror_buffer::MultiMirrorBuffer;
 use crate::ring_buffer::single_buffer::generic_buffer::Buffer;
 use crate::ring_buffer::single_buffer::mirror_buffer::MirrorBuffer;
-use crate::types::Cold;
+use crate::types::{Cold, Warm};
 use std::simd::Simd;
 
 /// Rings for DERIVED-source rolls (`K_ROLLSUM`): one ring per GROUP —
@@ -113,6 +114,90 @@ impl RingSet {
     /// branchless `find_*_simd` the pointer rolls run on the raw stream
     /// slice. Callers guarantee the window is complete (`len <= count`) —
     /// the fold region never reads it.
+    #[inline(always)]
+    pub fn window(&self, g: usize, len: usize) -> &[f64] {
+        match &self.slots[g] {
+            Some(s) => s.buf.get_slice_by_period(len),
+            None => &[],
+        }
+    }
+    /// Seam transition for the SCALAR steady loop: every group `exec` filled
+    /// becomes a `Warm` ring, so no steady bar drives a `Cold` buffer.
+    /// `into_full` debug-asserts `is_full` per group, which turns the ring
+    /// fullness at `gate` from an unchecked hope (today's never-fired
+    /// `.expect("cap roll steps on an evicting bar")`) into a checked fact.
+    pub fn into_warm(self) -> WarmMirrorRingSet {
+        WarmMirrorRingSet {
+            slots: self
+                .slots
+                .into_iter()
+                .map(|s| {
+                    s.map(|s| WarmMirrorSlot {
+                        buf: s.buf.into_full(),
+                        last_t: s.last_t,
+                        evicted: 0.0,
+                    })
+                })
+                .collect(),
+        }
+    }
+}
+
+/// A `Warm` scalar ring slot: full by construction, so the eviction is a bare
+/// `f64` — no `Option` tag, no fill-state branch.
+#[derive(Clone)]
+pub struct WarmMirrorSlot {
+    buf: MirrorBuffer<Warm, f64>,
+    last_t: usize,
+    evicted: f64,
+}
+
+/// The SCALAR steady-loop authority. Mirror-based (like `RingSet`) because the
+/// scalar path's derived extrema walk `window()`; a pure-sum scalar group pays
+/// the mirror's second store here, and dropping it means splitting the scalar
+/// authority by group class (queued — the lane path already splits that way).
+/// Same group discipline as `RingSet`: `feed` idempotent per bar, first caller
+/// pushes and takes the eviction, reads see the ring AFTER this bar's push.
+#[derive(Clone)]
+pub struct WarmMirrorRingSet {
+    slots: Vec<Option<WarmMirrorSlot>>,
+}
+
+impl WarmMirrorRingSet {
+    /// This bar's value into group `g` (no `cap`: capacity is fixed by the
+    /// ring the seam filled). First caller of the bar pushes; later members
+    /// are no-ops.
+    #[inline(always)]
+    pub fn feed(&mut self, g: usize, t: usize, v: f64) {
+        if let Some(s) = self.slots[g].as_mut() {
+            if s.last_t != t {
+                s.last_t = t;
+                s.evicted = s.buf.push_with_info(v);
+            }
+        }
+    }
+    /// This bar's eviction — the cap window's leaving bar. A hole reads `0.0`,
+    /// the same convention as `at` below (every read bar feeds first, so a hole
+    /// is a construction bug, not a fill-state question). THIS is the branch the
+    /// fill-state law exists to delete: the `Cold` authority handed back an
+    /// `Option` and the arm carried a per-bar `.expect`.
+    #[inline(always)]
+    pub fn evicted(&self, g: usize) -> f64 {
+        match &self.slots[g] {
+            Some(s) => s.evicted,
+            None => 0.0,
+        }
+    }
+    /// `age` bars back, post-push (the hand's `get_by_period`).
+    #[inline(always)]
+    pub fn at(&self, g: usize, age: usize) -> f64 {
+        match &self.slots[g] {
+            Some(s) => s.buf.get_by_period(age),
+            None => 0.0,
+        }
+    }
+    /// The group ring's newest `len` values as ONE contiguous chronological
+    /// slice — the derived-extrema rescan walk, unchanged from `Cold`.
     #[inline(always)]
     pub fn window(&self, g: usize, len: usize) -> &[f64] {
         match &self.slots[g] {
@@ -212,13 +297,104 @@ impl<const L: usize> RingSetL<L> {
             }),
         }
     }
+    /// Seam transition: every group the replay filled becomes a `Warm` ring, so
+    /// the steady loop never drives a `Cold` buffer. `into_full` debug-asserts
+    /// `is_full` per group — a short fill trips loudly in debug instead of
+    /// reading a zero slot.
+    pub fn into_warm(self) -> WarmRingSetL<L> {
+        WarmRingSetL {
+            slots: self
+                .slots
+                .into_iter()
+                .map(|s| {
+                    s.map(|s| WarmRingSlotL {
+                        buf: s.buf.into_full(),
+                        last_t: s.last_t,
+                        evicted: [0.0; L],
+                    })
+                })
+                .collect(),
+        }
+    }
 }
 
-/// The lane kernel's ring authority for PURE-SUM groups (2026-10-14): the
+/// A `Warm` lane-major ring slot: full by construction, so the per-lane
+/// eviction is a bare `[f64; L]` — no `Option` tag, no fill-state branch.
+#[derive(Clone)]
+pub struct WarmRingSlotL<const L: usize> {
+    buf: MultiMirrorBuffer<L, f64, Warm>,
+    last_t: usize,
+    evicted: [f64; L],
+}
+
+/// The steady-loop authority for rescan-capable (extrema) groups. Same
+/// lane-major `MultiMirrorBuffer` layout as `RingSetL` — the mirror and the
+/// per-lane contiguous window are REQUIRED here, because a rescan fires on
+/// different bars per lane — only the fill state changes: `push_with_info`
+/// returns `[f64; L]` directly and advances unchecked, so a steady bar pays
+/// neither the `Cold` fill branch nor the eviction `Option`.
+/// `window` keeps working because `get_slices_by_period` lives in the shared
+/// `impl<B, S, T>` block of `MultiMirrorBuffer`, not in the `Cold` one.
+#[derive(Clone)]
+pub struct WarmRingSetL<const L: usize> {
+    slots: Vec<Option<WarmRingSlotL<L>>>,
+}
+
+impl<const L: usize> WarmRingSetL<L> {
+    /// This bar's L-lane values into group `g`: the bar's first caller pushes
+    /// (taking the per-lane eviction); later members are no-ops. No `cap` —
+    /// capacity is fixed by the ring the seam filled.
+    #[inline(always)]
+    pub fn feed_batch(&mut self, g: usize, t: usize, v: [f64; L]) {
+        let s = self.slots[g]
+            .as_mut()
+            .expect("warm lane ring group missing at seam");
+        if s.last_t != t {
+            s.last_t = t;
+            s.evicted = s.buf.push_with_info(v);
+        }
+    }
+    /// This bar's per-lane eviction — the cap roll's leaving bar for ALL
+    /// lanes at once.
+    #[inline(always)]
+    pub fn evicted_batch(&self, g: usize) -> [f64; L] {
+        self.slots[g]
+            .as_ref()
+            .expect("warm lane ring group missing")
+            .evicted
+    }
+    /// `age` bars back, all L lanes (post-push, the hand's `get_by_period`).
+    #[inline(always)]
+    pub fn at_batch(&self, g: usize, age: usize) -> [f64; L] {
+        match &self.slots[g] {
+            Some(s) => s.buf.get_by_period(age),
+            None => [0.0; L],
+        }
+    }
+    /// The group's newest `len` values per lane as contiguous chronological
+    /// slices — the rescan walk, unchanged from the `Cold` authority.
+    #[inline(always)]
+    pub fn window(&self, g: usize, len: usize) -> [&[f64]; L] {
+        match &self.slots[g] {
+            Some(s) => s.buf.get_slices_by_period(len),
+            None => std::array::from_fn(|_| {
+                let empty: &[f64] = &[];
+                empty
+            }),
+        }
+    }
+}
+
+/// The lane kernel's FILL-PHASE ring authority for PURE-SUM groups: the
 /// VECTOR-ELEMENT layout — one ring per group whose SLOTS are whole
 /// `Simd<f64, L>` bars, i.e. the hand's own by-assets buffer type
 /// (`SimdBuffer<N> = Buffer<_, Simd<f64, N>>`, `cvi_simd.rs`'s `assets`
-/// module) held in `Cold` so the eviction is still an `Option` at the seam.
+/// module). `Cold` here is the FILL phase ONLY: the seam replay pushes the
+/// warmed bars in, then [`SimdRingSet::into_warm`] transitions every group to
+/// [`WarmRingSet`] before the steady loop runs. No steady bar ever sees a
+/// `Cold` buffer (the fill-state law: `Cold` exists to keep unchecked reads
+/// out of the language, so a steady loop driving `Cold` pays an `Option` and a
+/// branch the type system says it must not have).
 /// Two differences from `RingSetL`, both deliberate:
 /// * ONE STORE PER BAR, not two: sums never rescan, so they do not need the
 ///   mirror's contiguous per-lane tail — the mirror's second write is pure
@@ -294,6 +470,87 @@ impl<const L: usize> SimdRingSet<L> {
             Some(s) => s.buf.get_by_period(age),
             None => Simd::splat(0.0),
         }
+    }
+    /// Transition every filled group into the `Warm` authority that drives the
+    /// steady loop. `Buffer::into_full` debug-asserts `is_full`, so this is the
+    /// checked seam: a group the replay left short (gate - lo < cap) trips here
+    /// in debug instead of silently reading a zero slot in release.
+    pub fn into_warm(self) -> WarmRingSet<Simd<f64, L>> {
+        WarmRingSet {
+            slots: self
+                .slots
+                .into_iter()
+                .map(|s| {
+                    s.map(|s| WarmRingSlot {
+                        buf: s.buf.into_full(),
+                        last_t: s.last_t,
+                        evicted: Simd::splat(0.0),
+                    })
+                })
+                .collect(),
+        }
+    }
+}
+
+/// A `Warm` ring slot: full by construction, so the eviction is a bare `T`.
+#[derive(Clone)]
+pub struct WarmRingSlot<T: BufferElement> {
+    buf: Buffer<Warm, T>,
+    last_t: usize,
+    evicted: T,
+}
+
+/// The steady-loop ring authority (fill-state law: NO steady bar ever touches
+/// a `Cold` buffer). One ring per GROUP, element type `T` — `Simd<f64, L>` for
+/// the lane kernel's vector-element sums. Because fullness is a type-level
+/// fact here, `push_with_info` returns `T` directly: relative to the `Cold`
+/// authority this removes ONE branch (the `count == capacity` fill test), the
+/// eviction's `Option` tag and its stash width, and the arm-level `.expect`.
+/// The slot lookup keeps an `expect` — a hole means the seam never created
+/// that group, which is a construction bug, not a fill-state question, and it
+/// must fail loudly rather than compute on a silent no-op.
+///
+/// The cap-owner/sibling split SURVIVES the transition and is not an artifact
+/// of `Cold`: with a full ring, `at(cap)` reads the slot just written (this
+/// bar's value), so the leaving bar of the cap window is only available as the
+/// eviction. Deleting the split means switching to the fused PRE-push
+/// `push_with_info_periods`, whose `periods[i]` convention lands on the
+/// eviction at `p == cap` — a separate change (the B/N fold).
+#[derive(Clone)]
+pub struct WarmRingSet<T: BufferElement> {
+    slots: Vec<Option<WarmRingSlot<T>>>,
+}
+
+impl<T: BufferElement> WarmRingSet<T> {
+    /// This bar's value into group `g`: the bar's first caller pushes (taking
+    /// the eviction); later members are no-ops. No `cap` — capacity is fixed
+    /// by the ring the seam filled.
+    #[inline(always)]
+    pub fn feed(&mut self, g: usize, t: usize, v: T) {
+        let s = self.slots[g]
+            .as_mut()
+            .expect("warm ring group missing at seam");
+        if s.last_t != t {
+            s.last_t = t;
+            s.evicted = s.buf.push_with_info(v);
+        }
+    }
+    /// This bar's eviction for the group (the cap window's leaving bar).
+    #[inline(always)]
+    pub fn evicted(&self, g: usize) -> T {
+        self.slots[g]
+            .as_ref()
+            .expect("warm ring group missing")
+            .evicted
+    }
+    /// `age` bars back, post-push (the hand's `get_by_period`).
+    #[inline(always)]
+    pub fn at(&self, g: usize, age: usize) -> T {
+        self.slots[g]
+            .as_ref()
+            .expect("warm ring group missing")
+            .buf
+            .get_by_period(age)
     }
 }
 
